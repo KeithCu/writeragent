@@ -117,7 +117,7 @@ class HarperLSClient:
         self.uri = f"file:///tmp/writeragent_harper_lint_{time.time_ns()}.txt"
         self._doc_version = 0
         self._doc_opened = False
-        self.stdout_queue: queue.Queue = queue.Queue()
+        self.stdout_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
         self.stdout_thread: threading.Thread | None = None
         self._initialize()
 

@@ -108,7 +108,7 @@ StreamQueueItem: TypeAlias = tuple[StreamQueueKind, ...]
 BlockingPumpQueueItem: TypeAlias = tuple[BlockingPumpKind, Any]
 
 
-def put_stream_queue_stopped(q: queue.Queue) -> None:
+def put_stream_queue_stopped(q: queue.Queue[Any]) -> None:
     """Enqueue a user-stopped signal. Always uses (kind, payload); do not use a 1-tuple."""
     # crosshair: off
     q.put((StreamQueueKind.STOPPED, None))
@@ -582,7 +582,7 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
 
 def run_async_worker_with_drain(
     ctx: Any,
-    worker_fn: Callable[[queue.Queue], None],
+    worker_fn: Callable[[queue.Queue[Any]], None],
     apply_chunk_fn: Callable[[str, bool], None] | None,
     on_done_fn: Callable[..., None] | None,
     on_error_fn: Callable[[Any], None] | None,
@@ -717,7 +717,7 @@ def _run_client_stream(
     """
     # crosshair: off
 
-    def worker(q: queue.Queue) -> None:
+    def worker(q: queue.Queue[Any]) -> None:
         kwargs: dict[str, Any] = {"append_callback": lambda t: q.put((StreamQueueKind.CHUNK, t)), "append_thinking_callback": lambda t: q.put((StreamQueueKind.THINKING, t)), "stop_checker": stop_checker}
         if include_status:
             kwargs["status_callback"] = lambda t: q.put((StreamQueueKind.STATUS, t))

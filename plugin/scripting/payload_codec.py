@@ -1120,7 +1120,7 @@ def _iter_split_grid_cells(
 @deal.raises(ValueError)
 def _flatten_grid_to_components(
     grid: list[Any] | list[list[Any]]
-) -> tuple[array.array, dict[int, str], list[str], list[int]]:
+) -> tuple[array.array[float], dict[int, str], list[str], list[int]]:
     """Flatten 1D/2D grid to float64 array, strings dict, column kinds, and shape."""
     # crosshair: off
     if not grid:

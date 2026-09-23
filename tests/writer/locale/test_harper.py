@@ -7,6 +7,7 @@
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+import inspect
 import json
 import logging
 import os
@@ -48,6 +49,12 @@ def _reset_harper_client_cache() -> None:
     yield
     shutdown_harper_runtime()
     harper_binary_module._release_cache.clear()
+
+
+def test_harper_client_parameterizes_stdout_queue() -> None:
+    """Bare queue.Queue leftovers trip reportMissingTypeArgument."""
+    src = inspect.getsource(HarperLSClient.__init__)
+    assert "stdout_queue: queue.Queue[dict[str, Any] | None]" in src
 
 
 def test_lsp_range_to_offset_single_line() -> None:

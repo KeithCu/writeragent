@@ -531,7 +531,7 @@ def _normalize_schema_type(schema_type: Any) -> str | None:
     return t
 
 
-def _dataclass_field_default(field: dataclasses.Field) -> Any:
+def _dataclass_field_default(field: "dataclasses.Field[Any]") -> Any:
     if field.default is not dataclasses.MISSING:
         return field.default
     if field.default_factory is not dataclasses.MISSING:  # type: ignore[attr-defined]
@@ -539,7 +539,7 @@ def _dataclass_field_default(field: dataclasses.Field) -> Any:
     return None
 
 
-def _dataclass_field_type(field: dataclasses.Field) -> str | None:
+def _dataclass_field_type(field: "dataclasses.Field[Any]") -> str | None:
     if field.type is int:
         return "int"
     if field.type is float:

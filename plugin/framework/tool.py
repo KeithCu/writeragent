@@ -888,7 +888,7 @@ class ToolRegistry:
             log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
             return func(**kwargs)
 
-        result_queue: queue.Queue = queue.Queue()
+        result_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
 
         def worker() -> None:
             try:

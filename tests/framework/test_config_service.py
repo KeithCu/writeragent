@@ -183,3 +183,15 @@ class TestModuleConfigProxy():
             assert (proxy.get('mcp_port') == 18765)
         finally:
             c.get_config = old_get_config
+
+
+def test_dummy_impl_decorator_annotates_cls() -> None:
+    """Nested class decorator must annotate `cls` for reportMissingParameterType."""
+    from typing import Any, get_type_hints
+
+    from plugin.framework.config_service import _dummy_impl
+
+    decorator = _dummy_impl("unused")
+    hints = get_type_hints(decorator)
+    assert hints["cls"] == type[Any]
+    assert decorator(int) is int

@@ -237,6 +237,18 @@ def test_set_and_get_manifest_modules(restore_manifest) -> None:
     assert coerce_config_value("only.flag", "yes") is True
 
 
+def test_dataclass_field_helpers_parameterize_field() -> None:
+    """Bare dataclasses.Field leftovers trip reportMissingTypeArgument.
+
+    Quoted so older LibreOffice runtimes (Field is not subscriptable) can import
+    the module; check the stored annotation string rather than get_type_hints.
+    """
+    from plugin.framework import config_schema as schema
+
+    assert schema._dataclass_field_default.__annotations__["field"] == "dataclasses.Field[Any]"
+    assert schema._dataclass_field_type.__annotations__["field"] == "dataclasses.Field[Any]"
+
+
 def test_set_endpoint_normalizer() -> None:
     try:
         assert _normalize_configured_endpoint("localhost", False) == "localhost"

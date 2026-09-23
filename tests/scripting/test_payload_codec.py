@@ -70,6 +70,13 @@ def test_host_module_does_not_import_numpy_at_module_level():
             assert not node.module.startswith("numpy"), node.module
 
 
+def test_flatten_grid_return_parameterizes_array() -> None:
+    """Bare array.array leftovers trip reportMissingTypeArgument."""
+    from plugin.scripting.payload_codec import _flatten_grid_to_components
+
+    assert _flatten_grid_to_components.__annotations__["return"] == "tuple[array.array[float], dict[int, str], list[str], list[int]]"
+
+
 @pytest.mark.parametrize(
     ("ncells", "force", "expected"),
     [

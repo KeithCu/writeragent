@@ -836,3 +836,13 @@ def test_get_tools_off_main_thread_without_doc_probe():
     assert any(t.name == "writer_only2" for t in tools)
     doc.supportsService.assert_not_called()
 
+
+def test_execute_with_timeout_parameterizes_result_queue() -> None:
+    """Local result_queue must be Queue[tuple[str, Any]] for reportMissingTypeArgument."""
+    import inspect
+
+    from plugin.framework.tool import ToolRegistry
+
+    src = inspect.getsource(ToolRegistry._execute_with_timeout)
+    assert "result_queue: queue.Queue[tuple[str, Any]]" in src
+

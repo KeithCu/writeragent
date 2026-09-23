@@ -52,7 +52,7 @@ class ConfigAccessError(ConfigError):
     code: str = "CONFIG_ACCESS_ERROR"
 
 def _dummy_impl(name: str, services: Any = ()) -> Any:
-    def decorator(cls) -> Any:
+    def decorator(cls: type[Any]) -> Any:
         return cls
 
     return decorator
