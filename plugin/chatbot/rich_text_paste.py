@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import html
 import logging
-from collections.abc import Iterator
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,

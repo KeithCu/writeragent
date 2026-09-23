@@ -30,9 +30,11 @@ from __future__ import annotations
 
 import logging
 import weakref
-from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 from plugin.doc import doc_type as _doc_type
 from plugin.doc import text_helpers as _text_helpers

@@ -268,7 +268,7 @@ class SendHandlersMixin:
                 if self.image_model_selector and hasattr(self.image_model_selector, "getText"):
                     image_model_text = self.image_model_selector.getText()
 
-                base_size_val = DEFAULT_IMAGE_BASE_SIZE
+                base_size_val: int | str = DEFAULT_IMAGE_BASE_SIZE
                 if self.base_size_input:
                     if hasattr(self.base_size_input, "getText"):
                         base_size_val = self.base_size_input.getText()

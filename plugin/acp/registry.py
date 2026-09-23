@@ -16,9 +16,13 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Registry of agent backends. Backend ids: builtin, hermes, claude, vibe, grok, opencode."""
 
-from typing import Any
+from __future__ import annotations
 
-from plugin.acp.base import AgentBackend
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from plugin.acp.base import AgentBackend
+
 from plugin.acp.builtin import BuiltinBackend
 from plugin.acp.hermes_simple import HermesBackend
 from plugin.acp.claude_simple import ClaudeBackend

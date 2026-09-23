@@ -329,7 +329,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.ResourceURL = resource_url
         self.Frame = frame
         self.Type = TOOLPANEL
-        self.toolpanel = None
+        self.toolpanel: ChatToolPanel | None = None
         self.m_panelRootWindow = None
         self.session: Any = None  # Created in _wireControls
         self.rich_text_widget = None

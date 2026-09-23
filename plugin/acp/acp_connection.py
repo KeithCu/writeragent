@@ -29,7 +29,13 @@ import threading
 from typing import Any, cast
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.worker_pool import get_subprocess_creationflags, run_in_background, start_stderr_drain
+from plugin.framework.worker_pool import (
+    BackgroundHandle,
+    StderrTail,
+    get_subprocess_creationflags,
+    run_in_background,
+    start_stderr_drain,
+)
 
 log = logging.getLogger(__name__)
 
@@ -50,8 +56,8 @@ class ACPConnection:
         self._lock = threading.Lock()
         self._request_id = 0
         self._pending: dict[Any, Any] = {}  # id -> threading.Event, response dict
-        self._reader_thread = None
-        self._stderr_drain = None
+        self._reader_thread: BackgroundHandle | None = None
+        self._stderr_drain: StderrTail | None = None
         self._running = False
         self._notifications: list[Any] = []  # queue of notification dicts
         self._notify_callback = None

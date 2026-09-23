@@ -741,7 +741,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._ctrl = combo_ctrl
         self._debounce_gen = 0
         self._closed = False
-        self._timer = None
+        self._timer: threading.Timer | None = None
         
         self.post_to_main_thread = post_to_main_thread
         self.run_in_background = run_in_background

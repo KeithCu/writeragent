@@ -60,8 +60,8 @@ class ACPBackend(AgentBackend):
 
     def __init__(self, ctx: Any | None = None) -> None:
         self._ctx = ctx
-        self._conn = None
-        self._session_id = None
+        self._conn: ACPConnection | None = None
+        self._session_id: str | None = None
         self._stop_requested = False
         self._binary_path: Optional[str] = None
         self._extra_args: List[str] = []

@@ -15,8 +15,10 @@ load ``document_helpers`` → chat context / ``DocumentService``.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 import uno
 

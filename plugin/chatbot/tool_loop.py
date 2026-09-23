@@ -460,7 +460,7 @@ class ToolCallingMixin:
             try:
                 # B13: Stop before first SSE — do not acquire llm_request_lane.
                 stop_checker = self.resolve_stop_checker()
-                if stop_checker and stop_checker():
+                if stop_checker():
                     if batched:
                         batched.flush()
                     real_q.put((StreamQueueKind.STOPPED,))
@@ -539,7 +539,7 @@ class ToolCallingMixin:
                     (batched.thinking_cb() if batched else lambda t: real_q.put((StreamQueueKind.THINKING, t)))(t)
 
                 stop_checker = self.resolve_stop_checker()
-                if stop_checker and stop_checker():
+                if stop_checker():
                     if batched:
                         batched.flush()
                     real_q.put((StreamQueueKind.STOPPED,))

@@ -37,10 +37,10 @@ from plugin.framework.queue_executor import QueueExecutor
 from plugin.chatbot.history_db import get_chat_history
 
 # Recording shipped unless built with --no-recording (see scripts/build_oxt.py).
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from plugin.framework.client.llm_client import LlmClient
     from plugin.framework.html_stripper import StreamingHTMLStripper
 
