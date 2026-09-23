@@ -35,7 +35,7 @@ class ToolCalcSpecialBase(ToolBase):
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary", "read_cell_range"])
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
 # --- Domain-Specific Base Classes ---
@@ -146,7 +146,8 @@ class ToolCalcSpecialTracking(ToolCalcSpecialBase):
     """Track changes (shared tool classes with Writer via multiple inheritance)."""
     specialized_domain: ClassVar[str | None] = "tracking"
     specialized_domain_description: ClassVar[str | None] = "Manage and review tracked changes in the spreadsheet."
-    intent: str | None = "review"
+    # Writer tracking infers str; ToolBase is str | None (invariant).
+    intent: str = "review"  # type: ignore[assignment]  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 class ToolCalcPythonBase(ToolCalcSpecialBase):

@@ -16,13 +16,17 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Gateway tool to delegate tasks to specialized Calc toolsets."""
 
+from __future__ import annotations
+
 import logging
-from typing import ClassVar, Type
+from typing import TYPE_CHECKING, ClassVar, Type
 
 from plugin.doc.specialized_base import DelegateToSpecializedBase
-from plugin.framework.tool import ToolBase
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolBase
 
 log = logging.getLogger("writeragent.calc")
 
@@ -42,5 +46,5 @@ class DelegateToSpecializedCalc(DelegateToSpecializedBase):
     )
 
     uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
-    _special_base_class: ClassVar[Type[ToolBase]] = ToolCalcSpecialBase
+    _special_base_class: ClassVar[Type[ToolBase]] = ToolCalcSpecialBase  # type: ignore[type-abstract]
     _agent_label: ClassVar[str] = "Calc"

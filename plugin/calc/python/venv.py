@@ -147,7 +147,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
     specialized_cross_cutting: ClassVar[bool] = True
     description: str = _DESCRIPTION_CALC
     parameters: dict | None = _PARAMETERS_CALC
-    uno_services: list | None = list(_ALL_VENV_DOCS)
+    uno_services: list = list(_ALL_VENV_DOCS)
     long_running: bool = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict | None:

@@ -38,7 +38,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
         },
         "required": ["pattern"],
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         pattern = kwargs.get("pattern", "")
@@ -80,7 +80,7 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
         },
         "required": ["search", "replace"],
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

@@ -813,7 +813,7 @@ class SortRange(ToolCalcRangeBase):
         },
         "required": ["range", "has_header"],
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

@@ -148,7 +148,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         },
         "required": ["formula"]
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier: str = "specialized"
     is_mutation: bool | None = False
 

@@ -1193,7 +1193,7 @@ class ManageCharts(ToolCalcChartBase):
         },
         "required": ["action"]
     }
-    uno_services: list | None = [
+    uno_services = [
         "com.sun.star.sheet.SpreadsheetDocument",
         "com.sun.star.text.TextDocument",
         "com.sun.star.drawing.DrawingDocument",
