@@ -205,7 +205,7 @@ class _PanelResizeListener(BaseWindowListener):
         self._in_relayout = False
         self._root_window = None
 
-    def disposing(self, Source):  # noqa: N803 -- UNO signature
+    def disposing(self, Source: Any):  # noqa: N803 -- UNO signature
         if self._root_window and hasattr(self._root_window, "removeWindowListener"):
             try:
                 self._root_window.removeWindowListener(self)
@@ -276,7 +276,7 @@ class _PanelResizeListener(BaseWindowListener):
 class _Activation(BaseActivationEventListener):
     """Sheet-activation listener that calls handler() whenever the active sheet changes."""
 
-    def __init__(self, handler):
+    def __init__(self, handler: Any):
         super().__init__()
         self._handler = handler
 
@@ -671,18 +671,18 @@ class PythonSidebarController:
 
 
 class _Action(BaseActionListener):
-    def __init__(self, callback) -> None:
+    def __init__(self, callback: Any) -> None:
         super().__init__()
         self._callback = callback
 
-    def on_action_performed(self, rEvent) -> None:
+    def on_action_performed(self, rEvent: Any) -> None:
         self._callback()
 
 
 class _Item(BaseItemListener):
-    def __init__(self, callback) -> None:
+    def __init__(self, callback: Any) -> None:
         super().__init__()
         self._callback = callback
 
-    def on_item_state_changed(self, rEvent) -> None:
+    def on_item_state_changed(self, rEvent: Any) -> None:
         self._callback(rEvent)

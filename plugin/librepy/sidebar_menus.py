@@ -299,7 +299,7 @@ class _DispatchActionListener(BaseActionListener):
         self._action = action
         self._frame = frame
 
-    def on_action_performed(self, rEvent) -> None:
+    def on_action_performed(self, rEvent: Any) -> None:
         invoke_action_handler(get_action_handler(self._action), self._frame)
 
 
@@ -308,7 +308,7 @@ class _HamburgerListener(BaseActionListener):
         self.ctx = ctx
         self._frame = frame
 
-    def on_action_performed(self, rEvent) -> None:
+    def on_action_performed(self, rEvent: Any) -> None:
         button_ctrl = getattr(rEvent, "Source", None)
         show_python_sidebar_hamburger(self.ctx, self._frame, button_ctrl)
 

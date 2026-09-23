@@ -18,7 +18,7 @@ from typing import Any
 # --- end vendoring notice ---
 
 
-def reciprocal_rank_fusion(fts_results, vec_results, k=60):
+def reciprocal_rank_fusion(fts_results: Any, vec_results: Any, k: int = 60):
     rank_dict = {}
 
     # Process FTS results

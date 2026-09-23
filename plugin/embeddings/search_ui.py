@@ -96,28 +96,28 @@ class SearchDialog:
             owner = self
 
             class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                def windowClosing(self, e):
+                def windowClosing(self, e: Any):
                     owner.close()
 
-                def windowClosed(self, e):
+                def windowClosed(self, e: Any):
                     pass
 
-                def windowOpened(self, e):
+                def windowOpened(self, e: Any):
                     pass
 
-                def windowMinimized(self, e):
+                def windowMinimized(self, e: Any):
                     pass
 
-                def windowNormalized(self, e):
+                def windowNormalized(self, e: Any):
                     pass
 
-                def windowActivated(self, e):
+                def windowActivated(self, e: Any):
                     pass
 
-                def windowDeactivated(self, e):
+                def windowDeactivated(self, e: Any):
                     pass
 
-                def disposing(self, Source):
+                def disposing(self, Source: Any):
                     pass
 
             self._top_listener = _TopWindowListener()
@@ -136,24 +136,24 @@ class SearchDialog:
         owner = self
 
         class _SearchListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: Any):
                 owner._run_search(dlg)
 
-            def disposing(self, Source):
+            def disposing(self, Source: Any):
                 pass
 
         class _RebuildListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: Any):
                 owner._run_rebuild(dlg)
 
-            def disposing(self, Source):
+            def disposing(self, Source: Any):
                 pass
 
         class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: Any):
                 owner.close()
 
-            def disposing(self, Source):
+            def disposing(self, Source: Any):
                 pass
 
         dlg.getControl("BtnSearch").addActionListener(_SearchListener())
@@ -161,7 +161,7 @@ class SearchDialog:
         dlg.getControl("BtnCancel").addActionListener(_CancelListener())
 
         class _SearchEnterKeyListener(BaseKeyListener):
-            def on_key_pressed(self, e):
+            def on_key_pressed(self, e: Any):
                 if e.KeyCode != _SEARCH_KEY_RETURN:
                     return
                 try:

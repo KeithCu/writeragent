@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from plugin.chatbot.dialogs import (
     TabListener,
@@ -45,10 +45,10 @@ class _DownloadVecPackListener(BaseActionListener):
         self._ctx = ctx
         self._dlg = dlg
 
-    def on_action_performed(self, rEvent) -> None:
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.scripting.native_binaries import run_vec_pack_download
 
-        def probe(on_display, on_status):
+        def probe(on_display: Callable[[str], None], on_status: Callable[[str], None] | None):
             ok = run_vec_pack_download(on_display, on_status)
             return ok, ""
 

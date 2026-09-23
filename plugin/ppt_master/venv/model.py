@@ -23,11 +23,11 @@ class HostRpcModel(Model):
 
     def generate(
         self,
-        messages,
-        stop_sequences=None,
-        response_format=None,
-        tools_to_call_from=None,
-        **kwargs,
+        messages: Any,
+        stop_sequences: list[str] | None = None,
+        response_format: dict[str, str] | None = None,
+        tools_to_call_from: Any = None,
+        **kwargs: Any,
     ):
         del response_format, kwargs
         if self._status_callback:

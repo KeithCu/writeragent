@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 _PPT_MASTER_MARKERS = ("templates", "references", "SKILL.md")
 _SKILL_REL_PATHS = (
@@ -178,8 +178,8 @@ def format_data_root_probe_message(status: dict[str, Any]) -> str:
 
 def probe_data_path_with_progress(
     raw_path: str | None,
-    on_display,
-    on_status=None,
+    on_display: Callable[[str], None],
+    on_status: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
     """Settings probe callback (same shape as venv probe)."""
     status = data_root_status_for_path(raw_path)

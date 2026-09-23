@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 # Minimal stdlib-only bootstrap before any ``plugin.*`` import — unopkg
 # writeRegistryInfo loads this file before the OXT root is on sys.path.
@@ -53,14 +53,14 @@ _PRE_NEGOTIATION_PANEL_WIDTH = 220
 _IMPL_NAME = "org.extension.librepy.PythonPanelFactory"
 
 
-def _get_arg(args, name):
+def _get_arg(args: Any, name: str):
     for pv in args:
         if hasattr(pv, "Name") and pv.Name == name:
             return pv.Value
     return None
 
 
-def _ensure_paths(ctx) -> None:
+def _ensure_paths(ctx: Any) -> None:
     try:
         from plugin.framework.uno_context import get_extension_path
 
@@ -77,7 +77,7 @@ def _ensure_paths(ctx) -> None:
 class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     """Holds the panel window; implements XToolPanel and XSidebarPanel."""
 
-    def __init__(self, panel_window, parent_window, ctx):
+    def __init__(self, panel_window: Any, parent_window: Any, ctx: Any):
         self.ctx = ctx
         self.PanelWindow = panel_window
         self.Window = panel_window
@@ -87,7 +87,7 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     def getWindow(self):
         return self.Window
 
-    def createAccessible(self, ParentAccessible):
+    def createAccessible(self, ParentAccessible: Any):
         return self.PanelWindow
 
     def getHeightForWidth(self, nWidth: int):  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -133,7 +133,7 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
 class PythonPanelElement(unohelper.Base, XUIElement):
     """XUIElement wrapper; creates panel window in getRealInterface() via ContainerWindowProvider."""
 
-    def __init__(self, ctx, frame, parent_window, resource_url):
+    def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str):
         self.ctx = ctx
         self.xFrame = frame
         self.xParentWindow = parent_window
@@ -186,7 +186,7 @@ class PythonPanelElement(unohelper.Base, XUIElement):
             self.m_panelRootWindow.setPosSize(0, 0, 220, target_h, 15)
         return self.m_panelRootWindow
 
-    def disposing(self, Source=None):
+    def disposing(self, Source: Any = None):
         try:
             if self.controller is not None:
                 self.controller.disposing()
@@ -198,10 +198,10 @@ class PythonPanelElement(unohelper.Base, XUIElement):
 class PythonPanelFactory(unohelper.Base, XUIElementFactory):
     """Factory that creates PythonPanelElement instances for the LibrePy sidebar."""
 
-    def __init__(self, ctx):
+    def __init__(self, ctx: Any):
         self.ctx = ctx
 
-    def createUIElement(self, ResourceURL, Args):
+    def createUIElement(self, ResourceURL: str, Args: Any):
         resource_url = ResourceURL
         if "PythonPanel" not in resource_url:
             raise NoSuchElementException("Unknown resource: " + resource_url)

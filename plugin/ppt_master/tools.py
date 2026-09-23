@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawPptMasterBase
 from plugin.ppt_master.client import (
@@ -16,6 +16,9 @@ from plugin.ppt_master.client import (
     validate_project_structure,
 )
 from plugin.ppt_master.paths import PPT_MASTER_INSTALL_CMD, apply_data_root_env, data_root_status
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 
 class ExportPresentationProject(ToolDrawPptMasterBase):
@@ -34,7 +37,7 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
         "required": ["project_path"],
     }
 
-    def execute(self, ctx, **kwargs: Any) -> dict[str, Any]:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         apply_data_root_env(ctx.ctx)
         st = data_root_status(ctx.ctx)
         if not st.get("ok"):
@@ -60,7 +63,7 @@ class ValidatePptMasterProject(ToolDrawPptMasterBase):
         "required": ["project_path"],
     }
 
-    def execute(self, ctx, **kwargs: Any) -> dict[str, Any]:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         apply_data_root_env(ctx.ctx)
         path = kwargs.get("project_path")
         if not path:
@@ -80,7 +83,7 @@ class ApplyPptMasterTemplateFill(ToolDrawPptMasterBase):
         "required": ["fill_plan_path"],
     }
 
-    def execute(self, ctx, **kwargs: Any) -> dict[str, Any]:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         apply_data_root_env(ctx.ctx)
         plan_path = kwargs.get("fill_plan_path")
         if not plan_path:
@@ -100,7 +103,7 @@ class ApplyPptMasterNativeEnhance(ToolDrawPptMasterBase):
         "required": ["project_path"],
     }
 
-    def execute(self, ctx, **kwargs: Any) -> dict[str, Any]:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         apply_data_root_env(ctx.ctx)
         path = kwargs.get("project_path")
         if not path:
