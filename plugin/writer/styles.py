@@ -681,8 +681,8 @@ class StyleUpdate(ToolWriterStyleBase):
 
         style = style_family.getByName(style_name)
 
-        applied = {}
-        failed = {}
+        applied: dict[str, Any] = {}
+        failed: dict[str, str] = {}
         snapshot_keys = list(updates)
         if parent_style is not None:
             snapshot_keys = ["ParentStyle"] + snapshot_keys

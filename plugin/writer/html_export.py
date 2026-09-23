@@ -1124,6 +1124,7 @@ def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
         cols = int(table.getColumns().getCount())
     except Exception:
         rows, cols = 0, 0
+    names: list[str]
     try:
         names = list(table.getCellNames() or ())
     except Exception:

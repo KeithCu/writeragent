@@ -214,6 +214,7 @@ class GetImage(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         name = kwargs.get("image")
+        b64: str | None
         want_selection = bool(kwargs.get("selection"))
         page = kwargs.get("page")
         try:

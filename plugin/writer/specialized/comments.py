@@ -562,7 +562,7 @@ def _annotation_name(field: Any) -> str:
         return ""
 
 
-def _annotation_field_names(doc: Any) -> set[str]:
+def _annotation_field_names(doc: Any) -> list[str]:
     """Name of each Annotation on *doc* (empty string when Name is unreadable)."""
     names: list[str] = []
     try:

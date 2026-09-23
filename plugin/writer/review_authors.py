@@ -57,7 +57,7 @@ def _set_office_author(ctx: Any, given: str) -> bool:
         return False
 
 
-def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DELETE_AUTHOR) -> tuple[str, str]:
+def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DELETE_AUTHOR) -> tuple[str, str] | None:
     """Capture the prior office author, set the INSERT author as the default, and arm
     ``deletion_author()`` on this thread. Returns the prior ``(given, sn)`` for ``end()``, or None.
 

@@ -144,7 +144,7 @@ class ImageGenerate(ToolWriterImageBase):
         # (omitted + selected graphic → img2img; omitted + no selection → create).
         if explicit_edit or source_image is None:
 
-            def _read_selection_for_edit() -> tuple[str, tuple[str, int, int] | None]:
+            def _read_selection_for_edit() -> tuple[str, tuple[str, int, int | None] | None]:
                 b64 = get_selected_image_base64(ctx.doc, ctx.ctx)
                 if not b64:
                     return ("no_selection", None)

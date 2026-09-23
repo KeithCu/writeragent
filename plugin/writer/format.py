@@ -367,7 +367,7 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
         except Exception:
             return None
 
-    def _capture_direct_char_overrides(capture_cursor: Any) -> list[dict[str, Any]]:
+    def _capture_direct_char_overrides(capture_cursor: Any) -> list[Any]:
         overrides: list[Any] = []
         try:
             para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")

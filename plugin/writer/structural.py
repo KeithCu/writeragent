@@ -314,7 +314,7 @@ class SectionRead(ToolWriterStructuralBase):
         return {"status": "ok", "section": section_name, "section_name": section_name, "paragraphs": paragraphs, "content": content, "length": len(content)}
 
 
-def _resolve_para_index(ctx: ToolContext, kwargs: dict[str, Any]) -> int:
+def _resolve_para_index(ctx: ToolContext, kwargs: dict[str, Any]) -> int | None:
     """Resolve locator or paragraph_index from tool kwargs.
 
     Returns an integer paragraph index, or None if neither is provided.

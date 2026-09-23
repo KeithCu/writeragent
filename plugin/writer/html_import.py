@@ -92,7 +92,7 @@ def _visible_html_text(fragment: str) -> str:
     return html_mod.unescape(_HTML_TAG_RE.sub("", fragment))
 
 
-def extract_and_strip_ruby(html: str) -> tuple[str, list[tuple[str, str]]]:
+def extract_and_strip_ruby(html: str) -> tuple[str, list[tuple[str, str, bool]]]:
     """Replace ``<ruby>`` with its base and return ``(clean_html, spans)``.
 
     Each span is ``(base, reading, is_above)`` in document order. StarWriter
@@ -224,8 +224,8 @@ class _BlockLoStyleExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
         self._table_depth = 0
-        self.styles = []
-        self._out = []
+        self.styles: list[str | None] = []
+        self._out: list[str] = []
 
     def _emit(self, raw: str, attrs: list[tuple[str, str | None]], is_block: bool) -> None:
         if is_block and self._table_depth == 0:
@@ -272,12 +272,12 @@ class _BlockLoStyleExtractor(HTMLParser):
     def handle_comment(self, data: str) -> None:
         self._out.append("<!--%s-->" % data)
 
-    def result(self) -> tuple[str, list[tuple[str, str]]]:
+    def result(self) -> tuple[str, list[str | None]]:
         return "".join(self._out), self.styles
 
 
 
-def _extract_block_lo_styles(html: str) -> tuple[str, list[tuple[str, str]]]:
+def _extract_block_lo_styles(html: str) -> tuple[str, list[str | None]]:
     """Return ``(clean_html, [data_lo_style_or_None per top-level block])``.
 
     Short-circuits (returns the html unchanged, no styles) when there is no data-lo-style,

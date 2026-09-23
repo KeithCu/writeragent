@@ -440,9 +440,12 @@ class ApplyDocumentContent(ToolBase):
             elif batch:
                 # The all_matches loop already entered an undo context. A second
                 # record_html_atomically would nest another and close it early.
+                def replace_one(f: Any = found) -> None:
+                    format_support.replace_single_range_with_content(
+                        doc, f, content, ctx.ctx, config_svc)
+
                 session.record_mutation(
-                    lambda f=found: format_support.replace_single_range_with_content(
-                        doc, f, content, ctx.ctx, config_svc),
+                    replace_one,
                     original_preview=original, proposed_preview=plain_preview)
             else:
                 record_html_atomically(

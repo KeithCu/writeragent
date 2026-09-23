@@ -100,7 +100,7 @@ class _DocIndex:
 
     def __init__(self) -> None:
         self.terms: dict[str, set[int]] = {}
-        self.para_texts = {}  # int -> str
+        self.para_texts: dict[int, str] = {}
         self.para_count = 0
         self.build_ms = 0.0
         self.language = "english"
