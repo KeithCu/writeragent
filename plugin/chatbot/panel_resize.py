@@ -148,7 +148,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         self._parent_window = None
         self._width_negotiated = False
         self._viewport_w = 0
-        self._last_response_rect = None
+        self._last_response_rect: tuple[int, int, int, int] | None = None
 
     @property
     def last_response_rect(self):

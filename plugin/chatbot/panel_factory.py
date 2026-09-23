@@ -329,7 +329,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.Type = TOOLPANEL
         self.toolpanel = None
         self.m_panelRootWindow = None
-        self.session = None  # Created in _wireControls
+        self.session: Any = None  # Created in _wireControls
         self.rich_text_widget = None
         log.debug("[RICH-LIFECYCLE] ChatPanelElement.__init__ resource_url=%s parent_window=%s",
                   resource_url, id(parent_window) if parent_window else None)
@@ -946,6 +946,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
 
+        third_btn: tuple[str, Any, Any, Any, Any]
         if calc_doc:
             third_btn = (
                 "btn_latex",

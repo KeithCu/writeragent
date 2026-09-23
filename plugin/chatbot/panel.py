@@ -131,7 +131,7 @@ class ChatSession:
         )
         self.set_system_context(base_prompt, doc_text)
 
-    def add_user_message(self, content: str) -> None:
+    def add_user_message(self, content: Any) -> None:
         self.messages.append({"role": "user", "content": content})
         if self.db:
             self.db.add_message("user", content)
@@ -356,7 +356,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.cached_doc_type = None
         self.cached_uno_services = None
         self._stop_requested_fallback = False
-        self._send_cancellation = None
+        self._send_cancellation: Any = None
         self._terminal_status = "Ready"
         self._send_busy = False
         self._in_librarian_mode = False
@@ -371,7 +371,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.client = None
         self.audio_wav_path = None
         self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
-        self._fixed_send_width = None
+        self._fixed_send_width: int | None = None
         # Session I/O handles for the tool-loop interpreter (not FSM control state).
         self._active_q: Any = None
         self._active_client: Any = None
@@ -383,10 +383,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._active_supports_status: Any = None
         self._current_tool_call_id = None
         self._record_assistant_start = False
-        self._assistant_stream_start_len = None
+        self._assistant_stream_start_len: int | None = None
         self._approval_event = None
-        self._approval_ui_backup = None
-        self._approval_query_for_engine = None
+        self._approval_ui_backup: dict[str, Any] | None = None
+        self._approval_query_for_engine: str | None = None
         self._dispatch_reenter: list[Any] | None = None
         self._extracted_peer_query = ""
         self._extracted_peer_already_appended = False
@@ -628,7 +628,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
         self._approval_event = None
         self._approval_query_for_engine = None
-        b = self._approval_ui_backup or {}
+        b: dict[str, Any] = self._approval_ui_backup or {}
         self._approval_ui_backup = None
         with suppress_disposed("_finish_inline_web_approval restore", logger=log):
             if self.send_control and self.send_control.getModel():
@@ -943,7 +943,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # Do not bind_executor yet: cancel() would cancel_pending_work
                 # and drop this posted drain, so SEND_COMPLETED never runs and
                 # the button stays Stop. Bind inside _run_send_drain instead.
-                scope = SendCancellation()
+                scope: Any = SendCancellation()
                 self._send_cancellation = scope
                 # Bug: drain used to run inside Send actionPerformed. On GTK,
                 # processEventsToIdle from that stack does not deliver a second
