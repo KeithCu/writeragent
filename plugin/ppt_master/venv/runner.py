@@ -27,7 +27,7 @@ _EXPORTED_FLAG: dict[str, bool] = {}
 class _RpcHostTool(Tool):
     """Base for tools that call WriterAgent on the LO host."""
 
-    skip_forward_signature_validation = True
+    skip_forward_signature_validation: bool = True
 
     def __init__(self, host_tool_name: str, *, description: str, inputs: dict[str, dict[str, Any]]) -> None:
         self.name = host_tool_name
@@ -41,14 +41,14 @@ class _RpcHostTool(Tool):
 
 
 class RunPptMasterScript(Tool):
-    name = "run_ppt_master_script"
-    description = "Run an upstream ppt-master Python script under scripts/ (e.g. scripts/project_manager.py)."
-    inputs = {
+    name: str = "run_ppt_master_script"
+    description: str = "Run an upstream ppt-master Python script under scripts/ (e.g. scripts/project_manager.py)."
+    inputs: dict[str, dict[str, str | type | bool]] = {
         "script_relative": {"type": "string", "description": "Path under scripts/, e.g. project_manager.py or source_to_md/pdf_to_md.py"},
         "args": {"type": "array", "description": "CLI arguments after the script path.", "nullable": True},
     }
-    output_type = "object"
-    skip_forward_signature_validation = True
+    output_type: str = "object"
+    skip_forward_signature_validation: bool = True
 
     def forward(self, script_relative: str, args: list | None = None) -> Any:
         root = resolve_data_root_from_env()
@@ -57,13 +57,13 @@ class RunPptMasterScript(Tool):
 
 
 class ReadPptMasterWorkflowFile(Tool):
-    name = "read_ppt_master_workflow_file"
-    description = "Read a file under the ppt-master data root (SKILL.md, references/, workflows/)."
-    inputs = {
+    name: str = "read_ppt_master_workflow_file"
+    description: str = "Read a file under the ppt-master data root (SKILL.md, references/, workflows/)."
+    inputs: dict[str, dict[str, str | type | bool]] = {
         "relative_path": {"type": "string", "description": "e.g. references/executor-base.md"},
     }
-    output_type = "object"
-    skip_forward_signature_validation = True
+    output_type: str = "object"
+    skip_forward_signature_validation: bool = True
 
     def forward(self, relative_path: str) -> Any:
         root = resolve_data_root_from_env()
@@ -77,14 +77,14 @@ class ReadPptMasterWorkflowFile(Tool):
 
 
 class ReadProjectFile(Tool):
-    name = "read_project_file"
-    description = "Read a file inside a ppt-master project directory."
-    inputs = {
+    name: str = "read_project_file"
+    description: str = "Read a file inside a ppt-master project directory."
+    inputs: dict[str, dict[str, str | type | bool]] = {
         "project_path": {"type": "string", "description": "Absolute path to project folder."},
         "relative_path": {"type": "string", "description": "Path relative to project root."},
     }
-    output_type = "object"
-    skip_forward_signature_validation = True
+    output_type: str = "object"
+    skip_forward_signature_validation: bool = True
 
     def forward(self, project_path: str, relative_path: str) -> Any:
         path = resolve_project_file(project_path, relative_path)
@@ -97,15 +97,15 @@ class ReadProjectFile(Tool):
 
 
 class WriteProjectFile(Tool):
-    name = "write_project_file"
-    description = "Write or overwrite a file inside a ppt-master project directory."
-    inputs = {
+    name: str = "write_project_file"
+    description: str = "Write or overwrite a file inside a ppt-master project directory."
+    inputs: dict[str, dict[str, str | type | bool]] = {
         "project_path": {"type": "string", "description": "Absolute path to project folder."},
         "relative_path": {"type": "string", "description": "Path relative to project root."},
         "content": {"type": "string", "description": "File contents."},
     }
-    output_type = "object"
-    skip_forward_signature_validation = True
+    output_type: str = "object"
+    skip_forward_signature_validation: bool = True
 
     def forward(self, project_path: str, relative_path: str, content: str) -> Any:
         path = resolve_project_file(project_path, relative_path)
@@ -117,27 +117,27 @@ class WriteProjectFile(Tool):
 
 
 class ReplyToUserTool(Tool):
-    name = "reply_to_user"
-    description = "Continue the PPT-Master session with an HTML message to the user."
-    inputs = {"message": {"type": "string", "description": "HTML reply."}}
-    output_type = "string"
-    is_final_answer_tool = True
-    skip_forward_signature_validation = True
+    name: str = "reply_to_user"
+    description: str = "Continue the PPT-Master session with an HTML message to the user."
+    inputs: dict[str, dict[str, str | type | bool]] = {"message": {"type": "string", "description": "HTML reply."}}
+    output_type: str = "string"
+    is_final_answer_tool: bool = True
+    skip_forward_signature_validation: bool = True
 
     def forward(self, message: str) -> str:
         return message
 
 
 class PptMasterFinishedTool(Tool):
-    name = "ppt_master_finished"
-    description = "End the PPT-Master session. message must be HTML."
-    inputs = {
+    name: str = "ppt_master_finished"
+    description: str = "End the PPT-Master session. message must be HTML."
+    inputs: dict[str, dict[str, str | type | bool]] = {
         "message": {"type": "string", "description": "HTML handoff."},
         "exported": {"type": "boolean", "description": "True if export succeeded this session.", "nullable": True},
     }
-    output_type = "object"
-    is_final_answer_tool = True
-    skip_forward_signature_validation = True
+    output_type: str = "object"
+    is_final_answer_tool: bool = True
+    skip_forward_signature_validation: bool = True
 
     def forward(self, message: str, exported: bool = False) -> dict[str, Any]:
         return {"status": "finished", "result": message, "exported": bool(exported)}
