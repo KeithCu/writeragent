@@ -19,11 +19,11 @@ if TYPE_CHECKING:
 class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     """Read speaker notes from a slide."""
 
-    name = "get_speaker_notes"
-    intent = "navigate"
-    description = "Read speaker notes from an Impress slide. Returns the notes text."
-    parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
-    uno_services = ["com.sun.star.presentation.PresentationDocument"]
+    name: str | None = "get_speaker_notes"
+    intent: str | None = "navigate"
+    description: str = "Read speaker notes from an Impress slide. Returns the notes text."
+    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
@@ -39,10 +39,10 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
 class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     """Set speaker notes on a slide."""
 
-    name = "set_speaker_notes"
-    intent = "edit"
-    description = "Set or replace speaker notes on an Impress slide."
-    parameters = {
+    name: str | None = "set_speaker_notes"
+    intent: str | None = "edit"
+    description: str = "Set or replace speaker notes on an Impress slide."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Speaker notes text."},
@@ -51,8 +51,8 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
         },
         "required": ["text"],
     }
-    uno_services = ["com.sun.star.presentation.PresentationDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         text = kwargs.get("text", "")

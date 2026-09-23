@@ -198,15 +198,15 @@ def _role_miss_error_kwargs(page: Any) -> dict[str, Any]:
 class ListPlaceholders(ToolBase):
     """List all text placeholders on a slide."""
 
-    name = "list_placeholders"
-    intent = "navigate"
-    description = (
+    name: str | None = "list_placeholders"
+    intent: str | None = "navigate"
+    description: str = (
         "List all text placeholders on a slide with their role (title, subtitle, body), "
         "text content, and index. Call this before set_placeholder_text. If count=0, set "
         "layout 'text' (set_slide_layout or delegate domain=slide_layouts) then retry."
     )
-    parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
-    uno_services = ["com.sun.star.presentation.PresentationDocument"]
+    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
@@ -218,13 +218,13 @@ class ListPlaceholders(ToolBase):
 class GetPlaceholderText(ToolBase):
     """Get text from a slide placeholder by role or shape index."""
 
-    name = "get_placeholder_text"
-    intent = "navigate"
-    description = (
+    name: str | None = "get_placeholder_text"
+    intent: str | None = "navigate"
+    description: str = (
         "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') "
         "or index. Prefer list_placeholders first; use index when roles are missing."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."},
@@ -233,7 +233,7 @@ class GetPlaceholderText(ToolBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
@@ -261,14 +261,14 @@ class GetPlaceholderText(ToolBase):
 class SetPlaceholderText(ToolBase):
     """Set text on a slide placeholder by role or shape index."""
 
-    name = "set_placeholder_text"
-    intent = "edit"
-    description = (
+    name: str | None = "set_placeholder_text"
+    intent: str | None = "edit"
+    description: str = (
         "Set text on a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. "
         "Prefer list_placeholders first; prefer index when role lookup fails. Empty available "
         "means the slide lacks a text layout — set layout 'text' then retry, not a missing argument."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Text to set on the placeholder."},
@@ -278,8 +278,8 @@ class SetPlaceholderText(ToolBase):
         },
         "required": ["text"],
     }
-    uno_services = ["com.sun.star.presentation.PresentationDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")

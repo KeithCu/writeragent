@@ -17,10 +17,12 @@
 """Gateway tool to delegate tasks to specialized Draw toolsets."""
 
 import logging
+from typing import ClassVar, Type
 
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.base import ToolDrawSpecialBase
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
+from plugin.framework.tool import ToolBase
 
 log = logging.getLogger("writeragent.draw")
 
@@ -32,13 +34,13 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     user's specific request, preventing context pollution.
     """
 
-    name = "delegate_to_specialized_draw_toolset"
-    description = (
+    name: str | None = "delegate_to_specialized_draw_toolset"
+    description: str = (
         f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
         f"web_research {DELEGATION_PUBLIC_WEB_HINT}. "
         "Also: shapes, tables, images, charts, forms, math, slide transitions, slide masters, templates/design, etc."
     )
 
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    _special_base_class = ToolDrawSpecialBase
-    _agent_label = "Draw"
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    _special_base_class: ClassVar[Type[ToolBase]] = ToolDrawSpecialBase
+    _agent_label: ClassVar[str] = "Draw"

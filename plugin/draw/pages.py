@@ -34,15 +34,15 @@ def _is_impress_doc(doc: Any):
 
 
 class AddSlide(ToolBase):
-    name = "add_slide"
-    intent = "edit"
-    description = (
+    name: str | None = "add_slide"
+    intent: str | None = "edit"
+    description: str = (
         "Inserts a new slide (page) at the specified index. "
         "Impress defaults to the Title + Content ('text') layout. "
         "New slides inherit the deck's assigned master. "
         "Call list_placeholders before set_placeholder_text."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based index where to insert the new slide (defaults to appending at the end if omitted)"},
@@ -57,8 +57,8 @@ class AddSlide(ToolBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
@@ -110,12 +110,12 @@ class AddSlide(ToolBase):
 
 
 class DeleteSlide(ToolBase):
-    name = "delete_slide"
-    intent = "edit"
-    description = "Deletes the slide (page) at the specified index."
-    parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    is_mutation = True
+    name: str | None = "delete_slide"
+    intent: str | None = "edit"
+    description: str = "Deletes the slide (page) at the specified index."
+    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
@@ -133,12 +133,12 @@ class DeleteSlide(ToolBase):
 
 
 class ListPages(ToolBase):
-    name = "list_pages"
-    description = "Lists all pages (slides) in the document."
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    doc_types = ["draw", "impress"]
-    tier = "core"
+    name: str | None = "list_pages"
+    description: str = "Lists all pages (slides) in the document."
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    doc_types: list[str] | None = ["draw", "impress"]
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
@@ -154,11 +154,11 @@ class ListPages(ToolBase):
 class ReadSlideText(ToolBase):
     """Read all text content from a slide plus speaker notes."""
 
-    name = "read_slide_text"
-    description = "Read all text content from a slide (shapes text) and speaker notes. Returns structured text per shape."
-    parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (default: active slide)."}}, "required": []}
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    tier = "core"
+    name: str | None = "read_slide_text"
+    description: str = "Read all text content from a slide (shapes text) and speaker notes. Returns structured text per shape."
+    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (default: active slide)."}}, "required": []}
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
@@ -207,11 +207,11 @@ class ReadSlideText(ToolBase):
 class GetPresentationInfo(ToolBase):
     """Get presentation metadata."""
 
-    name = "get_presentation_info"
-    description = "Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    tier = "core"
+    name: str | None = "get_presentation_info"
+    description: str = "Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc
@@ -249,12 +249,12 @@ class GetPresentationInfo(ToolBase):
         return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress, "active_page_index": active_idx}
 
 class SetActivePage(ToolBase):
-    name = "set_active_page"
-    intent = "navigate"
-    description = "Changes the currently active slide (page) in Draw/Impress."
-    parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    is_mutation = True
+    name: str | None = "set_active_page"
+    intent: str | None = "navigate"
+    description: str = "Changes the currently active slide (page) in Draw/Impress."
+    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
@@ -282,13 +282,13 @@ _DRAW_UNO = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.
 
 
 class DuplicateSlide(ToolBase):
-    name = "duplicate_slide"
-    intent = "edit"
-    description = (
+    name: str | None = "duplicate_slide"
+    intent: str | None = "edit"
+    description: str = (
         "Duplicates the slide at the given 0-based index. The copy is inserted immediately after "
         "the source slide."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based index of the slide to duplicate"},
@@ -299,9 +299,9 @@ class DuplicateSlide(ToolBase):
         },
         "required": ["page"],
     }
-    uno_services = _DRAW_UNO
-    is_mutation = True
-    tier = "core"
+    uno_services: list | None = _DRAW_UNO
+    is_mutation: bool | None = True
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
@@ -325,13 +325,13 @@ class DuplicateSlide(ToolBase):
 
 
 class MoveSlide(ToolBase):
-    name = "move_slide"
-    intent = "edit"
-    description = (
+    name: str | None = "move_slide"
+    intent: str | None = "edit"
+    description: str = (
         "Moves a slide from from_page to to_page (both 0-based). to_page is the destination index "
         "after removal of the source (insert-at that index)."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "from_page": {"type": "integer", "description": "0-based source slide index"},
@@ -339,9 +339,9 @@ class MoveSlide(ToolBase):
         },
         "required": ["from_page", "to_page"],
     }
-    uno_services = _DRAW_UNO
-    is_mutation = True
-    tier = "core"
+    uno_services: list | None = _DRAW_UNO
+    is_mutation: bool | None = True
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
@@ -364,10 +364,10 @@ class MoveSlide(ToolBase):
 
 
 class RenameSlide(ToolBase):
-    name = "rename_slide"
-    intent = "edit"
-    description = "Sets the Name property of a slide (0-based page index)."
-    parameters = {
+    name: str | None = "rename_slide"
+    intent: str | None = "edit"
+    description: str = "Sets the Name property of a slide (0-based page index)."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based slide index"},
@@ -375,9 +375,9 @@ class RenameSlide(ToolBase):
         },
         "required": ["page", "name"],
     }
-    uno_services = _DRAW_UNO
-    is_mutation = True
-    tier = "core"
+    uno_services: list | None = _DRAW_UNO
+    is_mutation: bool | None = True
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge

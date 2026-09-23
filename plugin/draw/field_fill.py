@@ -22,7 +22,7 @@ PDF/AcroForm widgets are out of scope.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.draw.base import ToolDrawShapeBase
 from plugin.draw.tree import (
@@ -162,15 +162,15 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
 class FillDrawFields(ToolDrawShapeBase):
     """Batch-write existing blanks / widgets. Does not spawn new controls."""
 
-    name = "fill_draw_fields"
-    description = (
+    name: str | None = "fill_draw_fields"
+    description: str = (
         "Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page "
         "so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create "
         "new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), "
         "draw-page index, or label_hint from get_draw_tree. Returns per-field ok/fail so you can recover. "
         "Not a PDF/AcroForm API."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)."},
@@ -191,9 +191,9 @@ class FillDrawFields(ToolDrawShapeBase):
         },
         "required": ["fields"],
     }
-    doc_types = ["draw", "impress"]
-    is_mutation = True
-    required_core_tools = frozenset(["get_draw_tree"])
+    doc_types: list[str] | None = ["draw", "impress"]
+    is_mutation: bool | None = True
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_draw_tree"])
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge

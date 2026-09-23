@@ -309,12 +309,12 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
 
 
 class GetDrawSummary(ToolDrawShapeBase):
-    name = "shape_summary"
-    intent = "edit"
-    description = "Returns a summary of shapes on the active or specified page."
-    parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
-    uno_services = _DRAW_SHAPE_DOCS
-    doc_types = ["writer", "calc", "draw", "impress"]
+    name: str | None = "shape_summary"
+    intent: str | None = "edit"
+    description: str = "Returns a summary of shapes on the active or specified page."
+    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
+    uno_services: list | None = _DRAW_SHAPE_DOCS
+    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
@@ -565,12 +565,12 @@ _CREATE_SHAPE_SHAPE_TYPE_DESC = (
 
 
 class UpsertShape(ToolDrawShapeBase):
-    name = "shape_upsert"
-    description = (
+    name: str | None = "shape_upsert"
+    description: str = (
         "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name "
         "from get_draw_tree — draw-page index shifts when other shapes sit between fields."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["create", "edit"], "description": "Action to perform: 'create' a new shape, or 'edit' an existing one."},
@@ -594,9 +594,9 @@ class UpsertShape(ToolDrawShapeBase):
         },
         "required": ["action"],
     }
-    uno_services = _DRAW_SHAPE_DOCS
-    doc_types = ["writer", "calc", "draw", "impress"]
-    is_mutation = True
+    uno_services: list | None = _DRAW_SHAPE_DOCS
+    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+    is_mutation: bool | None = True
 
     def validate(self, *, doc_type: str | None = None, **kwargs: Any):
         action = kwargs.get("action")
@@ -760,10 +760,10 @@ class UpsertShape(ToolDrawShapeBase):
 class ConnectShapes(ToolDrawShapeBase):
     """Connect two shapes with a connector."""
 
-    name = "shape_connect"
-    intent = "edit"
-    description = "Connect two shapes on the same page with a connector."
-    parameters = {
+    name: str | None = "shape_connect"
+    intent: str | None = "edit"
+    description: str = "Connect two shapes on the same page with a connector."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "start": {"type": "integer", "description": "Index of the starting shape."},
@@ -774,9 +774,9 @@ class ConnectShapes(ToolDrawShapeBase):
         },
         "required": ["start", "end"],
     }
-    uno_services = _DRAW_SHAPE_DOCS
-    doc_types = ["writer", "calc", "draw", "impress"]
-    is_mutation = True
+    uno_services: list | None = _DRAW_SHAPE_DOCS
+    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
@@ -823,13 +823,13 @@ class ConnectShapes(ToolDrawShapeBase):
 class GroupShapes(ToolDrawShapeBase):
     """Group multiple shapes together."""
 
-    name = "shape_group"
-    intent = "edit"
-    description = "Groups multiple shapes together on the same page."
-    parameters = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": "integer"}, "description": "List of shape indices to group."}, "page": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["indices"]}
-    uno_services = _DRAW_SHAPE_DOCS
-    doc_types = ["writer", "calc", "draw", "impress"]
-    is_mutation = True
+    name: str | None = "shape_group"
+    intent: str | None = "edit"
+    description: str = "Groups multiple shapes together on the same page."
+    parameters: dict | None = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": "integer"}, "description": "List of shape indices to group."}, "page": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["indices"]}
+    uno_services: list | None = _DRAW_SHAPE_DOCS
+    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
@@ -896,13 +896,13 @@ def _resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any]):
 
 
 class AlignShapes(ToolDrawShapeBase):
-    name = "align_shapes"
-    intent = "edit"
-    description = (
+    name: str | None = "align_shapes"
+    intent: str | None = "edit"
+    description: str = (
         "Align multiple shapes on a page to a shared edge or center axis. "
         "Coordinates are 1/100 mm. Needs at least two indices."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
@@ -919,8 +919,8 @@ class AlignShapes(ToolDrawShapeBase):
         },
         "required": ["indices", "alignment"],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.layout import align_boxes
@@ -946,13 +946,13 @@ class AlignShapes(ToolDrawShapeBase):
 
 
 class DistributeShapes(ToolDrawShapeBase):
-    name = "distribute_shapes"
-    intent = "edit"
-    description = (
+    name: str | None = "distribute_shapes"
+    intent: str | None = "edit"
+    description: str = (
         "Evenly distribute three or more shapes between the first and last along an axis. "
         "Coordinates are 1/100 mm."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
@@ -969,8 +969,8 @@ class DistributeShapes(ToolDrawShapeBase):
         },
         "required": ["indices", "axis"],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.layout import distribute_boxes
@@ -996,14 +996,14 @@ class DistributeShapes(ToolDrawShapeBase):
 
 
 class CreateDiagram(ToolDrawShapeBase):
-    name = "create_diagram"
-    intent = "edit"
-    description = (
+    name: str | None = "create_diagram"
+    intent: str | None = "edit"
+    description: str = (
         "Create a flowchart/diagram of multiple nodes and connectors in one turn. "
         "Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; "
         "custom requires x/y on each node."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
@@ -1044,8 +1044,8 @@ class CreateDiagram(ToolDrawShapeBase):
         },
         "required": ["nodes"],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.layout import diagram_node_boxes
@@ -1124,13 +1124,13 @@ class CreateDiagram(ToolDrawShapeBase):
 
 
 class DeleteShape(ToolDrawShapeBase):
-    name = "shape_delete"
-    intent = "edit"
-    description = "Deletes a shape by index."
-    parameters = {"type": "object", "properties": {"index": {"type": "integer", "description": "0-based shape index"}, "page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": ["index"]}
-    uno_services = _DRAW_SHAPE_DOCS
-    doc_types = ["writer", "calc", "draw", "impress"]
-    is_mutation = True
+    name: str | None = "shape_delete"
+    intent: str | None = "edit"
+    description: str = "Deletes a shape by index."
+    parameters: dict | None = {"type": "object", "properties": {"index": {"type": "integer", "description": "0-based shape index"}, "page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": ["index"]}
+    uno_services: list | None = _DRAW_SHAPE_DOCS
+    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge

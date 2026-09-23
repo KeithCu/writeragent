@@ -902,22 +902,22 @@ def create_presentation_from_design(
 class ListDesigns(ToolBase):
     """Enumerate shipped Impress ``.otp`` designs via PathSettings."""
 
-    name = "list_designs"
-    intent = "navigate"
-    description = (
+    name: str | None = "list_designs"
+    intent: str | None = "navigate"
+    description: str = (
         "List shipped Impress .otp designs from LibreOffice PathSettings template "
         "directories (id, name, path, url, look). Read look to choose a design by "
         "appearance (dark/tech vs candy/illustrated), not only by name. Use a listed "
         "id with apply_design to restyle the open Impress deck. Does not hardcode the "
         "install prefix."
     )
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = [
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list | None = [
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
     ]
-    tier = "core"
-    is_mutation = False
+    tier: str = "core"
+    is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         designs = enumerate_impress_designs(ctx.ctx)
@@ -927,16 +927,16 @@ class ListDesigns(ToolBase):
 class ApplyDesign(ToolBase):
     """Restyle the open Impress deck from a listed ``.otp`` (clone_master)."""
 
-    name = "apply_design"
-    intent = "edit"
-    description = (
+    name: str | None = "apply_design"
+    intent: str | None = "edit"
+    description: str = (
         "Restyle the OPEN Impress deck from a listed .otp: Hidden-load the "
         "template, clone its master (shapes + layout styles) into this document, "
         "and assign that master to every slide. Does not use the system clipboard "
         "and does not open a new presentation. Existing title/body text stays. "
         "Call list_designs first. Draw documents return a not-Impress error."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "design": {
@@ -946,12 +946,12 @@ class ApplyDesign(ToolBase):
         },
         "required": ["design"],
     }
-    uno_services = [
+    uno_services: list | None = [
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
     ]
-    tier = "core"
-    is_mutation = True
+    tier: str = "core"
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if _is_draw_only_doc(ctx.doc):

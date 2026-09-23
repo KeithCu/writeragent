@@ -433,18 +433,18 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
 
 
 class GetDrawTree(ToolBase):
-    name = "get_draw_tree"
-    intent = "read"
-    description = (
+    name: str | None = "get_draw_tree"
+    intent: str | None = "read"
+    description: str = (
         "Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. "
         "Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a "
         "label_hint (nearest text to the left or above). ControlShapes include type, name, and current "
         "value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields."
     )
-    parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
-    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    doc_types = ["draw", "impress"]
-    tier = "core"
+    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
+    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    doc_types: list[str] | None = ["draw", "impress"]
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge

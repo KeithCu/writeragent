@@ -257,9 +257,9 @@ def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> int:
 class GetHeadersFooters(ToolDrawHeaderFooterBase):
     """Tool for reading header and footer properties of a presentation slide or master page."""
 
-    name = "get_headers_footers"
-    description = "Retrieves header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
-    parameters = {
+    name: str | None = "get_headers_footers"
+    description: str = "Retrieves header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": ("0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index).")},
@@ -297,9 +297,9 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
 class SetHeadersFooters(ToolDrawHeaderFooterBase):
     """Tool for updating header and footer properties of a presentation slide or master page."""
 
-    name = "set_headers_footers"
-    description = "Updates header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
-    parameters = {
+    name: str | None = "set_headers_footers"
+    description: str = "Updates header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": ("0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.")},
