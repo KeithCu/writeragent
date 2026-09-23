@@ -57,7 +57,7 @@ class FieldsList(ToolWriterFieldBase):
         enum = fields.createEnumeration()
 
         results = []
-        hf_labels: dict[str, Any] = {}
+        hf_labels: dict[int, str] = {}
         count = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
@@ -136,7 +136,7 @@ class FieldsDelete(ToolWriterFieldBase):
         enum = fields.createEnumeration()
 
         fields_to_delete = []
-        hf_labels: dict[str, Any] = {}
+        hf_labels: dict[int, str] = {}
         count = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
