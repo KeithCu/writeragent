@@ -20,6 +20,8 @@ from plugin.chatbot.dialogs import set_control_text
 class EvalDashboard:
     """Evaluation dashboard dialog controller."""
 
+    _ctx: Any
+
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
         self._dlg: Any = None
@@ -54,6 +56,10 @@ class EvalDashboard:
 
 class EvalRunListener(BaseActionListener):
     """Listener to run benchmark suite in response to Run button."""
+
+    ctx: Any
+    dialog: Any
+    is_running: bool
 
     def __init__(self, ctx: Any, dialog: Any) -> None:
         self.ctx = ctx
@@ -103,6 +109,8 @@ class EvalRunListener(BaseActionListener):
 
 class SimpleCloseListener(BaseActionListener):
     """Closes dialog on button click."""
+
+    dialog: Any
 
     def __init__(self, dialog: Any) -> None:
         self.dialog = dialog

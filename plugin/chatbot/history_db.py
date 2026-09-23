@@ -74,6 +74,9 @@ def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str
 # Native SQLite3 Implementation
 # ---------------------------------------------------------------------------
 class SQLite3History:
+    session_id: str
+    db_path: str
+
     def __init__(self, session_id: str, db_path: str) -> None:
         self.session_id = session_id
         self.db_path = db_path
@@ -119,6 +122,10 @@ class SQLite3History:
 # JSON Implementation (Fallback)
 # ---------------------------------------------------------------------------
 class JSONHistory:
+    session_id: str
+    history_dir: str
+    file_path: str
+
     def __init__(self, session_id: str, db_path: str) -> None:
         self.session_id = session_id
         # Use a directory based on the db_path filename (e.g. writeragent_history.json.d/)

@@ -100,6 +100,9 @@ class StickyReplyToUserTool(ToolBase):
     is_mutation: bool | None = False
     long_running: bool = False
     requires_document: bool = False
+    spec: StickyReplySpec
+    description: str
+    parameters: dict[str, Any] | None
 
     def __init__(self, spec: StickyReplySpec) -> None:
         self.spec = spec

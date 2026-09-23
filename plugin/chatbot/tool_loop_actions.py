@@ -208,6 +208,8 @@ def build_tool_execute_fn(
 class ToolLoopEffectInterpreter:
     """Execute tool-loop effects against a concrete sidebar host."""
 
+    host: ToolLoopActionHost
+
     def __init__(self, host: ToolLoopActionHost) -> None:
         self.host = host
 

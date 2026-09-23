@@ -9,6 +9,8 @@ Users can turn the skill on/off via Settings and edit the rules by editing the S
 (or via a future in-app editor). The file in the user profile always wins over the built-in default.
 """
 
+from __future__ import annotations
+
 import os
 import logging
 from typing import Any
@@ -50,6 +52,9 @@ class SkillStore:
     Lives under the same user profile directory as memories/ so users have one place
     to find and edit their agent "personality" files.
     """
+
+    config_dir: str | None
+    skills_dir: str
 
     def __init__(self, ctx: Any) -> None:
         self.config_dir = user_config_dir()

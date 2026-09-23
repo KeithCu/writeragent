@@ -75,6 +75,14 @@ class SmolToolAdapter(SmolTool):
     """Wraps a ``ToolBase`` for smolagents with configurable execution semantics."""
 
     skip_forward_signature_validation: bool = True
+    _inner_tool: ToolBase
+    _inner_tctx: ToolContext
+    _safe: bool
+    name: str
+    description: str
+    is_final_answer_tool: bool
+    inputs: dict[str, dict[str, str | type | bool]]
+    output_type: str
 
     def __init__(self, tool: ToolBase, tctx: ToolContext, *, safe: bool = False, inputs_style: SmolInputsStyle = "librarian", output_type: str | None = None) -> None:
         self._inner_tool = tool
@@ -139,6 +147,12 @@ class WriterAgentSmolModel(Model):
     requests to WriterAgent's `LlmClient` (`core.api`).
     """
 
+    api: LlmClient
+    max_tokens: int
+    model_id: str | None
+    _status_callback: Any
+    _stop_checker: Any
+
     def __init__(
         self,
         llm_client: LlmClient,
@@ -199,6 +213,11 @@ class WriterAgentSmolModel(Model):
 
 class SmolAgentExecutor:
     """Executes a smolagent and streams its progress to the document chat UI."""
+
+    ctx: ToolContext
+    status_callback: Any
+    append_thinking_callback: Any
+    stop_checker: Any
 
     def __init__(self, ctx: ToolContext) -> None:
         """Initialize the executor with the tool context.

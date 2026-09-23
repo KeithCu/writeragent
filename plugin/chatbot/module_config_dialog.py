@@ -107,6 +107,10 @@ def _set_field_options(ctrl: Any, field: dict[str, Any]) -> None:
 class ModuleConfigDialog:
     """Modeless settings dialog for one MODULES entry with config_dialog metadata."""
 
+    _ctx: Any
+    _module_name: str
+    _closed: bool
+
     def __init__(self, ctx: Any, module_name: str) -> None:
         self._ctx = ctx
         self._module_name = module_name

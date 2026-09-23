@@ -30,6 +30,9 @@ log = logging.getLogger("writeragent.chatbot")
 class ChatbotModule(ModuleBase):
     """Registers the chatbot sidebar and its tool adapter."""
 
+    _services: Any
+    _adapter: Any
+
     def initialize(self, services: Any) -> None:
         self._services = services
 

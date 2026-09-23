@@ -93,6 +93,13 @@ def clear_stub_recorder_control() -> None:
 class AudioRecorder:
     fs: int = 16000
     channels: int = 1
+    ctx: Any
+    _auto_stop_lock: threading.Lock
+    state: AudioRecorderState
+    _test_skip_spawn: bool
+    _test_missing_wav: bool
+    _test_hang_ready: bool
+    _stub_start_count: int
 
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx

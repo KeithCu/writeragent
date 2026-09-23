@@ -25,6 +25,9 @@ from plugin.framework.deal_shim import (
 
 
 class MemoryStore:
+    config_dir: str | None
+    memory_dir: str
+
     def __init__(self, ctx: Any) -> None:
         # crosshair: off
         self.config_dir = user_config_dir()
