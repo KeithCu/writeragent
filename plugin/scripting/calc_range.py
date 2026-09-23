@@ -289,7 +289,7 @@ class CalcRange:
 
     # --- Issue #412: Arithmetic, comparison, and scalar protocols ---
 
-    __hash__: ClassVar[None] = None  # type: ignore[assignment]  # pyright: ignore[reportAssignmentType, reportGeneralTypeIssues]  # CalcRange is mutable / unhashable like ndarray
+    __hash__: None = None  # type: ignore[assignment]  # pyright: ignore[reportAssignmentType, reportGeneralTypeIssues]  # CalcRange is mutable / unhashable like ndarray
 
     def __bool__(self) -> bool:
         # crosshair: off
