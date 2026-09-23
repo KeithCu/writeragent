@@ -192,6 +192,13 @@ class EditorSessionState:
 class PersistentEditor:
     """Manages a single Monaco editor subprocess and keeps it alive in the background."""
 
+    _stdin_lock: threading.Lock
+    _stderr_tail_lock: threading.Lock
+    _stderr_tail: deque[str]
+    _stderr_tail_max_chars: int
+    _ready_event: threading.Event
+    _closed_event: threading.Event
+
     def __init__(self) -> None:
         self._proc: subprocess_types.Popen[bytes] | None = None
         self._stdin_lock = threading.Lock()
@@ -610,6 +617,12 @@ _PERSISTENT_EDITOR = PersistentEditor()
 
 class EditorSession:
     """One editor session wrapper, delegating to the PersistentEditor singleton."""
+
+    _proc: subprocess_types.Popen[bytes]
+    _on_save: Callable[..., dict[str, Any]]
+    _on_closed: Callable[[], None]
+    _executor: QueueExecutor
+    session_id: str
 
     def __init__(
         self,

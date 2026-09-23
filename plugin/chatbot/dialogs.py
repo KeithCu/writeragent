@@ -313,6 +313,8 @@ def copy_to_clipboard(ctx: Any, text: str) -> bool:
         clip = smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", ctx)
 
         class _TextTransferable(unohelper.Base, XTransferable):
+            _text: str
+
             def __init__(self, txt: str) -> None:
                 self._text = txt
 
@@ -421,6 +423,10 @@ def msgbox_with_copy(ctx: Any, title: str, message: str, copy_text: str) -> None
             msg_ctrl.getModel().Label = _(message)
 
         class _CopyListener(BaseActionListener):
+            _dlg: Any
+            _ctx: Any
+            _text: str
+
             def __init__(self, dialog: Any, context: Any, text: str) -> None:
                 self._dlg = dialog
                 self._ctx = context
@@ -487,6 +493,10 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
             msg_ctrl.getModel().Label = _(message)
 
         class _CopyListener(BaseActionListener):
+            _dlg: Any
+            _ctx: Any
+            _text: str
+
             def __init__(self, dialog: Any, context: Any, text: str) -> None:
                 self._dlg = dialog
                 self._ctx = context
@@ -505,6 +515,10 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
             copy_btn.addActionListener(_CopyListener(dlg, ctx, report_url))
 
         class _ReportListener(BaseActionListener):
+            _ctx: Any
+            _title: str
+            _extra: str
+
             def __init__(self, context: Any, dlg_title: str, dlg_extra: str) -> None:
                 self._ctx = context
                 self._title = dlg_title
@@ -576,6 +590,10 @@ def status_dialog(ctx: Any, title: str, build_status_fn: Callable[[], str], copy
                 copy_btn.getModel().Enabled = bool(copy_url_fn() if copy_url_fn else False)
                 
                 class _CopyListener(BaseActionListener):
+                    _dlg: Any
+                    _ctx: Any
+                    _url_fn: Any
+
                     def __init__(self, dialog: Any, context: Any, url_fn: Any) -> None:
                         self._dlg = dialog
                         self._ctx = context
@@ -841,6 +859,9 @@ def _nested_exception_object(val: Any) -> BaseException | None:
 
 class _UnoExceptionAdapter(BaseException):
     """Minimal BaseException wrapper for pyuno UNO exception objects."""
+
+    _uno_exc: Any
+    uno_type_name: str
 
     def __init__(self, uno_exc: Any) -> None:
         self._uno_exc = uno_exc
@@ -1131,6 +1152,9 @@ class TabListener(BaseActionListener):
     The XDL dialog must use dlg:page attributes on controls, and the dialog's Step
     property controls which page is visible.
     """
+
+    _dlg: Any
+    _page: int
 
     def __init__(self, dialog: Any, page: int) -> None:
         self._dlg = dialog

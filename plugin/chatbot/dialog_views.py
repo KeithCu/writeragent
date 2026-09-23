@@ -187,6 +187,18 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "", x: Any
 class SettingsDialog:
     """Manages the lifecycle of the WriterAgent Settings dialog."""
 
+    _ctx: Any
+    _dlg: Any
+    _scripting_venv_test_listener: Any
+    _ppt_master_data_test_listener: Any
+    _download_audio_listener: Any
+    _copy_mcp_listener: Any
+    _test_tunnel_listener: Any
+    _grammar_recheck_listener: Any
+    _mcp_tunnel_enabled_listener: Any
+    _mcp_tunnel_provider_listener: Any
+    _mcp_port_listener: Any
+
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
         self._dlg = None
@@ -448,7 +460,9 @@ class SettingsDialog:
 
     def _extract_results(self, field_specs: list[dict[str, Any]]) -> dict[str, Any]:
         assert self._dlg is not None
-        result = {}
+        # Mixed checkbox bools and text strings; without this mypy infers dict[str, str]
+        # from the empty-control "" default once SettingsDialog has class-body annotations.
+        result: dict[str, Any] = {}
         for field in field_specs:
             name = field["name"]
             ctrl = self._dlg.getControl(name)
@@ -578,6 +592,8 @@ def open_system_url(ctx: Any, url_str: str) -> None:
 
 
 class EditConfigListener(BaseActionListener):
+    _ctx: Any
+
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
     def on_action_performed(self, rEvent: Any) -> None:
@@ -587,6 +603,8 @@ class EditConfigListener(BaseActionListener):
 
 class RecheckGrammarListener(BaseActionListener):
     """Doc tab: dump this document's grammar L2 plus all of L1, then PROOFREAD_AGAIN."""
+
+    _ctx: Any
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
@@ -600,6 +618,11 @@ class RecheckGrammarListener(BaseActionListener):
 
 class ProviderStarterListener(BaseActionListener):
     """When a provider starter button is clicked, select its endpoint, sync key, and open signup page."""
+
+    _ctx: Any
+    _dlg: Any
+    _endpoint_url: str
+    _signup_url: str
 
     def __init__(self, ctx: Any, dlg: Any, endpoint_url: str, signup_url: str) -> None:
         self._ctx = ctx
@@ -622,6 +645,9 @@ class ProviderStarterListener(BaseActionListener):
 
 
 class GetApiKeyListener(BaseActionListener):
+    _ctx: Any
+    _dlg: Any
+
     def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
@@ -638,6 +664,9 @@ class GetApiKeyListener(BaseActionListener):
 
 
 class TestConnectionListener(BaseActionListener):
+    _ctx: Any
+    _dlg: Any
+
     def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
@@ -698,6 +727,9 @@ def _dialog_parent_for_child(ctx: Any, parent_dlg: Any) -> Any:  # pyright: igno
 class PptMasterDataTestListener(BaseActionListener):
     """Settings → Python: verify ppt-master skill tree at the path in the text field (saved or not)."""
 
+    _ctx: Any
+    _dlg: Any
+
     def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
@@ -715,6 +747,8 @@ class PptMasterDataTestListener(BaseActionListener):
 
 
 class ApiKeyTextListener(BaseListener, XTextListener):
+    _el: Any
+
     def __init__(self, endpoint_listener: Any) -> None:
         self._el = endpoint_listener
     def textChanged(self, rEvent: TextEvent) -> None:
@@ -722,6 +756,25 @@ class ApiKeyTextListener(BaseListener, XTextListener):
 
 
 class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
+    _dlg: Any
+    _ctx: Any
+    _ctrl: Any
+    _debounce_gen: int
+    _closed: bool
+    _timer: threading.Timer | None
+    post_to_main_thread: Callable[..., Any]
+    run_in_background: Callable[..., Any]
+    get_api_key_for_endpoint: Callable[..., Any]
+    populate_combobox_with_lru: Callable[..., Any]
+    populate_image_model_selector: Callable[..., Any]
+    endpoint_from_selector_text: Callable[..., Any]
+    endpoint_url_suitable_for_v1_models_fetch: Callable[..., Any]
+    fetch_available_models: Callable[..., Any]
+    fetch_available_image_models: Callable[..., Any]
+    _sanitize_model_combobox_value: Callable[..., Any]
+    get_provider_from_endpoint: Callable[..., Any]
+    get_image_model: Callable[..., Any]
+
     def __init__(self, dialog: Any, context: Any, combo_ctrl: Any) -> None:
         from plugin.framework.queue_executor import post_to_main_thread
         from plugin.framework.worker_pool import run_in_background
@@ -741,7 +794,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._ctrl = combo_ctrl
         self._debounce_gen = 0
         self._closed = False
-        self._timer: threading.Timer | None = None
+        self._timer = None
         
         self.post_to_main_thread = post_to_main_thread
         self.run_in_background = run_in_background
@@ -953,6 +1006,9 @@ def setup_module_tabs(dlg: Any) -> None:
 
 class DownloadAudioListener(BaseActionListener):
     """Settings → Python: download audio binaries and pure Python dependencies from GitHub."""
+
+    _ctx: Any
+    _dlg: Any
 
     def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx

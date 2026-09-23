@@ -391,6 +391,9 @@ def _normalize_delta(delta: object) -> None:  # pyright: ignore[reportUnusedFunc
 class ThinkTagStreamSplitter:
     """Stateful stream splitter for inline <think>...</think> tags in content stream."""
 
+    in_thinking: bool
+    _buf: str
+
     def __init__(self) -> None:
         self.in_thinking = False
         self._buf = ""

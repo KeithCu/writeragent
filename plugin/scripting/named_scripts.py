@@ -204,6 +204,8 @@ def load_named_script(origin: str, name: str, executor: Any | None = None) -> An
 class ScriptLibrary:
     """``wa.scripts`` (My Scripts) or ``wa.doc`` (This Document)."""
 
+    _origin: str
+
     def __init__(self, origin: str) -> None:
         self._origin = origin
         self._executor: Any | None = None

@@ -105,6 +105,11 @@ class RichTextChatWidget:
     focus-preservation, text copying from hidden Writer, and caret reveal.
     """
 
+    ctx: Any
+    control: Any
+    style_window: Any
+    model: Any
+
     def __init__(self, ctx: Any, control: Any, style_window: Any = None) -> None:
         self.ctx = ctx
         self.control = control
@@ -740,6 +745,15 @@ class RichTextControlListener(BaseWindowListener):
     and ``on_window_shown`` when the sidebar deck fires ``windowShown`` (typical on KDE).
     Resize is handled by ``_PanelResizeListener`` (``last_response_rect`` + ``sync_rich_control_bounds``).
     """
+
+    ctx: Any
+    root_window: Any
+    placeholder_ctrl: Any
+    on_ready_callback: Any
+    _placeholder_rect_fn: Any
+    rich_control: Any
+    initialized: bool
+    _disposed: bool
 
     def __init__(self, ctx: Any, root_window: Any, placeholder_ctrl: Any, on_ready_callback: Any, placeholder_rect_fn: Any = None) -> None:
         self.ctx = ctx

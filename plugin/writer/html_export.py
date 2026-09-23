@@ -20,7 +20,7 @@ import logging
 import re
 import time
 from html import escape as html_escape
-from typing import Any, Iterator
+from typing import Any, ClassVar, Iterator
 
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
@@ -41,7 +41,11 @@ class _RubySpan:
     wrapping a base that was trimmed out of the copied window.
     """
 
-    __slots__ = ("base", "reading", "start", "end")
+    base: str
+    reading: str
+    start: int
+    end: int
+    __slots__: ClassVar[tuple[str, ...]] = ("base", "reading", "start", "end")
 
     def __init__(self, base: str, reading: str, start: int = 0, end: int = 0) -> None:
         self.base = base

@@ -32,6 +32,10 @@ ProbeFn = Callable[[Callable[[str], None], Callable[[str], None]], tuple[bool, s
 class VenvProbeProgressDialog:
     """Modal progress window for Settings → Python Test (probe runs in a worker thread)."""
 
+    _ctx: Any
+    _parent_dlg: Any
+    _dlg: Any
+
     def __init__(self, ctx: Any, parent_dlg: Any = None) -> None:
         self._ctx = ctx
         self._parent_dlg = parent_dlg
@@ -133,6 +137,8 @@ class VenvProbeProgressDialog:
 
 
 class _VenvProbeCloseListener(BaseActionListener):
+    _progress: VenvProbeProgressDialog
+
     def __init__(self, progress: VenvProbeProgressDialog) -> None:
         self._progress = progress
 
@@ -147,6 +153,11 @@ class _VenvProbeCloseListener(BaseActionListener):
 
 class ScriptingVenvTestListener(BaseActionListener):
     """Settings → Python: run a quick subprocess check using the path in the text field (saved or not)."""
+
+    _ctx: Any
+    _dlg: Any
+    _include_vector_search: bool
+    _include_audio: bool
 
     def __init__(
         self,

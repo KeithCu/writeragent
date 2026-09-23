@@ -21,7 +21,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import uuid
-from typing import Any, Iterator
+from typing import Any, ClassVar, Iterator
 
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_ranges
@@ -39,7 +39,10 @@ _SAVE_HOOK_DEPTH = 0
 
 
 class _PendingStrip:
-    __slots__ = ("names", "was_modified", "doc")
+    names: dict[int, str]
+    was_modified: bool
+    doc: Any
+    __slots__: ClassVar[tuple[str, ...]] = ("names", "was_modified", "doc")
 
     def __init__(self, names: dict[int, str], was_modified: bool, doc: Any) -> None:
         self.names = dict(names)
@@ -65,6 +68,9 @@ class _BookmarkSaveListener(BaseDocumentEventListener):
     on ``OnSave*`` (not only ``OnSaveDone``) so the written file is clean;
     restore the same names after ``*Done``.
     """
+
+    _svc: BookmarkService
+    _doc_key: str
 
     def __init__(self, svc: BookmarkService, doc_key: str) -> None:
         super().__init__()
@@ -99,6 +105,8 @@ class BookmarkService(ServiceBase):
     """Manage _mcp_ bookmarks on headings for stable addressing."""
 
     name: str | None = "writer_bookmarks"
+
+    _doc_svc: Any
 
     def __init__(self, services: Any = None) -> None:
         # Optional so unit/UNO tests can still call BookmarkService().

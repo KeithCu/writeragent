@@ -301,6 +301,9 @@ def _install_global_exception_hooks() -> None:
 class SafeLogger:
     """Logger wrapper with error handling."""
 
+    _logger: Any
+    _fallback_enabled: bool
+
     def __init__(self, logger: Any) -> None:
         self._logger = logger
         self._fallback_enabled = True

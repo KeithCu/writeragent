@@ -27,6 +27,8 @@ def write_frame(stream: BinaryIO, payload: dict[str, Any]) -> None:
 class HeartbeatEmitter:
     """Emit heartbeat frames on the worker stdout pipe during long trusted jobs."""
 
+    _stream: BinaryIO
+
     def __init__(self, stream: BinaryIO | None = None) -> None:
         self._stream = stream if stream is not None else sys.stdout.buffer
 

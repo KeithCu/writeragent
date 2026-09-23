@@ -69,7 +69,7 @@ Two trivial fast-paths: identical strings -> surgical mode with zero sub-edits;
 """
 
 import difflib
-from typing import Any
+from typing import Any, ClassVar
 
 __all__ = [
     "Token",
@@ -90,7 +90,11 @@ class Token:
         is_word:  ``True`` for a non-whitespace run, ``False`` for a whitespace run.
     """
 
-    __slots__ = ("text", "start", "end", "is_word")
+    text: str
+    start: int
+    end: int
+    is_word: bool
+    __slots__: ClassVar[tuple[str, ...]] = ("text", "start", "end", "is_word")
 
     def __init__(self, text: str, start: int, end: int, is_word: bool) -> None:
         self.text = text
@@ -130,7 +134,12 @@ class SubEdit:
     :func:`apply_sub_edits`.
     """
 
-    __slots__ = ("op", "old_start", "old_end", "old_text", "new_text")
+    op: str
+    old_start: int
+    old_end: int
+    old_text: str
+    new_text: str
+    __slots__: ClassVar[tuple[str, ...]] = ("op", "old_start", "old_end", "old_text", "new_text")
 
     def __init__(self, op: str, old_start: int, old_end: int, old_text: str, new_text: str) -> None:
         self.op = op
@@ -171,7 +180,10 @@ class SplitResult:
                            (empty when ``old == new``).
     """
 
-    __slots__ = ("mode", "fraction_changed", "sub_edits")
+    mode: str
+    fraction_changed: float
+    sub_edits: list[SubEdit]
+    __slots__: ClassVar[tuple[str, ...]] = ("mode", "fraction_changed", "sub_edits")
 
     def __init__(self, mode: str, fraction_changed: float, sub_edits: list[SubEdit]) -> None:
         self.mode = mode

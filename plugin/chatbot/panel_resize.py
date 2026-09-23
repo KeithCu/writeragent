@@ -140,6 +140,13 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     runtime anchors the bottom band and stretches the transcript to fill the column.
     """
 
+    _c: dict[str, Any]
+    _in_relayout: bool
+    _root_window: Any
+    _parent_window: Any
+    _width_negotiated: bool
+    _viewport_w: int
+
     def __init__(self, controls: dict[str, Any]) -> None:
         self._c = controls
         self._snapshot: dict[str, tuple[int, int, int, int]] | None = None

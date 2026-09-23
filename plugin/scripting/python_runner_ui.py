@@ -91,6 +91,12 @@ class NativePythonScriptDialog:
     focus between LO windows (getCurrentComponent() did not track that in manual testing).
     """
 
+    _ctx: Any
+    _doc: Any | None
+    _modeless: bool
+    _closed: bool
+    _opened: bool
+
     def __init__(
         self,
         ctx: Any,

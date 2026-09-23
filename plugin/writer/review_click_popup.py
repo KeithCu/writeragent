@@ -89,6 +89,8 @@ def _make_handler(model: Any) -> Any:
         from com.sun.star.awt import XMouseClickHandler
 
         class _ClickReviewHandler(unohelper.Base, XMouseClickHandler):  # type: ignore[misc, valid-type]
+            _model: Any
+
             def __init__(self, model: Any) -> None:
                 super().__init__()
                 self._model = model

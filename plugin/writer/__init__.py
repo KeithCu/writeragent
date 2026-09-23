@@ -37,6 +37,8 @@ if "crosshair" not in sys.modules:
 class WriterModule(ModuleBase):
     """Registers Writer tools for outline, content, comments, styles, etc."""
 
+    services: Any
+
     def initialize(self, services: Any) -> None:
         self.services = services
 

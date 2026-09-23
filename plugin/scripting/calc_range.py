@@ -160,6 +160,8 @@ class CalcRange:
     """
 
     __slots__: ClassVar[tuple[str, ...]] = ("_values", "_address")
+    _values: list[list[Any]]
+    _address: str | None
 
     def __init__(self, values: Any, *, address: str | None = None) -> None:
         # crosshair: off

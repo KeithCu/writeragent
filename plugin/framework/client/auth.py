@@ -41,6 +41,8 @@ def reject_control_chars_in_api_key(api_key: str) -> str:
 class AuthError(ConfigError):
     """Structured auth error for provider/endpoint configuration problems."""
 
+    provider: str
+
     def __init__(self, message: str, *, provider: str = "", code: Optional[str] = None) -> None:
         if code is None:
             code = "AUTH_ERROR"

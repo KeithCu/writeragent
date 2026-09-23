@@ -68,7 +68,15 @@ from plugin.chatbot.grammar_status import (
 class ChatSession:
     """Maintains the message history for one sidebar chat session."""
 
+    session_id: str | None
+    db: Any
+    messages: list[dict[str, Any]]
+    base_system_prompt: str
+    document_context: str
+    active_specialized_domain: str | None
+    python_tool_domain: str | None
     tool_streamed_texts: dict[str, list[str]]
+    compaction: Any
 
     def __init__(self, system_prompt: str | None = None, session_id: str | None = None) -> None:
         self.session_id = session_id
@@ -198,6 +206,8 @@ def _uno_model_probe_for_log(model: Any, *, cached_doc_type: str | None = None) 
 
 
 class QueryTextListener(BaseTextListener):
+    send_listener: Any
+
     def __init__(self, send_listener: Any) -> None:
         # We now keep a reference to the main SendButtonListener which holds the state
         self.send_listener = send_listener
@@ -260,6 +270,8 @@ _DOC_CHAT_ENTER_SENDS = "doc.chat_enter_key_sends_message"
 class QueryKeyListener(BaseKeyListener):
     """Enter in the query field triggers Send when enabled in Settings (Shift+Enter inserts a newline)."""
 
+    send_listener: Any
+
     def __init__(self, send_listener: Any) -> None:
         self.send_listener = send_listener
 
@@ -307,13 +319,52 @@ class QueryKeyListener(BaseKeyListener):
 class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
+    ctx: Any
+    frame: Any
+    send_control: Any
+    stop_control: Any
+    clear_control: Any
+    query_control: Any
+    response_control: Any
+    image_model_selector: Any
+    model_selector: Any
+    status_control: Any
+    session: ChatSession
+    chat_mode_selector: Any
+    aspect_ratio_selector: Any
+    base_size_input: Any
+    sidebar_include_brainstorming: bool
+    sidebar_mode_flags: Any
+    ensure_path_fn: Any
     client: LlmClient | None
     initial_doc_type: str | None
     cached_doc_type: str | None
     cached_uno_services: frozenset[str] | None
+    _stop_requested_fallback: bool
+    _terminal_status: str
+    _send_busy: bool
+    _in_librarian_mode: bool
+    _in_brainstorming_mode: bool
+    _brainstorming_topic: str
+    _in_writing_plan_mode: bool
+    _writing_plan_topic: str
+    _in_ppt_master_mode: bool
+    _ppt_master_topic: str
+    panel: Any
+    audio_wav_path: str | None
+    _current_agent_backend: Any
+    _current_tool_call_id: str | None
+    _approval_event: Any
+    _extracted_peer_query: str
+    _extracted_peer_already_appended: bool
     _record_assistant_start: bool
     slash_popup: Any
     clear_listener: Any
+    rich_text_widget: Any
+    _rich_plain_fallback_warned: bool
+    queue_executor: QueueExecutor
+    audio_recorder: Any
+    sidebar_state: SidebarCompositeState
 
     def __init__(
         self,
@@ -1421,6 +1472,8 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
 class StopButtonListener(BaseActionListener):
     """Listener for the Stop button - sets a flag in SendButtonListener to halt loops."""
 
+    send_listener: Any
+
     def __init__(self, send_listener: Any) -> None:
         self.send_listener = send_listener
 
@@ -1446,6 +1499,12 @@ class StopButtonListener(BaseActionListener):
 
 class ClearButtonListener(BaseActionListener):
     """Listener for the Clear button - resets conversation history."""
+
+    send_listener: Any
+    session: Any
+    response_control: Any
+    status_control: Any
+    greeting: str
 
     def __init__(self, session: Any, response_control: Any, status_control: Any, greeting: str = "", send_listener: Any = None) -> None:
         self.send_listener = send_listener
@@ -1498,6 +1557,8 @@ class ClearButtonListener(BaseActionListener):
 class SettingsButtonListener(BaseActionListener):
     """Listener for the Settings button in the Chat sidebar."""
 
+    ctx: Any
+
     def __init__(self, ctx: Any = None) -> None:
         self.ctx = ctx
 
@@ -1516,6 +1577,8 @@ class SettingsButtonListener(BaseActionListener):
 class PythonButtonListener(BaseActionListener):
     """Listener for the Run Python Script button in the Chat sidebar."""
 
+    ctx: Any
+
     def __init__(self, ctx: Any = None) -> None:
         self.ctx = ctx
 
@@ -1529,6 +1592,8 @@ class PythonButtonListener(BaseActionListener):
 
 class LatexButtonListener(BaseActionListener):
     """Listener for the Insert LaTeX Math button in the Chat sidebar."""
+
+    ctx: Any
 
     def __init__(self, ctx: Any = None) -> None:
         self.ctx = ctx
@@ -1544,6 +1609,8 @@ class LatexButtonListener(BaseActionListener):
 class SearchButtonListener(BaseActionListener):
     """Listener for the Search Nearby Files button in the Chat sidebar."""
 
+    ctx: Any
+
     def __init__(self, ctx: Any = None) -> None:
         self.ctx = ctx
 
@@ -1558,6 +1625,8 @@ class SearchButtonListener(BaseActionListener):
 class PythonCellButtonListener(BaseActionListener):
     """Listener for the Edit Python in Cell button in the Calc Chat sidebar."""
 
+    ctx: Any
+
     def __init__(self, ctx: Any = None) -> None:
         self.ctx = ctx
 
@@ -1571,6 +1640,9 @@ class PythonCellButtonListener(BaseActionListener):
 
 class HamburgerButtonListener(BaseActionListener):
     """Listener for the Hamburger menu button in the Chat sidebar."""
+
+    ctx: Any
+    _frame: Any
 
     def __init__(self, ctx: Any = None, frame: Any = None) -> None:
         self.ctx = ctx

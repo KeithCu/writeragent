@@ -415,6 +415,13 @@ def _errors_to_uno_tuple(norms: Sequence[NormalizedProofError]) -> tuple[Any, ..
 class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo, XServiceName, XServiceDisplayName, XSupportedLocales, XLinguServiceEventBroadcaster):  # pyright: ignore[reportGeneralTypeIssues] — multiple UNO interface bases  # pyrefly: ignore[invalid-inheritance]
     """Grammar checker registered under Linguistic / GrammarCheckers (cf. Lightproof)."""
 
+    ctx: Any
+    _pending_proofread_again: bool
+    _first_listener_proofread_again_done: bool
+    _implementation_name: str
+    _supported_service_names: tuple[str, ...]
+    _locales: tuple[Any, ...]
+
     def __init__(self, ctx: Any, *args: Any) -> None:
         # LibreOffice's Linguistic manager instantiates proofreaders with
         # compatibility arguments before querying XSupportedLocales.

@@ -229,6 +229,13 @@ def _initialize_extension_paths(ctx: Any) -> None:
 class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     """Holds the panel window; implements XToolPanel and XSidebarPanel."""
 
+    ctx: Any
+    PanelWindow: Any
+    Window: Any
+    parent_window: Any
+    resize_listener: Any
+    _in_hfw: bool
+
     def __init__(self, panel_window: Any, parent_window: Any, ctx: Any) -> None:
         self.ctx = ctx
         self.PanelWindow = panel_window
@@ -322,6 +329,21 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
 class ChatPanelElement(unohelper.Base, XUIElement):
     """XUIElement wrapper; creates panel window in getRealInterface() via ContainerWindowProvider."""
 
+    ctx: Any
+    xFrame: Any
+    xParentWindow: Any
+    ResourceURL: Any
+    Frame: Any
+    Type: Any
+    toolpanel: ChatToolPanel | None
+    m_panelRootWindow: Any
+    rich_text_widget: Any
+    _in_refresh_controls: bool
+    doc_session: Any
+    web_session: Any
+    librarian_session: Any
+    send_listener: Any
+
     def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str) -> None:
         self.ctx = ctx
         self.xFrame = frame
@@ -329,7 +351,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.ResourceURL = resource_url
         self.Frame = frame
         self.Type = TOOLPANEL
-        self.toolpanel: ChatToolPanel | None = None
+        self.toolpanel = None
         self.m_panelRootWindow = None
         self.session: Any = None  # Created in _wireControls
         self.rich_text_widget = None
@@ -634,6 +656,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if model_selector:
 
             class ModelSyncListener(BaseItemListener):
+                panel: Any
+                ctx: Any
+
                 def __init__(self, panel: Any, ctx: Any) -> None:
                     self.panel = panel
                     self.ctx = ctx
@@ -646,6 +671,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     sync_sidebar_text_model(self.ctx, model_selector)
 
             class ModelTextSyncListener(BaseTextListener):
+                panel: Any
+                ctx: Any
+
                 def __init__(self, panel: Any, ctx: Any) -> None:
                     self.panel = panel
                     self.ctx = ctx
@@ -665,6 +693,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if image_model_selector and hasattr(image_model_selector, "addItemListener"):
 
             class ImageModelSyncListener(BaseItemListener):
+                panel: Any
+                ctx: Any
+
                 def __init__(self, panel: Any, ctx: Any) -> None:
                     self.panel = panel
                     self.ctx = ctx
@@ -853,6 +884,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             return apply_mode
 
         class ChatModeListener(BaseItemListener):
+            panel: Any
+            ctx: Any
+            selector: Any
+            mode_flags: Any
+            apply_target: Any
+
             def __init__(self, panel: Any, ctx: Any, selector: Any, flags: Any, apply_target: Any) -> None:
                 self.panel = panel
                 self.ctx = ctx
@@ -1061,6 +1098,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
 class ChatPanelFactory(unohelper.Base, XUIElementFactory):
     """Factory that creates ChatPanelElement instances for the sidebar."""
+
+    ctx: Any
 
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx

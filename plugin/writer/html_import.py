@@ -221,6 +221,8 @@ class _BlockLoStyleExtractor(HTMLParser):
     from the HTML, so the StarWriter import sees clean markup and we apply the named styles
     ourselves afterwards. Content inside <table> is left to the import (avoids order desync)."""
 
+    _table_depth: int
+
     def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
         self._table_depth = 0

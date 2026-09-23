@@ -126,6 +126,8 @@ SendHandlerEffect = SpawnAudioWorkerEffect | SpawnDirectImageEffect | SpawnAgent
 
 
 class EffectInterpreter:
+    handler: Any
+
     def __init__(self, handler_mixin: Any) -> None:
         self.handler = handler_mixin
         self.current_state: SendHandlerState | None = None

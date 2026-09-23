@@ -47,6 +47,8 @@ _OFFICE_HINT_EXTS = (".xlsx", ".xls", ".ods")
 class FlatFileError(ValueError):
     """Typed folder-file failure so query_folder_sql can return a stable code."""
 
+    code: str
+
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
@@ -324,6 +326,8 @@ class GuardedDuckDBConnection:
     Register / CREATE VIEW stay available. Raw ``import duckdb`` still bypasses this
     wrap — demos and ``=PY()`` should prefer ``session_duckdb()`` / ``run_sql``.
     """
+
+    _con: Any
 
     def __init__(self, con: Any) -> None:
         self._con = con

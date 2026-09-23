@@ -90,6 +90,8 @@ class SendCancellation:
     """Per-send cancellation: flag, registered HTTP clients, and optional hooks."""
 
     __slots__: ClassVar[tuple[str, ...]] = ("_cancelled", "_lock", "_hooks", "_executors")
+    _cancelled: threading.Event
+    _lock: threading.Lock
 
     def __init__(self) -> None:
         self._cancelled = threading.Event()
@@ -278,6 +280,14 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
 
 class _WorkItem:
     __slots__: ClassVar[tuple[str, ...]] = ("id", "fn", "args", "kwargs", "blocking", "event", "result", "exception", "cancelled", "_claimed")
+    id: str
+    fn: Any
+    args: Any
+    kwargs: Any
+    blocking: bool
+    event: threading.Event | None
+    cancelled: bool
+    _claimed: bool
 
     def __init__(self, item_id: str, fn: Any, args: Any, kwargs: Any, blocking: bool = True) -> None:
         self.id = item_id
@@ -294,6 +304,13 @@ class _WorkItem:
 
 class QueueExecutor:
     """Execute functions on main thread using queue system."""
+
+    _ctx: Any | None
+    _async_callback_service: Any
+    _callback_instance: Any
+    _init_lock: threading.Lock
+    _claim_lock: threading.Lock
+    _initialized: bool
 
     def __init__(self, ctx: Any | None = None) -> None:
         from plugin.framework.thread_guard import _unwrap_uno

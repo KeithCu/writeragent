@@ -523,6 +523,15 @@ def _create_ask_peer_listbox(
 class SlashPopupController:
     """Show, filter, and accept slash commands on the Ask-field overlay list."""
 
+    query_control: Any
+    send_listener: Any
+    _overlay_parent: Any
+    _placeholder: Any
+    _ignore_item: bool
+    _open: bool
+    _selected: int
+    _listeners_attached: bool
+
     def __init__(
         self,
         control: Any,

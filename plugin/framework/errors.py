@@ -75,6 +75,12 @@ class suppress_disposed(contextlib.ContextDecorator):
     if suppress_all is True (default for UI lifecycle blocks), suppressed so they do not crash host UI event loops.
     """
 
+    action: str
+    logger: logging.Logger | None
+    log_unexpected: bool
+    suppress_all: bool
+    exc_info: bool
+
     def __init__(
         self,
         action: str = "action",
@@ -178,6 +184,9 @@ class WriterAgentException(Exception):
     """
 
     code: str = "INTERNAL_ERROR"
+    message: str
+    details: dict[str, Any]
+    context: dict[str, Any]
 
     def __init__(
         self,
@@ -452,6 +461,7 @@ class DocumentDisposedError(UnoObjectError):
     """Document or UNO object was disposed during operation."""
 
     code: str = "DISPOSED_OBJECT"
+    object_type: str
 
     def __init__(
         self,
@@ -469,6 +479,8 @@ class ResourceNotFoundError(WriterAgentException):
     """Configuration files, documents, or resources not found."""
 
     code: str = "RESOURCE_NOT_FOUND"
+    resource_type: str
+    identifier: str
 
     def __init__(
         self,

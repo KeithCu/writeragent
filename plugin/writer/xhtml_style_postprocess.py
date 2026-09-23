@@ -270,6 +270,13 @@ class _SemanticTransformer(HTMLParser):
     attributes we change are rewritten with string ops.
     """
 
+    _raw: dict[str, str]
+    _autostyle_parents: dict[str, str]
+    _autostyle_overrides: dict[str, str]
+    _colliding_tokens: set[str]
+    _norm: dict[str, str]
+    _table_depth: int
+
     def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> None:
         # crosshair: off
         # HTMLParser transformer state (cover-all 35546602462). Doable later with closed style maps.

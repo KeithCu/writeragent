@@ -198,6 +198,9 @@ class _VisitWebpageDedupTool(Tool):
     description: str = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
     inputs: dict[str, dict[str, str | type[Any] | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type: str = "string"
+    _inner: Tool
+    _visited_urls: set[str] | None
+    _visited_urls_lock: threading.Lock | None
 
     def __init__(self, inner: Tool, visited_urls: set[str] | None, visited_urls_lock: threading.Lock | None) -> None:
         super().__init__()
@@ -226,6 +229,8 @@ class VisitWebpageCdpTool(Tool):
     description: str = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
     inputs: dict[str, dict[str, str | type[Any] | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type: str = "string"
+    cdp_url: str
+    max_output_length: int
 
     def __init__(self, cdp_url: str, max_output_length: int = 40000, **kwargs: Any) -> None:
         super().__init__()

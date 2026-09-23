@@ -94,6 +94,18 @@ def load_silence_detector_config() -> SilenceDetectorConfig:
 class SilenceDetector:
     """Track consecutive silence after minimum speech; trigger auto-stop without STT."""
 
+    _config: SilenceDetectorConfig
+    _sample_rate: int
+    _silence_ms: int
+    _speech_ms: int
+    _silence_threshold: float
+    _speech_threshold: float
+    _thresholds_frozen: bool
+    _last_reported_silence_ms: int
+    _in_speech: bool
+    _session_max_rms: float
+    _session_max_peak: float
+
     def __init__(self, config: SilenceDetectorConfig, *, sample_rate: int = 16000) -> None:
         self._config = config
         self._sample_rate = sample_rate

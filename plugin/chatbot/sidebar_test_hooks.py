@@ -1351,6 +1351,11 @@ def _slash_key_in_soffice(sl: Any, key_code: int, modifiers: int) -> None:
 class _UrpSlashHost:
     """Stand-in SendButtonListener so the popup can run over URP without gc."""
 
+    query_control: Any
+    response_control: Any
+    clear_listener: Any
+    _stop: Any
+
     def __init__(self, query: Any, response: Any, clear: Any, stop: Any) -> None:
         self.query_control = query
         self.response_control = response

@@ -43,6 +43,10 @@ class ImageProvider:
 class EndpointImageProvider(ImageProvider):
     """Uses the endpoint URL and API key from Settings (same as chat). Model from image_model or text model."""
 
+    client: LlmClient
+    model: str
+    ctx: Any
+
     def __init__(self, api_config: Any, ctx: Any) -> None:
         self.client = LlmClient(api_config, ctx)
         self.model = api_config.get("model", "google/gemini-3.1-flash-lite-preview")
@@ -185,6 +189,9 @@ class EndpointImageProvider(ImageProvider):
 
 
 class ImageService:
+    ctx: Any
+    config: Any
+
     def __init__(self, ctx: Any, config: Any) -> None:
         self.ctx = ctx
         self.config = config
