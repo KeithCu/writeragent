@@ -188,23 +188,23 @@ def assert_main_thread(what: str) -> None:
     log.warning(msg, stack_info=True)
 
 
-def main_thread_only(fn):
+def main_thread_only(fn: Any) -> Any:
     """Decorator: assert main thread on entry. Use on UNO source functions."""
     @functools.wraps(fn)
-    def wrapper(*a, **k):
+    def wrapper(*a: Any, **k: Any) -> Any:
         assert_main_thread(getattr(fn, "__qualname__", str(fn)))
         return fn(*a, **k)
     return wrapper
 
 
-def background(fn):
+def background(fn: Any) -> Any:
     """Decorator: mark a function as background-only (blue for Layer C Semgrep).
 
     Warns if invoked on the main thread; documents intent for static analysis.
     See docs/framework/uno-thread-safety.md (Layer C).
     """
     @functools.wraps(fn)
-    def wrapper(*a, **k):
+    def wrapper(*a: Any, **k: Any) -> Any:
         if on_main_thread():
             log.warning("@background fn %r ran on the main thread", getattr(fn, "__qualname__", str(fn)))
         return fn(*a, **k)

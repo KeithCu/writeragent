@@ -29,6 +29,8 @@ through Python’s ``logging`` handler lock; you do not need another mutex
 around ``log.info``.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import json
@@ -188,7 +190,7 @@ def _ensure_debug_file_handler(logger: logging.Logger) -> None:
     logger.addHandler(handler)
 
 
-def init_logging(ctx=None):
+def init_logging(ctx: Any | None = None) -> None:
     """Set global debug log path (LO user config dir) and enable_agent_log from ctx. Idempotent."""
     global _debug_log_path, _enable_agent_log
     with _init_lock:
@@ -255,7 +257,7 @@ def _install_global_exception_hooks():
 
     _original_excepthook = sys.excepthook
 
-    def _writeragent_excepthook(exc_type, exc_value, exc_tb):
+    def _writeragent_excepthook(exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
         try:
             tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
             msg = "Unhandled exception:\n" + "".join(tb_lines)
@@ -277,7 +279,7 @@ def _install_global_exception_hooks():
     if getattr(threading, "excepthook", None) is not None:
         _original_threading_excepthook = threading.excepthook
 
-        def _writeragent_threading_excepthook(args):
+        def _writeragent_threading_excepthook(args: Any) -> None:
             try:
                 msg = "Unhandled exception in thread %s: %s\n%s" % (getattr(args, "thread", None), getattr(args, "exc_type", args), "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)) if getattr(args, "exc_type", None) else "")
                 try:
@@ -300,11 +302,11 @@ def _install_global_exception_hooks():
 class SafeLogger:
     """Logger wrapper with error handling."""
 
-    def __init__(self, logger):
+    def __init__(self, logger: Any) -> None:
         self._logger = logger
         self._fallback_enabled = True
 
-    def error(self, msg, *args, **kwargs):
+    def error(self, msg: Any, *args: Any, **kwargs: Any) -> None:
         """Safe error logging."""
         try:
             if self._logger:
@@ -314,7 +316,7 @@ class SafeLogger:
                 print(f"LOG ERROR FAILED: {msg}")
                 print(f"Original error: {e}")
 
-    def warning(self, msg, *args, **kwargs):
+    def warning(self, msg: Any, *args: Any, **kwargs: Any) -> None:
         """Safe warning logging."""
         try:
             if self._logger:
@@ -324,7 +326,7 @@ class SafeLogger:
                 print(f"LOG WARNING FAILED: {msg}")
                 print(f"Original error: {e}")
 
-    def exception(self, msg, *args, **kwargs):
+    def exception(self, msg: Any, *args: Any, **kwargs: Any) -> None:
         """Safe exception logging (includes stacktrace)."""
         try:
             if self._logger:
@@ -339,7 +341,7 @@ class SafeLogger:
         self._fallback_enabled = False
 
 
-def safe_log_exception(e, context="general", logger=None):
+def safe_log_exception(e: BaseException, context: str = "general", logger: Any = None) -> None:
     """Safely log exceptions with fallback mechanisms."""
 
     if logger is None:
@@ -370,7 +372,7 @@ def safe_log_exception(e, context="general", logger=None):
         print(f"Logging error: {logging_error}")
 
 
-def log_exception(ex, context="WriterAgent"):
+def log_exception(ex: BaseException, context: str = "WriterAgent") -> None:
     """Log an exception with traceback to the unified debug log."""
     try:
         logger = log
@@ -379,7 +381,7 @@ def log_exception(ex, context="WriterAgent"):
         pass
 
 
-def format_tool_call_for_display(tool, args, method=None):
+def format_tool_call_for_display(tool: Any, args: Any, method: Any = None) -> str:
     """Format an MCP tool call or generic method call for UI display, summarizing long arguments."""
     try:
         if tool:
@@ -402,7 +404,7 @@ def format_tool_call_for_display(tool, args, method=None):
         return f"{tool or method} (format error: {e})"
 
 
-def format_tool_result_for_display(tool, result, args=None):
+def format_tool_result_for_display(tool: Any, result: Any, args: Any = None) -> str:
     """Format an MCP tool result for UI display, extracting inner text/messages and summarizing length."""
     try:
         res_str = str(result)
@@ -449,7 +451,7 @@ def format_tool_result_for_display(tool, result, args=None):
         return f"{tool}() -> (format error: {e})"
 
 
-def agent_log(location, message, data=None, hypothesis_id=None, run_id=None):
+def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any = None, run_id: Any = None) -> None:
     """Write one structured agent trace line to writeragent_debug.log when enable_agent_log is True."""
     if not _enable_agent_log:
         return
@@ -466,7 +468,7 @@ def agent_log(location, message, data=None, hypothesis_id=None, run_id=None):
         pass
 
 
-def update_activity_state(phase, round_num=None, tool_name=None):
+def update_activity_state(phase: str, round_num: Any = None, tool_name: str | None = None) -> None:
     """Update shared activity state (call from main thread at phase boundaries).
     Pass phase='' when returning control to LibreOffice so the watchdog stops checking."""
     with _activity_lock:
@@ -511,7 +513,7 @@ def log_send_timing(milestone: str, **extra: object) -> None:
 
 
 @background
-def _watchdog_loop(status_control):
+def _watchdog_loop(status_control: Any) -> None:
     """Daemon thread: if no activity for threshold, log and set status to Hung: ..."""
     while True:
         time.sleep(_watchdog_interval_sec)
@@ -540,7 +542,7 @@ def _watchdog_loop(status_control):
                 log.debug("watchdog: failed to post Hung status to main thread", exc_info=True)
 
 
-def start_watchdog_thread(ctx, status_control=None):
+def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
     """Start the hang-detection watchdog (idempotent). Pass status_control to set Hung: ... in UI."""
     global _watchdog_started
     with _activity_lock:
@@ -563,7 +565,7 @@ def _install_safe_log_record_factory():
 
     _original_factory = logging.getLogRecordFactory()
 
-    def safe_logRecordFactory(*args, **kwargs):
+    def safe_logRecordFactory(*args: Any, **kwargs: Any) -> Any:
         # args contains (name, level, fn, lno, msg, args, exc_info, func, sinfo)
         # args is at index 5.
         if len(args) > 5:

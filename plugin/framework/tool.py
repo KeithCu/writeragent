@@ -97,7 +97,7 @@ def _make_optional_scalar_nullable(prop_schema: dict) -> dict:
 
 @deal.ensure(lambda params, result: (not isinstance(params, dict) or not params) or isinstance(result, dict))
 @deal.ensure(lambda params, result: not isinstance(result, dict) or result.get("required") != [])
-def _normalize_schema_for_strict_providers(params):
+def _normalize_schema_for_strict_providers(params: Any) -> Any:
     """Normalize JSON Schema for strict upstream validators (Gemini, Groq, etc.).
 
     - Optional scalar properties get ``type: [scalar, "null"]`` so models may pass ``null``.
@@ -155,7 +155,7 @@ def _doc_type_str_from_doc(doc: Any) -> str | None:
 @deal.pre(lambda tool, **kwargs: getattr(tool, "name", None) is not None)
 @deal.post(lambda result: isinstance(result, dict) and result.get("type") == "function" and isinstance(result.get("function"), dict))
 @deal.ensure(lambda tool, doc_type=None, result=None, **kwargs: result is not None and isinstance(result, dict) and result.get("function", {}).get("name") == tool.name)
-def to_openai_schema(tool, *, doc_type: str | None = None):
+def to_openai_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
     """Convert a ToolBase instance to an OpenAI function-calling schema.
 
     Returns::
@@ -183,7 +183,7 @@ def to_openai_schema(tool, *, doc_type: str | None = None):
 @deal.pre(lambda tool, **kwargs: getattr(tool, "name", None) is not None)
 @deal.post(lambda result: isinstance(result, dict) and "inputSchema" in result and result.get("name") is not None)
 @deal.ensure(lambda tool, doc_type=None, result=None, **kwargs: result is not None and isinstance(result, dict) and result.get("name") == tool.name)
-def to_mcp_schema(tool, *, doc_type: str | None = None):
+def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
     """Convert a ToolBase instance to an MCP tools/list schema.
 
     Returns::
@@ -334,7 +334,7 @@ class ToolContext:
 
     __slots__ = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "active_domain", "python_tool_domain", "read_only_target", "send_cancellation", "uno_services_supported")
 
-    def __init__(self, doc, ctx, doc_type, services, caller="", active_page_index=None, status_callback=None, append_thinking_callback=None, stop_checker=None, approval_callback=None, chat_append_callback=None, set_active_domain_callback=None, active_domain=None, python_tool_domain=None, read_only_target=False, send_cancellation=None, uno_services_supported=None):
+    def __init__(self, doc: Any, ctx: Any, doc_type: str, services: Any, caller: str = "", active_page_index: int | None = None, status_callback: Callable[[str], None] | None = None, append_thinking_callback: Callable[[str], None] | None = None, stop_checker: Callable[[], bool] | None = None, approval_callback: Callable[[str], bool] | None = None, chat_append_callback: Callable[[str], None] | None = None, set_active_domain_callback: Callable[[str | None], None] | None = None, active_domain: str | None = None, python_tool_domain: str | None = None, read_only_target: bool = False, send_cancellation: Any | None = None, uno_services_supported: frozenset[str] | None = None) -> None:
         # crosshair: off
         self.doc = doc
         self.ctx = ctx
@@ -409,7 +409,7 @@ class ToolBase(ABC):
             return not _name_looks_readonly(self.name)
         return True
 
-    def requires_document_lock(self, arguments=None):
+    def requires_document_lock(self, arguments: Any = None) -> bool:
         """Whether a long-running or backpressure MCP run must hold the per-document gate.
 
         Defaults to :meth:`detects_mutation`. Override when a tool is sometimes read-only
@@ -418,7 +418,7 @@ class ToolBase(ABC):
         """
         return self.detects_mutation()
 
-    def _tool_error(self, message, code="TOOL_EXECUTION_ERROR", **details):
+    def _tool_error(self, message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
         """Standardized JSON payload for tool errors.
 
         Delegates to the central make_tool_error factory so every tool
@@ -437,7 +437,7 @@ class ToolBase(ABC):
         """Tool description for the LLM; override when ``get_parameters`` varies by doc type."""
         return self.description or ""
 
-    def validate(self, *, doc_type: str | None = None, **kwargs):
+    def validate(self, *, doc_type: str | None = None, **kwargs: Any):
         """Validate arguments against ``parameters`` schema.
 
         Returns:
@@ -456,7 +456,7 @@ class ToolBase(ABC):
         return True, None
 
     @abstractmethod
-    def execute(self, ctx: ToolContext, **kwargs) -> dict[str, Any]:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         """Execute the tool.
 
         Args:
@@ -472,7 +472,7 @@ class ToolBase(ABC):
         """Returns True if this tool should execute asynchronously in the background. Defaults to False."""
         return False
 
-    def execute_safe(self, ctx: ToolContext, **kwargs) -> dict[str, Any]:
+    def execute_safe(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         """Execute with simple error containment."""
         # crosshair: off
         try:
@@ -509,7 +509,7 @@ class ToolBase(ABC):
             err_msg = str(e).strip() or type(e).__name__
             return self._tool_error(f"Tool execution failed: {err_msg}", code="TOOL_EXECUTION_ERROR", original_error=str(e), error_type=type(e).__name__)
 
-    def get_collection(self, doc, getter_name, missing_msg=None):
+    def get_collection(self, doc: Any, getter_name: str, missing_msg: str | None = None) -> Any:
         """Helper to safely fetch a named collection from a document.
 
         Args:
@@ -525,7 +525,7 @@ class ToolBase(ABC):
             return self._tool_error(msg, code="UNO_OBJECT_ERROR", getter_name=getter_name)
         return getattr(doc, getter_name)()
 
-    def get_item(self, doc, getter_name, item_name, missing_msg=None, not_found_msg=None):
+    def get_item(self, doc: Any, getter_name: str, item_name: str, missing_msg: str | None = None, not_found_msg: str | None = None) -> Any:
         """Helper to fetch a specific item from a document's collection.
 
         Args:
@@ -561,7 +561,7 @@ class ToolBaseDummy:
     name: str | None = None
     is_final_answer_tool: bool = False
 
-    def _tool_error(self, message, code="TOOL_EXECUTION_ERROR", **details):
+    def _tool_error(self, message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
         """Standardized JSON payload for tool errors.
 
         Delegates to the central make_tool_error (see the real ToolBase
@@ -635,7 +635,7 @@ class ToolRegistry:
     Both the chatbot and MCP server use this single registry.
     """
 
-    def __init__(self, services):
+    def __init__(self, services: Any) -> None:
         self._services = services
         self._tools = {}  # name -> ToolBase instance
         self.batch_mode = False  # suppress per-tool cache invalidation
@@ -697,7 +697,7 @@ class ToolRegistry:
             except Exception:
                 log.exception("Failed to import module %s for tool discovery", full_module_name)
 
-    def auto_discover(self, module):
+    def auto_discover(self, module: Any) -> None:
         """Automatically discover and register ToolBase subclasses in a module."""
         # crosshair: off
         import inspect
@@ -717,7 +717,7 @@ class ToolRegistry:
 
     # ── Lookup & Schema Generation ────────────────────────────────────
 
-    def get_tools(self, doc=None, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True, exclude_tiers=_UNSET_EXCLUDE_TIERS, active_domain=None, uno_services_supported=None, **kwargs):
+    def get_tools(self, doc: Any = None, doc_type: str | None = None, tier: str | None = None, intent: str | None = None, names: Any = None, filter_doc_type: bool = True, exclude_tiers: Any = _UNSET_EXCLUDE_TIERS, active_domain: str | None = None, uno_services_supported: Any = None, **kwargs: Any):
         """Return a list of ToolBase instances matching the given criteria.
 
         Args:
@@ -747,7 +747,7 @@ class ToolRegistry:
                 uno_services_supported = get_document_uno_services(doc)
 
         # Helper to check if a tool supports the document
-        def supports_doc(t):
+        def supports_doc(t: Any) -> bool:
             if not filter_doc_type:
                 return True
             return tool_supports_document(
@@ -797,7 +797,7 @@ class ToolRegistry:
         else:
             if to_exclude:
 
-                def _tier_excluded(t):
+                def _tier_excluded(t: Any) -> bool:
                     tier = getattr(t, "tier", None)
                     return tier in to_exclude
 
@@ -816,7 +816,7 @@ class ToolRegistry:
             tools = filter_vision_specialized_tools(list(tools), ctx)
         return list(tools)
 
-    def get_schemas(self, protocol="openai", active_domain=None, **kwargs):
+    def get_schemas(self, protocol: str = "openai", active_domain: str | None = None, **kwargs: Any):
         """Return schemas for tools matching the given kwargs criteria.
 
         Args:
@@ -855,7 +855,7 @@ class ToolRegistry:
         else:
             raise ValueError(f"Unknown protocol: {protocol}")
 
-    def get_tool_summaries(self, **kwargs):
+    def get_tool_summaries(self, **kwargs: Any):
         """Lightweight catalogue: ``[{"name", "description", "tier", "intent"}]``."""
         tools = self.get_tools(**kwargs)
         return [{"name": t.name, "description": (t.description or "")[:120], "tier": t.tier, "intent": t.intent} for t in tools]
@@ -869,7 +869,7 @@ class ToolRegistry:
     def _get_tool_timeout(self, tool: ToolBase):
         return getattr(tool, "timeout", 0)
 
-    def _execute_with_timeout(self, func, timeout, tool_name="<unknown>", run_threaded=True, **kwargs):
+    def _execute_with_timeout(self, func: Any, timeout: float, tool_name: str = "<unknown>", run_threaded: bool = True, **kwargs: Any) -> Any:
         """Run *func* with an optional wall-clock timeout.
 
         If ``run_threaded`` is False, the timeout is ignored and the function runs inline.

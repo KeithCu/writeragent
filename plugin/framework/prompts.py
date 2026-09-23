@@ -29,6 +29,8 @@ Other important prompts (not assembled here):
 - scripts/prompt_optimization/ (Writer eval harness)
 """
 
+from typing import Any
+
 # ---------------------------------------------------------------------------
 # Generic
 # ---------------------------------------------------------------------------
@@ -198,7 +200,7 @@ RICH_CHAT_SIDEBAR_INSTRUCTIONS = f"""{CHAT_RESPONSE_FORMAT}
 {CHAT_SIDEBAR_HTML_EXAMPLES}"""
 
 
-def get_chat_response_format_instructions(ctx=None) -> str:
+def get_chat_response_format_instructions(ctx: Any | None = None) -> str:
     """Sidebar response format for main chat and sub-agents (web research, librarian).
 
     When ``rich_text_control_sidebar`` is off, models are not told about HTML — same gate as
@@ -821,7 +823,7 @@ DEFAULT_CALC_CHAT_SYSTEM_PROMPT = ""
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = ""
 
 
-def peer_outer_delegate_tool_name(model) -> str:
+def peer_outer_delegate_tool_name(model: Any) -> str:
     """Writer / Calc / Draw specialized gateway used for document_research peer work."""
     from plugin.doc.doc_type import is_calc, is_draw
 
@@ -832,12 +834,12 @@ def peer_outer_delegate_tool_name(model) -> str:
     return "delegate_to_specialized_writer_toolset"
 
 
-def format_peer_outer_delegate_hint(model) -> str:
+def format_peer_outer_delegate_hint(model: Any) -> str:
     """Outer DO+why with the matching specialized gateway name."""
     return PEER_OUTER_DELEGATE_HINT.format(delegate=peer_outer_delegate_tool_name(model))
 
 
-def get_peer_messaging_prompt_block(model, ctx) -> str:
+def get_peer_messaging_prompt_block(model: Any, ctx: Any) -> str:
     """Thin outer pointer when a v1 peer is open. No send_peer_work/result on this loop.
 
     ``list_v1_peers`` touches UNO (RuntimeUID / desktop catalog). Chat refresh can
@@ -866,7 +868,7 @@ def get_peer_messaging_prompt_block(model, ctx) -> str:
         return ""
 
 
-def get_peer_inner_choice_block(uno_ctx, doc) -> str:
+def get_peer_inner_choice_block(uno_ctx: Any, doc: Any) -> str:
     """Short inner read-vs-peer rules plus catalog. Empty when no v1 peer is open.
 
     ``list_v1_peers`` reads RuntimeUID and the desktop catalog (UNO). Specialized
@@ -904,7 +906,7 @@ def get_core_directives_for_type(doc_type: str | None) -> str:
     return WRITER_CORE_DIRECTIVES
 
 
-def get_core_directives(model) -> str:
+def get_core_directives(model: Any) -> str:
     """Return the application-specific core directives dynamically based on document type."""
     from plugin.doc.doc_type import is_calc, is_draw
     if is_calc(model):
@@ -914,7 +916,7 @@ def get_core_directives(model) -> str:
     return get_core_directives_for_type("writer")
 
 
-def _catalog_entries_from_base(base_cls, *, agent_label: str | None = None, ctx=None,
+def _catalog_entries_from_base(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None,
                                for_discovery: bool = False) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
 
@@ -945,7 +947,7 @@ def _catalog_entries_from_base(base_cls, *, agent_label: str | None = None, ctx=
     return entries
 
 
-def get_specialized_domain_catalog(*, agent_label: str | None, ctx=None,
+def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None,
                                    for_discovery: bool = False) -> list[dict[str, str]]:
     """Full specialized domain catalog — same entries as sidebar/delegate domain hints.
 
@@ -988,7 +990,7 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx=None,
     return entries
 
 
-def _get_specialized_domains_str(base_cls, *, agent_label: str | None = None, ctx=None) -> str:
+def _get_specialized_domains_str(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None) -> str:
     """Build a compact domain list for delegation hints and MCP schemas."""
     parts = []
     for entry in sorted(_catalog_entries_from_base(base_cls, agent_label=agent_label, ctx=ctx),
@@ -1008,7 +1010,7 @@ def _specialized_delegation_template_for_label(agent_label: str) -> str:
     return WRITER_SPECIALIZED_DELEGATION_TEMPLATE
 
 
-def get_specialized_delegation_for_model(model, ctx=None) -> str:
+def get_specialized_delegation_for_model(model: Any, ctx: Any = None) -> str:
     """Specialized-delegation block for chat system prompt (same text as MCP delegate tool hint)."""
     from plugin.doc.doc_type import is_calc, is_draw
 
@@ -1025,7 +1027,7 @@ def get_specialized_delegation_for_model(model, ctx=None) -> str:
     return get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer", ctx=ctx)
 
 
-def format_specialized_domains_description(special_base_class, *, agent_label: str | None = None, ctx=None) -> str:
+def format_specialized_domains_description(special_base_class: Any, *, agent_label: str | None = None, ctx: Any = None) -> str:
     """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
     domains = _get_specialized_domains_str(special_base_class, agent_label=agent_label, ctx=ctx)
     if not domains:
@@ -1035,7 +1037,7 @@ def format_specialized_domains_description(special_base_class, *, agent_label: s
     return f"domain one of: {compact}"
 
 
-def get_specialized_delegation_tool_hint(special_base_class, agent_label: str, *, ctx=None) -> str:
+def get_specialized_delegation_tool_hint(special_base_class: Any, agent_label: str, *, ctx: Any = None) -> str:
     """Full specialized-delegation guidance (sidebar system prompt and MCP ``tools/list``)."""
     domains_str = _get_specialized_domains_str(special_base_class, agent_label=agent_label, ctx=ctx)
     template = _specialized_delegation_template_for_label(agent_label)
@@ -1052,7 +1054,7 @@ def _apply_draw_get_image_tool_line(prompt: str) -> str:
     return prompt.replace(line + "\n", "").replace(line, "")
 
 
-def get_vision_core_directive(model, ctx) -> str:
+def get_vision_core_directive(model: Any, ctx: Any) -> str:
     """OCR delegation hint when local vision stack is configured (Writer/Calc only)."""
     if ctx is None:
         return ""
@@ -1071,7 +1073,7 @@ def get_vision_core_directive(model, ctx) -> str:
     )
 
 
-def get_greeting_for_document(model):
+def get_greeting_for_document(model: Any) -> str:
     """Return a greeting relevant to the document type."""
     from plugin.framework.i18n import _
     from plugin.doc.doc_type import is_calc, is_draw
@@ -1084,7 +1086,7 @@ def get_greeting_for_document(model):
         return _(DEFAULT_WRITER_GREETING)
 
 
-def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=None):
+def get_chat_system_prompt_for_document(model: Any, additional_instructions: str = "", ctx: Any = None) -> str:
     """Single source of truth for chat system prompt. Use this so Writer vs Calc prompt cannot be mixed.
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.
     Callers must pass the document that is being chatted about."""

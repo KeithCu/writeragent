@@ -279,7 +279,7 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
 class _WorkItem:
     __slots__ = ("id", "fn", "args", "kwargs", "blocking", "event", "result", "exception", "cancelled", "_claimed")
 
-    def __init__(self, item_id, fn, args, kwargs, blocking=True):
+    def __init__(self, item_id: str, fn: Any, args: Any, kwargs: Any, blocking: bool = True) -> None:
         self.id = item_id
         self.fn = fn
         self.args = args
@@ -393,7 +393,7 @@ class QueueExecutor:
             other events (redraws, user input) between tool executions.
             """
 
-            def notify(self, aData):
+            def notify(self, aData: Any) -> None:
                 executor.process_queue()
 
         return _MainThreadCallback()
@@ -464,7 +464,7 @@ class QueueExecutor:
                     item.exception = SendCancelled()
                     item.event.set()
 
-    def _enqueue_work(self, fn, args, kwargs, blocking=True):
+    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True) -> _WorkItem:
         """Add work item to queue."""
         scope = get_current_send_cancellation()
         if scope is not None:
@@ -475,7 +475,7 @@ class QueueExecutor:
         self._poke_main_thread()
         return item
 
-    def _wait_for_result(self, item, timeout):
+    def _wait_for_result(self, item: _WorkItem, timeout: float) -> Any:
         """Wait for and return result from main thread."""
         if not item.event.wait(timeout):
             # Atomically cancel only if process_queue hasn't already claimed
@@ -528,7 +528,7 @@ class QueueExecutor:
             return True
         return False
 
-    def execute(self, fn: Callable, *args, timeout: float = 30.0, **kwargs) -> Any:
+    def execute(self, fn: Callable, *args: Any, timeout: float = 30.0, **kwargs: Any) -> Any:
         """Execute function on main thread (blocking).
 
         If already on the main thread, calls directly (avoids deadlock).
@@ -594,7 +594,7 @@ class QueueExecutor:
         item = self._enqueue_work(fn, args, kwargs, blocking=True)
         return self._wait_for_result(item, timeout)
 
-    def post(self, fn: Callable, *args, **kwargs) -> None:
+    def post(self, fn: Callable, *args: Any, **kwargs: Any) -> None:
         """Post function to main thread (non-blocking).
 
         Unlike execute, does not block or return a result.
@@ -638,12 +638,12 @@ class QueueExecutor:
 default_executor = QueueExecutor()
 
 
-def execute_on_main_thread(fn, *args, timeout=30.0, **kwargs):
+def execute_on_main_thread(fn: Any, *args: Any, timeout: float = 30.0, **kwargs: Any) -> Any:
     """Legacy helper: Use default_executor.execute instead."""
     return default_executor.execute(fn, *args, timeout=timeout, **kwargs)
 
 
-def post_to_main_thread(fn, *args, **kwargs):
+def post_to_main_thread(fn: Any, *args: Any, **kwargs: Any) -> None:
     """Legacy helper: Use default_executor.post instead."""
     return default_executor.post(fn, *args, **kwargs)
 

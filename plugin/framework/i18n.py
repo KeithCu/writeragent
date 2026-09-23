@@ -27,6 +27,8 @@ returns English (``en_US``) instead of calling
 context and break dialogs.
 """
 
+from __future__ import annotations
+
 import os
 import gettext
 import logging
@@ -53,7 +55,7 @@ def get_active_locale() -> str:
     return _active_locale
 
 
-def get_lo_locale(ctx=None):
+def get_lo_locale(ctx: Any | None = None):
     """Return the LibreOffice UI locale from configuration only (no OS LANG).
 
     Reads ``/org.openoffice.Setup/L10N`` → ``ooLocale``. On failure or empty
@@ -141,7 +143,7 @@ def load_translation(
     )
 
 
-def init_i18n(ctx=None) -> None:
+def init_i18n(ctx: Any | None = None) -> None:
     """Load gettext for the current locale.
 
     Always sets :data:`_translation` before return (``NullTranslations`` on any

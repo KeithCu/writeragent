@@ -117,11 +117,11 @@ else:
     _XContainerListenerParent = _XContainerListener if _HAVE_UNO else _DummyContainerListener
 
 
-def _catch_and_log(func):
+def _catch_and_log(func: Any) -> Any:
     """Decorator to catch and log exceptions in UNO listener callbacks."""
 
     @functools.wraps(func)
-    def wrapper(self, ev, *args, **kwargs):
+    def wrapper(self: Any, ev: Any, *args: Any, **kwargs: Any) -> Any:
         try:
             return func(self, ev, *args, **kwargs)
         except TypeError:

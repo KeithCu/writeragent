@@ -33,6 +33,8 @@ document model safe from any thread — wrap document access with
 ``guard_uno`` and marshal UI work through ``QueueExecutor``.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import sys
@@ -42,6 +44,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     import threading
+
+    from com.sun.star.awt import FocusEvent, MouseEvent
+    from com.sun.star.lang import EventObject
 
 from plugin.framework.constants import (
     EXTENSION_ID_LIBREHARPER,
@@ -150,7 +155,7 @@ def is_libreharper() -> bool:
 
 
 
-def set_fallback_ctx(ctx):
+def set_fallback_ctx(ctx: Any) -> None:
     """Store a fallback ctx for use when uno module is not available."""
     global _fallback_ctx
     _fallback_ctx = ctx
@@ -173,7 +178,7 @@ def reset_package_extension_id_for_tests() -> None:
     _is_libreharper_cache = None
 
 
-def resolve_package_extension_id(ctx=None) -> str:
+def resolve_package_extension_id(ctx: Any | None = None) -> str:
     """Return the installed WriterAgent-family extension id (LibrePy or WriterAgent).
 
     Cache is pinned at bootstrap (``set_package_extension_id``).
@@ -203,7 +208,7 @@ def resolve_package_extension_id(ctx=None) -> str:
     return EXTENSION_ID_WRITERAGENT
 
 
-def product_display_name(ctx=None) -> str:
+def product_display_name(ctx: Any | None = None) -> str:
     """User-visible product name for dialog titles (LibrePy vs WriterAgent)."""
     if resolve_package_extension_id(ctx) == EXTENSION_ID_LIBREPY:
         return "LibrePy"
@@ -253,7 +258,7 @@ def get_service_manager(ctx: Any) -> Any | None:
 
 
 @main_thread_only
-def get_desktop(ctx=None) -> Any:
+def get_desktop(ctx: Any | None = None) -> Any:
     """Return the UNO Desktop instance, or None when creating it would SEGV.
 
     uno.bin / unopkg register helpers have no VCL. ``createInstance(Desktop)``
@@ -273,7 +278,7 @@ def get_desktop(ctx=None) -> Any:
 
 
 @main_thread_only
-def get_active_document(ctx=None):
+def get_active_document(ctx: Any | None = None) -> Any:
     """Return the currently active document model."""
     try:
         desktop = get_desktop(ctx)
@@ -291,7 +296,7 @@ def get_active_document(ctx=None):
 
 
 @main_thread_only
-def get_package_info(ctx=None):
+def get_package_info(ctx: Any | None = None) -> Any:
     """Return the PackageInformationProvider singleton."""
     ctx = ctx or get_ctx()
     assert ctx is not None
@@ -304,7 +309,7 @@ def get_package_info(ctx=None):
 
 
 @main_thread_only
-def get_extension_url(ctx=None, extension_id=None):
+def get_extension_url(ctx: Any | None = None, extension_id: str | None = None) -> str:
     """Return the base URL of the extension package."""
     if extension_id is None:
         extension_id = resolve_package_extension_id(ctx)
@@ -320,7 +325,7 @@ def get_extension_url(ctx=None, extension_id=None):
     return "vnd.sun.star.extension://" + extension_id
 
 
-def menu_icon_asset_url(ext_url, icon_filename):
+def menu_icon_asset_url(ext_url: str, icon_filename: str) -> str:
     """Return GraphicProvider URL for a menu icon shipped in OXT assets/."""
     return "%s/assets/%s" % (ext_url.rstrip("/"), icon_filename)
 
@@ -343,7 +348,7 @@ def menu_icon_filesystem_paths(icon_filename: str) -> tuple[str, ...]:
     )
 
 
-def get_extension_path(ctx=None, extension_id=None):
+def get_extension_path(ctx: Any | None = None, extension_id: str | None = None) -> str:
     """Return the local filesystem path of the extension package."""
     url = get_extension_url(ctx, extension_id)
     if not url:
@@ -356,7 +361,7 @@ def get_extension_path(ctx=None, extension_id=None):
 
 
 @main_thread_only
-def get_toolkit(ctx=None):
+def get_toolkit(ctx: Any | None = None) -> Any:
     """Safely retrieve the com.sun.star.awt.Toolkit service."""
     ctx = ctx or get_ctx()
     if ctx is None:
@@ -384,7 +389,7 @@ _stream_focus_trackers: list[Any] = []
 _stream_rich_control = None
 
 
-def set_default_focus_restore(control) -> None:
+def set_default_focus_restore(control: Any) -> None:
     """Pin focus restore to the chat query field (or None on panel dispose)."""
     global _default_focus_restore
     _default_focus_restore = control
@@ -431,7 +436,7 @@ def restore_query_if_user_still_there() -> None:
         log.debug("restore_query_if_user_still_there: %s", e)
 
 
-def _current_document_controller(ctx):
+def _current_document_controller(ctx: Any) -> Any:
     try:
         # Same no-VCL fail-soft as get_desktop (issue #768). Do not create
         # Desktop via ServiceManager here — that bypassed the choke point.
@@ -447,7 +452,7 @@ def _current_document_controller(ctx):
         return None
 
 
-def _attach_leave_query_listeners(control) -> None:
+def _attach_leave_query_listeners(control: Any) -> None:
     """Stop restoring Ask/instruct when the user targets this sidebar control.
 
     Document page clicks are handled by ``XMouseClickHandler``; sidebar Stop
@@ -462,30 +467,30 @@ def _attach_leave_query_listeners(control) -> None:
         return
 
     class _LeaveQueryFocus(unohelper.Base, XFocusListener):
-        def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
             return
 
-        def focusLost(self, e):  # noqa: N802 -- UNO signature
+        def focusLost(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
             return
 
-        def focusGained(self, e):  # noqa: N802 -- UNO signature
+        def focusGained(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
             note_user_left_query()
             log.debug("stream focus: sidebar control")
 
     class _LeaveQueryMouse(unohelper.Base, XMouseListener):
-        def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
             return
 
-        def mousePressed(self, e):  # noqa: N802 -- UNO signature
+        def mousePressed(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
             note_user_left_query()
 
-        def mouseReleased(self, e):  # noqa: N802 -- UNO signature
+        def mouseReleased(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
             return
 
-        def mouseEntered(self, e):  # noqa: N802 -- UNO signature
+        def mouseEntered(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
             note_user_left_query()
 
-        def mouseExited(self, e):  # noqa: N802 -- UNO signature
+        def mouseExited(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
             return
 
     try:
@@ -501,7 +506,7 @@ def _attach_leave_query_listeners(control) -> None:
         log.debug("leave-query listeners: %s", e)
 
 
-def install_stream_focus_tracker(ctx, query=None, rich=None, leave_query_controls=None) -> None:
+def install_stream_focus_tracker(ctx: Any, query: Any = None, rich: Any = None, leave_query_controls: Any = None) -> None:
     """Query focusGained → keep restoring. Document / sidebar pointer → stop.
 
     Window focus listeners miss in-frame query→page clicks (same top-level).
@@ -530,26 +535,26 @@ def install_stream_focus_tracker(ctx, query=None, rich=None, leave_query_control
         return
 
     class _QueryFocus(unohelper.Base, XFocusListener):
-        def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
             return
 
-        def focusLost(self, e):  # noqa: N802 -- UNO signature
+        def focusLost(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
             return
 
-        def focusGained(self, e):  # noqa: N802 -- UNO signature
+        def focusGained(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
             note_user_wants_query()
             log.debug("stream focus: query")
 
     class _DocClick(unohelper.Base, XMouseClickHandler):
-        def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
             return
 
-        def mousePressed(self, e):  # noqa: N802 -- UNO signature
+        def mousePressed(self, e: MouseEvent) -> bool:  # noqa: N802 -- UNO signature
             note_user_left_query()
             log.debug("stream focus: document click")
             return False
 
-        def mouseReleased(self, e):  # noqa: N802 -- UNO signature
+        def mouseReleased(self, e: MouseEvent) -> bool:  # noqa: N802 -- UNO signature
             return False
 
     controller = None
@@ -575,14 +580,14 @@ def install_stream_focus_tracker(ctx, query=None, rich=None, leave_query_control
         log.debug("install_stream_focus_tracker: %s", e)
 
 
-def _focus_restore_target(explicit=None):
+def _focus_restore_target(explicit: Any = None) -> Any:
     if explicit is not None:
         return explicit
     return _default_focus_restore
 
 
 @contextmanager
-def focus_preserved(ctx, restore=None):
+def focus_preserved(ctx: Any, restore: Any = None):
     """Restore focus after a block that may steal it (RichTextControl reveal).
 
     If *restore* or :func:`set_default_focus_restore` is set, that control is
@@ -610,7 +615,7 @@ def focus_preserved(ctx, restore=None):
 
 
 @main_thread_only
-def process_events_to_idle(ctx, rounds: int = 1, force: bool = False) -> bool:
+def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bool:
     """Drain the UI event queue *rounds* times via the approved VCL pump chokepoint.
 
     When a chat/MCP :func:`~plugin.framework.queue_executor.drain_owner_scope` is
@@ -701,7 +706,7 @@ def wait_while_pumping(
     return True
 
 
-def normalize_doc_url(url):
+def normalize_doc_url(url: Any) -> str:
     """Normalize document URL for comparison (strip, optional trailing slash).
 
     Shared by resolve-by-URL, MCP doc keys, and document-script stale detection.
@@ -715,7 +720,7 @@ def normalize_doc_url(url):
     return s
 
 
-def get_runtime_uid(model):
+def get_runtime_uid(model: Any) -> str:
     """Stable per-session id for an open component.
 
     Unlike the document URL, ``RuntimeUID`` exists even for unsaved/untitled
@@ -799,7 +804,7 @@ def uno_same(a: Any, b: Any) -> bool:
 
 
 @main_thread_only
-def resolve_document_by_url(ctx, url):
+def resolve_document_by_url(ctx: Any, url: Any):
     """Resolve an open document by URL or RuntimeUID. Must be called on the UNO main thread.
 
     ``url`` may be a document URL or a ``RuntimeUID`` (as returned by
@@ -849,7 +854,7 @@ def resolve_document_by_url(ctx, url):
 
 
 @main_thread_only
-def get_document_from_frame(frame):
+def get_document_from_frame(frame: Any) -> Any:
     """Get the document model strictly from the frame controller.
 
     This is the preferred path for sidebar panels to ensure we resolve

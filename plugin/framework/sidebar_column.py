@@ -19,6 +19,8 @@ Experiments: docs/chat/sidebar-hscroll-experiments.md
 
 from __future__ import annotations
 
+from typing import Any
+
 _XDL_APPFONT_LEAK_PX = 180
 _FRAME_VS_COLUMN = 1.5
 # com.sun.star.awt.PosSize.WIDTH — do not also set HEIGHT (that sticks 2488).
@@ -43,7 +45,7 @@ def sidebar_column_width(n_width: int, parent_w: int, current_w: int = 0, min_w:
     return min_w
 
 
-def sync_childframe_width(parent, width: int) -> None:
+def sync_childframe_width(parent: Any, width: int) -> None:
     """Set the GTK ChildFrame size-request to the current viewport (width only)."""
     if parent is None or width <= 0:
         return

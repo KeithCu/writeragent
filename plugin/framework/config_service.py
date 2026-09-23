@@ -8,6 +8,8 @@ UNO Service implementation for WriterAgent configuration.
 """
 
 # crosshair: off
+from __future__ import annotations
+
 import os
 import logging
 from typing import Any, Callable, cast
@@ -49,7 +51,7 @@ class ConfigAccessError(ConfigError):
 
     code: str = "CONFIG_ACCESS_ERROR"
 
-def _dummy_impl(name, services=()):
+def _dummy_impl(name: str, services: Any = ()) -> Any:
     def decorator(cls):
         return cls
 
@@ -85,20 +87,27 @@ _implementation: Callable[..., Any] = _uno_service_implementation_decorator()
 class ConfigService(ServiceBase):
     name = "config"
 
-    def __init__(self):
+    # Declared so mypy can type initialize/set_events/get after those methods
+    # gained annotations (same adjacent-field pattern as plugin/mcp).
+    _defaults: dict[str, Any]
+    _manifest: dict[str, Any]
+    _events: Any
+    _config_path: str | None
+
+    def __init__(self) -> None:
         self._defaults = {}  # "module.key" -> default_value
         self._manifest = {}  # "module.key" -> field schema
         self._events = None  # EventBus, set after init
         self._config_path = None  # For testing
 
-    def initialize(self, ctx):
+    def initialize(self, ctx: Any) -> None:
         pass
 
-    def set_events(self, events):
+    def set_events(self, events: Any) -> None:
         """Wire the event bus."""
         self._events = events
 
-    def set_manifest(self, manifest):
+    def set_manifest(self, manifest: Any) -> None:
         """Load config schemas from the merged manifest."""
         for mod_name, mod_data in manifest.items():
             for field_name, schema in mod_data.get("config", {}).items():
@@ -106,11 +115,11 @@ class ConfigService(ServiceBase):
                 self._defaults[full_key] = schema.get("default")
                 self._manifest[full_key] = schema
 
-    def register_default(self, key, default):
+    def register_default(self, key: str, default: Any) -> None:
         """Register a single default value."""
         self._defaults[key] = default
 
-    def get(self, key, default=None, caller_module=None):
+    def get(self, key: str, default: Any = None, caller_module: str | None = None) -> Any:
         """Get a config value, fallback to defaults."""
         self._check_read_access(key, caller_module)
 
@@ -157,7 +166,7 @@ class ConfigService(ServiceBase):
             return default
         return self._defaults[key]
 
-    def set(self, key, value, caller_module=None):
+    def set(self, key: str, value: Any, caller_module: str | None = None) -> None:
         """Set a config value."""
         self._check_write_access(key, caller_module)
         old_value = self.get(key)
@@ -226,7 +235,7 @@ class ConfigService(ServiceBase):
             bus = self._events or global_event_bus
             bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
 
-    def set_batch(self, changes, old_values=None):
+    def set_batch(self, changes: Any, old_values: Any = None) -> dict[str, Any]:
         """Set multiple config values at once. Returns dict of changed keys.
 
         Used by the generic Options handler; delegates to set() so that
@@ -241,7 +250,7 @@ class ConfigService(ServiceBase):
             diffs[key] = (before, value)
         return diffs
 
-    def remove(self, key, caller_module=None):
+    def remove(self, key: str, caller_module: str | None = None) -> None:
         """Reset a config key."""
         self._check_write_access(key, caller_module)
         if self._config_path and os.path.exists(self._config_path):
@@ -272,7 +281,7 @@ class ConfigService(ServiceBase):
         return get_config_dict()
 
     @deal.raises(ConfigAccessError)
-    def _check_read_access(self, key, caller_module):
+    def _check_read_access(self, key: str, caller_module: str | None) -> None:
         if caller_module is None or "." not in key:
             return
         module = key.split(".", 1)[0]
@@ -283,33 +292,33 @@ class ConfigService(ServiceBase):
             raise ConfigAccessError(f"Module '{caller_module}' cannot read private config '{key}'")
 
     @deal.raises(ConfigAccessError)
-    def _check_write_access(self, key, caller_module):
+    def _check_write_access(self, key: str, caller_module: str | None) -> None:
         if caller_module is None or "." not in key:
             return
         module = key.split(".", 1)[0]
         if module != caller_module:
             raise ConfigAccessError(f"Module '{caller_module}' cannot write to '{key}'")
 
-    def proxy_for(self, module_name):
+    def proxy_for(self, module_name: str) -> ModuleConfigProxy:
         return ModuleConfigProxy(self, module_name)
 
 
 class ModuleConfigProxy:
-    def __init__(self, config_service, module_name):
+    def __init__(self, config_service: ConfigService, module_name: str) -> None:
         self._config = config_service
         self._module = module_name
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: Any = None) -> Any:
         if "." not in key:
             key = f"{self._module}.{key}"
         return self._config.get(key, default, caller_module=self._module)
 
-    def set(self, key, value):
+    def set(self, key: str, value: Any) -> None:
         if "." not in key:
             key = f"{self._module}.{key}"
         self._config.set(key, value, caller_module=self._module)
 
-    def remove(self, key):
+    def remove(self, key: str) -> None:
         if "." not in key:
             key = f"{self._module}.{key}"
         self._config.remove(key, caller_module=self._module)

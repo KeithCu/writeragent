@@ -47,6 +47,8 @@ cache, and JSON I/O only. Do not import this file from ``config_schema.py``.
 """
 
 # crosshair: off
+from __future__ import annotations
+
 import dataclasses
 import json
 import logging
@@ -120,7 +122,7 @@ _resolved_config_path = None
 _config_write_lock = threading.RLock()
 
 
-def _resolve_config_path_from_ctx(ctx) -> str:
+def _resolve_config_path_from_ctx(ctx: Any) -> str:
     """Resolve writeragent.json path from a UNO component context."""
     try:
         sm = safe_call(ctx.getServiceManager, "Get ServiceManager")
@@ -133,7 +135,7 @@ def _resolve_config_path_from_ctx(ctx) -> str:
         raise ConfigError(f"Failed to resolve config path: {e}", "CONFIG_PATH_ERROR") from e
 
 
-def init_config(ctx=None):
+def init_config(ctx: Any | None = None) -> None:
     """Resolve and cache writeragent.json path. Idempotent; call once at bootstrap."""
     global _resolved_config_path
     if ctx is not None:
@@ -444,7 +446,7 @@ def _build_validated_config_export(data: Dict[str, Any], config: _config_schema.
 # --- Core config I/O ---
 
 
-def get_config(key):
+def get_config(key: str) -> Any:
     """Get a config value by key. JSON overrides; when key is missing, use schema default then central fallback."""
     config_data = _get_validated_config_dict()
     if not isinstance(config_data, dict):
@@ -460,7 +462,7 @@ def get_config(key):
     return _config_schema._resolve_default(key)
 
 
-def get_config_int(key) -> int:
+def get_config_int(key: str) -> int:
     """Get a config value as int. All requested keys MUST be in the schema (WriterAgentConfig or MODULES).
     Throws ConfigError if the key is missing or invalid (use get_config_int_safe to return a default instead)."""
     v = get_config(key)
@@ -476,7 +478,7 @@ def get_config_int(key) -> int:
         raise ConfigError(f"Config key {key!r} has non-integer value: {v!r}", "CONFIG_TYPE_ERROR") from e
 
 
-def get_config_str(key) -> str:
+def get_config_str(key: str) -> str:
     """Get a config value as str. ALL requested keys MUST be in the schema.
     Throws ConfigError if key is not found."""
     v = get_config(key)
@@ -487,7 +489,7 @@ def get_config_str(key) -> str:
     return str(v)
 
 
-def get_config_bool(key) -> bool:
+def get_config_bool(key: str) -> bool:
     """Get a config value as bool. ALL requested keys MUST be in the schema.
     Throws ConfigError if key is not found (use get_config_bool_safe to return a default instead)."""
     v = get_config(key)
@@ -527,7 +529,7 @@ def get_config_float_safe(key: str) -> float:
             return 0.0
 
 
-def get_config_float(key) -> float:
+def get_config_float(key: str) -> float:
     """Get a config value as float. ALL requested keys MUST be in the schema.
     Throws ConfigError if key is not found or value is non-float (use get_config_float_safe to return a default instead)."""
     v = get_config(key)
@@ -559,7 +561,7 @@ def _raw_config_value_for_key(config_data: dict[str, Any], key: str) -> Any:
     return _config_schema._MISSING_VALUE
 
 
-def set_config(key, value):
+def set_config(key: str, value: Any) -> None:
     """Set a config key to value. Creates file if needed. Omits defaults."""
     try:
         config_file_path = _config_path()
@@ -610,7 +612,7 @@ def set_config(key, value):
         global_event_bus.emit("config:changed", ctx=_emit_config_changed_ctx())
 
 
-def remove_config(key):
+def remove_config(key: str) -> None:
     """Remove a config key."""
     try:
         config_file_path = _config_path()
@@ -774,7 +776,7 @@ def _get_validated_config_dict():
 # --- Per-endpoint API keys ---
 
 
-def get_api_key_for_endpoint(endpoint):
+def get_api_key_for_endpoint(endpoint: Any) -> str:
     """Return API key for the given endpoint."""
     data = get_config("api_keys_by_endpoint")
     if not isinstance(data, dict):
@@ -783,7 +785,7 @@ def get_api_key_for_endpoint(endpoint):
     return data.get(normalized) or ""
 
 
-def set_api_key_for_endpoint(endpoint, key):
+def set_api_key_for_endpoint(endpoint: Any, key: Any) -> None:
     """Store API key for the given endpoint in api_keys_by_endpoint."""
     data = get_config("api_keys_by_endpoint")
     if not isinstance(data, dict):
@@ -840,7 +842,7 @@ def get_api_config():
     return api_config
 
 
-def validate_api_config(config):
+def validate_api_config(config: Any):
     """Validate API config dict (from get_api_config). Returns (ok: bool, error_message: str)."""
     from plugin.framework.i18n import _
 

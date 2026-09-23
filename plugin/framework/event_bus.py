@@ -26,10 +26,13 @@ thread. Full rules on the ``EventBus`` class and
 docs/framework/threading.md.
 """
 
+from __future__ import annotations
+
 import sys
 import logging
 import threading
 import weakref
+from typing import Any
 
 from plugin.framework.service import ServiceBase
 
@@ -71,14 +74,14 @@ class EventBus:
         bus.subscribe("document:closed", obj.on_close, weak=True)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
-        self._subscribers = {}  # event -> list of (callback, is_weakref)
+        self._subscribers: dict[str, list[tuple[Any, bool]]] = {}  # event -> list of (callback, is_weakref)
         # Per-thread names currently in emit(); instance-wide would drop
         # legitimate parallel emits of the same event from two threads.
         self._dispatching = threading.local()
 
-    def subscribe(self, event, callback, weak=False):
+    def subscribe(self, event: str, callback: Any, weak: bool = False) -> None:
         """Register *callback* for *event*.
 
         Args:
@@ -105,7 +108,7 @@ class EventBus:
         else:
             self._subscribers[event].append((callback, False))
 
-    def unsubscribe(self, event, callback):
+    def unsubscribe(self, event: str, callback: Any) -> None:
         """Remove *callback* from *event*."""
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         subs = self._subscribers.get(event)
@@ -118,7 +121,7 @@ class EventBus:
         ]
 
     @staticmethod
-    def _same_callback(stored, callback):
+    def _same_callback(stored: Any, callback: Any) -> bool:
         """True if *stored* is the same callable the caller passed.
 
         Bound methods are new objects on every attribute access
@@ -144,7 +147,7 @@ class EventBus:
         return active
 
     @deal.post(lambda result: result is None)
-    def emit(self, event, **data):
+    def emit(self, event: str, **data: Any) -> None:
         """Emit *event*, calling all subscribers with **data as kwargs.
 
         Exceptions in subscribers are logged and swallowed.
@@ -182,13 +185,13 @@ class EventBus:
         finally:
             active.discard(event)
 
-    def _resolve(self, cb, is_weak):
+    def _resolve(self, cb: Any, is_weak: bool) -> Any:
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         if is_weak:
             return cb()  # weakref -> call to dereference
         return cb
 
-    def _cleanup(self, event, ref):
+    def _cleanup(self, event: str, ref: Any) -> None:
         """Called when a weakref target is garbage-collected."""
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         subs = self._subscribers.get(event)

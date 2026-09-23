@@ -69,7 +69,7 @@ class ServiceBase(ABC):
 
     name: str | None = None
 
-    def initialize(self, ctx):
+    def initialize(self, ctx: Any) -> None:
         """Called once during bootstrap with the UNO component context.
 
         Override to perform setup that requires UNO (desktop access,
@@ -100,16 +100,16 @@ class ServiceRegistry:
         services.get("document")
     """
 
-    def __init__(self):
-        self._services = {}
+    def __init__(self) -> None:
+        self._services: dict[str, Any] = {}
 
-    def register(self, name, instance):
+    def register(self, name: str, instance: Any) -> None:
         """Register an arbitrary object as a named service."""
         if name in self._services:
             raise ValueError(f"Service already registered: {name}")
         self._services[name] = instance
 
-    def auto_discover(self, module):
+    def auto_discover(self, module: Any) -> None:
         """Automatically discover and register ServiceBase subclasses in a module."""
         import inspect
         import logging
@@ -131,21 +131,21 @@ class ServiceRegistry:
                 except Exception:
                     log.exception("Failed to instantiate service %s (unexpected)", obj.__name__)
 
-    def get(self, name):
+    def get(self, name: str) -> Any:
         """Get a service by name, or None if not registered."""
         return self._services.get(name)
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)
         if name in self._services:
             return self._services[name]
         raise AttributeError(f"No service registered: {name}")
 
-    def __contains__(self, name):
+    def __contains__(self, name: str) -> bool:
         return name in self._services
 
-    def initialize_all(self, ctx):
+    def initialize_all(self, ctx: Any) -> None:
         """Call ``initialize(ctx)`` on every service that supports it.
 
         ``register()`` accepts arbitrary objects, not only ServiceBase, so

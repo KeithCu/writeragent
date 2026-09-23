@@ -42,7 +42,7 @@ class ModuleBase(ABC):
 
     name: str | None = None
 
-    def initialize(self, services):
+    def initialize(self, services: Any) -> None:
         """Phase 1: Called in dependency order during bootstrap.
 
         Use this to register services, wire event subscriptions, and
@@ -53,7 +53,7 @@ class ModuleBase(ABC):
                       registered services (services.config, services.events …).
         """
 
-    def start(self, services):
+    def start(self, services: Any) -> None:
         """Phase 2a: Called on the VCL main thread after ALL modules
         have initialized.
 
@@ -66,7 +66,7 @@ class ModuleBase(ABC):
                       registered services.
         """
 
-    def start_background(self, services):
+    def start_background(self, services: Any) -> None:
         """Phase 2b: Called on the Job thread after all start() complete.
 
         Launch background tasks: HTTP servers, LLM connections, polling.
@@ -84,11 +84,11 @@ class ModuleBase(ABC):
 
     # ── Action dispatch ──────────────────────────────────────────────
 
-    def on_action(self, action):
+    def on_action(self, action: str) -> None:
         """Handle an action dispatched from menu/shortcut. Override in subclass."""
         log.warning("Unhandled action '%s' on module '%s'", action, self.name)
 
-    def get_menu_text(self, action) -> str | None:
+    def get_menu_text(self, action: str) -> str | None:
         """Return dynamic menu text for an action, or None for default.
 
         Override in subclass to provide state-dependent menu labels.
@@ -96,7 +96,7 @@ class ModuleBase(ABC):
         """
         return None
 
-    def get_menu_icon(self, action) -> str | None:
+    def get_menu_icon(self, action: str) -> str | None:
         """Return dynamic icon name prefix for an action, or None for default.
 
         Override in subclass to provide state-dependent menu icons.
@@ -108,13 +108,13 @@ class ModuleBase(ABC):
 
     # ── Dialog helpers ───────────────────────────────────────────────
 
-    def load_dialog(self, dialog_name):
+    def load_dialog(self, dialog_name: str) -> Any:
         """Load an XDL dialog from this module's directory."""
         from plugin.chatbot.dialogs import load_module_dialog
 
         return load_module_dialog(self.name, dialog_name)
 
-    def load_framework_dialog(self, dialog_name):
+    def load_framework_dialog(self, dialog_name: str) -> Any:
         """Load a reusable framework dialog template."""
         from plugin.chatbot.dialogs import load_framework_dialog
 
@@ -152,7 +152,7 @@ class ModuleLoader:
         visiting = set()
         order = []
 
-        def visit(name):
+        def visit(name: str) -> None:
             if name in visited:
                 return
             if name in visiting:
@@ -180,7 +180,7 @@ class ModuleLoader:
         return order
 
     @classmethod
-    def load_modules(cls, services_registry) -> list[ModuleBase]:
+    def load_modules(cls, services_registry: Any) -> list[ModuleBase]:
         """
         Discovers, imports, and initializes modules based on the manifest.
         Returns a list of initialized module instances.

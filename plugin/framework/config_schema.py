@@ -105,7 +105,7 @@ _LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset({"model_lru", "prompt_
 
 
 @deal.post(lambda result: isinstance(result, bool))
-def as_bool(value):
+def as_bool(value: Any):
     """Parse a value as boolean (handles str, int, float)."""
     if UNDER_CROSSHAIR:
         if isinstance(value, bool):
@@ -125,7 +125,7 @@ def as_bool(value):
 
 @deal.post(lambda result: isinstance(result, int))
 @deal.raises(ValueError)
-def parse_int_robust(val) -> int:
+def parse_int_robust(val: Any) -> int:
     """Robustly parse an integer value from a string, float, or other type,
     handling locale-specific decimal commas (like "8765,0" in German)."""
     import math
@@ -187,7 +187,7 @@ def parse_int_robust(val) -> int:
 
 @deal.post(lambda result: isinstance(result, float))
 @deal.raises(ValueError)
-def parse_float_robust(val) -> float:
+def parse_float_robust(val: Any) -> float:
     """Robustly parse a float value from a string, int, or other type,
     handling locale-specific decimal commas (like "1,5" in German)."""
     if isinstance(val, (int, float)):
@@ -714,7 +714,7 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
 # --- MODULES / manifest schema ---
 
 
-def _get_schema_default(key):
+def _get_schema_default(key: str) -> Any:
     """Return default for key from manifest schema. Supports flat and dotted keys."""
     if MODULES is _DEFAULT_MODULES:
         if key in CONFIG_DEFAULTS:
@@ -743,7 +743,7 @@ def _get_schema_default(key):
     return None
 
 
-def _dotted_fallback_keys(key):
+def _dotted_fallback_keys(key: str):
     """Yield dotted key variants for key using manifest modules (e.g. extend_selection_max_tokens -> chatbot.extend_selection_max_tokens)."""
     if "." in key:
         return
@@ -763,7 +763,7 @@ def _dotted_fallback_keys(key):
 # --- Default resolution ---
 
 
-def _resolve_default(key):
+def _resolve_default(key: str) -> Any:
     """Resolve default for key: schema first, then dataclass. Safe fallbacks for None."""
     if key == "log_level":
         tests_dir = os.path.join(_PLUGIN_DIR, "tests")

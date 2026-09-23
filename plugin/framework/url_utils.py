@@ -51,13 +51,13 @@ def dispatch_command_from_url(url: Any, *, protocol_prefix: str = LIBREPY_DISPAT
     return complete
 
 
-def _is_zai_host(url):
+def _is_zai_host(url: Any) -> bool:
     """True when URL targets Z.ai (general or coding-plan API)."""
     host = get_url_hostname(url).lower()
     return host == "z.ai" or host.endswith(".z.ai")
 
 
-def _is_google_host(url):
+def _is_google_host(url: Any) -> bool:
     """True when URL targets Google Gemini API (generativelanguage.googleapis.com)."""
     if not isinstance(url, str):
         return False
@@ -65,7 +65,7 @@ def _is_google_host(url):
     return "generativelanguage.googleapis.com" in url_lower
 
 
-def _zai_url_path(url):
+def _zai_url_path(url: Any) -> str:
     """Normalized path without trailing slash (empty string when bare host)."""
     if not isinstance(url, str):
         return ""
@@ -74,7 +74,7 @@ def _zai_url_path(url):
 
 @deal.pre(lambda url, is_openwebui=False: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str) and result.startswith("/"))
-def get_api_version_suffix(url, is_openwebui=False):
+def get_api_version_suffix(url: Any, is_openwebui: bool = False):
     """Return the API version suffix (e.g. '/v1', '/v4', '/api/paas/v4') for a given endpoint URL."""
     if is_openwebui:
         return "/api"
@@ -92,7 +92,7 @@ def get_api_version_suffix(url, is_openwebui=False):
 @deal.pre(lambda url, is_openwebui=False: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda url, is_openwebui=False, result="": bool(isinstance(url, str) and url.strip()) or result == "")
-def normalize_endpoint_url(url, is_openwebui=False):
+def normalize_endpoint_url(url: Any, is_openwebui: bool = False):
     """Clean up endpoint URL: strip whitespace, trailing slashes, and domain-specific version suffixes."""
     if type(url) is not str or not url.strip():
         return ""
@@ -138,7 +138,7 @@ def normalize_endpoint_url(url, is_openwebui=False):
 
 @deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
-def get_url_hostname(url):
+def get_url_hostname(url: Any):
     """Return hostname from URL safely."""
     if type(url) is not str:
         return ""
@@ -152,7 +152,7 @@ def get_url_hostname(url):
 
 @deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
-def get_url_domain(url):
+def get_url_domain(url: Any):
     """Return 'example.com' from 'https://api.example.com/v1'."""
     host = get_url_hostname(url)
     if not host:
@@ -165,7 +165,7 @@ def get_url_domain(url):
 
 @deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
-def get_url_path(url):
+def get_url_path(url: Any):
     """Return path from URL safely."""
     if type(url) is not str:
         return ""
@@ -178,7 +178,7 @@ def get_url_path(url):
 
 @deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, dict))
-def get_url_query_dict(url):
+def get_url_query_dict(url: Any):
     """Return query parameters as dict (values are lists)."""
     if type(url) is not str or not url:
         return {}
@@ -191,7 +191,7 @@ def get_url_query_dict(url):
 
 @deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
-def get_url_path_and_query(url):
+def get_url_path_and_query(url: Any):
     """Return path + query string from URL."""
     if type(url) is not str:
         return "/"
@@ -207,7 +207,7 @@ def get_url_path_and_query(url):
 
 @deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, bool))
-def is_pdf_url(url):
+def is_pdf_url(url: Any):
     """Check for .pdf in the URL path safely."""
     if type(url) is not str:
         return False

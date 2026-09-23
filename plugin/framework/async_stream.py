@@ -471,7 +471,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
         state.flush_buffers()
 
 
-def run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done, on_stopped, on_error, on_status_fn=None, ctx=None, show_search_thinking=False, on_approval_required=None, stop_checker=None):
+def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: Any, on_stream_done: Any, on_stopped: Any, on_error: Any, on_status_fn: Any = None, ctx: Any = None, show_search_thinking: bool = False, on_approval_required: Any = None, stop_checker: Any = None) -> None:
     """
     Main-thread drain loop: batches items from queue, manages thinking/chunk buffers,
     and dispatches to callbacks. Keeps UI responsive via pump_ui_idle (QueueExecutor + VCL).
@@ -644,7 +644,7 @@ def run_async_worker_with_drain(
 
     run_in_background(worker_wrapper, daemon=True, name=name, dedicated=True)
 
-    def on_stream_done_wrapper(item):
+    def on_stream_done_wrapper(item: Any) -> bool:
         if on_done_fn:
             try:
                 on_done_fn(item)
@@ -728,23 +728,23 @@ def _run_client_stream(
     run_async_worker_with_drain(ctx, worker, apply_chunk_fn=apply_chunk_fn, on_done_fn=on_done_fn, on_error_fn=on_error_fn, on_status_fn=on_status_fn, stop_checker=stop_checker, name=name)
 
 
-def run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, on_status_fn=None, stop_checker=None):
+def run_stream_completion_async(ctx: Any, client: Any, prompt: Any, system_prompt: Any, max_tokens: Any, apply_chunk_fn: Any, on_done_fn: Any, on_error_fn: Any, on_status_fn: Any = None, stop_checker: Any = None) -> None:
     """High-level helper for simple non-tool streams (always chat completions)."""
     # crosshair: off
 
-    def client_call(**cb_kwargs):
+    def client_call(**cb_kwargs: Any) -> None:
         client.stream_completion(prompt, system_prompt, max_tokens, **cb_kwargs)
 
     _run_client_stream(ctx, client_call, apply_chunk_fn=apply_chunk_fn, on_done_fn=on_done_fn, on_error_fn=on_error_fn, on_status_fn=on_status_fn, stop_checker=stop_checker, name="stream-completion", include_status=True)
 
 
-def run_stream_async(ctx, client, messages, tools=None, apply_chunk_fn=None, on_done_fn=None, on_error_fn=None, max_tokens=None, stop_checker=None):
+def run_stream_async(ctx: Any, client: Any, messages: Any, tools: Any = None, apply_chunk_fn: Any = None, on_done_fn: Any = None, on_error_fn: Any = None, max_tokens: Any = None, stop_checker: Any = None) -> None:
     """Compatibility helper for legacy run_stream_async calls (using messages/tools)."""
     # crosshair: off
 
     effective_max = max_tokens or 512
 
-    def client_call(**cb_kwargs):
+    def client_call(**cb_kwargs: Any) -> None:
         if tools:
             client.stream_request_with_tools(messages, effective_max, tools=tools, **cb_kwargs)
         else:
@@ -754,13 +754,13 @@ def run_stream_async(ctx, client, messages, tools=None, apply_chunk_fn=None, on_
 
 
 def run_blocking_in_thread(
-    ctx,
-    func,
-    *args,
+    ctx: Any,
+    func: Any,
+    *args: Any,
     pump_idle: bool = True,
     stop_checker: Callable[[], bool] | None = None,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Any:
     """
     Run a blocking function in a background thread.
 

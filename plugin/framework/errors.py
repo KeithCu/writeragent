@@ -520,7 +520,7 @@ class AgentParsingError(WriterAgentException):
     code: str = "PARSE_ERROR"
 
 
-def check_not_none(model, context_name="Object"):
+def check_not_none(model: Any, context_name: str = "Object") -> None:
     """Raise UnoObjectError if *model* is None.
 
     Null guard only. Live disposal is ``DisposedException``,
@@ -573,7 +573,7 @@ def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
 # Three wrappers, three jobs: safe_uno_call is for probes (RuntimeException is
 # not disposal — return default). handle_errors / safe_call are for real
 # operations (RuntimeException usually means the object is gone).
-def safe_uno_call(default=None):
+def safe_uno_call(default: Any = None) -> Any:
     """Decorator to safely call UNO methods with automatic error handling, returning default on failure (disposal exceptions re-raised).
 
     Unlike :func:`handle_errors` / :func:`safe_call`, a UNO ``RuntimeException``
@@ -583,11 +583,11 @@ def safe_uno_call(default=None):
     ``test_safe_uno_call_returns_default_on_runtime_error``.
     """
 
-    def decorator(func):
+    def decorator(func: Any) -> Any:
         from functools import wraps
 
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return func(*args, **kwargs)
             except Exception as e:
@@ -612,14 +612,14 @@ def safe_uno_call(default=None):
     return decorator
 
 
-def handle_errors(context_name):
+def handle_errors(context_name: str) -> Any:
     """Decorator to catch exceptions and wrap them in WriterAgentException."""
 
-    def decorator(fn):
+    def decorator(fn: Any) -> Any:
         from functools import wraps
 
         @wraps(fn)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return fn(*args, **kwargs)
             except WriterAgentException:
@@ -640,7 +640,7 @@ def handle_errors(context_name):
     return decorator
 
 
-def safe_call(fn, context_name, *args, **kwargs):
+def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
     """Safely call a UNO method. If it raises any exception (e.g., DisposedException), wrap it in UnoObjectError or DocumentDisposedError."""
     try:
         return fn(*args, **kwargs)

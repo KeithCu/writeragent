@@ -417,7 +417,7 @@ class AsyncProcess:
 
         self._wait_thread = run_in_background(self._wait_for_exit, name=f"asyncproc-wait-{self.process.pid}", dedicated=True)
 
-    def _read_stream(self, stream, callback):
+    def _read_stream(self, stream: Any, callback: Any) -> None:
         try:
             for line in stream:
                 if line is not None:
@@ -432,7 +432,7 @@ class AsyncProcess:
             except OSError:
                 pass
 
-    def _drain_stream(self, stream):
+    def _drain_stream(self, stream: Any) -> None:
         try:
             for _unused in stream:
                 pass
@@ -456,7 +456,7 @@ class AsyncProcess:
             except Exception:
                 log.exception("Error in on_exit_cb for process")
 
-    def terminate(self, timeout=5.0):
+    def terminate(self, timeout: float = 5.0) -> None:
         """Standard graceful termination -> SIGKILL."""
         if not self.process:
             return

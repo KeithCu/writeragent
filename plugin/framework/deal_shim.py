@@ -180,31 +180,31 @@ except ImportError:
     class _DealStub:
         """No-op stub for deal contract decorators when deal is not installed."""
 
-        def pre(self, *args, **kwargs):
+        def pre(self, *args: Any, **kwargs: Any) -> Any:
             return lambda f: f
 
-        def post(self, *args, **kwargs):
+        def post(self, *args: Any, **kwargs: Any) -> Any:
             return lambda f: f
 
-        def inv(self, *args, **kwargs):
+        def inv(self, *args: Any, **kwargs: Any) -> Any:
             return lambda f: f
 
-        def pure(self, f=None, *args, **kwargs):
+        def pure(self, f: Any = None, *args: Any, **kwargs: Any) -> Any:
             return f if f is not None else (lambda fn: fn)
 
-        def chain(self, *args, **kwargs):
+        def chain(self, *args: Any, **kwargs: Any) -> Any:
             return lambda f: f
 
-        def raises(self, *args, **kwargs):
+        def raises(self, *args: Any, **kwargs: Any) -> Any:
             return lambda f: f
 
-        def example(self, *args, **kwargs):
+        def example(self, *args: Any, **kwargs: Any) -> Any:
             return lambda f: f
 
-        def ensure(self, *args, **kwargs):
+        def ensure(self, *args: Any, **kwargs: Any) -> Any:
             return lambda f: f
 
-        def reason(self, *args, **kwargs):
+        def reason(self, *args: Any, **kwargs: Any) -> Any:
             return lambda f: f
 
     deal = _DealStub()
