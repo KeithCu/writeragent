@@ -16,7 +16,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Navigation tools: nav_heading, nav_surroundings."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from .specialized_base import ToolWriterStructuralBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 
 class NavHeading(ToolWriterStructuralBase):
@@ -34,7 +41,7 @@ class NavHeading(ToolWriterStructuralBase):
     }
     uno_services = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         prox_svc = ctx.services.writer_proximity
         try:
             result = prox_svc.navigate_heading(ctx.doc, kwargs["locator"], kwargs["direction"])
@@ -60,7 +67,7 @@ class NavSurroundings(ToolWriterStructuralBase):
     }
     uno_services = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         prox_svc = ctx.services.writer_proximity
         try:
             result = prox_svc.get_surroundings(ctx.doc, kwargs["locator"], radius=kwargs.get("radius", 10), include=kwargs.get("include"))
@@ -86,7 +93,7 @@ class NavHeadingChildren(ToolWriterStructuralBase):
     }
     uno_services = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         tree_svc = ctx.services.writer_tree
         para_index = kwargs.get("para_index")
         bookmark = kwargs.get("bookmark")

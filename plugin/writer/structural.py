@@ -18,14 +18,21 @@
 
 (Index refresh, field refresh, and bookmark list/cleanup live in specialized domains.)"""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 
 from .specialized_base import ToolWriterStructuralBase
 
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
-def _at_page_anchor_page(obj):
+
+def _at_page_anchor_page(obj: Any):
     """Physical page if *obj* is AT_PAGE with AnchorPageNo; else None.
 
     AnchorPageNo is only valid for AT_PAGE (text.Shape / TextFrame /
@@ -43,7 +50,7 @@ def _at_page_anchor_page(obj):
         return None
 
 
-def _with_left_body_locked(doc, vc, scan_fn):
+def _with_left_body_locked(doc: Any, vc: Any, scan_fn: Any):
     """Leave nested XText, lock for the scan, unlock before restore.
 
     Why leave first: lockControllers while the view cursor sits in a table
@@ -92,7 +99,7 @@ class SectionList(ToolWriterStructuralBase):
     parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc
         if not hasattr(doc, "getTextSections"):
             return {"status": "ok", "sections": [], "count": 0}
@@ -113,7 +120,7 @@ class NavGotoPage(ToolWriterStructuralBase):
     parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "Page number to navigate to"}}, "required": ["page"]}
     uno_services = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         controller = ctx.doc.getCurrentController()
         vc = controller.getViewCursor()
         vc.jumpToPage(kwargs["page"])
@@ -135,7 +142,7 @@ class GetPageObjects(ToolBase):
     uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc
         doc_svc = ctx.services.document
         page = kwargs.get("page")
@@ -162,7 +169,7 @@ class GetPageObjects(ToolBase):
         objects = _with_left_body_locked(doc, vc, lambda: self._scan_page(ctx, doc, vc, page))
         return {"status": "ok", "page": page, **objects}
 
-    def _page_at_range(self, doc, vc, rng, retry_if_zero=False):
+    def _page_at_range(self, doc: Any, vc: Any, rng: Any, retry_if_zero: bool = False):
         """View-cursor page of *rng*. Pages are 1-based.
 
         After leave-then-lock, getPage() is fine at body text. A locked
@@ -188,14 +195,14 @@ class GetPageObjects(ToolBase):
         finally:
             doc.lockControllers()
 
-    def _content_page(self, doc, vc, obj, retry_if_zero):
+    def _content_page(self, doc: Any, vc: Any, obj: Any, retry_if_zero: bool):
         """Page of a graphic/frame/table: AT_PAGE via AnchorPageNo, else view hop."""
         page_no = _at_page_anchor_page(obj)
         if page_no is not None:
             return page_no
         return self._page_at_range(doc, vc, obj.getAnchor(), retry_if_zero=retry_if_zero)
 
-    def _scan_page(self, ctx, doc, vc, page):
+    def _scan_page(self, ctx: ToolContext, doc: Any, vc: Any, page: Any):
         images = []
         if hasattr(doc, "getGraphicObjects"):
             for name in doc.getGraphicObjects().getElementNames():
@@ -276,7 +283,7 @@ class SectionRead(ToolWriterStructuralBase):
     parameters = {"type": "object", "properties": {"section": {"type": "string", "description": "Name of the section to read."}}, "required": ["section"]}
     uno_services = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         section_name = kwargs.get("section", "")
         if not section_name:
             return self._tool_error("section is required.")
@@ -307,7 +314,7 @@ class SectionRead(ToolWriterStructuralBase):
         return {"status": "ok", "section": section_name, "section_name": section_name, "paragraphs": paragraphs, "content": content, "length": len(content)}
 
 
-def _resolve_para_index(ctx, kwargs):
+def _resolve_para_index(ctx: ToolContext, kwargs: dict[str, Any]):
     """Resolve locator or paragraph_index from tool kwargs.
 
     Returns an integer paragraph index, or None if neither is provided.
@@ -333,7 +340,7 @@ class CloneHeadingBlock(ToolBaseDummy):
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
         para_index = _resolve_para_index(ctx, kwargs)

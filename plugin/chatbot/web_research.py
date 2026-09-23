@@ -25,9 +25,14 @@ import logging
 import os
 import threading
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.tool import ToolBase
+
+if TYPE_CHECKING:
+    from plugin.contrib.smolagents.memory import ToolCall
+    from plugin.contrib.smolagents.models import ChatMessage
+    from plugin.framework.tool import ToolContext
 from plugin.framework.errors import format_error_payload, ToolExecutionError
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 
@@ -72,7 +77,7 @@ class WebAgentRunParams:
 class WebResearchToolCallingAgent(ToolCallingAgent):
     """Subclass of ToolCallingAgent that injects the step budget into the prompt on each step."""
 
-    def augment_messages_for_step(self, messages):
+    def augment_messages_for_step(self, messages: list[ChatMessage]) -> list[ChatMessage]:
         from plugin.contrib.smolagents.models import ChatMessage, MessageRole
 
         # Re-calculate remaining steps
@@ -222,7 +227,7 @@ class VisitWebpageCdpTool(Tool):
     inputs = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type = "string"
 
-    def __init__(self, cdp_url: str, max_output_length: int = 40000, **kwargs):
+    def __init__(self, cdp_url: str, max_output_length: int = 40000, **kwargs: Any):
         super().__init__()
         self.cdp_url = cdp_url
         self.max_output_length = max_output_length
@@ -341,7 +346,7 @@ def _run_web_agent(
     web_search_step_index = 0
     stop_checker = params.stop_checker
 
-    def tool_call_handler(step):
+    def tool_call_handler(step: ToolCall) -> Any:
         nonlocal web_search_step_index
         if stop_checker and stop_checker():
             return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
@@ -512,9 +517,10 @@ class WebResearchTool(ToolBase):
     def is_async(self):
         return True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         query = kwargs.get("query")
         history_text = kwargs.get("history_text")
+        cache_fields: dict[str, Any] = {}
 
         query_str = str(query or "")
         from plugin.chatbot.web_research_cache import resolve_research_locale
@@ -666,7 +672,7 @@ class WebResearchTool(ToolBase):
             else:
                 final_ans = _run_web_agent(ctx, query_str, history_text, agent_params)
 
-            cache_fields: dict[str, Any] = {}
+            cache_fields = {}
             if isinstance(final_ans, dict) and "status" in final_ans:
                 if final_ans.get("status") == "ok":
                     final_ans.setdefault("instruction", instruction)

@@ -3,11 +3,16 @@
 #
 # This program is free software.
 
+from __future__ import annotations
+
 import getpass
 import logging
-from typing import Any, Iterable, cast
+from typing import TYPE_CHECKING, Any, Iterable, cast
 
 from plugin.framework.tool import ToolBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 from plugin.chatbot.memory import format_upsert_memory_chat_line_from_arguments
 
 log = logging.getLogger(__name__)
@@ -270,7 +275,7 @@ class LibrarianOnboardingTool(ToolBase):
     def is_async(self):
         return True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.chatbot.smol_agent import run_subagent_tool
 
         return run_subagent_tool("Librarian", _run_librarian_agent, ctx, **kwargs)

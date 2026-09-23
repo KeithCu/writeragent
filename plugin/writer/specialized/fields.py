@@ -9,6 +9,8 @@
 
 """Writer text fields — specialized fields domain."""
 
+from typing import Any
+
 from ..specialized_base import ToolWriterFieldBase
 from ..target_resolver import resolve_target_cursor
 
@@ -20,7 +22,7 @@ class FieldsUpdateAll(ToolWriterFieldBase):
     parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         if not hasattr(doc, "getTextFields"):
             return self._tool_error("Document does not support text fields.")
@@ -42,7 +44,7 @@ class FieldsList(ToolWriterFieldBase):
     description = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
     parameters = {"type": "object", "properties": {}, "required": []}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         if not hasattr(doc, "getTextFields"):
             return self._tool_error("Document does not support text fields.")
@@ -55,7 +57,7 @@ class FieldsList(ToolWriterFieldBase):
         enum = fields.createEnumeration()
 
         results = []
-        hf_labels = {}
+        hf_labels: dict[str, Any] = {}
         count = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
@@ -122,7 +124,7 @@ class FieldsDelete(ToolWriterFieldBase):
     parameters = {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."}}, "required": ["ids"]}
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         ids = kwargs.get("ids")
         doc = ctx.doc
         if not hasattr(doc, "getTextFields"):
@@ -134,7 +136,7 @@ class FieldsDelete(ToolWriterFieldBase):
         enum = fields.createEnumeration()
 
         fields_to_delete = []
-        hf_labels = {}
+        hf_labels: dict[str, Any] = {}
         count = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
@@ -196,7 +198,7 @@ class FieldsInsert(ToolWriterFieldBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         field_type = kwargs.get("field")
         properties = kwargs.get("properties")
         doc = ctx.doc

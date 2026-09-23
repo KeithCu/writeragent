@@ -80,7 +80,15 @@ def build_tool_execute_fn(
     starting a full sidebar send.
     """
 
-    def execute_fn(name, args, doc, ctx, status_callback=None, append_thinking_callback=None, stop_checker=None):
+    def execute_fn(
+        name: str,
+        args: Any,
+        doc: Any,
+        ctx: Any,
+        status_callback: Callable[[str], None] | None = None,
+        append_thinking_callback: Callable[[str], None] | None = None,
+        stop_checker: Callable[[], bool] | None = None,
+    ) -> str:
         from plugin.main import get_tools as _get_tools
 
         # NOTE: Experimental planning/TodoStore wiring is intentionally
@@ -107,7 +115,7 @@ def build_tool_execute_fn(
         needs_document_research_ui = delegate_domain == "document_research"
         if needs_web_research_ui or needs_document_research_ui:
 
-            def _sub_agent_chat_append(text):
+            def _sub_agent_chat_append(text: str) -> None:
                 aq = getattr(host, "_active_q", None)
                 if aq is not None:
                     aq.put((StreamQueueKind.CHUNK, text))
@@ -124,7 +132,7 @@ def build_tool_execute_fn(
             try:
                 if needs_web_research_ui and get_config_bool("chatbot.prompt_for_web_research"):
 
-                    def _web_approval(query_for_engine, tool_name, args):
+                    def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
                         q = getattr(host, "_active_q", None)
                         if q is None:
                             log.warning("tool_loop: web_research approval skipped (_active_q missing)")
@@ -293,7 +301,7 @@ class ToolLoopEffectInterpreter:
         if image_model_override and func_name == "image_generate":
             func_args["image_model"] = image_model_override
 
-        def tool_status_callback(msg):
+        def tool_status_callback(msg: str) -> None:
             host._active_q.put((StreamQueueKind.STATUS, msg))
 
         if effect.is_async:
@@ -301,7 +309,7 @@ class ToolLoopEffectInterpreter:
             def run_async():
                 try:
 
-                    def tool_thinking_callback(msg):
+                    def tool_thinking_callback(msg: str) -> None:
                         host._active_q.put((StreamQueueKind.TOOL_THINKING, msg))
 
                     if host._active_supports_status:

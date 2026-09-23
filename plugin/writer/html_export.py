@@ -14,10 +14,13 @@ semantic post-process. Apply strips ``<rt>`` then sets ``RubyText`` on the
 base run (``html_import.extract_and_strip_ruby`` / ``_apply_ruby_spans``).
 """
 
+from __future__ import annotations
+
 import logging
 import re
 import time
 from html import escape as html_escape
+from typing import Any
 
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
@@ -40,7 +43,7 @@ class _RubySpan:
 
     __slots__ = ("base", "reading", "start", "end")
 
-    def __init__(self, base, reading, start=0, end=0):
+    def __init__(self, base: str, reading: str, start: int = 0, end: int = 0) -> None:
         self.base = base
         self.reading = reading
         self.start = start
@@ -73,14 +76,14 @@ def _apply_image_export_options(content: str, *, include_images: bool) -> str:
     return strip_embedded_image_data(content)
 
 
-def _ruby_parts(span):
+def _ruby_parts(span: Any):
     """``(base, reading)`` from a ``_RubySpan`` or a 2-tuple (unit tests)."""
     if isinstance(span, (tuple, list)):
         return span[0], span[1]
     return span.base, span.reading
 
 
-def _inside_ruby_element(html, index):
+def _inside_ruby_element(html: str, index: int):
     """True when *index* sits inside an existing ``<ruby>…</ruby>``."""
     last_open = html.rfind("<ruby", 0, index)
     if last_open < 0:
@@ -89,7 +92,7 @@ def _inside_ruby_element(html, index):
     return last_close < last_open
 
 
-def _index_in_tag(html, index):
+def _index_in_tag(html: str, index: int):
     """True when *index* is inside ``<...>`` (attribute text is not body text)."""
     last_lt = html.rfind("<", 0, index)
     if last_lt < 0:
@@ -98,7 +101,7 @@ def _index_in_tag(html, index):
     return last_gt < last_lt
 
 
-def _find_contiguous(html, needle, start=0):
+def _find_contiguous(html: str, needle: str, start: int = 0):
     """Offsets of *needle* as a raw substring that is not inside a tag."""
     if not html or not needle:
         return None
@@ -112,7 +115,7 @@ def _find_contiguous(html, needle, start=0):
         idx = found + 1
 
 
-def _only_tags_or_ws(fragment):
+def _only_tags_or_ws(fragment: str):
     """True when *fragment* has no body text (tags and whitespace only)."""
     i = 0
     n = len(fragment)
@@ -130,11 +133,11 @@ def _only_tags_or_ws(fragment):
     return True
 
 
-def _ruby_markup(base, reading):
+def _ruby_markup(base: str, reading: str):
     return "<ruby>%s<rt>%s</rt></ruby>" % (html_escape(base), html_escape(reading))
 
 
-def inject_ruby_into_html(html, spans):
+def inject_ruby_into_html(html: str, spans: list[Any]):
     """Rewrite glued or dropped ruby encodings to semantic ``<ruby><rt>``.
 
     The XHTML Writer filter has no ``text:ruby`` rule, so full export concatenates
@@ -187,7 +190,7 @@ def inject_ruby_into_html(html, spans):
     return "".join(parts)
 
 
-def _iter_xtext_paragraphs(text_obj):
+def _iter_xtext_paragraphs(text_obj: Any):
     """Yield paragraphs under *text_obj*, descending into table cells."""
     try:
         enum = text_obj.createEnumeration()
@@ -214,7 +217,7 @@ def _iter_xtext_paragraphs(text_obj):
             yield el
 
 
-def _iter_ruby_spans_in_paragraph(para):
+def _iter_ruby_spans_in_paragraph(para: Any):
     """Yield ``_RubySpan`` for each Ruby start/end pair in *para*.
 
     Writer stores ruby as ``TextPortionType="Ruby"`` marks: the start has
@@ -229,7 +232,7 @@ def _iter_ruby_spans_in_paragraph(para):
     in_delete = False
     in_ruby = False
     reading = ""
-    base_parts = []
+    base_parts: list[str] = []
     base_start = 0
     offset = 0
     while portion_enum.hasMoreElements() is True:
@@ -275,13 +278,13 @@ def _iter_ruby_spans_in_paragraph(para):
         offset += len(chunk)
 
 
-def iter_ruby_spans(text_obj):
+def iter_ruby_spans(text_obj: Any):
     """Document-order ruby pairs under *text_obj* (body or cell), including tables."""
     for para in _iter_xtext_paragraphs(text_obj):
         yield from _iter_ruby_spans_in_paragraph(para)
 
 
-def _ruby_spans_in_window(para, trim_start, trim_end):
+def _ruby_spans_in_window(para: Any, trim_start: int, trim_end: int):
     """Ruby pairs whose entire base lies inside the copied visible-text window."""
     out = []
     for span in _iter_ruby_spans_in_paragraph(para):
@@ -290,7 +293,7 @@ def _ruby_spans_in_window(para, trim_start, trim_end):
     return out
 
 
-def _inject_ruby_from_model(model, content, fodt_has_ruby=None):
+def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None = None):
     """Walk the live model and rewrite *content* when ruby is (or may be) present.
 
     *fodt_has_ruby* is True/False from the paired FODT sidecar, or None when
@@ -308,7 +311,7 @@ def _inject_ruby_from_model(model, content, fodt_has_ruby=None):
     return inject_ruby_into_html(content, spans)
 
 
-def _inject_exported_math_tex(model, ctx, content: str) -> str:
+def _inject_exported_math_tex(model: Any, ctx: Any, content: str) -> str:
     """Replace formula OLE holes with delimited TeX for the model/chat.
 
     Failures stay in the HTML as a visible fallback; never drop formulas.
@@ -325,7 +328,7 @@ def _inject_exported_math_tex(model, ctx, content: str) -> str:
 
 
 
-def _export_xhtml(doc, config_svc):
+def _export_xhtml(doc: Any, config_svc: Any):
     """Export *doc* via the XHTML Writer File filter; return the raw XHTML string."""
     with format_mod._with_temp_buffer(None, config_svc, ext=format_mod.XHTML_EXTENSION) as (path, file_url):
         props = (format_mod.create_property_value("FilterName", format_mod.XHTML_FILTER),)
@@ -335,7 +338,7 @@ def _export_xhtml(doc, config_svc):
 
 
 
-def _autostyle_maps(doc, config_svc):
+def _autostyle_maps(doc: Any, config_svc: Any):
     """Export *doc* as flat ODF once and return ``(parents, overrides, has_ruby)``.
 
     ``parents`` (Pn -> base style name) lets the read path recover an autostyle paragraph's real
@@ -391,7 +394,7 @@ _COPIED_PARA_PROPERTIES = (
 _COPY_PORTION_LIMIT = 50000
 
 
-def _copy_properties(src, dst, names, style=None):
+def _copy_properties(src: Any, dst: Any, names: tuple[str, ...], style: Any = None):
     """Copy *names* from one range to another, but only where they differ from *style*.
 
     Copying a value equal to the style's turns an inherited value into a hand-set one on the copy,
@@ -420,7 +423,7 @@ def _copy_properties(src, dst, names, style=None):
             continue
 
 
-def _source_style(model, style_name, cache):
+def _source_style(model: Any, style_name: str, cache: dict[str, Any]):
     """The source document's paragraph-style object for *style_name*, or None. Cached per read."""
     if style_name in cache:
         return cache[style_name]
@@ -434,7 +437,7 @@ def _source_style(model, style_name, cache):
     return style
 
 
-def _visible_portions(para, limit=_COPY_PORTION_LIMIT, truncated_out=None):
+def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out: list[str] | None = None):
     """Visible portions for offset paint. Same walk as the text helper.
 
     Aborts on portion enum / type failure so later runs are not painted at a
@@ -456,7 +459,14 @@ def _visible_portions(para, limit=_COPY_PORTION_LIMIT, truncated_out=None):
             truncated_out.append(msg)
 
 
-def _paint_direct_formatting(para, portions, temp_text, trim_start, trim_end, style=None):
+def _paint_direct_formatting(
+    para: Any,
+    portions: list[tuple[Any, str]],
+    temp_text: Any,
+    trim_start: int,
+    trim_end: int,
+    style: Any = None,
+) -> None:
     """Re-apply the source paragraph's direct formatting to the copy just written.
 
     The copy is made with setString, which carries plain text and nothing else — so a range read
@@ -500,7 +510,7 @@ def _paint_direct_formatting(para, portions, temp_text, trim_start, trim_end, st
             continue
 
 
-def _hyperlink_urls(portions, trim_start, trim_end):
+def _hyperlink_urls(portions: list[tuple[Any, str]], trim_start: int, trim_end: int):
     """One URL per hyperlink run inside the copied window, in order.
 
     The XHTML filter emits one ``<a>`` per run, not per text portion, and it
@@ -531,13 +541,13 @@ def _hyperlink_urls(portions, trim_start, trim_end):
     return urls
 
 
-def _restore_anchor_hrefs(content, urls):
+def _restore_anchor_hrefs(content: str, urls: list[str]):
     """Write *urls* back onto exported anchors. The filter does not keep ``|outline``."""
     if not content or not urls:
         return content
     index = 0
 
-    def _replace(match):
+    def _replace(match: re.Match[str]):
         nonlocal index
         if index >= len(urls):
             return match.group(0)
@@ -548,7 +558,7 @@ def _restore_anchor_hrefs(content, urls):
     return _ANCHOR_HREF_RE.sub(_replace, content)
 
 
-def _starts_before(text, left, right) -> bool:
+def _starts_before(text: Any, left: Any, right: Any) -> bool:
     """True when *left* is strictly before *right* (``compareRegionStarts`` == 1)."""
     try:
         return int(text.compareRegionStarts(left, right)) == 1
@@ -556,7 +566,7 @@ def _starts_before(text, left, right) -> bool:
         return False
 
 
-def _starts_at_or_after(text, left, right) -> bool:
+def _starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
     """True when *left* is at or after *right*. A failed compare does not stop the walk."""
     try:
         return int(text.compareRegionStarts(left, right)) != 1
@@ -564,7 +574,7 @@ def _starts_at_or_after(text, left, right) -> bool:
         return False
 
 
-def _ends_after(text, left, right) -> bool:
+def _ends_after(text: Any, left: Any, right: Any) -> bool:
     """True when *left* ends strictly after *right* (``compareRegionEnds`` == -1)."""
     try:
         return int(text.compareRegionEnds(left, right)) == -1
@@ -572,7 +582,7 @@ def _ends_after(text, left, right) -> bool:
         return False
 
 
-def _element_overlaps(text, element, source) -> bool:
+def _element_overlaps(text: Any, element: Any, source: Any) -> bool:
     """True when *element* and *source* share a character."""
     try:
         return (
@@ -583,7 +593,7 @@ def _element_overlaps(text, element, source) -> bool:
         return False
 
 
-def _selection_cursor(model):
+def _selection_cursor(model: Any):
     """The current selection as a cursor in its own text, or None.
 
     Scope ``selection`` used to turn this into character offsets and walk the
@@ -605,7 +615,7 @@ def _selection_cursor(model):
         return None
 
 
-def _trim_to_source(text, element, para_text, source):
+def _trim_to_source(text: Any, element: Any, para_text: str, source: Any):
     """Visible-text window of *element* that lies inside *source*."""
     try:
         start_inside = _starts_before(text, element.getStart(), source.getStart())
@@ -627,7 +637,18 @@ def _trim_to_source(text, element, para_text, source):
     return trim_start, trim_end
 
 
-def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc, *, include_images=False, walk_warnings=None, source_range=None):
+def _range_to_content_via_temp_doc(
+    model: Any,
+    ctx: Any,
+    start: int,
+    end: int,
+    max_chars: int | None,
+    config_svc: Any,
+    *,
+    include_images: bool = False,
+    walk_warnings: list[str] | None = None,
+    source_range: Any = None,
+):
     """Export a character range, or *source_range* itself, via a hidden temp document.
 
     *source_range* is the selection. It is copied from that cursor's text, not
@@ -644,7 +665,7 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
 
         temp_text = temp_doc.getText()
         temp_cursor = temp_text.createTextCursor()
-        style_cache = {}
+        style_cache: dict[str, Any] = {}
         text = source_range.getText() if source_range is not None else model.getText()
         enum = text.createEnumeration()
         first_para = True
@@ -763,16 +784,16 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
 
 
 def document_to_content(
-    model,
-    ctx,
-    services,
-    max_chars=None,
-    scope="full",
-    range_start=None,
-    range_end=None,
+    model: Any,
+    ctx: Any,
+    services: Any,
+    max_chars: int | None = None,
+    scope: str = "full",
+    range_start: int | None = None,
+    range_end: int | None = None,
     *,
-    include_images=False,
-    walk_warnings=None,
+    include_images: bool = False,
+    walk_warnings: list[str] | None = None,
 ):
     """Export a Writer document (or part of it) as HTML.
 
@@ -892,14 +913,14 @@ def document_to_content(
         return _done("", "failed")
 
 
-def _supports_service(obj, name):
+def _supports_service(obj: Any, name: str):
     try:
         return bool(obj.supportsService(name))
     except Exception:
         return False
 
 
-def _xtext_has_tables(text_obj):
+def _xtext_has_tables(text_obj: Any):
     try:
         enum = text_obj.createEnumeration()
     except Exception:
@@ -914,21 +935,21 @@ def _xtext_has_tables(text_obj):
     return False
 
 
-def _whole_xtext_range(text_obj):
+def _whole_xtext_range(text_obj: Any):
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
     return cursor
 
 
-def _goto_doc_end(doc):
+def _goto_doc_end(doc: Any) -> None:
     try:
         doc.getCurrentController().getViewCursor().gotoEnd(False)
     except Exception:
         pass
 
 
-def _paste_range(src_doc, rng, dest_doc):
+def _paste_range(src_doc: Any, rng: Any, dest_doc: Any):
     """Copy a range via the document transferable (fields, images, char format).
 
     Selecting a header/footer *table* and pasting this way drops the table
@@ -948,7 +969,7 @@ def _paste_range(src_doc, rng, dest_doc):
         return False
 
 
-def _copy_field_into(dest_doc, dest_text, dest_cursor, src_field):
+def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any):
     """Recreate *src_field* in *dest_doc* (used for table-cell fields)."""
     services = []
     try:
@@ -978,7 +999,7 @@ def _copy_field_into(dest_doc, dest_text, dest_cursor, src_field):
         return False
 
 
-def _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell):
+def _copy_cell_xtext(src_doc: Any, src_cell: Any, dest_doc: Any, dest_cell: Any) -> None:
     """Copy one table cell: text + fields. Images in cells are not copied here."""
     dest_text = dest_cell
     try:
@@ -1041,7 +1062,7 @@ def _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell):
                     dest_text.insertString(dest_cursor, chunk, False)
 
 
-def _writer_cell_position(name):
+def _writer_cell_position(name: str):
     """Parse a Writer cell name the way ``SwXTextTable::GetCellPosition`` does.
 
     Writer letters are base 52 (A–Z, a–z, then AA…). Spreadsheet ``parse_a1``
@@ -1090,7 +1111,7 @@ def _writer_cell_position(name):
     return n_col_idx, n_row
 
 
-def _writer_table_copy_layout(table):
+def _writer_table_copy_layout(table: Any):
     """Dest initialize size and named cells so HTML copy does not drop D2.
 
     Dest rows/cols are the max of ``getRows()``/``getColumns()`` and the Writer
@@ -1121,7 +1142,7 @@ def _writer_table_copy_layout(table):
     return max_row + 1, max_col + 1, names
 
 
-def _copy_table(src_doc, src_table, dest_doc, dest_text=None):
+def _copy_table(src_doc: Any, src_table: Any, dest_doc: Any, dest_text: Any = None) -> None:
     """Recreate *src_table* in *dest_text* (document body if omitted).
 
     *dest_text* is a cell when copying a nested TextTable; recursion through
@@ -1162,7 +1183,7 @@ def _copy_table(src_doc, src_table, dest_doc, dest_text=None):
     _goto_doc_end(dest_doc)
 
 
-def _copy_xtext_by_portions(src_doc, src_text, dest_doc):
+def _copy_xtext_by_portions(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
     """Copy paragraphs/fields without the view transferable.
 
     Needed when ``select()`` on ``HeaderText`` pastes nothing because the
@@ -1226,7 +1247,7 @@ def _copy_xtext_by_portions(src_doc, src_text, dest_doc):
                     dest_text.insertString(dest_cursor, chunk, False)
 
 
-def _copy_xtext_into_doc(src_doc, src_text, dest_doc):
+def _copy_xtext_into_doc(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
     """Copy *src_text* (body, header, footer, cell) into *dest_doc*'s body.
 
     Paragraphs use the transferable so fields and AS_CHARACTER images survive.
@@ -1267,13 +1288,21 @@ def _copy_xtext_into_doc(src_doc, src_text, dest_doc):
         _copy_xtext_by_portions(src_doc, src_text, dest_doc)
 
 
-def _open_hidden_writer(ctx):
+def _open_hidden_writer(ctx: Any):
     desktop = get_desktop(ctx)
     load_props = (format_mod.create_property_value("Hidden", True),)
     return desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, load_props)
 
 
-def xtext_to_content(text_obj, model, ctx, services=None, *, include_images=True, max_chars=None):
+def xtext_to_content(
+    text_obj: Any,
+    model: Any,
+    ctx: Any,
+    services: Any = None,
+    *,
+    include_images: bool = True,
+    max_chars: int | None = None,
+):
     """Export an ``XText`` (header, footer, body, cell) via ``document_to_content``.
 
     Full-document XHTML omits page-style headers/footers, so the region is

@@ -982,17 +982,17 @@ class SlashPopupController:
         host = self
 
         class _Handler(unohelper.Base, XKeyHandler):  # type: ignore[misc]
-            def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
                 return
 
-            def keyPressed(self, aEvent):  # noqa: N802 -- UNO XKeyHandler
+            def keyPressed(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
                 code = int(getattr(aEvent, "KeyCode", 0) or 0)
                 mods = int(getattr(aEvent, "Modifiers", 0) or 0)
                 ch = getattr(aEvent, "KeyChar", None)
                 _ovlog("frame keyPressed code=%s mods=%s char=%r", code, mods, ch)
                 return bool(host.handle_key(code, mods, ch, from_overlay=True))
 
-            def keyReleased(self, aEvent):  # noqa: N802 -- UNO XKeyHandler
+            def keyReleased(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
                 return False
 
         handler = _Handler()
@@ -1048,17 +1048,17 @@ class SlashPopupController:
         host = self
 
         class _Handler(unohelper.Base, XKeyHandler):  # type: ignore[misc]
-            def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
                 return
 
-            def keyPressed(self, aEvent):  # noqa: N802 -- UNO XKeyHandler
+            def keyPressed(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
                 code = int(getattr(aEvent, "KeyCode", 0) or 0)
                 mods = int(getattr(aEvent, "Modifiers", 0) or 0)
                 ch = getattr(aEvent, "KeyChar", None)
                 _ovlog("toolkit keyPressed code=%s mods=%s char=%r", code, mods, ch)
                 return bool(host.handle_key(code, mods, ch, from_overlay=True))
 
-            def keyReleased(self, aEvent):  # noqa: N802 -- UNO XKeyHandler
+            def keyReleased(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
                 return False
 
         handler = _Handler()
@@ -1099,22 +1099,22 @@ class SlashPopupController:
         host = self
 
         class _Click(unohelper.Base, XMouseListener):  # type: ignore[misc]
-            def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
                 return
 
-            def mousePressed(self, e):  # noqa: N802 -- UNO signature
+            def mousePressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
                 _ovlog("mousePressed y=%s", getattr(e, "Y", None))
                 return
 
-            def mouseReleased(self, e):  # noqa: N802 -- UNO signature
+            def mouseReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
                 y = int(getattr(e, "Y", -1) or -1)
                 _ovlog("mouseReleased y=%s open=%s", y, host._open)
                 host.accept_row_at_y(y)
 
-            def mouseEntered(self, e):  # noqa: N802 -- UNO signature
+            def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
                 return
 
-            def mouseExited(self, e):  # noqa: N802 -- UNO signature
+            def mouseExited(self, e: Any) -> None:  # noqa: N802 -- UNO signature
                 return
 
         try:
@@ -1136,20 +1136,20 @@ class SlashPopupController:
         host = self
 
         class _Item(unohelper.Base, XItemListener):  # type: ignore[misc]
-            def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
                 return
 
-            def itemStateChanged(self, rEvent):  # noqa: N802 -- UNO XItemListener
+            def itemStateChanged(self, rEvent: Any) -> None:  # noqa: N802 -- UNO XItemListener
                 _ovlog("itemStateChanged ignore=%s open=%s", host._ignore_item, host._open)
                 if host._ignore_item or not host._open:
                     return
                 host.accept_selected()
 
         class _Act(unohelper.Base, XActionListener):  # type: ignore[misc]
-            def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
                 return
 
-            def actionPerformed(self, rEvent):  # noqa: N802 -- UNO XActionListener
+            def actionPerformed(self, rEvent: Any) -> None:  # noqa: N802 -- UNO XActionListener
                 _ovlog("actionPerformed open=%s", host._open)
                 if host._open:
                     host.accept_selected()
@@ -1179,10 +1179,10 @@ class SlashPopupController:
         host = self
 
         class _Keys(unohelper.Base, XKeyListener):  # type: ignore[misc]
-            def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
                 return
 
-            def keyPressed(self, e):  # noqa: N802 -- UNO signature
+            def keyPressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
                 _ovlog(
                     "overlay/dialog keyPressed code=%s mods=%s",
                     int(getattr(e, "KeyCode", 0) or 0),
@@ -1199,7 +1199,7 @@ class SlashPopupController:
                             setattr(e, "Consume", True)
                 return
 
-            def keyReleased(self, e):  # noqa: N802 -- UNO signature
+            def keyReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
                 return
 
         targets = (("overlay", self.control),)

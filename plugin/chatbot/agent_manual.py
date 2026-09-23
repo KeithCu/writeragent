@@ -31,6 +31,7 @@ a Calc session never reads Writer advice."""
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from plugin.framework.prompts import (
     CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
@@ -158,7 +159,7 @@ def _app(doc_type: str | None) -> str:
     return doc_type if doc_type in _SECTIONS_BY_APP else "writer"
 
 
-def doc_type_of(doc) -> str | None:
+def doc_type_of(doc: Any) -> str | None:
     """'writer' / 'calc' / 'draw' for a document model, or None when there is no document.
 
     Same resolution every other tool relies on (lazy import mirrors get_core_directives)."""
@@ -232,6 +233,6 @@ def full_manual(doc_type: str | None = "writer") -> str:
     return "HOW TO WORK WITH THE DOCUMENT:\n\n" + "\n\n".join(parts)
 
 
-def full_manual_for_model(model) -> str:
+def full_manual_for_model(model: Any) -> str:
     """full_manual() resolved from a document model (agent-backend convenience)."""
     return full_manual(doc_type_of(model) or "writer")

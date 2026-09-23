@@ -9,6 +9,8 @@
 
 """Embedded OLE objects in Writer — specialized embedded domain."""
 
+from typing import Any
+
 from ..specialized_base import ToolWriterEmbeddedBase
 from ..target_resolver import resolve_target_cursor
 
@@ -27,7 +29,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
 
@@ -48,5 +50,5 @@ class EmbeddedEdit(ToolWriterEmbeddedBase):
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Object name or anchor hint when available."}}, "required": []}
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         return self._tool_error("embedded_edit is not implemented yet. Double-click the object in Writer.")

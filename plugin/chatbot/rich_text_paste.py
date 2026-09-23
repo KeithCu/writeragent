@@ -83,7 +83,7 @@ def build_message_html(text: str, role: str = "assistant") -> str:
     return "<p><strong>%s</strong></p>%s" % (label, body)
 
 
-def create_hidden_html_writer(ctx):
+def create_hidden_html_writer(ctx: Any):
     """Load a hidden Writer document for HTML import + clipboard copy."""
     try:
         import uno
@@ -100,7 +100,7 @@ def create_hidden_html_writer(ctx):
         return None
 
 
-def _is_writer_text_table(element) -> bool:
+def _is_writer_text_table(element: Any) -> bool:
     """True for a Writer XTextTable in body enumeration (not a paragraph)."""
     try:
         # ``is True``: MagicMock.supportsService() is truthy but not the bool True.
@@ -109,7 +109,7 @@ def _is_writer_text_table(element) -> bool:
         return False
 
 
-def _text_table_cell_rows(table) -> list[list[str]]:
+def _text_table_cell_rows(table: Any) -> list[list[str]]:
     """Cell strings for a Writer TextTable, row-major."""
     n_rows = int(table.getRows().getCount())
     n_cols = int(table.getColumns().getCount())
@@ -125,7 +125,7 @@ def _text_table_cell_rows(table) -> list[list[str]]:
     return rows
 
 
-def _flatten_text_table_rows(table) -> list[str]:  # pyright: ignore[reportUnusedFunction]  # test helper for text table row flattening
+def _flatten_text_table_rows(table: Any) -> list[str]:  # pyright: ignore[reportUnusedFunction]  # test helper for text table row flattening
     """Cell strings as tab-separated rows. EditEngine cannot host a Writer table."""
     return ["\t".join(row) for row in _text_table_cell_rows(table)]
 
@@ -209,7 +209,7 @@ _MM100_PER_PT = 35.28
 _TABLE_V_PAD_MM100 = int(round(_TABLE_V_PAD_EM * CHAT_FONT_HEIGHT * _MM100_PER_PT))
 
 
-def _apply_table_row_vpad(cursor, *, top: int = 0, bottom: int = 0) -> None:
+def _apply_table_row_vpad(cursor: Any, *, top: int = 0, bottom: int = 0) -> None:
     if cursor is None:
         return
     try:
@@ -219,7 +219,7 @@ def _apply_table_row_vpad(cursor, *, top: int = 0, bottom: int = 0) -> None:
         log.debug("_apply_table_row_vpad failed: %s", e)
 
 
-def _apply_table_tab_stops(cursor, positions_twips) -> None:
+def _apply_table_tab_stops(cursor: Any, positions_twips: Any) -> None:
     if cursor is None or not positions_twips:
         return
     try:
@@ -247,14 +247,14 @@ def _role_color_for_text(text: str, user_color: int, assistant_color: int, defau
     return user_color if default_role == "user" else assistant_color
 
 
-def _resolve_portion_char_color(src_portion, txt, user_color: int, assistant_color: int, default_role: str = "assistant") -> int:
+def _resolve_portion_char_color(src_portion: Any, txt: str, user_color: int, assistant_color: int, default_role: str = "assistant") -> int:
     raw = getattr(src_portion, "CharColor", None)
     if isinstance(raw, int) and not _is_automatic_char_color(raw):
         return raw
     return _role_color_for_text(txt, user_color, assistant_color, default_role)
 
 
-def _normalize_portion_font(portion) -> None:
+def _normalize_portion_font(portion: Any) -> None:
     """Clamp hidden-doc portions to sidebar sans 10pt (HTML import often uses serif headings)."""
     try:
         font = getattr(portion, "CharFontName", "") or ""
@@ -274,7 +274,7 @@ def _normalize_portion_font(portion) -> None:
 
 
 
-def _is_ordered_numbering_type(num_type) -> bool:
+def _is_ordered_numbering_type(num_type: Any) -> bool:
     """True when Writer numbering is numeric/alpha, not a bullet glyph."""
     if num_type is None:
         return False
@@ -286,7 +286,7 @@ def _is_ordered_numbering_type(num_type) -> bool:
         return False
 
 
-def _list_prefix_for_paragraph(para, order_counters: dict) -> str:
+def _list_prefix_for_paragraph(para: Any, order_counters: dict) -> str:
     """Bullet or number prefix for a Writer list paragraph.
 
     RichTextControl's EditEngine does not preserve Writer NumberingRules on insertString
@@ -347,7 +347,7 @@ def _list_prefix_for_paragraph(para, order_counters: dict) -> str:
     return indent + ch
 
 
-def _rich_control_bg_color(model, style_window=None) -> int:
+def _rich_control_bg_color(model: Any, style_window: Any = None) -> int:
     """Theme fill color for the control (matches sidebar dialog chrome)."""
     bg = getattr(model, "BackgroundColor", None)
     if isinstance(bg, int):
@@ -364,7 +364,7 @@ def _rich_control_bg_color(model, style_window=None) -> int:
     return theme.bg_color
 
 
-def _apply_cursor_char_props(dest_cursor, src_portion, char_color=None, bg_color=None) -> None:
+def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: Any = None, bg_color: int | None = None) -> None:
     """Copy character formatting from a Writer text portion onto a RichText cursor."""
     for prop in (
         "CharWeight",
@@ -395,7 +395,7 @@ def _apply_cursor_char_props(dest_cursor, src_portion, char_color=None, bg_color
             pass
 
 
-def iter_history_message_batches(items, batch_chars=HISTORY_RENDER_BATCH_CHARS):
+def iter_history_message_batches(items: Any, batch_chars: int = HISTORY_RENDER_BATCH_CHARS):
     """Yield batches of (role, content) tuples, each batch at most *batch_chars* total content length.
 
     Never splits a single message; an oversized message becomes its own batch.
@@ -414,7 +414,7 @@ def iter_history_message_batches(items, batch_chars=HISTORY_RENDER_BATCH_CHARS):
         yield batch
 
 
-def session_history_items(session, greeting=""):
+def session_history_items(session: Any, greeting: str = ""):
     """Build (role, content) pairs for session history display (skips system messages)."""
     items: list[tuple[str, str]] = []
     if greeting:
@@ -433,11 +433,11 @@ def session_history_items(session, greeting=""):
 
 
 def _copy_formatted_from_hidden_doc_to_control(
-    src_doc,
-    control,
-    ctx,
+    src_doc: Any,
+    control: Any,
+    ctx: Any,
     role: str = "assistant",
-    style_window=None,
+    style_window: Any = None,
     auto_scroll: bool = True,
     cell_link_targets: list[tuple[str, str]] | None = None,
 ) -> tuple[bool, str | None]:
@@ -580,7 +580,7 @@ def _copy_formatted_from_hidden_doc_to_control(
     return False, reason
 
 
-def _append_hidden_doc_to_control(doc, control, ctx, style_window=None, auto_scroll=True, cell_link_targets=None) -> bool:
+def _append_hidden_doc_to_control(doc: Any, control: Any, ctx: Any, style_window: Any = None, auto_scroll: bool = True, cell_link_targets: Any = None) -> bool:
     """Copy hidden Writer content into the sidebar control via direct copy."""
     ok, _unused = _copy_formatted_from_hidden_doc_to_control(
         doc,
@@ -598,12 +598,12 @@ def _append_hidden_doc_to_control(doc, control, ctx, style_window=None, auto_scr
 
 
 def append_rich_messages_via_clipboard(
-    ctx,
-    control,
-    items,
-    style_window=None,
-    batch_chars=HISTORY_RENDER_BATCH_CHARS,
-):
+    ctx: Any,
+    control: Any,
+    items: Any,
+    style_window: Any = None,
+    batch_chars: int = HISTORY_RENDER_BATCH_CHARS,
+) -> None:
     """Render many chat messages with minimal UI updates (batched hidden Writer + direct copy)."""
     if not control or not items:
         return
@@ -651,7 +651,7 @@ def append_rich_messages_via_clipboard(
         _ensure_trailing_line_break(control)
 
 
-def _ensure_message_separator(control):
+def _ensure_message_separator(control: Any) -> None:
     """Insert paragraph breaks without assigning model.Text (preserves rich formatting)."""
     try:
         model = control.getModel()
@@ -667,7 +667,7 @@ def _ensure_message_separator(control):
         pass
 
 
-def _ensure_trailing_line_break(control) -> None:
+def _ensure_trailing_line_break(control: Any) -> None:
     """Leave a blank line after the user message before assistant streaming.
 
     Formatted copy from Writer often has no trailing ``\\n``; a single ``\\n`` only moves to
@@ -692,14 +692,14 @@ def _ensure_trailing_line_break(control) -> None:
 
 
 def append_rich_text_via_clipboard(
-    ctx,
-    control,
-    text,
-    role="assistant",
-    style_window=None,
-    auto_scroll=True,
-    on_after_insert=None,
-):
+    ctx: Any,
+    control: Any,
+    text: str,
+    role: str = "assistant",
+    style_window: Any = None,
+    auto_scroll: bool = True,
+    on_after_insert: Any = None,
+) -> None:
     """Import HTML in a hidden Writer doc and copy formatted content directly into the RichText control."""
     if not control or not text or not text.strip():
         return

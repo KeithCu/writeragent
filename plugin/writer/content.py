@@ -19,12 +19,19 @@
 LO findFirst / chained-regex helpers live in ``plugin.writer.search``.
 """
 
+from __future__ import annotations
+
 import logging
 import re
 import threading
 import time
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
+
 from plugin.framework.prompts import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
 from plugin.doc.text_helpers import collect_tracked_changes
 from plugin.writer.edit_review import (
@@ -86,7 +93,7 @@ class GetDocumentContent(ToolBase):
     uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from . import format as format_support
         t0 = time.perf_counter()
         scope = kwargs.get("scope", "full")
@@ -178,7 +185,7 @@ _READ_ONLY_ATTR = "data-lo-para"
 _READ_ONLY_ATTR_RE = re.compile(r"""<[A-Za-z][^>]*\bdata-lo-para\s*=""", re.IGNORECASE)
 
 
-def _note_read_only_attrs(result, content):
+def _note_read_only_attrs(result: Any, content: Any):
     """Flag a successful write whose content carried the read-only ``data-lo-para``."""
     if not isinstance(result, dict) or result.get("status") != "ok":
         return result
@@ -271,7 +278,7 @@ class ApplyDocumentContent(ToolBase):
     is_mutation = True
 
     @staticmethod
-    def _parse_occurrence(kwargs, target):
+    def _parse_occurrence(kwargs: Any, target: str):
         """Validate optional 0-based search occurrence selector."""
         raw = kwargs.get("occurrence")
         if raw is None:
@@ -285,7 +292,7 @@ class ApplyDocumentContent(ToolBase):
         return raw, None
 
     @staticmethod
-    def _parse_hyperlink_url(kwargs):
+    def _parse_hyperlink_url(kwargs: Any):
         """Explicit outline-target override. None means use substitution when it applies."""
         raw = kwargs.get("hyperlink_url")
         if raw is None:
@@ -298,7 +305,7 @@ class ApplyDocumentContent(ToolBase):
             return None, "hyperlink_url cannot be combined with all_matches=true."
         return raw, None
 
-    def _replacement_plain(self, ctx, content):
+    def _replacement_plain(self, ctx: ToolContext, content: Any):
         """Visible text a search replace will insert, for outline-URL substitution."""
         from . import format as format_support
 
@@ -315,7 +322,7 @@ class ApplyDocumentContent(ToolBase):
             code="INVALID_PARAM")
 
     @staticmethod
-    def _override_span_rejected(fields):
+    def _override_span_rejected(fields: Any):
         """True when an override is not aimed at exactly one outline link.
 
         Zero links omit hyperlink_url. Two links also set hyperlinks, and previewing
@@ -326,7 +333,7 @@ class ApplyDocumentContent(ToolBase):
             return len(many) != 1
         return not fields.get("hyperlink_url")
 
-    def _outline_match_fields(self, found, plain_fn, override):
+    def _outline_match_fields(self, found: Any, plain_fn: Any, override: str | None):
         """dry_run fields for one match. Empty when the match has no outline link.
 
         *plain_fn* is called only when a preview is actually needed, so a markup dry_run
@@ -354,7 +361,7 @@ class ApplyDocumentContent(ToolBase):
             fields["hyperlinks"] = reports
         return fields
 
-    def _attach_hyperlink_reports(self, resp, reports):
+    def _attach_hyperlink_reports(self, resp: Any, reports: list):
         if not reports:
             return resp
         resp["hyperlinks"] = reports
@@ -364,7 +371,7 @@ class ApplyDocumentContent(ToolBase):
             resp["hyperlink_updated"] = reports[0]["hyperlink_updated"]
         return resp
 
-    def _outline_undo(self, doc, session, run):
+    def _outline_undo(self, doc: Any, session: EditReviewSession, run: Any):
         """Run *run* inside one undo step so the text replace and the URL write are one Ctrl+Z.
 
         The HTML path and a surgical review replace each close their own undo context
@@ -396,8 +403,10 @@ class ApplyDocumentContent(ToolBase):
         finally:
             close_surgical_context(mgr, session, changes_before, applied_ok, undo_title)
 
-    def _replace_found(self, session, doc, found, *, use_preserve, raw_content, content,
-                       ctx, config_svc, track_reviewable, override, batch, plain_preview):
+    def _replace_found(self, session: EditReviewSession, doc: Any, found: Any, *,
+                       use_preserve: bool, raw_content: str, content: Any,
+                       ctx: ToolContext, config_svc: Any, track_reviewable: bool,
+                       override: str | None, batch: bool, plain_preview: str):
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
@@ -465,12 +474,12 @@ class ApplyDocumentContent(ToolBase):
         return once(), None
 
     @staticmethod
-    def _occurrence_oor_message(occurrence, count):
+    def _occurrence_oor_message(occurrence: int, count: int):
         """LLMs guess 1-based; say the valid 0-based range like apply_style."""
         return "occurrence %s out of range (found %d match(es), use 0..%d)." % (
             occurrence, count, count - 1)
 
-    def _occurrence_oor(self, occurrence, count, **details):
+    def _occurrence_oor(self, occurrence: int, count: int, **details: Any):
         return self._tool_error(
             self._occurrence_oor_message(occurrence, count),
             code="OCCURRENCE_OUT_OF_RANGE",
@@ -478,14 +487,14 @@ class ApplyDocumentContent(ToolBase):
             **details,
         )
 
-    def _review_wait_seconds(self, uno_ctx):
+    def _review_wait_seconds(self, uno_ctx: Any):
         """Max seconds the edit call should block waiting for review; 0 = don't wait."""
         try:
             return edit_review_wait_seconds(uno_ctx)
         except Exception:
             return 0
 
-    def _annotate_review_status(self, uno_ctx, result):
+    def _annotate_review_status(self, uno_ctx: Any, result: Any):
         """Tag a successful edit result with the CURRENT review status, so the model gets a fresh,
         per-call signal even if the guidance it read earlier (the connect-time pointer, a pulled
         review-modes topic, or the sidebar prompt) is stale — that text is static while the user
@@ -542,7 +551,7 @@ class ApplyDocumentContent(ToolBase):
         # the main thread via marshalling, so the toggle is handled safely instead of erroring.
         return threading.current_thread() is not threading.main_thread()
 
-    def _dry_run_preview(self, ctx, **kwargs):
+    def _dry_run_preview(self, ctx: ToolContext, **kwargs: Any):
         """Resolve old_content matches WITHOUT editing, for target='search'. Reports the count and
         each match's location + a short snippet, so the model can check before committing."""
         target = kwargs.get("target")
@@ -595,7 +604,7 @@ class ApplyDocumentContent(ToolBase):
         except Exception as e:
             log.exception("apply_document_content dry_run search failed")
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
-        label_cache = {}
+        label_cache: dict[int, str] = {}
         matches = []
         plain_box: dict[str, str] = {}
 
@@ -678,12 +687,12 @@ class ApplyDocumentContent(ToolBase):
             result["selected_match"] = selected_match
         return result
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         # Thin wrapper so every return path gets the read-only-attribute note, including the
         # review-wait branch that does not go through _annotate_review_status.
         return _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
 
-    def _execute(self, ctx, **kwargs):
+    def _execute(self, ctx: ToolContext, **kwargs: Any):
         if kwargs.get("dry_run"):
             return self._dry_run_preview(ctx, **kwargs)
         wait_seconds = self._review_wait_seconds(ctx.ctx)
@@ -697,7 +706,7 @@ class ApplyDocumentContent(ToolBase):
             # The session is registered in session_box the instant _execute_edit creates it (via
             # session_sink), so its anchor bookmarks are released in `finally` even if the edit
             # raises mid-way (e.g. the 2nd of 3 replace-all matches fails after the 1st).
-            session_box = []
+            session_box: list[Any] = []
 
             def _do_edit():
                 return self._execute_edit(ctx, session_sink=session_box, **kwargs)
@@ -786,7 +795,7 @@ class ApplyDocumentContent(ToolBase):
             )
         return result
 
-    def _execute_edit(self, ctx, session_sink=None, **kwargs):
+    def _execute_edit(self, ctx: ToolContext, session_sink: Any = None, **kwargs: Any):
         """Apply the edit and return ``(result_dict, session_or_None)``.
 
         Runs on the MAIN thread always (directly on the sync path; marshalled via
@@ -870,7 +879,7 @@ class ApplyDocumentContent(ToolBase):
         if session_sink is not None:
             session_sink.append(session)
 
-        def _plain_preview(value):
+        def _plain_preview(value: Any):
             s = str(value)
             if format_support.content_has_markup(s):
                 try:

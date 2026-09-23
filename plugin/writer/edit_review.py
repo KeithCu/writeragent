@@ -314,7 +314,7 @@ class EditReviewSession:
             log.debug("EditReviewSession: could not force ShowChanges", exc_info=True)
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
         if not self._active:
             return
         self._restore_author()
@@ -535,7 +535,7 @@ class EditReviewSession:
                     log.warning("EditReviewSession: undo manager unlock failed; the undo manager may "
                                 "be left locked", exc_info=True)
 
-    def _remove_anchor_bookmarks(self, records) -> None:
+    def _remove_anchor_bookmarks(self, records: list[ChangeRecord]) -> None:
         """Remove the anchor bookmarks of *records*, under the undo lock so the removal stays off the
         user's undo stack. Best-effort: any failure is logged at debug, never raised. Shared by
         cleanup() and discard_changes_since()."""
@@ -665,7 +665,7 @@ class EditReviewSession:
 # ---------------------------------------------------------------------------
 
 
-def _env_num(name, default, cast, ok):
+def _env_num(name: str, default: Any, cast: Any, ok: Any):
     """Read tuning knob *name* from the environment, *cast* it, and return it only if *ok(v)*;
     otherwise the fixed *default*. Never raises -- a bad env value must never break an edit."""
     try:
@@ -687,7 +687,7 @@ _SPLIT_AUTHOR_COLORS = os.environ.get(
 _GO_RIGHT_CHUNK = 8192
 
 
-def _go_right(cursor, n, expand):
+def _go_right(cursor: Any, n: int, expand: bool):
     """Move (expand=False) or extend (expand=True) the cursor right by *n* chars, in chunks of
     _GO_RIGHT_CHUNK (UNO caps the count at a C++ short). Returns True only if the FULL *n* was
     consumed; False if goRight stopped early (end of text / an unexpected stop), so the caller can
@@ -703,7 +703,7 @@ def _go_right(cursor, n, expand):
 _OFFSET_SAFE_PORTION_TYPES = frozenset({"Text", "SoftPageBreak"})
 
 
-def _block_safe_for_surgical(found):
+def _block_safe_for_surgical(found: Any):
     """True only when *found* is a SINGLE paragraph whose portions are all offset-safe (plain text
     or an automatic page break) and which has no tracked changes -- the case where getString() char
     offsets line up with the live cursor's goRight stops. A multi-paragraph block, a struck
@@ -753,7 +753,8 @@ def next_agent_edit_undo_title() -> str:
 _next_agent_edit_undo_title = next_agent_edit_undo_title
 
 
-def close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title):
+def close_surgical_context(undo_mgr: Any, session: EditReviewSession, changes_before: int,
+                           applied_ok: bool, undo_title: str):
     """Close the surgical undo context -- pairing the earlier enterUndoContext exactly once -- and,
     on failure, roll the partial batch back."""
     left = False
@@ -794,7 +795,7 @@ _close_surgical_context = close_surgical_context
 
 
 
-def _apply_in_undo_context(doc, session, run):
+def _apply_in_undo_context(doc: Any, session: EditReviewSession, run: Callable[[bool], Any]):
     """Run *run(in_undo_context)* -- which must perform exactly ONE session.record_mutation -- inside a
     fresh grouped-undo context when one can be opened, so a split-author delete+insert stays atomic."""
     undo_mgr = None
@@ -822,7 +823,8 @@ def _apply_in_undo_context(doc, session, run):
         _close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
 
 
-def record_html_atomically(session, doc, mutate, track_reviewable, **record_kwargs):
+def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callable[[], Any],
+                           track_reviewable: bool, **record_kwargs: Any):
     """Record an HTML/import mutation that DELETES before it inserts."""
     undo_title = _next_agent_edit_undo_title()
     try:
@@ -849,7 +851,7 @@ def record_html_atomically(session, doc, mutate, track_reviewable, **record_kwar
 _EDITED_CONTEXT_MAX_CHARS = 700
 
 
-def collapsed_anchor(text_range):
+def collapsed_anchor(text_range: Any):
     """A collapsed model cursor at *text_range*'s start."""
     try:
         return text_range.getText().createTextCursorByRange(text_range.getStart())
@@ -857,7 +859,7 @@ def collapsed_anchor(text_range):
         return None
 
 
-def selection_anchor(doc):
+def selection_anchor(doc: Any):
     """Collapsed anchor at the view cursor's start (the selection insert site)."""
     try:
         vc = doc.getCurrentController().getViewCursor()
@@ -866,7 +868,7 @@ def selection_anchor(doc):
         return None
 
 
-def paragraph_window_text(anchor, max_chars=_EDITED_CONTEXT_MAX_CHARS):
+def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_MAX_CHARS):
     """Plain text of the paragraph around *anchor* plus one neighbor each side, read AFTER the edit."""
     if anchor is None:
         return None
@@ -894,7 +896,7 @@ def paragraph_window_text(anchor, max_chars=_EDITED_CONTEXT_MAX_CHARS):
     return s
 
 
-def attach_edited_context(result, anchor):
+def attach_edited_context(result: Any, anchor: Any | None):
     """Add edited_context (the touched paragraph(s) as they now read) to a successful result."""
     snippet = paragraph_window_text(anchor)
     if snippet:
@@ -902,7 +904,8 @@ def attach_edited_context(result, anchor):
     return result
 
 
-def record_preserve_replace(session, doc, found, new_text, uno_ctx, split):
+def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, new_text: str,
+                            uno_ctx: Any, split: bool):
     """Record a format-preserving replace as ONE reviewable change, or -- when *split* (review
     recording is on) and only PART of the block changed -- as several SURGICAL sub-changes,
     each its own tracked Delete+Insert with its own accept/reject outcome.
@@ -911,14 +914,14 @@ def record_preserve_replace(session, doc, found, new_text, uno_ctx, split):
 
     split_author = split and _SPLIT_AUTHOR_COLORS
 
-    def _bound(s):
+    def _bound(s: Any):
         s = s or ""
         return s if len(s) <= 300 else s[:299] + "…"
 
     def _whole():
         original = found.getString()
 
-        def _run(in_undo_context):
+        def _run(in_undo_context: bool):
             session.record_mutation(
                 lambda: format_support.replace_preserving_format(
                     doc, found, new_text, uno_ctx,
@@ -952,7 +955,7 @@ def record_preserve_replace(session, doc, found, new_text, uno_ctx, split):
     text = found.getText()
     anchor = found.getStart()
 
-    def _select(se):
+    def _select(se: Any):
         sub = text.createTextCursorByRange(anchor)
         if se.old_start and not _go_right(sub, se.old_start, False):
             return None
@@ -987,7 +990,7 @@ def record_preserve_replace(session, doc, found, new_text, uno_ctx, split):
     applied_ok = False
     try:
         for se in sorted(result.sub_edits, key=lambda e: e.old_start, reverse=True):
-            def apply_se(se=se):
+            def apply_se(se: Any = se):
                 sub = _select(se)
                 if sub is None or sub.getString() != se.old_text:
                     raise RuntimeError(
@@ -1018,7 +1021,7 @@ class WriterCompoundUndo:
     ``close`` multiple times.
     """
 
-    def __init__(self, doc, title: str) -> None:
+    def __init__(self, doc: Any, title: str) -> None:
         self._log = logging.getLogger(__name__)
         self._title = title
         self._undo_manager = None
@@ -1051,7 +1054,7 @@ class WriterCompoundUndo:
     def __enter__(self) -> "WriterCompoundUndo":
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
         # Do not swallow exceptions; only close the undo group.
         self.close()
 
@@ -1077,7 +1080,7 @@ class WriterStreamedRewriteSession:
 
     _UNDO_CONTEXT_TITLE = "WriterAgent: Edit selection"
 
-    def __init__(self, doc, text_range, original_text: str, track_reviewable: bool = False):
+    def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False):
         self.doc = doc
         self.text_range = text_range
         self.original_text = original_text
@@ -1226,7 +1229,7 @@ class WriterStreamedAppendSession:
 
     _UNDO_CONTEXT_TITLE = "WriterAgent: Extend selection"
 
-    def __init__(self, doc, text_range, original_text: str, track_reviewable: bool = False):
+    def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False):
         self.doc = doc
         self.text_range = text_range
         self.original_text = original_text

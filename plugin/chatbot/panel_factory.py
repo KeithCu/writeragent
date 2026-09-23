@@ -153,7 +153,7 @@ _PRE_NEGOTIATION_PANEL_WIDTH = 320
 DEFAULT_SYSTEM_PROMPT_FALLBACK = "You are a helpful assistant."
 
 
-def _get_arg(args, name):
+def _get_arg(args: Any, name: str):
     """Extract PropertyValue from args by Name."""
     for pv in args:
         if hasattr(pv, "Name") and pv.Name == name:
@@ -161,7 +161,7 @@ def _get_arg(args, name):
     return None
 
 
-def _run_on_main_thread(fn, *args, **kwargs):
+def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any):
     """Run *fn* on the VCL thread.
 
     URP dispatch of WriterAgentDeck calls ``ChatPanelElement.getRealInterface``
@@ -181,7 +181,7 @@ def _run_on_main_thread(fn, *args, **kwargs):
 _paths_initialized = False
 
 
-def _initialize_extension_paths(ctx):
+def _initialize_extension_paths(ctx: Any) -> None:
     """Initialize extension paths once per session."""
     global _paths_initialized
     if _paths_initialized:
@@ -227,7 +227,7 @@ def _initialize_extension_paths(ctx):
 class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     """Holds the panel window; implements XToolPanel and XSidebarPanel."""
 
-    def __init__(self, panel_window, parent_window, ctx):
+    def __init__(self, panel_window: Any, parent_window: Any, ctx: Any) -> None:
         self.ctx = ctx
         self.PanelWindow = panel_window
         self.Window = panel_window
@@ -238,7 +238,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     def getWindow(self):
         return self.Window
 
-    def createAccessible(self, ParentAccessible):
+    def createAccessible(self, ParentAccessible: Any):
         return self.PanelWindow
 
     def getHeightForWidth(self, nWidth: int):  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -320,7 +320,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
 class ChatPanelElement(unohelper.Base, XUIElement):
     """XUIElement wrapper; creates panel window in getRealInterface() via ContainerWindowProvider."""
 
-    def __init__(self, ctx, frame, parent_window, resource_url):
+    def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str) -> None:
         self.ctx = ctx
         self.xFrame = frame
         self.xParentWindow = parent_window
@@ -329,12 +329,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.Type = TOOLPANEL
         self.toolpanel = None
         self.m_panelRootWindow = None
-        self.session = None  # Created in _wireControls
+        self.session: Any = None  # Created in _wireControls
         self.rich_text_widget = None
         log.debug("[RICH-LIFECYCLE] ChatPanelElement.__init__ resource_url=%s parent_window=%s",
                   resource_url, id(parent_window) if parent_window else None)
 
-    def _on_config_changed(self, **kwargs):
+    def _on_config_changed(self, **kwargs: Any) -> None:
         """Event bus listener for config changes."""
         from plugin.framework.thread_guard import on_main_thread
         from plugin.framework.queue_executor import post_to_main_thread
@@ -424,7 +424,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 log.debug("panel pre-negotiation constrained to W=%s H=%s" % (target_w, target_h))
         return self.m_panelRootWindow
 
-    def disposing(self, Source=None):
+    def disposing(self, Source: Any = None) -> None:
         """Best-effort lifecycle hook for sidebar resources (and future use).
 
         The LO sidebar framework does not automatically call this on XUIElement
@@ -469,7 +469,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         self.rich_text_widget = None
 
-    def _render_session_history(self, session, response_ctrl, model, greeting=""):
+    def _render_session_history(self, session: Any, response_ctrl: Any, model: Any, greeting: str = "") -> None:
         """Update the response control with the contents of the given session."""
         try:
             if self.rich_text_widget:
@@ -523,7 +523,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 return
             from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector
 
-            def get_optional(name):
+            def get_optional(name: str):
                 return get_optional_control(root, name)
 
             model_selector = get_optional("model_selector")
@@ -568,7 +568,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         finally:
             self._in_refresh_controls = False
 
-    def _update_backend_indicator(self, root_window=None):
+    def _update_backend_indicator(self, root_window: Any = None) -> None:
         """Set backend indicator label from config (visible when external backend enabled) and gray out controls."""
         try:
             from plugin.acp.registry import AGENT_BACKEND_REGISTRY, normalize_backend_id
@@ -611,7 +611,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         return get_document_from_frame(self.xFrame)
 
-    def _wire_model_selectors(self, model_selector, image_model_selector):
+    def _wire_model_selectors(self, model_selector: Any, image_model_selector: Any) -> None:
         """Initializes model selectors and their sync listeners."""
         from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector
 
@@ -632,11 +632,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if model_selector:
 
             class ModelSyncListener(BaseItemListener):
-                def __init__(self, panel, ctx):
+                def __init__(self, panel: Any, ctx: Any) -> None:
                     self.panel = panel
                     self.ctx = ctx
 
-                def on_item_state_changed(self, rEvent):
+                def on_item_state_changed(self, rEvent: Any) -> None:
                     if getattr(self.panel, "_in_refresh_controls", False):
                         return
                     from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
@@ -644,11 +644,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     sync_sidebar_text_model(self.ctx, model_selector)
 
             class ModelTextSyncListener(BaseTextListener):
-                def __init__(self, panel, ctx):
+                def __init__(self, panel: Any, ctx: Any) -> None:
                     self.panel = panel
                     self.ctx = ctx
 
-                def on_text_changed(self, rEvent):
+                def on_text_changed(self, rEvent: Any) -> None:
                     if getattr(self.panel, "_in_refresh_controls", False):
                         return
                     from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
@@ -663,11 +663,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if image_model_selector and hasattr(image_model_selector, "addItemListener"):
 
             class ImageModelSyncListener(BaseItemListener):
-                def __init__(self, panel, ctx):
+                def __init__(self, panel: Any, ctx: Any) -> None:
                     self.panel = panel
                     self.ctx = ctx
 
-                def on_item_state_changed(self, rEvent):
+                def on_item_state_changed(self, rEvent: Any) -> None:
                     if getattr(self.panel, "_in_refresh_controls", False):
                         return
                     txt = image_model_selector.getText()
@@ -679,12 +679,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             image_model_selector.addItemListener(ImageModelSyncListener(self, self.ctx))
 
-    def _sidebar_include_brainstorming(self, model, *, cached_doc_type: str | None = None) -> bool:
+    def _sidebar_include_brainstorming(self, model: Any, *, cached_doc_type: str | None = None) -> bool:
         if cached_doc_type is not None:
             return cached_doc_type == "writer"
         return get_document_type(model) == DocumentType.WRITER
 
-    def _sidebar_mode_flags(self, model, *, cached_doc_type: str | None = None):
+    def _sidebar_mode_flags(self, model: Any, *, cached_doc_type: str | None = None):
         from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type
         from plugin.doc.doc_type import doc_type_label_for_enum
 
@@ -692,7 +692,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             return sidebar_mode_flags_for_doc_type(cached_doc_type)
         return sidebar_mode_flags_for_doc_type(doc_type_label_for_enum(get_document_type(model)))
 
-    def _greeting_for_sidebar_mode(self, mode, model):
+    def _greeting_for_sidebar_mode(self, mode: str, model: Any):
         from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_DEEP_RESEARCH, CHAT_MODE_LIBRARIAN, CHAT_MODE_PPT_MASTER, CHAT_MODE_WEB_RESEARCH, CHAT_MODE_WRITING_PLAN
 
         if mode == CHAT_MODE_WEB_RESEARCH:
@@ -711,14 +711,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _wire_chat_mode_ui(
         self,
-        aspect_ratio_selector,
-        base_size_input,
-        base_size_label,
-        chat_mode_selector,
-        model_label,
-        model_selector,
-        image_model_selector,
-        model,
+        aspect_ratio_selector: Any,
+        base_size_input: Any,
+        base_size_label: Any,
+        chat_mode_selector: Any,
+        model_label: Any,
+        model_selector: Any,
+        image_model_selector: Any,
+        model: Any,
     ):
         """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, include_brainstorming, toggle_image_ui)."""
         from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, is_image_mode, librarian_default_mode, mark_librarian_invoked, populate_mode_selector_with_flags, set_selector_mode_with_flags
@@ -734,7 +734,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             populate_combobox_with_lru(self.ctx, base_size_input, str(get_config("image_base_size")), "image_base_size_lru", "")
 
-        def update_base_size_label(aspect_str):
+        def update_base_size_label(aspect_str: str) -> None:
 
             if not base_size_label:
                 return
@@ -753,7 +753,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if hasattr(aspect_ratio_selector, "addItemListener"):
 
                 class AspectListener(BaseItemListener):
-                    def on_item_state_changed(self, rEvent):
+                    def on_item_state_changed(self, rEvent: Any) -> None:
                         ev = rEvent
                         idx = getattr(ev, "Selected", -1)
                         if idx >= 0:
@@ -763,7 +763,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         # We now use the global set_control_enabled and set_control_visible from plugin.chatbot.dialogs
 
-        def toggle_image_ui(is_image_mode):
+        def toggle_image_ui(is_image_mode: bool) -> None:
             set_control_visible(model_label, not is_image_mode)
             set_control_visible(model_selector, not is_image_mode)
             set_control_visible(image_model_selector, is_image_mode)
@@ -791,7 +791,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         return initial_mode, mode_flags, toggle_image_ui
 
-    def _apply_sidebar_mode(self, mode, model, response_ctrl, send_listener, clear_listener, toggle_image_ui):
+    def _apply_sidebar_mode(self, mode: str, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, toggle_image_ui: Any):
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_BRAINSTORMING,
             CHAT_MODE_CHAT,
@@ -836,10 +836,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             self._render_session_history(self.session, response_ctrl, model, greeting)
         return greeting
 
-    def _wire_chat_mode_listener(self, chat_mode_selector, model, response_ctrl, send_listener, clear_listener, toggle_image_ui, mode_flags):
+    def _wire_chat_mode_listener(self, chat_mode_selector: Any, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, toggle_image_ui: Any, mode_flags: Any):
         from plugin.chatbot.chat_sidebar_mode import mode_from_selector_with_flags
 
-        def apply_mode(mode):
+        def apply_mode(mode: str):
             self._apply_sidebar_mode(mode, model, response_ctrl, send_listener, clear_listener, toggle_image_ui)
 
         # Librarian switch_to_document_mode must apply Chat even if ComboBox
@@ -851,21 +851,21 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             return apply_mode
 
         class ChatModeListener(BaseItemListener):
-            def __init__(self, panel, ctx, selector, flags, apply_target):
+            def __init__(self, panel: Any, ctx: Any, selector: Any, flags: Any, apply_target: Any) -> None:
                 self.panel = panel
                 self.ctx = ctx
                 self.selector = selector
                 self.mode_flags = flags
                 self.apply_target = apply_target
 
-            def on_item_state_changed(self, rEvent):
+            def on_item_state_changed(self, rEvent: Any) -> None:
                 mode = mode_from_selector_with_flags(self.selector, self.mode_flags)
                 self.apply_target(mode)
 
         chat_mode_selector.addItemListener(ChatModeListener(self, self.ctx, chat_mode_selector, mode_flags, apply_mode))
         return apply_mode
 
-    def _setup_sessions(self, model, extra_instructions):
+    def _setup_sessions(self, model: Any, extra_instructions: Any) -> None:
         """Creates the document and web research chat sessions."""
         # Deferred: importing panel.py at module load breaks unopkg (writeRegistryInfo) — heavy stack.
         from plugin.chatbot.panel import ChatSession
@@ -924,7 +924,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         )
         self.session = self.doc_session
 
-    def _wire_buttons(self, controls, model, initial_mode, mode_flags, toggle_image_ui):
+    def _wire_buttons(self, controls: dict[str, Any], model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> None:
         """Wires up the Send, Stop, Clear, Settings, Python, LaTeX, Search, and chat mode selector."""
         from plugin.chatbot.panel import (
             ClearButtonListener,
@@ -946,6 +946,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
 
+        third_btn: tuple[str, Any, Any, Any, Any]
         if calc_doc:
             third_btn = (
                 "btn_latex",
@@ -1059,11 +1060,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 class ChatPanelFactory(unohelper.Base, XUIElementFactory):
     """Factory that creates ChatPanelElement instances for the sidebar."""
 
-    def __init__(self, ctx):
+    def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
 
     # Called externally by LibreOffice UNO framework; do not remove.
-    def createUIElement(self, ResourceURL, Args):
+    def createUIElement(self, ResourceURL: str, Args: Any):
         resource_url = ResourceURL
         args = Args
         log.debug("createUIElement: %s" % resource_url)

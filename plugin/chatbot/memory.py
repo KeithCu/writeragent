@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 import os
 import logging
 import tempfile
-from typing import Any, Mapping, cast
+from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from plugin.framework.tool import ToolBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 from plugin.framework.config import user_config_dir
 from plugin.framework.errors import ConfigError
 
@@ -20,7 +25,7 @@ from plugin.framework.deal_shim import (
 
 
 class MemoryStore:
-    def __init__(self, ctx):
+    def __init__(self, ctx: Any):
         # crosshair: off
         self.config_dir = user_config_dir()
         if self.config_dir is None:
@@ -181,7 +186,7 @@ class MemoryTool(ToolBase):
 
     parameters = {"type": "object", "properties": {"key": {"type": "string", "description": "The key to update or insert (e.g., 'favorite_color')."}, "content": {"type": "string", "description": "The new value to associate with the key."}}, "required": ["key", "content"]}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # crosshair: off
         import json
 

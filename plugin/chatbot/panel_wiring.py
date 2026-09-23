@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from plugin.chatbot.dialogs import get_optional as get_optional_control, get_control_text, set_control_text, set_control_visible, translate_dialog
 from plugin.chatbot.panel_resize import _PanelResizeListener
@@ -11,7 +12,7 @@ from plugin.framework.logging import init_logging
 log = logging.getLogger(__name__)
 
 
-def _measure_send_button_max_width(send_ctrl, has_recording):
+def _measure_send_button_max_width(send_ctrl: Any, has_recording: bool):
     """Max pixel width for Send/Record/Stop Rec so label toggles do not resize the row."""
     if not send_ctrl or not hasattr(send_ctrl, "getModel"):
         return None
@@ -28,7 +29,7 @@ def _measure_send_button_max_width(send_ctrl, has_recording):
     return None
 
 
-def _measure_aux_button_max_width(ctrl, labels):
+def _measure_aux_button_max_width(ctrl: Any, labels: list[str]):
     """Stabilize width when a button's label toggles (e.g. Stop/Change, Clear/Reject)."""
     if not ctrl or not hasattr(ctrl, "getModel") or not labels:
         return None
@@ -44,14 +45,14 @@ def _measure_aux_button_max_width(ctrl, labels):
     return None
 
 
-def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
+def _wireControls(self, root_window: Any, has_recording: bool, ensure_extension_on_path: Any):  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
     """Main entry point to wire all controls for the panel."""
     log.debug("_wireControls entered")
     if not hasattr(root_window, "getControl"):
         log.error("_wireControls: root_window has no getControl, aborting")
         return
 
-    def get_optional(name):
+    def get_optional(name: str):
         return get_optional_control(root_window, name)
 
     translate_dialog(root_window)
@@ -87,7 +88,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  
         set_control_visible(controls["slash_popup"], False)
 
     # Helper to show errors visibly in the response area
-    def _show_init_error(msg):
+    def _show_init_error(msg: str) -> None:
         log.error("_wireControls ERROR: %s" % msg)
         with suppress_disposed("show init error on response control", logger=log, exc_info=True):
             if controls["response"] and controls["response"].getModel():
@@ -101,7 +102,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  
     initial_mode = "chat"
     mode_flags = None
 
-    def toggle_image_ui(_is_image):
+    def toggle_image_ui(_is_image: bool):
         return None
 
     # 1. Config, Models, and UI
@@ -264,7 +265,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  
         try:
             from plugin.chatbot.rich_text_control import RichTextChatWidget, RichTextControlListener, log_rich_control_context, log_rich_scroll
 
-            def on_rich_control_ready(rich_control):
+            def on_rich_control_ready(rich_control: Any) -> None:
                 log.info("[RICH-CONTROL] on_rich_control_ready control=%s", bool(rich_control))
                 widget = RichTextChatWidget(self.ctx, rich_control, style_window=root_window)
                 self.rich_text_widget = widget

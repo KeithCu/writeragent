@@ -120,7 +120,7 @@ def _make_interceptor(model: Any) -> Any:
                 super().__init__()
                 self._model = model
 
-            def notifyContextMenuExecute(self, aEvent):  # noqa: N802, N803 -- UNO API
+            def notifyContextMenuExecute(self, aEvent: Any):  # noqa: N802, N803 -- UNO API
                 return _build_menu(self._model, aEvent)
 
         _interceptor_cls = _ChangeContextMenuInterceptor

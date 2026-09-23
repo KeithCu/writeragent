@@ -35,7 +35,7 @@ from plugin.chatbot.agent_manual import full_manual
 from plugin.framework.queue_executor import llm_request_lane
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
-from plugin.chatbot.state_machine import SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
+from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.tool import ToolContext
@@ -183,7 +183,7 @@ class SendHandlersMixin:
     ) -> None:
 
 
-        def dispatch_event(event):
+        def dispatch_event(event: SendHandlerEvent) -> None:
             nonlocal current_state
             step = next_state(current_state, event)
             current_state = step.state
@@ -191,12 +191,12 @@ class SendHandlersMixin:
             for eff in step.effects:
                 interpreter.interpret(eff)
 
-        def apply_chunk(chunk_text, is_thinking=False):
+        def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if is_thinking and not show_thinking:
                 return
             dispatch_event(StreamChunkEvent(chunk_text, is_thinking))
 
-        def on_stream_done(item):
+        def on_stream_done(item: Any) -> None:
             payload = item[1] if isinstance(item, tuple) and len(item) > 1 else item
             if isinstance(payload, dict) and payload.get("librarian_switch_to_chat"):
                 finished_cb = getattr(self, "on_librarian_session_finished", None)
@@ -211,10 +211,10 @@ class SendHandlersMixin:
                 on_stopped_callback()
             dispatch_event(StopRequestedEvent())
 
-        def on_error(e):
+        def on_error(e: Exception) -> None:
             dispatch_event(ErrorEvent(e))
 
-        def worker_wrapper(worker_q):
+        def worker_wrapper(worker_q: queue.Queue[Any]) -> None:
             # The worker_fn in this mixin expects to put things directly into q.
             # We already have q, so we just run worker_fn.
             # However, run_async_worker_with_drain creates its own q.
@@ -420,7 +420,7 @@ class SendHandlersMixin:
             # external agent backend mid-response.
             self.session.add_assistant_message(content="No response.")
 
-        def on_approval_required(item):
+        def on_approval_required(item: Any) -> None:
             # item = ("approval_required", description, tool_name, args, request_id)
 
 
@@ -590,19 +590,19 @@ class SendHandlersMixin:
             try:
                 # If librarian mode, clear active_run_librarian and run librarian
 
-                def status_cb(msg):
+                def status_cb(msg: str) -> None:
                     q.put((StreamQueueKind.STATUS, msg))
 
                 # Always push thinking to the queue so the drain loop stays active
                 # (processEventsToIdle fires each iteration). Display is controlled
                 # by show_thinking in apply_chunk below.
-                def thinking_cb(msg):
+                def thinking_cb(msg: str) -> None:
                     q.put((StreamQueueKind.THINKING, msg))
 
-                def chat_append_cb(text):
+                def chat_append_cb(text: str) -> None:
                     q.put((StreamQueueKind.CHUNK, text))
 
-                def approval_cb(query_for_engine, tool_name, args):
+                def approval_cb(query_for_engine: str, tool_name: str, args: Any) -> Any:
 
 
                     event = threading.Event()
@@ -844,7 +844,7 @@ class SendHandlersMixin:
 
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
-        def on_approval_required(item):
+        def on_approval_required(item: Any) -> None:
             # item = ("approval_required", query_for_engine, tool_name, event_obj)
             query_for_engine = item[1] if len(item) > 1 else ""
             tool_name = item[2] if len(item) > 2 else ""

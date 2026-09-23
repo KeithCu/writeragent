@@ -59,7 +59,7 @@ def show_latex_input_dialog(
         _outcome: list[tuple[str, bool] | None] | None = None
 
         class _InsertListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: Any) -> None:
                 nonlocal _outcome
                 try:
                     ec = dlg.getControl("LatexEdit")
@@ -76,16 +76,16 @@ def show_latex_input_dialog(
                 _outcome = [(t, db)]
                 dlg.endDialog(1)
 
-            def disposing(self, Source):
+            def disposing(self, Source: Any) -> None:
                 pass
 
         class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: Any) -> None:
                 nonlocal _outcome
                 _outcome = [None]
                 dlg.endDialog(0)
 
-            def disposing(self, Source):
+            def disposing(self, Source: Any) -> None:
                 pass
 
         btn_insert = dlg.getControl("BtnInsert")

@@ -21,9 +21,15 @@ with content_strategy=\"heading_only\". For content under a heading by path
 (e.g. \"1.2\"), use nav_heading_children with locator=\"heading:1.2\".
 """
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 
@@ -58,7 +64,7 @@ class GetDocumentTree(ToolBase):
     }
     uno_services = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         tree_svc = ctx.services.writer_tree
         strategy = kwargs.get("strategy", "first_lines")
         result = tree_svc.get_document_tree(ctx.doc, content_strategy=strategy, depth=kwargs.get("depth", 1))
@@ -71,7 +77,7 @@ from .navigation import NavHeadingChildren as NavHeadingChildren  # noqa: F401
 
 
 
-def _count_headings(nodes):
+def _count_headings(nodes: Any) -> int:
     """Recursively count heading nodes in a nested list."""
     count = 0
     for node in nodes:
@@ -80,7 +86,7 @@ def _count_headings(nodes):
     return count
 
 
-def collect_document_stats(doc, doc_svc):
+def collect_document_stats(doc: Any, doc_svc: Any):
     """Character/word/paragraph/page/heading counts for a Writer document."""
     from plugin.doc.text_helpers import build_heading_tree
 

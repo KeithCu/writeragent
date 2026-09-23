@@ -16,11 +16,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Unified Image Generation Service for WriterAgent."""
 
+from __future__ import annotations
+
 import json
 import logging
 import tempfile
 import re
 import base64
+from typing import Any
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, canonical_resolution
 from plugin.framework.client.requests import sync_request
@@ -33,31 +36,31 @@ TRIM_IMAGES_IN_LOG = True
 
 
 class ImageProvider:
-    def generate(self, prompt, **kwargs):
+    def generate(self, prompt: str, **kwargs: Any):
         raise NotImplementedError()
 
 
 class EndpointImageProvider(ImageProvider):
     """Uses the endpoint URL and API key from Settings (same as chat). Model from image_model or text model."""
 
-    def __init__(self, api_config, ctx):
+    def __init__(self, api_config: Any, ctx: Any) -> None:
         self.client = LlmClient(api_config, ctx)
         self.model = api_config.get("model", "google/gemini-3.1-flash-lite-preview")
         self.ctx = ctx
 
-    def _save_b64(self, b64_data):
+    def _save_b64(self, b64_data: str):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
             tmp.write(base64.b64decode(b64_data))
             return [tmp.name]
 
-    def _save_url(self, url, suffix=".webp"):
+    def _save_url(self, url: str, suffix: str = ".webp"):
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             # Same Settings budget as image_completion — downloading the
             # generated file can take as long as the provider POST.
             tmp.write(sync_request(url, parse_json=False, timeout=get_config_int("request_timeout")))
             return [tmp.name]
 
-    def generate(self, prompt, width=DEFAULT_IMAGE_BASE_SIZE, height=DEFAULT_IMAGE_BASE_SIZE, model=None, steps=None, **kwargs):
+    def generate(self, prompt: str, width: int = DEFAULT_IMAGE_BASE_SIZE, height: int = DEFAULT_IMAGE_BASE_SIZE, model: str | None = None, steps: int | None = None, **kwargs: Any):
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
         override = kwargs.pop("image_model", None)
         if isinstance(override, str) and override.strip():
@@ -66,6 +69,7 @@ class EndpointImageProvider(ImageProvider):
         # For OpenRouter edit (img2img): send multimodal message with text + source image
         source_image = kwargs.get("source_image")
         if self.client.config.get("is_openrouter"):
+            content: Any
             if source_image:
                 content = [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": "data:image/png;base64," + source_image}}]
             else:
@@ -181,12 +185,12 @@ class EndpointImageProvider(ImageProvider):
 
 
 class ImageService:
-    def __init__(self, ctx, config):
+    def __init__(self, ctx: Any, config: Any) -> None:
         self.ctx = ctx
         self.config = config
-        self.providers = {}
+        self.providers: dict[str, Any] = {}
 
-    def get_provider(self, name=None):
+    def get_provider(self, name: str | None = None):
         if name and name not in ("endpoint", "openrouter"):
             return None
         from plugin.framework.config import get_api_config
@@ -197,7 +201,7 @@ class ImageService:
         api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model()
         return EndpointImageProvider(api_config, self.ctx)
 
-    def generate_image(self, prompt, provider_name=None, status_callback=None, **kwargs):
+    def generate_image(self, prompt: str, provider_name: str | None = None, status_callback: Any = None, **kwargs: Any):
         provider = self.get_provider(provider_name or "endpoint")
         if not provider:
             raise ValueError(f"Unknown provider: {provider_name}")
@@ -206,7 +210,6 @@ class ImageService:
         base_size = get_config_int("image_base_size")
         steps = get_config_int("image_steps")
 
-        from typing import Any
 
         defaults: dict[str, Any] = {
             "width": base_size,

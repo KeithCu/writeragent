@@ -16,6 +16,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Writer shape drawing tools, bridging Draw's implementations."""
 
+from typing import Any
+
 from ..specialized_base import ToolWriterShapeBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
 from plugin.draw.shapes import UpsertShape as DrawUpsertShape
@@ -64,7 +66,7 @@ class GroupShapes(DrawGroupShapes, ToolWriterShapeBase):
     doc_types = ["writer", "calc", "draw", "impress"]
 
 
-def replace_text_in_shape(shape, old, new):
+def replace_text_in_shape(shape: Any, old: str, new: str):
     """Replace the first occurrence of *old* with *new* inside a drawing shape's own text,
     preserving the formatting of the surrounding text via a text cursor. Returns True on success.
 

@@ -541,7 +541,7 @@ def _span_contains_point(text: Any, span: Any, point: Any) -> bool:
     return True
 
 
-def _span_has_redline(model: Any, text: Any, span: Any, consider) -> bool:
+def _span_has_redline(model: Any, text: Any, span: Any, consider: Any) -> bool:
     """True if any redline that ``consider(comment)`` selects overlaps ``span`` -- OR if that can't
     be ruled out. ``consider`` receives the redline's RedlineComment (or None when it can't be read)
     and returns whether that redline is one the dispatch must NOT touch.

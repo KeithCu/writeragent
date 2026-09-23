@@ -12,11 +12,17 @@ graphic name, by the current selection, or page=<n> to render a whole page (_ren
 On Draw/Impress, page=N is the vision screenshot (0-based, same as list_pages / get_draw_tree); get_draw_tree remains the structure read.
 """
 
+from __future__ import annotations
+
 import base64
+from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.tool import ToolBase
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes, get_selected_image_base64
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -25,19 +31,19 @@ _DRAW_DOCUMENT = "com.sun.star.drawing.DrawingDocument"
 _IMPRESS_DOCUMENT = "com.sun.star.presentation.PresentationDocument"
 
 
-def _supports_service(doc, service):
+def _supports_service(doc: Any, service: str):
     try:
         return bool(doc.supportsService(service))
     except Exception:
         return False
 
 
-def _is_draw_family(doc):
+def _is_draw_family(doc: Any):
     """True for Draw or Impress. Check PresentationDocument first: Impress also supports DrawingDocument."""
     return _supports_service(doc, _IMPRESS_DOCUMENT) or _supports_service(doc, _DRAW_DOCUMENT)
 
 
-def _read_png_or_reason(tmp_path, page):
+def _read_png_or_reason(tmp_path: str, page: int):
     with open(tmp_path, "rb") as f:
         png = f.read()
     if not png or png[:8] != _PNG_MAGIC:
@@ -45,7 +51,7 @@ def _read_png_or_reason(tmp_path, page):
     return png, None
 
 
-def _render_writer_page_png(doc, page):
+def _render_writer_page_png(doc: Any, page: int):
     """Render 0-based *page* of a Writer doc to PNG bytes, or (None, reason).
 
     *page* is model-facing (first page = 0). jumpToPage is 1-based, so the only conversion is
@@ -116,7 +122,7 @@ def _render_writer_page_png(doc, page):
                 pass
 
 
-def _render_draw_page_png(ctx, doc, page):
+def _render_draw_page_png(ctx: Any, doc: Any, page: int):
     """Render 0-based *page* of a Draw/Impress doc to PNG bytes, or (None, reason).
 
     *page* is already the ``getByIndex`` index (first slide = 0). No ±1 here — that used to
@@ -175,7 +181,7 @@ def _render_draw_page_png(ctx, doc, page):
                 pass
 
 
-def _render_page_png(ctx, doc, page):
+def _render_page_png(ctx: Any, doc: Any, page: int):
     """Render 0-based *page* of Writer, Draw, or Impress to PNG bytes, or (None, reason)."""
     if _is_draw_family(doc):
         return _render_draw_page_png(ctx, doc, page)
@@ -205,7 +211,7 @@ class GetImage(ToolBase):
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
     uno_services = [_TEXT_DOCUMENT, _DRAW_DOCUMENT, _IMPRESS_DOCUMENT]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc
         name = kwargs.get("image")
         want_selection = bool(kwargs.get("selection"))
