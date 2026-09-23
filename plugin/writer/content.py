@@ -361,7 +361,7 @@ class ApplyDocumentContent(ToolBase):
             fields["hyperlinks"] = reports
         return fields
 
-    def _attach_hyperlink_reports(self, resp: Any, reports: list):
+    def _attach_hyperlink_reports(self, resp: Any, reports: list[dict[str, Any]]):
         if not reports:
             return resp
         resp["hyperlinks"] = reports
@@ -979,7 +979,7 @@ class ApplyDocumentContent(ToolBase):
             changes_before = len(session.changes)
             applied_ok = False
             count = 0
-            link_reports: list[dict] = []
+            link_reports: list[dict[str, Any]] = []
             try:
                 with session:
                     for found in reversed(ranges):

@@ -93,7 +93,7 @@ def edit_review_wait_seconds(ctx: Any) -> int:
     return max(0, get_config_int_safe("doc.edit_review_timeout"))
 
 
-def _tag_new_redlines(redlines: list, token: str) -> tuple[bool, int]:
+def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:
     """Stamp *token* (RedlineComment) on every redline -- ALL-OR-NOTHING. Returns
     ``(success, orphans_remaining)`` as TWO separate values so success can never be confused with a
     count (a single int made "n tagged ok" and "n orphans after a failure" collide
@@ -111,7 +111,7 @@ def _tag_new_redlines(redlines: list, token: str) -> tuple[bool, int]:
     the comment and THEN throw, so it may carry the token though it never entered ``applied``);
     after attempting to clear each it READS the comment back and counts only those that
     still carry the token (or can't be read) as orphans."""
-    applied: list = []
+    applied: list[Any] = []
     for rl in redlines:
         try:
             rl.setPropertyValue("RedlineComment", token)
@@ -134,7 +134,7 @@ def _tag_new_redlines(redlines: list, token: str) -> tuple[bool, int]:
     return True, 0
 
 
-def tag_agent_redlines(doc: Any, before_ids: set, change_index: int = 0,
+def tag_agent_redlines(doc: Any, before_ids: set[Any], change_index: int = 0,
                        before_reliable: bool = False) -> str | None:
     """Stamp a fresh ``wa-review:<session>:<n>`` token on every redline created since
     *before_ids*, marking them as ONE agent change so the inline review UI recognizes them.
@@ -329,7 +329,7 @@ class EditReviewSession:
 
     # -- recording ---------------------------------------------------------------------------
 
-    def _redline_idents(self) -> tuple[set, bool]:
+    def _redline_idents(self) -> tuple[set[Any], bool]:
         """``(current RedlineIdentifiers, reliable)`` -- see ``snapshot_redline_ids``. reliable=False
         means the snapshot is incomplete and must NOT back a new-vs-pre-existing tagging decision."""
         return _review_scan.snapshot_redline_ids(self.doc)
@@ -447,7 +447,7 @@ class EditReviewSession:
 
     # -- review ------------------------------------------------------------------------------
 
-    def _pending_tokens(self) -> tuple[set, bool]:
+    def _pending_tokens(self) -> tuple[set[str], bool]:
         """``(tokens of this session's changes that still have an unresolved redline, reliable)``.
 
         ``reliable`` is False when the scan is INCOMPLETE (enum/count error, a count/enumeration
@@ -455,7 +455,7 @@ class EditReviewSession:
         the review complete while a change is still open, so the caller must treat unreliable as
         "not yet complete" rather than done (guard every enumeration)."""
         prefix = self._session_token_prefix()
-        pending: set = set()
+        pending: set[str] = set()
 
         def on_item(rl: Any) -> bool:
             try:
@@ -492,7 +492,7 @@ class EditReviewSession:
             log.debug("EditReviewSession: anchor read failed for %s", record.bookmark, exc_info=True)
             return None
 
-    def _outcome(self, record: ChangeRecord, pending_tokens: set, pending_reliable: bool) -> str:
+    def _outcome(self, record: ChangeRecord, pending_tokens: set[str], pending_reliable: bool) -> str:
         if record.token in pending_tokens:
             return "pending"
         if not pending_reliable:
@@ -580,7 +580,7 @@ class EditReviewSession:
             return
         self._remove_anchor_bookmarks(doomed)
 
-    def _review_payload(self, complete: bool, timed_out: bool) -> dict:
+    def _review_payload(self, complete: bool, timed_out: bool) -> dict[str, Any]:
         # Derive BOTH the header and the per-change outcomes from THIS one scan so they can never
         # disagree. Carry reliability into _outcome (an unreliable scan -> "pending", not a guessed
         # outcome), AND only report complete when this same scan is reliable and shows nothing pending
@@ -610,7 +610,7 @@ class EditReviewSession:
 
     def wait_for_review(self, timeout: float, poll: float = 0.3,
                         stop_checker: Callable[[], bool] | None = None,
-                        uno_runner: Callable[[Callable[[], Any]], Any] | None = None) -> dict:
+                        uno_runner: Callable[[Callable[[], Any]], Any] | None = None) -> dict[str, Any]:
         """Block (on the caller's thread) until every change is resolved, then report outcomes.
 
         Returns ``{"complete", "timed_out", "changes": [{"id", "outcome", ...}]}``. On timeout

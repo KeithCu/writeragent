@@ -95,13 +95,13 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
     return reliable, seen, total
 
 
-def snapshot_redline_ids(doc: Any) -> tuple[set, bool]:
+def snapshot_redline_ids(doc: Any) -> tuple[set[Any], bool]:
     """``(set of current RedlineIdentifiers, reliable)`` — snapshot BEFORE an edit.
 
     ``reliable`` is False when the snapshot is incomplete. Callers must refuse to tag on an
     unreliable snapshot so a user redline is never stamped as an agent change.
     """
-    ids: set = set()
+    ids: set[Any] = set()
 
     def on_item(rl: Any) -> bool:
         try:
@@ -114,9 +114,9 @@ def snapshot_redline_ids(doc: Any) -> tuple[set, bool]:
     return ids, reliable
 
 
-def new_redlines_since(doc: Any, before_ids: set) -> tuple[list, bool]:
+def new_redlines_since(doc: Any, before_ids: set[Any]) -> tuple[list[Any], bool]:
     """Redlines whose ``RedlineIdentifier`` is not in *before_ids*, plus scan reliability."""
-    out: list = []
+    out: list[Any] = []
 
     def on_item(rl: Any) -> bool:
         try:

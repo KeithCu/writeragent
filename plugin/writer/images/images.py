@@ -324,7 +324,7 @@ class ImageList(ToolWriterImageBase):
 
                 # Page number via view cursor
                 page = None
-                entry_pos: dict = {}
+                entry_pos: dict[str, typing.Any] = {}
                 if is_draw:
                     try:
                         pos = graphic.getPosition()

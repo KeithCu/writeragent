@@ -49,15 +49,15 @@ _LSP_POSITION_CODEC = PositionCodec("utf-16")
 _BCP47_TO_DIALECT: dict[str, str] = {"en-GB": "British", "en-AU": "Australian", "en-CA": "Canadian", "en-IN": "Indian"}
 
 
-def _lsp_notification(method: str, params: dict | None) -> dict:
+def _lsp_notification(method: str, params: dict[str, Any] | None) -> dict[str, Any]:
     return {"jsonrpc": _JSONRPC, "method": method, "params": params}
 
 
-def _lsp_request(req_id: int, method: str, params: dict | None) -> dict:
+def _lsp_request(req_id: int, method: str, params: dict[str, Any] | None) -> dict[str, Any]:
     return {"jsonrpc": _JSONRPC, "id": req_id, "method": method, "params": params}
 
 
-def _lsp_response(req_id: int, result: Any) -> dict:
+def _lsp_response(req_id: int, result: Any) -> dict[str, Any]:
     return {"jsonrpc": _JSONRPC, "id": req_id, "result": result}
 
 
@@ -65,9 +65,9 @@ def _deadline_remaining(deadline: float) -> float:
     return max(0.0, deadline - time.monotonic())
 
 
-def _harper_lsp_settings(bcp47: str, user_config_dir: str) -> dict:
+def _harper_lsp_settings(bcp47: str, user_config_dir: str) -> dict[str, Any]:
     dialect = _BCP47_TO_DIALECT.get(bcp47, "American")
-    settings: dict = {"dialect": dialect}
+    settings: dict[str, Any] = {"dialect": dialect}
     if user_config_dir:
         settings["userDictPath"] = str(Path(user_config_dir) / "harper-dictionary.txt")
     return {"harper-ls": settings}
@@ -169,12 +169,12 @@ class HarperLSClient:
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
-    def _write(self, payload: dict) -> None:
+    def _write(self, payload: dict[str, Any]) -> None:
         if not self.proc or self.proc.stdin is None:
             raise RuntimeError("harper-ls process not running")
         json_rpc_framing.write_frame(cast("BinaryIO", self.proc.stdin), payload)
 
-    def _read(self, deadline: float) -> dict | None:
+    def _read(self, deadline: float) -> dict[str, Any] | None:
         if not self.proc:
             raise RuntimeError("harper-ls process not running")
         remaining = _deadline_remaining(deadline)
@@ -188,7 +188,7 @@ class HarperLSClient:
     def _reply_workspace_configuration(self, req_id: int) -> None:
         self._write(_lsp_response(req_id, [self._lsp_settings]))
 
-    def _read_and_handle(self, deadline: float) -> dict | None:
+    def _read_and_handle(self, deadline: float) -> dict[str, Any] | None:
         msg = self._read(deadline)
         if not msg:
             return None
@@ -203,7 +203,7 @@ class HarperLSClient:
 
         return msg
 
-    def _send_request(self, method: str, params: dict, *, deadline: float) -> dict | None:
+    def _send_request(self, method: str, params: dict[str, Any], *, deadline: float) -> dict[str, Any] | None:
         self.request_id += 1
         req_id = self.request_id
         self._write(_lsp_request(req_id, method, params))
@@ -230,7 +230,7 @@ class HarperLSClient:
         self._lsp_settings = _harper_lsp_settings(bcp47, self.user_config_dir)
         self._write(_lsp_notification("workspace/didChangeConfiguration", {"settings": self._lsp_settings}))
 
-    def _collect_diagnostics(self, version: int, deadline: float) -> list:
+    def _collect_diagnostics(self, version: int, deadline: float) -> list[Any]:
         while _deadline_remaining(deadline) > 0:
             msg = self._read_and_handle(deadline)
             if not msg:
@@ -245,7 +245,7 @@ class HarperLSClient:
                     return params.get("diagnostics", [])
         return []
 
-    def _suggestions_for_diagnostic(self, diag: dict, deadline: float) -> list:
+    def _suggestions_for_diagnostic(self, diag: dict[str, Any], deadline: float) -> list[str]:
         suggestions: list[str] = []
         try:
             res = self._send_request("textDocument/codeAction", {"textDocument": {"uri": self.uri}, "range": diag["range"], "context": {"diagnostics": [diag]}}, deadline=deadline)
@@ -263,7 +263,7 @@ class HarperLSClient:
             log.exception("[harper] Failed to fetch codeActions")
         return suggestions
 
-    def lint(self, text: str, bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> list:
+    def lint(self, text: str, bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> list[Any]:
         # One lint at a time: venv worker IPC is serialized; grammar uses a single drain thread for Harper.
         if heartbeat_fn is not None:
             self._heartbeat_fn = heartbeat_fn
@@ -546,7 +546,7 @@ def maybe_start_harper_async(
     return harper_ensure_ready_async(ucd, bcp47=bcp47)
 
 
-def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ctx: Any = None) -> dict | None:
+def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ctx: Any = None) -> dict[str, Any] | None:
     """Lint now if harper-ls is already in-process; else kick one ensure and return None.
 
     Never downloads or ``Popen``s on the caller thread (UNO ``doProofreading``).
@@ -645,7 +645,7 @@ def warn_if_harper_result_slow(
     return True
 
 
-def _diagnostics_to_errors(text: str, results: list) -> dict:
+def _diagnostics_to_errors(text: str, results: list[Any]) -> dict[str, Any]:
     errors = []
     for item in results:
         diag = item["diagnostic"]
@@ -686,7 +686,7 @@ def _lint_ready_client(
     bcp47: str,
     *,
     ctx: Any,
-) -> dict:
+) -> dict[str, Any]:
     """Lint a READY client. With ``ctx``, worker waits; caller pumps VCL.
 
     Without ``ctx`` there is nothing to pump: block on the caller thread
@@ -706,7 +706,7 @@ def _run_lint_off_caller_thread(
     *,
     restart: bool,
     heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Worker owns blocking ``client.lint`` + ``_HARPER_LOCK``; caller pumps or joins.
 
     Linguistic thread must not hold ``_HARPER_LOCK`` here: PE2I can nest
@@ -753,7 +753,7 @@ def _lint_with_client(
     *,
     heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
     restart: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     """Caller holds ``_HARPER_LOCK``. ``restart=False`` avoids ``Popen`` on the UNO thread."""
     started = time.monotonic()
     lint_text = normalize_spaces_1to1(text)
@@ -789,7 +789,7 @@ def run_harper_lint(
     bcp47: str = "en-US",
     *,
     heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Run harper-ls on a text segment and return parsed errors (no LibreOffice UI).
 
     Grammar-queue entry: already a worker thread, so lint under ``_HARPER_LOCK``

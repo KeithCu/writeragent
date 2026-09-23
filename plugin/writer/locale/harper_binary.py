@@ -16,7 +16,7 @@ import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -84,7 +84,7 @@ def _parse_github_digest(digest: str | None) -> str:
     return digest.removeprefix("sha256:")
 
 
-def _github_api_request(url: str) -> dict:
+def _github_api_request(url: str) -> dict[str, Any]:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
     with urllib.request.urlopen(request, timeout=30) as response:
         # 1 MB is enough for the current latest-release JSON. Future (plan C11):

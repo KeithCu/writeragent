@@ -130,7 +130,7 @@ def show_review_message(ctx: Any, message: str) -> None:
 # own tracked changes are never listed or resolved.
 
 
-def _agent_redlines(model: Any) -> list:
+def _agent_redlines(model: Any) -> list[tuple[str, Any]]:
     """[(token, redline)] for every redline tagged by an EditReviewSession.
 
     BEST-EFFORT and DISPLAY-ONLY: on an enumeration error it returns whatever it gathered so far
@@ -138,7 +138,7 @@ def _agent_redlines(model: Any) -> list:
     short list, but it must NOT back a success/safety decision. The data-safety paths use the
     reliability-aware ``_agent_change_tokens`` (post-resolve verification) and
     ``_all_redlines_are_agent`` (global-dispatch guard), which fail CLOSED on an incomplete scan."""
-    out: list = []
+    out: list[tuple[str, Any]] = []
 
     def on_item(rl: Any) -> bool:
         try:
@@ -161,8 +161,8 @@ def _agent_and_foreign_redline_snapshot(model: Any) -> _RedlineSnapshot:
 
     This replaces what used to be multiple separate full-table enumerations.
     """
-    agents: set = set()
-    foreign: set = set()
+    agents: set[str] = set()
+    foreign: set[str] = set()
     t_rel = True
     f_rel = True
 
@@ -192,7 +192,7 @@ def _agent_and_foreign_redline_snapshot(model: Any) -> _RedlineSnapshot:
     )
 
 
-def _reliable_agent_tokens(model: Any) -> set | None:
+def _reliable_agent_tokens(model: Any) -> set[str] | None:
     """Convenience: the set of agent tokens if the snapshot is reliable, else None.
 
     Lets call sites read `if (toks := _reliable_agent_tokens(m)) is None or token not in toks:`
@@ -202,7 +202,7 @@ def _reliable_agent_tokens(model: Any) -> set | None:
     return toks if ok else None
 
 
-def _agent_change_tokens(model: Any) -> tuple[set, bool]:
+def _agent_change_tokens(model: Any) -> tuple[set[str], bool]:
     """``(set of agent-change tokens on the document's redlines, reliable)``. Used after a resolve
     dispatch to verify that EXACTLY the target change was resolved.
 
@@ -295,7 +295,7 @@ def agent_self_resolution_block_reason(model: Any) -> str | None:
     return None
 
 
-def _foreign_redline_ids(model: Any) -> tuple[set, bool]:  # pyright: ignore[reportUnusedFunction]  # used by inline review UNO/guard tests
+def _foreign_redline_ids(model: Any) -> tuple[set[str], bool]:  # pyright: ignore[reportUnusedFunction]  # used by inline review UNO/guard tests
     """``(identifiers of non-agent redlines, reliable)``. The identifiers are the user's OWN tracked
     changes (plus any we can't classify, counted as foreign). ``reliable`` is False when the snapshot
     is INCOMPLETE -- the enumeration failed, a foreign redline's identifier couldn't be read, or the
@@ -306,12 +306,12 @@ def _foreign_redline_ids(model: Any) -> tuple[set, bool]:  # pyright: ignore[rep
     return snap.foreign_ids, snap.foreign_reliable
 
 
-def agent_changes(model: Any) -> list[dict]:
+def agent_changes(model: Any) -> list[dict[str, Any]]:
     """Pending agent changes, one entry per logical change (grouped by token), in document
     order of first appearance: ``{"token", "old", "new"}``. The old/new preview texts are what
     a review surface needs to present a change; the tests also use them to pin the grouping of
     a change's Delete+Insert pair under one token."""
-    grouped: dict[str, dict] = {}
+    grouped: dict[str, dict[str, Any]] = {}
     for token, rl in _agent_redlines(model):
         entry = grouped.setdefault(token, {"token": token, "old": "", "new": ""})
         try:
@@ -345,7 +345,7 @@ def _change_bounds(model: Any, token: str):
     conflict the document is left partially resolved. So any enumeration/count error, count/enumeration
     mismatch (enumeration yields fewer items than getCount() reports), unreadable comment, or a target
     mark with unreadable / None bounds -> (None, None)."""
-    ranges: list = []
+    ranges: list[tuple[Any, Any]] = []
 
     def on_item(rl: Any) -> bool:
         try:

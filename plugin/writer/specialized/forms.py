@@ -513,7 +513,7 @@ class FormListControls(ToolWriterFormBase):
 
                 controls.append(info)
 
-        out: dict = {"status": "ok", "controls": controls, "count": len(controls)}
+        out: dict[str, Any] = {"status": "ok", "controls": controls, "count": len(controls)}
         if _is_spreadsheet_doc(doc):
             out["note"] = "Indices are ControlShapes on the active sheet draw page only."
         elif _is_draw_doc(doc):

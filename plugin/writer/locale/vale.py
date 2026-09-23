@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import logging
 from pathlib import Path
+from typing import Any
 
 from plugin.framework.worker_pool import get_subprocess_creationflags
 from plugin.scripting.sandbox import wrap_command_for_sandbox
@@ -29,7 +30,7 @@ def _get_vale_binary() -> str:
     return str(vale_path)
 
 
-def run_vale_check(text: str, user_config_dir: str, styles: str) -> dict:
+def run_vale_check(text: str, user_config_dir: str, styles: str) -> dict[str, Any]:
     """Run Vale linter on the text segment and return the style errors list."""
     try:
         vale_bin = _get_vale_binary()
