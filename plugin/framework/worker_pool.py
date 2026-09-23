@@ -83,6 +83,8 @@ class BackgroundHandle:
     """
 
     __slots__: ClassVar[tuple[str, ...]] = ("_future", "_thread")
+    _future: Future[Any] | None
+    _thread: threading.Thread | None
 
     def __init__(self, *, future: Future[Any] | None = None, thread: threading.Thread | None = None) -> None:
         self._future = future
@@ -122,6 +124,9 @@ class _DaemonWorkPool:
     SimpleQueue has no maxsize on purpose: a bounded queue would block or drop
     fire-and-forget UI work. Bound the *worker count*, not the submit queue.
     """
+
+    _max_workers: int
+    _shutdown: bool
 
     def __init__(self, max_workers: int) -> None:
         self._max_workers = max(1, max_workers)
@@ -281,6 +286,9 @@ class StderrTail:
     """
 
     __slots__: ClassVar[tuple[str, ...]] = ("_lock", "_chunks", "_chars", "_max_chars", "_thread")
+    _lock: threading.Lock
+    _chars: int
+    _max_chars: int
 
     def __init__(self, max_chars: int = _DEFAULT_STDERR_TAIL_CHARS) -> None:
         self._lock = threading.Lock()
@@ -363,6 +371,11 @@ class AsyncProcess:
     Manages a subprocess.Popen instance, asynchronously reading its stdout/stderr
     streams and providing a callback mechanism for output and exit.
     """
+
+    args: str | list[str]
+    stdout_cb: Optional[Callable[[str], None]]
+    stderr_cb: Optional[Callable[[str], None]]
+    on_exit_cb: Optional[Callable[[int], None]]
 
     def __init__(
         self,

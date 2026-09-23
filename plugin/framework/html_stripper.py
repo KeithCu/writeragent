@@ -48,6 +48,9 @@ class StreamingHTMLStripper:
     math comparisons (e.g. "3 < 5").
     """
 
+    in_tag: bool
+    tag_buffer: str
+
     def __init__(self) -> None:
         self.in_tag = False
         self.tag_buffer = ""

@@ -74,6 +74,8 @@ class EventBus:
         bus.subscribe("document:closed", obj.on_close, weak=True)
     """
 
+    _dispatching: threading.local
+
     def __init__(self) -> None:
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         self._subscribers: dict[str, list[tuple[Any, bool]]] = {}  # event -> list of (callback, is_weakref)
@@ -218,6 +220,8 @@ class EventBusService(ServiceBase, EventBus):
     """
 
     name: str | None = "events"
+    _subscribers: dict[str, list[tuple[Any, bool]]]
+    _dispatching: threading.local
 
     def __init__(self) -> None:
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)

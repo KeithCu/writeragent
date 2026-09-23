@@ -283,6 +283,11 @@ from .stream_normalizer import (
 class LlmClient:
     """LLM API client. Takes config dict from get_api_config() and UNO ctx."""
 
+    config: dict[str, Any]
+    ctx: Any
+    _transport: LlmHttpTransport
+    _stopped: bool
+
     def __init__(self, config: dict[str, Any], ctx: Any, cancellation_scope: Any | None = None) -> None:
         self.config = config
         self.ctx = ctx

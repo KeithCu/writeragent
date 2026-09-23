@@ -223,6 +223,11 @@ def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
 class PythonWorkerManager:
     """One warm child process per (pool, Python executable path) pair."""
 
+    exe: str
+    env: dict[str, str]
+    _io_lock: threading.Lock
+    _primed: bool
+
     def __init__(self, exe: str, env: dict[str, str]) -> None:
         self.exe = exe
         self.env = dict(env)

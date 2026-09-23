@@ -635,6 +635,9 @@ class ToolRegistry:
     Both the chatbot and MCP server use this single registry.
     """
 
+    _services: Any
+    batch_mode: bool
+
     def __init__(self, services: Any) -> None:
         self._services = services
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance

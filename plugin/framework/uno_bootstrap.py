@@ -43,6 +43,8 @@ class _WriteragentNamespaceLoader(importlib.abc.Loader):
 
 class AliasLoader(importlib.abc.Loader):
     """Loader that returns the already loaded or newly imported real module."""
+    real_name: str
+
     def __init__(self, real_name: str) -> None:
         self.real_name = real_name
 

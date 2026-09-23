@@ -332,6 +332,11 @@ def detect_outliers(
 class QuickStats:
     """Compact numeric summary card (adapted from Python-in-Excel community patterns)."""
 
+    df: Any
+    metadata: dict[str, Any]
+    numeric_columns: list[str]
+    record_count: int
+
     def __init__(self, data: Any, *, numeric_columns: list[str] | None = None, headers: bool = True, header_row: int = 0, sheet_hint: str | None = None) -> None:
         coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
         self.df = coerced.df

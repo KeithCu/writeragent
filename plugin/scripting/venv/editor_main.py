@@ -247,6 +247,8 @@ def _pipe_reader_loop() -> None:
 class MonacoEditorApi:
     """JS API exposed via pywebview (runs on the GUI thread)."""
 
+    _jedi: JediSession
+
     def __init__(self) -> None:
         self._window: Any = None
         self._jedi = JediSession()

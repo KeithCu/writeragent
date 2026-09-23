@@ -304,6 +304,9 @@ class ConfigService(ServiceBase):
 
 
 class ModuleConfigProxy:
+    _config: ConfigService
+    _module: str
+
     def __init__(self, config_service: ConfigService, module_name: str) -> None:
         self._config = config_service
         self._module = module_name

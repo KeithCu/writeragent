@@ -146,6 +146,8 @@ def inline_image_mime(image_url: str | None = None, source_image: str | None = N
 class BaseProviderShim:
     """Base provider shim implementing standard OpenAI-compatible API format by default."""
 
+    client: Any
+
     def __init__(self, client: Any) -> None:
         self.client = client
 

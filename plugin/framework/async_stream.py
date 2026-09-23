@@ -152,6 +152,10 @@ class BatchingStreamQueue:
         #  which does the flush for you)
     """
 
+    _raw: queue.Queue[Any]
+    _interval: float
+    _lock: threading.Lock
+
     def __init__(self, raw_q: queue.Queue[Any], batch_interval: float) -> None:
         # crosshair: off
         self._raw = raw_q

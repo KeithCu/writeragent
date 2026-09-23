@@ -44,6 +44,9 @@ class TextAnalyticsDialog:
       - Insert report here          → appends a clean table after the caret/selection
     """
 
+    _ctx: Any
+    _closed: bool
+
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
         self._dlg: Any | None = None
@@ -106,6 +109,8 @@ class TextAnalyticsDialog:
         owner = self
 
         class _Btn(unohelper.Base, XActionListener):
+            _fn: Callable[[Any], Any]
+
             def __init__(self, fn: Callable[[Any], Any]) -> None:
                 self._fn = fn
 

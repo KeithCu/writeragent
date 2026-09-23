@@ -278,6 +278,11 @@ def wait_host_gap(
 class RequestPacer:
     """Sleep before rapid repeat sends on the same client."""
 
+    min_interval_sec: float
+    _monotonic: Callable[[], float] | None
+    _sleep: Callable[[float], None] | None
+    last_sent_monotonic: float
+
     def __init__(self, min_interval_sec: float = LLM_MIN_REQUEST_INTERVAL_SEC, *, monotonic: Callable[[], float] | None = None, sleep: Callable[[float], None] | None = None) -> None:
         self.min_interval_sec = min_interval_sec
         self._monotonic = monotonic

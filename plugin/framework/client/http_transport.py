@@ -50,6 +50,11 @@ RetryAction = Literal["retry", "stop"]
 class LlmHttpTransport:
     """Own persistent chat HTTP connections plus pacing, jittered retries, per-host cooldown, and local TLS fallback."""
 
+    _endpoint_getter: Callable[[], str]
+    _timeout_getter: Callable[[], int | float]
+    _pacer: RequestPacer
+    _cert_fallback: LocalHttpsCertificateFallback
+
     def __init__(
         self,
         endpoint_getter: Callable[[], str],
