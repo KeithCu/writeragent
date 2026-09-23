@@ -1403,7 +1403,6 @@ def test_coalesce_split_tool_calls_lone_empty_name_dropped():
 
 def test_stream_queue_helpers_parameterize_queue() -> None:
     """Bare queue.Queue leftovers trip reportMissingTypeArgument."""
-    import inspect
 
     from plugin.framework.async_stream import put_stream_queue_stopped, run_async_worker_with_drain
 
