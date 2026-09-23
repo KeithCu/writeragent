@@ -53,7 +53,7 @@ def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, _show: bool) ->
 class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """Start recording changes."""
 
-    uno_services: list | None = _TRACK_CHANGES_UNO_SERVICES
+    uno_services: list = _TRACK_CHANGES_UNO_SERVICES
     name: str | None = "track_changes_start"
     description: str = "Start recording changes (track changes) in the document."
     parameters: dict | None = {"type": "object", "properties": {}, "required": []}
@@ -70,7 +70,7 @@ class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """Stop recording changes."""
 
-    uno_services: list | None = _TRACK_CHANGES_UNO_SERVICES
+    uno_services: list = _TRACK_CHANGES_UNO_SERVICES
     name: str | None = "track_changes_stop"
     description: str = "Stop recording changes (track changes) in the document."
     parameters: dict | None = {"type": "object", "properties": {}, "required": []}
@@ -87,7 +87,7 @@ class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """List all tracked changes (redlines) in the document."""
 
-    uno_services: list | None = _TRACK_CHANGES_UNO_SERVICES
+    uno_services: list = _TRACK_CHANGES_UNO_SERVICES
     name: str | None = "track_changes_list"
     description: str = (
         "List all tracked changes (redlines) in the document, including type, author, date, text "
@@ -196,7 +196,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """Show or hide change markup."""
 
-    uno_services: list | None = _TRACK_CHANGES_UNO_SERVICES
+    uno_services: list = _TRACK_CHANGES_UNO_SERVICES
     name: str | None = "track_changes_show"
     description: str = "Show or hide tracked changes markup in the document view (Writer). On Calc, recording still works; this call returns guidance to use LibreOffice menus for show/hide markup until UNO support is implemented."
     parameters: dict | None = {"type": "object", "properties": {"show": {"type": "boolean", "description": "True to show changes, False to hide them."}}, "required": ["show"]}
@@ -228,7 +228,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     UNO dispatch / redline-select path and only differed by verb + optional index.
     """
 
-    uno_services: list | None = _TRACK_CHANGES_UNO_SERVICES
+    uno_services: list = _TRACK_CHANGES_UNO_SERVICES
     name: str | None = "manage_tracked_changes"
     description: str = (
         "Accept or reject tracked changes. action=accept/reject requires index "
