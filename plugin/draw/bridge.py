@@ -121,7 +121,8 @@ class DrawBridge:
         try:
             return cls.resolve_slide(doc, page_index)
         except IndexError:
-            raise ToolExecutionError("Page index %d out of range." % page_index)
+            # resolve_slide only raises IndexError when page_index is an int.
+            raise ToolExecutionError("Page index %s out of range." % page_index)
         except Exception as e:
             if is_disposed_exception(e):
                 raise
@@ -269,7 +270,7 @@ class DrawBridge:
                 log.debug("set_current_page_index failed: %s", exc)
         return False
 
-    def get_active_page_index(self):
+    def get_active_page_index(self) -> int:
         try:
             page = self.get_active_page()
             if page:

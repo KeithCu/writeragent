@@ -517,7 +517,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]):
         try:
             import sys
 
-            line_enum = sys.modules.get("com.sun.star.drawing.LineStyle")
+            line_enum: Any = sys.modules.get("com.sun.star.drawing.LineStyle")
             if not line_enum:
                 from com.sun.star.drawing import LineStyle as line_enum
             shape.setPropertyValue("LineStyle", line_enum.SOLID)
@@ -616,7 +616,7 @@ class UpsertShape(ToolDrawShapeBase):
             
         return True, None
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
         from com.sun.star.awt import Point, Size
 
@@ -751,6 +751,10 @@ class UpsertShape(ToolDrawShapeBase):
                 shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
 
             return {"status": "ok", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": getattr(shape, "Name", "") or ""}
+
+        # validate() rejects other actions; keep execute total so the ToolBase
+        # override is dict[str, Any] (Calc/Writer inherit this class).
+        return self._tool_error("Unknown action: '%s'. Must be 'create' or 'edit'" % action)
 
 
 class ConnectShapes(ToolDrawShapeBase):
