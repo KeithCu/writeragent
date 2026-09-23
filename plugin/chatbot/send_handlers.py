@@ -206,7 +206,7 @@ class SendHandlersMixin:
                     self._in_librarian_mode = False
             dispatch_event(StreamDoneEvent(payload))
 
-        def on_stopped():
+        def on_stopped() -> None:
             if on_stopped_callback:
                 on_stopped_callback()
             dispatch_event(StopRequestedEvent())
@@ -255,7 +255,7 @@ class SendHandlersMixin:
         # executes; this flag only decides whether to request img2img.
         source_image = _direct_image_source_arg(model)
 
-        def run_direct_image():
+        def run_direct_image() -> None:
             try:
                 aspect_ratio_str = "Square"
                 if self.aspect_ratio_selector and hasattr(self.aspect_ratio_selector, "getText"):
@@ -379,7 +379,7 @@ class SendHandlersMixin:
         # run_agent is chatbot-send-handler; do not classify the document here.
         core_dirs = get_core_directives_for_type(doc_type_str or "writer")
 
-        def run_agent():
+        def run_agent() -> None:
             try:
 
 
@@ -415,7 +415,7 @@ class SendHandlersMixin:
             finally:
                 self._current_agent_backend = None
 
-        def on_stopped():
+        def on_stopped() -> None:
             # Ensure conversation roles alternate user/assistant when stopping an
             # external agent backend mid-response.
             self.session.add_assistant_message(content="No response.")
@@ -583,7 +583,7 @@ class SendHandlersMixin:
 
         history_text = format_sub_agent_conversation_history(self.session, current_query=query_text)
 
-        def run_search():
+        def run_search() -> None:
             doc_type = getattr(self, "cached_doc_type", None) or "writer"
             cancel_scope = getattr(self, "_send_cancellation", None)
             stop_checker = self.resolve_stop_checker()

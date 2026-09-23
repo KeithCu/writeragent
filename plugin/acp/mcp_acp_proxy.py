@@ -40,7 +40,7 @@ class MCPACPProxy(AgentBackend):
     backend_id: ClassVar[str] = "mcp_acp"
     display_name: ClassVar[str] = "WriterAgent MCP (ACP)"
 
-    def __init__(self, ctx: Any | None = None):
+    def __init__(self, ctx: Any | None = None) -> None:
         self._ctx = ctx
         self._mcp_url = ""
         self._session_id: str | None = None
@@ -51,7 +51,7 @@ class MCPACPProxy(AgentBackend):
         self._tools_cache_ttl = 300  # 5 minutes
         self._load_config()
 
-    def _load_config(self):
+    def _load_config(self) -> None:
         """Read MCP server URL from WriterAgent config (port from mcp.mcp_port schema default)."""
         from plugin.framework.config import get_config, get_config_int_safe
 
@@ -157,7 +157,7 @@ class MCPACPProxy(AgentBackend):
 
         return {"content_blocks": results}
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop current operation."""
         log.info("ACP stop called")
         self._stop_requested = True

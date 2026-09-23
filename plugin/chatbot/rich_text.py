@@ -135,7 +135,7 @@ ASSISTANT_COLOR = 0x1E293B
 class ChatTheme:
     """Encapsulates theme-aware colors derived from StyleSettings."""
 
-    def __init__(self, bg_color: int, user_color: int, assistant_color: int):
+    def __init__(self, bg_color: int, user_color: int, assistant_color: int) -> None:
         self.bg_color = bg_color
         self.user_color = user_color
         self.assistant_color = assistant_color

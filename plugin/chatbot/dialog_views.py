@@ -187,7 +187,7 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "", x: Any
 class SettingsDialog:
     """Manages the lifecycle of the WriterAgent Settings dialog."""
 
-    def __init__(self, ctx: Any):
+    def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
         self._dlg = None
         self._endpoint_listener: Any = None
@@ -202,7 +202,7 @@ class SettingsDialog:
         self._mcp_tunnel_provider_listener = None
         self._mcp_port_listener = None
 
-    def show(self):
+    def show(self) -> dict[str, Any]:
         """Execute the settings dialog and apply results."""
         from .settings_dialog import get_settings_field_specs, apply_settings_result
 
@@ -249,14 +249,14 @@ class SettingsDialog:
         finally:
             self._cleanup()
 
-    def _create_dialog(self):
+    def _create_dialog(self) -> None:
         smgr = self._ctx.getServiceManager()
         base_url = get_extension_url()
         dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", self._ctx)
         dialog_url = base_url + "/Dialogs/SettingsDialog.xdl"
         self._dlg = dp.createDialog(dialog_url)
 
-    def _setup_tabs(self):
+    def _setup_tabs(self) -> None:
         assert self._dlg is not None
         self._dlg.getControl("btn_tab_chat").addActionListener(TabListener(self._dlg, 1))
         self._dlg.getControl("btn_tab_image").addActionListener(TabListener(self._dlg, 2))
@@ -334,7 +334,7 @@ class SettingsDialog:
             if hasattr(provider_ctrl, "addTextListener"):
                 provider_ctrl.addTextListener(self._mcp_tunnel_provider_listener)
 
-    def _setup_module_tabs(self):
+    def _setup_module_tabs(self) -> None:
         try:
             # Register module tabs in the Settings dialog
             setup_module_tabs(self._dlg)
@@ -435,7 +435,7 @@ class SettingsDialog:
                 self._api_key_listener = ApiKeyTextListener(self._endpoint_listener)
                 ak_ctrl.addTextListener(self._api_key_listener)
 
-    def _apply_sqlite_restrictions(self):
+    def _apply_sqlite_restrictions(self) -> None:
         if not HAS_SQLITE:
             for name in (
                 "chatbot__web_cache_max_mb",
@@ -468,7 +468,7 @@ class SettingsDialog:
                 result[name] = ""
         return result
 
-    def _cleanup(self):
+    def _cleanup(self) -> None:
         if self._api_key_listener:
             ak = get_optional(self._dlg, "api_key")
             if ak and hasattr(ak, "removeTextListener"):
@@ -578,7 +578,7 @@ def open_system_url(ctx: Any, url_str: str) -> None:
 
 
 class EditConfigListener(BaseActionListener):
-    def __init__(self, ctx: Any):
+    def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
     def on_action_performed(self, rEvent: Any) -> None:
         from .external_editor import open_writeragent_json_in_editor
@@ -588,7 +588,7 @@ class EditConfigListener(BaseActionListener):
 class RecheckGrammarListener(BaseActionListener):
     """Doc tab: dump this document's grammar L2 plus all of L1, then PROOFREAD_AGAIN."""
 
-    def __init__(self, ctx: Any):
+    def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
 
     def on_action_performed(self, rEvent: Any) -> None:
@@ -601,7 +601,7 @@ class RecheckGrammarListener(BaseActionListener):
 class ProviderStarterListener(BaseActionListener):
     """When a provider starter button is clicked, select its endpoint, sync key, and open signup page."""
 
-    def __init__(self, ctx: Any, dlg: Any, endpoint_url: str, signup_url: str):
+    def __init__(self, ctx: Any, dlg: Any, endpoint_url: str, signup_url: str) -> None:
         self._ctx = ctx
         self._dlg = dlg
         self._endpoint_url = endpoint_url
@@ -622,7 +622,7 @@ class ProviderStarterListener(BaseActionListener):
 
 
 class GetApiKeyListener(BaseActionListener):
-    def __init__(self, ctx: Any, dlg: Any):
+    def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
 
@@ -638,7 +638,7 @@ class GetApiKeyListener(BaseActionListener):
 
 
 class TestConnectionListener(BaseActionListener):
-    def __init__(self, ctx: Any, dlg: Any):
+    def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
 
@@ -662,10 +662,10 @@ class TestConnectionListener(BaseActionListener):
         api_key_ctrl = get_optional(self._dlg, "api_key")
         api_key = str(get_control_text(api_key_ctrl)) if api_key_ctrl else ""
 
-        def _worker():
+        def _worker() -> None:
             msg = check_endpoint_connection(endpoint, api_key)[1]
 
-            def _apply():
+            def _apply() -> None:
                 if btn_test:
                     set_control_enabled(btn_test, True)
                 if lbl_status:
@@ -698,7 +698,7 @@ def _dialog_parent_for_child(ctx: Any, parent_dlg: Any) -> Any:  # pyright: igno
 class PptMasterDataTestListener(BaseActionListener):
     """Settings → Python: verify ppt-master skill tree at the path in the text field (saved or not)."""
 
-    def __init__(self, ctx: Any, dlg: Any):
+    def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
 
@@ -715,14 +715,14 @@ class PptMasterDataTestListener(BaseActionListener):
 
 
 class ApiKeyTextListener(BaseListener, XTextListener):
-    def __init__(self, endpoint_listener: Any):
+    def __init__(self, endpoint_listener: Any) -> None:
         self._el = endpoint_listener
     def textChanged(self, rEvent: TextEvent) -> None:
         self._el._schedule_debounced_models_fetch()
 
 
 class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
-    def __init__(self, dialog: Any, context: Any, combo_ctrl: Any):
+    def __init__(self, dialog: Any, context: Any, combo_ctrl: Any) -> None:
         from plugin.framework.queue_executor import post_to_main_thread
         from plugin.framework.worker_pool import run_in_background
         from plugin.framework.config import get_api_key_for_endpoint
@@ -769,7 +769,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if lbl_status:
             set_control_text(lbl_status, "")
 
-    def _live_api_key(self):
+    def _live_api_key(self) -> str:
         ak_ctrl = get_optional(self._dlg, "api_key")
         return str(get_control_text(ak_ctrl)) if ak_ctrl else ""
 
@@ -854,13 +854,13 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 skip_remote_fetch=skip_remote,
             )
 
-    def close(self):
+    def close(self) -> None:
         self._closed = True
         self._debounce_gen += 1
         if self._timer:
             self._timer.cancel()
 
-    def _sync_api_key(self):
+    def _sync_api_key(self) -> None:
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         self._update_key_link_state(resolved)
         if not resolved: return
@@ -878,14 +878,14 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved):
             models = self.fetch_available_models(resolved, api_key_override=key_ov)
 
-        def apply_ui():
+        def apply_ui() -> None:
             if self._closed or gen != self._debounce_gen: return
             if self.endpoint_from_selector_text(self._ctrl.getText()) != resolved: return
             self._apply_dropdowns(resolved, models=models, skip_fetch=(models is None))
 
         self.post_to_main_thread(apply_ui)
 
-    def _schedule_debounced_models_fetch(self):
+    def _schedule_debounced_models_fetch(self) -> None:
         if self._timer: self._timer.cancel()
         self._debounce_gen += 1
         gen = self._debounce_gen
@@ -954,7 +954,7 @@ def setup_module_tabs(dlg: Any) -> None:
 class DownloadAudioListener(BaseActionListener):
     """Settings → Python: download audio binaries and pure Python dependencies from GitHub."""
 
-    def __init__(self, ctx: Any, dlg: Any):
+    def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
 

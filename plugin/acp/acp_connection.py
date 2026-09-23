@@ -42,7 +42,7 @@ _ACP_PROTOCOL_VERSION = 1
 class ACPConnection:
     """Manages a JSON-RPC stdio connection to an ACP subprocess."""
 
-    def __init__(self, cmd_line: list[str], env: dict[str, str] | None = None, cwd: str | None = None):
+    def __init__(self, cmd_line: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> None:
         self._cmd_line = cmd_line
         self._env = env
         self._cwd = cwd
@@ -56,7 +56,7 @@ class ACPConnection:
         self._notifications: list[Any] = []  # queue of notification dicts
         self._notify_callback = None
 
-    def start(self):
+    def start(self) -> None:
         """Spawn the ACP subprocess."""
         log.info(f"Spawning: {' '.join(self._cmd_line)}")
 
@@ -85,7 +85,7 @@ class ACPConnection:
         self._running = True
         self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader", dedicated=True)
 
-    def stop(self):
+    def stop(self) -> None:
         """Terminate the subprocess."""
         self._running = False
         if self._proc:
@@ -106,15 +106,15 @@ class ACPConnection:
             self._stderr_drain = None
 
     @property
-    def is_alive(self):
+    def is_alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
-    def _next_id(self):
+    def _next_id(self) -> int:
         with self._lock:
             self._request_id += 1
             return self._request_id
 
-    def send_request(self, method: str, params: Any = None, timeout: int = 120):
+    def send_request(self, method: str, params: Any = None, timeout: int = 120) -> Any:
         """Send a JSON-RPC request and wait for the response."""
         if not self.is_alive:
             raise ToolExecutionError("ACP process is not running")
@@ -154,7 +154,7 @@ class ACPConnection:
 
         return resp.get("result") if resp else None
 
-    def send_notification(self, method: str, params: Any = None):
+    def send_notification(self, method: str, params: Any = None) -> None:
         """Send a JSON-RPC notification (no response expected)."""
         if not self.is_alive:
             return
@@ -167,7 +167,7 @@ class ACPConnection:
         except Exception:
             pass
 
-    def send_response(self, msg_id: Any, result: Any = None, error: Any = None):
+    def send_response(self, msg_id: Any, result: Any = None, error: Any = None) -> None:
         """Send a JSON-RPC response to a request from the agent."""
         if not self.is_alive:
             return
@@ -185,12 +185,12 @@ class ACPConnection:
         except Exception:
             log.exception("Failed to send response")
 
-    def set_notification_callback(self, callback: Any):
+    def set_notification_callback(self, callback: Any) -> None:
         """Set a callback(method, params, msg_id) for incoming notifications."""
         self._notify_callback = callback
 
     @background
-    def _reader_loop(self):
+    def _reader_loop(self) -> None:
         """Read JSON-RPC messages from stdout and dispatch them."""
         log.info("Reader loop started")
         while self._running and self._proc and self._proc.poll() is None:

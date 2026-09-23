@@ -272,7 +272,7 @@ class LibrarianOnboardingTool(ToolBase):
     is_mutation: bool | None = False
     long_running: bool = True
 
-    def is_async(self):
+    def is_async(self) -> bool:
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

@@ -58,7 +58,7 @@ class ACPBackend(AgentBackend):
 
     default_extra_args: Tuple[str, ...] = ()
 
-    def __init__(self, ctx: Any | None = None):
+    def __init__(self, ctx: Any | None = None) -> None:
         self._ctx = ctx
         self._conn = None
         self._session_id = None
@@ -68,7 +68,7 @@ class ACPBackend(AgentBackend):
         self._prompt_done = threading.Event()
         self._load_config()
 
-    def _load_config(self):
+    def _load_config(self) -> None:
         """Load configuration from WriterAgent settings."""
         try:
             from plugin.framework.config import get_config
@@ -99,7 +99,7 @@ class ACPBackend(AgentBackend):
         if os.path.basename(self._binary_path).lower() == self.get_binary_name().lower():
             self._extra_args = list(defaults)
 
-    def _find_binary(self):
+    def _find_binary(self) -> str | None:
         """Find the binary in PATH or common locations."""
         binary_name = self.get_binary_name()
 
@@ -132,7 +132,7 @@ class ACPBackend(AgentBackend):
         """Return environment variables to pass to subprocess."""
         return {}
 
-    def is_available(self, ctx: Any):
+    def is_available(self, ctx: Any) -> bool:
         """Check if binary is installed."""
         self._load_config()
         if self._binary_path and os.path.isfile(self._binary_path):
@@ -149,7 +149,7 @@ class ACPBackend(AgentBackend):
         log.info(f"{self.get_display_name()} binary not found")
         return False
 
-    def _ensure_connection(self):
+    def _ensure_connection(self) -> None:
         """Start the ACP subprocess if not already running."""
         if self._conn and self._conn.is_alive:
             return
@@ -180,7 +180,7 @@ class ACPBackend(AgentBackend):
             self._conn = None
             raise
 
-    def _ensure_session(self, mcp_url: str | None = None, document_url: str | None = None):
+    def _ensure_session(self, mcp_url: str | None = None, document_url: str | None = None) -> None:
         """Create a new ACP session if needed."""
         if self._session_id:
             return
@@ -227,7 +227,7 @@ class ACPBackend(AgentBackend):
 
         return prompt_blocks
 
-    def _handle_acp_update(self, update: Any, queue: Any):
+    def _handle_acp_update(self, update: Any, queue: Any) -> None:
         """Queue CHUNK / TOOL_CALL / TOOL_RESULT from session or agent update content.
 
         Session and agent notifications use the same shapes: ``content`` is either
@@ -254,7 +254,7 @@ class ACPBackend(AgentBackend):
             elif item_type == "tool_result":
                 queue.put((StreamQueueKind.TOOL_RESULT, item))
 
-    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any):
+    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any) -> None:
         """Send a message via ACP stdio."""
         self._stop_requested = False
         self._prompt_done.clear()
@@ -279,7 +279,7 @@ class ACPBackend(AgentBackend):
         prompt_blocks = self._build_prompt_blocks(user_message=user_message, document_context=document_context, system_prompt=system_prompt, selection_text=selection_text, document_url=document_url)
 
         # Set up notification handler for streaming updates
-        def on_notification(method: str, params: Any, msg_id: Any = None):
+        def on_notification(method: str, params: Any, msg_id: Any = None) -> None:
             if self._stop_requested:
                 return
             if method == "session/request_permission":
@@ -325,7 +325,7 @@ class ACPBackend(AgentBackend):
                 self._conn.set_notification_callback(None)
             self._prompt_done.set()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop current operation."""
         self._stop_requested = True
         if self._conn:
@@ -336,7 +336,7 @@ class ACPBackend(AgentBackend):
                 pass
         self._prompt_done.set()
 
-    def submit_approval(self, request_id: Any, approved: bool):
+    def submit_approval(self, request_id: Any, approved: bool) -> None:
         """Submit HITL approval response back to ACP process."""
         if not self._conn or not self._conn.is_alive:
             log.warning("Cannot submit approval, ACP connection is dead")
@@ -347,7 +347,7 @@ class ACPBackend(AgentBackend):
         except Exception:
             log.exception("Failed to submit approval")
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Clean up resources."""
         if self._conn:
             self._conn.stop()

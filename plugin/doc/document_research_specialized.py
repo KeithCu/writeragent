@@ -56,7 +56,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         uno_services_supported=getattr(parent_ctx, "uno_services_supported", None),
     )
 
-    def _fetch_inner_tools():
+    def _fetch_inner_tools() -> tuple[list[ToolBase], list[ToolBase]]:
         domain_tools = registry.get_tools(doc=opened_model, doc_type=doc_type, names=list(allowlist), exclude_tiers=())
         finish_tools = registry.get_tools(names=["specialized_workflow_finished"], exclude_tiers=())
         return domain_tools, finish_tools

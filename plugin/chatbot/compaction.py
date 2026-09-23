@@ -525,7 +525,7 @@ def pressure_stub_newest_tool_group(messages: list[dict[str, Any]], keep_tokens:
     if asst_i - 1 >= start_index and _is_real_user(work[asst_i - 1]):
         tail_i = asst_i - 1
 
-    def tail_tokens():
+    def tail_tokens() -> int:
         return sum(estimate_message_tokens(work[j]) for j in range(tail_i, end_i))
 
     if tail_tokens() <= keep_tokens:
@@ -732,7 +732,7 @@ def should_retry_overflow(attempts: int, compact_reason: str | None, tokens_befo
     return True
 
 
-def _today_for_prompt():
+def _today_for_prompt() -> str:
     """YYYY-MM-DD; '' on clock failure.
 
     Same idea as Hermes ``_today_for_prompt``
@@ -746,7 +746,7 @@ def _today_for_prompt():
         return ""
 
 
-def _temporal_anchoring_rule():
+def _temporal_anchoring_rule() -> str:
     """Dated past-tense rule for the summarizer. Near-copy of Hermes.
 
     Adapted from ``ContextCompressor._temporal_anchoring_rule``

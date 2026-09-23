@@ -52,7 +52,7 @@ class ChatbotModule(ModuleBase):
         services.tools.auto_discover(skills)
         self._adapter = None
 
-    def get_adapter(self):
+    def get_adapter(self) -> Any | None:
         """Return the ChatToolAdapter for use by the panel factory."""
         return self._adapter
 

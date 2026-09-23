@@ -208,7 +208,7 @@ def build_tool_execute_fn(
 class ToolLoopEffectInterpreter:
     """Execute tool-loop effects against a concrete sidebar host."""
 
-    def __init__(self, host: ToolLoopActionHost):
+    def __init__(self, host: ToolLoopActionHost) -> None:
         self.host = host
 
     def execute(self, effect: Any) -> bool:
@@ -306,7 +306,7 @@ class ToolLoopEffectInterpreter:
 
         if effect.is_async:
 
-            def run_async():
+            def run_async() -> None:
                 try:
 
                     def tool_thinking_callback(msg: str) -> None:

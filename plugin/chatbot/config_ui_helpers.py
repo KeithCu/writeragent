@@ -218,7 +218,7 @@ def populate_combobox_with_lru(
     remote_models: list[str] | None = None,
     skip_remote_fetch: bool = False,
     api_key_override: str | None = None,
-):
+) -> str:
     """Helper to populate a combobox with values from an LRU list in config.
     LRU is scoped to the provided endpoint.
     Merges relevant default models based on the capability inferred from lru_key.
@@ -430,7 +430,7 @@ def populate_endpoint_selector(ctx: Any, ctrl: Any, current_endpoint: Any) -> No
     if current_url:
         ctrl.setText(current_url)
 
-def get_endpoint_options(services: Any):
+def get_endpoint_options(services: Any) -> list[dict[str, str]]:
     """Options provider for AI endpoint combobox in Tools → Options."""
     options = []
     presets = ENDPOINT_PRESETS
@@ -450,7 +450,7 @@ def get_endpoint_options(services: Any):
         options.append({"value": u, "label": u})
     return options
 
-def get_text_model_options(services: Any):
+def get_text_model_options(services: Any) -> list[dict[str, str]]:
     """Options provider for the simple text model combobox in Tools → Options."""
     endpoint = get_current_endpoint()
     scoped_key = f"model_lru@{endpoint}" if endpoint else "model_lru"
@@ -465,7 +465,7 @@ def get_text_model_options(services: Any):
         options.append({"value": mid_str, "label": mid_str})
     return options
 
-def get_image_model_options(services: Any):
+def get_image_model_options(services: Any) -> list[dict[str, str]]:
     """Options provider for the simple image model combobox in Tools → Options."""
     endpoint = get_current_endpoint()
     scoped_key = f"image_model_lru@{endpoint}" if endpoint else "image_model_lru"
@@ -488,7 +488,7 @@ def populate_image_model_selector(
     remote_models: list[str] | None = None,
     skip_remote_fetch: bool = False,
     api_key_override: str | None = None,
-):
+) -> str:
     """Adaptive population of image model selector (ComboBox) for endpoint generation."""
     if not ctrl:
         return ""

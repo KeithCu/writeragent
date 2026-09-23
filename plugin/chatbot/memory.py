@@ -25,7 +25,7 @@ from plugin.framework.deal_shim import (
 
 
 class MemoryStore:
-    def __init__(self, ctx: Any):
+    def __init__(self, ctx: Any) -> None:
         # crosshair: off
         self.config_dir = user_config_dir()
         if self.config_dir is None:

@@ -235,7 +235,7 @@ class DelegateToSpecializedBase(ToolBase):
         # ``isinstance(..., _special_base_class)`` alone misses Calc-registered tools on Writer delegate.
         registry = ctx.services.get("tools")
 
-        def _fetch_domain_tools():
+        def _fetch_domain_tools() -> tuple[list[ToolBase], str, str]:
             tools = registry.get_tools(
                 doc=getattr(ctx, "doc", None),
                 active_domain=domain,

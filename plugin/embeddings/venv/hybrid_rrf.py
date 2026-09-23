@@ -18,7 +18,7 @@ from typing import Any
 # --- end vendoring notice ---
 
 
-def reciprocal_rank_fusion(fts_results: Any, vec_results: Any, k: int = 60):
+def reciprocal_rank_fusion(fts_results: Any, vec_results: Any, k: int = 60) -> list[tuple[Any, float]]:
     # k is int; RRF scores are 1/(k+rank+1) floats. Annotate so mypy does not
     # lock the dict at int from the initial 0 assignments.
     rank_dict: dict[Any, float] = {}

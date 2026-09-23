@@ -45,7 +45,7 @@ ErrorFn = Callable[[Exception], None]
 PrepareTaskFn = Callable[[StreamCompletionTask], tuple[ApplyChunkFn, ErrorFn]]
 
 
-def create_validated_client(ctx: Any, title: str):
+def create_validated_client(ctx: Any, title: str) -> LlmClient | None:
     """Return an LLM client for selection actions, or show the config error."""
     api_config = get_api_config()
     ok, err_msg = validate_api_config(api_config)
@@ -55,7 +55,7 @@ def create_validated_client(ctx: Any, title: str):
     return LlmClient(api_config, ctx)
 
 
-def prompt_for_edit_instructions(ctx: Any, input_box_fn: Any, title: str):
+def prompt_for_edit_instructions(ctx: Any, input_box_fn: Any, title: str) -> tuple[str, str] | None:
     """Show the edit dialog and persist shared prompt history when supplied."""
     try:
         user_input, extra_instructions = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")

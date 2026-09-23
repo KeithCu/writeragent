@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import html
 import logging
+from collections.abc import Iterator
 from typing import Any, cast
 
 from plugin.chatbot.rich_text import (
@@ -83,7 +84,7 @@ def build_message_html(text: str, role: str = "assistant") -> str:
     return "<p><strong>%s</strong></p>%s" % (label, body)
 
 
-def create_hidden_html_writer(ctx: Any):
+def create_hidden_html_writer(ctx: Any) -> Any | None:
     """Load a hidden Writer document for HTML import + clipboard copy."""
     try:
         import uno
@@ -395,7 +396,7 @@ def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: Any
             pass
 
 
-def iter_history_message_batches(items: Any, batch_chars: int = HISTORY_RENDER_BATCH_CHARS):
+def iter_history_message_batches(items: Any, batch_chars: int = HISTORY_RENDER_BATCH_CHARS) -> Iterator[list[tuple[str, str]]]:
     """Yield batches of (role, content) tuples, each batch at most *batch_chars* total content length.
 
     Never splits a single message; an oversized message becomes its own batch.
@@ -414,7 +415,7 @@ def iter_history_message_batches(items: Any, batch_chars: int = HISTORY_RENDER_B
         yield batch
 
 
-def session_history_items(session: Any, greeting: str = ""):
+def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, str]]:
     """Build (role, content) pairs for session history display (skips system messages)."""
     items: list[tuple[str, str]] = []
     if greeting:

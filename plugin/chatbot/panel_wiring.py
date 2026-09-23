@@ -12,7 +12,7 @@ from plugin.framework.logging import init_logging
 log = logging.getLogger(__name__)
 
 
-def _measure_send_button_max_width(send_ctrl: Any, has_recording: bool):
+def _measure_send_button_max_width(send_ctrl: Any, has_recording: bool) -> int | None:
     """Max pixel width for Send/Record/Stop Rec so label toggles do not resize the row."""
     if not send_ctrl or not hasattr(send_ctrl, "getModel"):
         return None
@@ -29,7 +29,7 @@ def _measure_send_button_max_width(send_ctrl: Any, has_recording: bool):
     return None
 
 
-def _measure_aux_button_max_width(ctrl: Any, labels: list[str]):
+def _measure_aux_button_max_width(ctrl: Any, labels: list[str]) -> int | None:
     """Stabilize width when a button's label toggles (e.g. Stop/Change, Clear/Reject)."""
     if not ctrl or not hasattr(ctrl, "getModel") or not labels:
         return None
@@ -45,14 +45,14 @@ def _measure_aux_button_max_width(ctrl: Any, labels: list[str]):
     return None
 
 
-def _wireControls(self, root_window: Any, has_recording: bool, ensure_extension_on_path: Any):  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
+def _wireControls(self, root_window: Any, has_recording: bool, ensure_extension_on_path: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
     """Main entry point to wire all controls for the panel."""
     log.debug("_wireControls entered")
     if not hasattr(root_window, "getControl"):
         log.error("_wireControls: root_window has no getControl, aborting")
         return
 
-    def get_optional(name: str):
+    def get_optional(name: str) -> Any:
         return get_optional_control(root_window, name)
 
     translate_dialog(root_window)
@@ -102,7 +102,7 @@ def _wireControls(self, root_window: Any, has_recording: bool, ensure_extension_
     initial_mode = "chat"
     mode_flags = None
 
-    def toggle_image_ui(_is_image: bool):
+    def toggle_image_ui(_is_image: bool) -> None:
         return None
 
     # 1. Config, Models, and UI
@@ -303,7 +303,7 @@ def _wireControls(self, root_window: Any, has_recording: bool, ensure_extension_
                 try:
                     from plugin.calc.navigation import attach_calc_cell_link_listener
 
-                    def _calc_doc_from_panel():
+                    def _calc_doc_from_panel() -> Any | None:
                         sl = getattr(self, "send_listener", None)
                         if sl is None or not hasattr(sl, "_get_document_model"):
                             return None

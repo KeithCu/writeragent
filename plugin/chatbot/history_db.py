@@ -34,7 +34,7 @@ from plugin.framework.config import user_config_dir
 log = logging.getLogger(__name__)
 
 
-def _get_db_path():
+def _get_db_path() -> str:
     config_dir = user_config_dir()
     if config_dir:
         try:
@@ -74,12 +74,12 @@ def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str
 # Native SQLite3 Implementation
 # ---------------------------------------------------------------------------
 class SQLite3History:
-    def __init__(self, session_id: str, db_path: str):
+    def __init__(self, session_id: str, db_path: str) -> None:
         self.session_id = session_id
         self.db_path = db_path
         self._init_db()
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         assert sqlite3 is not None
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
@@ -100,7 +100,7 @@ class SQLite3History:
             conn.commit()
             log.info(f"SQLite3: Added message for session {self.session_id}")
 
-    def get_messages(self):
+    def get_messages(self) -> list[dict[str, Any]]:
         assert sqlite3 is not None
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("SELECT message FROM message_store WHERE session_id = ? ORDER BY id ASC", (self.session_id,))
@@ -108,7 +108,7 @@ class SQLite3History:
             log.debug(f"SQLite3: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
 
-    def clear(self):
+    def clear(self) -> None:
         assert sqlite3 is not None
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
@@ -119,7 +119,7 @@ class SQLite3History:
 # JSON Implementation (Fallback)
 # ---------------------------------------------------------------------------
 class JSONHistory:
-    def __init__(self, session_id: str, db_path: str):
+    def __init__(self, session_id: str, db_path: str) -> None:
         self.session_id = session_id
         # Use a directory based on the db_path filename (e.g. writeragent_history.json.d/)
         self.history_dir = db_path + ".d"
@@ -143,7 +143,7 @@ class JSONHistory:
         except (OSError, IOError, TypeError):
             log.exception("JSONHistory: Error saving message")
 
-    def get_messages(self):
+    def get_messages(self) -> list[dict[str, Any]]:
         if not os.path.exists(self.file_path):
             return []
         try:
@@ -155,7 +155,7 @@ class JSONHistory:
             log.exception("JSONHistory: Error reading messages")
             return []
 
-    def clear(self):
+    def clear(self) -> None:
         if os.path.exists(self.file_path):
             try:
                 os.remove(self.file_path)

@@ -151,7 +151,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         self._last_response_rect: tuple[int, int, int, int] | None = None
 
     @property
-    def last_response_rect(self):
+    def last_response_rect(self) -> tuple[int, int, int, int] | None:
         return self._last_response_rect
 
     def disposing(self, Source: Any) -> None:
@@ -186,7 +186,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         # back to last deck_hint would fight the splitter.
         self.relayout_now(rEvent.Source)
 
-    def note_width_negotiated(self, viewport_w: int = 0):
+    def note_width_negotiated(self, viewport_w: int = 0) -> None:
         self._width_negotiated = True
         if viewport_w > 0:
             self._viewport_w = int(viewport_w)

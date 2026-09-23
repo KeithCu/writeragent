@@ -96,28 +96,28 @@ class SearchDialog:
             owner = self
 
             class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                def windowClosing(self, e: Any):
+                def windowClosing(self, e: Any) -> None:
                     owner.close()
 
-                def windowClosed(self, e: Any):
+                def windowClosed(self, e: Any) -> None:
                     pass
 
-                def windowOpened(self, e: Any):
+                def windowOpened(self, e: Any) -> None:
                     pass
 
-                def windowMinimized(self, e: Any):
+                def windowMinimized(self, e: Any) -> None:
                     pass
 
-                def windowNormalized(self, e: Any):
+                def windowNormalized(self, e: Any) -> None:
                     pass
 
-                def windowActivated(self, e: Any):
+                def windowActivated(self, e: Any) -> None:
                     pass
 
-                def windowDeactivated(self, e: Any):
+                def windowDeactivated(self, e: Any) -> None:
                     pass
 
-                def disposing(self, Source: Any):
+                def disposing(self, Source: Any) -> None:
                     pass
 
             self._top_listener = _TopWindowListener()
@@ -136,24 +136,24 @@ class SearchDialog:
         owner = self
 
         class _SearchListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: Any):
+            def actionPerformed(self, rEvent: Any) -> None:
                 owner._run_search(dlg)
 
-            def disposing(self, Source: Any):
+            def disposing(self, Source: Any) -> None:
                 pass
 
         class _RebuildListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: Any):
+            def actionPerformed(self, rEvent: Any) -> None:
                 owner._run_rebuild(dlg)
 
-            def disposing(self, Source: Any):
+            def disposing(self, Source: Any) -> None:
                 pass
 
         class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: Any):
+            def actionPerformed(self, rEvent: Any) -> None:
                 owner.close()
 
-            def disposing(self, Source: Any):
+            def disposing(self, Source: Any) -> None:
                 pass
 
         dlg.getControl("BtnSearch").addActionListener(_SearchListener())
@@ -161,7 +161,7 @@ class SearchDialog:
         dlg.getControl("BtnCancel").addActionListener(_CancelListener())
 
         class _SearchEnterKeyListener(BaseKeyListener):
-            def on_key_pressed(self, e: Any):
+            def on_key_pressed(self, e: Any) -> None:
                 if e.KeyCode != _SEARCH_KEY_RETURN:
                     return
                 try:
@@ -277,7 +277,7 @@ class SearchDialog:
         if btn_search:
             btn_search.getModel().Enabled = False
 
-        def _do_background_search():
+        def _do_background_search() -> None:
             try:
                 from plugin.framework.constants import folder_search_enabled
                 from plugin.embeddings.embeddings_cache import (
@@ -387,7 +387,7 @@ class SearchDialog:
         if results_ctrl:
             results_ctrl.getModel().Text = _("Rebuilding cache...")
 
-        def _do_rebuild():
+        def _do_rebuild() -> None:
             try:
                 from plugin.embeddings.embeddings_cache import clear_folder_cache
                 from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
@@ -435,7 +435,7 @@ class SearchDialog:
                             elapsed_sec=elapsed,
                         )
 
-                        def ui_update():
+                        def ui_update() -> None:
                             existing = results_ctrl.getModel().Text
                             new_text = (existing + "\n" if existing else "") + line
                             results_ctrl.getModel().Text = new_text
@@ -468,7 +468,7 @@ class SearchDialog:
     def _update_results_ui(self, results_ctrl: Any, btn_search: Any, text: str) -> None:
         from plugin.framework.queue_executor import execute_on_main_thread
 
-        def _update():
+        def _update() -> None:
             try:
                 results_ctrl.getModel().Text = text
                 if btn_search:
@@ -481,7 +481,7 @@ class SearchDialog:
     def _update_rebuild_ui(self, btn_rebuild: Any, results_ctrl: Any, text: str) -> None:
         from plugin.framework.queue_executor import execute_on_main_thread
 
-        def _update():
+        def _update() -> None:
             try:
                 if results_ctrl:
                     results_ctrl.getModel().Text = text

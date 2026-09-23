@@ -35,17 +35,17 @@ class AgentBackend:
         """Return True if this backend can be used (e.g. CLI installed, config valid)."""
         return True
 
-    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any):
+    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any) -> None:
         """Run the agent; push events to queue. Block until done or stopped.
 
         Called from a worker thread. stop_checker() should return True when user pressed Stop.
         """
         raise NotImplementedError
 
-    def stop(self):
+    def stop(self) -> None:
         """Interrupt the current run (e.g. kill subprocess). No-op if not running."""
         pass
 
-    def submit_approval(self, request_id: Any, approved: bool):
+    def submit_approval(self, request_id: Any, approved: bool) -> None:
         """Submit HITL result so the agent can continue. Default no-op."""
         pass

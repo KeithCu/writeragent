@@ -313,13 +313,13 @@ def copy_to_clipboard(ctx: Any, text: str) -> bool:
         clip = smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", ctx)
 
         class _TextTransferable(unohelper.Base, XTransferable):
-            def __init__(self, txt: str):
+            def __init__(self, txt: str) -> None:
                 self._text = txt
 
             def getTransferData(self, aFlavor: DataFlavor) -> Any:
                 return self._text
 
-            def getTransferDataFlavors(self):
+            def getTransferDataFlavors(self) -> tuple[Any, ...]:
                 f = DataFlavor()
                 f.MimeType = "text/plain;charset=utf-16"
                 f.HumanPresentableName = "Unicode Text"
@@ -421,7 +421,7 @@ def msgbox_with_copy(ctx: Any, title: str, message: str, copy_text: str) -> None
             msg_ctrl.getModel().Label = _(message)
 
         class _CopyListener(BaseActionListener):
-            def __init__(self, dialog: Any, context: Any, text: str):
+            def __init__(self, dialog: Any, context: Any, text: str) -> None:
                 self._dlg = dialog
                 self._ctx = context
                 self._text = text
@@ -487,7 +487,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
             msg_ctrl.getModel().Label = _(message)
 
         class _CopyListener(BaseActionListener):
-            def __init__(self, dialog: Any, context: Any, text: str):
+            def __init__(self, dialog: Any, context: Any, text: str) -> None:
                 self._dlg = dialog
                 self._ctx = context
                 self._text = text
@@ -505,7 +505,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
             copy_btn.addActionListener(_CopyListener(dlg, ctx, report_url))
 
         class _ReportListener(BaseActionListener):
-            def __init__(self, context: Any, dlg_title: str, dlg_extra: str):
+            def __init__(self, context: Any, dlg_title: str, dlg_extra: str) -> None:
                 self._ctx = context
                 self._title = dlg_title
                 self._extra = dlg_extra
@@ -576,7 +576,7 @@ def status_dialog(ctx: Any, title: str, build_status_fn: Callable[[], str], copy
                 copy_btn.getModel().Enabled = bool(copy_url_fn() if copy_url_fn else False)
                 
                 class _CopyListener(BaseActionListener):
-                    def __init__(self, dialog: Any, context: Any, url_fn: Any):
+                    def __init__(self, dialog: Any, context: Any, url_fn: Any) -> None:
                         self._dlg = dialog
                         self._ctx = context
                         self._url_fn = url_fn
@@ -606,7 +606,7 @@ def status_dialog(ctx: Any, title: str, build_status_fn: Callable[[], str], copy
         # Background update
         import time
 
-        def _probe_update():
+        def _probe_update() -> None:
             time.sleep(0.05)
             try:
                 updated = build_status_fn()
@@ -1132,7 +1132,7 @@ class TabListener(BaseActionListener):
     property controls which page is visible.
     """
 
-    def __init__(self, dialog: Any, page: int):
+    def __init__(self, dialog: Any, page: int) -> None:
         self._dlg = dialog
         self._page = page
 

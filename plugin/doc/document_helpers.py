@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import weakref
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any, cast
 
@@ -576,7 +577,7 @@ class DocumentService(ServiceBase):
         return key
 
     @contextmanager
-    def ignore_cache_invalidation(self):
+    def ignore_cache_invalidation(self) -> Generator[None, None, None]:
         """Suppress modify-driven cache drops (reentrant).
 
         Item 4 wraps ``_mcp_`` bookmark insert/strip so those mutations do not

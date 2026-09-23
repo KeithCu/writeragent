@@ -51,7 +51,7 @@ class SkillStore:
     to find and edit their agent "personality" files.
     """
 
-    def __init__(self, ctx: Any):
+    def __init__(self, ctx: Any) -> None:
         self.config_dir = user_config_dir()
         if self.config_dir is None:
             raise ConfigError("UNO context is required to resolve skill store path")

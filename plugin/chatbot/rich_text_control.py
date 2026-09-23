@@ -228,7 +228,7 @@ def _rich_inner_width(pw: int, inset: int) -> int:
     return max(20, pw - 2 * inset)
 
 
-def _content_bounds_for_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None):
+def _content_bounds_for_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None) -> tuple[int, int, int, int]:
     """Return (x, y, width, height) for the rich control inside the response area."""
     inset = RICH_CONTROL_EDGE_INSET
 
@@ -294,7 +294,7 @@ def _rich_control_needs_bounds(rich_control: Any, bx: int, by: int, bw: int, bh:
         return True
 
 
-def _reinsert_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None):
+def _reinsert_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None) -> Any | None:
     """Remove and recreate dialog-embedded RichTextControl at new bounds (insert-time sizing only)."""
     try:
         dlg_model = root_window.getModel()
@@ -626,7 +626,7 @@ def _disable_rich_hscroll(control: Any) -> None:
         log.debug("_disable_rich_hscroll peer: %s", e)
 
 
-def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: Any, parent_window: Any):
+def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: Any, parent_window: Any) -> Any | None:
     """Create a VCL peer for a form RichText TextField model."""
     parent_peer = None
     if hasattr(parent_window, "getPeer"):
@@ -680,7 +680,7 @@ def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: An
     return None
 
 
-def _try_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None):
+def _try_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None) -> Any | None:
     """Insert field model via UnoControlDialogModel.createInstance (has PositionX)."""
     try:
         dlg_model = root_window.getModel()
@@ -751,7 +751,7 @@ class RichTextControlListener(BaseWindowListener):
         self.initialized = False
         self._disposed = False
 
-    def _resolved_placeholder_rect(self):
+    def _resolved_placeholder_rect(self) -> Any | None:
         if self._placeholder_rect_fn is not None:
             try:
                 return self._placeholder_rect_fn()
@@ -841,7 +841,7 @@ class RichTextControlListener(BaseWindowListener):
             return
         self._begin_deferred_init()
 
-    def _root_peer(self):
+    def _root_peer(self) -> Any | None:
         if self.root_window is None or not hasattr(self.root_window, "getPeer"):
             return None
         try:
@@ -864,7 +864,7 @@ class RichTextControlListener(BaseWindowListener):
 
         post_to_main_thread(self._deferred_init)
 
-    def _deferred_init(self):
+    def _deferred_init(self) -> None:
         if self._disposed:
             return
         try:
@@ -909,7 +909,7 @@ class RichTextControlListener(BaseWindowListener):
             log.exception("RichTextControlListener deferred init failed")
 
 
-def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None):
+def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None) -> Any | None:
     """Create a form RichText TextField peer positioned over the response placeholder."""
     try:
         smgr = ctx.getServiceManager()
@@ -1236,7 +1236,7 @@ def truncate_control_from(control: Any, start_len: int | None) -> None:
         log.exception("truncate_control_from failed")
 
 
-def _temporarily_allow_focus(control: Any):
+def _temporarily_allow_focus(control: Any) -> tuple[Any, Any]:
     """ReadOnly form TextFields often ignore setFocus; lift it for GetFocus/ShowCursor."""
     model = None
     was_readonly = None

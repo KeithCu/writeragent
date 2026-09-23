@@ -126,11 +126,11 @@ SendHandlerEffect = SpawnAudioWorkerEffect | SpawnDirectImageEffect | SpawnAgent
 
 
 class EffectInterpreter:
-    def __init__(self, handler_mixin: Any):
+    def __init__(self, handler_mixin: Any) -> None:
         self.handler = handler_mixin
         self.current_state: SendHandlerState | None = None
 
-    def interpret(self, effect: SendHandlerEffect):
+    def interpret(self, effect: SendHandlerEffect) -> None:
         # crosshair: off
         match effect:
             case SendHandlerUIEffect("append", text, _, role):

@@ -227,7 +227,7 @@ class VisitWebpageCdpTool(Tool):
     inputs: dict[str, dict[str, str | type | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type: str = "string"
 
-    def __init__(self, cdp_url: str, max_output_length: int = 40000, **kwargs: Any):
+    def __init__(self, cdp_url: str, max_output_length: int = 40000, **kwargs: Any) -> None:
         super().__init__()
         self.cdp_url = cdp_url
         self.max_output_length = max_output_length
@@ -514,7 +514,7 @@ class WebResearchTool(ToolBase):
         "required": ["query"],
     }
 
-    def is_async(self):
+    def is_async(self) -> bool:
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

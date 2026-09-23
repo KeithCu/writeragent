@@ -146,7 +146,7 @@ class WriterAgentSmolModel(Model):
         status_callback: Any = None,
         stop_checker: Any = None,
         **kwargs: Any,
-    ):
+    ) -> None:
         super().__init__(**kwargs)
         self.api = llm_client
         self.max_tokens = max_tokens
@@ -200,7 +200,7 @@ class WriterAgentSmolModel(Model):
 class SmolAgentExecutor:
     """Executes a smolagent and streams its progress to the document chat UI."""
 
-    def __init__(self, ctx: ToolContext):
+    def __init__(self, ctx: ToolContext) -> None:
         """Initialize the executor with the tool context.
 
         Args:

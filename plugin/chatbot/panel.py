@@ -37,6 +37,7 @@ from plugin.framework.queue_executor import QueueExecutor
 from plugin.chatbot.history_db import get_chat_history
 
 # Recording shipped unless built with --no-recording (see scripts/build_oxt.py).
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -156,7 +157,7 @@ class ChatSession:
         # Note: We do NOT persist tool results to history_db.
         # This keeps the persistent history clean of tool formatting requirements.
 
-    def clear(self):
+    def clear(self) -> None:
         """Reset to just the system prompt."""
         self.messages = []
         self.document_context = ""
@@ -428,7 +429,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.rich_text_widget = widget
         log.info("[RICH-CONTROL] SendButtonListener.set_rich_text_widget called")
 
-    def rerender_rich_text_session(self):
+    def rerender_rich_text_session(self) -> None:
         """Re-render the final streamed assistant response with HTML formatting, leaving previous text untouched.
 
         Called after streaming completes to replace the last plain-text assistant response
@@ -462,7 +463,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         else:
             self._stop_requested_fallback = False
 
-    def resolve_stop_checker(self):
+    def resolve_stop_checker(self) -> Callable[[], bool]:
         """Stable stop predicate for worker threads (survives clearing ``_send_cancellation``).
 
         ``StartSendEffect`` clears ``_send_cancellation`` when the drain loop exits while
@@ -474,7 +475,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         return bind_send_stop_checker(getattr(self, "_send_cancellation", None), lambda: self._stop_requested_fallback)
 
-    def sync_audio_slice(self):
+    def sync_audio_slice(self) -> None:
         """Mirror :attr:`audio_recorder.state` into the composite (strategy A)."""
         import dataclasses
 
@@ -611,7 +612,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._set_status(_("Waiting for approval…"))
         log.info("Inline web approval: waiting for Accept, Change, or Reject")
 
-    def _open_web_search_change_dialog(self):
+    def _open_web_search_change_dialog(self) -> None:
         """Open edit dialog for the pending web_search query; OK continues with optional override."""
         from plugin.chatbot.dialogs import show_web_search_query_edit_dialog
 
@@ -686,7 +687,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             log.debug("_on_grammar_status: post_to_main_thread failed: %s", e)
             self._set_status(text)
 
-    def _scroll_response_to_bottom(self):
+    def _scroll_response_to_bottom(self) -> None:
         """Scroll the response area to show the bottom (newest content).
         Uses XTextComponent.setSelection to place caret at end, which scrolls the view."""
         with suppress_disposed("_scroll_response_to_bottom", logger=log):
@@ -702,7 +703,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         ...  # commented out — scrollbar was never found in embedded frames
     '''
 
-    def _should_auto_scroll(self):
+    def _should_auto_scroll(self) -> bool:
         """Always returns True for now — forces scroll to bottom on every append.
 
         Future: implement sticky scroll by reading VCL scrollbar position and
@@ -710,7 +711,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """
         return True
 
-    def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any):
+    def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         """Run rich-control UI work inline on the main thread; post from workers."""
         if threading.current_thread() is threading.main_thread():
             return fn(*args, **kwargs)
@@ -794,7 +795,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _on_mcp_result(self, tool: str = "", result_snippet: str = "", **kwargs: Any) -> None:
         """Handle MCP result events from the bus (background thread)."""
 
-        def _update_ui():
+        def _update_ui() -> None:
             try:
                 from plugin.framework.logging import format_tool_result_for_display
 
@@ -808,7 +809,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception:
             log.exception("_on_mcp_result post error")
 
-    def _get_document_model(self):
+    def _get_document_model(self) -> Any | None:
         """Get the document model strictly from the frame.
 
         Always prefers the document bound to this sidebar's frame (same window as the user)
@@ -1018,12 +1019,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             kick_pending_peer_starts()
 
-    def _get_doc_type_str(self, model: Any):
+    def _get_doc_type_str(self, model: Any) -> str:
         from plugin.doc.doc_type import doc_type_title_for_label
 
         return doc_type_title_for_label(getattr(self, "cached_doc_type", None))
 
-    def _do_send(self):
+    def _do_send(self) -> None:
         from plugin.framework.i18n import _
         from plugin.framework.html_stripper import StreamingHTMLStripper
 

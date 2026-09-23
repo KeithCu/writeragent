@@ -27,9 +27,9 @@ class BuiltinBackend(AgentBackend):
     backend_id: ClassVar[str] = "builtin"
     display_name: ClassVar[str] = "Built-in"
 
-    def __init__(self, ctx: Any | None = None):
+    def __init__(self, ctx: Any | None = None) -> None:
         pass
 
-    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any):
+    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any) -> None:
         # Should not be called; sidebar branches away when backend is builtin.
         queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError("Built-in backend should not receive send()"))))

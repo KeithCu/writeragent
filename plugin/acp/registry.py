@@ -18,6 +18,7 @@
 
 from typing import Any
 
+from plugin.acp.base import AgentBackend
 from plugin.acp.builtin import BuiltinBackend
 from plugin.acp.hermes_simple import HermesBackend
 from plugin.acp.claude_simple import ClaudeBackend
@@ -35,12 +36,12 @@ AGENT_BACKEND_REGISTRY = {
 }
 
 
-def list_backend_ids():
+def list_backend_ids() -> list[str]:
     """Return list of registered backend ids."""
     return list(AGENT_BACKEND_REGISTRY.keys())
 
 
-def normalize_backend_id(backend_id: Any):
+def normalize_backend_id(backend_id: Any) -> str:
     """Normalize backward-compatible or translated backend IDs to internal IDs."""
     if not backend_id:
         return "builtin"
@@ -55,7 +56,7 @@ def normalize_backend_id(backend_id: Any):
     return "builtin"
 
 
-def get_backend(backend_id: Any, ctx: Any | None = None):
+def get_backend(backend_id: Any, ctx: Any | None = None) -> AgentBackend | None:
     """Return an adapter instance for the given backend id, or None."""
     backend_id = normalize_backend_id(backend_id)
     entry = AGENT_BACKEND_REGISTRY.get(backend_id)

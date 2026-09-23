@@ -456,7 +456,7 @@ class ToolCallingMixin:
 
         self._record_assistant_start = True
 
-        def run():
+        def run() -> None:
             try:
                 # B13: Stop before first SSE — do not acquire llm_request_lane.
                 stop_checker = self.resolve_stop_checker()
@@ -528,14 +528,14 @@ class ToolCallingMixin:
         self._append_response("\nAI: ")
         self._record_assistant_start = True
 
-        def run_final():
+        def run_final() -> None:
             last_streamed: list[str] = []
             try:
-                def append_c(c: str):
+                def append_c(c: str) -> None:
                     (batched.content_cb() if batched else lambda t: real_q.put((StreamQueueKind.CHUNK, t)))(c)
                     last_streamed.append(c)
 
-                def append_t(t: str):
+                def append_t(t: str) -> None:
                     (batched.thinking_cb() if batched else lambda t: real_q.put((StreamQueueKind.THINKING, t)))(t)
 
                 stop_checker = self.resolve_stop_checker()
