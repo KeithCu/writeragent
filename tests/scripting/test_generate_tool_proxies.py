@@ -61,7 +61,7 @@ def test_schema_to_signature_optional_bool_without_default_is_none():
         },
     )
     pos, kw = schema_to_signature(_as_tool(tool))
-    assert pos == ["content: list"]
+    assert pos == ["content: list[Any]"]
     assert kw == ["dry_run: bool | None = None"]
 
 def test_schema_to_signature_empty_schema():
@@ -99,7 +99,7 @@ def test_generate_module_output_is_valid_python():
     compile(code, "<generated>", "exec")
     
     assert "class _FootnoteProxy:" in code
-    assert "def insert(self, text: str) -> dict:" in code
+    assert "def insert(self, text: str) -> dict[str, Any]:" in code
     assert 'return _rpc_call("footnotes_insert", text=text)' in code
     assert "footnote = _FootnoteProxy()" in code
     assert "DOMAIN_TOOLS =" in code
@@ -118,7 +118,7 @@ def test_generate_module_escapes_python_keyword_method_names():
     ]
     code = generate_module(tools)
     compile(code, "<generated>", "exec")
-    assert "def import_(self, file_path: str) -> dict:" in code
+    assert "def import_(self, file_path: str) -> dict[str, Any]:" in code
     assert 'return _rpc_call("style_import", file_path=file_path)' in code
     assert "def import(self" not in code
 
@@ -151,17 +151,38 @@ def test_range_schema_becomes_range_name_python_param():
         },
     )
     pos, kw = schema_to_signature(_as_tool(tool))
-    assert pos == ["range_name: list"]
+    assert pos == ["range_name: list[str]"]
     assert kw == []
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
-    assert "def read_cell_range(self, range_name: list) -> dict:" in code
+    assert "def read_cell_range(self, range_name: list[str]) -> dict[str, Any]:" in code
     assert 'return _rpc_call("read_cell_range", range=range_name)' in code
+
+
+def test_schema_to_signature_parameterizes_object_and_array():
+    """Bare dict/list would trip reportMissingTypeArgument; keep that rule off."""
+    tool = MockTool(
+        "test_tool",
+        "desc",
+        {
+            "type": "object",
+            "properties": {
+                "props": {"type": "object"},
+                "names": {"type": "array", "items": {"type": "string"}},
+                "rows": {"type": "array"},
+            },
+            "required": ["props", "names", "rows"],
+        },
+    )
+    pos, kw = schema_to_signature(_as_tool(tool))
+    assert pos == ["props: dict[str, Any]", "names: list[str]", "rows: list[Any]"]
+    assert kw == []
 
 
 def test_rpc_call_logic_in_generated_code():
     tools = [_as_tool(MockTool("t", "d", {}))]
     code = generate_module(tools)
+    assert "def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:" in code
     assert "kwargs = {k: v for k, v in kwargs.items() if v is not None}" in code
     assert "from plugin.scripting.host_rpc import execute_tool" in code
     assert "write_pickle_frame(sys.stdout.buffer, request)" in code

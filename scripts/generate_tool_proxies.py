@@ -85,8 +85,8 @@ JSON_TO_PYTHON = {
     "integer": "int",
     "boolean": "bool",
     "number": "float",
-    "object": "dict",
-    "array": "list",
+    "object": "dict[str, Any]",
+    "array": "list[Any]",
 }
 
 DEFAULTS_BY_TYPE = {
@@ -105,6 +105,22 @@ def _get_schema_type(schema: dict) -> str:
         types_list = [x for x in t if x != "null"]
         t = types_list[0] if types_list else ""
     return str(t)
+
+
+def _python_type(schema: dict) -> str:
+    """JSON Schema property -> Python annotation with type arguments.
+
+    Bare ``dict`` / ``list`` would trip ``reportMissingTypeArgument``. Match
+    the type-checking dialect: ``dict[str, Any]``, ``list[str]`` when items
+    are strings, otherwise ``list[Any]``.
+    """
+    t = _get_schema_type(schema)
+    if t == "array":
+        items = schema.get("items")
+        if isinstance(items, dict) and _get_schema_type(items) == "string":
+            return "list[str]"
+        return "list[Any]"
+    return JSON_TO_PYTHON.get(t, "Any")
 
 
 def _param_default(schema: dict) -> str:
@@ -140,8 +156,7 @@ def schema_to_signature(tool: "ToolBase") -> tuple[list[str], list[str]]:
 
     positional, keyword = [], []
     for py_name, schema_key, schema in _iter_params(tool):
-        type_str = _get_schema_type(schema)
-        py_type = JSON_TO_PYTHON.get(type_str, "Any")
+        py_type = _python_type(schema)
         if schema_key in required:
             positional.append(f"{py_name}: {py_type}")
         else:
@@ -250,7 +265,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
         '_lock = threading.Lock()',
         '',
         '',
-        'def _rpc_call(tool_name: str, **kwargs) -> dict:',
+        'def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:',
         '    """Send a tool call to the LibreOffice host and block for the result."""',
         '    kwargs = {k: v for k, v in kwargs.items() if v is not None}',
         '    if not IS_WORKER:',
@@ -343,7 +358,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
 
             desc = _first_sentence(tool.description or "").replace('"', '\\"')
 
-            lines.append(f"    def {short_name}({all_params}) -> dict:")
+            lines.append(f"    def {short_name}({all_params}) -> dict[str, Any]:")
             lines.append(f'        """{desc}"""')
             lines.append(f'        return _rpc_call("{tool.name}"{kwargs_body})')
             lines.append("")
