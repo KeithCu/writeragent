@@ -129,8 +129,8 @@ class FindTools(ToolBase):
     every MCP schema in that area. Document-optional.
     """
 
-    name = "find_tools"
-    description = (
+    name: str | None = "find_tools"
+    description: str = (
         "Discover additional tools that are available but not listed here. This MCP "
         "server exposes a small core tool set; many specialized capabilities are "
         "callable by name but hidden from the default list to keep it short. Call "
@@ -140,10 +140,10 @@ class FindTools(ToolBase):
         "calling a tool returned by find_tools over giving up because a capability "
         "seems missing."
     )
-    tier = "mcp"
-    is_mutation = False
-    requires_document = False  # discovery needs no open document
-    parameters = {
+    tier: str = "mcp"
+    is_mutation: bool | None = False
+    requires_document: bool = False  # discovery needs no open document
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "domain": {

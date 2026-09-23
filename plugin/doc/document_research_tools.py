@@ -18,18 +18,18 @@ from plugin.framework.tool import ToolBase, ToolContext
 class ListNearbyFiles(ToolBase):
     """List office files in the active document's directory (or LO Work folder if untitled)."""
 
-    name = "list_nearby_files"
-    description = (
+    name: str | None = "list_nearby_files"
+    description: str = (
         "List files in the same folder as the active document (newest first). "
         "Default file_kind documents: LibreOffice formats (.odt, .ods, .odp, .odg, flat XML, templates). "
         "file_kind images: .png, .jpg, .jpeg, .gif, .webp, .bmp, .svg only (discovery; not readable via delegate_read_document). "
         "Excludes the active file. Optional filter is a case-insensitive substring on the basename."
     )
-    tier = "specialized"
+    tier: str = "specialized"
     specialized_domain: ClassVar[str | None] = "document_research"
     specialized_cross_cutting: ClassVar[bool] = True
-    is_mutation = False
-    parameters = {
+    is_mutation: bool | None = False
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "filter": {"type": "string", "description": "Optional basename substring (e.g. 'budget')."},
@@ -64,20 +64,20 @@ class ListNearbyFiles(ToolBase):
 class ListOpenDocuments(ToolBase):
     """List all currently open documents in LibreOffice, returning their URLs, names, and types."""
 
-    name = "list_open_documents"
-    description = (
+    name: str | None = "list_open_documents"
+    description: str = (
         "List all currently open documents in LibreOffice. "
         "Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), whether it is the currently active document, and whether it has unsaved changes (modified). "
         "Pass a document's url OR uid as the document_url argument on any tool to target that document; the uid also works for unsaved/untitled documents that have no URL yet. "
         "You cannot save documents yourself; when modified is true and the work is done, tell the user to save. "
         "Also returns current_local_datetime with the host's wall clock."
     )
-    tier = "mcp"
-    is_mutation = False
+    tier: str = "mcp"
+    is_mutation: bool | None = False
     # Listing open documents must work when NONE is open (it should return [] / no active doc),
     # otherwise the MCP no-document gate turns "what's open?" into a confusing NO_DOCUMENT_OPEN.
-    requires_document = False
-    parameters = {
+    requires_document: bool = False
+    parameters: dict | None = {
         "type": "object",
         "properties": {},
         "required": [],
@@ -103,8 +103,8 @@ class ListOpenDocuments(ToolBase):
 class GetGuidance(ToolBase):
     """On-demand how-to-use manual for the WriterAgent tools (agent pulls one topic at a time)."""
 
-    name = "get_guidance"
-    description = (
+    name: str | None = "get_guidance"
+    description: str = (
         "Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; "
         "call with a topic to read just that section (so you don't load everything). Topics follow the "
         "open document's type (for Writer: editing, editing-html, review-modes, search, navigation, "
@@ -113,11 +113,11 @@ class GetGuidance(ToolBase):
     )
     # Core, not mcp-exclusive: the sidebar's HYBRID prompt keeps search/navigation/images out of
     # the ambient text and relies on pulling them from here (same single source, same topics).
-    tier = "core"
-    is_mutation = False
+    tier: str = "core"
+    is_mutation: bool | None = False
     # Pure documentation — works with or without a document open (no doc -> neutral index).
-    requires_document = False
-    parameters = {
+    requires_document: bool = False
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "topic": {"type": "string", "description": "Topic to read (see the no-topic call for the list; topics follow the document type). Omit for the topic list."},

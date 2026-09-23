@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import logging
 import tempfile
@@ -172,14 +174,14 @@ def format_upsert_memory_chat_line_from_arguments(arguments: object) -> str:
 class MemoryTool(ToolBase):
     """Persistent file-backed memory for the agent (USER profile)."""
 
-    name = "upsert_memory"
-    description = "Persistent memory for the agent. Stores user profile, preferences, and quirks. Inserts or updates a specific key in a YAML/JSON-like key: value structure. To delete a memory, update it with an empty string."
-    uno_services = None
-    tier = "core"
-    intent = "navigate"
-    is_mutation = False
+    name: str | None = "upsert_memory"
+    description: str = "Persistent memory for the agent. Stores user profile, preferences, and quirks. Inserts or updates a specific key in a YAML/JSON-like key: value structure. To delete a memory, update it with an empty string."
+    uno_services: list | None = None
+    tier: str = "core"
+    intent: str | None = "navigate"
+    is_mutation: bool | None = False
 
-    parameters = {"type": "object", "properties": {"key": {"type": "string", "description": "The key to update or insert (e.g., 'favorite_color')."}, "content": {"type": "string", "description": "The new value to associate with the key."}}, "required": ["key", "content"]}
+    parameters: dict | None = {"type": "object", "properties": {"key": {"type": "string", "description": "The key to update or insert (e.g., 'favorite_color')."}, "content": {"type": "string", "description": "The new value to associate with the key."}}, "required": ["key", "content"]}
 
     def execute(self, ctx, **kwargs):
         # crosshair: off

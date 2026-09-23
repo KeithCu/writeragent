@@ -27,16 +27,16 @@ def _get_undo_manager(doc: Any) -> Any:
 class Undo(ToolBase):
     """Undo the last action."""
 
-    name = "undo"
-    description = (
+    name: str | None = "undo"
+    description: str = (
         "Undo the last change(s) in the document (all document types). CAUTION: the undo stack "
         "interleaves YOUR edits with the user's own edits — call this only immediately after an "
         "edit of yours went wrong, undo exactly the steps you caused, and tell the user what you "
         "undid. Result reports undone plus can_undo/can_redo."
     )
-    parameters = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to undo (default: 1)."}}, "required": []}
-    uno_services = None
-    is_mutation = True
+    parameters: dict | None = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to undo (default: 1)."}}, "required": []}
+    uno_services: list | None = None
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         steps = kwargs.get("steps", 1)
@@ -56,15 +56,15 @@ class Undo(ToolBase):
 class Redo(ToolBase):
     """Redo the last undone action."""
 
-    name = "redo"
-    description = (
+    name: str | None = "redo"
+    description: str = (
         "Redo the last undone change(s) in the document (all document types). Same caution as "
         "undo: the stack is shared with the user's edits — redo only what you yourself just "
         "undid, and tell the user."
     )
-    parameters = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to redo (default: 1)."}}, "required": []}
-    uno_services = None
-    is_mutation = True
+    parameters: dict | None = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to redo (default: 1)."}}, "required": []}
+    uno_services: list | None = None
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         steps = kwargs.get("steps", 1)

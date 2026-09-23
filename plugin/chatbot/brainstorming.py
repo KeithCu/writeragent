@@ -107,12 +107,12 @@ class BrainstormResearchWeb(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "brainstorming"
     required_core_tools: ClassVar[frozenset[str] | None] = _BRAINSTORMING_CORE_TOOLS
-    intent = "review"
-    name = "brainstorm_research_web"
-    description = "Search the public web for context during brainstorming. Reformats findings as HTML in reply_to_user."
-    is_mutation = False
-    long_running = True
-    parameters = {
+    intent: str | None = "review"
+    name: str | None = "brainstorm_research_web"
+    description: str = "Search the public web for context during brainstorming. Reformats findings as HTML in reply_to_user."
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Research question or topic."},
@@ -135,14 +135,14 @@ class SaveDesignSpec(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "brainstorming"
     required_core_tools: ClassVar[frozenset[str] | None] = _BRAINSTORMING_CORE_TOOLS
-    intent = "review"
-    name = "save_design_spec"
-    description = (
+    intent: str | None = "review"
+    name: str | None = "save_design_spec"
+    description: str = (
         "Save the approved design spec to the active Writer document. "
         "content must be a JSON array of HTML strings (one fragment per block). No Markdown."
     )
-    is_mutation = True
-    parameters = {
+    is_mutation: bool | None = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "content": {
@@ -243,12 +243,12 @@ def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text:
 class BrainstormingSessionTool(ToolBase):
     """Orchestrator for one turn of the brainstorming sub-agent (sidebar session)."""
 
-    name = "brainstorming_session"
-    description = "Brainstorming design exploration sub-agent."
-    tier = "specialized_control"
-    is_mutation = False
-    long_running = True
-    parameters = {
+    name: str | None = "brainstorming_session"
+    description: str = "Brainstorming design exploration sub-agent."
+    tier: str = "specialized_control"
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "User message or initial task."},

@@ -74,7 +74,7 @@ def to_smol_inputs(parameters: dict[str, Any] | None, *, style: SmolInputsStyle 
 class SmolToolAdapter(SmolTool):
     """Wraps a ``ToolBase`` for smolagents with configurable execution semantics."""
 
-    skip_forward_signature_validation = True
+    skip_forward_signature_validation: bool = True
 
     def __init__(self, tool: ToolBase, tctx: ToolContext, *, safe: bool = False, inputs_style: SmolInputsStyle = "librarian", output_type: str | None = None) -> None:
         self._inner_tool = tool

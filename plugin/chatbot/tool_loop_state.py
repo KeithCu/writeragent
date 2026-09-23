@@ -300,12 +300,12 @@ class ToolLoopState(BaseState):
 # (see plugin.framework.async_stream); ToolCallingMixin turns them into
 # ToolLoopEvent / EventKind via _create_event_from_stream_item.
 class EventKind(Enum):
-    STOP_REQUESTED = auto()
-    STREAM_DONE = auto()
-    NEXT_TOOL = auto()
-    TOOL_RESULT = auto()
-    FINAL_DONE = auto()
-    ERROR = auto()
+    STOP_REQUESTED: int = auto()
+    STREAM_DONE: int = auto()
+    NEXT_TOOL: int = auto()
+    TOOL_RESULT: int = auto()
+    FINAL_DONE: int = auto()
+    ERROR: int = auto()
 
 
 class ToolLoopEvent(NamedTuple):

@@ -84,12 +84,12 @@ class WritingResearchWeb(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "writing_plan"
     required_core_tools: ClassVar[frozenset[str] | None] = _WRITING_PLAN_CORE_TOOLS
-    intent = "edit"
-    name = "writing_research_web"
-    description = "Search the public web for context during document writing. Reformats findings as HTML in reply_to_user."
-    is_mutation = False
-    long_running = True
-    parameters = {
+    intent: str | None = "edit"
+    name: str | None = "writing_research_web"
+    description: str = "Search the public web for context during document writing. Reformats findings as HTML in reply_to_user."
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Research question or topic."},
@@ -112,12 +112,12 @@ class WriteDocumentSection(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "writing_plan"
     required_core_tools: ClassVar[frozenset[str] | None] = _WRITING_PLAN_CORE_TOOLS
-    intent = "edit"
-    name = "write_document_section"
-    description = "Insert or replace a section of document content with formatted HTML."
-    is_mutation = True
-    long_running = True
-    parameters = {
+    intent: str | None = "edit"
+    name: str | None = "write_document_section"
+    description: str = "Insert or replace a section of document content with formatted HTML."
+    is_mutation: bool | None = True
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "content": {
@@ -215,12 +215,12 @@ def _run_writing_agent(ctx: ToolContext, *, query: str = "", history_text: str |
 class WritingPlanSessionTool(ToolBase):
     """Orchestrator for one turn of the writing plan sub-agent (sidebar session)."""
 
-    name = "writing_plan_session"
-    description = "Writing Plan document-generation sub-agent."
-    tier = "specialized_control"
-    is_mutation = False
-    long_running = True
-    parameters = {
+    name: str | None = "writing_plan_session"
+    description: str = "Writing Plan document-generation sub-agent."
+    tier: str = "specialized_control"
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "User message or initial task."},

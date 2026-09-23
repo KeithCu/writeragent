@@ -91,12 +91,12 @@ def interpret_sticky_final_answer(output: Any, *, leave_status: str) -> dict[str
 class StickyReplyToUserTool(ToolBase):
     """Smol final-answer tool named ``reply_to_user`` with one optional leave flag."""
 
-    name = "reply_to_user"
-    tier = "specialized_control"
-    is_final_answer_tool = True
-    is_mutation = False
-    long_running = False
-    requires_document = False
+    name: str | None = "reply_to_user"
+    tier: str = "specialized_control"
+    is_final_answer_tool: bool = True
+    is_mutation: bool | None = False
+    long_running: bool = False
+    requires_document: bool = False
 
     def __init__(self, spec: StickyReplySpec) -> None:
         self.spec = spec

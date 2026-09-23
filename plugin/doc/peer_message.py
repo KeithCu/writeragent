@@ -639,22 +639,22 @@ _PEER_PARAMETERS = {
 class _SendPeerBase(ToolBase):
     """Shared inject/queue/Ready path for work and result peer sends."""
 
-    name = ""  # subclasses set
-    description = ""
+    name: str | None = ""  # subclasses set
+    description: str = ""
     envelope_kind: ClassVar[str] = "work"
-    tier = "chat"
+    tier: str = "chat"
     # Domain membership: inner document_research sees this; outer chat does not
     # advertise it (filter_peer_message_schemas). Cross-cutting so Writer/Calc/
     # Draw/Impress document_research toolsets all get the same tools.
     specialized_domain: ClassVar[str | None] = PEER_SPECIALIZED_DOMAIN
     specialized_cross_cutting: ClassVar[bool] = True
-    is_mutation = False
+    is_mutation: bool | None = False
     # PresentationDocument is required when the Impress sidebar caches
     # doc_type="impress" (services map is PresentationDocument only).
     # DrawingDocument still matches Draw-only; do not treat Impress as Draw
     # in the peer catalog (see v1_peer_type_label).
-    uno_services = [_TEXT_SERVICE, _CALC_SERVICE, _DRAW_SERVICE, _IMPRESS_SERVICE]
-    parameters = _PEER_PARAMETERS
+    uno_services: list | None = [_TEXT_SERVICE, _CALC_SERVICE, _DRAW_SERVICE, _IMPRESS_SERVICE]
+    parameters: dict | None = _PEER_PARAMETERS
 
     def is_async(self) -> bool:
         return False
@@ -736,14 +736,14 @@ class _SendPeerBase(ToolBase):
 class SendPeerWork(_SendPeerBase):
     """Queue a new work request on another live sidebar (document_research specialized)."""
 
-    name = PEER_WORK_TOOL_NAME
-    description = _WORK_DESCRIPTION
+    name: str | None = PEER_WORK_TOOL_NAME
+    description: str = _WORK_DESCRIPTION
     envelope_kind: ClassVar[str] = "work"
 
 
 class SendPeerResult(_SendPeerBase):
     """Queue a result/reply on another live sidebar (document_research specialized)."""
 
-    name = PEER_RESULT_TOOL_NAME
-    description = _RESULT_DESCRIPTION
+    name: str | None = PEER_RESULT_TOOL_NAME
+    description: str = _RESULT_DESCRIPTION
     envelope_kind: ClassVar[str] = "result"

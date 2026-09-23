@@ -116,9 +116,9 @@ class DelegateToSpecializedBase(ToolBase):
     _special_base_class: ClassVar[Type[ToolBase]]
     _agent_label: ClassVar[str]  # e.g., "Writer", "Calc", "Draw"
 
-    tier = "core"  # Available to the main agent
-    is_mutation = True
-    long_running = True
+    tier: str = "core"  # Available to the main agent
+    is_mutation: bool | None = True
+    long_running: bool = True
 
     def __init__(self) -> None:
         super().__init__()
@@ -156,7 +156,7 @@ class DelegateToSpecializedBase(ToolBase):
     # Domains whose work is read-only -> a long-running delegation to them must NOT
     # take the per-document mutation lock (it would needlessly serialize research on
     # the same doc). The gateway itself is is_mutation=True for the mutating domains.
-    _READ_ONLY_DOMAINS = frozenset({"document_research", "web_research", "vision"})
+    _READ_ONLY_DOMAINS: ClassVar[frozenset[str]] = frozenset({"document_research", "web_research", "vision"})
 
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = _field_from_tool_arguments(arguments, "domain")

@@ -123,12 +123,12 @@ def _run_ppt_master_venv_agent(
 
 
 class PptMasterSessionTool(ToolBase):
-    name = "ppt_master_session"
-    description = "PPT-Master presentation workflow sub-agent (venv worker + host UNO export)."
-    tier = "specialized_control"
-    is_mutation = False
-    long_running = True
-    parameters = {
+    name: str | None = "ppt_master_session"
+    description: str = "PPT-Master presentation workflow sub-agent (venv worker + host UNO export)."
+    tier: str = "specialized_control"
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "User message."},

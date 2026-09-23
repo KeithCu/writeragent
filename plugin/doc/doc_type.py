@@ -19,11 +19,11 @@ from plugin.framework.thread_guard import main_thread_only
 
 
 class DocumentType(Enum):
-    UNKNOWN = auto()
-    WRITER = auto()
-    CALC = auto()
-    DRAW = auto()
-    IMPRESS = auto()
+    UNKNOWN: int = auto()
+    WRITER: int = auto()
+    CALC: int = auto()
+    DRAW: int = auto()
+    IMPRESS: int = auto()
 
 
 # Canonical UNO service names for Writer/Calc/Draw/Impress (visual_helpers

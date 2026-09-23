@@ -65,20 +65,20 @@ def collect_deep_research_tools(ctx: ToolContext) -> list[ToolBase]:
 class DeepResearchWebTool(ToolBase):
     """Multi-step public web research (sidebar Deep Research only; not shallow web_research)."""
 
-    tier = "specialized"
+    tier: str = "specialized"
     specialized_domain: ClassVar[str | None] = "deep_research"
     specialized_cross_cutting: ClassVar[bool] = True
     required_core_tools: ClassVar[frozenset[str] | None] = _DEEP_RESEARCH_CORE_TOOLS
-    doc_types = ["writer", "calc", "draw", "impress"]
-    intent = "review"
-    name = "deep_research_web"
-    description = (
+    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+    intent: str | None = "review"
+    name: str | None = "deep_research_web"
+    description: str = (
         "Run breadth/depth public web research on a topic. Returns plain text; "
         "format as HTML and insert with apply_document_content."
     )
-    is_mutation = False
-    long_running = True
-    parameters = {
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Research question or topic."},
@@ -133,12 +133,12 @@ def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text:
 class DeepResearchSessionTool(ToolBase):
     """Orchestrator for one turn of the Deep Research sub-agent (sidebar session)."""
 
-    name = "deep_research_session"
-    description = "Deep Research sub-agent (multi-step web research + optional document insert)."
-    tier = "specialized_control"
-    is_mutation = False
-    long_running = True
-    parameters = {
+    name: str | None = "deep_research_session"
+    description: str = "Deep Research sub-agent (multi-step web research + optional document insert)."
+    tier: str = "specialized_control"
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "User message or research task."},

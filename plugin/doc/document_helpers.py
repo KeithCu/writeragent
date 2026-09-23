@@ -467,7 +467,7 @@ def _ensure_cache_listener(doc: Any, key: str) -> None:
 
 
 class DocumentService(ServiceBase):
-    name = "document"
+    name: str | None = "document"
 
     def initialize(self, ctx: Any) -> None:
         pass

@@ -23,9 +23,9 @@ from plugin.chatbot.tool_loop_state import ToolLoopEvent, ToolLoopState, next_st
 
 
 class SidebarEventKind(str, Enum):
-    SEND = "send"
-    TOOL_LOOP = "tool_loop"
-    AUDIO = "audio"
+    SEND: str = "send"
+    TOOL_LOOP: str = "tool_loop"
+    AUDIO: str = "audio"
 
 
 @dataclass(frozen=True)

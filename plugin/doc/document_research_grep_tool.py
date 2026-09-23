@@ -18,19 +18,19 @@ from plugin.framework.tool import ToolBase, ToolContext
 class GrepNearbyFiles(ToolBase):
     """Search text across nearby LibreOffice files without opening each via delegate_read_document."""
 
-    name = "grep_nearby_files"
-    description = (
+    name: str | None = "grep_nearby_files"
+    description: str = (
         "Search nearby LibreOffice files for text and return snippet previews per matching file. "
         "Use file_subset='budget' to scan only files whose basenames contain 'budget' "
         "(e.g. Budget_2026.ods, my-budget.odt). Prefer this before delegate_read_document when "
         "locating which file contains a keyword."
     )
-    tier = "specialized"
+    tier: str = "specialized"
     specialized_domain: ClassVar[str | None] = "document_research"
     specialized_cross_cutting: ClassVar[bool] = True
-    is_mutation = False
-    long_running = True
-    parameters = {
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Text or regex to search for."},

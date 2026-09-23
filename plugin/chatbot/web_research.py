@@ -189,10 +189,10 @@ def _normalize_visit_url(url: str) -> str:
 class _VisitWebpageDedupTool(Tool):
     """Wraps visit_webpage and skips URLs already read in this deep-research run."""
 
-    name = "visit_webpage"
-    description = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
-    inputs = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
-    output_type = "string"
+    name: str = "visit_webpage"
+    description: str = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
+    inputs: dict[str, dict[str, str | type | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+    output_type: str = "string"
 
     def __init__(self, inner: Tool, visited_urls: set[str] | None, visited_urls_lock: threading.Lock | None) -> None:
         super().__init__()
@@ -217,10 +217,10 @@ class _VisitWebpageDedupTool(Tool):
 
 
 class VisitWebpageCdpTool(Tool):
-    name = "visit_webpage"
-    description = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
-    inputs = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
-    output_type = "string"
+    name: str = "visit_webpage"
+    description: str = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
+    inputs: dict[str, dict[str, str | type | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+    output_type: str = "string"
 
     def __init__(self, cdp_url: str, max_output_length: int = 40000, **kwargs):
         super().__init__()
@@ -497,10 +497,10 @@ def _run_deep_web_research(
 
 
 class WebResearchTool(ToolBase):
-    name = "web_research"
-    description = "Perform deep web research to answer complex questions. Bypasses document context to search the live web."
-    doc_types = ["writer", "calc", "draw", "impress"]
-    parameters = {
+    name: str | None = "web_research"
+    description: str = "Perform deep web research to answer complex questions. Bypasses document context to search the live web."
+    doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "The research query or question."},

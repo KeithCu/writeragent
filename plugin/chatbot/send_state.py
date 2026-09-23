@@ -26,14 +26,14 @@ class SendButtonState(BaseState):
 
 
 class SendEventKind(Enum):
-    TEXT_UPDATED = auto()
-    RECORD_CLICKED = auto()
-    STOP_REC_CLICKED = auto()
-    SEND_CLICKED = auto()
-    EXTRACTED_SEND = auto()
-    STOP_CLICKED = auto()
-    SEND_COMPLETED = auto()
-    ERROR_OCCURRED = auto()
+    TEXT_UPDATED: int = auto()
+    RECORD_CLICKED: int = auto()
+    STOP_REC_CLICKED: int = auto()
+    SEND_CLICKED: int = auto()
+    EXTRACTED_SEND: int = auto()
+    STOP_CLICKED: int = auto()
+    SEND_COMPLETED: int = auto()
+    ERROR_OCCURRED: int = auto()
 
 
 class SendEvent(NamedTuple):

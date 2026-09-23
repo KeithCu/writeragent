@@ -18,11 +18,11 @@ log = logging.getLogger(__name__)
 class DocumentHealthCheck(ToolBaseDummy):
     """Run structural health checks on a Writer document."""
 
-    name = "document_health_check"
-    intent = "review"
-    description = "Run structural health checks on the document. Detects empty headings, heading level jumps, orphan images, large unstructured blocks."
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
+    name: str | None = "document_health_check"
+    intent: str | None = "review"
+    description: str = "Run structural health checks on the document. Detects empty headings, heading level jumps, orphan images, large unstructured blocks."
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -142,12 +142,12 @@ class DocumentHealthCheck(ToolBaseDummy):
 class SetDocumentProtection(ToolBaseDummy):
     """Set or remove document section protection."""
 
-    name = "set_document_protection"
-    intent = "review"
-    description = "Set or remove document section protection."
-    parameters = {"type": "object", "properties": {"enabled": {"type": "boolean", "description": "True to protect sections, False to unprotect."}, "password": {"type": "string", "description": "Optional protection password."}}, "required": ["enabled"]}
-    uno_services = ["com.sun.star.text.TextDocument"]
-    is_mutation = True
+    name: str | None = "set_document_protection"
+    intent: str | None = "review"
+    description: str = "Set or remove document section protection."
+    parameters: dict | None = {"type": "object", "properties": {"enabled": {"type": "boolean", "description": "True to protect sections, False to unprotect."}, "password": {"type": "string", "description": "Optional protection password."}}, "required": ["enabled"]}
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         enabled = kwargs["enabled"]

@@ -91,8 +91,8 @@ def clear_stub_recorder_control() -> None:
 
 
 class AudioRecorder:
-    fs = 16000
-    channels = 1
+    fs: int = 16000
+    channels: int = 1
 
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx

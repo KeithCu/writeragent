@@ -116,17 +116,17 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
 class DelegateReadDocument(ToolBase):
     """Outer document_research tool: open a sibling file and run the inner read-only sub-agent."""
 
-    name = "delegate_read_document"
-    description = (
+    name: str | None = "delegate_read_document"
+    description: str = (
         "Open a nearby file by path or basename (read-only, hidden) and run a read-only sub-agent "
         "with production read tools for that file type. Returns extracted data to the document_research orchestrator."
     )
-    tier = "specialized"
+    tier: str = "specialized"
     specialized_domain: ClassVar[str | None] = "document_research"
     specialized_cross_cutting: ClassVar[bool] = True
-    is_mutation = False
-    long_running = True
-    parameters = {
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "path_or_name": {"type": "string", "description": "Absolute path, file URL, or basename/substring of a nearby file."},
