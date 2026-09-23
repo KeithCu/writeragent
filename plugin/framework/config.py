@@ -135,7 +135,7 @@ def _resolve_config_path_from_ctx(ctx: Any) -> str:
         raise ConfigError(f"Failed to resolve config path: {e}", "CONFIG_PATH_ERROR") from e
 
 
-def init_config(ctx: Any | None = None):
+def init_config(ctx: Any | None = None) -> str:
     """Resolve and cache writeragent.json path. Idempotent; call once at bootstrap."""
     global _resolved_config_path
     if ctx is not None:
@@ -161,21 +161,21 @@ def init_config(ctx: Any | None = None):
     return _resolved_config_path
 
 
-def reset_config_for_tests():
+def reset_config_for_tests() -> None:
     """Clear cached config path and in-memory dict (pytest isolation)."""
     global _resolved_config_path
     _resolved_config_path = None
     _invalidate_config_cache()
 
 
-def _config_path():
+def _config_path() -> str:
     """Return the absolute path to writeragent.json."""
     if _resolved_config_path is not None:
         return _resolved_config_path
     return init_config()
 
 
-def _emit_config_changed_ctx():
+def _emit_config_changed_ctx() -> Any:
     """Return UNO ctx for config:changed listeners when on the main thread."""
     try:
         from plugin.framework.thread_guard import on_main_thread
@@ -186,7 +186,7 @@ def _emit_config_changed_ctx():
         return None
 
 
-def user_config_dir():
+def user_config_dir() -> str | None:
     """Return LibreOffice user config directory."""
     try:
         p = _config_path()
@@ -348,7 +348,7 @@ def _load_config_dict(
     return {}
 
 
-def is_grammar_enabled():
+def is_grammar_enabled() -> bool:
     """True if the grammar checker is enabled on the Doc tab (LLM, LanguageTool, Vale, or Harper)."""
     from plugin.framework.uno_context import is_libreharper
 
@@ -362,7 +362,7 @@ def is_grammar_enabled():
     return val_str in ("llm", "languagetool", "vale", "harper", "true")
 
 
-def get_grammar_provider():
+def get_grammar_provider() -> str:
     """Return the active grammar provider name ('off', 'llm', 'languagetool', 'vale', or 'harper')."""
     from plugin.framework.uno_context import is_libreharper
 
@@ -400,7 +400,7 @@ def grammar_checker_identity() -> str:
         return "llm:unknown"
 
 
-def get_current_endpoint():
+def get_current_endpoint() -> str:
     """Return the current endpoint URL from config, normalized (stripped)."""
     return str(get_config("endpoint") or "").strip()
 
@@ -543,7 +543,7 @@ def get_config_float(key: str) -> float:
         raise ConfigError(f"Config key {key!r} has non-float value: {v!r}", "CONFIG_TYPE_ERROR") from e
 
 
-def get_config_dict():
+def get_config_dict() -> dict[str, Any]:
     """Return the full config as a dict. Returns {} if missing or on error."""
     return _get_validated_config_dict()
 
@@ -672,7 +672,7 @@ def remove_config(key: str) -> None:
         global_event_bus.emit("config:changed", ctx=_emit_config_changed_ctx())
 
 
-def _get_validated_config_dict():
+def _get_validated_config_dict() -> dict[str, Any]:
     """Return the full validated config as a dict, using an in-memory cache
     keyed off the file modification time."""
     try:
@@ -802,7 +802,7 @@ def set_api_key_for_endpoint(endpoint: Any, key: Any) -> None:
 # --- Bundled API config ---
 
 
-def get_api_config():
+def get_api_config() -> dict[str, Any]:
     """Build API config dict for LlmClient. Pass to LlmClient(config, ctx)."""
     from plugin.framework.client.model_fetcher import get_text_model
 
@@ -842,7 +842,7 @@ def get_api_config():
     return api_config
 
 
-def validate_api_config(config: Any):
+def validate_api_config(config: Any) -> tuple[bool, str]:
     """Validate API config dict (from get_api_config). Returns (ok: bool, error_message: str)."""
     from plugin.framework.i18n import _
 

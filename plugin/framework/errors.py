@@ -83,7 +83,7 @@ class suppress_disposed(contextlib.ContextDecorator):
         log_unexpected: bool = True,
         suppress_all: bool = True,
         exc_info: bool = False,
-    ):
+    ) -> None:
         self.action = action
         self.logger = logger
         self.log_unexpected = log_unexpected
@@ -185,7 +185,7 @@ class WriterAgentException(Exception):
         code: str | None = None,
         details: dict[str, Any] | None = None,
         context: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         # Accept both `details` and legacy `context` (alias).
         if details is None and context is not None:
             details = context
@@ -460,7 +460,7 @@ class DocumentDisposedError(UnoObjectError):
         code: str | None = None,
         details: dict[str, Any] | None = None,
         context: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         super().__init__(message, code=code or self.code, details=details, context=context)
         self.object_type = object_type
 
@@ -477,7 +477,7 @@ class ResourceNotFoundError(WriterAgentException):
         code: str | None = None,
         details: dict[str, Any] | None = None,
         context: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         message = _("{resource_type} not found: {identifier}").format(resource_type=resource_type, identifier=identifier)
         super().__init__(message, code=code or self.code, details=details, context=context)
         self.resource_type = resource_type

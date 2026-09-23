@@ -401,7 +401,7 @@ class ToolBase(ABC):
     requires_document: bool = True
     required_core_tools: ClassVar[frozenset[str] | None] = None
 
-    def detects_mutation(self):
+    def detects_mutation(self) -> bool:
         """Return True if the tool mutates the document."""
         if self.is_mutation is not None:
             return self.is_mutation
@@ -437,7 +437,7 @@ class ToolBase(ABC):
         """Tool description for the LLM; override when ``get_parameters`` varies by doc type."""
         return self.description or ""
 
-    def validate(self, *, doc_type: str | None = None, **kwargs: Any):
+    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[bool, str | None]:
         """Validate arguments against ``parameters`` schema.
 
         Returns:
@@ -642,7 +642,7 @@ class ToolRegistry:
 
     # ── Registration ──────────────────────────────────────────────────
 
-    def register(self, tool: ToolBase):
+    def register(self, tool: ToolBase) -> None:
         """Register a single ToolBase instance."""
         # crosshair: off
         # Validate tool schema
@@ -675,11 +675,11 @@ class ToolRegistry:
                 )
         self._tools[tool.name] = tool
 
-    def register_many(self, tools: list[ToolBase]):
+    def register_many(self, tools: list[ToolBase]) -> None:
         for t in tools:
             self.register(t)
 
-    def auto_discover_package(self, package_name: str):
+    def auto_discover_package(self, package_name: str) -> None:
         """Automatically discover and register ToolBase subclasses in all submodules of a package."""
         # crosshair: off
         import importlib
@@ -717,7 +717,7 @@ class ToolRegistry:
 
     # ── Lookup & Schema Generation ────────────────────────────────────
 
-    def get_tools(self, doc: Any = None, doc_type: str | None = None, tier: str | None = None, intent: str | None = None, names: Any = None, filter_doc_type: bool = True, exclude_tiers: Any = _UNSET_EXCLUDE_TIERS, active_domain: str | None = None, uno_services_supported: Any = None, **kwargs: Any):
+    def get_tools(self, doc: Any = None, doc_type: str | None = None, tier: str | None = None, intent: str | None = None, names: Any = None, filter_doc_type: bool = True, exclude_tiers: Any = _UNSET_EXCLUDE_TIERS, active_domain: str | None = None, uno_services_supported: Any = None, **kwargs: Any) -> list[ToolBase]:
         """Return a list of ToolBase instances matching the given criteria.
 
         Args:
@@ -816,7 +816,7 @@ class ToolRegistry:
             tools = filter_vision_specialized_tools(list(tools), ctx)
         return list(tools)
 
-    def get_schemas(self, protocol: str = "openai", active_domain: str | None = None, **kwargs: Any):
+    def get_schemas(self, protocol: str = "openai", active_domain: str | None = None, **kwargs: Any) -> list[dict[str, Any]]:
         """Return schemas for tools matching the given kwargs criteria.
 
         Args:
@@ -855,7 +855,7 @@ class ToolRegistry:
         else:
             raise ValueError(f"Unknown protocol: {protocol}")
 
-    def get_tool_summaries(self, **kwargs: Any):
+    def get_tool_summaries(self, **kwargs: Any) -> list[dict[str, Any]]:
         """Lightweight catalogue: ``[{"name", "description", "tier", "intent"}]``."""
         tools = self.get_tools(**kwargs)
         return [{"name": t.name, "description": (t.description or "")[:120], "tier": t.tier, "intent": t.intent} for t in tools]
@@ -866,7 +866,7 @@ class ToolRegistry:
 
     # ── Execution ─────────────────────────────────────────────────────
 
-    def _get_tool_timeout(self, tool: ToolBase):
+    def _get_tool_timeout(self, tool: ToolBase) -> float:
         return getattr(tool, "timeout", 0)
 
     def _execute_with_timeout(self, func: Any, timeout: float, tool_name: str = "<unknown>", run_threaded: bool = True, **kwargs: Any) -> Any:
@@ -890,7 +890,7 @@ class ToolRegistry:
 
         result_queue: queue.Queue = queue.Queue()
 
-        def worker():
+        def worker() -> None:
             try:
                 result_queue.put(("success", func(**kwargs)))
             except Exception as e:
@@ -1040,8 +1040,8 @@ class ToolRegistry:
             )
 
     @property
-    def tool_names(self):
+    def tool_names(self) -> list[str]:
         return list(self._tools.keys())
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._tools)

@@ -44,7 +44,7 @@ import os
 import threading
 import logging
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any, Generator, Iterator
 
 log = logging.getLogger("writeragent.threadguard")
 
@@ -296,7 +296,7 @@ class _UnoThreadGuardProxy:
             return "<UNOProxy>"
 
     # --- Common protocols used by enumeration walks etc. (explicit methods are covered by __getattr__) ---
-    def __iter__(self):  # type: ignore[override]
+    def __iter__(self) -> Iterator[Any]:  # type: ignore[override]
         assert_main_thread("UNO iter")
         it = iter(self._target)
         # Yield wrapped items lazily

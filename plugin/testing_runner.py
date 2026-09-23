@@ -1377,7 +1377,7 @@ def _bootstrap_office(officehelper_module: Any) -> Any:
 
 
 
-def native_test(func: Any):
+def native_test(func: Any) -> Any:
     """Decorator to mark a function as a test in the native test runner.
 
     Note: pytest-based runs will automatically skip/ignore these via a hook
@@ -1387,13 +1387,13 @@ def native_test(func: Any):
     return func
 
 
-def setup(func: Any):
+def setup(func: Any) -> Any:
     """Decorator to mark a function as the setup routine for a test module."""
     func._is_setup = True
     return func
 
 
-def teardown(func: Any):
+def teardown(func: Any) -> Any:
     """Decorator to mark a function as the teardown routine for a test module."""
     func._is_teardown = True
     return func
@@ -1425,7 +1425,7 @@ def _mark_urp_dead(exc: BaseException, where: str) -> None:
     _progress("ABORT: URP bridge disposed at %s: %s; remaining suites skipped" % (where, exc))
 
 
-def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None):
+def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) -> tuple[int, int, list[str]]:
     """Monolithic entry point for running a test module (legacy/menu support).
     Returns (passed, failed, log).
     """
@@ -1697,12 +1697,12 @@ def run_all_tests(ctx: Any) -> str:
 
     _review_mode_override: Dict[str, Any] = {}
 
-    def test_get_config(key: str):
+    def test_get_config(key: str) -> Any:
         if key == "doc.agent_edit_review_mode":
             return _review_mode_override.get(key, "off")
         return original_get_config(key)
 
-    def test_set_config(key: str, value: Any):
+    def test_set_config(key: str, value: Any) -> None:
         if key == "doc.agent_edit_review_mode":
             _review_mode_override[key] = value
             from plugin.framework.event_bus import global_event_bus
@@ -1710,7 +1710,7 @@ def run_all_tests(ctx: Any) -> str:
             return
         original_set_config(key, value)
 
-    def test_get_config_dict():
+    def test_get_config_dict() -> dict[str, Any]:
         base = original_get_config_dict()
         merged = dict(base)
         merged["doc.agent_edit_review_mode"] = _review_mode_override.get("doc.agent_edit_review_mode", "off")

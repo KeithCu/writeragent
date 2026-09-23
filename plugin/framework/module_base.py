@@ -77,7 +77,7 @@ class ModuleBase(ABC):
                       registered services.
         """
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Stop background tasks, close connections.
 
         Called in reverse dependency order on extension unload."""

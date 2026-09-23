@@ -152,7 +152,7 @@ class BatchingStreamQueue:
         #  which does the flush for you)
     """
 
-    def __init__(self, raw_q: queue.Queue[Any], batch_interval: float):
+    def __init__(self, raw_q: queue.Queue[Any], batch_interval: float) -> None:
         # crosshair: off
         self._raw = raw_q
         self._interval = batch_interval
@@ -161,25 +161,25 @@ class BatchingStreamQueue:
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
 
-    def _cancel_timer(self):
+    def _cancel_timer(self) -> None:
         # crosshair: off
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
 
-    def _schedule_timer(self):
+    def _schedule_timer(self) -> None:
         # crosshair: off
         self._cancel_timer()
         self._timer = threading.Timer(self._interval, self._timer_flush)
         self._timer.daemon = True
         self._timer.start()
 
-    def _timer_flush(self):
+    def _timer_flush(self) -> None:
         # crosshair: off
         # Timer callback — runs in its own (daemon) thread
         self.flush()
 
-    def _emit_pending_locked(self):
+    def _emit_pending_locked(self) -> None:
         """Emit any buffered content/thinking as single joined items. Caller holds lock."""
         # crosshair: off
         if self._content_buf:
@@ -592,7 +592,7 @@ def run_async_worker_with_drain(
     name: str = "async-worker",
     q: queue.Queue[Any] | BatchingStreamQueue | None = None,
     on_approval_required: Callable[[Any], None] | None = None,
-):
+) -> None:
     """Run a background worker and drain its queue on the main thread.
 
     ``worker_fn`` is a callable that accepts the queue and produces
@@ -614,7 +614,7 @@ def run_async_worker_with_drain(
     _batched: BatchingStreamQueue | None = q if isinstance(q, BatchingStreamQueue) else None
     _real_q: queue.Queue[Any] = cast("queue.Queue[Any]", _batched.raw if _batched is not None else q)
 
-    def worker_wrapper():
+    def worker_wrapper() -> None:
         try:
             worker_fn(cast("queue.Queue[Any]", _batched.raw if _batched is not None else q))  # worker always sees a real Queue
         except BaseException as e:
@@ -785,7 +785,7 @@ def run_blocking_in_thread(
     # crosshair: off
     q: "queue.Queue[BlockingPumpQueueItem]" = queue.Queue()
 
-    def worker():
+    def worker() -> None:
         try:
             result = func(*args, **kwargs)
             q.put((BlockingPumpKind.DONE, result))

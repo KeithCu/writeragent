@@ -79,7 +79,7 @@ class ServiceBase(ABC):
             ctx: UNO component context (com.sun.star.uno.XComponentContext).
         """
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Called on extension unload. Override to clean up."""
 
 
@@ -156,7 +156,7 @@ class ServiceRegistry:
             if callable(init):
                 init(ctx)
 
-    def shutdown_all(self):
+    def shutdown_all(self) -> None:
         """Call ``shutdown()`` on every service that supports it.
 
         Same getattr guard as initialize_all: non-ServiceBase registrations.
@@ -174,5 +174,5 @@ class ServiceRegistry:
                     logging.getLogger(__name__).error("Service %s failed during shutdown: %s", name, e)
 
     @property
-    def service_names(self):
+    def service_names(self) -> list[str]:
         return list(self._services.keys())

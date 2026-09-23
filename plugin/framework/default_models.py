@@ -19,7 +19,7 @@ from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
 
 
 @deal.post(lambda result: result is None or isinstance(result, str))
-def resolve_model_id(model: dict[str, Any], provider: str | None):
+def resolve_model_id(model: dict[str, Any], provider: str | None) -> str | None:
     """Resolve the effective model ID for a given provider.
 
     Args:
@@ -43,7 +43,7 @@ def resolve_model_id(model: dict[str, Any], provider: str | None):
 # FIXME, this should be a list, stored with the other endpoint pre-configured params
 @deal.pre(lambda provider: not provider or str_bounded(provider, DEAL_MAX_TOKEN))
 @deal.post(lambda result: isinstance(result, dict))
-def get_provider_defaults(provider: str | None):
+def get_provider_defaults(provider: str | None) -> dict[str, str]:
     """Return default models mapped per provider based on boolean flags in DEFAULT_MODELS."""
     if not provider:
         return {}

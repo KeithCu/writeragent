@@ -55,7 +55,7 @@ def get_active_locale() -> str:
     return _active_locale
 
 
-def get_lo_locale(ctx: Any | None = None):
+def get_lo_locale(ctx: Any | None = None) -> str:
     """Return the LibreOffice UI locale from configuration only (no OS LANG).
 
     Reads ``/org.openoffice.Setup/L10N`` → ``ooLocale``. On failure or empty

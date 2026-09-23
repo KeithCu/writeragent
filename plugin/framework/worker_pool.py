@@ -226,7 +226,7 @@ def run_in_background(
     :return: A :class:`BackgroundHandle` with ``join`` / ``is_alive``.
     """
 
-    def _worker():
+    def _worker() -> Any:
         task_id = str(uuid.uuid4())
         task_name = name or getattr(func, "__name__", "anon")
         log.debug(f"Starting task {task_id}: {task_name}")
@@ -444,7 +444,7 @@ class AsyncProcess:
             except OSError:
                 pass
 
-    def _wait_for_exit(self):
+    def _wait_for_exit(self) -> None:
         if self.process is None:
             return
         rc = self.process.wait()

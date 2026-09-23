@@ -248,7 +248,7 @@ def init_logging(ctx: Any | None = None) -> None:
             _install_global_exception_hooks()
 
 
-def _install_global_exception_hooks():
+def _install_global_exception_hooks() -> None:
     """Install sys.excepthook and threading.excepthook to log unhandled exceptions. Idempotent."""
     global _exception_hooks_installed
     if _exception_hooks_installed:
@@ -336,7 +336,7 @@ class SafeLogger:
                 print(f"LOG EXCEPTION FAILED: {msg}")
                 print(f"Original error: {e}")
 
-    def disable_fallback(self):
+    def disable_fallback(self) -> None:
         """Disable fallback printing."""
         self._fallback_enabled = False
 
@@ -555,7 +555,7 @@ def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
 # Custom LogRecord Factory for PyUNO safety in Python 3.12+
 _log_record_factory_installed = False
 
-def _install_safe_log_record_factory():
+def _install_safe_log_record_factory() -> None:
     """Install a custom LogRecord factory to prevent TypeError in Python 3.12+
     when logging a single PyUNO proxy object."""
     global _log_record_factory_installed

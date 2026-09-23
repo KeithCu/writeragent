@@ -52,7 +52,7 @@ class ConfigAccessError(ConfigError):
     code: str = "CONFIG_ACCESS_ERROR"
 
 def _dummy_impl(name: str, services: Any = ()) -> Any:
-    def decorator(cls):
+    def decorator(cls) -> Any:
         return cls
 
     return decorator
@@ -265,7 +265,7 @@ class ConfigService(ServiceBase):
         else:
             remove_config(key)
 
-    def get_dict(self):
+    def get_dict(self) -> dict[str, Any]:
         """Return all config."""
         # This is a simplification for now
         if self._config_path and os.path.exists(self._config_path):

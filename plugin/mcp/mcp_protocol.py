@@ -32,7 +32,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Generator
 
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.framework.queue_executor import QueueExecutor
@@ -314,7 +314,7 @@ def _tool_needs_document_mutation_gate(tool: Any, arguments: Any = None) -> bool
 
 
 @contextmanager
-def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.0):
+def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.0) -> Generator[None, None, None]:
     if not enabled:
         yield
         return
@@ -642,7 +642,7 @@ class MCPProtocolHandler:
         else:
             exclude_tiers = MCP_DELEGATE_EXCLUDE_TIERS
 
-        def _resolve_and_filter():
+        def _resolve_and_filter() -> list[dict[str, Any]]:
             # Runs on the main (VCL) thread. Resolving the document AND filtering tools by
             # doc type both touch UNO -- get_schemas() -> supports_doc() calls
             # doc.supportsService() -- so the WHOLE block must be marshaled, not just the

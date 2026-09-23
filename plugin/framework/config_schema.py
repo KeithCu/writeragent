@@ -31,7 +31,7 @@ import dataclasses
 import logging
 import os
 import textwrap
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Iterator
 
 from plugin.framework.deal_shim import UNDER_CROSSHAIR, deal
 from plugin.framework.errors import ConfigError, ConfigValidationError
@@ -105,7 +105,7 @@ _LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset({"model_lru", "prompt_
 
 
 @deal.post(lambda result: isinstance(result, bool))
-def as_bool(value: Any):
+def as_bool(value: Any) -> bool:
     """Parse a value as boolean (handles str, int, float)."""
     if UNDER_CROSSHAIR:
         if isinstance(value, bool):
@@ -366,7 +366,7 @@ class WriterAgentConfig:
     # Store arbitrary module.yaml config entries
     _extra_config: Dict[str, Any] = dataclasses.field(default_factory=dict)
 
-    def validate(self, *, coerce_out_of_range: bool = False):
+    def validate(self, *, coerce_out_of_range: bool = False) -> "WriterAgentConfig":
         """Perform validation of config keys and emit warnings or fix values.
 
         When *coerce_out_of_range* is True (config load/repair), clamp invalid
@@ -743,7 +743,7 @@ def _get_schema_default(key: str) -> Any:
     return None
 
 
-def _dotted_fallback_keys(key: str):
+def _dotted_fallback_keys(key: str) -> Iterator[str]:
     """Yield dotted key variants for key using manifest modules (e.g. extend_selection_max_tokens -> chatbot.extend_selection_max_tokens)."""
     if "." in key:
         return

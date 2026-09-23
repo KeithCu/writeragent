@@ -30,12 +30,12 @@ EXTENSION_ID_WRITERAGENT = "org.extension.writeragent"
 EXTENSION_ID_LIBREHARPER = "org.extension.libreharper"
 
 
-def get_plugin_dir():
+def get_plugin_dir() -> str:
     """Returns the absolute path to the plugin/ directory."""
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def get_locales_dir():
+def get_locales_dir() -> str:
     """Absolute path to gettext ``locales/`` (sibling of ``plugin/`` in repo and in the .oxt bundle)."""
     return os.path.join(os.path.dirname(get_plugin_dir()), "locales")
 

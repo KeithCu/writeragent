@@ -49,6 +49,8 @@ import urllib.parse
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
+    import http.client
+
     from .base_provider_shim import BaseProviderShim
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
@@ -311,20 +313,20 @@ class LlmClient:
         return self._shims[shim_key]
 
     @property
-    def _persistent_conn(self):
+    def _persistent_conn(self) -> http.client.HTTPConnection | http.client.HTTPSConnection | None:
         return self._transport.persistent_conn
 
     @property
-    def _conn_key(self):
+    def _conn_key(self) -> tuple[str, str, int, str] | None:
         return self._transport.conn_key
 
-    def _get_connection(self):
+    def _get_connection(self) -> http.client.HTTPConnection | http.client.HTTPSConnection:
         """Compatibility wrapper for tests and internal diagnostics."""
         if self._stopped:
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
         return self._transport.get_connection()
 
-    def _close_connection(self):
+    def _close_connection(self) -> None:
         self._transport.close()
 
     def _retry_or_raise_http_error(
@@ -385,7 +387,7 @@ class LlmClient:
         err_msg = append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
         raise NetworkError(err_msg, code="HTTP_ERROR", details={"url": path, "status": response.status})
 
-    def stop(self):
+    def stop(self) -> None:
         """Abort the in-flight request: latch + close socket (even if not open yet).
 
         Packet B13: Stop can fire before ``get_connection``. Without ``_stopped``,
@@ -399,14 +401,14 @@ class LlmClient:
         """Allow a reused client to send again (call on the UI thread at send start)."""
         self._stopped = False
 
-    def _endpoint(self):
+    def _endpoint(self) -> str:
         raw = self.config.get("endpoint", "http://localhost:11434")
         return normalize_endpoint_url(raw, is_openwebui=self.config.get("is_openwebui", False))
 
-    def _api_path(self):
+    def _api_path(self) -> str:
         return get_api_version_suffix(self._endpoint(), is_openwebui=self.config.get("is_openwebui"))
 
-    def _headers(self):
+    def _headers(self) -> dict[str, str]:
         """
         Build HTTP headers for API requests, including provider-aware auth.
         """
@@ -428,7 +430,7 @@ class LlmClient:
 
         return h
 
-    def _resolve_auth(self):
+    def _resolve_auth(self) -> dict[str, Any]:
         """Resolve auth info from config.
 
         Swallowing ``AuthError`` here used to return ``{}``, so hosted missing
@@ -439,15 +441,15 @@ class LlmClient:
         """
         return resolve_auth_for_config(self.config)
 
-    def _get_provider(self):
+    def _get_provider(self) -> str:
         """Get the provider ID from resolved auth."""
         auth_info = self._resolve_auth()
         return auth_info.get("provider", "custom")
 
-    def _timeout(self):
+    def _timeout(self) -> Any:
         return self.config.get("request_timeout", 120)
 
-    def _current_host(self):
+    def _current_host(self) -> str:
         return self._transport.current_host()
 
     def _enable_local_ssl_fallback(self, err: Exception) -> bool:

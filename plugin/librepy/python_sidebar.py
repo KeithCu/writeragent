@@ -205,7 +205,7 @@ class _PanelResizeListener(BaseWindowListener):
         self._in_relayout = False
         self._root_window = None
 
-    def disposing(self, Source: Any):  # noqa: N803 -- UNO signature
+    def disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
         if self._root_window and hasattr(self._root_window, "removeWindowListener"):
             try:
                 self._root_window.removeWindowListener(self)
@@ -276,7 +276,7 @@ class _PanelResizeListener(BaseWindowListener):
 class _Activation(BaseActivationEventListener):
     """Sheet-activation listener that calls handler() whenever the active sheet changes."""
 
-    def __init__(self, handler: Any):
+    def __init__(self, handler: Any) -> None:
         super().__init__()
         self._handler = handler
 

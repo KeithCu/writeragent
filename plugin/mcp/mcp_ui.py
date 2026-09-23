@@ -266,10 +266,10 @@ class TestTunnelListener(BaseActionListener):
             except Exception:
                 pass
 
-        def _worker():
+        def _worker() -> None:
             _ok, msg, pub_url = test_tunnel_connectivity(provider=provider, provider_token=token, port=port)
 
-            def _apply():
+            def _apply() -> None:
                 if btn:
                     try:
                         btn.getModel().Label = _("Test Tunnel")

@@ -236,7 +236,7 @@ def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
         return False
 
 
-def fetch_available_models(endpoint: str, api_key_override: str | None = None):
+def fetch_available_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
     """Fetch available models from endpoint/v1/models. Returns list of IDs or None on error.
 
     Sends the same auth headers as chat (Bearer / x-api-key per provider) using
@@ -311,7 +311,7 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None):
     return None
 
 
-def fetch_available_image_models(endpoint: str, api_key_override: str | None = None):
+def fetch_available_image_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
     """Image-output model IDs from /v1/models (architecture.output_modalities or type=image).
 
     Provider policy after shared fetch (see module comment above):
@@ -419,7 +419,7 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
 # --- Provider and Endpoint resolution ---
 
 
-def get_endpoint_presets():
+def get_endpoint_presets() -> list[tuple[str, str]]:
     """Return list of (label, url) for endpoint selector, in display order."""
     return list(ENDPOINT_PRESETS)
 
@@ -427,7 +427,7 @@ def get_endpoint_presets():
 # --- Model capability and audio support ---
 
 
-def get_model_capability(model_id: Any, endpoint: Any):
+def get_model_capability(model_id: Any, endpoint: Any) -> int:
     """Check the model catalog for capabilities bitmask."""
     provider = get_provider_from_endpoint(endpoint)
     model_id = str(model_id or "").strip()
@@ -446,7 +446,7 @@ def get_model_capability(model_id: Any, endpoint: Any):
     return ModelCapability.NONE
 
 
-def has_native_audio(model_id: Any, endpoint: Any):
+def has_native_audio(model_id: Any, endpoint: Any) -> bool | None:
     """True if the model accepts input_audio on POST /v1/chat/completions.
 
     This is not the same as "can transcribe": STT-only models (Voxtral, Whisper)
@@ -505,7 +505,7 @@ def _sanitize_stored_model_value(val: Any) -> str:
     return _sanitize_model_combobox_value(str(val or ""))
 
 
-def get_text_model():
+def get_text_model() -> str:
     """Return the text/chat model (stored as ``text_model``)."""
     val = _sanitize_stored_model_value(get_config("text_model"))
     if val:
@@ -516,7 +516,7 @@ def get_text_model():
     return str(defaults.get("text_model", "")).strip()
 
 
-def get_stt_model():
+def get_stt_model() -> str:
     """Return the configured STT model."""
     val = get_config("stt_model")
     if val is not None and str(val).strip():
@@ -527,7 +527,7 @@ def get_stt_model():
     return str(defaults.get("stt_model", "") or "").strip()
 
 
-def get_grammar_model():
+def get_grammar_model() -> str:
     """Return the configured grammar model, fallback to chat text model."""
     val = str(get_config("doc.grammar_proofreader_model") or "").strip()
     if val:
@@ -535,7 +535,7 @@ def get_grammar_model():
     return get_text_model()
 
 
-def get_image_model():
+def get_image_model() -> str:
     """Return current image model for endpoint-based generation."""
     val = _sanitize_stored_model_value(get_config("image_model"))
     if val:

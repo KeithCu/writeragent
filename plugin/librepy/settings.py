@@ -48,7 +48,7 @@ class _DownloadVecPackListener(BaseActionListener):
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.scripting.native_binaries import run_vec_pack_download
 
-        def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]):
+        def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:
             ok = run_vec_pack_download(on_display, on_status)
             return ok, ""
 

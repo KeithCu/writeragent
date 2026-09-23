@@ -321,7 +321,7 @@ class QueueExecutor:
                 self._async_callback_service = None
                 self._callback_instance = None
 
-    def _get_async_callback(self):
+    def _get_async_callback(self) -> Any:
         """Lazily create the AsyncCallback UNO service and XCallback instance."""
         if self._initialized:
             return self._async_callback_service
@@ -378,7 +378,7 @@ class QueueExecutor:
             self._initialized = True
             return self._async_callback_service
 
-    def _make_callback_instance(self):
+    def _make_callback_instance(self) -> Any:
         """Create a UNO XCallback that processes work items one at a time."""
         import unohelper
         from com.sun.star.awt import XCallback
@@ -398,7 +398,7 @@ class QueueExecutor:
 
         return _MainThreadCallback()
 
-    def process_queue(self):
+    def process_queue(self) -> None:
         """Process one item from queue (called from main thread via AsyncCallback)."""
         try:
             item = self._work_queue.get_nowait()
@@ -435,7 +435,7 @@ class QueueExecutor:
         if not self._work_queue.empty():
             self._poke_main_thread()
 
-    def _poke_main_thread(self):
+    def _poke_main_thread(self) -> None:
         """Ask the VCL event loop to call our notify() callback."""
         if _test_poke_handler is not None:
             _test_poke_handler(self)

@@ -200,7 +200,7 @@ class EventBus:
             self._subscribers[event] = [(cb, w) for cb, w in subs if cb is not ref]
 
 
-def get_event_bus():
+def get_event_bus() -> EventBus:
     """Return the true singleton EventBus across all LO import contexts."""
     if not hasattr(sys, "_writeragent_event_bus"):
         setattr(sys, "_writeragent_event_bus", EventBus())
@@ -219,7 +219,7 @@ class EventBusService(ServiceBase, EventBus):
 
     name: str | None = "events"
 
-    def __init__(self):
+    def __init__(self) -> None:
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         ServiceBase.__init__(self)
         # Share the process-wide subscriber dict; do not reassign this attribute
