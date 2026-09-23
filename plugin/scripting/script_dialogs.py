@@ -8,10 +8,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import unohelper
 from com.sun.star.awt import XActionListener
+
+if TYPE_CHECKING:
+    from com.sun.star.awt import ActionEvent
+    from com.sun.star.lang import EventObject
 
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, show_text_input_dialog
@@ -66,7 +70,7 @@ def show_new_script_dialog(
         _outcome: list[tuple[str, bool] | None] | None = None
 
         class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent):
                 nonlocal _outcome
                 try:
                     ec = dlg.getControl("NameEdit")
@@ -85,16 +89,16 @@ def show_new_script_dialog(
                 _outcome = [(t, attach)]
                 dlg.endDialog(1)
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject):
                 pass
 
         class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent):
                 nonlocal _outcome
                 _outcome = [None]
                 dlg.endDialog(0)
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject):
                 pass
 
         btn_ok = dlg.getControl("BtnOK")

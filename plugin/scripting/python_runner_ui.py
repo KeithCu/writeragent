@@ -19,10 +19,16 @@
 #   - Native New Script Dialog: extension/Dialogs/NewScriptDialog.xdl
 # =========================================================================================
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTopWindowListener
+
+if TYPE_CHECKING:
+    from com.sun.star.awt import ActionEvent, ItemEvent
+    from com.sun.star.lang import EventObject
 
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
@@ -227,28 +233,28 @@ class NativePythonScriptDialog:
                 owner = self
 
                 class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                    def windowClosing(self, e):
+                    def windowClosing(self, e: Any):
                         owner.close(toolkit_teardown=True)
 
-                    def windowClosed(self, e):
+                    def windowClosed(self, e: Any):
                         pass
 
-                    def windowOpened(self, e):
+                    def windowOpened(self, e: Any):
                         pass
 
-                    def windowMinimized(self, e):
+                    def windowMinimized(self, e: Any):
                         pass
 
-                    def windowNormalized(self, e):
+                    def windowNormalized(self, e: Any):
                         pass
 
-                    def windowActivated(self, e):
+                    def windowActivated(self, e: Any):
                         pass
 
-                    def windowDeactivated(self, e):
+                    def windowDeactivated(self, e: Any):
                         pass
 
-                    def disposing(self, Source):
+                    def disposing(self, Source: EventObject):
                         pass
 
                 self._top_listener = _TopWindowListener()
@@ -298,7 +304,7 @@ class NativePythonScriptDialog:
         doc = owner._doc
 
         class _ScriptSelectListener(unohelper.Base, XItemListener):
-            def itemStateChanged(self, rEvent):
+            def itemStateChanged(self, rEvent: ItemEvent):
                 try:
                     name = _picker_selected_name(select_ctrl)
                     if name:
@@ -312,11 +318,11 @@ class NativePythonScriptDialog:
                 except Exception:
                     log.exception("Failed to change script selection")
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject):
                 pass
 
         class _RunListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent):
                 try:
                     ec = dlg.getControl("CodeEdit")
                     t = (ec.getModel().Text or "").strip()
@@ -330,13 +336,13 @@ class NativePythonScriptDialog:
                     log.exception("Run failed in dialog")
                     msgbox(ctx, _("Error"), str(e))
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject):
                 pass
 
         # WARNING: If you change Save logic, also update btn-save listener in:
         # plugin/contrib/scripting/assets/editor/scripts_manager.js
         class _SaveListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent):
                 try:
                     ec = dlg.getControl("CodeEdit")
                     t = (ec.getModel().Text or "").strip()
@@ -347,13 +353,13 @@ class NativePythonScriptDialog:
                 except Exception:
                     log.exception("Save failed in dialog")
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject):
                 pass
 
         # WARNING: If you change Save As logic, also update onSaveAs in:
         # plugin/contrib/scripting/assets/editor/scripts_manager.js
         class _SaveAsListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent):
                 try:
                     ec = dlg.getControl("CodeEdit")
                     t = (ec.getModel().Text or "").strip()
@@ -409,13 +415,13 @@ class NativePythonScriptDialog:
                 except Exception:
                     log.exception("Save As failed in dialog")
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject):
                 pass
 
         # WARNING: If you change Delete logic, also update onDeleteScript in:
         # plugin/contrib/scripting/assets/editor/scripts_manager.js
         class _DeleteListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent):
                 try:
                     display_name = _picker_selected_name(select_ctrl)
                     if not display_name:
@@ -441,14 +447,14 @@ class NativePythonScriptDialog:
                 except Exception:
                     log.exception("Delete failed in dialog")
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject):
                 pass
 
         # WARNING: If you change New script creation logic, also update onCreateNewScript in:
         # plugin/contrib/scripting/assets/editor/scripts_manager.js
         # and dialog layout in extension/Dialogs/NewScriptDialog.xdl
         class _NewListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent):
                 try:
                     res = show_new_script_dialog(ctx, doc=doc)
                     if not res:
@@ -495,18 +501,18 @@ class NativePythonScriptDialog:
                 except Exception:
                     log.exception("New script failed in dialog")
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject):
                 pass
 
         class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent):
                 log.debug("native script dialog: BtnCancel")
                 if owner._modeless:
                     owner.close()
                 else:
                     dlg.endDialog(0)
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject):
                 pass
 
         select_ctrl.addItemListener(_ScriptSelectListener())

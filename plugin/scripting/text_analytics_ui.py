@@ -10,10 +10,14 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import unohelper
 from com.sun.star.awt import XActionListener, XTopWindowListener
+
+if TYPE_CHECKING:
+    from com.sun.star.awt import ActionEvent
+    from com.sun.star.lang import EventObject
 
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
 from plugin.doc.doc_type import is_writer
@@ -79,16 +83,16 @@ class TextAnalyticsDialog:
             owner = self
 
             class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                def windowClosing(self, e):
+                def windowClosing(self, e: Any):
                     owner.close()
 
-                def windowClosed(self, e): pass
-                def windowOpened(self, e): pass
-                def windowMinimized(self, e): pass
-                def windowNormalized(self, e): pass
-                def windowActivated(self, e): pass
-                def windowDeactivated(self, e): pass
-                def disposing(self, Source): pass
+                def windowClosed(self, e: Any): pass
+                def windowOpened(self, e: Any): pass
+                def windowMinimized(self, e: Any): pass
+                def windowNormalized(self, e: Any): pass
+                def windowActivated(self, e: Any): pass
+                def windowDeactivated(self, e: Any): pass
+                def disposing(self, Source: EventObject): pass
 
             self._top_listener = _TopWindowListener()
             dlg.addTopWindowListener(self._top_listener)
@@ -102,16 +106,16 @@ class TextAnalyticsDialog:
         owner = self
 
         class _Btn(unohelper.Base, XActionListener):
-            def __init__(self, fn):
+            def __init__(self, fn: Callable[[Any], Any]):
                 self._fn = fn
 
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent):
                 try:
                     self._fn(dlg)
                 except Exception:
                     log.exception("Text analytics button failed")
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject):
                 pass
 
         dlg.getControl("BtnRead").addActionListener(_Btn(lambda d: owner._compute(d, "readability", "whole" if (d.getControl("ChkScope").State == 1) else "selection")))

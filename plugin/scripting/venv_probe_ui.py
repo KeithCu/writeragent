@@ -58,7 +58,7 @@ class VenvProbeProgressDialog:
             except Exception as exc:
                 log.exception("Scripting venv probe failed")
 
-                def error_ui(exc=exc) -> None:
+                def error_ui(exc: Exception = exc) -> None:
                     self.set_display(str(exc))
                     self.finish(_("Venv check failed"), False)
 
@@ -136,7 +136,7 @@ class _VenvProbeCloseListener(BaseActionListener):
     def __init__(self, progress: VenvProbeProgressDialog) -> None:
         self._progress = progress
 
-    def on_action_performed(self, rEvent) -> None:
+    def on_action_performed(self, rEvent: Any) -> None:
         dlg = self._progress._dlg
         if dlg is not None:
             try:
@@ -161,7 +161,7 @@ class ScriptingVenvTestListener(BaseActionListener):
         self._include_vector_search = include_vector_search
         self._include_audio = include_audio
 
-    def on_action_performed(self, rEvent) -> None:
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.scripting.native_binaries import ensure_downloaded_audio_on_path
         from plugin.scripting.payload_codec import host_cython_status_line
         from plugin.scripting.venv_diagnostics import probe_venv_path_with_progress
@@ -175,7 +175,7 @@ class ScriptingVenvTestListener(BaseActionListener):
         path_ctrl = get_optional(self._dlg, "scripting__python_venv_path")
         raw = get_control_text(path_ctrl) if path_ctrl else ""
 
-        def probe(on_display, on_status):
+        def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]):
             return probe_venv_path_with_progress(
                 raw,
                 on_display,

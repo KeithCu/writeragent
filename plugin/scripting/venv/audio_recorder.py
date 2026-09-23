@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 import threading
 import wave
-from typing import Callable
+from typing import Any, Callable
 
 from plugin.scripting.audio_silence_detector import SilenceDetector, SilenceDetectorConfig
 
@@ -58,7 +58,7 @@ def record_to_wav(
     wav_file = None
     stream = None
 
-    def callback(indata, frames, time_info, status):
+    def callback(indata: Any, frames: int, time_info: Any, status: Any):
         nonlocal auto_stopped
         if status:
             print(status, file=sys.stderr)

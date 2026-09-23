@@ -26,7 +26,7 @@ IS_WORKER = os.environ.get("WRITERAGENT_IS_WORKER") == "1"
 _lock = threading.Lock()
 
 
-def _rpc_call(tool_name: str, **kwargs) -> dict:
+def _rpc_call(tool_name: str, **kwargs: Any) -> dict:
     """Send a tool call to the LibreOffice host and block for the result."""
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
     if not IS_WORKER:
