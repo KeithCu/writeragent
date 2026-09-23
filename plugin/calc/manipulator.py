@@ -542,7 +542,7 @@ class CellManipulator:
         ``kind`` (formula|forced_text|temporal|number|text|empty),
         ``input_category``, ``detected_key``, ``restore_format`` (S29).
         """
-        meta: dict = {"kind": "empty", "input_category": None, "detected_key": None, "restore_format": False}
+        meta: dict[str, Any] = {"kind": "empty", "input_category": None, "detected_key": None, "restore_format": False}
 
         if value is None:
             return "", "", meta
@@ -802,15 +802,15 @@ class CellManipulator:
             formatter = self._make_number_formatter(doc) if needs_formatter else None
             elapsed_format_key = self._resolve_elapsed_format_key(formats, locale) if needs_duration else None
 
-            data_array: list[list] = []
+            data_array: list[list[Any]] = []
             formula_cells: list[tuple[int, int, str]] = []  # (col, row, formula)
             # Per-cell meta in row-major order matching values
-            cell_metas: list[dict] = []
+            cell_metas: list[dict[str, Any]] = []
             counts = {"date": 0, "time": 0, "datetime": 0, "duration": 0, "text": 0, "formula": 0, "number": 0}
 
             cell_idx = 0
             for row in range(start[1], end[1] + 1):
-                data_row: list = []
+                data_row: list[Any] = []
                 for col in range(start[0], end[0] + 1):
                     data_val, formula, meta = self._classify_write_cell(values[cell_idx], formatter, std_key, elapsed_format_key=elapsed_format_key)
                     if formula:

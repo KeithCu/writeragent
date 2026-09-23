@@ -341,7 +341,7 @@ class ReadCellRange(ToolBase):
             return {"status": "ok", "result": [item["result"][0] for item in results]}
         return {"status": "ok", "result": results}
 
-    def _read_one(self, bridge: Any, inspector: Any, range_name: str) -> dict:
+    def _read_one(self, bridge: Any, inspector: Any, range_name: str) -> dict[str, Any]:
         """Read one range; preview-only when the full grid would swamp chat context."""
         preview = _preview_if_large(bridge, range_name)
         if preview is None:

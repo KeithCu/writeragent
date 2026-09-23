@@ -116,7 +116,7 @@ def distribute_boxes(boxes: Sequence[Box], axis: str) -> list[Box]:
 
 
 def diagram_node_boxes(
-    nodes: Sequence[dict],
+    nodes: Sequence[dict[str, Any]],
     layout: str,
     page_width: int = 28000,
     page_height: int = 15750,
@@ -134,7 +134,7 @@ def diagram_node_boxes(
     if n == 0:
         return []
 
-    def size_of(node: dict) -> tuple[int, int]:
+    def size_of(node: dict[str, Any]) -> tuple[int, int]:
         w = int(node.get("width") or default_width)
         h = int(node.get("height") or default_height)
         return w, h

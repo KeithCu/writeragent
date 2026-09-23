@@ -27,7 +27,7 @@ def to_r1c1(formula: str, cell_addr: str) -> str:
     except ValueError:
         return formula
 
-    def replace_ref(match: re.Match) -> str:
+    def replace_ref(match: re.Match[str]) -> str:
         col_abs = bool(match.group(1))
         col_str = match.group(2).upper()
         row_abs = bool(match.group(3))
@@ -68,7 +68,7 @@ def r1c1_to_a1(r1c1_formula: str, cell_addr: str) -> str:
     except ValueError:
         return r1c1_formula
 
-    def replace_r1c1(match: re.Match) -> str:
+    def replace_r1c1(match: re.Match[str]) -> str:
         r_abs = match.group(1)
         r_rel = match.group(2)
         c_abs = match.group(3)

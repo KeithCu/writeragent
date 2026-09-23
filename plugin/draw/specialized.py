@@ -19,11 +19,14 @@
 from __future__ import annotations
 
 import logging
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar, Type
 
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.base import ToolDrawSpecialBase
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolBase
 
 log = logging.getLogger("writeragent.draw")
 
@@ -43,5 +46,5 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     )
 
     uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    _special_base_class: ClassVar[type] = ToolDrawSpecialBase
+    _special_base_class: ClassVar[Type[ToolBase]] = ToolDrawSpecialBase  # type: ignore[type-abstract]
     _agent_label: ClassVar[str] = "Draw"

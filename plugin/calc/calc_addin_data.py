@@ -287,7 +287,7 @@ def check_python_data_size(
     return None
 
 
-def values_from_inspector_range(range_data: list[list[dict]]) -> list[list[Any]]:
+def values_from_inspector_range(range_data: list[list[dict[str, Any]]]) -> list[list[Any]]:
     """Strip ``CellInspector.read_range`` dicts to a rectangular 2D value grid."""
     grid = [[cell.get("value") for cell in row] for row in range_data]
     return ensure_rectangular_2d(grid)

@@ -135,7 +135,7 @@ class CellInspector:
             cache[key] = (category, str(format_code) if format_code is not None else None)
         return cache[key]
 
-    def _enrich_cell_format(self, info: dict, cell: Any) -> None:
+    def _enrich_cell_format(self, info: dict[str, Any], cell: Any) -> None:
         """Rewrite LLM-facing date/time/duration cells to ISO in ``value``.
 
         Only used when ``include_format_info=True`` (tool path). Internal
@@ -168,7 +168,7 @@ class CellInspector:
         # when these exist — getUniqueCellFormatRanges still covers date-formatted formulas.
         # queryContentCells usually returns an empty XSheetCellRanges, not None; treat any
         # UNO failure like "no date constants" and continue to the formula / format-group path.
-        date_addresses: tuple = ()
+        date_addresses: tuple[Any, ...] = ()
         try:
             date_cells = cell_range.queryContentCells(_CELL_FLAG_DATETIME)
             if date_cells is not None:
@@ -207,7 +207,7 @@ class CellInspector:
         return rows, null_date
 
     @staticmethod
-    def _category_for_position(format_rows: dict[int, list[tuple]], row: int, col: int) -> str | None:
+    def _category_for_position(format_rows: dict[int, list[tuple[int, int, str, str | None]]], row: int, col: int) -> str | None:
         for span in format_rows.get(row, ()):
             start_col, end_col, category = span[0], span[1], span[2]
             if start_col <= col <= end_col:
@@ -215,7 +215,7 @@ class CellInspector:
         return None
 
     @staticmethod
-    def _format_code_for_position(format_rows: dict[int, list[tuple]], row: int, col: int) -> str | None:
+    def _format_code_for_position(format_rows: dict[int, list[tuple[int, int, str, str | None]]], row: int, col: int) -> str | None:
         for span in format_rows.get(row, ()):
             if len(span) < 4:
                 continue
@@ -226,7 +226,7 @@ class CellInspector:
 
     # ── Public API ─────────────────────────────────────────────────────
 
-    def read_cell(self, address: str, *, include_format_info: bool = False) -> dict:
+    def read_cell(self, address: str, *, include_format_info: bool = False) -> dict[str, Any]:
         """Read basic cell information.
 
         Args:
@@ -271,7 +271,7 @@ class CellInspector:
             log.exception("Cell reading failed for %s", address)
             raise ToolExecutionError(str(e)) from e
 
-    def get_cell_details(self, address: str) -> dict:
+    def get_cell_details(self, address: str) -> dict[str, Any]:
         """Return all detailed cell information.
 
         Args:
@@ -324,7 +324,7 @@ class CellInspector:
             log.exception("Cell detailed reading failed for %s", address)
             raise ToolExecutionError(str(e)) from e
 
-    def read_range(self, range_name: str, *, include_format_info: bool = False) -> list[list[dict]]:
+    def read_range(self, range_name: str, *, include_format_info: bool = False) -> list[list[dict[str, Any]]]:
         """Read values and formulas in a cell range.
 
         Args:
@@ -410,7 +410,7 @@ class CellInspector:
             log.exception("Range reading failed for %s", range_name)
             raise ToolExecutionError(str(e)) from e
 
-    def get_all_formulas(self, sheet_name: str | None = None) -> list[dict]:
+    def get_all_formulas(self, sheet_name: str | None = None) -> list[dict[str, Any]]:
         """List all formulas in a sheet.
 
         Args:

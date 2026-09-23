@@ -42,7 +42,7 @@ class SheetAnalyzer:
         """
         self.bridge = bridge
 
-    def get_sheet_summary(self, sheet_name: str | None = None) -> dict:
+    def get_sheet_summary(self, sheet_name: str | None = None) -> dict[str, Any]:
         """Return a general summary of the active or specified sheet.
 
         Args:

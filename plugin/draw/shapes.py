@@ -718,7 +718,7 @@ class UpsertShape(ToolDrawShapeBase):
 
             log.debug("shape_upsert (create): page=%s shape=%s shape_type=%s is_custom=%s geometry_applied=%s", page_index, shape_index, shape_type_raw, is_custom_shape, geometry_applied)
 
-            result: dict = {"status": "ok", "message": f"Created {shape_type_raw}", "index": shape_index, "page": page_index, "shape_count_after": shape_count_after}
+            result: dict[str, Any] = {"status": "ok", "message": f"Created {shape_type_raw}", "index": shape_index, "page": page_index, "shape_count_after": shape_count_after}
             if is_custom_shape:
                 result["custom_shape_engine"] = _ENHANCED_CUSTOM_SHAPE_ENGINE
                 result["geometry_applied"] = bool(geometry_applied)

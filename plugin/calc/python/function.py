@@ -58,7 +58,7 @@ log = logging.getLogger(__name__)
 # recals would collide. Two formulas with the same code but different data must
 # stay on separate sessions (see tests/calc/python/test_function.py).
 _MATRIX_SCALAR_SESSIONS_LOCK = threading.Lock()
-_MATRIX_SCALAR_SESSIONS: dict[tuple[int, tuple, str], WorkerResultSession] = {}
+_MATRIX_SCALAR_SESSIONS: dict[tuple[int, tuple[str, ...], str], WorkerResultSession] = {}
 
 
 # Recalc-clump timings for DEBUG ``py_timing`` lines (not asctime deltas).
@@ -69,21 +69,21 @@ _PY_PASS_GAP_SEC = 2.0
 _PY_HELPER_IN_SPEC_RE = re.compile(r"""["']helper["']\s*:\s*["'](\w+)["']""")
 
 
-def flatten_result_values(result: Any) -> list:
+def flatten_result_values(result: Any) -> list[Any]:
     """Row-major flattening for list / nested list worker results."""
     if not isinstance(result, (list, tuple)):
         return [result]
     if not result:
         return []
     if isinstance(result[0], (list, tuple)):
-        flat: list = []
+        flat: list[Any] = []
         for row in result:
             flat.extend(row)
         return flat
     return list(result)
 
 
-def is_scalar_index_arg(py_data: list | list[list] | None) -> bool:
+def is_scalar_index_arg(py_data: list[Any] | list[list[Any]] | None) -> bool:
     """True when arg 1 is one number (matrix index), not a data range."""
     if py_data is None:
         return False
@@ -132,7 +132,7 @@ def _calc_iso_datetime(dt: datetime.datetime) -> str:
     return dt.isoformat()
 
 
-def to_calc_compatible(val: Any) -> float | str | tuple:
+def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
     """Recursively convert Python values into LibreOffice Calc supported types.
 
     Calc cells and matrix formulas only support float (UNO double) and str (UNO string).
@@ -269,7 +269,7 @@ def _get_calc_doc(ctx: Any) -> Any | None:
     return None
 
 
-def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple:
+def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     # Bugfix (#402, #411): Include workbook session_id in key so unsaved documents
     # (where doc_url="") do not collide in the in-memory formula result cache.
     # Do not use getActiveSheet(): full recalc's active sheet is not the formula cell
@@ -312,7 +312,7 @@ class WorkerResultSession:
 
     __slots__ = ("raw", "flat", "next_index")
 
-    def __init__(self, raw: Any, flat: list) -> None:
+    def __init__(self, raw: Any, flat: list[Any]) -> None:
         self.raw = raw
         self.flat = tuple(flat)
         self.next_index = 0
@@ -327,7 +327,7 @@ def scalar_for_list_result(
     doc: Any | None = None,
 ) -> float | str | bool:
     """Return one Calc scalar per invocation when the worker produced a list."""
-    flat: list = [to_calc_compatible(v) for v in flatten_result_values(result)]
+    flat: list[Any] = [to_calc_compatible(v) for v in flatten_result_values(result)]
     if not flat:
         return ""
     tid = threading.get_ident()
@@ -821,7 +821,7 @@ def perform_deferred_spill(
         log.exception("Error in perform_deferred_spill")
 
 
-def _result_as_spill_grid(result: list | tuple) -> list[list[Any]]:
+def _result_as_spill_grid(result: list[Any] | tuple[Any, ...]) -> list[list[Any]]:
     """Normalize a 1D list or 2D list-of-lists into a rectangular spill grid."""
     first_elem = result[0]
     if isinstance(first_elem, (list, tuple)):
@@ -1060,7 +1060,7 @@ def finalize_python_return(
     index_arg: Any = None,
     worker_data: Any = None,
     doc: Any | None = None,
-) -> float | str | bool | tuple:
+) -> float | str | bool | tuple[Any, ...]:
     """Map worker result to a single value Calc's add-in bridge accepts."""
     # Worker egress (payload_codec.child_pack_result + host_unpack_data) always yields plain
     # lists/scalars on the host — NumPy lives only in the venv subprocess, not in LO's Python.

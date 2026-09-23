@@ -101,7 +101,7 @@ class ErrorDetector:
         self.ctx = ctx
 
     @staticmethod
-    def get_error_type(cell: Any) -> dict:
+    def get_error_type(cell: Any) -> dict[str, Any]:
         """Determine the error type of a cell.
 
         Args:
@@ -128,7 +128,7 @@ class ErrorDetector:
                 log.debug("Explain error getString exception: %s", e2)
             return {}
 
-    def detect_errors(self, range_str: str | None = None) -> list:
+    def detect_errors(self, range_str: str | None = None) -> list[dict[str, Any]]:
         """Detect errors in the specified range or the entire sheet.
 
         Args:
@@ -181,7 +181,7 @@ class ErrorDetector:
             log.exception("Error detection failed")
             raise ToolExecutionError(str(e)) from e
 
-    def explain_error(self, address: str) -> dict:
+    def explain_error(self, address: str) -> dict[str, Any]:
         """Explain the error in the specified cell in detail.
 
         Args:
@@ -238,7 +238,7 @@ class ErrorDetector:
             log.exception("Error explanation failed for %s", address)
             raise ToolExecutionError(str(e)) from e
 
-    def detect_and_explain(self, range_str: str | None = None) -> dict:
+    def detect_and_explain(self, range_str: str | None = None) -> dict[str, Any]:
         """Detect formula errors in a range and return them with explanations.
 
         Args:
@@ -263,7 +263,7 @@ class ErrorDetector:
         return {"range": range_str or "used_area", "error_count": len(detailed), "errors": detailed}
 
     @staticmethod
-    def _generate_suggestion(error_info: dict, precedents: list) -> str:
+    def _generate_suggestion(error_info: dict[str, Any], precedents: list[dict[str, Any]]) -> str:
         """Generate a fix suggestion based on error type and precedent cells."""
         code = error_info.get("code", "")
 
