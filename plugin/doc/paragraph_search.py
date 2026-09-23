@@ -85,7 +85,9 @@ def get_paragraph_ranges(model: Any) -> list[Any]:
     return ranges
 
 
-def find_paragraph_for_range(match_range: Any, para_ranges: list[Any], text_obj: Any | None = None) -> int:
+def find_paragraph_for_range(match_range: Any, para_ranges: list[Any], text_obj: Any = None) -> int:
+    # text_obj is Any (not Any | None): None is a valid default, but typing it
+    # optional made basedpyright treat compareRegionStarts as optional access.
     """Return the 0-based paragraph index that contains match_range."""
     try:
         if text_obj is None:

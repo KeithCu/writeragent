@@ -571,12 +571,12 @@ def _writer_excerpt_overlaps_selection(
     return True
 
 
-def _writer_selection_overlaps_windows(
+def _writer_selection_overlaps_windows(  # pyright: ignore[reportUnusedFunction]
     model: Any,
     windows: list[tuple[int, int]],
     sel_start_pos: Any,
     sel_end_pos: Any,
-) -> bool:  # pyright: ignore[reportUnusedFunction]
+) -> bool:
     for win_start, win_end in windows:
         if _writer_excerpt_overlaps_selection(model, win_start, win_end, sel_start_pos, sel_end_pos):
             return True
