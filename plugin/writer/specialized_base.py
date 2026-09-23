@@ -111,7 +111,8 @@ class ToolWriterImageBase(ToolWriterSpecialBase, ToolDrawImageBase):
         "generate new images, or edit a selected image with image_generate(source_image='selection')."
     )
     intent: str | None = "media"
-    uno_services: list = SHAPE_TOOL_UNO_SERVICES
+    # Draw parent infers list from an unannotated assignment; keep ToolBase's list | None.
+    uno_services: list | None = SHAPE_TOOL_UNO_SERVICES  # type: ignore[assignment]
 
 
 class ToolWriterVisionBase(ToolWriterSpecialBase):
@@ -165,7 +166,7 @@ class ToolWriterCommentBase(ToolWriterSpecialBase):
 class WriterAgentSpecialTracking(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "tracking"
     specialized_domain_description: ClassVar[str | None] = "Manage and review tracked changes (redlines) in the document."
-    intent: str = "review"
+    intent: str | None = "review"
 
 
 class ToolWriterBookmarkBase(ToolWriterSpecialBase):
@@ -185,7 +186,8 @@ class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):
     specialized_domain: ClassVar[str | None] = "tables"
     specialized_domain_description: ClassVar[str | None] = "Read and edit table structure and cell contents (rows, columns, cells)."
     intent: str | None = "edit"
-    uno_services: list = [
+    # Draw parent infers list from an unannotated assignment; keep ToolBase's list | None.
+    uno_services: list | None = [  # type: ignore[assignment]
         "com.sun.star.text.TextDocument",
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
@@ -205,8 +207,9 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
     # Same key on both ToolWriterSpecialBase / ToolCalcSpecialBase; explicit ClassVar for checkers.
     specialized_domain: ClassVar[str | None] = "forms"
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
-    intent: str = "edit"
-    uno_services: list = ["com.sun.star.text.TextDocument"]
+    # Calc/Draw parents infer str/list from unannotated assignments; keep ToolBase types.
+    intent: str | None = "edit"  # type: ignore[assignment]
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]  # type: ignore[assignment]
 
 
 class ToolWriterWebResearchBase(ToolWriterSpecialBase):

@@ -203,7 +203,7 @@ class FormCreateControl(ToolWriterFormBase):
     """Creates a single interactive form control at the current cursor position."""
 
     name: str | None = "form_create_control"
-    uno_services: list = _FORM_DOC_SERVICES
+    uno_services: list | None = _FORM_DOC_SERVICES
     description: str = (
         "Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, or button) "
         "because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. "
@@ -308,7 +308,7 @@ class FormCreate(ToolWriterFormBase):
     """Fat API: Creates multiple form controls at once."""
 
     name: str | None = "form_create"
-    uno_services: list = _FORM_DOC_SERVICES
+    uno_services: list | None = _FORM_DOC_SERVICES
     description: str = (
         "Create several live form widgets in one call (Writer/Calc/Draw/Impress). "
         "Use this for interactive ControlShapes, not to fill empty paper-form text boxes."
@@ -365,7 +365,7 @@ class FormGenerate(ToolWriterFormBase):
     """Thin API: Generates a form from a description using a specialized internal prompt."""
 
     name: str | None = "form_generate"
-    uno_services: list = _FORM_DOC_SERVICES
+    uno_services: list | None = _FORM_DOC_SERVICES
     description: str = (
         "Generate a layout with interactive form widgets from a description. "
         "Writer: HTML at the cursor. Calc: plain text in the active cell area; widgets on the sheet draw page. "
@@ -471,7 +471,7 @@ class FormListControls(ToolWriterFormBase):
     """Lists all interactive form controls in the document."""
 
     name: str | None = "form_list_controls"
-    uno_services: list = _FORM_DOC_SERVICES
+    uno_services: list | None = _FORM_DOC_SERVICES
     description: str = (
         "List live form widgets (ControlShapes) with name, type, current text/State, and draw-page index "
         "so you can edit or delete by name. Writer: document draw page. Calc: active sheet only. "
@@ -525,7 +525,7 @@ class FormEditControl(ToolWriterFormBase):
     """Modifies properties of an existing form control."""
 
     name: str | None = "form_edit_control"
-    uno_services: list = _FORM_DOC_SERVICES
+    uno_services: list | None = _FORM_DOC_SERVICES
     description: str = (
         "Edit a live form widget by name (preferred) or draw-page index from form_list_controls. "
         "Set checkbox/radio State (0/1/2 or yes/no) and text-field Text. Writer/Calc/Draw/Impress. "
@@ -600,7 +600,7 @@ class FormDeleteControl(ToolWriterFormBase):
     """Deletes a form control by its index."""
 
     name: str | None = "form_delete_control"
-    uno_services: list = _FORM_DOC_SERVICES
+    uno_services: list | None = _FORM_DOC_SERVICES
     description: str = (
         "Delete a live form widget by name (preferred) or draw-page index. "
         "Writer/Calc/Draw/Impress. Index shifts when non-controls sit between widgets."

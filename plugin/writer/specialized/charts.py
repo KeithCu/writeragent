@@ -39,4 +39,5 @@ _ALL_CHART_DOCS = [
 
 
 class ManageCharts(CalcManageCharts, ToolWriterChartBase):  # type: ignore[misc]
-    uno_services: list = _ALL_CHART_DOCS
+    # Calc parent infers list from an unannotated assignment; keep ToolBase's list | None.
+    uno_services: list | None = _ALL_CHART_DOCS  # type: ignore[assignment]
