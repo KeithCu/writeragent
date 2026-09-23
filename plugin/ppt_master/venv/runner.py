@@ -235,7 +235,7 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
 
     final_ans = None
-    run_stream = cast(Iterable[Any], agent.run(task, stream=True))
+    run_stream = cast("Iterable[Any]", agent.run(task, stream=True))
     for step in run_stream:
         if isinstance(step, ToolCall):
             emit_worker_event({"kind": "tool", "name": step.name, "arguments": str(step.arguments)[:500]})

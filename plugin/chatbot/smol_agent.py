@@ -238,7 +238,7 @@ class SmolAgentExecutor:
             ToolExecutionError: If the task is stopped by the user or an error occurs.
         """
         final_ans = None
-        stream_iter = iter(cast(Iterable[Any], agent.run(task, stream=True)))
+        stream_iter = iter(cast("Iterable[Any]", agent.run(task, stream=True)))
 
         while True:
             self._abort_if_stopped(agent)
