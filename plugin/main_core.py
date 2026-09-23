@@ -66,7 +66,7 @@ def _register_librepy_handlers() -> None:
     register_common_handlers()
 
 
-def bootstrap(ctx=None) -> None:
+def bootstrap(ctx: Any | None = None) -> None:
     global _initialized
     if _initialized:
         return
@@ -155,10 +155,10 @@ def _dispatch_command(command: str, ctx: Any | None = None) -> None:
 
 
 class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
-    def __init__(self, ctx) -> None:
+    def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
 
-    def execute(self, Arguments) -> tuple[()]:
+    def execute(self, Arguments: Any) -> tuple[()]:
         try:
             init_logging(self.ctx)
             bootstrap(self.ctx)
@@ -167,7 +167,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             log.exception("LibrePy bootstrap failed: %s", e)
         return ()
 
-    def trigger(self, Event) -> None:
+    def trigger(self, Event: str) -> None:
         try:
             init_logging(self.ctx)
             bootstrap(self.ctx)
@@ -184,10 +184,10 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
     IMPL_NAME = f"{EXTENSION_ID}.DispatchHandler"
     SERVICE_NAMES = ("com.sun.star.frame.ProtocolHandler",)
 
-    def __init__(self, ctx) -> None:
+    def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
 
-    def initialize(self, aArguments) -> None:
+    def initialize(self, aArguments: Any) -> None:
         pass
 
     def getImplementationName(self) -> str:
@@ -208,7 +208,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
     def queryDispatches(self, Requests: tuple[DispatchDescriptor, ...]) -> tuple[XDispatch, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
         return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in Requests)
 
-    def dispatch(self, URL, Arguments) -> None:
+    def dispatch(self, URL: UnoURL, Arguments: Any) -> None:
         command = dispatch_command_from_url(URL)
         try:
             init_logging(self.ctx)
@@ -227,10 +227,10 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
 
             msgbox(self.ctx, _("Dispatch Error"), _(str(e)), box_type=3)
 
-    def addStatusListener(self, Control, URL) -> None:
+    def addStatusListener(self, Control: Any, URL: UnoURL) -> None:
         pass
 
-    def removeStatusListener(self, Control, URL) -> None:
+    def removeStatusListener(self, Control: Any, URL: UnoURL) -> None:
         pass
 
 

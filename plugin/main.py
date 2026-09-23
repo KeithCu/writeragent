@@ -51,7 +51,7 @@ except Exception:
     pass
 
 import unohelper
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -110,7 +110,7 @@ _modules: list[ModuleBase] = []
 _init_lock = threading.Lock()
 _initialized = False
 
-def _schedule_extension_update_check_once(ctx):  # pyright: ignore[reportUnusedFunction]  # called from panel_wiring after sidebar init
+def _schedule_extension_update_check_once(ctx: Any):  # pyright: ignore[reportUnusedFunction]  # called from panel_wiring after sidebar init
     """Run weekly update check at most once per process per product, after init_logging."""
     from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
 
@@ -132,7 +132,7 @@ def get_tools() -> ToolRegistry:
     return _tools
 
 
-def bootstrap(ctx=None):
+def bootstrap(ctx: Any | None = None):
     """Bootstraps the service container and modules.
 
     This is currently triggered eagerly by Jobs.xcu on OnStartApp to ensure the
@@ -297,7 +297,7 @@ def _register_core_handlers():
 
     register_action_handler("embeddings", "search_dialog", _open_search_dialog)
 
-    def _refresh_review_toolbar(model):
+    def _refresh_review_toolbar(model: Any):
         """Re-evaluate the review toolbar's visibility (hide once nothing is left to review).
         Also a catch-up point if changes were resolved via LibreOffice's native UI."""
         try:
@@ -307,7 +307,7 @@ def _register_core_handlers():
         except Exception:
             logging.getLogger("writeragent.main").debug("review toolbar refresh failed", exc_info=True)
 
-    def _resolve_change_at_cursor(accept):
+    def _resolve_change_at_cursor(accept: bool):
         from plugin.framework.uno_context import get_active_document
         from plugin.writer.inline_review import resolve_change_at_cursor, show_review_message
 
@@ -325,7 +325,7 @@ def _register_core_handlers():
     register_action_handler("writer", "accept_change", lambda: _resolve_change_at_cursor(True))
     register_action_handler("writer", "reject_change", lambda: _resolve_change_at_cursor(False))
 
-    def _resolve_all_agent(accept):
+    def _resolve_all_agent(accept: bool):
         from plugin.framework.uno_context import get_active_document
         from plugin.writer.inline_review import resolve_all_with_feedback, show_review_message
 
@@ -340,7 +340,7 @@ def _register_core_handlers():
     register_action_handler("writer", "review_accept_all", lambda: _resolve_all_agent(True))
     register_action_handler("writer", "review_reject_all", lambda: _resolve_all_agent(False))
 
-    def _goto_adjacent_change(forward):
+    def _goto_adjacent_change(forward: bool):
         """Fast-travel (#2): move the cursor to the next/previous pending agent change, in document
         order, cycling. Drives the review toolbar's Next/Previous buttons (and any shortcut)."""
         from plugin.framework.uno_context import get_active_document
@@ -410,7 +410,7 @@ def _show_tests_unavailable(test_name: str) -> None:
 
 
 
-def _run_test_suite(test_func, doc_checker, test_name):
+def _run_test_suite(test_func: Any, doc_checker: Callable[[Any], bool], test_name: str):
     """Run a bundled in-OXT test suite on the UI thread and show the result.
 
     Must not use ``run_blocking_in_thread``: synchronous UNO tools reject calls from
@@ -448,7 +448,7 @@ def _run_test_suite(test_func, doc_checker, test_name):
 _NOTEBOOK_RUN_CELL_PREFIX = "notebook.run_cell."
 
 
-def _dispatch_command(command):
+def _dispatch_command(command: str):
     """Dispatch command using handler registry, falling back to module actions."""
     bootstrap()
     if command.startswith("chatbot.debug_sidebar"):
@@ -497,7 +497,7 @@ def _dispatch_command(command):
     log.warning("No handler or module found for command: %s", command)
 
 
-def get_menu_text(command):
+def get_menu_text(command: str):
     """Get dynamic menu text for a command, or None for default."""
     bootstrap()
     dot = command.find(".")
@@ -605,7 +605,7 @@ def notify_menu_update():
         run_in_background(_update_menu_icons)
 
 
-def _fire_status_event(listener, url, text):
+def _fire_status_event(listener: Any, url: Any, text: str | None):
     """Send a FeatureStateEvent to one listener."""
     import typing
 
@@ -632,7 +632,7 @@ def _fire_status_event(listener, url, text):
 _IMAGE_MANAGER_MODULES = ("com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.presentation.PresentationDocument", "com.sun.star.drawing.DrawingDocument")
 
 
-def _get_menu_icon(command):
+def _get_menu_icon(command: str):
     """Get dynamic icon prefix for a command, or None."""
     bootstrap()
     dot = command.find(".")
@@ -670,7 +670,7 @@ def _collect_icon_commands():
     return result
 
 
-def _load_icon_graphic(module_name, icon_filename, ctx=None):
+def _load_icon_graphic(module_name: str, icon_filename: str, ctx: Any | None = None):
     """Load a PNG icon from OXT assets/ as XGraphic."""
     try:
         from com.sun.star.beans import PropertyValue
@@ -798,14 +798,14 @@ def _update_menu_icons():
 # Bootstrapper replaces the previous monolithic MainJob.
 # It acts as an OnStartApp hook (triggered on office startup) and a proxy for legacy toolbar triggers.
 class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
-    def __init__(self, ctx):
+    def __init__(self, ctx: Any):
         self.ctx = ctx
         try:
             self.sm = ctx.getServiceManager()
         except NameError:
             self.sm = ctx.ServiceManager
 
-    def execute(self, Arguments):
+    def execute(self, Arguments: Any):
         """Called by the Jobs framework on OnStartApp."""
         try:
             from plugin.framework.config import init_config
@@ -829,7 +829,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             log.warning("[grammar] OnStartApp: could not load or run grammar proofreader bootstrap: %s", e, exc_info=True)
         return ()
 
-    def trigger(self, Event):
+    def trigger(self, Event: str):
         init_logging(self.ctx)
 
         args = Event
@@ -856,7 +856,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         elif doc_type == DocumentType.CALC:
             self._handle_calc_actions(args, model)
 
-    def _handle_framework_actions(self, args):
+    def _handle_framework_actions(self, args: str):
         framework_args = ("ToggleMCPServer", "MCPStatus", "TestTypes", "RunFormatTests", "RunCalcTests", "RunDrawTests", "RunCalcIntegrationTests", "EvaluationDashboard", "NoOp")
         if args not in framework_args:
             return False
@@ -869,15 +869,15 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             _dispatch_command("main." + args)
         return True
 
-    def _handle_writer_actions(self, args, model):
+    def _handle_writer_actions(self, args: str, model: Any):
         if args in ("ExtendSelection", "EditSelection"):
             self._handle_selection_action(args, model)
 
-    def _handle_calc_actions(self, args, model):
+    def _handle_calc_actions(self, args: str, model: Any):
         if args in ("ExtendSelection", "EditSelection"):
             self._handle_selection_action(args, model)
 
-    def _handle_selection_action(self, args, model):
+    def _handle_selection_action(self, args: str, model: Any):
         from plugin.chatbot.dialog_views import input_box
         from plugin.chatbot.selection import do_selection_action_for_document
 
@@ -916,12 +916,12 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
     IMPL_NAME = f"{EXTENSION_ID}.DispatchHandler"
     SERVICE_NAMES = ("com.sun.star.frame.ProtocolHandler",)
 
-    def __init__(self, ctx):
+    def __init__(self, ctx: Any):
         self.ctx = ctx
 
     # ── XInitialization ──────────────────────────────────────────
 
-    def initialize(self, aArguments):
+    def initialize(self, aArguments: Any):
         pass
 
     # ── XServiceInfo ─────────────────────────────────────────────
@@ -929,7 +929,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
     def getImplementationName(self):
         return self.IMPL_NAME
 
-    def supportsService(self, ServiceName):
+    def supportsService(self, ServiceName: str):
         return ServiceName in self.SERVICE_NAMES
 
     def getSupportedServiceNames(self):
@@ -949,7 +949,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
 
     # ── XDispatch ────────────────────────────────────────────────
 
-    def dispatch(self, URL, Arguments):
+    def dispatch(self, URL: UnoURL, Arguments: Any):
         url = URL
         command = url.Path
         # Packet G: ``org.extension.writeragent:chatbot.debug_sidebar?RECORD_CLICKED``.
@@ -983,7 +983,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
                 report_extra=str(e),
             )
 
-    def addStatusListener(self, Control, URL):
+    def addStatusListener(self, Control: Any, URL: UnoURL):
         listener = Control
         url = URL
         with _status_lock:
@@ -997,7 +997,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             except Exception as e:
                 log.warning("addStatusListener: failed to fire initial status event for %s: %s", command, e)
 
-    def removeStatusListener(self, Control, URL):
+    def removeStatusListener(self, Control: Any, URL: UnoURL):
         listener = Control
         url = URL
         with _status_lock:

@@ -1377,7 +1377,7 @@ def _bootstrap_office(officehelper_module: Any) -> Any:
 
 
 
-def native_test(func):
+def native_test(func: Any):
     """Decorator to mark a function as a test in the native test runner.
 
     Note: pytest-based runs will automatically skip/ignore these via a hook
@@ -1387,19 +1387,19 @@ def native_test(func):
     return func
 
 
-def setup(func):
+def setup(func: Any):
     """Decorator to mark a function as the setup routine for a test module."""
     func._is_setup = True
     return func
 
 
-def teardown(func):
+def teardown(func: Any):
     """Decorator to mark a function as the teardown routine for a test module."""
     func._is_teardown = True
     return func
 
 
-def _run_suite(ctx: Any, suites: List[Dict[str, Any]], name: str, module, *args) -> tuple[int, int]:
+def _run_suite(ctx: Any, suites: List[Dict[str, Any]], name: str, module: Any, *args: Any) -> tuple[int, int]:
     """Run a test module using the decorator-based native runner.
 
     Collects functions marked with @setup, @teardown, and @native_test.
@@ -1425,7 +1425,7 @@ def _mark_urp_dead(exc: BaseException, where: str) -> None:
     _progress("ABORT: URP bridge disposed at %s: %s; remaining suites skipped" % (where, exc))
 
 
-def run_module_suite(ctx, module, name, doc_model=None):
+def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None):
     """Monolithic entry point for running a test module (legacy/menu support).
     Returns (passed, failed, log).
     """
@@ -1697,12 +1697,12 @@ def run_all_tests(ctx: Any) -> str:
 
     _review_mode_override: Dict[str, Any] = {}
 
-    def test_get_config(key):
+    def test_get_config(key: str):
         if key == "doc.agent_edit_review_mode":
             return _review_mode_override.get(key, "off")
         return original_get_config(key)
 
-    def test_set_config(key, value):
+    def test_set_config(key: str, value: Any):
         if key == "doc.agent_edit_review_mode":
             _review_mode_override[key] = value
             from plugin.framework.event_bus import global_event_bus
