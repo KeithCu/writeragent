@@ -661,7 +661,7 @@ class IndexesListCites(ToolWriterIndexBase):
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
         cites: list[Any] = []
-        hf_labels: dict[str, Any] = {}
+        hf_labels: dict[int, str] = {}
         scanned = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
