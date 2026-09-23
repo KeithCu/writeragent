@@ -49,11 +49,11 @@ class ACPConnection:
         self._proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
         self._request_id = 0
-        self._pending = {}  # id -> threading.Event, response dict
+        self._pending: dict[Any, Any] = {}  # id -> threading.Event, response dict
         self._reader_thread = None
         self._stderr_drain = None
         self._running = False
-        self._notifications = []  # queue of notification dicts
+        self._notifications: list[Any] = []  # queue of notification dicts
         self._notify_callback = None
 
     def start(self):

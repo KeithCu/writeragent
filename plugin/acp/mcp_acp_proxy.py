@@ -43,10 +43,10 @@ class MCPACPProxy(AgentBackend):
     def __init__(self, ctx: Any | None = None):
         self._ctx = ctx
         self._mcp_url = ""
-        self._session_id = None
+        self._session_id: str | None = None
         self._stop_requested = False
         self._prompt_done = threading.Event()
-        self._tools_cache = None
+        self._tools_cache: List[Dict] | None = None
         self._last_tools_fetch: float = 0.0
         self._tools_cache_ttl = 300  # 5 minutes
         self._load_config()
@@ -94,9 +94,10 @@ class MCPACPProxy(AgentBackend):
 
         result = self._call_mcp("tools/list")
         if "result" in result and "tools" in result["result"]:
-            self._tools_cache = result["result"]["tools"]
+            tools: List[Dict] = result["result"]["tools"]
+            self._tools_cache = tools
             self._last_tools_fetch = current_time
-            return self._tools_cache
+            return tools
 
         log.error(f"Failed to fetch tools: {result}")
         return []
