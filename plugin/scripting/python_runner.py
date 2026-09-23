@@ -51,7 +51,7 @@ def _html_insert_text(value: Any) -> str:
     return html_mod.escape(html_mod.escape(str(value)))
 
 
-def _format_list_to_table(data: list, *, headers: list | None = None) -> str:
+def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) -> str:
     """Internal helper to convert a list (of dicts or lists) to an HTML table.
     If *headers* is provided, they are used for the thead (for dataframe egress).
     """

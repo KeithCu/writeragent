@@ -1119,7 +1119,7 @@ def _iter_split_grid_cells(
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and ((not grid) or len(r[0]) == (r[3][0] * r[3][1] if len(r[3]) == 2 else r[3][0])))
 @deal.raises(ValueError)
 def _flatten_grid_to_components(
-    grid: list
+    grid: list[Any] | list[list[Any]]
 ) -> tuple[array.array, dict[int, str], list[str], list[int]]:
     """Flatten 1D/2D grid to float64 array, strings dict, column kinds, and shape."""
     # crosshair: off
@@ -1258,7 +1258,7 @@ def _flatten_grid_to_components(
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and len(r.get("column_kinds", [])) == (0 if not grid else (r["shape"][1] if len(r["shape"]) == 2 else 1)))
 @deal.raises(ValueError)
 def host_pack_split_grid(
-    grid: list,
+    grid: list[Any] | list[list[Any]],
 ) -> dict[str, Any]:
     """Pack a 1D flat list or 2D mixed grid using Strategy 3: Split-Grid Serialization.
 
@@ -1310,7 +1310,7 @@ def host_pack_split_grid(
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) is not None)
 @deal.raises(ValueError)
 def host_pack_data(
-    grid: list,
+    grid: list[Any] | list[list[Any]],
     *,
     min_cells: int = BINARY_MIN_CELLS,
     force: ForceBinary = "auto",

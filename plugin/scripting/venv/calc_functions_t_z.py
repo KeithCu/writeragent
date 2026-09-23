@@ -344,7 +344,7 @@ def unicode(text: Any) -> float:
         return float("nan")
 
 
-def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list:
+def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[Any]:
     data = np.asarray(arr)
     if data.size == 0:
         return []

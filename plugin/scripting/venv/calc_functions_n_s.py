@@ -646,7 +646,7 @@ def small(r: Any, k: Any) -> float:
     return float(arr[ki - 1]) if 0 < ki <= len(arr) else float("nan")
 
 
-def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 1, by_col: bool = False) -> list:
+def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 1, by_col: bool = False) -> list[Any]:
     arr = np.asarray(range_arr)
     if arr.size == 0:
         return []
@@ -666,7 +666,7 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
     return arr[order].tolist()
 
 
-def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: Any) -> list:
+def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: Any) -> list[Any]:
     arr = np.asarray(range_arr)
     by = np.asarray(by_array).ravel()
     asc = int(float(sort_order)) >= 0
