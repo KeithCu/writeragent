@@ -334,7 +334,7 @@ class ToolContext:
 
     __slots__ = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "active_domain", "python_tool_domain", "read_only_target", "send_cancellation", "uno_services_supported")
 
-    def __init__(self, doc: Any, ctx: Any, doc_type: str, services: Any, caller: str = "", active_page_index: int | None = None, status_callback: Callable[[str], None] | None = None, append_thinking_callback: Callable[[str], None] | None = None, stop_checker: Callable[[], bool] | None = None, approval_callback: Callable[[str], bool] | None = None, chat_append_callback: Callable[[str], None] | None = None, set_active_domain_callback: Callable[[str | None], None] | None = None, active_domain: str | None = None, python_tool_domain: str | None = None, read_only_target: bool = False, send_cancellation: Any | None = None, uno_services_supported: frozenset[str] | None = None) -> None:
+    def __init__(self, doc: Any, ctx: Any, doc_type: str, services: Any, caller: str = "", active_page_index: int | None = None, status_callback: Any = None, append_thinking_callback: Any = None, stop_checker: Any = None, approval_callback: Any = None, chat_append_callback: Any = None, set_active_domain_callback: Any = None, active_domain: str | None = None, python_tool_domain: str | None = None, read_only_target: bool = False, send_cancellation: Any = None, uno_services_supported: Any = None) -> None:
         # crosshair: off
         self.doc = doc
         self.ctx = ctx
@@ -637,7 +637,7 @@ class ToolRegistry:
 
     def __init__(self, services: Any) -> None:
         self._services = services
-        self._tools = {}  # name -> ToolBase instance
+        self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
         self.batch_mode = False  # suppress per-tool cache invalidation
 
     # ── Registration ──────────────────────────────────────────────────
@@ -735,7 +735,7 @@ class ToolRegistry:
                 and the specialized_workflow_finished tool.
         """
         # crosshair: off
-        tools = self._tools.values()
+        tools: Any = self._tools.values()
 
         if doc_type is None and doc is not None and filter_doc_type:
             doc_type = _doc_type_str_from_doc(doc)

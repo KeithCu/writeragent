@@ -475,7 +475,7 @@ class QueueExecutor:
         self._poke_main_thread()
         return item
 
-    def _wait_for_result(self, item: _WorkItem, timeout: float) -> Any:
+    def _wait_for_result(self, item: Any, timeout: float) -> Any:
         """Wait for and return result from main thread."""
         if not item.event.wait(timeout):
             # Atomically cancel only if process_queue hasn't already claimed

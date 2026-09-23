@@ -103,7 +103,7 @@ class ServiceRegistry:
     def __init__(self) -> None:
         self._services: dict[str, Any] = {}
 
-    def register(self, name: str, instance: Any) -> None:
+    def register(self, name: Any, instance: Any) -> None:
         """Register an arbitrary object as a named service."""
         if name in self._services:
             raise ValueError(f"Service already registered: {name}")

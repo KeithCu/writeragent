@@ -97,7 +97,7 @@ class EventBus:
 
         if weak:
             if hasattr(callback, "__self__"):
-                ref = weakref.WeakMethod(callback, lambda r: self._cleanup(event, r))
+                ref: Any = weakref.WeakMethod(callback, lambda r: self._cleanup(event, r))
                 self._subscribers[event].append((ref, True))
             else:
                 try:

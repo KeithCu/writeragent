@@ -135,7 +135,7 @@ def _resolve_config_path_from_ctx(ctx: Any) -> str:
         raise ConfigError(f"Failed to resolve config path: {e}", "CONFIG_PATH_ERROR") from e
 
 
-def init_config(ctx: Any | None = None) -> None:
+def init_config(ctx: Any | None = None):
     """Resolve and cache writeragent.json path. Idempotent; call once at bootstrap."""
     global _resolved_config_path
     if ctx is not None:
