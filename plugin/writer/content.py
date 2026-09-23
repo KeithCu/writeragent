@@ -72,14 +72,14 @@ log = logging.getLogger("writeragent.writer")
 class GetDocumentContent(ToolBase):
     """Export the document (or a portion) as formatted content."""
 
-    name = "get_document_content"
-    description = (
+    name: str | None = "get_document_content"
+    description: str = (
         "Get document (or selection/range) content. Result includes document_length. "
         "scope: full, selection, or range (requires start, end). "
         "CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> "
         "and apply_document_content of that markup recreates live Ruby portions."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "scope": {"type": "string", "enum": ["full", "selection", "range"], "description": ("Return full document (default), current selection/cursor region, or a character range (requires start and end).")},
@@ -90,8 +90,8 @@ class GetDocumentContent(ToolBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
-    tier = "core"
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from . import format as format_support
@@ -241,8 +241,8 @@ class ApplyDocumentContent(ToolBase):
       unchanged. Bookmark targets are not rewritten. See ``hyperlink_fixup``.
     """
 
-    name = "apply_document_content"
-    description = (
+    name: str | None = "apply_document_content"
+    description: str = (
         "Insert or replace content. "
         f"IMPORTANT: {APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT} "
         "To replace the ENTIRE document use target='full_document' with content only — "
@@ -257,7 +257,7 @@ class ApplyDocumentContent(ToolBase):
         "to set a different target on that one link, including when content equals "
         "old_content and only the URL is stale. Bookmark links are not rewritten."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "content": {"type": "array", "items": {"type": "string"}, "description": ("List of HTML fragments or plain-text fragments (one per block); shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown.")},
@@ -273,9 +273,9 @@ class ApplyDocumentContent(ToolBase):
         },
         "required": ["content"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
-    tier = "core"
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    tier: str = "core"
+    is_mutation: bool | None = True
 
     @staticmethod
     def _parse_occurrence(kwargs: Any, target: str):

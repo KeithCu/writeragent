@@ -81,13 +81,13 @@ def resolve_image_generate_is_edit(source_image: typing.Any, *, selection_availa
 class ImageGenerate(ToolWriterImageBase):
     """Generate a new image from a prompt, or edit an existing image (Img2Img)."""
 
-    name = "image_generate"
-    intent = "media"
-    description = (
+    name: str | None = "image_generate"
+    intent: str | None = "media"
+    description: str = (
         "Generate an image from a text prompt and insert it. "
         "To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected)."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "prompt": {"type": "string", "description": "Descriptive prompt for image generation or editing"},
@@ -112,8 +112,8 @@ class ImageGenerate(ToolWriterImageBase):
         },
         "required": ["prompt"],
     }
-    is_mutation = True
-    long_running = True
+    is_mutation: bool | None = True
+    long_running: bool = True
 
     def is_async(self) -> bool:
         """HTTP generation runs on the tool worker; UNO is marshalled in execute()."""
@@ -239,14 +239,14 @@ _IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), IMAGE_CACHE_DIR_NAME)
 class ImageListNearbyFiles(ToolWriterImageBase):
     """List image files in the active document's directory (images delegate only)."""
 
-    name = "image_list_nearby_files"
-    intent = "media"
-    description = (
+    name: str | None = "image_list_nearby_files"
+    intent: str | None = "media"
+    description: str = (
         "List image files (.png, .jpg, .jpeg, .gif, .webp, .bmp, .svg) in the same folder as the active document "
         "(newest first). Excludes the active file. Use returned path with image_insert or image_replace. "
         "Optional filter is a case-insensitive substring on the basename."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "filter": {"type": "string", "description": "Optional basename substring (e.g. 'logo')."},
@@ -254,7 +254,7 @@ class ImageListNearbyFiles(ToolWriterImageBase):
         "required": [],
     }
 
-    is_mutation = False
+    is_mutation: bool | None = False
 
     def is_async(self) -> bool:
         return True
@@ -276,10 +276,10 @@ class ImageListNearbyFiles(ToolWriterImageBase):
 class ImageList(ToolWriterImageBase):
     """List all images/graphic objects in the document."""
 
-    name = "image_list"
-    intent = "media"
-    description = "List all images/graphic objects in the document with name, dimensions, title, and description."
-    parameters = {"type": "object", "properties": {}, "required": []}
+    name: str | None = "image_list"
+    intent: str | None = "media"
+    description: str = "List all images/graphic objects in the document with name, dimensions, title, and description."
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
 
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any):
@@ -366,10 +366,10 @@ def _get_graphic_object(ctx: typing.Any, doc: typing.Any, image_name: str):
 class ImageGetInfo(ToolWriterImageBase):
     """Get detailed info about a specific image."""
 
-    name = "image_get_info"
-    intent = "media"
-    description = "Get detailed info about a specific image: URL, dimensions, anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index."
-    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the image (from image_list)."}}, "required": ["name"]}
+    name: str | None = "image_get_info"
+    intent: str | None = "media"
+    description: str = "Get detailed info about a specific image: URL, dimensions, anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index."
+    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the image (from image_list)."}}, "required": ["name"]}
 
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any):
@@ -535,10 +535,10 @@ def _resolve_crop_edges(kwargs: typing.Any, current: typing.Any) -> tuple[int, i
 class ImageSetProperties(ToolWriterImageBase):
     """Resize, reposition, crop, or update caption/alt-text for an image."""
 
-    name = "image_set_properties"
-    intent = "media"
-    description = "Resize, reposition, crop, or update caption/alt-text for an image. Crop trims the given millimetres off each edge (crop_*_mm); only the edges you pass change."
-    parameters = {
+    name: str | None = "image_set_properties"
+    intent: str | None = "media"
+    description: str = "Resize, reposition, crop, or update caption/alt-text for an image. Crop trims the given millimetres off each edge (crop_*_mm); only the edges you pass change."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the image (from image_list)."},
@@ -557,7 +557,7 @@ class ImageSetProperties(ToolWriterImageBase):
         "required": ["name"],
     }
 
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         image_name = kwargs.get("name", "")
@@ -652,10 +652,10 @@ class ImageSetProperties(ToolWriterImageBase):
 class ImageDownload(ToolWriterImageBase):
     """Download an image from URL to local cache."""
 
-    name = "image_download"
-    intent = "media"
-    description = "Download an image from URL to local cache. Returns local path for image_insert/image_replace."
-    parameters = {
+    name: str | None = "image_download"
+    intent: str | None = "media"
+    description: str = "Download an image from URL to local cache. Returns local path for image_insert/image_replace."
+    parameters: dict | None = {
         "type": "object",
         "properties": {"url": {"type": "string", "description": "URL of the image to download."}, "verify_ssl": {"type": "boolean", "description": "Verify SSL certificates (default: false)."}, "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."}},
         "required": ["url"],
@@ -680,9 +680,9 @@ class ImageDownload(ToolWriterImageBase):
 class ImageInsert(ToolWriterImageBase):
     """Insert an image from local path or URL into the document."""
 
-    name = "image_insert"
-    intent = "media"
-    description = (
+    name: str | None = "image_insert"
+    intent: str | None = "media"
+    description: str = (
         "Insert an image from local path or URL into the document. URLs are auto-downloaded first. "
         "For Writer letterheads, pass target='header' or 'footer' (optionally style) to insert "
         "into the page header/footer with auto-height so the logo does not overlap the body. "
@@ -693,7 +693,7 @@ class ImageInsert(ToolWriterImageBase):
         "On Draw/Impress, optional page (0-based) and x_mm/y_mm place the image; omitted x/y centers it. "
         "Sizes and positions are millimetres (not 1/100 mm)."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": ("Local file path or URL of the image to insert.")},
@@ -729,7 +729,7 @@ class ImageInsert(ToolWriterImageBase):
         "required": ["path"],
     }
 
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         image_path = kwargs.get("path", "")
@@ -820,12 +820,12 @@ class ImageInsert(ToolWriterImageBase):
 class ImageDelete(ToolWriterImageBase):
     """Delete an image from the document."""
 
-    name = "image_delete"
-    intent = "media"
-    description = "Delete an image from the document."
-    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the image to delete (from image_list)."}, "remove_frame": {"type": "boolean", "description": "Also remove the containing frame (default: true)."}}, "required": ["name"]}
+    name: str | None = "image_delete"
+    intent: str | None = "media"
+    description: str = "Delete an image from the document."
+    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the image to delete (from image_list)."}, "remove_frame": {"type": "boolean", "description": "Also remove the containing frame (default: true)."}}, "required": ["name"]}
 
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         image_name = kwargs.get("name", "")
@@ -854,10 +854,10 @@ class ImageDelete(ToolWriterImageBase):
 class ImageReplace(ToolWriterImageBase):
     """Replace an image's source file keeping position and frame."""
 
-    name = "image_replace"
-    intent = "media"
-    description = "Replace an image's source file keeping position and frame."
-    parameters = {
+    name: str | None = "image_replace"
+    intent: str | None = "media"
+    description: str = "Replace an image's source file keeping position and frame."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the image to replace (from image_list)."},
@@ -868,7 +868,7 @@ class ImageReplace(ToolWriterImageBase):
         "required": ["name", "path"],
     }
 
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         image_name = kwargs.get("name", "")

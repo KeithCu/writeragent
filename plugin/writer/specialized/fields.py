@@ -16,11 +16,11 @@ from ..target_resolver import resolve_target_cursor
 
 
 class FieldsUpdateAll(ToolWriterFieldBase):
-    name = "fields_update_all"
-    intent = "navigate"
-    description = "Refresh all text fields (dates, page numbers, cross-references). Call after changes that affect computed fields."
-    parameters = {"type": "object", "properties": {}, "required": []}
-    is_mutation = True
+    name: str | None = "fields_update_all"
+    intent: str | None = "navigate"
+    description: str = "Refresh all text fields (dates, page numbers, cross-references). Call after changes that affect computed fields."
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -39,10 +39,10 @@ class FieldsUpdateAll(ToolWriterFieldBase):
 
 
 class FieldsList(ToolWriterFieldBase):
-    name = "fields_list"
-    intent = "examine"
-    description = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
-    parameters = {"type": "object", "properties": {}, "required": []}
+    name: str | None = "fields_list"
+    intent: str | None = "examine"
+    description: str = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -118,11 +118,11 @@ class FieldsList(ToolWriterFieldBase):
 
 
 class FieldsDelete(ToolWriterFieldBase):
-    name = "fields_delete"
-    intent = "edit"
-    description = "Deletes one or more text fields from the document by their 1-based ID. Use fields_list first to obtain the IDs of the fields you wish to remove."
-    parameters = {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."}}, "required": ["ids"]}
-    is_mutation = True
+    name: str | None = "fields_delete"
+    intent: str | None = "edit"
+    description: str = "Deletes one or more text fields from the document by their 1-based ID. Use fields_list first to obtain the IDs of the fields you wish to remove."
+    parameters: dict | None = {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."}}, "required": ["ids"]}
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
         ids = kwargs.get("ids")
@@ -174,9 +174,9 @@ class FieldsDelete(ToolWriterFieldBase):
 
 
 class FieldsInsert(ToolWriterFieldBase):
-    name = "fields_insert"
-    intent = "edit"
-    description = (
+    name: str | None = "fields_insert"
+    intent: str | None = "edit"
+    description: str = (
         "Insert a text field at the specified target position. "
         "Use target='beginning', 'end', or 'selection' to insert at those positions. "
         "Use target='search' with old_content to find and replace text. "
@@ -186,7 +186,7 @@ class FieldsInsert(ToolWriterFieldBase):
         "'EmbeddedObjectCount', and 'Annotation'. Specify optional properties "
         "to configure the field."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "field": {"type": "string", "description": ("The exact name of the text field service to create, excluding the 'com.sun.star.text.textfield.' prefix. Examples: 'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount'.")},
@@ -196,7 +196,7 @@ class FieldsInsert(ToolWriterFieldBase):
         },
         "required": ["field"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
         field_type = kwargs.get("field")

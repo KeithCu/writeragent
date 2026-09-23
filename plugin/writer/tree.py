@@ -53,7 +53,7 @@ def _heading_tree_fingerprint(doc: Any) -> int | None:
 class TreeService(ServiceBase):
     """Heading tree navigation with per-document caching."""
 
-    name = "writer_tree"
+    name: str | None = "writer_tree"
 
     def __init__(self, services: Any):
         self._doc_svc = services.document

@@ -93,11 +93,11 @@ def _with_left_body_locked(doc: Any, vc: Any, scan_fn: Any):
 
 
 class SectionList(ToolWriterStructuralBase):
-    name = "section_list"
-    intent = "navigate"
-    description = "List all named sections in the document."
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
+    name: str | None = "section_list"
+    intent: str | None = "navigate"
+    description: str = "List all named sections in the document."
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc
@@ -113,12 +113,12 @@ class SectionList(ToolWriterStructuralBase):
 
 
 class NavGotoPage(ToolWriterStructuralBase):
-    name = "nav_goto_page"
-    intent = "navigate"
-    is_mutation = False
-    description = "Navigate the view cursor to a specific page."
-    parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "Page number to navigate to"}}, "required": ["page"]}
-    uno_services = ["com.sun.star.text.TextDocument"]
+    name: str | None = "nav_goto_page"
+    intent: str | None = "navigate"
+    is_mutation: bool | None = False
+    description: str = "Navigate the view cursor to a specific page."
+    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "Page number to navigate to"}}, "required": ["page"]}
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         controller = ctx.doc.getCurrentController()
@@ -128,19 +128,19 @@ class NavGotoPage(ToolWriterStructuralBase):
 
 
 class GetPageObjects(ToolBase):
-    name = "get_page_objects"
-    intent = "read"
-    description = (
+    name: str | None = "get_page_objects"
+    intent: str | None = "read"
+    description: str = (
         "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide "
         "page number, locator, or paragraph. " + PARAGRAPH_INDEX_DIRECTIVE
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {"page": {"type": "integer", "description": "1-based page number to analyze"}, "locator": {"type": "string", "description": "Locator to determine page"}, "paragraph": {"type": "integer", "description": "Paragraph index to determine page"}},
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
-    tier = "core"
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc
@@ -277,11 +277,11 @@ class GetPageObjects(ToolBase):
 class SectionRead(ToolWriterStructuralBase):
     """Read the content of a named text section."""
 
-    name = "section_read"
-    intent = "navigate"
-    description = "Read the text content of a named section. Returns the full text within the section boundaries."
-    parameters = {"type": "object", "properties": {"section": {"type": "string", "description": "Name of the section to read."}}, "required": ["section"]}
-    uno_services = ["com.sun.star.text.TextDocument"]
+    name: str | None = "section_read"
+    intent: str | None = "navigate"
+    description: str = "Read the text content of a named section. Returns the full text within the section boundaries."
+    parameters: dict | None = {"type": "object", "properties": {"section": {"type": "string", "description": "Name of the section to read."}}, "required": ["section"]}
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         section_name = kwargs.get("section", "")
@@ -333,12 +333,12 @@ def _resolve_para_index(ctx: ToolContext, kwargs: dict[str, Any]):
 class CloneHeadingBlock(ToolBaseDummy):
     """Clone an entire heading block (heading + all sub-headings + body)."""
 
-    name = "clone_heading_block"
-    intent = "edit"
-    description = "Clone an entire heading block (heading + all sub-headings + body). The clone is inserted right after the original block."
-    parameters = {"type": "object", "properties": {"locator": {"type": "string", "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction').")}, "paragraph_index": {"type": "integer", "description": "Paragraph index of the heading (0-based)."}}}
-    uno_services = ["com.sun.star.text.TextDocument"]
-    is_mutation = True
+    name: str | None = "clone_heading_block"
+    intent: str | None = "edit"
+    description: str = "Clone an entire heading block (heading + all sub-headings + body). The clone is inserted right after the original block."
+    parameters: dict | None = {"type": "object", "properties": {"locator": {"type": "string", "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction').")}, "paragraph_index": {"type": "integer", "description": "Paragraph index of the heading (0-based)."}}}
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore

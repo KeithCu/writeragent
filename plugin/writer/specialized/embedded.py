@@ -16,9 +16,9 @@ from ..target_resolver import resolve_target_cursor
 
 
 class EmbeddedInsert(ToolWriterEmbeddedBase):
-    name = "embedded_insert"
-    description = "Insert an embedded object (e.g. Calc spreadsheet) into the document. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Planned: CLSID-based insert + in-place activation."
-    parameters = {
+    name: str | None = "embedded_insert"
+    description: str = "Insert an embedded object (e.g. Calc spreadsheet) into the document. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Planned: CLSID-based insert + in-place activation."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "object_type": {"type": "string", "description": "Target type, e.g. spreadsheet, chart."},
@@ -27,7 +27,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         },
         "required": [],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
         target = kwargs.get("target", "selection")
@@ -45,10 +45,10 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
 
 
 class EmbeddedEdit(ToolWriterEmbeddedBase):
-    name = "embedded_edit"
-    description = "Activate or edit an embedded OLE object (planned)."
-    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Object name or anchor hint when available."}}, "required": []}
-    is_mutation = True
+    name: str | None = "embedded_edit"
+    description: str = "Activate or edit an embedded OLE object (planned)."
+    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Object name or anchor hint when available."}}, "required": []}
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
         return self._tool_error("embedded_edit is not implemented yet. Double-click the object in Writer.")

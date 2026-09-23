@@ -189,9 +189,9 @@ def _render_page_png(ctx: Any, doc: Any, page: int):
 
 
 class GetImage(ToolBase):
-    name = "get_image"
-    tier = "core"
-    description = (
+    name: str | None = "get_image"
+    tier: str = "core"
+    description: str = (
         "Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name "
         "from image_list / get_page_objects> for an embedded picture; selection=true for the image "
         "currently selected; or page=<n> (0-based) to render that whole PAGE as an image "
@@ -199,7 +199,7 @@ class GetImage(ToolBase):
         "here when you need to see the rendered page. Returns the picture itself, not a description. "
         "b64 is stripped from normal reads, so use this when you actually need to look."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from image_list / get_page_objects)."},
@@ -209,7 +209,7 @@ class GetImage(ToolBase):
         "required": [],
     }
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
-    uno_services = [_TEXT_DOCUMENT, _DRAW_DOCUMENT, _IMPRESS_DOCUMENT]
+    uno_services: list | None = [_TEXT_DOCUMENT, _DRAW_DOCUMENT, _IMPRESS_DOCUMENT]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc

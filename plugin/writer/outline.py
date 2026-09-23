@@ -41,10 +41,10 @@ class GetDocumentTree(ToolBase):
 
     # FIXME: Consider renaming (e.g. get_document_overview) — tool returns tree + stats, not tree alone.
 
-    name = "get_document_tree"
-    intent = "navigate"
-    tier = "core"
-    description = (
+    name: str | None = "get_document_tree"
+    intent: str | None = "navigate"
+    tier: str = "core"
+    description: str = (
         "Get the document heading tree with bookmarks and content previews, plus document statistics. "
         "The stats object includes character_count, word_count, paragraph_count, page_count, and heading_count. "
         'Use strategy="heading_only" for a simple outline (headings hierarchy). '
@@ -57,12 +57,12 @@ class GetDocumentTree(ToolBase):
         "user to a location or an edit, quote the first few words of its text instead "
         "(e.g. \"the sentence starting 'The Amazon…'\")."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {"strategy": {"type": "string", "enum": ["heading_only", "first_lines", "full"], "description": "Content to include with headings (default: first_lines)"}, "depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default: 1)"}},
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         tree_svc = ctx.services.writer_tree

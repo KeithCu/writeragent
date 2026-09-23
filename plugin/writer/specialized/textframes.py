@@ -31,9 +31,9 @@ log = logging.getLogger("writeragent.writer")
 class FrameList(ToolWriterTextFramesBase):
     """List all text frames in the document."""
 
-    name = "frame_list"
-    description = "List all text frames in the document."
-    parameters = {"type": "object", "properties": {}, "required": []}
+    name: str | None = "frame_list"
+    description: str = "List all text frames in the document."
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -77,9 +77,9 @@ class FrameList(ToolWriterTextFramesBase):
 class FrameGetInfo(ToolWriterTextFramesBase):
     """Get detailed info about a text frame."""
 
-    name = "frame_get_info"
-    description = "Get detailed info about a text frame."
-    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the text frame (from frame_list)."}}, "required": ["name"]}
+    name: str | None = "frame_get_info"
+    description: str = "Get detailed info about a text frame."
+    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the text frame (from frame_list)."}}, "required": ["name"]}
 
     def execute(self, ctx: Any, **kwargs: Any):
         frame_name = kwargs.get("name", "")
@@ -159,9 +159,9 @@ class FrameGetInfo(ToolWriterTextFramesBase):
 class FrameSetProperties(ToolWriterTextFramesBase):
     """Resize or reposition a text frame."""
 
-    name = "frame_set_properties"
-    description = "Resize or reposition a text frame."
-    parameters = {
+    name: str | None = "frame_set_properties"
+    description: str = "Resize or reposition a text frame."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the text frame (from frame_list)."},
@@ -173,7 +173,7 @@ class FrameSetProperties(ToolWriterTextFramesBase):
         },
         "required": ["name"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
         frame_name = kwargs.get("name", "")

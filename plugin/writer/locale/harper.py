@@ -89,10 +89,10 @@ _HARPER_FAIL_COOLDOWN_SEC = 30.0
 
 
 class HarperRuntimeState(enum.Enum):
-    IDLE = "idle"
-    RESOLVING = "resolving"
-    READY = "ready"
-    FAILED = "failed"
+    IDLE: str = "idle"
+    RESOLVING: str = "resolving"
+    READY: str = "ready"
+    FAILED: str = "failed"
 
 
 _HARPER_STATE = HarperRuntimeState.IDLE

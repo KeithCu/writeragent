@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 if TYPE_CHECKING:
     import uno
@@ -252,9 +252,9 @@ def _font_not_installed_warning(ctx: ToolContext, font_name: Any):
 class StyleList(ToolWriterStyleBase):
     """List available styles in a given family."""
 
-    name = "style_list"
-    description = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
-    parameters = {"type": "object", "properties": {"family": {"type": "string", "enum": _STYLE_FAMILIES, "description": ("Style family. Default: ParagraphStyles. Use PageStyles to find the page-style name the page tools need.")}}, "required": []}
+    name: str | None = "style_list"
+    description: str = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
+    parameters: dict | None = {"type": "object", "properties": {"family": {"type": "string", "enum": _STYLE_FAMILIES, "description": ("Style family. Default: ParagraphStyles. Use PageStyles to find the page-style name the page tools need.")}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         family = kwargs.get("family")
@@ -361,13 +361,13 @@ class StyleList(ToolWriterStyleBase):
 class StyleGetInfo(ToolWriterStyleBase):
     """Get detailed properties of a named style."""
 
-    name = "style_get_info"
-    description = (
+    name: str | None = "style_get_info"
+    description: str = (
         "Get detailed properties of a named style (font, size, paragraph margins). "
         "For family=PageStyles, return the same page-style margins/header/footer "
         "payload as page_get_style_properties so the caller does not need a second tool hop."
     )
-    parameters = {"type": "object", "properties": {"style": {"type": "string", "description": "Name of the style to inspect."}, "family": {"type": "string", "description": "Style family. Default: ParagraphStyles. PageStyles returns the same page-style payload as page_get_style_properties."}}, "required": ["style"]}
+    parameters: dict | None = {"type": "object", "properties": {"style": {"type": "string", "description": "Name of the style to inspect."}, "family": {"type": "string", "description": "Style family. Default: ParagraphStyles. PageStyles returns the same page-style payload as page_get_style_properties."}}, "required": ["style"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = kwargs.get("style", "")
@@ -416,9 +416,9 @@ class StyleGetInfo(ToolWriterStyleBase):
 class ApplyStyle(FrameworkToolBase):
     """Apply a paragraph or character style."""
 
-    name = "apply_style"
-    intent = "edit"
-    description = (
+    name: str | None = "apply_style"
+    intent: str | None = "edit"
+    description: str = (
         "Apply a style to a target. Use family='ParagraphStyles' for paragraph "
         "styles (e.g. Heading 1) or family='CharacterStyles' for character "
         "styles (e.g. Source Text). Use 'No Character Style' "
@@ -430,7 +430,7 @@ class ApplyStyle(FrameworkToolBase):
         "and colour stay. Pass clear_direct='none' only to keep a hand-set font. "
         "Re-applying a style does not keep a quote indent — LibreOffice drops direct Para*."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Style name (e.g. Heading 1, Source Text)."},
@@ -452,11 +452,11 @@ class ApplyStyle(FrameworkToolBase):
         },
         "required": ["style"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    is_mutation: bool | None = True
 
     # Maps family to the UNO property that holds the style name.
-    _PROPERTY_MAP = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
+    _PROPERTY_MAP: ClassVar[dict[str, str]] = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
 
     def _apply_one(self, ctx: ToolContext, family: str, uno_prop: str, uno_value: str, cursor: Any, clear_direct: str = "style_props"):
         """Apply the style to one cursor. Returns the direct-formatting report (or None)."""
@@ -622,9 +622,9 @@ class ApplyStyle(FrameworkToolBase):
 class StyleUpdate(ToolWriterStyleBase):
     """Update properties of an existing paragraph or character style."""
 
-    name = "style_update"
-    intent = "edit"
-    description = (
+    name: str | None = "style_update"
+    intent: str | None = "edit"
+    description: str = (
         "Update the properties of an existing style. "
         "Provide 'family' (ParagraphStyles or CharacterStyles), 'style_name', and "
         "'property_updates': a dictionary of UNO property names to values "
@@ -633,7 +633,7 @@ class StyleUpdate(ToolWriterStyleBase):
         "Colors can be provided as hex strings or integers. "
         "You can also update the 'parent_style' separately."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Name of the style to modify (e.g., 'Heading 1', 'Source Text')."},
@@ -647,8 +647,8 @@ class StyleUpdate(ToolWriterStyleBase):
         },
         "required": ["style"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = str(kwargs.get("style") or "").strip()
@@ -764,14 +764,14 @@ class StyleUpdate(ToolWriterStyleBase):
 class StyleCreate(ToolWriterStyleBase):
     """Create a new paragraph or character style."""
 
-    name = "style_create"
-    intent = "edit"
-    description = (
+    name: str | None = "style_create"
+    intent: str | None = "edit"
+    description: str = (
         "Create a new paragraph or character style with optional inheritance "
         "and property settings. For paragraph styles, you can also define "
         "conditional rules mapping contexts (like Table or Header) to other styles."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Name of the new style."},
@@ -797,8 +797,8 @@ class StyleCreate(ToolWriterStyleBase):
         },
         "required": ["style"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = str(kwargs.get("style") or "").strip()
@@ -905,14 +905,14 @@ class StyleCreate(ToolWriterStyleBase):
 class StyleImport(ToolWriterStyleBase):
     """Import styles from an external document or template."""
 
-    name = "style_import"
-    intent = "edit"
-    description = (
+    name: str | None = "style_import"
+    intent: str | None = "edit"
+    description: str = (
         "Import styles from an external document or template (.odt, .ott). "
         "Specify which style types to load (paragraph, page, etc.) and "
         "whether to overwrite existing styles with the same name."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Absolute path to the source document."},
@@ -924,8 +924,8 @@ class StyleImport(ToolWriterStyleBase):
         },
         "required": ["path"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         file_path = kwargs.get("path")

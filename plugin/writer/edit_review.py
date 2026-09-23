@@ -41,7 +41,7 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.writer import review_scan as _review_scan
@@ -1078,7 +1078,7 @@ class WriterCompoundUndo:
 class WriterStreamedRewriteSession:
     """Manage a streamed Writer edit that collapses to one tracked change."""
 
-    _UNDO_CONTEXT_TITLE = "WriterAgent: Edit selection"
+    _UNDO_CONTEXT_TITLE: ClassVar[str] = "WriterAgent: Edit selection"
 
     def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False):
         self.doc = doc
@@ -1227,7 +1227,7 @@ class WriterStreamedAppendSession:
     is never struck through -- authored as the agent and tagged for the inline review UI.
     """
 
-    _UNDO_CONTEXT_TITLE = "WriterAgent: Extend selection"
+    _UNDO_CONTEXT_TITLE: ClassVar[str] = "WriterAgent: Extend selection"
 
     def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False):
         self.doc = doc

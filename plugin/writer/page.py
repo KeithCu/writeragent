@@ -347,9 +347,9 @@ def get_page_style_properties(doc: Any, style_name: str = "Standard") -> dict[st
 class PageGetStyleProperties(ToolWriterPageBase):
     """Get dimensions, margins, and header/footer states of a page style."""
 
-    name = "page_get_style_properties"
-    description = "Get dimensions, margins, and header/footer states of a page style."
-    parameters = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}}, "required": []}
+    name: str | None = "page_get_style_properties"
+    description: str = "Get dimensions, margins, and header/footer states of a page style."
+    parameters: dict | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         return get_page_style_properties(ctx.doc, kwargs.get("style", "Standard"))
@@ -363,14 +363,14 @@ class PageGetStyleProperties(ToolWriterPageBase):
 class PageSetStyleProperties(ToolWriterPageBase):
     """Modify dimensions, margins, and header/footer toggles of a page style."""
 
-    name = "page_set_style_properties"
-    description = (
+    name: str | None = "page_set_style_properties"
+    description: str = (
         "Modify dimensions, margins, and header/footer toggles of a page style. "
         "header_is_on=false / footer_is_on=false refuse if that region still has "
         "text, fields, images, or tables — clear with page_set_header_footer_text "
         "first, then disable. Enabling (true) is always allowed. No force-off."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."},
@@ -417,7 +417,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
         },
         "required": [],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = kwargs.get("style", "Standard")
@@ -529,15 +529,15 @@ class PageSetStyleProperties(ToolWriterPageBase):
 class PageGetHeaderFooterText(ToolWriterPageBase):
     """Get a page-style header or footer as HTML (same export as the body)."""
 
-    name = "page_get_header_footer_text"
-    description = (
+    name: str | None = "page_get_header_footer_text"
+    description: str = (
         "Get this page-style header or footer as HTML so you can edit structure "
         "(fields, tables, logos) and send it back to page_set_header_footer_text. "
         "Uses the same XHTML export as get_document_content, pointed at the region's "
         "XText. Also lists images, fields, and paragraph_count so structure is visible "
         "without parsing the HTML. Use header_first / footer_first when first_is_shared is false."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "style": {
@@ -631,8 +631,8 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
 class PageSetHeaderFooterText(ToolWriterPageBase):
     """Replace a page-style header or footer with HTML (same import as the body)."""
 
-    name = "page_set_header_footer_text"
-    description = (
+    name: str | None = "page_set_header_footer_text"
+    description: str = (
         "Replace this page-style header or footer with HTML so logos, tables, and "
         "page-number fields survive — the same StarWriter import as apply_document_content, "
         "pointed at the region's XText. Call page_get_header_footer_text first and edit "
@@ -640,7 +640,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         "letterhead grows instead of overlapping the body. Plain text is wrapped as a "
         "paragraph and still goes through import."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "style": {
@@ -671,7 +671,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         },
         "required": ["region", "content"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         from .html_import import replace_xtext_with_html
@@ -731,9 +731,9 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
 class PageGetColumns(ToolWriterPageBase):
     """Get the column layout for a page style."""
 
-    name = "page_get_columns"
-    description = "Get the column layout for a page style."
-    parameters = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."}}, "required": []}
+    name: str | None = "page_get_columns"
+    description: str = "Get the column layout for a page style."
+    parameters: dict | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = kwargs.get("style", "Standard")
@@ -773,9 +773,9 @@ class PageGetColumns(ToolWriterPageBase):
 class PageSetColumns(ToolWriterPageBase):
     """Set the number of columns and spacing for a page style."""
 
-    name = "page_set_columns"
-    description = "Set the number of columns and spacing for a page style."
-    parameters = {
+    name: str | None = "page_set_columns"
+    description: str = "Set the number of columns and spacing for a page style."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."},
@@ -784,7 +784,7 @@ class PageSetColumns(ToolWriterPageBase):
         },
         "required": ["column_count"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = kwargs.get("style", "Standard")
@@ -839,19 +839,19 @@ class PageSetColumns(ToolWriterPageBase):
 class PageInsertBreak(ToolWriterPageBase):
     """Insert a page break at a text anchor (before_text/after_text) or at the view cursor."""
 
-    name = "page_insert_break"
-    description = (
+    name: str | None = "page_insert_break"
+    description: str = (
         "Start a new page. With no anchor, breaks at the user's cursor (arbitrary over MCP). "
         "Pass before_text or after_text to break the page at a specific passage instead, so a "
         "headless client can place it deterministically (e.g. before_text of the signature block)."
     )
-    parameters = {"type": "object", "properties": {
+    parameters: dict | None = {"type": "object", "properties": {
         "before_text": {"type": "string", "description": "Break so this passage starts a new page (page break on the match's paragraph)."},
         "after_text": {"type": "string", "description": "Break the page right after this passage's paragraph."},
         "occurrence": {"type": "integer", "description": "0-based match to use when the anchor text repeats (default 0)."},
         "case_sensitive": {"type": "boolean", "description": "Case-sensitive anchor match (default true)."},
     }, "required": []}
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc

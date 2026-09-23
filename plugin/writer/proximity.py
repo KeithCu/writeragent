@@ -38,7 +38,7 @@ log = logging.getLogger("writeragent.writer.nav.proximity")
 class ProximityService(ServiceBase):
     """Local proximity navigation on Writer documents."""
 
-    name = "writer_proximity"
+    name: str | None = "writer_proximity"
 
     def __init__(self, services: Any):
         self._doc_svc = services.document

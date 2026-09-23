@@ -12,18 +12,18 @@ from plugin.framework.tool import ToolBase
 
 
 class SetSelection(ToolBase):
-    name = "set_selection"
-    tier = "core"
-    is_mutation = False
-    uno_services = ["com.sun.star.text.TextDocument"]
-    description = (
+    name: str | None = "set_selection"
+    tier: str = "core"
+    is_mutation: bool | None = False
+    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    description: str = (
         "Select a passage in the document (highlights it for the user and lets a following "
         "apply_document_content/apply_style with target='selection' act on it). Select by "
         "search_text (with occurrence and case_sensitive) or by character range (char_start/"
         "char_end). Selection is transient view state, so pair it with the edit that uses it. "
         "Returns the selected text and its character range."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "search_text": {"type": "string", "description": "Text to select (first match unless occurrence is set)."},

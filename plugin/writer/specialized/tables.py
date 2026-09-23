@@ -436,8 +436,8 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
 
 
 class TableList(ToolWriterTableBase):
-    name = "table_list"
-    description = (
+    name: str | None = "table_list"
+    description: str = (
         "List tables with name, rows, cols, and cell_count. "
         "Writer: if cell_count is not rows times cols the table is not a rectangle — use "
         "table_get_cells cells. "
@@ -445,8 +445,8 @@ class TableList(ToolWriterTableBase):
         "contain nested tables — table_set_cell keeps those tables; do not delete the host row/column). "
         "Draw/Impress: also page and shape index; cell_count is rows times cols."
     )
-    is_mutation = False
-    parameters = {"type": "object", "properties": {}, "required": []}
+    is_mutation: bool | None = False
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         try:
@@ -478,8 +478,8 @@ class TableList(ToolWriterTableBase):
 
 
 class TableGetCells(ToolWriterTableBase):
-    name = "table_get_cells"
-    description = (
+    name: str | None = "table_get_cells"
+    description: str = (
         "Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). "
         "Empty string is an empty cell; a missing name is not a cell. "
         "Writer: rows and cols can be smaller than the real grid when cells are merged — follow cells. "
@@ -489,8 +489,8 @@ class TableGetCells(ToolWriterTableBase):
         "nested_in_cells names those cells. "
         "table_set_cell on a host cell updates that host text and leaves nested tables."
     )
-    is_mutation = False
-    parameters = {
+    is_mutation: bool | None = False
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},
@@ -571,16 +571,16 @@ class TableGetCells(ToolWriterTableBase):
 
 
 class TableSetCell(ToolWriterTableBase):
-    name = "table_set_cell"
-    description = (
+    name: str | None = "table_set_cell"
+    description: str = (
         "Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). "
         "A normal cell is replaced with setString (clears in-cell formatting). "
         "A cell that hosts a nested table keeps that table and rewrites only the host "
         "paragraphs. Edit the nested table by its own name. "
         "Not a tracked change even when review mode is on."
     )
-    is_mutation = True
-    parameters = {
+    is_mutation: bool | None = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},
@@ -649,15 +649,15 @@ class TableSetCell(ToolWriterTableBase):
 class ManageTableStructure(ToolWriterTableBase):
     """Insert or delete one row/column. The four former skinny tools shared table_name + index."""
 
-    name = "manage_table_structure"
-    description = (
+    name: str | None = "manage_table_structure"
+    description: str = (
         "Insert or delete one table row or column. "
         "index is 0-based (for insert, equal to the current count appends at the end). "
         "Cannot delete the last remaining row or column. "
         "Writer: refuses delete if the row/column hosts a nested table (that would destroy it)."
     )
-    is_mutation = True
-    parameters = {
+    is_mutation: bool | None = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "action": {
@@ -763,15 +763,15 @@ class ManageTableStructure(ToolWriterTableBase):
 
 
 class TableInsert(ToolWriterTableBase):
-    name = "table_insert"
-    intent = "edit"
-    description = (
+    name: str | None = "table_insert"
+    intent: str | None = "edit"
+    description: str = (
         "Insert a table. Writer: text table at the view cursor (or document end); "
         "pass parent + cell to nest inside an existing table cell (inserts at the cell end). "
         "Draw/Impress: TableShape; position/size in 1/100 mm. parent/cell are Writer-only. "
         "Optional data is a 2D array of cell strings."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "rows": {"type": "integer", "description": "Number of rows"},
@@ -797,7 +797,7 @@ class TableInsert(ToolWriterTableBase):
         },
         "required": ["rows", "columns"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         parent = str(kwargs.get("parent") or "").strip()
@@ -894,15 +894,15 @@ class TableInsert(ToolWriterTableBase):
 
 
 class TableDelete(ToolWriterTableBase):
-    name = "table_delete"
-    intent = "edit"
-    description = (
+    name: str | None = "table_delete"
+    intent: str | None = "edit"
+    description: str = (
         "Delete a table by name. Writer: removes a top-level or nested TextTable from its "
         "containing XText. Nested children of the deleted table are removed with it — this is "
         "the intentional remove (do not use table_set_cell, which refuses host cells). "
         "Draw/Impress: removes the TableShape from the page."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},
@@ -911,7 +911,7 @@ class TableDelete(ToolWriterTableBase):
         },
         "required": [],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         name = str(kwargs.get("name") or "").strip()

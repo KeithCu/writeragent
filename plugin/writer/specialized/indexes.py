@@ -306,17 +306,17 @@ def set_bibliography_field_values(field: Any, pairs: list[tuple[str, Any]]) -> N
 
 
 class IndexesUpdateAll(ToolWriterIndexBase):
-    name = "indexes_update_all"
-    intent = "navigate"
-    description = (
+    name: str | None = "indexes_update_all"
+    intent: str | None = "navigate"
+    description: str = (
         "Refresh all document indexes (TOC, alphabetical, bibliography table). "
         "Call after inserting or editing bibliography cites so the reference list updates. "
         "A TOC refresh rebuilds every entry and drops customized direct formatting; "
         "use indexes_refresh_toc_entry to change one outline entry in place. "
         "Page numbers are not updated by that one-entry edit."
     )
-    parameters = {"type": "object", "properties": {}, "required": []}
-    is_mutation = True
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -391,9 +391,9 @@ def _paragraph_string(cursor: Any) -> str:
 
 
 class IndexesRefreshTocEntry(ToolWriterIndexBase):
-    name = "indexes_refresh_toc_entry"
-    intent = "edit"
-    description = (
+    name: str | None = "indexes_refresh_toc_entry"
+    intent: str | None = "edit"
+    description: str = (
         "Replace one substring inside a single table-of-contents entry and, when that "
         "text sits in one outline hyperlink (#…|outline), update that URL. "
         "Does not call index update(), so other entries, tabs, page numbers, and direct "
@@ -402,7 +402,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         "Pass hyperlink_url to set the outline target, including when content equals "
         "old_content. Bookmark targets are not rewritten."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "old_content": {"type": "string", "description": "Substring to find inside the TOC entry."},
@@ -414,7 +414,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         },
         "required": ["old_content", "content"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -610,15 +610,15 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
 
 
 class IndexesList(ToolWriterIndexBase):
-    name = "indexes_list"
-    intent = "navigate"
-    description = (
+    name: str | None = "indexes_list"
+    intent: str | None = "navigate"
+    description: str = (
         "List document indexes (TOC, alphabetical, user, bibliography tables). "
         "type matches indexes_create kind (bibliography via getServiceName). "
         "For in-flow cites use indexes_list_cites, not this tool."
     )
-    parameters = {"type": "object", "properties": {}, "required": []}
-    is_mutation = False
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -641,15 +641,15 @@ class IndexesList(ToolWriterIndexBase):
 
 
 class IndexesListCites(ToolWriterIndexBase):
-    name = "indexes_list_cites"
-    intent = "examine"
-    description = (
+    name: str | None = "indexes_list_cites"
+    intent: str | None = "examine"
+    description: str = (
         "List native bibliography cite fields (TextField.Bibliography). "
         "Returns identifier, key Fields (Author, Title, Year, Pages, type), and location. "
         "Does not list the bibliography table — use indexes_list for that."
     )
-    parameters = {"type": "object", "properties": {}, "required": []}
-    is_mutation = False
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -697,16 +697,16 @@ class IndexesListCites(ToolWriterIndexBase):
 
 
 class IndexesCreate(ToolWriterIndexBase):
-    name = "indexes_create"
-    intent = "edit"
-    description = (
+    name: str | None = "indexes_create"
+    intent: str | None = "edit"
+    description: str = (
         "Create a document index (toc, alphabetical, user, illustration, table, object, bibliography). "
         "kind=bibliography inserts the reference table (com.sun.star.text.Bibliography); "
         "cites must already exist or be added with indexes_add_mark kind=bibliography, then indexes_update_all. "
         "Use target='beginning', 'end', or 'selection'. "
         "Use target='search' with old_content to find and replace text."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "kind": {"type": "string", "enum": ["toc", "alphabetical", "user", "illustration", "table", "object", "bibliography"], "description": "The type of index to create."},
@@ -717,7 +717,7 @@ class IndexesCreate(ToolWriterIndexBase):
         },
         "required": ["kind"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -767,9 +767,9 @@ class IndexesCreate(ToolWriterIndexBase):
 
 
 class IndexesAddMark(ToolWriterIndexBase):
-    name = "indexes_add_mark"
-    intent = "edit"
-    description = (
+    name: str | None = "indexes_add_mark"
+    intent: str | None = "edit"
+    description: str = (
         "Insert an index mark or a bibliography cite at target. "
         "kind=alphabetical|user creates DocumentIndexMark / UserIndexMark (primary_key/secondary_key). "
         "kind=bibliography creates TextField.Bibliography — not an index mark; "
@@ -777,7 +777,7 @@ class IndexesAddMark(ToolWriterIndexBase):
         "primary_key is ignored for cites. After cite changes call indexes_update_all "
         "so the bibliography table refreshes. Do not use fields_insert for product cites."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Index mark entry, or Identifier fallback for kind=bibliography."},
@@ -805,7 +805,7 @@ class IndexesAddMark(ToolWriterIndexBase):
         },
         "required": ["text"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
         unused_reserved = [key for key in _IGNORED_CITE_KWARGS if kwargs.get(key) not in (None, "")]

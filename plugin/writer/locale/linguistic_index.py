@@ -173,7 +173,7 @@ class _DocIndex:
 class IndexService(ServiceBase):
     """Per-document inverted index with Snowball stemming."""
 
-    name = "writer_index"
+    name: str | None = "writer_index"
 
     def __init__(self, services: Any) -> None:
         self._doc_svc = services.document

@@ -74,13 +74,13 @@ def _get_database_context(ctx: Any) -> Any:
 class ListDataSources(ToolWriterMailMergeBase):
     """List all registered LibreOffice data sources and inspect tables and columns."""
 
-    name = "mail_merge_list_sources"
-    intent = "examine"
-    description = (
+    name: str | None = "mail_merge_list_sources"
+    intent: str | None = "examine"
+    description: str = (
         "List all registered LibreOffice data sources (e.g. databases, registered spreadsheets, CSVs). "
         "Optionally inspect tables/sheets and columns by setting include_tables=True."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "include_tables": {
@@ -160,13 +160,13 @@ class ListDataSources(ToolWriterMailMergeBase):
 class RegisterDataSource(ToolWriterMailMergeBase):
     """Register or unregister a database, spreadsheet, or CSV file in LibreOffice."""
 
-    name = "mail_merge_register_source"
-    intent = "edit"
-    description = (
+    name: str | None = "mail_merge_register_source"
+    intent: str | None = "edit"
+    description: str = (
         "Register or unregister a file (.ods spreadsheet, .csv, or .odb database) as a named "
         "data source in LibreOffice, making it available for mail merge operations and merge fields."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "name": {
@@ -186,7 +186,7 @@ class RegisterDataSource(ToolWriterMailMergeBase):
         },
         "required": ["name"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         name = kwargs.get("name")
@@ -236,14 +236,14 @@ class RegisterDataSource(ToolWriterMailMergeBase):
 class InsertField(ToolWriterMailMergeBase):
     """Insert a database mail merge field at the specified document location."""
 
-    name = "mail_merge_insert_field"
-    intent = "edit"
-    description = (
+    name: str | None = "mail_merge_insert_field"
+    intent: str | None = "edit"
+    description: str = (
         "Insert a database mail merge field (e.g. <FirstName>, <Address>) at the specified position. "
         "Use target='beginning', 'end', or 'selection' to insert at those positions. "
         "Use target='search' with old_content to find and replace text with the merge field."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "column_name": {
@@ -279,7 +279,7 @@ class InsertField(ToolWriterMailMergeBase):
         },
         "required": ["column_name"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         column_name = kwargs.get("column_name")
@@ -371,13 +371,13 @@ class InsertField(ToolWriterMailMergeBase):
 class ListFields(ToolWriterMailMergeBase):
     """List all database mail merge fields placed in the active document."""
 
-    name = "mail_merge_list_fields"
-    intent = "examine"
-    description = (
+    name: str | None = "mail_merge_list_fields"
+    intent: str | None = "examine"
+    description: str = (
         "List all database merge fields currently placed in the active Writer document, "
         "including their column names, data source names, and table names."
     )
-    parameters = {"type": "object", "properties": {}, "required": []}
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = getattr(ctx, "doc", None)
@@ -453,14 +453,14 @@ class ListFields(ToolWriterMailMergeBase):
 class RunMerge(ToolWriterMailMergeBase):
     """Execute mail merge workflow to files, printer, or email using com.sun.star.text.MailMerge."""
 
-    name = "mail_merge_run"
-    intent = "edit"
-    description = (
+    name: str | None = "mail_merge_run"
+    intent: str | None = "edit"
+    description: str = (
         "Execute a mail merge operation using LibreOffice's native MailMerge engine. "
         "Merges data from a registered data source into the document template and generates "
         "output files (ODT or PDF) or prints/emails."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "data_source_name": {
@@ -519,8 +519,8 @@ class RunMerge(ToolWriterMailMergeBase):
         },
         "required": ["data_source_name", "table_name"],
     }
-    is_mutation = True
-    long_running = True
+    is_mutation: bool | None = True
+    long_running: bool = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         data_source_name = kwargs.get("data_source_name")
