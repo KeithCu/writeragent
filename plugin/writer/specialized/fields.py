@@ -19,7 +19,7 @@ class FieldsUpdateAll(ToolWriterFieldBase):
     name: str | None = "fields_update_all"
     intent: str | None = "navigate"
     description: str = "Refresh all text fields (dates, page numbers, cross-references). Call after changes that affect computed fields."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -42,7 +42,7 @@ class FieldsList(ToolWriterFieldBase):
     name: str | None = "fields_list"
     intent: str | None = "examine"
     description: str = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -121,7 +121,7 @@ class FieldsDelete(ToolWriterFieldBase):
     name: str | None = "fields_delete"
     intent: str | None = "edit"
     description: str = "Deletes one or more text fields from the document by their 1-based ID. Use fields_list first to obtain the IDs of the fields you wish to remove."
-    parameters: dict | None = {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."}}, "required": ["ids"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."}}, "required": ["ids"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -186,7 +186,7 @@ class FieldsInsert(ToolWriterFieldBase):
         "'EmbeddedObjectCount', and 'Annotation'. Specify optional properties "
         "to configure the field."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "field": {"type": "string", "description": ("The exact name of the text field service to create, excluding the 'com.sun.star.text.textfield.' prefix. Examples: 'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount'.")},

@@ -911,8 +911,8 @@ class ListDesigns(ToolBase):
         "id with apply_design to restyle the open Impress deck. Does not hardcode the "
         "install prefix."
     )
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list | None = [
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list[str] | None = [
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
     ]
@@ -936,7 +936,7 @@ class ApplyDesign(ToolBase):
         "and does not open a new presentation. Existing title/body text stays. "
         "Call list_designs first. Draw documents return a not-Impress error."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "design": {
@@ -946,7 +946,7 @@ class ApplyDesign(ToolBase):
         },
         "required": ["design"],
     }
-    uno_services: list | None = [
+    uno_services: list[str] | None = [
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
     ]

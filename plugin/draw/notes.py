@@ -22,8 +22,8 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     name: str | None = "get_speaker_notes"
     intent: str | None = "navigate"
     description: str = "Read speaker notes from an Impress slide. Returns the notes text."
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
@@ -42,7 +42,7 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     name: str | None = "set_speaker_notes"
     intent: str | None = "edit"
     description: str = "Set or replace speaker notes on an Impress slide."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Speaker notes text."},
@@ -51,7 +51,7 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
         },
         "required": ["text"],
     }
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):

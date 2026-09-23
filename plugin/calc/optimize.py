@@ -32,7 +32,7 @@ class OptimizeDataTool(ToolBaseDummy):
         "The host extracts and shapes the data before it reaches the optimization code. "
         "This tool is intended for the analysis/optimization domain; pass range addresses only."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "helper": {"type": "string", "description": "Optimization helper name (e.g. optimize_portfolio, linear_programming)."},
@@ -46,7 +46,7 @@ class OptimizeDataTool(ToolBaseDummy):
     }
     long_running: bool = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         import copy
         from typing import cast
 

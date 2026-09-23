@@ -199,7 +199,7 @@ class GetImage(ToolBase):
         "here when you need to see the rendered page. Returns the picture itself, not a description. "
         "b64 is stripped from normal reads, so use this when you actually need to look."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from image_list / get_page_objects)."},
@@ -209,7 +209,7 @@ class GetImage(ToolBase):
         "required": [],
     }
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
-    uno_services: list | None = [_TEXT_DOCUMENT, _DRAW_DOCUMENT, _IMPRESS_DOCUMENT]
+    uno_services: list[str] | None = [_TEXT_DOCUMENT, _DRAW_DOCUMENT, _IMPRESS_DOCUMENT]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc

@@ -312,8 +312,8 @@ class GetDrawSummary(ToolDrawShapeBase):
     name: str | None = "shape_summary"
     intent: str | None = "edit"
     description: str = "Returns a summary of shapes on the active or specified page."
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
-    uno_services: list | None = _DRAW_SHAPE_DOCS
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
+    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -570,7 +570,7 @@ class UpsertShape(ToolDrawShapeBase):
         "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name "
         "from get_draw_tree — draw-page index shifts when other shapes sit between fields."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["create", "edit"], "description": "Action to perform: 'create' a new shape, or 'edit' an existing one."},
@@ -594,7 +594,7 @@ class UpsertShape(ToolDrawShapeBase):
         },
         "required": ["action"],
     }
-    uno_services: list | None = _DRAW_SHAPE_DOCS
+    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
@@ -763,7 +763,7 @@ class ConnectShapes(ToolDrawShapeBase):
     name: str | None = "shape_connect"
     intent: str | None = "edit"
     description: str = "Connect two shapes on the same page with a connector."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "start": {"type": "integer", "description": "Index of the starting shape."},
@@ -774,7 +774,7 @@ class ConnectShapes(ToolDrawShapeBase):
         },
         "required": ["start", "end"],
     }
-    uno_services: list | None = _DRAW_SHAPE_DOCS
+    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
@@ -826,8 +826,8 @@ class GroupShapes(ToolDrawShapeBase):
     name: str | None = "shape_group"
     intent: str | None = "edit"
     description: str = "Groups multiple shapes together on the same page."
-    parameters: dict | None = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": "integer"}, "description": "List of shape indices to group."}, "page": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["indices"]}
-    uno_services: list | None = _DRAW_SHAPE_DOCS
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": "integer"}, "description": "List of shape indices to group."}, "page": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["indices"]}
+    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
@@ -902,7 +902,7 @@ class AlignShapes(ToolDrawShapeBase):
         "Align multiple shapes on a page to a shared edge or center axis. "
         "Coordinates are 1/100 mm. Needs at least two indices."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
@@ -919,7 +919,7 @@ class AlignShapes(ToolDrawShapeBase):
         },
         "required": ["indices", "alignment"],
     }
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -952,7 +952,7 @@ class DistributeShapes(ToolDrawShapeBase):
         "Evenly distribute three or more shapes between the first and last along an axis. "
         "Coordinates are 1/100 mm."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
@@ -969,7 +969,7 @@ class DistributeShapes(ToolDrawShapeBase):
         },
         "required": ["indices", "axis"],
     }
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -1003,7 +1003,7 @@ class CreateDiagram(ToolDrawShapeBase):
         "Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; "
         "custom requires x/y on each node."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
@@ -1044,7 +1044,7 @@ class CreateDiagram(ToolDrawShapeBase):
         },
         "required": ["nodes"],
     }
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -1127,8 +1127,8 @@ class DeleteShape(ToolDrawShapeBase):
     name: str | None = "shape_delete"
     intent: str | None = "edit"
     description: str = "Deletes a shape by index."
-    parameters: dict | None = {"type": "object", "properties": {"index": {"type": "integer", "description": "0-based shape index"}, "page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": ["index"]}
-    uno_services: list | None = _DRAW_SHAPE_DOCS
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"index": {"type": "integer", "description": "0-based shape index"}, "page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": ["index"]}
+    uno_services: list[str] | None = _DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 

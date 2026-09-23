@@ -18,7 +18,7 @@ from ..target_resolver import resolve_target_cursor
 class EmbeddedInsert(ToolWriterEmbeddedBase):
     name: str | None = "embedded_insert"
     description: str = "Insert an embedded object (e.g. Calc spreadsheet) into the document. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Planned: CLSID-based insert + in-place activation."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "object_type": {"type": "string", "description": "Target type, e.g. spreadsheet, chart."},
@@ -47,7 +47,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
 class EmbeddedEdit(ToolWriterEmbeddedBase):
     name: str | None = "embedded_edit"
     description: str = "Activate or edit an embedded OLE object (planned)."
-    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Object name or anchor hint when available."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Object name or anchor hint when available."}}, "required": []}
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):

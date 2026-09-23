@@ -42,7 +42,7 @@ class AddSlide(ToolBase):
         "New slides inherit the deck's assigned master. "
         "Call list_placeholders before set_placeholder_text."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based index where to insert the new slide (defaults to appending at the end if omitted)"},
@@ -57,7 +57,7 @@ class AddSlide(ToolBase):
         },
         "required": [],
     }
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -113,8 +113,8 @@ class DeleteSlide(ToolBase):
     name: str | None = "delete_slide"
     intent: str | None = "edit"
     description: str = "Deletes the slide (page) at the specified index."
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -135,8 +135,8 @@ class DeleteSlide(ToolBase):
 class ListPages(ToolBase):
     name: str | None = "list_pages"
     description: str = "Lists all pages (slides) in the document."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
 
@@ -156,8 +156,8 @@ class ReadSlideText(ToolBase):
 
     name: str | None = "read_slide_text"
     description: str = "Read all text content from a slide (shapes text) and speaker notes. Returns structured text per shape."
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (default: active slide)."}}, "required": []}
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (default: active slide)."}}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -209,8 +209,8 @@ class GetPresentationInfo(ToolBase):
 
     name: str | None = "get_presentation_info"
     description: str = "Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -252,8 +252,8 @@ class SetActivePage(ToolBase):
     name: str | None = "set_active_page"
     intent: str | None = "navigate"
     description: str = "Changes the currently active slide (page) in Draw/Impress."
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -288,7 +288,7 @@ class DuplicateSlide(ToolBase):
         "Duplicates the slide at the given 0-based index. The copy is inserted immediately after "
         "the source slide."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based index of the slide to duplicate"},
@@ -299,7 +299,7 @@ class DuplicateSlide(ToolBase):
         },
         "required": ["page"],
     }
-    uno_services: list | None = _DRAW_UNO
+    uno_services: list[str] | None = _DRAW_UNO
     is_mutation: bool | None = True
     tier: str = "core"
 
@@ -331,7 +331,7 @@ class MoveSlide(ToolBase):
         "Moves a slide from from_page to to_page (both 0-based). to_page is the destination index "
         "after removal of the source (insert-at that index)."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "from_page": {"type": "integer", "description": "0-based source slide index"},
@@ -339,7 +339,7 @@ class MoveSlide(ToolBase):
         },
         "required": ["from_page", "to_page"],
     }
-    uno_services: list | None = _DRAW_UNO
+    uno_services: list[str] | None = _DRAW_UNO
     is_mutation: bool | None = True
     tier: str = "core"
 
@@ -367,7 +367,7 @@ class RenameSlide(ToolBase):
     name: str | None = "rename_slide"
     intent: str | None = "edit"
     description: str = "Sets the Name property of a slide (0-based page index)."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based slide index"},
@@ -375,7 +375,7 @@ class RenameSlide(ToolBase):
         },
         "required": ["page", "name"],
     }
-    uno_services: list | None = _DRAW_UNO
+    uno_services: list[str] | None = _DRAW_UNO
     is_mutation: bool | None = True
     tier: str = "core"
 

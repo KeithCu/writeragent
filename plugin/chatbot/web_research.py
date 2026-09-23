@@ -505,7 +505,7 @@ class WebResearchTool(ToolBase):
     name: str | None = "web_research"
     description: str = "Perform deep web research to answer complex questions. Bypasses document context to search the live web."
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "The research query or question."},

@@ -33,7 +33,7 @@ class FrameList(ToolWriterTextFramesBase):
 
     name: str | None = "frame_list"
     description: str = "List all text frames in the document."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -79,7 +79,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
 
     name: str | None = "frame_get_info"
     description: str = "Get detailed info about a text frame."
-    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the text frame (from frame_list)."}}, "required": ["name"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the text frame (from frame_list)."}}, "required": ["name"]}
 
     def execute(self, ctx: Any, **kwargs: Any):
         frame_name = kwargs.get("name", "")
@@ -161,7 +161,7 @@ class FrameSetProperties(ToolWriterTextFramesBase):
 
     name: str | None = "frame_set_properties"
     description: str = "Resize or reposition a text frame."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the text frame (from frame_list)."},

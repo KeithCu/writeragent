@@ -29,7 +29,7 @@ class ListNearbyFiles(ToolBase):
     specialized_domain: ClassVar[str | None] = "document_research"
     specialized_cross_cutting: ClassVar[bool] = True
     is_mutation: bool | None = False
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "filter": {"type": "string", "description": "Optional basename substring (e.g. 'budget')."},
@@ -77,7 +77,7 @@ class ListOpenDocuments(ToolBase):
     # Listing open documents must work when NONE is open (it should return [] / no active doc),
     # otherwise the MCP no-document gate turns "what's open?" into a confusing NO_DOCUMENT_OPEN.
     requires_document: bool = False
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {},
         "required": [],
@@ -117,7 +117,7 @@ class GetGuidance(ToolBase):
     is_mutation: bool | None = False
     # Pure documentation — works with or without a document open (no doc -> neutral index).
     requires_document: bool = False
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "topic": {"type": "string", "description": "Topic to read (see the no-topic call for the list; topics follow the document type). Omit for the topic list."},

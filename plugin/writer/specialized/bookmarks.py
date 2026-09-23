@@ -386,7 +386,7 @@ class BookmarkService(ServiceBase):
 class BookmarkList(ToolWriterBookmarkBase):
     name: str | None = "bookmark_list"
     description: str = "List all bookmarks in the document with their anchor text preview. Includes both user bookmarks and _mcp_ heading bookmarks."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -408,7 +408,7 @@ class BookmarkList(ToolWriterBookmarkBase):
 class BookmarkCleanup(ToolWriterBookmarkBase):
     name: str | None = "bookmark_cleanup"
     description: str = "Remove all _mcp_* bookmarks from the document. Use when bookmarks become stale after major edits."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -420,7 +420,7 @@ class BookmarkCleanup(ToolWriterBookmarkBase):
 class BookmarkCreate(ToolWriterBookmarkBase):
     name: str | None = "bookmark_create"
     description: str = "Create a new bookmark at the current cursor or selection in Writer. If text is selected, the bookmark will span the selection."
-    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "The unique name for the new bookmark."}}, "required": ["name"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "The unique name for the new bookmark."}}, "required": ["name"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -465,7 +465,7 @@ class BookmarkCreate(ToolWriterBookmarkBase):
 class BookmarkDelete(ToolWriterBookmarkBase):
     name: str | None = "bookmark_delete"
     description: str = "Delete an existing bookmark by its name."
-    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the bookmark to delete."}}, "required": ["name"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the bookmark to delete."}}, "required": ["name"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -496,7 +496,7 @@ class BookmarkDelete(ToolWriterBookmarkBase):
 class BookmarkRename(ToolWriterBookmarkBase):
     name: str | None = "bookmark_rename"
     description: str = "Rename an existing bookmark."
-    parameters: dict | None = {"type": "object", "properties": {"old_name": {"type": "string", "description": "The current name of the bookmark."}, "new_name": {"type": "string", "description": "The new name for the bookmark."}}, "required": ["old_name", "new_name"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"old_name": {"type": "string", "description": "The current name of the bookmark."}, "new_name": {"type": "string", "description": "The new name for the bookmark."}}, "required": ["old_name", "new_name"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -529,7 +529,7 @@ class BookmarkRename(ToolWriterBookmarkBase):
 class BookmarkGet(ToolWriterBookmarkBase):
     name: str | None = "bookmark_get"
     description: str = "Get details about a specific bookmark, including the text it spans."
-    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the bookmark."}}, "required": ["name"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the bookmark."}}, "required": ["name"]}
 
     def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
@@ -561,8 +561,8 @@ class BookmarkResolve(ToolWriterBookmarkBase):
     intent: str | None = "navigate"
     is_mutation: bool | None = False
     description: str = "Resolve a bookmark to its current paragraph index and text. Most tools accept 'bookmark:NAME' as locator directly -- use resolve_bookmark only when you need the raw paragraph index."
-    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Bookmark name (e.g. _mcp_a1b2c3d4)."}}, "required": ["name"]}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Bookmark name (e.g. _mcp_a1b2c3d4)."}}, "required": ["name"]}
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: Any, **kwargs: Any):
         bookmark_name = kwargs.get("name", "")

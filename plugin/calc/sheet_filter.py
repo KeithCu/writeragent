@@ -145,7 +145,7 @@ class ApplySheetFilter(ToolCalcSheetBase):
     name: str | None = "apply_sheet_filter"
     intent: str | None = "edit"
     description: str = "Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_specialized_calc_toolset(domain='sheets'). One column per criterion; chain with connection (AND default) after the first."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "description": "See criteria for AND/OR chaining.",
         "properties": {
@@ -195,7 +195,7 @@ class ClearSheetFilter(ToolCalcSheetBase):
     name: str | None = "clear_sheet_filter"
     intent: str | None = "edit"
     description: str = "Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as apply_sheet_filter. delegate_to_specialized_calc_toolset(domain='sheets')."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same data range used when applying the filter (e.g. [\"A1:D20\"])."}, "has_header": {"type": "boolean", "description": "Should match apply_sheet_filter (default true)."}},
         "required": ["range"],
@@ -234,7 +234,7 @@ class GetSheetFilter(ToolCalcSheetBase):
     name: str | None = "get_sheet_filter"
     intent: str | None = "navigate"
     description: str = "Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets')."
-    parameters: dict | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same range as apply_sheet_filter."}}, "required": ["range"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same range as apply_sheet_filter."}}, "required": ["range"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         range_name = kwargs["range"][0]

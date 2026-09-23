@@ -80,7 +80,7 @@ class ListDataSources(ToolWriterMailMergeBase):
         "List all registered LibreOffice data sources (e.g. databases, registered spreadsheets, CSVs). "
         "Optionally inspect tables/sheets and columns by setting include_tables=True."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "include_tables": {
@@ -166,7 +166,7 @@ class RegisterDataSource(ToolWriterMailMergeBase):
         "Register or unregister a file (.ods spreadsheet, .csv, or .odb database) as a named "
         "data source in LibreOffice, making it available for mail merge operations and merge fields."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {
@@ -243,7 +243,7 @@ class InsertField(ToolWriterMailMergeBase):
         "Use target='beginning', 'end', or 'selection' to insert at those positions. "
         "Use target='search' with old_content to find and replace text with the merge field."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "column_name": {
@@ -377,7 +377,7 @@ class ListFields(ToolWriterMailMergeBase):
         "List all database merge fields currently placed in the active Writer document, "
         "including their column names, data source names, and table names."
     )
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = getattr(ctx, "doc", None)
@@ -460,7 +460,7 @@ class RunMerge(ToolWriterMailMergeBase):
         "Merges data from a registered data source into the document template and generates "
         "output files (ODT or PDF) or prints/emails."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "data_source_name": {

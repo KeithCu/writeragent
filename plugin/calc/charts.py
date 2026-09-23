@@ -516,8 +516,8 @@ class ListCharts(ToolBaseDummy):
     name: str | None = "list_charts"
     intent: str | None = "navigate"
     description: str = "List all charts in the current context (active sheet, document, or slide) with name, title, and type."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -584,8 +584,8 @@ class GetChartInfo(ToolBaseDummy):
     name: str | None = "get_chart_info"
     intent: str | None = "navigate"
     description: str = "Get detailed info about a chart: type, title, ranges (if Calc), axis titles, and legend properties."
-    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Chart name (from list_charts)."}}, "required": ["name"]}
-    uno_services: list | None = ListCharts.uno_services
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Chart name (from list_charts)."}}, "required": ["name"]}
+    uno_services: list[str] | None = ListCharts.uno_services
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -646,7 +646,7 @@ class UpsertChart(ToolBaseDummy):
     name: str | None = "upsert_chart"
     intent: str | None = "edit"
     description: str = "Creates a new chart or modifies an existing chart on a sheet, document, or slide."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "action": {
@@ -662,10 +662,10 @@ class UpsertChart(ToolBaseDummy):
         },
         "required": ["action"],
     }
-    uno_services: list | None = ListCharts.uno_services
+    uno_services: list[str] | None = ListCharts.uno_services
     is_mutation: bool | None = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         import copy
         from typing import cast
         params = copy.deepcopy(self.parameters)
@@ -1035,8 +1035,8 @@ class DeleteChart(ToolBaseDummy):
     name: str | None = "delete_chart"
     intent: str | None = "edit"
     description: str = "Delete a chart by name."
-    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Chart name to delete."}}, "required": ["name"]}
-    uno_services: list | None = ListCharts.uno_services
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Chart name to delete."}}, "required": ["name"]}
+    uno_services: list[str] | None = ListCharts.uno_services
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1098,7 +1098,7 @@ class ManageCharts(ToolCalcChartBase):
     name: str | None = "manage_charts"
     intent: str | None = "edit"
     description: str = "Manage charts: list, get_info, create, edit, or delete a chart in the current context (active sheet, document, or slide)."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "action": {
@@ -1193,7 +1193,7 @@ class ManageCharts(ToolCalcChartBase):
         },
         "required": ["action"]
     }
-    uno_services = [
+    uno_services: list[str] | None = [
         "com.sun.star.sheet.SpreadsheetDocument",
         "com.sun.star.text.TextDocument",
         "com.sun.star.drawing.DrawingDocument",
@@ -1201,7 +1201,7 @@ class ManageCharts(ToolCalcChartBase):
     ]
     is_mutation: bool | None = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         import copy
         from typing import cast
         params = copy.deepcopy(self.parameters)

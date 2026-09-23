@@ -35,7 +35,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         "contains multiple images (intervening text is ignored). "
         "By default inserts a high-quality representation after each graphic (Writer) or below the Calc anchor."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "image_name": {
@@ -56,8 +56,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         },
         "required": [],
     }
-    # ToolBase is list | None; ToolCalcSpecialBase still infers list from a bare assign.
-    uno_services: list = _VISION_DOCS
+    uno_services: list[str] | None = _VISION_DOCS
     long_running: bool = True
 
     def is_async(self) -> bool:

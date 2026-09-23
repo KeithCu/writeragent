@@ -32,7 +32,7 @@ class ForecastDataTool(ToolBaseDummy):
         "The host extracts and shapes the data before it reaches the forecasting code. "
         "This tool is intended for the analysis domain; pass range addresses only."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "helper": {"type": "string", "description": "Forecast helper name (e.g. forecast_time_series, decompose_time_series)."},
@@ -47,7 +47,7 @@ class ForecastDataTool(ToolBaseDummy):
     }
     long_running: bool = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         import copy
         from typing import cast
 

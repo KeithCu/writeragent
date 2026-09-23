@@ -441,8 +441,8 @@ class GetDrawTree(ToolBase):
         "label_hint (nearest text to the left or above). ControlShapes include type, name, and current "
         "value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields."
     )
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
 

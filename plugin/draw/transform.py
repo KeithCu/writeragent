@@ -25,13 +25,13 @@ class TransformDocumentStructure(ToolBase, ToolBaseDummy):  # type: ignore[misc]
     intent: str | None = "edit"
     tier: str = "core"
     is_mutation: bool | None = True
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     description: str = (
         "Transform the currently-open document's structure using a JSON command sequence. "
         "Supports Impress slide operations (navigation, layouts, text, formatting) and document-level UNO commands. "
         "Canonical DSL: %s\n\n%s"
     ) % (COLLABORA_TRANSFORM_DSL_URL, TRANSFORM_PARAM_DESCRIPTION)
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "transform": {"type": "string", "description": "JSON transformation commands (Collabora SlideCommands schema)."},

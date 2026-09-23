@@ -29,7 +29,7 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
     )
     is_mutation: bool | None = True
     long_running: bool = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "project_path": {"type": "string", "description": "Path to ppt-master project directory."},
@@ -55,7 +55,7 @@ class ValidatePptMasterProject(ToolDrawPptMasterBase):
     name: str | None = "validate_ppt_master_project"
     description: str = "Check that a ppt-master project folder has expected artifacts (SVG slides, design spec)."
     is_mutation: bool | None = False
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "project_path": {"type": "string", "description": "Path to ppt-master project directory."},
@@ -75,7 +75,7 @@ class ApplyPptMasterTemplateFill(ToolDrawPptMasterBase):
     name: str | None = "apply_ppt_master_template_fill"
     description: str = "Apply a ppt-master fill_plan.json to the active presentation (template-fill route)."
     is_mutation: bool | None = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "fill_plan_path": {"type": "string", "description": "Path to fill_plan.json."},
@@ -95,7 +95,7 @@ class ApplyPptMasterNativeEnhance(ToolDrawPptMasterBase):
     name: str | None = "apply_ppt_master_native_enhance"
     description: str = "Apply ppt-master native enhancement (notes, transitions) from a project folder."
     is_mutation: bool | None = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "project_path": {"type": "string", "description": "Path to ppt-master enhancement project."},

@@ -92,7 +92,7 @@ class GoalSeekTool(ToolBaseDummy):
 
     name: str | None = "calc_goal_seek"
     description: str = "Finds the value for a variable cell that makes a formula cell reach a target value."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "formula_cell": {"type": "string", "description": "Address of the formula cell (e.g. 'Sheet1.B1')."},
@@ -150,7 +150,7 @@ class SolverTool(ToolBaseDummy):
 
     name: str | None = "calc_solver"
     description: str = "Solves an optimization problem to maximize, minimize, or reach a value for an objective cell by changing multiple variable cells subject to constraints."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "objective_cell": {"type": "string", "description": "Cell address of the objective function (e.g. 'Sheet1.C1')."},
@@ -335,7 +335,7 @@ class AnalyzeDataTool(ToolBaseDummy):
         "The host extracts and shapes the data (via split_grid) before it reaches the analysis code. "
         "This tool is intended for the analysis specialized domain; pass range addresses only."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "helper": {"type": "string", "description": "Analysis helper name (e.g. describe_data, run_regression)."},
@@ -353,7 +353,7 @@ class AnalyzeDataTool(ToolBaseDummy):
     }
     long_running: bool = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         """JSON schema presented for analyze_data.
 
         In the analysis specialized domain (the primary consumer of this tool),

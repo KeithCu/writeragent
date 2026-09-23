@@ -715,7 +715,7 @@ class SearchInDocument(ToolBase):
         "With regex=true, body/table/frame hits use LibreOffice/ICU regex; shape and comment sweeps "
         "use Python re (same INVALID_REGEX check). return_offsets is body-only literal search."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
@@ -728,7 +728,7 @@ class SearchInDocument(ToolBase):
         },
         "required": ["pattern"],
     }
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -849,7 +849,7 @@ class AdvancedSearch(ToolBaseDummy):
     name: str | None = "advanced_search"
     intent: str | None = "navigate"
     description: str = "Full-text search with Snowball stemming. Supports boolean queries: AND (default), OR, NOT, NEAR/N. Language auto-detected from document locale. Returns matching paragraphs with context and nearest heading bookmark. Use around_page to restrict results near a specific page."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": ("Search query. Examples: 'climate change', 'energy AND renewable', 'solar OR wind', 'climate NOT politics', 'ocean NEAR/3 warming'")},
@@ -861,7 +861,7 @@ class AdvancedSearch(ToolBaseDummy):
         },
         "required": ["query"],
     }
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         idx_svc = ctx.services.writer_index
@@ -941,8 +941,8 @@ class GetIndexStats(ToolBaseDummy):
     name: str | None = "get_index_stats"
     intent: str | None = "navigate"
     description: str = "Get search index statistics: paragraph count, unique stems, language, build time, and top 20 most frequent stems."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         idx_svc = ctx.services.writer_index

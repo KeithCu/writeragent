@@ -112,7 +112,7 @@ class BrainstormResearchWeb(ToolWriterSpecialBase):
     description: str = "Search the public web for context during brainstorming. Reformats findings as HTML in reply_to_user."
     is_mutation: bool | None = False
     long_running: bool = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Research question or topic."},
@@ -142,7 +142,7 @@ class SaveDesignSpec(ToolWriterSpecialBase):
         "content must be a JSON array of HTML strings (one fragment per block). No Markdown."
     )
     is_mutation: bool | None = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "content": {
@@ -248,7 +248,7 @@ class BrainstormingSessionTool(ToolBase):
     tier: str = "specialized_control"
     is_mutation: bool | None = False
     long_running: bool = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "User message or initial task."},

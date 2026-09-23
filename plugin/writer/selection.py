@@ -15,7 +15,7 @@ class SetSelection(ToolBase):
     name: str | None = "set_selection"
     tier: str = "core"
     is_mutation: bool | None = False
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     description: str = (
         "Select a passage in the document (highlights it for the user and lets a following "
         "apply_document_content/apply_style with target='selection' act on it). Select by "
@@ -23,7 +23,7 @@ class SetSelection(ToolBase):
         "char_end). Selection is transient view state, so pair it with the edit that uses it. "
         "Returns the selected text and its character range."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "search_text": {"type": "string", "description": "Text to select (first match unless occurrence is set)."},

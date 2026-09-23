@@ -203,14 +203,14 @@ class FormCreateControl(ToolWriterFormBase):
     """Creates a single interactive form control at the current cursor position."""
 
     name: str | None = "form_create_control"
-    uno_services: list | None = _FORM_DOC_SERVICES
+    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, or button) "
         "because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. "
         "Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). "
         "Do not use this to fill paper-form blanks (empty TextShapes) — those are fill_draw_fields / shape_upsert targets."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "control": {"type": "string", "enum": ["checkbox", "text", "radio", "date", "combobox"], "description": "The type of form control to create."},
@@ -308,12 +308,12 @@ class FormCreate(ToolWriterFormBase):
     """Fat API: Creates multiple form controls at once."""
 
     name: str | None = "form_create"
-    uno_services: list | None = _FORM_DOC_SERVICES
+    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "Create several live form widgets in one call (Writer/Calc/Draw/Impress). "
         "Use this for interactive ControlShapes, not to fill empty paper-form text boxes."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "fields": {
@@ -365,14 +365,14 @@ class FormGenerate(ToolWriterFormBase):
     """Thin API: Generates a form from a description using a specialized internal prompt."""
 
     name: str | None = "form_generate"
-    uno_services: list | None = _FORM_DOC_SERVICES
+    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "Generate a layout with interactive form widgets from a description. "
         "Writer: HTML at the cursor. Calc: plain text in the active cell area; widgets on the sheet draw page. "
         "Draw/Impress: labels as TextShapes and widgets stacked on the active page. "
         "Not a PDF/AcroForm fill — paper-form blanks stay empty TextShapes."
     )
-    parameters: dict | None = {"type": "object", "properties": {"description": {"type": "string", "description": "Description of the form to generate (e.g. 'Medical intake form')."}}, "required": ["description"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"description": {"type": "string", "description": "Description of the form to generate (e.g. 'Medical intake form')."}}, "required": ["description"]}
 
     def execute(self, ctx: Any, **kwargs: Any):
         from plugin.framework.config import get_api_config
@@ -471,14 +471,14 @@ class FormListControls(ToolWriterFormBase):
     """Lists all interactive form controls in the document."""
 
     name: str | None = "form_list_controls"
-    uno_services: list | None = _FORM_DOC_SERVICES
+    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "List live form widgets (ControlShapes) with name, type, current text/State, and draw-page index "
         "so you can edit or delete by name. Writer: document draw page. Calc: active sheet only. "
         "Draw/Impress: active page, or page= for a specific slide. Index is the draw-page shape index — "
         "it shifts when non-controls sit between widgets; prefer name."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."},
@@ -525,14 +525,14 @@ class FormEditControl(ToolWriterFormBase):
     """Modifies properties of an existing form control."""
 
     name: str | None = "form_edit_control"
-    uno_services: list | None = _FORM_DOC_SERVICES
+    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "Edit a live form widget by name (preferred) or draw-page index from form_list_controls. "
         "Set checkbox/radio State (0/1/2 or yes/no) and text-field Text. Writer/Calc/Draw/Impress. "
         "When index is omitted, name looks up the control; use new_name to rename. "
         "When index is passed, name still renames (older callers)."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "index": {"type": "integer", "description": "Draw-page shape index from form_list_controls (optional if name is set)."},
@@ -600,12 +600,12 @@ class FormDeleteControl(ToolWriterFormBase):
     """Deletes a form control by its index."""
 
     name: str | None = "form_delete_control"
-    uno_services: list | None = _FORM_DOC_SERVICES
+    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "Delete a live form widget by name (preferred) or draw-page index. "
         "Writer/Calc/Draw/Impress. Index shifts when non-controls sit between widgets."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "index": {"type": "integer", "description": "Draw-page shape index (optional if name is set)."},

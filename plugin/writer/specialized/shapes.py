@@ -36,7 +36,7 @@ _WRITER_DRAW_SHAPE_DOCS = list(SHAPE_TOOL_UNO_SERVICES)
 
 class UpsertShape(DrawUpsertShape, ToolWriterShapeBase):
     name: str | None = "shape_upsert"
-    uno_services: list | None = _WRITER_DRAW_SHAPE_DOCS
+    uno_services: list[str] | None = _WRITER_DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     # Specialized for all document types (use delegate_to_specialized_*_toolset(domain=shapes)).
     tier: str = "specialized"
@@ -44,25 +44,25 @@ class UpsertShape(DrawUpsertShape, ToolWriterShapeBase):
 
 class DeleteShape(DrawDeleteShape, ToolWriterShapeBase):
     name: str | None = "shape_delete"
-    uno_services: list | None = _WRITER_DRAW_SHAPE_DOCS
+    uno_services: list[str] | None = _WRITER_DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
 class GetDrawSummary(DrawGetDrawSummary, ToolWriterShapeBase):
     name: str | None = "shape_summary"
-    uno_services: list | None = _WRITER_DRAW_SHAPE_DOCS
+    uno_services: list[str] | None = _WRITER_DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
 class ConnectShapes(DrawConnectShapes, ToolWriterShapeBase):
     name: str | None = "shape_connect"
-    uno_services: list | None = _WRITER_DRAW_SHAPE_DOCS
+    uno_services: list[str] | None = _WRITER_DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
 class GroupShapes(DrawGroupShapes, ToolWriterShapeBase):
     name: str | None = "shape_group"
-    uno_services: list | None = _WRITER_DRAW_SHAPE_DOCS
+    uno_services: list[str] | None = _WRITER_DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 

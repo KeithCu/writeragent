@@ -30,7 +30,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
         "On Writer, the result inserts as a Math object when LaTeX conversion succeeds. "
         "On Calc, results write to the active sheet."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "helper": {

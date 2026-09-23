@@ -21,8 +21,8 @@ class DocumentHealthCheck(ToolBaseDummy):
     name: str | None = "document_health_check"
     intent: str | None = "review"
     description: str = "Run structural health checks on the document. Detects empty headings, heading level jumps, orphan images, large unstructured blocks."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -145,8 +145,8 @@ class SetDocumentProtection(ToolBaseDummy):
     name: str | None = "set_document_protection"
     intent: str | None = "review"
     description: str = "Set or remove document section protection."
-    parameters: dict | None = {"type": "object", "properties": {"enabled": {"type": "boolean", "description": "True to protect sections, False to unprotect."}, "password": {"type": "string", "description": "Optional protection password."}}, "required": ["enabled"]}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"enabled": {"type": "boolean", "description": "True to protect sections, False to unprotect."}, "password": {"type": "string", "description": "Optional protection password."}}, "required": ["enabled"]}
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

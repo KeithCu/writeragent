@@ -89,7 +89,7 @@ class WritingResearchWeb(ToolWriterSpecialBase):
     description: str = "Search the public web for context during document writing. Reformats findings as HTML in reply_to_user."
     is_mutation: bool | None = False
     long_running: bool = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Research question or topic."},
@@ -117,7 +117,7 @@ class WriteDocumentSection(ToolWriterSpecialBase):
     description: str = "Insert or replace a section of document content with formatted HTML."
     is_mutation: bool | None = True
     long_running: bool = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "content": {
@@ -220,7 +220,7 @@ class WritingPlanSessionTool(ToolBase):
     tier: str = "specialized_control"
     is_mutation: bool | None = False
     long_running: bool = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "User message or initial task."},

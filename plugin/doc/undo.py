@@ -34,8 +34,8 @@ class Undo(ToolBase):
         "edit of yours went wrong, undo exactly the steps you caused, and tell the user what you "
         "undid. Result reports undone plus can_undo/can_redo."
     )
-    parameters: dict | None = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to undo (default: 1)."}}, "required": []}
-    uno_services: list | None = None
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to undo (default: 1)."}}, "required": []}
+    uno_services: list[str] | None = None
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -62,8 +62,8 @@ class Redo(ToolBase):
         "undo: the stack is shared with the user's edits — redo only what you yourself just "
         "undid, and tell the user."
     )
-    parameters: dict | None = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to redo (default: 1)."}}, "required": []}
-    uno_services: list | None = None
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to redo (default: 1)."}}, "required": []}
+    uno_services: list[str] | None = None
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

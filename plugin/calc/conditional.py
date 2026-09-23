@@ -110,7 +110,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
     name: str | None = "list_conditional_formats"
     intent: str | None = "navigate"
     description: str = "List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
-    parameters: dict | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Cell range (e.g. [\"A1:D10\"]). If omitted, scans used area."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Cell range (e.g. [\"A1:D10\"]). If omitted, scans used area."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -156,7 +156,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         "formula1 may be omitted or empty for those. "
         "Use formula2 for BETWEEN and NOT_BETWEEN."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": "Cell range to apply the rule to (e.g. [\"A1:D10\"])."},
@@ -290,7 +290,7 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
     name: str | None = "remove_conditional_formats"
     intent: str | None = "edit"
     description: str = "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices."
-    parameters: dict | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Cell range (e.g. [\"A1:D10\"])."}, "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."}}, "required": ["range"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Cell range (e.g. [\"A1:D10\"])."}, "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."}}, "required": ["range"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

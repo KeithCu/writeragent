@@ -28,7 +28,7 @@ class PlotDataTool(ToolBaseDummy):
         f"Helpers: {_VIZ_HELPERS}. "
         "Use data_range (A1 address string). On Calc, the chart inserts on the active sheet automatically."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "helper": {"type": "string", "description": "Viz helper name (e.g. plot_data, quick_plot, correlation_heatmap)."},
@@ -41,7 +41,7 @@ class PlotDataTool(ToolBaseDummy):
     }
     long_running: bool = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         import copy
         from typing import cast
 

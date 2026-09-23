@@ -65,7 +65,7 @@ class ListCalcFunctions(ToolBase):
         "Use the 'filter' parameter to perform a case-insensitive search for a partial substring "
         "anywhere in function names or descriptions to avoid context window bloat."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "filter": {
@@ -75,7 +75,7 @@ class ListCalcFunctions(ToolBase):
         },
         "required": []
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier: str = "core"
     is_mutation: bool | None = False
 
@@ -134,7 +134,7 @@ class EvaluateFormula(ToolCalcErrorBase):
 
     name: str | None = "evaluate_formula"
     description: str = "Evaluates a Calc formula on a temporary duplicate sheet and returns the result or error, without modifying the active sheets."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "formula": {
@@ -148,7 +148,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         },
         "required": ["formula"]
     }
-    uno_services: list = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier: str = "specialized"
     is_mutation: bool | None = False
 

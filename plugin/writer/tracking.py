@@ -53,10 +53,10 @@ def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, _show: bool) ->
 class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
     """Start recording changes."""
 
-    uno_services: list | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
+    uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
     name: str | None = "track_changes_start"
     description: str = "Start recording changes (track changes) in the document."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -70,10 +70,10 @@ class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  #
 class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
     """Stop recording changes."""
 
-    uno_services: list | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
+    uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
     name: str | None = "track_changes_stop"
     description: str = "Stop recording changes (track changes) in the document."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -87,7 +87,7 @@ class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
 class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
     """List all tracked changes (redlines) in the document."""
 
-    uno_services: list | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
+    uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
     name: str | None = "track_changes_list"
     description: str = (
         "List all tracked changes (redlines) in the document, including type, author, date, text "
@@ -95,7 +95,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         "'agent_review_mode' (off/record/wait) is the user's review setting for AGENT edits — in "
         "record/wait your edits become redlines even while recording is false."
     )
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     @staticmethod
     def _agent_review_mode(uno_ctx: Any):
@@ -196,10 +196,10 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
 class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
     """Show or hide change markup."""
 
-    uno_services: list | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
+    uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
     name: str | None = "track_changes_show"
     description: str = "Show or hide tracked changes markup in the document view (Writer). On Calc, recording still works; this call returns guidance to use LibreOffice menus for show/hide markup until UNO support is implemented."
-    parameters: dict | None = {"type": "object", "properties": {"show": {"type": "boolean", "description": "True to show changes, False to hide them."}}, "required": ["show"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"show": {"type": "boolean", "description": "True to show changes, False to hide them."}}, "required": ["show"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -228,13 +228,13 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     UNO dispatch / redline-select path and only differed by verb + optional index.
     """
 
-    uno_services: list | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
+    uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
     name: str | None = "manage_tracked_changes"
     description: str = (
         "Accept or reject tracked changes. action=accept/reject requires index "
         "(from track_changes_list); action=accept_all/reject_all resolves every change."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "action": {

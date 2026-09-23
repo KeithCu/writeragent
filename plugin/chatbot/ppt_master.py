@@ -128,7 +128,7 @@ class PptMasterSessionTool(ToolBase):
     tier: str = "specialized_control"
     is_mutation: bool | None = False
     long_running: bool = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "User message."},

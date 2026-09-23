@@ -213,7 +213,7 @@ class NamedRangeList(ToolCalcRangeBase):
         "Lists named ranges and their formulas/reference targets. "
         "Supports filtering by scope ('global', 'all', or a specific sheet name)."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "scope": {
@@ -270,7 +270,7 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
     name: str | None = "named_range_get_info"
     intent: str | None = "navigate"
     description: str = "Retrieves detailed metadata, reference coordinates, flags, and base address for a specific named range."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "The name of the defined range to inspect."},
@@ -335,7 +335,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
         "Defines a new named range or formula expression in the workbook (global) or specific sheet. "
         "Can specify base reference cell and type flags (e.g. 'print_area', 'filter_criteria')."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {
@@ -404,7 +404,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
     description: str = (
         "Modifies an existing named range: rename, update formula/range content, change base reference position, or update flags."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Current name of the range to edit."},
@@ -482,7 +482,7 @@ class NamedRangeDelete(ToolCalcRangeBase):
     name: str | None = "named_range_delete"
     intent: str | None = "edit"
     description: str = "Deletes an existing named range from global or sheet-specific scope."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the range to delete."},
@@ -524,7 +524,7 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
         "Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. "
         "Border specifies where headers are located ('top', 'bottom', 'left', 'right')."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "range": {

@@ -155,6 +155,7 @@ Prefer **specific** ignore codes (`attr-defined`, `override`, `unresolved-import
 - **`Protocol`** for mixin hosts (e.g. tool-loop mixins).
 - **`TYPE_CHECKING`** + **`ruff`** `TC` rules for imports used only in hints.
 - **Explicit generics**: `list[str]`, `dict[str, Any]`, `str | None` instead of untyped collections.
+- **`ToolBase` fields:** JSON Schema is `parameters: dict[str, Any] | None` and `get_parameters(...) -> dict[str, Any] | None`; UNO service names are `uno_services: list[str] | None`. Subclass annotations must match the live base (including specialized `*SpecialBase` mixins) so Pyright does not emit `reportIncompatibleVariableOverride`.
 - **Narrowing**: `if x is not None` before use; avoid forcing the checker to assume values are defined.
 - **`cast(Any, …)`** / **`cast(Iterable, …)`** where stubs are thin or generators are not inferred as iterable.
 - **UNO interface overrides:** match stub parameter names exactly (e.g. `actionPerformed(self, rEvent)`) or **`ty`/pyright** report `invalid-method-override`.

@@ -53,7 +53,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
         "Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message "
         "when the result is incomplete. COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes fail with READONLY_VIOLATION."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "sql": {

@@ -143,7 +143,7 @@ class FindTools(ToolBase):
     tier: str = "mcp"
     is_mutation: bool | None = False
     requires_document: bool = False  # discovery needs no open document
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "domain": {

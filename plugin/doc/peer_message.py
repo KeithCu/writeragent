@@ -653,8 +653,8 @@ class _SendPeerBase(ToolBase):
     # doc_type="impress" (services map is PresentationDocument only).
     # DrawingDocument still matches Draw-only; do not treat Impress as Draw
     # in the peer catalog (see v1_peer_type_label).
-    uno_services: list | None = [_TEXT_SERVICE, _CALC_SERVICE, _DRAW_SERVICE, _IMPRESS_SERVICE]
-    parameters: dict | None = _PEER_PARAMETERS
+    uno_services: list[str] | None = [_TEXT_SERVICE, _CALC_SERVICE, _DRAW_SERVICE, _IMPRESS_SERVICE]
+    parameters: dict[str, Any] | None = _PEER_PARAMETERS
 
     def is_async(self) -> bool:
         return False

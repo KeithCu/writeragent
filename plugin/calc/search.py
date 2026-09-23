@@ -26,7 +26,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
 
     name: str | None = "search_in_spreadsheet"
     description: str = "Search for text or values in a Calc spreadsheet. Returns matching cells with their addresses and values."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
@@ -38,7 +38,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
         },
         "required": ["pattern"],
     }
-    uno_services: list = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         pattern = kwargs.get("pattern", "")
@@ -68,7 +68,7 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
 
     name: str | None = "replace_in_spreadsheet"
     description: str = "Find and replace text or values in a Calc spreadsheet. Returns count of replacements made."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "search": {"type": "string", "description": "Text or regex pattern to find."},
@@ -80,7 +80,7 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
         },
         "required": ["search", "replace"],
     }
-    uno_services: list = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

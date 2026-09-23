@@ -52,7 +52,7 @@ class ToolWriterSpecialBase(ToolBase):
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_document_content", "get_document_tree"])
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
 
 class DelegateToSpecializedWriter(DelegateToSpecializedBase):
@@ -70,7 +70,7 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
         "bookmarks, tracking, footnotes, tables, forms, images, mail_merge, vision (extract text and structure from images when configured)."
     )
 
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     # Abstract: no execute(); stored for __subclasses__ discovery only.
     _special_base_class: ClassVar[Type[ToolBase]] = ToolWriterSpecialBase  # type: ignore[type-abstract]
     _agent_label: ClassVar[str] = "Writer"
@@ -111,8 +111,8 @@ class ToolWriterImageBase(ToolWriterSpecialBase, ToolDrawImageBase):
         "generate new images, or edit a selected image with image_generate(source_image='selection')."
     )
     intent: str | None = "media"
-    # Draw parent infers list from an unannotated assignment; keep ToolBase's list | None.
-    uno_services: list | None = SHAPE_TOOL_UNO_SERVICES  # type: ignore[assignment]
+    # Writer + Draw/Impress graphic hosts; ignore keeps the shared constant assignable.
+    uno_services: list[str] | None = SHAPE_TOOL_UNO_SERVICES  # type: ignore[assignment]
 
 
 class ToolWriterVisionBase(ToolWriterSpecialBase):
@@ -186,8 +186,8 @@ class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):
     specialized_domain: ClassVar[str | None] = "tables"
     specialized_domain_description: ClassVar[str | None] = "Read and edit table structure and cell contents (rows, columns, cells)."
     intent: str | None = "edit"
-    # Draw parent infers list from an unannotated assignment; keep ToolBase's list | None.
-    uno_services: list | None = [  # type: ignore[assignment]
+    # Writer + Draw/Impress table hosts; ignore keeps the union assignable across mixins.
+    uno_services: list[str] | None = [  # type: ignore[assignment]
         "com.sun.star.text.TextDocument",
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
@@ -207,9 +207,9 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
     # Same key on both ToolWriterSpecialBase / ToolCalcSpecialBase; explicit ClassVar for checkers.
     specialized_domain: ClassVar[str | None] = "forms"
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
-    # Calc parent still has a bare uno_services assign (inferred list[str]).
     intent: str | None = "edit"
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]  # type: ignore[assignment]
+    # Concrete form tools override this with the Writer/Calc/Draw union.
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]  # type: ignore[assignment]
 
 
 class ToolWriterWebResearchBase(ToolWriterSpecialBase):
@@ -299,7 +299,7 @@ class SpecializedWorkflowFinished(ToolBase):
 
     name: str | None = "specialized_workflow_finished"
     description: str = "Provides a final answer to the given task and exits the specialized toolset mode."
-    parameters: dict | None = {"type": "object", "properties": {"answer": {"type": "string", "description": "The final answer to the task. Use only standard Python types (numbers, strings, lists), no Numpy types."}}, "required": ["answer"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"answer": {"type": "string", "description": "The final answer to the task. Use only standard Python types (numbers, strings, lists), no Numpy types."}}, "required": ["answer"]}
     tier: str = "specialized_control"
     is_final_answer_tool: bool = True
 

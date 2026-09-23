@@ -45,6 +45,6 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
         "Also: shapes, tables, images, charts, forms, math, slide transitions, slide masters, templates/design, etc."
     )
 
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     _special_base_class: ClassVar[Type[ToolBase]] = ToolDrawSpecialBase  # type: ignore[type-abstract]
     _agent_label: ClassVar[str] = "Draw"

@@ -31,7 +31,7 @@ class NavHeading(ToolWriterStructuralBase):
     intent: str | None = "navigate"
     is_mutation: bool | None = False
     description: str = "Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "locator": {"type": "string", "description": ("Starting position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42', 'heading_text:Introduction')")},
@@ -39,7 +39,7 @@ class NavHeading(ToolWriterStructuralBase):
         },
         "required": ["locator", "direction"],
     }
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         prox_svc = ctx.services.writer_proximity
@@ -56,7 +56,7 @@ class NavSurroundings(ToolWriterStructuralBase):
     name: str | None = "nav_surroundings"
     intent: str | None = "navigate"
     description: str = "Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "locator": {"type": "string", "description": "Center position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42')"},
@@ -65,7 +65,7 @@ class NavSurroundings(ToolWriterStructuralBase):
         },
         "required": ["locator"],
     }
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         prox_svc = ctx.services.writer_proximity
@@ -80,7 +80,7 @@ class NavHeadingChildren(ToolWriterStructuralBase):
     name: str | None = "nav_heading_children"
     intent: str | None = "navigate"
     description: str = "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', 'heading:1.2'), para_index, or bookmark. para_index values are INTERNAL — never cite paragraph numbers to the user; refer to a place by quoting the first words of its text."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "locator": {"type": "string", "description": "Locator string (e.g. 'bookmark:_mcp_xxx', 'heading:1.2')"},
@@ -91,7 +91,7 @@ class NavHeadingChildren(ToolWriterStructuralBase):
         },
         "required": [],
     }
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         tree_svc = ctx.services.writer_tree

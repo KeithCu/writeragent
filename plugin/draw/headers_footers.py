@@ -259,7 +259,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
 
     name: str | None = "get_headers_footers"
     description: str = "Retrieves header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": ("0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index).")},
@@ -299,7 +299,7 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
 
     name: str | None = "set_headers_footers"
     description: str = "Updates header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": ("0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.")},

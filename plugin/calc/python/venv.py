@@ -146,11 +146,11 @@ class RunVenvPythonScript(ToolCalcPythonBase):
     name: str | None = "run_venv_python_script"
     specialized_cross_cutting: ClassVar[bool] = True
     description: str = _DESCRIPTION_CALC
-    parameters: dict | None = _PARAMETERS_CALC
-    uno_services: list = list(_ALL_VENV_DOCS)
+    parameters: dict[str, Any] | None = _PARAMETERS_CALC
+    uno_services: list[str] | None = list(_ALL_VENV_DOCS)
     long_running: bool = True
 
-    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         if doc_type == "calc":
             return _PARAMETERS_CALC
         if doc_type is None:

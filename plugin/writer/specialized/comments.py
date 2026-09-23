@@ -34,8 +34,8 @@ class CommentList(ToolWriterCommentBase):
     name: str | None = "comment_list"
     intent: str | None = "review"
     description: str = "List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments."
-    parameters: dict | None = {"type": "object", "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}}, "required": []}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: Any, **kwargs: Any):
         author_filter = kwargs.get("author_filter")
@@ -80,14 +80,14 @@ class AddComment(ToolBase):
         "parent (including other replies) and do not mark it resolved — use comment_resolve for "
         "reply-and-resolve. Use author to sign the comment."
     )
-    parameters: dict | None = {"type": "object", "properties": {
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {
         "content": {"type": "string", "description": "The comment text."},
         "search": {"type": "string", "description": "Anchor a new root comment to text matching this string. Not required when parent_name is set."},
         "occurrence": {"type": "integer", "description": "0-based match to comment on when search repeats (default 0). Ignored when parent_name is set."},
         "author": {"type": "string", "description": "Comment author (default 'WriterAgent')."},
         "parent_name": {"type": "string", "description": "Reply to this comment. Pass the 'name' from a prior add_comment success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped."},
     }, "required": ["content"]}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -223,8 +223,8 @@ class CommentDelete(ToolWriterCommentBase):
     name: str | None = "comment_delete"
     intent: str | None = "review"
     description: str = "Delete comments by name or author. Use name to delete a specific comment and its replies. Use author to delete ALL comments by that author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."
-    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "The 'name' field returned by comment_list."}, "author": {"type": "string", "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW').")}}, "required": []}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "The 'name' field returned by comment_list."}, "author": {"type": "string", "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW').")}}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -276,7 +276,7 @@ class CommentResolve(ToolWriterCommentBase):
     name: str | None = "comment_resolve"
     intent: str | None = "review"
     description: str = "Resolve a comment with an optional reason. Adds a reply with the resolution text, then marks as resolved."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "The 'name' field returned by comment_list."},
@@ -285,7 +285,7 @@ class CommentResolve(ToolWriterCommentBase):
         },
         "required": ["name"],
     }
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -472,7 +472,7 @@ class CommentScanTasks(ToolWriterCommentBase):
     name: str | None = "comment_scan_tasks"
     intent: str | None = "review"
     description: str = f"Find workflow tasks in comments ({', '.join(WORKFLOW_TASK_PREFIXES)} prefixes)."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "unresolved_only": {"type": "boolean", "description": "Only unresolved tasks (default true)."},
@@ -480,7 +480,7 @@ class CommentScanTasks(ToolWriterCommentBase):
         },
         "required": [],
     }
-    uno_services: list | None = _COMMENT_UNO
+    uno_services: list[str] | None = _COMMENT_UNO
 
     def execute(self, ctx: Any, **kwargs: Any):
         return _comment_scan_tasks(ctx, kwargs)
@@ -490,8 +490,8 @@ class CommentWorkflowGet(ToolWriterCommentBase):
     name: str | None = "comment_workflow_get"
     intent: str | None = "review"
     description: str = "Read the MCP-WORKFLOW dashboard comment (key: value lines)."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list | None = _COMMENT_UNO
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list[str] | None = _COMMENT_UNO
 
     def execute(self, ctx: Any, **kwargs: Any):
         return _comment_workflow_get(ctx)
@@ -501,14 +501,14 @@ class CommentWorkflowSet(ToolWriterCommentBase):
     name: str | None = "comment_workflow_set"
     intent: str | None = "review"
     description: str = "Write the MCP-WORKFLOW dashboard comment (key: value lines)."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "content": {"type": "string", "description": "Workflow status as key: value lines."},
         },
         "required": ["content"],
     }
-    uno_services: list | None = _COMMENT_UNO
+    uno_services: list[str] | None = _COMMENT_UNO
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -519,8 +519,8 @@ class CommentCheckStop(ToolWriterCommentBase):
     name: str | None = "comment_check_stop"
     intent: str | None = "review"
     description: str = "Detect STOP/CANCEL comments or workflow stop/pause in the MCP-WORKFLOW dashboard."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list | None = _COMMENT_UNO
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list[str] | None = _COMMENT_UNO
 
     def execute(self, ctx: Any, **kwargs: Any):
         return _comment_check_stop(ctx)

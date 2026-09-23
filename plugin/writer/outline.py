@@ -57,12 +57,12 @@ class GetDocumentTree(ToolBase):
         "user to a location or an edit, quote the first few words of its text instead "
         "(e.g. \"the sentence starting 'The Amazon…'\")."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {"strategy": {"type": "string", "enum": ["heading_only", "first_lines", "full"], "description": "Content to include with headings (default: first_lines)"}, "depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default: 1)"}},
         "required": [],
     }
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         tree_svc = ctx.services.writer_tree

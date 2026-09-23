@@ -170,7 +170,7 @@ class FillDrawFields(ToolDrawShapeBase):
         "draw-page index, or label_hint from get_draw_tree. Returns per-field ok/fail so you can recover. "
         "Not a PDF/AcroForm API."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)."},

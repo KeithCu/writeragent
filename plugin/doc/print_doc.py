@@ -18,7 +18,7 @@ class PrintDocument(ToolBaseDummy):
     name: str | None = "print_document"
     intent: str | None = "media"
     description: str = "Print the current document to the default printer or a named printer. Can also print to PDF via printer name. Works on all document types."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "printer": {"type": "string", "description": "Printer name (default printer if omitted)."},
@@ -27,7 +27,7 @@ class PrintDocument(ToolBaseDummy):
         },
         "required": [],
     }
-    uno_services: list | None = None  # all document types
+    uno_services: list[str] | None = None  # all document types
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

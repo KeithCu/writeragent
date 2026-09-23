@@ -126,8 +126,8 @@ class GetSlideTransition(ToolDrawSlideTransitionsBase):
     name: str | None = "get_slide_transition"
     intent: str | None = "navigate"
     description: str = "Get the transition effect, speed, duration, and advance mode for an Impress slide."
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
@@ -188,7 +188,7 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         "Speed: slow, medium, fast. "
         "Advance: on_click, auto (set duration for auto-advance)."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
@@ -200,7 +200,7 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         },
         "required": [],
     }
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -318,8 +318,8 @@ class GetSlideLayout(ToolDrawSlideLayoutBase):
     name: str | None = "get_slide_layout"
     intent: str | None = "navigate"
     description: str = "Get the layout type of an Impress slide. Returns the layout ID and a human-readable name."
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
@@ -337,8 +337,8 @@ class SetSlideLayout(ToolDrawSlideLayoutBase):
     description: str = (
         "Set the layout of an Impress slide. Layouts: blank, title, text, title_only, two_column_text, text_and_chart, chart, text_and_object, object, text_and_clipart, large_object, four_objects, vertical_text, two_objects, and more. Use get_slide_layout to see all available layout names."
     )
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "layout": {"type": "string", "description": "Layout name (e.g. 'blank', 'title', 'text_and_object')."}}, "required": ["layout"]}
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "layout": {"type": "string", "description": "Layout name (e.g. 'blank', 'title', 'text_and_object')."}}, "required": ["layout"]}
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):

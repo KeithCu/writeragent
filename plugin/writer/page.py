@@ -349,7 +349,7 @@ class PageGetStyleProperties(ToolWriterPageBase):
 
     name: str | None = "page_get_style_properties"
     description: str = "Get dimensions, margins, and header/footer states of a page style."
-    parameters: dict | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         return get_page_style_properties(ctx.doc, kwargs.get("style", "Standard"))
@@ -370,7 +370,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
         "text, fields, images, or tables — clear with page_set_header_footer_text "
         "first, then disable. Enabling (true) is always allowed. No force-off."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."},
@@ -537,7 +537,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         "XText. Also lists images, fields, and paragraph_count so structure is visible "
         "without parsing the HTML. Use header_first / footer_first when first_is_shared is false."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "style": {
@@ -640,7 +640,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         "letterhead grows instead of overlapping the body. Plain text is wrapped as a "
         "paragraph and still goes through import."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "style": {
@@ -733,7 +733,7 @@ class PageGetColumns(ToolWriterPageBase):
 
     name: str | None = "page_get_columns"
     description: str = "Get the column layout for a page style."
-    parameters: dict | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = kwargs.get("style", "Standard")
@@ -775,7 +775,7 @@ class PageSetColumns(ToolWriterPageBase):
 
     name: str | None = "page_set_columns"
     description: str = "Set the number of columns and spacing for a page style."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."},
@@ -845,7 +845,7 @@ class PageInsertBreak(ToolWriterPageBase):
         "Pass before_text or after_text to break the page at a specific passage instead, so a "
         "headless client can place it deterministically (e.g. before_text of the signature block)."
     )
-    parameters: dict | None = {"type": "object", "properties": {
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {
         "before_text": {"type": "string", "description": "Break so this passage starts a new page (page break on the match's paragraph)."},
         "after_text": {"type": "string", "description": "Break the page right after this passage's paragraph."},
         "occurrence": {"type": "integer", "description": "0-based match to use when the anchor text repeats (default 0)."},

@@ -388,8 +388,8 @@ class ToolBase(ABC):
 
     name: str | None = None
     description: str = ""
-    parameters: dict | None = None
-    uno_services: list | None = None
+    parameters: dict[str, Any] | None = None
+    uno_services: list[str] | None = None
     tier: str = "core"
     intent: str | None = None
     is_mutation: bool | None = None
@@ -429,7 +429,7 @@ class ToolBase(ABC):
         """
         return make_tool_error(message, code=code, **details)
 
-    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         """JSON Schema for this tool; override for document-type-specific parameters."""
         return self.parameters
 

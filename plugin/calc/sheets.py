@@ -45,7 +45,7 @@ class ListSheets(ToolCalcSheetBase):
 
     name: str | None = "list_sheets"
     description: str = "Lists user-visible sheet names in the workbook (omits LibreOffice internal tabs)."
-    parameters: dict | None = {"type": "object", "properties": {}}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}}
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -67,7 +67,7 @@ class SwitchSheet(ToolCalcSheetBase):
     name: str | None = "switch_sheet"
     intent: str | None = "edit"
     description: str = "Switches to the specified sheet (makes it active)."
-    parameters: dict | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to switch to"}}, "required": ["sheet"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to switch to"}}, "required": ["sheet"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -100,7 +100,7 @@ class CreateSheet(ToolCalcSheetBase):
         "create_sheet is not Sample/deliverable populate — after create, "
         "write_formula_range with source to copy a block onto the new sheet."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "sheet": {
@@ -151,7 +151,7 @@ class RenameSheet(ToolCalcSheetBase):
     name: str | None = "rename_sheet"
     intent: str | None = "edit"
     description: str = "Renames an existing sheet."
-    parameters: dict | None = {"type": "object", "properties": {"old_name": {"type": "string", "description": "Current name of the sheet"}, "new_name": {"type": "string", "description": "New name for the sheet"}}, "required": ["old_name", "new_name"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"old_name": {"type": "string", "description": "Current name of the sheet"}, "new_name": {"type": "string", "description": "New name for the sheet"}}, "required": ["old_name", "new_name"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -181,7 +181,7 @@ class DeleteSheet(ToolCalcSheetBase):
     name: str | None = "delete_sheet"
     intent: str | None = "edit"
     description: str = "Deletes an existing sheet by name."
-    parameters: dict | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to delete"}}, "required": ["sheet"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to delete"}}, "required": ["sheet"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -209,7 +209,7 @@ class ProtectSheet(ToolCalcSheetBase):
     name: str | None = "protect_sheet"
     intent: str | None = "edit"
     description: str = "Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked."
-    parameters: dict | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}, "protect": {"type": "boolean", "description": "True to protect, False to unprotect (default: True)"}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}, "protect": {"type": "boolean", "description": "True to protect, False to unprotect (default: True)"}}, "required": []}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -247,8 +247,8 @@ class GetSheetSummary(ToolBase):
     name: str | None = "get_sheet_summary"
     tier: str = "core"
     description: str = "Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes."
-    parameters: dict | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}}, "required": []}
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

@@ -107,7 +107,7 @@ class ExecutePythonScript(ToolBaseDummy):
         format_inprocess_import_policy_for_prompt()
         + " The value of the last expression is returned. Each call starts with a clean environment."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "code": {"type": "string", "description": "The Python code to execute."},
@@ -116,7 +116,7 @@ class ExecutePythonScript(ToolBaseDummy):
         },
         "required": ["code"],
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

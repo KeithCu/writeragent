@@ -34,7 +34,7 @@ class SearchEmbeddings(ToolBase):
     specialized_cross_cutting: ClassVar[bool] = True
     is_mutation: bool | None = False
     long_running: bool = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Natural-language or keyword query."},

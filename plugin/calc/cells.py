@@ -306,7 +306,7 @@ class ReadCellRange(ToolBase):
         "Elapsed/stopwatch formats (`[HH]:MM:SS`, …) return `PTnHnMnS` (e.g. PT30H) with "
         "type/format_category duration. Supports lists for non-contiguous areas."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "range": {
@@ -321,7 +321,7 @@ class ReadCellRange(ToolBase):
         },
         "required": ["range"],
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier: str = "core"
     is_mutation: bool | None = False
 
@@ -396,7 +396,7 @@ class WriteCellRange(ToolBase):
         "values. Dest is the top-left (or a matching range whose start is used); the copied size is "
         "the source extent. Relative formula refs adjust for the dest offset; $ stay."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "range": {
@@ -453,7 +453,7 @@ class WriteCellRange(ToolBase):
         },
         "required": ["range"],
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier: str = "core"
     is_mutation: bool | None = True
 
@@ -558,8 +558,8 @@ class InsertCellHtml(ToolBase):
         "active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded "
         "objects. Clears existing cell text. Use set_style for table-wide borders."
     )
-    parameters: dict | None = {"type": "object", "properties": {"cell": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'}, "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."}}, "required": ["cell", "html"]}
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'}, "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."}}, "required": ["cell", "html"]}
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -593,7 +593,7 @@ class SetCellStyle(ToolBase):
     name: str | None = "set_style"
     intent: str | None = "edit"
     description: str = "Applies style and formatting to the specified cell(s) or range(s). Supports lists for non-contiguous areas."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": ('Target cell(s) or range(s) (e.g. ["A1:D10"] or ["A1", "B2"]).')},
@@ -609,7 +609,7 @@ class SetCellStyle(ToolBase):
         },
         "required": ["range"],
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
     # Kept for scripting API / in-process callers; omitted from LLM schema so models cannot
     # casually rewrite NumberFormat via set_style (see docs/calc/date-time-handling.md S26).
@@ -742,8 +742,8 @@ class MergeCells(ToolBase):
     name: str | None = "merge_cells"
     intent: str | None = "edit"
     description: str = "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
-    parameters: dict | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')}, "center": {"type": "boolean", "description": "Center content (default: true)"}}, "required": ["range"]}
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')}, "center": {"type": "boolean", "description": "Center content (default: true)"}}, "required": ["range"]}
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -785,7 +785,7 @@ class SortRange(ToolCalcRangeBase):
         "sort as values. "
         "Supports lists for non-contiguous areas."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).')},
@@ -813,7 +813,7 @@ class SortRange(ToolCalcRangeBase):
         },
         "required": ["range", "has_header"],
     }
-    uno_services: list = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -844,7 +844,7 @@ class DeleteStructure(ToolBase):
     name: str | None = "delete_structure"
     intent: str | None = "edit"
     description: str = "Deletes rows or columns. Use for structural changes; prefer ranges for data operations."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to delete."},
@@ -853,7 +853,7 @@ class DeleteStructure(ToolBase):
         },
         "required": ["structure_type", "start"],
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

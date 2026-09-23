@@ -315,7 +315,7 @@ class IndexesUpdateAll(ToolWriterIndexBase):
         "use indexes_refresh_toc_entry to change one outline entry in place. "
         "Page numbers are not updated by that one-entry edit."
     )
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -402,7 +402,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         "Pass hyperlink_url to set the outline target, including when content equals "
         "old_content. Bookmark targets are not rewritten."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "old_content": {"type": "string", "description": "Substring to find inside the TOC entry."},
@@ -617,7 +617,7 @@ class IndexesList(ToolWriterIndexBase):
         "type matches indexes_create kind (bibliography via getServiceName). "
         "For in-flow cites use indexes_list_cites, not this tool."
     )
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -648,7 +648,7 @@ class IndexesListCites(ToolWriterIndexBase):
         "Returns identifier, key Fields (Author, Title, Year, Pages, type), and location. "
         "Does not list the bibliography table — use indexes_list for that."
     )
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any):
@@ -706,7 +706,7 @@ class IndexesCreate(ToolWriterIndexBase):
         "Use target='beginning', 'end', or 'selection'. "
         "Use target='search' with old_content to find and replace text."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "kind": {"type": "string", "enum": ["toc", "alphabetical", "user", "illustration", "table", "object", "bibliography"], "description": "The type of index to create."},
@@ -777,7 +777,7 @@ class IndexesAddMark(ToolWriterIndexBase):
         "primary_key is ignored for cites. After cite changes call indexes_update_all "
         "so the bibliography table refreshes. Do not use fields_insert for product cites."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Index mark entry, or Identifier fallback for kind=bibliography."},

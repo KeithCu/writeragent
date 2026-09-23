@@ -446,7 +446,7 @@ class TableList(ToolWriterTableBase):
         "Draw/Impress: also page and shape index; cell_count is rows times cols."
     )
     is_mutation: bool | None = False
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         try:
@@ -490,7 +490,7 @@ class TableGetCells(ToolWriterTableBase):
         "table_set_cell on a host cell updates that host text and leaves nested tables."
     )
     is_mutation: bool | None = False
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},
@@ -580,7 +580,7 @@ class TableSetCell(ToolWriterTableBase):
         "Not a tracked change even when review mode is on."
     )
     is_mutation: bool | None = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},
@@ -657,7 +657,7 @@ class ManageTableStructure(ToolWriterTableBase):
         "Writer: refuses delete if the row/column hosts a nested table (that would destroy it)."
     )
     is_mutation: bool | None = True
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "action": {
@@ -771,7 +771,7 @@ class TableInsert(ToolWriterTableBase):
         "Draw/Impress: TableShape; position/size in 1/100 mm. parent/cell are Writer-only. "
         "Optional data is a 2D array of cell strings."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "rows": {"type": "integer", "description": "Number of rows"},
@@ -902,7 +902,7 @@ class TableDelete(ToolWriterTableBase):
         "the intentional remove (do not use table_set_cell, which refuses host cells). "
         "Draw/Impress: removes the TableShape from the page."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},

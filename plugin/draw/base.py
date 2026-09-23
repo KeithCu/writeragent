@@ -53,7 +53,7 @@ class ToolDrawDocumentResearchBase(ToolDrawSpecialBase):
 class ToolDrawChartBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "charts"
     specialized_domain_description: ClassVar[str | None] = "Create and edit data charts within the drawing or presentation."
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawShapeBase(ToolDrawSpecialBase):
@@ -61,44 +61,44 @@ class ToolDrawShapeBase(ToolDrawSpecialBase):
     specialized_domain_description: ClassVar[str | None] = (
         "Create and edit drawing shapes, connectors, and groups; fill paper-form blanks by name."
     )
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawFormBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "forms"
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
     intent: str | None = "edit"
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawHeaderFooterBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "headers_footers"
     specialized_domain_description: ClassVar[str | None] = "Manage presentation-wide headers, footers, and page numbers."
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawSpeakerNotesBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "speaker_notes"
     specialized_domain_description: ClassVar[str | None] = "Read and edit Impress speaker notes per slide."
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawSlideTransitionsBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "slide_transitions"
     specialized_domain_description: ClassVar[str | None] = "Slide transition effects, timing, and Impress slide layouts."
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawSlideLayoutBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "slide_layouts"
     specialized_domain_description: ClassVar[str | None] = "Get and set Impress slide layouts by layout name or type."
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawSlideMastersBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "slide_masters"
     specialized_domain_description: ClassVar[str | None] = "List master slides and assign masters to slides."
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawPythonBase(ToolDrawSpecialBase):
@@ -116,7 +116,7 @@ class ToolDrawImageBase(ToolDrawSpecialBase):
         "Insert, list, and generate images on Draw/Impress pages (same image_* tools as Writer/Calc); "
         "edit a selected image with image_generate(source_image='selection')."
     )
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawTableBase(ToolDrawSpecialBase):
@@ -124,7 +124,7 @@ class ToolDrawTableBase(ToolDrawSpecialBase):
     specialized_domain_description: ClassVar[str | None] = (
         "Insert and edit tables on Draw/Impress pages (same table_* tools as Writer)."
     )
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawPptMasterBase(ToolDrawSpecialBase):
@@ -134,4 +134,4 @@ class ToolDrawPptMasterBase(ToolDrawSpecialBase):
     specialized_domain_description: ClassVar[str | None] = (
         "PPT-Master workflow: export SVG projects to native Impress shapes, validate, template-fill, enhance."
     )
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]

@@ -100,7 +100,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
     name: str | None = "insert_math"
     intent: str | None = "insert"
     description: str = "Inserts an editable LibreOffice Math formula on a Draw or Impress page. Use formula_type 'latex' or 'mathml' with the corresponding formula string; position with page, x, y (100ths of mm). Size is derived from the formula when possible."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "formula_type": {"type": "string", "enum": ["latex", "mathml"], "description": "Whether formula is LaTeX (converted via LO) or MathML."},
@@ -111,7 +111,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
         },
         "required": ["formula_type", "formula", "page", "x", "y"],
     }
-    uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
     specialized_domain: ClassVar[str | None] = "math"
 

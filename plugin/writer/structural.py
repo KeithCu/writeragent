@@ -96,8 +96,8 @@ class SectionList(ToolWriterStructuralBase):
     name: str | None = "section_list"
     intent: str | None = "navigate"
     description: str = "List all named sections in the document."
-    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc
@@ -117,8 +117,8 @@ class NavGotoPage(ToolWriterStructuralBase):
     intent: str | None = "navigate"
     is_mutation: bool | None = False
     description: str = "Navigate the view cursor to a specific page."
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "Page number to navigate to"}}, "required": ["page"]}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "Page number to navigate to"}}, "required": ["page"]}
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         controller = ctx.doc.getCurrentController()
@@ -134,12 +134,12 @@ class GetPageObjects(ToolBase):
         "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide "
         "page number, locator, or paragraph. " + PARAGRAPH_INDEX_DIRECTIVE
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {"page": {"type": "integer", "description": "1-based page number to analyze"}, "locator": {"type": "string", "description": "Locator to determine page"}, "paragraph": {"type": "integer", "description": "Paragraph index to determine page"}},
         "required": [],
     }
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
@@ -280,8 +280,8 @@ class SectionRead(ToolWriterStructuralBase):
     name: str | None = "section_read"
     intent: str | None = "navigate"
     description: str = "Read the text content of a named section. Returns the full text within the section boundaries."
-    parameters: dict | None = {"type": "object", "properties": {"section": {"type": "string", "description": "Name of the section to read."}}, "required": ["section"]}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"section": {"type": "string", "description": "Name of the section to read."}}, "required": ["section"]}
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         section_name = kwargs.get("section", "")
@@ -336,8 +336,8 @@ class CloneHeadingBlock(ToolBaseDummy):
     name: str | None = "clone_heading_block"
     intent: str | None = "edit"
     description: str = "Clone an entire heading block (heading + all sub-headings + body). The clone is inserted right after the original block."
-    parameters: dict | None = {"type": "object", "properties": {"locator": {"type": "string", "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction').")}, "paragraph_index": {"type": "integer", "description": "Paragraph index of the heading (0-based)."}}}
-    uno_services: list | None = ["com.sun.star.text.TextDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"locator": {"type": "string", "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction').")}, "paragraph_index": {"type": "integer", "description": "Paragraph index of the heading (0-based)."}}}
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):

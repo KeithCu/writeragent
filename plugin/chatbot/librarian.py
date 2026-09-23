@@ -258,7 +258,7 @@ TOOLS FOR COMPLETION:
 class LibrarianOnboardingTool(ToolBase):
     name: str | None = "librarian_onboarding"
     description: str = "Librarian agent for new user onboarding."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "User message"},

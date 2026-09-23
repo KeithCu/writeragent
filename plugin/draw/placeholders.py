@@ -205,8 +205,8 @@ class ListPlaceholders(ToolBase):
         "text content, and index. Call this before set_placeholder_text. If count=0, set "
         "layout 'text' (set_slide_layout or delegate domain=slide_layouts) then retry."
     )
-    parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
@@ -224,7 +224,7 @@ class GetPlaceholderText(ToolBase):
         "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') "
         "or index. Prefer list_placeholders first; use index when roles are missing."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."},
@@ -233,7 +233,7 @@ class GetPlaceholderText(ToolBase):
         },
         "required": [],
     }
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
@@ -268,7 +268,7 @@ class SetPlaceholderText(ToolBase):
         "Prefer list_placeholders first; prefer index when role lookup fails. Empty available "
         "means the slide lacks a text layout — set layout 'text' then retry, not a missing argument."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Text to set on the placeholder."},
@@ -278,7 +278,7 @@ class SetPlaceholderText(ToolBase):
         },
         "required": ["text"],
     }
-    uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any):

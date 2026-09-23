@@ -144,7 +144,7 @@ class CreatePivotTable(ToolCalcPivotBase):
 
     name: str | None = "create_pivot_table"
     description: str = "Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via create_sheet first)."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Unique name for this pivot table in the document."},
@@ -241,7 +241,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
 
     name: str | None = "refresh_pivot_table"
     description: str = "Reload pivot table data from the source range. If sheet is omitted, searches all sheets for name."
-    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the pivot table."}, "sheet": {"type": "string", "description": "Sheet containing the pivot. Omit to search the workbook."}}, "required": ["name"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the pivot table."}, "sheet": {"type": "string", "description": "Sheet containing the pivot. Omit to search the workbook."}}, "required": ["name"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -285,7 +285,7 @@ class ListPivotTables(ToolCalcPivotBase):
 
     name: str | None = "list_pivot_tables"
     description: str = "List pivot tables in the spreadsheet, optionally limited to one sheet."
-    parameters: dict | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "If set, only list pivot tables on this sheet."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "If set, only list pivot tables on this sheet."}}, "required": []}
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

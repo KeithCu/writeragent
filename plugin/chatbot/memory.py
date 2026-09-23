@@ -179,12 +179,12 @@ class MemoryTool(ToolBase):
 
     name: str | None = "upsert_memory"
     description: str = "Persistent memory for the agent. Stores user profile, preferences, and quirks. Inserts or updates a specific key in a YAML/JSON-like key: value structure. To delete a memory, update it with an empty string."
-    uno_services: list | None = None
+    uno_services: list[str] | None = None
     tier: str = "core"
     intent: str | None = "navigate"
     is_mutation: bool | None = False
 
-    parameters: dict | None = {"type": "object", "properties": {"key": {"type": "string", "description": "The key to update or insert (e.g., 'favorite_color')."}, "content": {"type": "string", "description": "The new value to associate with the key."}}, "required": ["key", "content"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"key": {"type": "string", "description": "The key to update or insert (e.g., 'favorite_color')."}, "content": {"type": "string", "description": "The new value to associate with the key."}}, "required": ["key", "content"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # crosshair: off

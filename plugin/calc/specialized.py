@@ -45,6 +45,6 @@ class DelegateToSpecializedCalc(DelegateToSpecializedBase):
         "Also: images, shapes, vision (extract text and structure from images when configured), pivot, sheets, forms, tracking, etc."
     )
 
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     _special_base_class: ClassVar[Type[ToolBase]] = ToolCalcSpecialBase  # type: ignore[type-abstract]
     _agent_label: ClassVar[str] = "Calc"

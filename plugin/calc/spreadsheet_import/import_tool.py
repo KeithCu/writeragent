@@ -25,7 +25,7 @@ class ConvertSpreadsheetToPython(ToolBaseDummy):
         "Converts legacy Calc spreadsheet formulas to `=PY()` Python formulas "
         "retaining cell constant values and number formats."
     )
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "scope": {
@@ -48,7 +48,7 @@ class ConvertSpreadsheetToPython(ToolBaseDummy):
             },
         },
     }
-    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier: str = "core"
     is_mutation: bool | None = True
 

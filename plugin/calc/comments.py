@@ -79,7 +79,7 @@ class ListCellComments(ToolCalcCommentBase):
     name: str | None = "list_cell_comments"
     intent: str | None = "review"
     description: str = "List all cell comments (annotations) in a Calc sheet. Returns cell address, author, date, and comment text."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "sheet": {
@@ -123,7 +123,7 @@ class AddCellComment(ToolCalcCommentBase):
     name: str | None = "add_cell_comment"
     intent: str | None = "review"
     description: str = "Add a comment (annotation) to a specific cell in a Calc sheet."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "cell": {
@@ -181,7 +181,7 @@ class DeleteCellComment(ToolCalcCommentBase):
     name: str | None = "delete_cell_comment"
     intent: str | None = "review"
     description: str = "Delete the comment (annotation) from a specific cell."
-    parameters: dict | None = {
+    parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "cell": {
