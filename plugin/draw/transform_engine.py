@@ -27,7 +27,7 @@ _EDIT_TEXT_RE = re.compile(r"^EditTextObject\.(\d+)$", re.I)
 _MOVE_SLIDE_RE = re.compile(r"^MoveSlide\.(\d+)$", re.I)
 
 
-def _text_shapes(page) -> list[Any]:
+def _text_shapes(page: Any) -> list[Any]:
     shapes = []
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
@@ -36,7 +36,7 @@ def _text_shapes(page) -> list[Any]:
     return shapes
 
 
-def _set_shape_text(shape, text: str) -> None:
+def _set_shape_text(shape: Any, text: str) -> None:
     if hasattr(shape, "getText"):
         try:
             xtext = shape.getText()
@@ -160,7 +160,7 @@ class SlideCommandEngine:
                 pass
         return None
 
-    def _insert_master(self, master_index=None, master_name=None) -> None:
+    def _insert_master(self, master_index: int | None = None, master_name: str | None = None) -> None:
         _unused, new_idx = self.bridge.insert_slide_from_master(master_index=master_index, master_name=master_name, after_index=self.current_slide, switch=True)
         self.current_slide = new_idx
         self.pages = self.bridge.get_pages()
@@ -246,7 +246,7 @@ class SlideCommandEngine:
                     self._dispatch_uno_string(sv, cursor=cursor, shape=shape)
         self.applied.append("EditTextObject.%d" % shape_index)
 
-    def _select_text(self, xtext, cursor, spec: Any):
+    def _select_text(self, xtext: Any, cursor: Any, spec: Any):
         if cursor is None or xtext is None:
             return cursor
         cursor.gotoStart(False)
@@ -282,7 +282,7 @@ class SlideCommandEngine:
             return cursor
         return cursor
 
-    def _select_paragraph(self, xtext, cursor, para_index: int):
+    def _select_paragraph(self, xtext: Any, cursor: Any, para_index: int):
         return self._select_text(xtext, cursor, [para_index])
 
     def _apply_top_level_uno(self, uno_spec: Any) -> None:
@@ -295,7 +295,7 @@ class SlideCommandEngine:
             self._dispatch_uno_string(uno_spec)
             self.applied.append("UnoCommand")
 
-    def _dispatch_uno_string(self, cmd: Any, cursor=None, shape=None) -> None:
+    def _dispatch_uno_string(self, cmd: Any, cursor: Any = None, shape: Any = None) -> None:
         if not isinstance(cmd, str):
             return
         cmd = cmd.strip()

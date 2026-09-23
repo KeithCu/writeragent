@@ -12,7 +12,7 @@ from typing import Any
 _A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
-def _table_model(shape):
+def _table_model(shape: Any):
     if hasattr(shape, "Model"):
         model = shape.Model
         if model is not None:
@@ -25,7 +25,7 @@ def _table_model(shape):
         return None
 
 
-def fill_table_cells(table, data) -> int:
+def fill_table_cells(table: Any, data: Any) -> int:
     """Write a 2D string grid into ``table.getCellByPosition(col, row)``. Returns cells written."""
     written = 0
     for r_idx, row in enumerate(data):
@@ -39,7 +39,7 @@ def fill_table_cells(table, data) -> int:
     return written
 
 
-def _set_cell_string(cell, text: str) -> None:
+def _set_cell_string(cell: Any, text: str) -> None:
     if hasattr(cell, "getText"):
         try:
             cell.getText().setString(text)
@@ -50,7 +50,7 @@ def _set_cell_string(cell, text: str) -> None:
         cell.setString(text)
 
 
-def _cell_string(cell) -> str:
+def _cell_string(cell: Any) -> str:
     try:
         val = cell.getString()
         if val is not None:
@@ -63,7 +63,7 @@ def _cell_string(cell) -> str:
         return ""
 
 
-def _is_table_shape(shape) -> bool:
+def _is_table_shape(shape: Any) -> bool:
     try:
         st = shape.getShapeType()
         if st and "TableShape" in str(st):
@@ -76,13 +76,13 @@ def _is_table_shape(shape) -> bool:
         return False
 
 
-def _model_dims(model) -> tuple[int, int]:
+def _model_dims(model: Any) -> tuple[int, int]:
     rows = model.getRows().getCount()
     cols = model.getColumns().getCount()
     return int(rows), int(cols)
 
 
-def _ensure_table_dims(model, rows: int, columns: int) -> tuple[int, int]:
+def _ensure_table_dims(model: Any, rows: int, columns: int) -> tuple[int, int]:
     """Grow a TableShape model to at least ``rows`` x ``columns``.
 
     TableShape defaults to 1x1 after ``page.add``. ``Rows``/``Columns``
@@ -101,7 +101,7 @@ def _ensure_table_dims(model, rows: int, columns: int) -> tuple[int, int]:
     return nrows, ncols
 
 
-def iter_table_shapes(doc) -> list[dict[str, Any]]:
+def iter_table_shapes(doc: Any) -> list[dict[str, Any]]:
     """List TableShapes as dicts: page, index, name, rows, cols, shape, model."""
     out: list[dict[str, Any]] = []
     pages = doc.getDrawPages()
@@ -151,7 +151,7 @@ def parse_a1(raw: str) -> tuple[int, int] | None:
     return col - 1, num - 1
 
 
-def resolve_draw_table(doc, *, name: str = "", page=None, index=None) -> dict[str, Any]:
+def resolve_draw_table(doc: Any, *, name: str = "", page: Any = None, index: Any = None) -> dict[str, Any]:
     tables = iter_table_shapes(doc)
     if not tables:
         raise ValueError("No tables on this Draw/Impress document.")
@@ -176,7 +176,7 @@ def resolve_draw_table(doc, *, name: str = "", page=None, index=None) -> dict[st
     raise ValueError("Pass name or page+index (call table_list).")
 
 
-def list_draw_tables(doc) -> list[dict[str, Any]]:
+def list_draw_tables(doc: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for t in iter_table_shapes(doc):
         rows = int(t["rows"] or 0)
@@ -263,7 +263,7 @@ def manage_draw_structure(entry: dict[str, Any], action: str, axis_arg: str, idx
     return _model_dims(model)
 
 
-def insert_draw_table(ctx, **kwargs) -> dict[str, Any]:
+def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     """Create a TableShape on a Draw/Impress page. Returns a tool-result dict."""
     from com.sun.star.awt import Point, Size
     from plugin.draw.bridge import DrawBridge
@@ -346,7 +346,7 @@ def insert_draw_table(ctx, **kwargs) -> dict[str, Any]:
     }
 
 
-def delete_draw_table(doc, *, name: str = "", page=None, index=None) -> dict[str, Any]:
+def delete_draw_table(doc: Any, *, name: str = "", page: Any = None, index: Any = None) -> dict[str, Any]:
     """Remove a TableShape from its Draw/Impress page. Returns a tool-result dict."""
     entry = resolve_draw_table(doc, name=name, page=page, index=index)
     pages = doc.getDrawPages()

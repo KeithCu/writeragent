@@ -31,6 +31,7 @@ from plugin.draw.tree import (
     find_shape_on_page,
     is_control_shape_type,
 )
+from plugin.framework.tool import ToolContext
 def _flatten_tree(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for node in nodes:
@@ -190,7 +191,7 @@ class FillDrawFields(ToolDrawShapeBase):
     is_mutation = True
     required_core_tools = frozenset(["get_draw_tree"])
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
 
         fields = kwargs.get("fields") or []

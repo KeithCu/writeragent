@@ -7,9 +7,11 @@
 # (at your option) any later version.
 """transform_document_structure tool — Collabora-compatible slide transform DSL."""
 
+from typing import Any
+
 from plugin.draw.transform_engine import SlideCommandEngine
 from plugin.draw.transform_schema import COLLABORA_TRANSFORM_DSL_URL, TRANSFORM_PARAM_DESCRIPTION, parse_transform_argument
-from plugin.framework.tool import ToolBase, ToolBaseDummy
+from plugin.framework.tool import ToolBase, ToolBaseDummy, ToolContext
 
 
 class TransformDocumentStructure(ToolBase, ToolBaseDummy):  # type: ignore[misc]  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -41,7 +43,7 @@ class TransformDocumentStructure(ToolBase, ToolBaseDummy):  # type: ignore[misc]
         "required": ["transform"],
     }
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         raw = kwargs.get("transform")
         transform_obj, err = parse_transform_argument(raw)
         if err:

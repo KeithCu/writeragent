@@ -16,6 +16,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Draw module — tools for Draw/Impress document manipulation."""
 
+from typing import Any
+
 from plugin.framework.module_base import ModuleBase
 
 # Import submodules to ensure tools are registered via auto_discover_package
@@ -28,7 +30,7 @@ from . import designs as designs
 class DrawModule(ModuleBase):
     """Registers Draw/Impress tools for shapes, pages/slides."""
 
-    def initialize(self, services):
+    def initialize(self, services: Any) -> None:
         self.services = services
 
         services.tools.auto_discover_package(__name__)

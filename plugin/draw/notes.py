@@ -5,8 +5,11 @@
 
 """Impress speaker notes tools."""
 
+from typing import Any
+
 from plugin.draw.base import ToolDrawSpeakerNotesBase
 from plugin.draw.bridge import DrawBridge
+from plugin.framework.tool import ToolContext
 
 
 class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
@@ -18,7 +21,7 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         notes_page = page.getNotesPage()
@@ -47,7 +50,7 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         text = kwargs.get("text", "")
         append = kwargs.get("append", False)
 

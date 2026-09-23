@@ -16,10 +16,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Shape tools for Draw/Impress documents."""
 
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException
+from plugin.framework.tool import ToolContext
 from .base import ToolDrawShapeBase
 
 log = logging.getLogger(__name__)
@@ -36,11 +40,11 @@ class DrawError(WriterAgentException):
     code: str = "DRAW_ERROR"
 
 
-def _parse_color(color_str):
+def _parse_color(color_str: Any):
     return parse_color_to_uno_int(color_str)
 
 
-def _try_writer_anchor_shape_before_add(doc, shape) -> None:
+def _try_writer_anchor_shape_before_add(doc: Any, shape: Any) -> None:
     """Writer: set ``AnchorType`` before ``XDrawPage.add`` or shapes often do not display.
 
     Uses ``TextContentAnchorType.AT_PAGE`` when the property exists (``text.Shape``).
@@ -72,7 +76,7 @@ def _try_writer_anchor_shape_before_add(doc, shape) -> None:
         log.warning("create_shape writer_anchor: set AnchorType failed: %s: %s", type(ex).__name__, ex)
 
 
-def _log_shape_uno_snapshot(phase: str, shape) -> None:
+def _log_shape_uno_snapshot(phase: str, shape: Any) -> None:
     """Best-effort UNO snapshot for debugging visibility/geometry (Writer vs Draw)."""
     try:
         parts: list[str] = []
@@ -101,7 +105,7 @@ def _log_shape_uno_snapshot(phase: str, shape) -> None:
         log.debug("create_shape snapshot [%s]: failed: %s", phase, ex)
 
 
-def _log_custom_shape_geometry_dump(shape, phase: str) -> None:
+def _log_custom_shape_geometry_dump(shape: Any, phase: str) -> None:
     """Detailed ``CustomShapeGeometry`` dump (compare rectangle vs octagon)."""
     try:
         g = shape.getPropertyValue("CustomShapeGeometry")
@@ -127,7 +131,7 @@ def _log_custom_shape_geometry_dump(shape, phase: str) -> None:
         log.debug("create_shape geometry_dump [%s]: %s", phase, ex)
 
 
-def _log_shape_property_names_sample(shape, phase: str, limit: int = 60) -> None:
+def _log_shape_property_names_sample(shape: Any, phase: str, limit: int = 60) -> None:
     """Sorted sample of ``PropertySetInfo`` names — diff rectangle vs CustomShape in Writer."""
     try:
         ps = shape.getPropertySetInfo()
@@ -146,7 +150,7 @@ def _log_shape_property_names_sample(shape, phase: str, limit: int = 60) -> None
         log.debug("create_shape prop_names [%s]: failed: %s", phase, ex)
 
 
-def _log_writer_document_shape_context(doc) -> None:
+def _log_writer_document_shape_context(doc: Any) -> None:
     """Writer-only: body enumeration count and URL (helps compare empty doc runs)."""
     try:
         if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
@@ -172,7 +176,7 @@ def _log_writer_document_shape_context(doc) -> None:
         log.debug("create_shape writer_doc_ctx: %s", ex)
 
 
-def _try_writer_at_page_shape_finalize(doc, bridge, page, shape) -> None:
+def _try_writer_at_page_shape_finalize(doc: Any, bridge: Any, page: Any, shape: Any) -> None:
     """Writer: ``AT_PAGE`` shapes must set ``AnchorPageNo`` (1-based) and absolute orient or they may not paint.
 
     See ``com.sun.star.text.Shape`` — ``AnchorPageNo`` is only valid for ``AT_PAGE``.
@@ -197,7 +201,7 @@ def _try_writer_at_page_shape_finalize(doc, bridge, page, shape) -> None:
         log.warning("create_shape writer_at_page_finalize: failed %s: %s", type(ex).__name__, ex)
 
 
-def _try_writer_reapply_position_after_anchor(doc, shape, position, size) -> None:
+def _try_writer_reapply_position_after_anchor(doc: Any, shape: Any, position: Any, size: Any) -> None:
     """Writer: setting ``AnchorPageNo`` / orient can reset placement; re-apply ``Position``/``Size``."""
     try:
         if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
@@ -209,7 +213,7 @@ def _try_writer_reapply_position_after_anchor(doc, shape, position, size) -> Non
         log.warning("create_shape writer_reapply_pos: %s: %s", type(ex).__name__, ex)
 
 
-def _try_writer_invalidate_and_pump(doc) -> None:
+def _try_writer_invalidate_and_pump(doc: Any) -> None:
     """Force a repaint after shape changes (Writer sometimes does not redraw the draw layer)."""
     try:
         if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
@@ -230,7 +234,7 @@ def _try_writer_invalidate_and_pump(doc) -> None:
         log.debug("create_shape writer_invalidate: %s", ex)
 
 
-def _log_create_shape_page_context(doc, bridge, page) -> None:
+def _log_create_shape_page_context(doc: Any, bridge: Any, page: Any) -> None:
     """How the target draw page was chosen (Writer vs Draw / controller vs first page)."""
     try:
         is_writer = bool(doc and doc.supportsService("com.sun.star.text.TextDocument"))
@@ -262,7 +266,7 @@ def _log_create_shape_page_context(doc, bridge, page) -> None:
         log.debug("create_shape page_context: failed: %s", ex)
 
 
-def _page_index_for(bridge, page):
+def _page_index_for(bridge: Any, page: Any):
     """Index of ``page`` in the document's draw pages collection.
 
     Uses ``uno_same`` (``is`` → ``==`` → ``uno.isSame``). PyUNO can hand distinct
@@ -277,7 +281,7 @@ def _page_index_for(bridge, page):
     return 0
 
 
-def _apply_enhanced_custom_shape_type(shape, custom_shape_type: str) -> tuple[bool, str | None]:
+def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tuple[bool, str | None]:
     """Set EnhancedCustomShape engine and geometry ``Type`` so names like ``octagon`` render."""
     from com.sun.star.beans import PropertyValue
     import uno
@@ -310,7 +314,7 @@ class GetDrawSummary(ToolDrawShapeBase):
     uno_services = _DRAW_SHAPE_DOCS
     doc_types = ["writer", "calc", "draw", "impress"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
@@ -340,19 +344,27 @@ class GetDrawSummary(ToolDrawShapeBase):
 
 
 class DrawShapes:
-    def _is_valid_position(self, position):
+    def _is_valid_position(self, position: Any):
         if not hasattr(position, "X") or not hasattr(position, "Y"):
             return False
         return True
 
-    def _is_valid_size(self, size):
+    def _is_valid_size(self, size: Any):
         if not hasattr(size, "Width") or not hasattr(size, "Height"):
             return False
         if size.Width <= 0 or size.Height <= 0:
             return False
         return True
 
-    def safe_create_shape(self, doc, page, shape_type, position, size, custom_shape_type: str | None = None):
+    def safe_create_shape(
+        self,
+        doc: Any,
+        page: Any,
+        shape_type: str,
+        position: Any,
+        size: Any,
+        custom_shape_type: str | None = None,
+    ):
         """Safely create shape with error handling.
 
         Shapes are created via the document's factory (``doc.createInstance``);
@@ -418,7 +430,7 @@ class DrawShapes:
             raise DrawError(f"Failed to create shape: {str(e)}", code="DRAW_SHAPE_CREATION_ERROR", details={"shape_type": shape_type, "position": position, "size": size, "original_error": str(e), "error_type": type(e).__name__}) from e
 
 
-def _clamp_shape_text_autogrow(shape) -> None:
+def _clamp_shape_text_autogrow(shape: Any) -> None:
     """Keep explicit Size after setString (Writer AT_PAGE custom shapes shrink to text)."""
     for prop, value in (
         ("TextAutoGrowHeight", False),
@@ -430,7 +442,7 @@ def _clamp_shape_text_autogrow(shape) -> None:
             pass
 
 
-def _apply_shape_properties(shape, kwargs):
+def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]):
     """Helper to apply rich formatting properties to a shape."""
     # "text" in kwargs (not truthy) so paper-form fills can write "" or keep a Name-only edit.
     if "text" in kwargs and hasattr(shape, "setString"):
@@ -584,7 +596,7 @@ class UpsertShape(ToolDrawShapeBase):
     doc_types = ["writer", "calc", "draw", "impress"]
     is_mutation = True
 
-    def validate(self, *, doc_type: str | None = None, **kwargs):
+    def validate(self, *, doc_type: str | None = None, **kwargs: Any):
         action = kwargs.get("action")
         if not action:
             return False, "Missing required parameter: 'action' must be 'create' or 'edit'"
@@ -602,7 +614,7 @@ class UpsertShape(ToolDrawShapeBase):
             
         return True, None
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
         from com.sun.star.awt import Point, Size
 
@@ -760,7 +772,7 @@ class ConnectShapes(ToolDrawShapeBase):
     doc_types = ["writer", "calc", "draw", "impress"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
         from com.sun.star.awt import Point, Size
 
@@ -813,7 +825,7 @@ class GroupShapes(ToolDrawShapeBase):
     doc_types = ["writer", "calc", "draw", "impress"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
@@ -845,13 +857,13 @@ class GroupShapes(ToolDrawShapeBase):
         }
 
 
-def _shape_box(shape) -> tuple[int, int, int, int]:
+def _shape_box(shape: Any) -> tuple[int, int, int, int]:
     pos = shape.getPosition()
     size = shape.getSize()
     return (int(pos.X), int(pos.Y), int(size.Width), int(size.Height))
 
 
-def _apply_box(shape, box: tuple[int, int, int, int]) -> None:
+def _apply_box(shape: Any, box: tuple[int, int, int, int]) -> None:
     from com.sun.star.awt import Point
 
     x, y, _w, _h = box
@@ -860,7 +872,7 @@ def _apply_box(shape, box: tuple[int, int, int, int]) -> None:
         shape.setPosition(Point(x, y))
 
 
-def _resolve_shape_page(ctx, kwargs):
+def _resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any]):
     from plugin.draw.bridge import DrawBridge
 
     bridge = DrawBridge(ctx.doc)
@@ -904,7 +916,7 @@ class AlignShapes(ToolDrawShapeBase):
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.layout import align_boxes
 
         indices = kwargs.get("indices") or []
@@ -954,7 +966,7 @@ class DistributeShapes(ToolDrawShapeBase):
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.layout import distribute_boxes
 
         indices = kwargs.get("indices") or []
@@ -1029,7 +1041,7 @@ class CreateDiagram(ToolDrawShapeBase):
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.layout import diagram_node_boxes
 
         nodes = kwargs.get("nodes") or []
@@ -1114,7 +1126,7 @@ class DeleteShape(ToolDrawShapeBase):
     doc_types = ["writer", "calc", "draw", "impress"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)

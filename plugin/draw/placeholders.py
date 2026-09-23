@@ -13,7 +13,7 @@ to placeholders by role rather than shape index.
 import logging
 from typing import Any
 
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger("nelson.draw")
 
@@ -40,7 +40,7 @@ _CLASS_ROLE_PRIORITY = (
 )
 
 
-def _role_from_label(label):
+def _role_from_label(label: Any):
     """Map a ClassName or shape Name to a role. First matching token wins."""
     if not label:
         return None
@@ -51,7 +51,7 @@ def _role_from_label(label):
     return None
 
 
-def _shape_class_name(shape):
+def _shape_class_name(shape: Any):
     try:
         if hasattr(shape, "ClassName") and shape.ClassName:
             return str(shape.ClassName)
@@ -66,7 +66,7 @@ def _shape_class_name(shape):
     return ""
 
 
-def _find_placeholder(page, role):
+def _find_placeholder(page: Any, role: str):
     """Find a placeholder shape by role name.
 
     Tries multiple identification strategies:
@@ -110,7 +110,7 @@ def _find_placeholder(page, role):
     return None, None
 
 
-def _list_placeholders(page):
+def _list_placeholders(page: Any):
     """List all text-capable shapes on a page with role detection."""
     result = []
     for i in range(page.getCount()):
@@ -142,7 +142,7 @@ _EMPTY_PLACEHOLDER_HINT = (
 )
 
 
-def _shape_text_count(page):
+def _shape_text_count(page: Any):
     """Count shapes that expose getString (same filter as _list_placeholders)."""
     count = 0
     for i in range(page.getCount()):
@@ -151,7 +151,7 @@ def _shape_text_count(page):
     return count
 
 
-def _fallback_text_shape_indices(page) -> list[dict[str, Any]]:
+def _fallback_text_shape_indices(page: Any) -> list[dict[str, Any]]:
     """Read-only hint of text-like shapes when _list_placeholders is empty.
 
     C1 only — no write. Used when ClassName/Name exist but getString does not
@@ -180,7 +180,7 @@ def _fallback_text_shape_indices(page) -> list[dict[str, Any]]:
     return result
 
 
-def _role_miss_error_kwargs(page) -> dict[str, Any]:
+def _role_miss_error_kwargs(page: Any) -> dict[str, Any]:
     """Details for set_placeholder_text when role lookup fails."""
     available = _list_placeholders(page)
     extra: dict[str, Any] = {"available": available}
@@ -208,7 +208,7 @@ class ListPlaceholders(ToolBase):
     parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         placeholders = _list_placeholders(page)
@@ -235,7 +235,7 @@ class GetPlaceholderText(ToolBase):
     }
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         role = kwargs.get("role")
@@ -281,7 +281,7 @@ class SetPlaceholderText(ToolBase):
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         text = kwargs["text"]

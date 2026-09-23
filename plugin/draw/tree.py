@@ -36,7 +36,7 @@ import logging
 import re
 from typing import Any
 
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
 
@@ -446,7 +446,7 @@ class GetDrawTree(ToolBase):
     doc_types = ["draw", "impress"]
     tier = "core"
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
@@ -467,5 +467,5 @@ class GetDrawTree(ToolBase):
 
         return {"status": "ok", "page": actual_idx, "tree": build_shape_tree(page)}
 
-    def _build_shape_tree(self, xshapes, base_index=None):
+    def _build_shape_tree(self, xshapes: Any, base_index: str | None = None):
         return build_shape_tree(xshapes, base_index)
