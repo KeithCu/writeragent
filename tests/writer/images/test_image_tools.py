@@ -1,8 +1,8 @@
+import pytest
 import os
 import sys
 import tempfile
 import types
-import unittest
 from unittest.mock import MagicMock, patch
 
 
@@ -22,7 +22,7 @@ if isinstance(_uno, MagicMock):
 from plugin.writer.images import image_tools  # noqa: E402
 
 
-class TestInsertImageIntoHeaderFooter(unittest.TestCase):
+class TestInsertImageIntoHeaderFooter:
     def test_enables_region_auto_height_and_embeds(self):
         model = MagicMock()
         style = MagicMock()
@@ -55,11 +55,11 @@ class TestInsertImageIntoHeaderFooter(unittest.TestCase):
         style.setPropertyValue.assert_any_call("HeaderIsOn", True)
         set_auto.assert_called_once_with(style, "header", True)
         insert.assert_called_once()
-        self.assertEqual(insert.call_args.kwargs.get("text_container"), region_text)
-        self.assertEqual(result["style_name"], "Standard")
-        self.assertEqual(result["region"], "header")
-        self.assertTrue(result["auto_height"])
-        self.assertIs(result["graphic"], graphic)
+        assert (insert.call_args.kwargs.get("text_container")) == (region_text)
+        assert (result["style_name"]) == ("Standard")
+        assert (result["region"]) == ("header")
+        assert (result["auto_height"])
+        assert (result["graphic"]) is (graphic)
 
     def test_first_page_header_uses_header_text_first(self):
         # Shared HeaderText never reaches a different-first-page letterhead;
@@ -93,9 +93,9 @@ class TestInsertImageIntoHeaderFooter(unittest.TestCase):
             )
 
         set_auto.assert_called_once_with(style, "header_first", True)
-        self.assertEqual(insert.call_args.kwargs.get("text_container"), first_text)
-        self.assertIsNot(insert.call_args.kwargs.get("text_container"), shared_text)
-        self.assertEqual(result["region"], "header_first")
+        assert (insert.call_args.kwargs.get("text_container")) == (first_text)
+        assert (insert.call_args.kwargs.get("text_container")) is not (shared_text)
+        assert (result["region"]) == ("header_first")
 
     def test_first_page_footer_uses_footer_text_first(self):
         model = MagicMock()
@@ -120,19 +120,19 @@ class TestInsertImageIntoHeaderFooter(unittest.TestCase):
                 model, "/tmp/logo.png", "footer_first",
             )
 
-        self.assertEqual(insert.call_args.kwargs.get("text_container"), first_text)
-        self.assertEqual(result["region"], "footer_first")
+        assert (insert.call_args.kwargs.get("text_container")) == (first_text)
+        assert (result["region"]) == ("footer_first")
 
     def test_unknown_region_lists_page_keys(self):
-        with self.assertRaises(ValueError) as raised:
+        with pytest.raises(ValueError) as raised:
             image_tools.insert_image_into_header_footer(
                 MagicMock(), "/tmp/logo.png", "not_a_region",
             )
-        self.assertIn("header_first", str(raised.exception))
-        self.assertIn("footer_first", str(raised.exception))
+        assert ("header_first") in (str(raised.value))
+        assert ("footer_first") in (str(raised.value))
 
 
-class TestShouldLinkImagePath(unittest.TestCase):
+class TestShouldLinkImagePath:
     def test_user_path_is_linked(self):
         # What was wrong: in make release, tests run from a tempdir under /tmp ($RELEASE_TMP),
         # so os.getcwd() was inside tempfile.gettempdir(), causing _should_link_image_path to return False.
@@ -142,13 +142,13 @@ class TestShouldLinkImagePath(unittest.TestCase):
             path = f.name
         try:
             with patch("tempfile.gettempdir", return_value="/nonexistent/custom_temp_dir"):
-                self.assertTrue(image_tools._should_link_image_path(path))
+                assert (image_tools._should_link_image_path(path))
         finally:
             os.unlink(path)
 
     def test_temp_path_is_embedded(self):
         with tempfile.NamedTemporaryFile(suffix=".png", dir=tempfile.gettempdir()) as f:
-            self.assertFalse(image_tools._should_link_image_path(f.name))
+            assert not (image_tools._should_link_image_path(f.name))
 
     def test_cache_path_is_embedded(self):
         cache_dir = image_tools._image_cache_dir()
@@ -157,12 +157,12 @@ class TestShouldLinkImagePath(unittest.TestCase):
         with open(path, "wb") as f:
             f.write(b"x")
         try:
-            self.assertFalse(image_tools._should_link_image_path(path))
+            assert not (image_tools._should_link_image_path(path))
         finally:
             os.unlink(path)
 
 
-class TestWriterImageCursorConversion(unittest.TestCase):
+class TestWriterImageCursorConversion:
     def _make_writer_model(self, image_instance):
         doc_text = MagicMock()
         text_cursor = MagicMock(name="text_cursor")
@@ -284,8 +284,8 @@ class TestWriterImageCursorConversion(unittest.TestCase):
             )
 
         body.createTextCursorByRange.assert_not_called()
-        self.assertEqual(cell_text.createTextCursorByRange.call_args_list[0].args[0], "cell-start")
-        self.assertEqual(cell_text.createTextCursorByRange.call_args_list[1].args[0], view_cursor)
+        assert (cell_text.createTextCursorByRange.call_args_list[0].args[0]) == ("cell-start")
+        assert (cell_text.createTextCursorByRange.call_args_list[1].args[0]) == (view_cursor)
         cell_text.insertTextContent.assert_called_once_with(text_cursor, image_instance, False)
         view_cursor.jumpToStartOfPage.assert_not_called()
 
@@ -337,12 +337,12 @@ class TestWriterImageCursorConversion(unittest.TestCase):
 
         dispatcher.executeDispatch.assert_called_once()
         args = dispatcher.executeDispatch.call_args[0]
-        self.assertEqual(args[1], ".uno:InsertGraphic")
+        assert (args[1]) == (".uno:InsertGraphic")
         props = args[4]
         prop_map = {p.Name: p.Value for p in props}
-        self.assertEqual(prop_map["FileName"], "file:///home/user/photo.png")
-        self.assertTrue(prop_map["AsLink"])
-        self.assertIs(result, inserted)
+        assert (prop_map["FileName"]) == ("file:///home/user/photo.png")
+        assert (prop_map["AsLink"])
+        assert (result) is (inserted)
 
     def test_insert_image_to_writer_fallback_rejumps_and_recreates_cursor(self):
         doc_text = MagicMock()
@@ -378,7 +378,7 @@ class TestWriterImageCursorConversion(unittest.TestCase):
             )
 
         view_cursor.jumpToStartOfPage.assert_called_once()
-        self.assertEqual(doc_text.insertTextContent.call_count, 2)
+        assert (doc_text.insertTextContent.call_count) == (2)
         doc_text.insertTextContent.assert_any_call("tc1", image_instance, False)
         doc_text.insertTextContent.assert_any_call("tc2", image_instance, False)
 
@@ -425,7 +425,7 @@ class TestWriterImageCursorConversion(unittest.TestCase):
         frame_text_obj.insertString.assert_called_once_with(frame_text_cursor, "\nhello", False)
 
 
-class TestReplaceGraphicSource(unittest.TestCase):
+class TestReplaceGraphicSource:
     def test_embed_path_sets_graphic_url(self):
         graphic = MagicMock(spec=["getPropertyValue", "setPropertyValue", "getPropertySetInfo"])
         graphic.getPropertyValue.return_value = MagicMock(Width=5000, Height=4000)
@@ -440,7 +440,7 @@ class TestReplaceGraphicSource(unittest.TestCase):
             with patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"):
                 ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
 
-        self.assertTrue(ok)
+        assert (ok)
         graphic.setPropertyValue.assert_any_call("GraphicURL", "file:////tmp/new.png")
 
     def test_link_path_dispatches_for_writer(self):
@@ -458,12 +458,12 @@ class TestReplaceGraphicSource(unittest.TestCase):
                 with patch.object(image_tools, "_dispatch_insert_linked_graphic", return_value=new_graphic) as dispatch:
                     ok = image_tools.replace_graphic_source(ctx, model, graphic, "/home/user/new.png")
 
-        self.assertTrue(ok)
+        assert (ok)
         dispatch.assert_called_once()
         model.getText.return_value.removeTextContent.assert_called_once_with(graphic)
 
 
-class TestImageCompoundUndo(unittest.TestCase):
+class TestImageCompoundUndo:
     def test_insert_image_groups_undo_before_gallery(self):
         events: list[object] = []
 
@@ -502,15 +502,12 @@ class TestImageCompoundUndo(unittest.TestCase):
                 ctx, model, "/tmp/x.png", 64, 64, add_to_gallery=True, add_frame=False,
             )
 
-        self.assertEqual(
-            events,
-            [
+        assert (events) == ([
                 ("enter", "WriterAgent: Insert image"),
                 "insert",
                 ("close", "WriterAgent: Insert image"),
                 "gallery",
-            ],
-        )
+            ])
 
     def test_replace_graphic_source_groups_undo(self):
         events: list[object] = []
@@ -542,17 +539,14 @@ class TestImageCompoundUndo(unittest.TestCase):
         ):
             ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/cache/x.png")
 
-        self.assertTrue(ok)
-        self.assertEqual(
-            events,
-            [
+        assert (ok)
+        assert (events) == ([
                 ("enter", "WriterAgent: Replace image"),
                 ("close", "WriterAgent: Replace image"),
-            ],
-        )
+            ])
 
 
-class TestDisplaySizeCap(unittest.TestCase):
+class TestDisplaySizeCap:
     def test_insert_image_caps_1024_to_135mm(self):
         from plugin.doc import visual_helpers
 
@@ -574,10 +568,10 @@ class TestDisplaySizeCap(unittest.TestCase):
             )
 
         expected = visual_helpers.px_to_display_units(1024, 1024)
-        self.assertEqual((captured["width"], captured["height"]), expected)
-        self.assertLessEqual(max(captured["width"], captured["height"]), 13500)
+        assert ((captured["width"], captured["height"])) == (expected)
+        assert (max(captured["width"], captured["height"])) <= (13500)
         raw_w, raw_h = visual_helpers.px_to_units(1024, 1024)
-        self.assertGreater(max(raw_w, raw_h), 13500)
+        assert (max(raw_w, raw_h)) > (13500)
 
     def test_replace_image_in_place_caps_1024_to_135mm(self):
         from plugin.doc import visual_helpers
@@ -600,29 +594,27 @@ class TestDisplaySizeCap(unittest.TestCase):
                 ctx, model, "/tmp/x.png", 1536, 768, add_to_gallery=False,
             )
 
-        self.assertTrue(ok)
+        assert (ok)
         expected = visual_helpers.px_to_display_units(1536, 768)
-        self.assertEqual((captured["width"], captured["height"]), expected)
-        self.assertEqual(captured["width"], 13500)
+        assert ((captured["width"], captured["height"])) == (expected)
+        assert (captured["width"]) == (13500)
 
 
-class TestDrawPageInsertPosition(unittest.TestCase):
+class TestDrawPageInsertPosition:
     def test_centers_when_xy_omitted(self):
         page = MagicMock()
         page.Width = 28000
         page.Height = 15750
         pos = image_tools._position_on_draw_page(page, 8000, 4000, None, None)
-        self.assertEqual(pos.X, (28000 - 8000) // 2)
-        self.assertEqual(pos.Y, (15750 - 4000) // 2)
+        assert (pos.X) == ((28000 - 8000) // 2)
+        assert (pos.Y) == ((15750 - 4000) // 2)
 
     def test_explicit_mm(self):
         page = MagicMock()
         page.Width = 28000
         page.Height = 15750
         pos = image_tools._position_on_draw_page(page, 8000, 4000, 30, 40)
-        self.assertEqual(pos.X, 3000)
-        self.assertEqual(pos.Y, 4000)
+        assert (pos.X) == (3000)
+        assert (pos.Y) == (4000)
 
 
-if __name__ == "__main__":
-    unittest.main()

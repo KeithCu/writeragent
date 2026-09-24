@@ -3,7 +3,6 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import unittest
 from unittest.mock import patch
 
 from plugin.writer.math.math_mml_convert import (
@@ -26,13 +25,10 @@ def test_exception_message_non_empty_for_empty_str_uno_style() -> None:
 
 
 
-class TestCollapseStarmathNewline(unittest.TestCase):
+class TestCollapseStarmathNewline:
     def test_collapses_spaced_newline_operators(self):
         raw = "a newline x ^ 2 newline + newline b"
-        self.assertEqual(
-            collapse_starmath_newline_tokens_for_writer_embed(raw),
-            "a x ^ 2 + b",
-        )
+        assert (collapse_starmath_newline_tokens_for_writer_embed(raw)) == ("a x ^ 2 + b")
 
     def test_formula_like_lo_quadratic(self):
         raw = (
@@ -40,16 +36,16 @@ class TestCollapseStarmathNewline(unittest.TestCase):
             "{ { 2 a } } }"
         )
         out = collapse_starmath_newline_tokens_for_writer_embed(raw)
-        self.assertNotIn("newline", out)
-        self.assertIn("x =", out)
-        self.assertIn("frac", out)
+        assert ("newline") not in (out)
+        assert ("x =") in (out)
+        assert ("frac") in (out)
 
     def test_idempotent(self):
         s = "a + b"
-        self.assertEqual(collapse_starmath_newline_tokens_for_writer_embed(s), s)
+        assert (collapse_starmath_newline_tokens_for_writer_embed(s)) == (s)
 
 
-class TestConvertLatexToStarmath(unittest.TestCase):
+class TestConvertLatexToStarmath:
     def test_delegates_to_mathml_path(self):
         fake_ctx = object()
         with patch(
@@ -57,13 +53,13 @@ class TestConvertLatexToStarmath(unittest.TestCase):
         ) as mock_mml:
             mock_mml.return_value = MathConversionResult(True, "a + b", None)
             res = convert_latex_to_starmath(fake_ctx, "a+b", display_block=False)
-            self.assertTrue(res.ok)
-            self.assertEqual(res.starmath, "a + b")
+            assert (res.ok)
+            assert (res.starmath) == ("a + b")
             mock_mml.assert_called_once()
             call_ctx, mathml_arg = mock_mml.call_args[0]
-            self.assertIs(call_ctx, fake_ctx)
-            self.assertIn("<math", mathml_arg.lower())
-            self.assertIn("http://www.w3.org/1998/Math/MathML", mathml_arg)
+            assert (call_ctx) is (fake_ctx)
+            assert ("<math") in (mathml_arg.lower())
+            assert ("http://www.w3.org/1998/Math/MathML") in (mathml_arg)
 
 
 def test_math_formula_insert_uno_skips_windows_leftover_hidden_mml() -> None:
@@ -76,5 +72,3 @@ def test_math_formula_insert_uno_skips_windows_leftover_hidden_mml() -> None:
     assert "34678020608" in src
 
 
-if __name__ == "__main__":
-    unittest.main()

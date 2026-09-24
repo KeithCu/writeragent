@@ -1,11 +1,11 @@
+import pytest
 
-import unittest
 from unittest.mock import MagicMock
 from plugin.writer.tree import TreeService
 from plugin.tests.testing_utils import ElementStub, WriterDocStub
 
-class TestTreeServiceSearch(unittest.TestCase):
-    def setUp(self):
+class TestTreeServiceSearch:
+    def setup_method(self):
         # Setup a document with specific headings
         self.elements = [
             ElementStub("Introduction", outline_level=1), # para 0
@@ -43,34 +43,34 @@ class TestTreeServiceSearch(unittest.TestCase):
     def test_exact_match(self):
         # Should match "Introduction" exactly
         res = self.tree_svc._find_heading_by_text(self.doc, "Introduction")
-        self.assertIsNotNone(res)
-        self.assertEqual(res["text"], "Introduction")
-        self.assertEqual(res["para_index"], 0)
-        self.assertEqual(res["bookmark"], "bm_intro")
+        assert (res) is not None
+        assert (res["text"]) == ("Introduction")
+        assert (res["para_index"]) == (0)
+        assert (res["bookmark"]) == ("bm_intro")
 
     def test_exact_match_case_insensitive(self):
         res = self.tree_svc._find_heading_by_text(self.doc, "introduction")
-        self.assertIsNotNone(res)
-        self.assertEqual(res["text"], "Introduction")
+        assert (res) is not None
+        assert (res["text"]) == ("Introduction")
 
     def test_exact_match_with_whitespace(self):
         res = self.tree_svc._find_heading_by_text(self.doc, "  Introduction  ")
-        self.assertIsNotNone(res)
-        self.assertEqual(res["text"], "Introduction")
+        assert (res) is not None
+        assert (res["text"]) == ("Introduction")
 
     def test_prefix_match(self):
         # "Install" should match "Installation Guide"
         res = self.tree_svc._find_heading_by_text(self.doc, "Install")
-        self.assertIsNotNone(res)
-        self.assertEqual(res["text"], "Installation Guide")
-        self.assertEqual(res["para_index"], 2)
+        assert (res) is not None
+        assert (res["text"]) == ("Installation Guide")
+        assert (res["para_index"]) == (2)
 
     def test_substring_match(self):
         # "Started" should match "Getting Started"
         res = self.tree_svc._find_heading_by_text(self.doc, "Started")
-        self.assertIsNotNone(res)
-        self.assertEqual(res["text"], "Getting Started")
-        self.assertEqual(res["para_index"], 3)
+        assert (res) is not None
+        assert (res["text"]) == ("Getting Started")
+        assert (res["para_index"]) == (3)
 
     def test_priority_exact_over_prefix(self):
         # If we had "Intro" and "Introduction", searching for "Intro" should match "Intro" exactly
@@ -81,8 +81,8 @@ class TestTreeServiceSearch(unittest.TestCase):
         self.bm_svc.get_mcp_bookmark_map.return_value[0] = "bm_intro_short"
 
         res = self.tree_svc._find_heading_by_text(doc, "Intro")
-        self.assertIsNotNone(res)
-        self.assertEqual(res["text"], "Intro")
+        assert (res) is not None
+        assert (res["text"]) == ("Intro")
 
     def test_priority_prefix_over_substring(self):
         # Search "Advanced" in a doc with "Advanced Usage" and "Super Advanced"
@@ -92,48 +92,48 @@ class TestTreeServiceSearch(unittest.TestCase):
         ]
         doc = WriterDocStub(elements)
         res = self.tree_svc._find_heading_by_text(doc, "Advanced")
-        self.assertIsNotNone(res)
-        self.assertEqual(res["text"], "Advanced Usage")
+        assert (res) is not None
+        assert (res["text"]) == ("Advanced Usage")
 
     def test_no_match(self):
         res = self.tree_svc._find_heading_by_text(self.doc, "NonExistent")
-        self.assertIsNone(res)
+        assert (res) is None
 
     def test_empty_search(self):
         res = self.tree_svc._find_heading_by_text(self.doc, "")
-        self.assertIsNone(res)
+        assert (res) is None
         res = self.tree_svc._find_heading_by_text(self.doc, "   ")
-        self.assertIsNone(res)
+        assert (res) is None
 
     def test_invalidate_by_key_does_not_call_doc_key(self):
         self.tree_svc._tree_cache["uid:1"] = {"text": "stale"}
         self.doc_svc.doc_key.side_effect = RuntimeError("must not touch the model")
         self.tree_svc._on_cache_invalidated(key="uid:1")
-        self.assertNotIn("uid:1", self.tree_svc._tree_cache)
+        assert ("uid:1") not in (self.tree_svc._tree_cache)
 
     def test_invalidate_doc_none_clears_all(self):
         self.tree_svc._tree_cache["uid:1"] = {"text": "a"}
         self.tree_svc._tree_cache["uid:2"] = {"text": "b"}
         self.tree_svc._on_cache_invalidated(doc=None)
-        self.assertEqual(self.tree_svc._tree_cache, {})
+        assert (self.tree_svc._tree_cache) == ({})
 
     def test_unknown_key_is_not_stored(self):
         from plugin.doc.document_helpers import UNKNOWN_DOC_KEY
 
         self.doc_svc.doc_key.return_value = UNKNOWN_DOC_KEY
         root = self.tree_svc.build_heading_tree(self.doc)
-        self.assertEqual(root["children"][0]["text"], "Introduction")
-        self.assertEqual(self.tree_svc._tree_cache, {})
+        assert (root["children"][0]["text"]) == ("Introduction")
+        assert (self.tree_svc._tree_cache) == ({})
 
     def test_fingerprint_change_rebuilds_without_invalidate_event(self):
         """GHA 35466498641: Windows modify listener can miss insertString."""
         self.doc.CharacterCount = 10
         first = self.tree_svc.build_heading_tree(self.doc)
         cached = self.tree_svc.build_heading_tree(self.doc)
-        self.assertIs(cached, first)
+        assert (cached) is (first)
         self.doc.CharacterCount = 16
         second = self.tree_svc.build_heading_tree(self.doc)
-        self.assertIsNot(second, first)
+        assert (second) is not (first)
 
     def test_chapter_number_optional_and_locator(self):
         class _Labeled(ElementStub):
@@ -159,20 +159,18 @@ class TestTreeServiceSearch(unittest.TestCase):
         doc7 = root["children"][0]
         alpha = doc7["children"][0]
         bare = root["children"][1]
-        self.assertEqual(doc7["chapter_number"], "3")
-        self.assertEqual(doc7["text"], "DOCUMENT 7")
-        self.assertEqual(alpha["chapter_number"], "3.1")
-        self.assertEqual(alpha["text"], "Section Alpha")
-        self.assertNotIn("chapter_number", bare)
+        assert (doc7["chapter_number"]) == ("3")
+        assert (doc7["text"]) == ("DOCUMENT 7")
+        assert (alpha["chapter_number"]) == ("3.1")
+        assert (alpha["text"]) == ("Section Alpha")
+        assert ("chapter_number") not in (bare)
 
         hit = self.tree_svc.resolve_writer_locator(doc, "chapter_number", "3.1")
-        self.assertEqual(hit["para_index"], 1)
+        assert (hit["para_index"]) == (1)
         ordinal = self.tree_svc.resolve_writer_locator(doc, "heading", "1.1")
-        self.assertEqual(ordinal["para_index"], 1)
-        with self.assertRaises(ToolExecutionError) as raised:
+        assert (ordinal["para_index"]) == (1)
+        with pytest.raises(ToolExecutionError) as raised:
             self.tree_svc.resolve_writer_locator(doc, "chapter_number", "1.1")
-        self.assertIn("chapter_number:1.1", str(raised.exception))
-        self.assertIn("sibling-ordinal", str(raised.exception))
+        assert ("chapter_number:1.1") in (str(raised.value))
+        assert ("sibling-ordinal") in (str(raised.value))
 
-if __name__ == "__main__":
-    unittest.main()
