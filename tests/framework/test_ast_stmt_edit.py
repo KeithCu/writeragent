@@ -96,7 +96,7 @@ def test_is_name_call_expr_overflow_pre_fails_closed() -> None:
     import pytest
 
     from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.strip_bundle import deal_pre_present
 
     if not deal_pre_present(is_name_call_expr):
         pytest.skip("@deal.pre stripped in release bundle")

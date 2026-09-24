@@ -19,8 +19,8 @@ from hypothesis import strategies as st
 import deal
 from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH
 from plugin.scripting.sandbox import scrub_subprocess_env, wrap_command_for_sandbox
-from tests.harness.strip_bundle import deal_pre_present
-from tests.harness.vhs_budget import vhs_max_examples
+from tests.strip_bundle import deal_pre_present
+from tests.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGET = "plugin.scripting.sandbox.scrub_subprocess_env"

@@ -108,7 +108,7 @@ def test_failure_message_empty_summary():
 def test_failure_detail_rejects_exc_when_deal_present():
     """exc is None in the pre so CrossHair cannot format_exception a symbolic error."""
     import deal
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.strip_bundle import deal_pre_present
 
     if not deal_pre_present(failure_detail):
         pytest.skip("@deal.pre stripped in release bundle")

@@ -38,10 +38,7 @@ def test_cython_active_if_available() -> None:
         assert fast_flatten_grid_1d is not None, "Cython 1D accelerator should be loaded"
 from plugin.scripting.venv_worker import PythonWorkerManager
 from tests.scripting.payload_codec_test_support import MIXED_WITH_ZIP, NUMERIC_4X4
-from tests.harness.vhs_budget import _SERIALIZATION_EXTENSIVE_ENV
 from tests.scripting.serialization_ab_support import (
-    _AB_HYPOTHESIS_EXTENSIVE,
-    _AB_HYPOTHESIS_LIGHT,
     VENV_CODE_ECHO,
     VENV_CODE_SUM,
     AbGridCase,
@@ -65,7 +62,6 @@ from tests.scripting.serialization_ab_support import (
     venv_transform_cases,
     ab_hypothesis_max_examples,
     fancier_result_strategy,
-    serialization_extensive,
 )
 
 _EX = ab_hypothesis_max_examples()
@@ -304,25 +300,6 @@ def test_hypothesis_fancier_result_roundtrip(result: Any) -> None:
 
     assert normalize(unpacked) == normalize(result)
 
-
-# --- A/B support helpers (from test_serialization_ab_support.py) ---
-
-def test_serialization_extensive_default_false(monkeypatch) -> None:
-    monkeypatch.delenv(_SERIALIZATION_EXTENSIVE_ENV, raising=False)
-    assert serialization_extensive() is False
-    assert ab_hypothesis_max_examples() == _AB_HYPOTHESIS_LIGHT
-
-
-def test_serialization_extensive_enabled(monkeypatch) -> None:
-    monkeypatch.setenv(_SERIALIZATION_EXTENSIVE_ENV, "1")
-    assert serialization_extensive() is True
-    assert ab_hypothesis_max_examples() == _AB_HYPOTHESIS_EXTENSIVE
-
-
-def test_serialization_extensive_truthy_strings(monkeypatch) -> None:
-    for value in ("true", "TRUE", "yes", "Yes"):
-        monkeypatch.setenv(_SERIALIZATION_EXTENSIVE_ENV, value)
-        assert serialization_extensive() is True
 
 if __name__ == "__main__":
     pytest.main([__file__, "-q", "--tb=short"])

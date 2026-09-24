@@ -1873,8 +1873,9 @@ def run_all_tests(ctx: Any) -> str:
 
     if os.path.isdir(tests_root):
         # Discover and run all test modules recursively in the tests directory.
-        # UNO tests are identified by the _uno.py suffix (legacy tests/uno/ path
-        # check kept so a leftover uno/ dir would still be picked up).
+        # UNO tests are identified by the _uno.py suffix (collocated with the
+        # module they exercise). A leftover directory named ``uno`` is still
+        # treated as native for compatibility.
         from tests.testing_utils import NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
 
         _MISSING = object()
@@ -1896,7 +1897,7 @@ def run_all_tests(ctx: Any) -> str:
                     continue
                 
                 # We specifically want tests that are meant for the native runner.
-                # These are identified by the _uno suffix (or a leftover uno/ dir).
+                # These are identified by the _uno.py suffix (or a directory named uno).
                 is_uno_test = "_uno.py" in filename or "uno" in root.split(os.sep)
                 if is_uno_test:
                     user_only = filename in _USER_PROFILE_ONLY_UNO

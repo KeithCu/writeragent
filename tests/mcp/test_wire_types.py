@@ -117,7 +117,7 @@ def test_call_tool_request_params_from_params():
 def test_call_tool_request_params_missing_name():
     # check-all 33668189572: deal.pre now requires non-empty name (avoids ValueError CHECK FAIL).
     # Release bundles strip @deal.pre; body still raises ValueError.
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.strip_bundle import deal_pre_present
 
     if deal_pre_present(wire_types._call_tool_request_params_from_dict):
         import deal

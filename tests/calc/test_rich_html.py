@@ -87,7 +87,7 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     temp_doc.close.assert_not_called()
     mock_clear.assert_called_once_with(temp_doc)
     assert order[:2] == ["clear", "insert"]
-    from tests.harness.strip_bundle import is_release_build
+    from tests.strip_bundle import is_release_build
 
     # _step() log.info/print are stripped; the message string literals remain.
     if is_release_build():
@@ -111,7 +111,7 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
 
 def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
     """GHA 33699746211 had no step line: file-only log.info never reached Actions."""
-    from tests.harness.strip_bundle import skip_if_release_build
+    from tests.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.info/print stripped in release bundle")
     from plugin.calc.rich_html import insert_cell_html_rich

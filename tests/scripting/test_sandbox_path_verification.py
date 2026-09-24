@@ -16,8 +16,8 @@ from hypothesis import strategies as st
 import deal
 from plugin.framework.deal_shim import DEAL_MAX_PATH
 from plugin.scripting.sandbox import is_safe_workspace_path
-from tests.harness.strip_bundle import deal_pre_present
-from tests.harness.vhs_budget import vhs_max_examples
+from tests.strip_bundle import deal_pre_present
+from tests.vhs_budget import vhs_max_examples
 
 
 def test_basic_safe_paths() -> None:
@@ -68,7 +68,7 @@ def test_sandbox_filesystem_helpers_are_off_cover_all() -> None:
     """cover-all 33689813185 leftover (~48m sandbox); filesystem walkers off, doable later."""
     from pathlib import Path
 
-    from tests.harness.strip_bundle import skip_if_release_build
+    from tests.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module

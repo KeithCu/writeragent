@@ -146,10 +146,8 @@ def test_prepend_run_import_document_bindings_uses_generic_comment():
     assert out.endswith("result = 1\n")
 
 
-# --- RPS insert-fail logging (from test_rps_insert_failed_logging.py) ---
-# RPS insert-fail path must log str/repr so Arch debug shows UNO errors.
-
 def test_rps_insert_failed_outcome_logs_type_str_repr(caplog):
+    """RPS insert-fail path must log str/repr so Arch debug shows UNO errors."""
     err = RuntimeError("insertDocumentFromURL")
     with caplog.at_level(logging.ERROR, logger="writeragent.scripting"):
         out = rps_insert_failed_outcome(err, t0=0.0)

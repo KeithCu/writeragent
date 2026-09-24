@@ -440,7 +440,7 @@ Add `duckdb` / `duckdb.*` to [`VENV_AUTHORIZED_IMPORTS`](../../plugin/scripting/
 | Run Python Script templates | `plugin/scripting/duckdb_sql.py` (host) + document_scripts (SQL Helpers) |
 | Settings probe | Extend venv self-check groups in [`venv_worker.py`](../../plugin/scripting/venv_worker.py) — A0 |
 | Tests | `tests/scripting/test_duckdb_sql.py`, `tests/calc/test_duckdb_tools.py` |
-| UNO tests | Optional `*_uno.py` for end-to-end |
+| UNO tests | Optional collocated `*_uno.py` for end-to-end |
 | Docs | This plan + updates in [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoffice.md) and [analysis-tools.md](analysis-tools.md) |
 
 **Dependency:** `duckdb` in user venv only (document in Settings guide); not in `pyproject.toml` extension runtime.

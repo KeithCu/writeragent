@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from plugin.scripting.viz import get_viz_script_templates, parse_viz_script_header, run_viz
+from plugin.scripting.viz import run_viz
 
 
 def _mock_figure_payload():
@@ -121,23 +121,3 @@ def test_insert_image_payload_writer_uses_product_display_name():
 
         insert_image_payload_for_doc(ctx, doc, payload, title="Plot")
     assert ins.call_args.kwargs["description"] == "LibrePy plot"
-
-
-# --- Viz Run Python Script templates (from test_viz_templates.py) ---
-
-def test_get_viz_script_templates_include_run_call():
-    templates = get_viz_script_templates()
-    assert "quick_plot" in templates
-    assert "from writeragent.scripting.viz import quick_plot" in templates["quick_plot"]
-    assert "# writeragent:viz" not in templates["quick_plot"]
-
-
-def test_viz_template_body_includes_helper_params():
-    code = get_viz_script_templates()["correlation_heatmap"]
-    assert 'correlation_heatmap(method="pearson")' in code
-    assert "from writeragent.scripting.viz import correlation_heatmap" in code
-
-
-def test_parse_viz_script_header_rejects_unknown_helper():
-    code = "# writeragent:viz helper=not_a_helper params={}\n"
-    assert parse_viz_script_header(code) is None

@@ -80,7 +80,7 @@ def mock_bi():
 
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
 from plugin.writer.locale import grammar_proofread_cache as gc
-from tests.harness.strip_bundle import is_release_build, module_source_contains
+from tests.strip_bundle import is_release_build, module_source_contains
 
 
 def _grammar_obs_call_sites_present() -> bool:

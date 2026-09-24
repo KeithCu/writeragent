@@ -312,8 +312,6 @@ def test_slash_disabled_when_flag_false(monkeypatch):
     assert popup.is_open is False
 
 
-# --- Above-Ready slash popup placement (from test_slash_above_ready.py) ---
-
 class _R:
     def __init__(self, x, y, w, h):
         self.X, self.Y, self.Width, self.Height = x, y, w, h

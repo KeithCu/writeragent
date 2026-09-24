@@ -21,7 +21,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
-from tests.harness.strip_bundle import deal_pre_present
+from tests.strip_bundle import deal_pre_present
 from plugin.framework.client.stream_normalizer import (
     ThinkTagStreamSplitter,
     _merge_reasoning_details,
@@ -34,7 +34,7 @@ from plugin.framework.client.stream_normalizer import (
     new_streaming_thinking_meta,
     strip_think_tags,
 )
-from tests.harness.vhs_budget import vhs_max_examples
+from tests.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
@@ -383,7 +383,7 @@ def test_stream_normalizer_hot_sinks_off_cover_all() -> None:
     """cover-all 35546602462: stream_normalizer ~3.5h; keep hot sinks out of cover_fqns."""
     from pathlib import Path
 
-    from tests.harness.strip_bundle import skip_if_release_build
+    from tests.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module

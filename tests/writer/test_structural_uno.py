@@ -1,3 +1,9 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
@@ -26,17 +32,18 @@ def test_structural_tools_execution(ctx, doc):
     assert isinstance(sec_res["sections"], list), "SectionList should return a list"
 
 
-# --- get_page_objects from a table-cell cursor (from test_get_page_objects_table_cell_uno.py) ---
-# Cloning the view cursor through doc.getText() after jumpToEndOfPage used to raise
-# UNO RuntimeException "End of content node doesn't have the proper start node".
-# lockControllers() made gotoRange/getPage fail when the cursor started in a cell;
-# leave via body getStart() first, unlock before restore. Table-anchor hops while
-# locked leave getPage() at 0 — that is stale layout, not an empty page.
-# Must list the outer table and a nested table, then restore the cell cursor.
-
 @native_test
 @with_native_doc("writer")
 def test_get_page_objects_with_table_at_page_end_uno(ctx, doc):
+    """Regression: get_page_objects from a table-cell cursor.
+
+    Cloning the view cursor through doc.getText() after jumpToEndOfPage used to raise
+    UNO RuntimeException "End of content node doesn't have the proper start node".
+    lockControllers() made gotoRange/getPage fail when the cursor started in a cell;
+    leave via body getStart() first, unlock before restore. Table-anchor hops while
+    locked leave getPage() at 0 — that is stale layout, not an empty page.
+    Must list the outer table and a nested table, then restore the cell cursor.
+    """
     text = doc.getText()
     tbl = doc.createInstance("com.sun.star.text.TextTable")
     tbl.initialize(6, 3)

@@ -27,7 +27,7 @@ from plugin.calc.address_utils import (
     parse_range_string,
 )
 from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX
-from tests.harness.vhs_budget import vhs_max_examples
+from tests.vhs_budget import vhs_max_examples
 
 CROSSHAIR_MODULE = "plugin/calc/address_utils.py"
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
@@ -76,7 +76,7 @@ def test_hypothesis_format_parse_round_trip(col: int, row: int) -> None:
 
 def test_format_address_row_overflow_pre_fails_closed() -> None:
     import deal
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.strip_bundle import deal_pre_present
 
     if not deal_pre_present(format_address):
         pytest.skip("@deal.pre stripped in release bundle")

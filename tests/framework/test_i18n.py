@@ -39,7 +39,7 @@ class TestI18n(unittest.TestCase):
         self.assertEqual(_(""), "")
 
     def test_i18n_msgid_rejects_over_deal_max_msgid(self):
-        from tests.harness.strip_bundle import deal_pre_present
+        from tests.strip_bundle import deal_pre_present
 
         if not deal_pre_present(_):
             self.skipTest("@deal.pre stripped in release bundle")
@@ -232,7 +232,7 @@ class TestI18n(unittest.TestCase):
         """Return locales dir, compiling *lang* from .po when .mo is missing."""
         from pathlib import Path
 
-        from tests.harness.strip_bundle import skip_if_release_build
+        from tests.strip_bundle import skip_if_release_build
 
         skip_if_release_build("scripts/ not in stripped release tree")
         from scripts.compile_translations import compile_po

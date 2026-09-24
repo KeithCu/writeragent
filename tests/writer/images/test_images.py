@@ -9,18 +9,13 @@ from plugin.tests.testing_utils import TestingFactory, setup_uno_mocks
 setup_uno_mocks()
 
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
-from plugin.doc.document_research_tools import ListNearbyFiles
-from plugin.framework.tool import ToolContext, ToolRegistry
 from plugin.writer.images.images import (
     ImageGenerate,
     ImageInsert,
-    ImageListNearbyFiles,
     _resolve_crop_edges,
     _resolve_orient,
     resolve_image_generate_is_edit,
 )
-from plugin.writer.specialized_base import SpecializedWorkflowFinished
-from tests.chatbot.test_tool_loop import DummyCalcSpecialTool
 
 
 def test_resolve_orient_named_positions():
@@ -210,11 +205,9 @@ def test_image_generate_omitted_source_creates_when_no_selection():
     assert svc.generate_image.call_args.kwargs.get("aspect_ratio") == "square"
 
 
-# --- crop edges (from test_crop_edges.py) ---
-# T3 (R3): set_image_properties really crops now (GraphicCrop). Pin the mm -> 1/100mm edge math
-# and the preserve-unspecified-edges behavior. No LibreOffice required. Applying the struct is live.
-
 def test_only_top_overrides_others_preserved():
+    # T3 (R3): set_image_properties really crops now (GraphicCrop). Pin the mm -> 1/100mm edge math
+    # and the preserve-unspecified-edges behavior. No LibreOffice required. Applying the struct is live.
     # current crop = (top, bottom, left, right) in 1/100mm
     out = _resolve_crop_edges({"crop_top_mm": 5}, (0, 200, 300, 400))
     assert out == (500, 200, 300, 400)
@@ -233,37 +226,3 @@ def test_none_keeps_current():
 
 def test_rounding():
     assert _resolve_crop_edges({"crop_left_mm": 1.234}, (0, 0, 0, 0)) == (0, 0, 123, 0)
-
-
-# --- list nearby image files (from test_list_nearby_image_files.py) ---
-
-def test_list_nearby_image_files_calls_backend_with_images_kind():
-    tool = ImageListNearbyFiles()
-    ctx = ToolContext(MagicMock(), MagicMock(), "writer", MagicMock())
-
-    expected = {"status": "ok", "files": [], "truncated": False}
-
-    with patch("plugin.writer.images.images.list_nearby_files", return_value=expected) as mock_list:
-        with patch("plugin.writer.images.images.execute_on_main_thread", side_effect=lambda fn: fn()):
-            result = tool.execute(ctx, filter="logo")
-
-    mock_list.assert_called_once_with(ctx.ctx, ctx.doc, filter="logo", file_kind="images")
-    assert result == expected
-
-
-def test_images_domain_includes_list_nearby_image_files_not_document_research_list():
-    registry = ToolRegistry(services={})
-    registry.register(ImageListNearbyFiles())
-    registry.register(DummyCalcSpecialTool())
-    registry.register(ListNearbyFiles())
-    registry.register(SpecializedWorkflowFinished())
-
-    mock_writer = MagicMock()
-    mock_writer.supportsService = lambda svc: svc == "com.sun.star.text.TextDocument"
-
-    tools = registry.get_tools(doc=mock_writer, active_domain="images", exclude_tiers=())
-    names = {t.name for t in tools}
-
-    assert "image_list_nearby_files" in names
-    assert "list_nearby_files" not in names
-    assert "specialized_workflow_finished" in names

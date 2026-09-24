@@ -847,10 +847,8 @@ def test_execute_with_timeout_parameterizes_result_queue() -> None:
     assert "result_queue: queue.Queue[tuple[str, Any]]" in src
 
 
-# --- DSPy eval bypass_thread_guard (from test_tool_registry_bypass_thread.py) ---
-# Regression: DSPy eval (tools_lo) may call tools from the LO worker thread.
-
 def test_execute_bypass_thread_guard_allows_background_thread() -> None:
+    """Regression: DSPy eval (tools_lo) may call tools from the LO worker thread."""
     calls: list[str] = []
 
     class DummyTool:
@@ -893,3 +891,4 @@ def test_execute_bypass_thread_guard_allows_background_thread() -> None:
 
     assert out == {"status": "ok"}
     assert calls == ["execute"]
+

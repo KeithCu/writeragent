@@ -55,7 +55,7 @@ def test_openrouter_equivalent_dropped_from_check_all_fqns() -> None:
     """Deep check-all run 32840960268: Prev 11:29. Split/resolve stay on (~2 min)."""
     from pathlib import Path
 
-    from tests.harness.strip_bundle import skip_if_release_build
+    from tests.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module

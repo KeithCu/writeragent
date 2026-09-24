@@ -39,8 +39,8 @@ from plugin.calc.python.formula_edit import (
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
-from tests.harness.strip_bundle import deal_pre_present, expect_pre_or_body, skip_if_release_build
-from tests.harness.vhs_budget import vhs_max_examples
+from tests.strip_bundle import deal_pre_present, expect_pre_or_body, skip_if_release_build
+from tests.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 # Rewrite wrappers (sanitize/escape/rebuild) are ``# crosshair: off`` — check-all

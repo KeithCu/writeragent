@@ -3,9 +3,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 import json
-from unittest.mock import MagicMock
-
 import pytest
+from unittest.mock import MagicMock
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.google_shim import GoogleShim
 from plugin.framework.client.openai_shim import OpenAIShim
@@ -193,8 +192,6 @@ def test_google_openai_auth_resolution():
     assert headers["Authorization"] == "Bearer test-key-123"
 
 
-# --- Google tool-call request body (from test_client_llm_google_tool_format.py) ---
-
 def test_google_tool_format():
     config = {
         "endpoint": "https://generativelanguage.googleapis.com",
@@ -234,6 +231,7 @@ def test_google_tool_format():
     assert data["tools"][0]["function"]["name"] == "get_weather"
     assert data["tools"][0]["function"]["description"] == "Get the weather"
     assert data["tools"][0]["function"]["parameters"]["properties"]["location"]["type"] == "string"
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -759,7 +759,7 @@ Makefile
 | [`tests/scripting/test_python_runner_monaco.py`](../../tests/scripting/test_python_runner_monaco.py) | Monaco Run Python path |
 | [`tests/scripting/test_analysis.py`](../../tests/scripting/test_analysis.py) | Analysis templates / trusted stubs |
 | [`tests/scripting/test_analysis_client.py`](../../tests/scripting/test_analysis_client.py) | `client.py` analysis RPC |
-| [`tests/scripting/test_viz.py`](../../tests/scripting/test_viz.py) | Viz helpers and templates |
+| [`tests/scripting/test_viz_templates.py`](../../tests/scripting/test_viz_templates.py) | Viz templates |
 | [`tests/scripting/test_editor_host.py`](../../tests/scripting/test_editor_host.py) | Monaco host spawn / IPC |
 | [`tests/scripting/test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) | Document-attached scripts |
 | [`tests/calc/python/test_editor_save_modes.py`](../../tests/calc/python/test_editor_save_modes.py) | Edit Python in Cell save modes |

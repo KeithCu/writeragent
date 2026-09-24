@@ -442,13 +442,13 @@ def _stop_idle_pytest_progress() -> None:
 
 def pytest_configure(config):
     """Arm opt-in CI hang diagnostics (no-op unless WRITERAGENT_CI_DEBUG=1)."""
-    from tests.harness.ci_debug import start_ci_debug
+    from tests.ci_debug import start_ci_debug
 
     start_ci_debug()
 
 
 def pytest_runtest_logstart(nodeid, location):
-    from tests.harness.ci_debug import log_ci_debug
+    from tests.ci_debug import log_ci_debug
 
     log_ci_debug(f"start {nodeid}")
     global _pytest_progress_last_nodeid
@@ -461,7 +461,7 @@ def pytest_runtest_logstart(nodeid, location):
 
 
 def pytest_runtest_logfinish(nodeid, location):
-    from tests.harness.ci_debug import log_ci_debug
+    from tests.ci_debug import log_ci_debug
 
     log_ci_debug(f"end {nodeid}")
     _pytest_progress_inflight.discard(nodeid)
@@ -533,7 +533,7 @@ def _shutdown_harper_runtime_after_test():
 
 def pytest_sessionfinish(session, exitstatus):
     """Fail the run if isolation leaked a ``MagicMock/`` tree under the repo root."""
-    from tests.harness.ci_debug import stop_ci_debug
+    from tests.ci_debug import stop_ci_debug
 
     stop_ci_debug()
     _shutdown_harper_if_loaded()

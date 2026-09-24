@@ -83,7 +83,7 @@ def test_normalize_empty_and_non_str() -> None:
 def test_url_helpers_overflow_pre_fails_closed() -> None:
     from plugin.framework.deal_shim import DEAL_MAX_URL
     from plugin.framework.url_utils import get_url_hostname, is_pdf_url
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.strip_bundle import deal_pre_present
 
     import deal
 

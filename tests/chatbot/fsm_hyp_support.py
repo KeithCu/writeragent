@@ -30,7 +30,7 @@ from plugin.chatbot.tool_loop_state import EventKind as ToolEventKind
 from plugin.chatbot.tool_loop_state import ToolLoopEvent, ToolLoopState
 from plugin.mcp.mcp_state import EventKind as MCPEventKind
 from plugin.mcp.mcp_state import MCPEvent, MCPState, MCPStateStr
-from tests.harness.vhs_budget import vhs_extensive
+from tests.vhs_budget import vhs_extensive
 
 _FSM_HYP_LIGHT = {
     "send": 80,

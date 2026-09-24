@@ -236,7 +236,7 @@ Deep CrossHair sweeps are also available on GitHub Actions via manual dispatch (
 | **`make vhs`** | `WRITERAGENT_VHS_EXTENSIVE=1` (alias: `WRITERAGENT_SERIALIZATION_EXTENSIVE`) | Deep fuzz (`-k hypothesis`): serialization A/B; chat/MCP FSMs; Phase 8 domains (done: `formula_edit`, `cors`, `word_diff_split`, `embeddings_split`); stream/response normalizers (SSE line-partition + readline-fragment); sandbox path + scrub env; payload_codec policy; `address_utils` |
 | **`make slowtests`** | Extensive | Serialization fixture pass, then `vhs` |
 
-Shared helpers: [`tests/harness/vhs_budget.py`](../../tests/harness/vhs_budget.py) (`vhs_extensive` / `vhs_max_examples`), FSM strategies [`tests/chatbot/fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py).
+Shared helpers: [`tests/vhs_budget.py`](../../tests/vhs_budget.py) (`vhs_extensive` / `vhs_max_examples`), FSM strategies [`tests/chatbot/fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py).
 
 **Playbook for a new deep VHS domain:** (1) Tier-0 pure entry with `@deal`, (2) strategies with small alphabets, (3) oracles mirroring `@deal.ensure`, (4) `vhs_max_examples(light, extensive)` on `@settings`, (5) name tests so `-k hypothesis` selects them, (6) add the file to the `vhs` Make recipe, (7) register in `verification_status.json`. Do **not** dump every light `@given` into `vhs`—reserve deep budgets for round-trips, FSM legality, and security filters. Cap string alphabets for regex-heavy oracles (see §8.1 C).
 

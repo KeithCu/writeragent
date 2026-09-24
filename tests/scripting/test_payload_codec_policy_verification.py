@@ -41,8 +41,8 @@ from plugin.scripting.payload_codec import (
     should_use_binary_envelope,
     wire_cell_count,
 )
-from tests.harness.strip_bundle import deal_pre_present
-from tests.harness.vhs_budget import vhs_max_examples
+from tests.strip_bundle import deal_pre_present
+from tests.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
@@ -293,7 +293,7 @@ def test_host_pack_split_grid_is_split_grid() -> None:
 
 def test_payload_codec_cover_all_33797534946_offs() -> None:
     """cover-all 33797534946 leftovers (~46.5m); skip-reason/image/kinds off, policy stays on."""
-    from tests.harness.strip_bundle import skip_if_release_build
+    from tests.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module

@@ -238,10 +238,8 @@ def test_shape_upsert_calc_customshape_reapplies_geometry_after_page_add():
     assert any(i > add_idx for i in engine_idxs), events
 
 
-# --- Writer draw-layer invalidate helper (from test_shapes_writer_invalidate.py) ---
-# Unit tests for Writer draw-layer invalidate helper (no nested VCL pump).
-
 def test_writer_invalidate_does_not_call_process_events_to_idle() -> None:
+    """Writer draw-layer invalidate helper must not nest a VCL pump."""
     doc = MagicMock()
     doc.supportsService.return_value = True
     ctrl = MagicMock()

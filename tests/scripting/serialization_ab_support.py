@@ -31,14 +31,14 @@ from plugin.scripting.payload_codec import (
     is_split_grid,
 )
 
-# Set by Makefile (slowtests, vhs) before pytest starts. See tests/harness/vhs_budget.py.
+# Set by Makefile (slowtests, vhs) before pytest starts. See tests/vhs_budget.py.
 _AB_HYPOTHESIS_LIGHT = {"codec": 100, "venv_echo": 100, "venv_sum": 80, "multi_range": 50}
 _AB_HYPOTHESIS_EXTENSIVE = {"codec": 1000, "venv_echo": 1000, "venv_sum": 800, "multi_range": 500}
 
 
 def serialization_extensive() -> bool:
     """True when Make targets request deep Hypothesis fuzzing (not default pytest)."""
-    from tests.harness.vhs_budget import vhs_extensive
+    from tests.vhs_budget import vhs_extensive
 
     return vhs_extensive()
 

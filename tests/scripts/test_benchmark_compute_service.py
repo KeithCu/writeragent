@@ -15,7 +15,7 @@ _SCRIPTS = _REPO / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from tests.harness.strip_bundle import is_release_build
+from tests.strip_bundle import is_release_build
 
 if is_release_build() or not (_SCRIPTS / "benchmark_compute_service.py").is_file():
     pytest.skip("benchmark_compute_service not available in release builds", allow_module_level=True)

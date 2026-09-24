@@ -194,7 +194,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 | Analysis trusted stack (reference) | [`analysis.py`](../../plugin/scripting/analysis.py), [`analysis_client.py`](../../plugin/framework/client/analysis_client.py), [`analysis_runner.py`](../../plugin/calc/analysis_runner.py) |
 | Calc analysis egress | [`analysis_egress.py`](../../plugin/calc/analysis_egress.py) — `is_analysis_result`, `insert_analysis_result_into_calc` |
 | **Vision LLM tools (partial)** | [`vision_tools.py`](../../plugin/vision/vision_tools.py) (`extract_structure_from_image`), [`vision_availability.py`](../../plugin/vision/vision_availability.py) (venv gating), [`ToolWriterVisionBase` / `ToolCalcVisionBase`](../../plugin/writer/specialized_base.py) |
-| Tests | [`test_vision*.py`](../../tests/scripting/), [`test_vision_tools.py`](../../tests/vision/test_vision_tools.py), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py), [`test_vision_html_insert_uno.py`](../../tests/writer/test_vision_html_insert_uno.py), [`test_vision_graphic_insert_uno.py`](../../tests/writer/test_vision_graphic_insert_uno.py), [`test_vision_ocr_mock_uno.py`](../../tests/writer/test_vision_ocr_mock_uno.py) (Writer UNO: patches host `run_vision`, unique OCR tokens, document order with text between images; no Docling/Paddle in CI), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (vision section tests) |
+| Tests | [`test_vision*.py`](../../tests/scripting/), [`test_vision_tools.py`](../../tests/vision/test_vision_tools.py), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py), [`test_format_uno.py`](../../tests/writer/test_format_uno.py), [`test_vision_graphic_insert_uno.py`](../../tests/writer/test_vision_graphic_insert_uno.py), [`test_vision_ocr_mock_uno.py`](../../tests/writer/test_vision_ocr_mock_uno.py) (Writer UNO: patches host `run_vision`, unique OCR tokens, document order with text between images; no Docling/Paddle in CI), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (vision section tests) |
 
 ### Gaps (post–Phase 3)
 
@@ -1001,7 +1001,7 @@ Do these **before** building layout HTML to avoid dead ends.
 | **0c — Table grid** | Can a 2-column flyer be approximated with `<table><tr><td>…</td><td>…</td></tr></table>`? | Hand-authored HTML → UNO insert on Akihabara-like content | Two columns readable; acceptable wrap on narrow page |
 | **0d — Docling block walk** | What labels/bboxes exist on Akihabara? | One-off script: dump `document.iterate_items()` / structure map | JSON fixture checked into `tests/fixtures/vision/akihabara_blocks.json` |
 
-**Files:** extend [`tests/writer/test_vision_html_insert_uno.py`](../../tests/writer/test_vision_html_insert_uno.py); optional `tests/fixtures/vision/`.
+**Files:** extend [`tests/writer/test_format_uno.py`](../../tests/writer/test_format_uno.py); optional `tests/fixtures/vision/`.
 
 ### 21.5 Phase 1 — Block color sampling (Tier B)
 
@@ -1103,7 +1103,7 @@ Only if inline HTML + tables still collapse in Writer:
 | Color sampling | `tests/scripting/test_vision_layout_html.py` — pure functions, synthetic 10×10 PNG arrays |
 | Layout clustering | Fixed bbox fixtures → column assignment |
 | Integration | Mock Docling document + PNG bytes → `run_vision` → `html` field shape |
-| UNO | [`test_vision_html_insert_uno.py`](../../tests/writer/test_vision_html_insert_uno.py) — colored header, two-column table |
+| UNO | [`test_format_uno.py`](../../tests/writer/test_format_uno.py) — colored header, two-column table |
 | Regression | Existing [`test_vision_html_export.py`](../../tests/scripting/test_vision_html_export.py) — `html_mode=structured` unchanged |
 | Manual QA | Akihabara, one receipt scan (tables), one simple single-column screenshot |
 
@@ -1141,4 +1141,4 @@ Only if inline HTML + tables still collapse in Writer:
 
 ### 21.14 Suggested agent prompt (when starting Phase 4v)
 
-> Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(..., for_structure=True)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_vision_html_insert_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
+> Implement **visual/layout HTML** per [recognition.md §21](recognition.md#21-visuallayout-html-fidelity-deferred-dev-plan). **Do not** change default `html_mode=structured`. Add `vision_layout_html.py` with bbox color sampling and optional two-column table grid; gate behind `params.html_mode=layout`. Reuse `prepare_html_for_lo_import`, `insert_vision_result`, and existing Docling `_convert_image_bytes(..., for_structure=True)`. Complete Phase 0 UNO spikes first. Tests: unit fixtures + `test_format_uno.py` extensions; no real Docling in CI. **Do not** re-insert the source image or register chat tools.
