@@ -1,25 +1,13 @@
 """Smoke tests for writer tools: registry has expected tools and schemas are valid."""
 
-import sys
 from unittest.mock import patch
 
-from plugin.tests.testing_utils import WriterDocStub
+from plugin.tests.testing_utils import WriterDocStub, setup_uno_mocks
 
-# locale tests replace com.sun.star.lang with an empty module before this file
-# is imported. plugin.main imports XInitialization at module level, so put the
-# names back on whatever module is installed or collection dies.
-_lang = sys.modules.get("com.sun.star.lang")
-if _lang is not None:
-    class _XInitialization:
-        pass
-
-    class _XServiceInfo:
-        pass
-
-    if not hasattr(_lang, "XInitialization"):
-        _lang.XInitialization = _XInitialization
-    if not hasattr(_lang, "XServiceInfo"):
-        _lang.XServiceInfo = _XServiceInfo
+# Locale tests swap com.sun.star.* for empty modules during collection.
+# The old grab-bag modules called setup_uno_mocks() at import, which put
+# NoSuchElementException / XInitialization back before later imports.
+setup_uno_mocks()
 
 from plugin.main import get_tools
 
