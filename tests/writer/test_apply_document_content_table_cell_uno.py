@@ -221,3 +221,188 @@ def test_rejecting_the_emptied_table_restores_it_uno(ctx, doc):
         assert "ONLY_FEE" in doc.getTextTables().getByName("Fee").getCellByName("A1").getString()
     finally:
         set_config(flag, prev)
+
+
+def _apply_clear(ctx, doc, old_content, **kwargs):
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    return ApplyDocumentContent().execute(
+        tool_ctx, content=[""], old_content=old_content, target="search", **kwargs
+    )
+
+
+@native_test
+@with_native_doc("writer")
+def test_all_matches_of_every_remaining_cell_deletes_the_table_uno(ctx, doc):
+    """all_matches repeats one string. When that string is every remaining cell, the table goes.
+
+    Those matches must not also be cleared as text: that would be a second redline on a
+    table the delete already removes.
+    """
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    _insert_table(doc, "Fee", 1, 2, {"A1": "FEE", "B1": "FEE"})
+    res = _apply_clear(ctx, doc, "FEE", all_matches=True)
+    assert res.get("status") == "ok", res
+    assert res.get("table_deleted") == "Fee", res
+    assert doc.getTextTables().hasByName("Fee") is False
+    assert "FEE" not in doc.getText().getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_all_matches_clears_body_text_and_deletes_the_table_uno(ctx, doc):
+    """A body hit of the same string is a text edit. The table whose only text is that string is deleted."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    text = doc.getText()
+    text.insertString(text.getEnd(), "FEE", False)
+    _insert_table(doc, "Fee", 1, 1, {"A1": "FEE"})
+    text.insertString(text.getEnd(), "KEEP_OUTSIDE", False)
+    res = _apply_clear(ctx, doc, "FEE", all_matches=True)
+    assert res.get("status") == "ok", res
+    assert res.get("table_deleted") == "Fee", res
+    assert res.get("replaced_count") == 1, res
+    assert doc.getTextTables().hasByName("Fee") is False
+    assert "KEEP_OUTSIDE" in text.getString()
+    assert "FEE" not in text.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_all_matches_deletes_every_table_whose_only_text_is_that_string_uno(ctx, doc):
+    """Two tables, each with only that string, both go. table_deleted is the list of names."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    _insert_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
+    _insert_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
+    res = _apply_clear(ctx, doc, "FEE", all_matches=True)
+    assert res.get("status") == "ok", res
+    assert sorted(res.get("table_deleted") or []) == ["FeeA", "FeeB"], res
+    assert doc.getTextTables().hasByName("FeeA") is False
+    assert doc.getTextTables().hasByName("FeeB") is False
+
+
+@native_test
+@with_native_doc("writer")
+def test_all_matches_keeps_the_table_when_one_cell_has_more_text_uno(ctx, doc):
+    """One fully covered cell must not condemn a sibling that still has other text."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    table = _insert_table(doc, "Fee", 1, 2, {"A1": "FEE", "B1": "FEE extra"})
+    res = _apply_clear(ctx, doc, "FEE", all_matches=True)
+    assert res.get("status") == "ok", res
+    assert "table_deleted" not in res
+    assert doc.getTextTables().hasByName("Fee")
+    assert "FEE" not in table.getCellByName("A1").getString()
+    leftover = table.getCellByName("B1").getString()
+    assert "extra" in leftover
+    assert "FEE" not in leftover
+
+
+@native_test
+@with_native_doc("writer")
+def test_first_match_deletes_only_the_first_table_uno(ctx, doc):
+    """The same last-text string in two tables: the default search deletes only the first."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    _insert_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
+    _insert_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
+    res = _apply_clear(ctx, doc, "FEE")
+    assert res.get("status") == "ok", res
+    assert res.get("table_deleted") == "FeeA", res
+    assert doc.getTextTables().hasByName("FeeA") is False
+    assert doc.getTextTables().hasByName("FeeB")
+    assert "FEE" in doc.getTextTables().getByName("FeeB").getCellByName("A1").getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_occurrence_deletes_only_the_second_table_uno(ctx, doc):
+    """occurrence=1 is the second table, not both."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    _insert_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
+    _insert_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
+    res = _apply_clear(ctx, doc, "FEE", occurrence=1)
+    assert res.get("status") == "ok", res
+    assert res.get("table_deleted") == "FeeB", res
+    assert doc.getTextTables().hasByName("FeeB") is False
+    assert doc.getTextTables().hasByName("FeeA")
+    assert "FEE" in doc.getTextTables().getByName("FeeA").getCellByName("A1").getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_empty_host_caption_refuses_and_keeps_the_nested_table_uno(ctx, doc):
+    """The caption is the outer table's only own text, and that cell hosts a nested table.
+
+    The outer table must not be auto-deleted, and the text replace must still refuse:
+    setString on the host cell would wipe the inner table.
+    """
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    outer = _insert_table(doc, "Outer", 1, 1, {"A1": "HOST_CAPTION"})
+    host = outer.getCellByName("A1")
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    host.insertTextContent(host.getEnd(), inner, False)
+    inner.setName("Inner")
+    inner.getCellByName("A1").setString("KEEP_INNER")
+    res = _apply_clear(ctx, doc, "HOST_CAPTION")
+    assert res.get("status") == "error", res
+    assert "table_set_cell" in (res.get("message") or ""), res
+    assert "table_deleted" not in res
+    assert doc.getTextTables().hasByName("Outer")
+    assert doc.getTextTables().hasByName("Inner")
+    assert "HOST_CAPTION" in host.getString()
+    assert inner.getCellByName("A1").getString() == "KEEP_INNER"
+
+
+@native_test
+@with_native_doc("writer")
+def test_empty_replacement_of_a_merged_banner_deletes_the_table_uno(ctx, doc):
+    """A merged A1:B1 is one cell. Covered names are absent from getCellNames; the banner is the last text."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    table = _insert_table(doc, "Fee", 2, 2, {"A1": "BANNER"})
+    cursor = table.createCursorByCellName("A1")
+    cursor.gotoCellByName("B1", True)
+    cursor.mergeRange()
+    res = _apply_clear(ctx, doc, "BANNER")
+    assert res.get("status") == "ok", res
+    assert res.get("table_deleted") == "Fee", res
+    assert doc.getTextTables().hasByName("Fee") is False
+
+
+def _cell_with_two_paragraphs(cell, first, second):
+    """Two paragraphs in one cell. setString cannot make the break."""
+    cell.setString(first)
+    cursor = cell.createTextCursor()
+    cursor.gotoEnd(False)
+    cell.insertControlCharacter(cursor, 0, False)  # PARAGRAPH_BREAK
+    cell.insertString(cell.getEnd(), second, False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_clearing_the_first_paragraph_of_a_cell_keeps_the_table_uno(ctx, doc):
+    """A match of one paragraph is not the cell's whole text, so the table stays."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    table = _insert_table(doc, "Fee", 1, 1, {})
+    cell = table.getCellByName("A1")
+    _cell_with_two_paragraphs(cell, "Line1", "Line2")
+    res = _apply_clear(ctx, doc, "Line1")
+    assert res.get("status") == "ok", res
+    assert "table_deleted" not in res
+    assert doc.getTextTables().hasByName("Fee")
+    leftover = cell.getString()
+    assert "Line2" in leftover
+    assert "Line1" not in leftover
+
+
+@native_test
+@with_native_doc("writer")
+def test_empty_replacement_of_a_two_paragraph_cell_deletes_the_table_uno(ctx, doc):
+    """The cell's own getString is the last text. Search must agree with that string or the shell stays."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    table = _insert_table(doc, "Fee", 1, 1, {})
+    cell = table.getCellByName("A1")
+    _cell_with_two_paragraphs(cell, "Line1", "Line2")
+    full = cell.getString().strip()
+    assert "Line1" in full and "Line2" in full
+    res = _apply_clear(ctx, doc, full)
+    assert res.get("status") == "ok", res
+    assert res.get("table_deleted") == "Fee", res
+    assert doc.getTextTables().hasByName("Fee") is False
