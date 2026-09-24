@@ -340,7 +340,7 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 | PPTX auto-build from SVG | Shipped | User venv runs upstream `svg_to_pptx.py` when `exports/*.pptx` missing |
 | Shape copy on import | Shipped | [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) — clone + text props |
 | Impress page size on import | Shipped | Target slide set to 25400×14288 hmm in `uno_pptx_import._ensure_target_page` |
-| Multi-slide UNO tests | Shipped | [`test_ppt_master_pptx_import_uno.py`](../tests/uno/test_ppt_master_pptx_import_uno.py) — 3-slide fixture |
+| Multi-slide UNO tests | Shipped | [`test_ppt_master_pptx_import_uno.py`](../tests/ppt_master/test_ppt_master_pptx_import_uno.py) — 3-slide fixture |
 | Import fidelity script | Shipped | PPTX vs ODP PDF diff per slide |
 | Real-project smoke | Validated | `ppt169_attention_is_all_you_need` via existing `exports/*.pptx` |
 | Speaker notes matching | Partial | [`project_notes.py`](../plugin/ppt_master/project_notes.py); PPTX import copies notes from source slides |
@@ -412,7 +412,7 @@ Primary files: [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_impo
 
 **Dev strategy:** Run fidelity script on `ppt169_attention_is_all_you_need`; triage in [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_import.py) or upstream PPTX build if reference/import diverge.
 
-**Tests:** [`test_ppt_master_fidelity.py`](../tests/ppt_master/test_ppt_master_fidelity.py), [`test_ppt_master_pptx_import_uno.py`](../tests/uno/test_ppt_master_pptx_import_uno.py), [`test_ppt_master_pptx_build.py`](../tests/ppt_master/test_ppt_master_pptx_build.py).
+**Tests:** [`test_ppt_master_fidelity.py`](../tests/ppt_master/test_ppt_master_fidelity.py), [`test_ppt_master_pptx_import_uno.py`](../tests/ppt_master/test_ppt_master_pptx_import_uno.py), [`test_ppt_master_pptx_build.py`](../tests/ppt_master/test_ppt_master_pptx_build.py).
 
 ---
 
@@ -455,7 +455,7 @@ Primary files: [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_impo
 
 | Task | File(s) | Done when |
 |------|---------|-----------|
-| Multi-slide UNO export | [`test_ppt_master_pptx_import_uno.py`](../tests/uno/test_ppt_master_pptx_import_uno.py) | ✅ 3 slides, shape checks |
+| Multi-slide UNO export | [`test_ppt_master_pptx_import_uno.py`](../tests/ppt_master/test_ppt_master_pptx_import_uno.py) | ✅ 3 slides, shape checks |
 | Import fidelity CLI | [`scripts/ppt_master_import_fidelity.py`](../scripts/ppt_master_import_fidelity.py) | ✅ PDF diff + `report.json` |
 | Fix `ty` on PPT-Master send path | [`send_handlers.py`](../plugin/chatbot/send_handlers.py) | Declare `_in_ppt_master_mode: bool` on host class; `make test` typecheck passes |
 | Regression fixtures | `tests/fixtures/ppt_master_*` | Minimal shipped; add realistic SVGs from failing slides |
@@ -507,7 +507,7 @@ Run: `pytest tests/ppt_master/`; full matrix: `make test`.
 | `tests/ppt_master/test_ppt_master_project.py` | Project fixture, collect_svg_files, notes |
 | `tests/ppt_master/test_ppt_master_pptx_build.py` | PPTX discovery + venv build |
 | `tests/ppt_master/test_ppt_master_fidelity.py` | PNG diff math, summary writer |
-| `tests/uno/test_ppt_master_pptx_import_uno.py` | LO PPTX import, multi-slide fixture |
+| `tests/ppt_master/test_ppt_master_pptx_import_uno.py` | LO PPTX import, multi-slide fixture |
 
 **Import fidelity (agents):** [`scripts/ppt_master_import_fidelity.py`](../scripts/ppt_master_import_fidelity.py) — see [Import fidelity tooling](#import-fidelity-tooling-agents) above.
 
