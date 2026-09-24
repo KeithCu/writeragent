@@ -106,7 +106,7 @@ MCP vision clients receive the picture itself, not base64 pasted as text.
 | `call_tool_result_image` | [`tests/mcp/test_wire_types.py`](../../tests/mcp/test_wire_types.py) |
 | `_render_page_png` error/control-flow | [`tests/writer/test_get_image_render.py`](../../tests/writer/test_get_image_render.py) (Writer + Draw/Impress) |
 | Draw/Impress `page=N` PNG (live) | [`tests/writer/test_get_image_uno.py`](../../tests/writer/test_get_image_uno.py) |
-| `_resolve_crop_edges`, `_resolve_orient` | [`tests/writer/images/test_crop_edges.py`](../../tests/writer/images/test_crop_edges.py), [`tests/writer/images/test_images.py`](../../tests/writer/images/test_images.py) |
+| `_resolve_crop_edges`, `_resolve_orient` | [`tests/writer/images/test_images.py`](../../tests/writer/images/test_images.py) |
 
 Host capability table row: [recognition.md §6](recognition.md).
 

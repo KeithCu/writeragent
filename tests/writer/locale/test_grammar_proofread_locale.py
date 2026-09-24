@@ -302,3 +302,19 @@ def test_grammar_max_tokens_and_chars() -> None:
         assert gl.grammar_max_chars() == 65536
 
 
+def test_normalize_detected_bcp47_registry_and_shorthand() -> None:
+    from plugin.writer.locale.grammar_proofread_locale import normalize_detected_bcp47
+
+    assert normalize_detected_bcp47("ja-JP") == "ja-JP"
+    assert normalize_detected_bcp47("ja") == "ja-JP"
+    assert normalize_detected_bcp47("en") == "en-US"
+
+
+def test_grammar_bcp47_tags_match() -> None:
+    from plugin.writer.locale.grammar_proofread_locale import grammar_bcp47_tags_match
+
+    assert grammar_bcp47_tags_match("ja", "ja-JP")
+    assert grammar_bcp47_tags_match("ja-JP", "ja-JP")
+    assert not grammar_bcp47_tags_match("ja-JP", "zh-CN")
+
+
