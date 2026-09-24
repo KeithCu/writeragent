@@ -297,3 +297,80 @@ def test_chapter_number_not_invented_from_literal_title_uno(ctx, doc):
         assert "7" not in {n.get("chapter_number") for n in on.values()}
     finally:
         events.unsubscribe("document:cache_invalidated", tree_svc._on_cache_invalidated)
+
+
+def _character_count(doc):
+    return int(doc.CharacterCount)
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_chapter_number_cache_refreshes_on_numbering_toggle_uno(ctx, doc):
+    """Chapter Numbering toggle must refresh writer_tree without a text edit.
+
+    CharacterCount is the heading-tree fingerprint. Toggling outline rules
+    does not move it, so freshness depends on XModifyListener →
+    document:cache_invalidated. This path is not covered by the #877 tests
+    (those drop the cache explicitly).
+    """
+    from plugin.framework.errors import ToolExecutionError
+    from tests.writer.chapter_numbering_fixtures import (
+        EXPECTED_LABELS_SUFFIX_EMPTY,
+        disable_chapter_numbering,
+        enable_chapter_numbering,
+        insert_chapter_heading_fixture,
+    )
+
+    insert_chapter_heading_fixture(doc)
+    disable_chapter_numbering(doc)
+    tree_svc, events = _tree_svc_on_bus()
+    try:
+        # Settle session bookmarks so later get_document_tree calls are not
+        # a CharacterCount change. Cache is attached via doc_key().
+        tree_svc.get_document_tree(doc, content_strategy="heading_only", depth=0)
+        _drain_ui(ctx)
+        count0 = _character_count(doc)
+
+        off_tree = tree_svc.build_heading_tree(doc)
+        off = _heading_by_text(off_tree)
+        assert off, off
+        for node in off.values():
+            assert "chapter_number" not in node, node
+        cached_off = tree_svc.build_heading_tree(doc)
+        assert cached_off is off_tree
+        assert _character_count(doc) == count0
+
+        enable_chapter_numbering(doc, suffix="")
+        _drain_ui(ctx)
+        assert _character_count(doc) == count0, (
+            "toggle must not edit body text; else this is not the listener path"
+        )
+
+        on_tree = tree_svc.build_heading_tree(doc)
+        assert on_tree is not off_tree
+        on = _heading_by_text(on_tree)
+        for title, expected in EXPECTED_LABELS_SUFFIX_EMPTY.items():
+            assert on[title]["chapter_number"] == expected, (title, on[title])
+            assert on[title]["text"] == title
+        serialized = tree_svc.get_document_tree(doc, content_strategy="heading_only", depth=0)
+        ser = _heading_by_text({"children": serialized["children"]})
+        assert ser["Section Alpha"]["chapter_number"] == "1.1"
+        hit = tree_svc.resolve_writer_locator(doc, "chapter_number", "1.1")
+        assert hit["para_index"] == on["Section Alpha"]["para_index"]
+
+        disable_chapter_numbering(doc)
+        _drain_ui(ctx)
+        assert _character_count(doc) == count0
+
+        off2_tree = tree_svc.build_heading_tree(doc)
+        assert off2_tree is not on_tree
+        off2 = _heading_by_text(off2_tree)
+        for node in off2.values():
+            assert "chapter_number" not in node, node
+        try:
+            tree_svc.resolve_writer_locator(doc, "chapter_number", "1.1")
+            raise AssertionError("locator must error after numbering is turned off")
+        except ToolExecutionError as exc:
+            assert "chapter_number:1.1" in str(exc)
+    finally:
+        events.unsubscribe("document:cache_invalidated", tree_svc._on_cache_invalidated)
