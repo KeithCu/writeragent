@@ -85,7 +85,7 @@ class MockDoc:
         return self._controller
 
 
-class AppendRichTextTests:
+class TestAppendRichText:
     """Tests for append_rich_text formatting logic."""
 
     def _call(self, text, role="assistant"):
@@ -256,7 +256,7 @@ class AppendRichTextTests:
         assert (body_cursors[-1].CharColor) == (ASSISTANT_COLOR)
 
 
-class TightenListIndentTests:
+class TestTightenListIndent:
     """Tests for _tighten_list_indent post-processing helper."""
 
     def _make_list_para(self, text="• item", level=0, list_id="list1", is_number=True):
@@ -365,7 +365,7 @@ class TightenListIndentTests:
         assert (mock_uno.invoke.call_count) == (2)
 
 
-class HtmlDetectionRegexTests:
+class TestHtmlDetectionRegex:
     """Tests for _HTML_TAG_RE used in append_rich_text HTML detection."""
 
     def _matches(self, text):
@@ -493,7 +493,7 @@ class HtmlDetectionRegexTests:
         assert (self._matches("x" * 1_000_000 + "<p>"))
 
 
-class ChatTypographyTests:
+class TestChatTypography:
     """Tests for shared sidebar chat typography helpers."""
 
     def test_apply_chat_char_props(self):
@@ -544,7 +544,7 @@ class ChatTypographyTests:
         cursor.gotoEnd.assert_called_once_with(True)
 
 
-class ChatThemeAndImporterTests:
+class TestChatThemeAndImporter:
     """Test suite for ChatTheme and HiddenDocHTMLImporter classes."""
 
     def test_chat_theme_resolution(self):

@@ -505,7 +505,7 @@ class TestSecurityFix:
             result = safe_python_literal_eval(nested_list_str, default='fallback')
             assert (isinstance(result, list) or (result == 'fallback'))
         except Exception as e:
-            self.fail(f'safe_python_literal_eval crashed with {type(e).__name__}: {e}')
+            pytest.fail(f'safe_python_literal_eval crashed with {type(e).__name__}: {e}')
 
     def test_large_input_no_crash(self):
         large_input = (('[' + ('1,' * 1000000)) + '1]')
@@ -513,17 +513,17 @@ class TestSecurityFix:
             result = safe_python_literal_eval(large_input, default='fallback')
             assert (isinstance(result, list) or (result == 'fallback'))
         except Exception as e:
-            self.fail(f'safe_python_literal_eval crashed with {type(e).__name__}: {e}')
+            pytest.fail(f'safe_python_literal_eval crashed with {type(e).__name__}: {e}')
 
     def test_common_literals(self):
-        assert (safe_python_literal_eval('True')) == (True)
-        assert (safe_python_literal_eval('true')) == (True)
-        assert (safe_python_literal_eval('False')) == (False)
-        assert (safe_python_literal_eval('false')) == (False)
-        assert (safe_python_literal_eval('None')) == (None)
-        assert (safe_python_literal_eval('none')) == (None)
-        assert (safe_python_literal_eval('null')) == (None)
-        assert (safe_python_literal_eval('NULL')) == (None)
+        assert (safe_python_literal_eval('True')) is True
+        assert (safe_python_literal_eval('true')) is True
+        assert (safe_python_literal_eval('False')) is False
+        assert (safe_python_literal_eval('false')) is False
+        assert (safe_python_literal_eval('None')) is None
+        assert (safe_python_literal_eval('none')) is None
+        assert (safe_python_literal_eval('null')) is None
+        assert (safe_python_literal_eval('NULL')) is None
         assert (safe_python_literal_eval('123')) == (123)
         assert (safe_python_literal_eval('"hello"')) == ('hello')
         assert (safe_python_literal_eval("'hello'")) == ('hello')

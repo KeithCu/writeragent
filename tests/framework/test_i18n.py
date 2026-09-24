@@ -42,7 +42,7 @@ class TestI18n:
         from tests.harness.strip_bundle import deal_pre_present
 
         if not deal_pre_present(_):
-            self.skipTest("@deal.pre stripped in release bundle")
+            pytest.skip("@deal.pre stripped in release bundle")
         i18n_module._translation = NullTranslations()
         with pytest.raises(deal.PreContractError):
             _("x" * (DEAL_MAX_MSGID + 1))

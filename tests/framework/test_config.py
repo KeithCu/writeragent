@@ -358,13 +358,13 @@ class TestConfigSyncFileIO:
         assert (get_config_int('web_cache_max_mb')) == (50)
         assert (get_config_int('web_cache_validity_days')) == (30)
         assert (get_config_int('extend_selection_max_tokens')) == (1000)
-        assert (get_config_bool('chatbot.show_search_thinking')) == (False)
-        assert (get_config_bool('web_research_cache_enabled')) == (False)
+        assert (get_config_bool('chatbot.show_search_thinking')) is False
+        assert (get_config_bool('web_research_cache_enabled')) is False
         assert (get_config('embeddings.folder_search_mode')) == ('none')
         assert (get_config('scripting.python_max_data_cells')) == (250000)
         assert (get_config('scripting.python_venv_path')) == ('')
-        assert (get_config_bool('scripting.python_auto_spill')) == (True)
-        assert (get_config_bool('scripting.python_geometric_recalc_order')) == (False)
+        assert (get_config_bool('scripting.python_auto_spill')) is True
+        assert (get_config_bool('scripting.python_geometric_recalc_order')) is False
         assert (get_config('doc.agent_edit_review_mode')) == ('off')
         assert (get_config_int('chatbot.max_tool_rounds')) == (15)
         assert (get_config_int('web_research_cache_jaccard_percent')) == (60)

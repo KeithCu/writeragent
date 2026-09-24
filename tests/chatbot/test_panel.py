@@ -25,7 +25,7 @@ from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.queue_executor import SendCancellation
 
 
-class QueryEnterSendTests:
+class TestQueryEnterSend:
     def test_enter_without_shift_triggers(self):
         assert (query_enter_triggers_primary_send(1280, 0))
 
@@ -59,7 +59,7 @@ def _make_send_listener() -> SendButtonListener:
     )
 
 
-class SendDisposeTests:
+class TestSendDispose:
     def setup_method(self) -> None:
         self._modules_patcher = patch.dict(sys.modules, {"plugin.main": MagicMock()}, clear=False)
         self._modules_patcher.start()
@@ -217,7 +217,7 @@ class _ConsumeEvent:
         object.__setattr__(self, name, value)
 
 
-class QueryKeyListenerDisposeTests:
+class TestQueryKeyListenerDispose:
     def test_consume_disposed_still_sends(self) -> None:
         send_listener = MagicMock()
         send_model = MagicMock()
