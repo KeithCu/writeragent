@@ -38,7 +38,7 @@ from plugin.writer.locale.harper_binary import (
 )
 import plugin.writer.locale.harper as harper_module
 import plugin.writer.locale.harper_binary as harper_binary_module
-from tests.strip_bundle import module_source_contains
+from tests.harness.strip_bundle import module_source_contains
 
 
 @pytest.fixture(autouse=True)

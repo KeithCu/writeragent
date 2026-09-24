@@ -1011,7 +1011,7 @@ def test_py_timing_logs_ipc_ms_and_pass_totals(monkeypatch: pytest.MonkeyPatch, 
     )
     assert python_function.execute_python_addin(ctx, code) == 2.0
     assert python_function.execute_python_addin(ctx, code) == 2.0
-    from tests.strip_bundle import module_source_contains
+    from tests.harness.strip_bundle import module_source_contains
 
     if not module_source_contains(python_function, "py_timing "):
         return
@@ -1054,7 +1054,7 @@ def test_py_timing_cached_matrix_skips_ipc(monkeypatch: pytest.MonkeyPatch, capl
     out = python_function.execute_python_addin(ctx, code)
     assert called == []
     assert out == 1.0
-    from tests.strip_bundle import module_source_contains
+    from tests.harness.strip_bundle import module_source_contains
 
     if not module_source_contains(python_function, "py_timing "):
         return

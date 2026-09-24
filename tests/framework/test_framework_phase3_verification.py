@@ -29,7 +29,7 @@ def test_luminance_contracts(color: int) -> None:
 
 def test_luminance_pre_rejects_unbounded_and_bool() -> None:
     import deal
-    from tests.strip_bundle import deal_pre_present
+    from tests.harness.strip_bundle import deal_pre_present
 
     if not deal_pre_present(_luminance):
         pytest.skip("@deal.pre stripped in release bundle")

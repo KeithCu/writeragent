@@ -8,7 +8,7 @@ from plugin.framework.client.stream_normalizer import (
     _merge_reasoning_details,
     _streaming_replay,
 )
-from tests.strip_bundle import (
+from tests.harness.strip_bundle import (
     _decorator_header,
     deal_pre_present,
     is_release_build,

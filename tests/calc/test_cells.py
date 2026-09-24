@@ -397,7 +397,7 @@ def test_read_cell_range_min_over_cap_steers_fill_down_not_hard_py():
         _READ_CELL_RANGE_TRUNCATED_MSG,
     )
 
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("docs/ not in stripped release tree")
     assert _MIN_RANGE_TOO_LARGE_ODS.is_file(), _MIN_RANGE_TOO_LARGE_ODS

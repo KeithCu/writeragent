@@ -13,7 +13,7 @@ from hypothesis import strategies as st
 
 import deal
 from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
-from tests.strip_bundle import deal_pre_present
+from tests.harness.strip_bundle import deal_pre_present
 
 from plugin.scripting.import_policy import (
     PYTHON_VENV_SANDBOX_CONTEXT_PREFIX,

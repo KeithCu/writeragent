@@ -80,7 +80,7 @@ def test_make_chat_request_logs_body_model(caplog, client):
     import logging
 
     from plugin.framework.client import llm_client as llm_mod
-    from tests.strip_bundle import module_source_contains
+    from tests.harness.strip_bundle import module_source_contains
 
     if not module_source_contains(llm_mod, "Chat Request body:"):
         pytest.skip("log.debug stripped in release bundle")
@@ -292,7 +292,7 @@ def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, 
     assert kept["index"] == 0
 
     from plugin.framework.client import llm_client as llm_mod
-    from tests.strip_bundle import module_source_contains
+    from tests.harness.strip_bundle import module_source_contains
 
     if not module_source_contains(llm_mod, "raw tool_call delta"):
         pytest.skip("log.debug stripped in release bundle")
@@ -1392,7 +1392,7 @@ def test_gemini_shim_inline_data():
 
 def test_stream_request_with_tools_tracks_used_model(client, caplog):
     import logging
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.info stripped in release bundle")
 
@@ -1427,7 +1427,7 @@ def test_stream_request_with_tools_tracks_used_model(client, caplog):
 
 def test_sync_request_with_tools_tracks_used_model(client, caplog):
     import logging
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.info stripped in release bundle")
 

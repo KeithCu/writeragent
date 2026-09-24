@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tests import ci_debug
+from tests.harness import ci_debug
 
 
 @pytest.fixture(autouse=True)
