@@ -663,3 +663,91 @@ def test_uno_same_issame_unwraps_proxy_first():
         # ``==`` is False (distinct objects / proxy target ≠ other), so ladder hits isSame.
         assert uno_same(proxy_a, real_b) is True
     assert seen == [(real_a, real_b)]
+
+
+def _scratch_doc(text="", tables=(), frames=(), shapes=0):
+    """A MagicMock Writer with real-looking containers (a bare MagicMock never empties)."""
+    from unittest.mock import MagicMock
+
+    doc = MagicMock()
+    body = MagicMock()
+    body.getString.return_value = text
+    doc.getText.return_value = body
+
+    def _container(names):
+        c = MagicMock()
+        items = {n: MagicMock() for n in names}
+        c.getElementNames.return_value = list(items)
+        c.hasByName.side_effect = lambda n: n in items
+        c.getByName.side_effect = lambda n: items[n]
+        return c, items
+
+    doc.getTextTables.return_value, tbls = _container(tables)
+    doc.getTextFrames.return_value, frms = _container(frames)
+    page = MagicMock()
+    count = [shapes]
+    page.getCount.side_effect = lambda: count[0]
+    page.remove.side_effect = lambda _s: count.__setitem__(0, count[0] - 1)
+    doc.getDrawPage.return_value = page
+    return doc, body, tbls, frms, count
+
+
+def test_clear_writer_body_empties_a_default_template_scratch_doc():
+    """A scratch Writer must not carry the user's default template.
+
+    Regression for the "ghost block": a firm whose default template is its
+    petition model got that model's header glued into range reads and
+    plain-text conversions, because the factory URL honours the template and
+    the scratch body was never emptied.
+    """
+    from plugin.framework.uno_context import clear_writer_body
+
+    doc, body, _, _, _ = _scratch_doc(text="AO DOUTO JUIZO DO XXXX\nParte autora: xxxxx")
+    assert clear_writer_body(doc) is True
+    body.setString.assert_called_with("")
+
+
+def test_clear_writer_body_drops_a_letterhead_with_no_text():
+    """An empty table and a page-anchored logo have an empty body string; testing the
+    text alone left the table in the scratch doc and it came back in range reads."""
+    from plugin.framework.uno_context import clear_writer_body
+
+    doc, _, tbls, frms, count = _scratch_doc(text="", tables=("Table1",), frames=("Frame1",), shapes=2)
+    assert clear_writer_body(doc) is True
+    tbls["Table1"].dispose.assert_called_once()
+    frms["Frame1"].dispose.assert_called_once()
+    assert count[0] == 0
+
+
+def test_clear_writer_body_leaves_an_already_empty_doc_alone():
+    from plugin.framework.uno_context import clear_writer_body
+
+    for empty in ("", "   \n  "):
+        doc, _, _, _, _ = _scratch_doc(text=empty)
+        assert clear_writer_body(doc) is False
+
+
+def test_clear_writer_body_cannot_spin_on_a_page_that_never_empties():
+    """A remove that silently fails must not loop forever on the main thread."""
+    from unittest.mock import MagicMock
+
+    from plugin.framework.uno_context import clear_writer_body
+
+    doc, _, _, _, _ = _scratch_doc()
+    stuck = MagicMock()
+    stuck.getCount.return_value = 3  # remove() never changes it
+    doc.getDrawPage.return_value = stuck
+    clear_writer_body(doc)
+    assert stuck.remove.call_count == 1
+
+
+def test_clear_writer_body_survives_a_hostile_doc():
+    """Never let a scratch-buffer cleanup take down the caller."""
+    from unittest.mock import MagicMock
+
+    from plugin.framework.uno_context import clear_writer_body
+
+    doc = MagicMock()
+    doc.getText.side_effect = RuntimeError("disposed")
+    assert clear_writer_body(doc) is False
+    assert clear_writer_body(None) is False

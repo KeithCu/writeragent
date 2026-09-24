@@ -24,7 +24,7 @@ from typing import Any
 
 from plugin.doc.text_helpers import normalize_linebreaks as _normalize
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.uno_context import get_desktop, uno_same
+from plugin.framework.uno_context import new_blank_writer, uno_same
 from . import xhtml_style_postprocess as xhtml_post
 from . import format as format_mod
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
@@ -452,9 +452,9 @@ def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> st
     prepared = _wrap_html_fragment(stripped.strip())
     temp_doc = None
     try:
-        desktop = get_desktop(ctx)
-        load_props = (format_mod.create_property_value("Hidden", True),)
-        temp_doc = desktop.loadComponentFromURL("private:factory/swriter", "_default", 0, load_props)
+        # Blank scratch doc: this reads the WHOLE body back, so a default
+        # template's text would be returned as if the caller had sent it.
+        temp_doc = new_blank_writer(ctx, target="_default")
         if not temp_doc or not hasattr(temp_doc, "getText"):
             return html_string.strip()
         with format_mod._with_temp_buffer(prepared, config_svc) as (_path, file_url):

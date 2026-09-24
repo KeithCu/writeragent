@@ -336,9 +336,21 @@ If logs show only `via=direct_copy` / `_copy_formatted… ok` during the leak, t
 
 ### Shared hidden Writer factory
 
-**Duplication:** `rich_text_paste.py:create_hidden_html_writer`, `plugin/writer/format.py` (html-to-plain-text paths), `plugin/calc/rich_html.py` — all use `desktop.loadComponentFromURL("private:factory/swriter", …, (Hidden=True,))`.
+**Done (Writer side):** [`new_blank_writer(ctx, *, target=...)`](../../plugin/framework/uno_context.py) in
+`uno_context.py` is the shared factory. `create_hidden_html_writer`, the range export
+(`_range_to_content_via_temp_doc`), `xtext_to_content`'s hidden Writer and `html_to_plain_text` all
+go through it.
 
-Add `create_hidden_writer(ctx, *, title="_blank")` to [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py) (or `uno_context.py`); optional `create_hidden_writer_for_html_import(ctx)` for shared configure steps. Update the three call sites and delete local versions.
+It does more than dedupe: `private:factory/swriter` honours the user's **default template**, and
+these callers append to the scratch doc and read the whole body back — so a firm whose default
+template is its petition model got that model's header glued into range reads and plain-text
+conversions. `new_blank_writer` empties the result (`clear_writer_body`: tables, text frames and
+drawing shapes as well as the text — a letterhead is often just an empty table or a logo, whose
+body string is "").
+
+**Still local:** [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) reuses a keeper Writer
+(`CREATE|GLOBAL`) rather than opening one per call; it can call `clear_writer_body` on that keeper
+if the template leak shows up there.
 
 ### Smaller cleanups
 

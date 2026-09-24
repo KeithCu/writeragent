@@ -89,15 +89,9 @@ def build_message_html(text: str, role: str = "assistant") -> str:
 def create_hidden_html_writer(ctx: Any) -> Any | None:
     """Load a hidden Writer document for HTML import + clipboard copy."""
     try:
-        import uno
-        from plugin.framework.uno_context import get_desktop
+        from plugin.framework.uno_context import new_blank_writer
 
-        desktop = get_desktop(ctx)
-        if desktop is None:
-            return None
-        hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
-        doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden,))
-        return doc
+        return new_blank_writer(ctx)
     except Exception:
         log.exception("create_hidden_html_writer failed")
         return None

@@ -26,7 +26,7 @@ from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     _visible_portions as _shared_visible_portions,
 )
-from plugin.framework.uno_context import get_desktop
+from plugin.framework.uno_context import new_blank_writer
 from . import xhtml_style_postprocess as xhtml_post
 from . import format as format_mod
 
@@ -661,9 +661,9 @@ def _range_to_content_via_temp_doc(
     temp_doc = None
     try:
         ctx.getServiceManager()
-        desktop = get_desktop(ctx)
-        load_props = (format_mod.create_property_value("Hidden", True),)
-        temp_doc = desktop.loadComponentFromURL("private:factory/swriter", "_default", 0, load_props)
+        # Blank scratch doc: the factory URL honours the user's default template,
+        # and this function reads the whole body back (see new_blank_writer).
+        temp_doc = new_blank_writer(ctx, target="_default")
         if not temp_doc or not hasattr(temp_doc, "getText"):
             return ""
 
@@ -1294,9 +1294,8 @@ def _copy_xtext_into_doc(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
 
 
 def _open_hidden_writer(ctx: Any) -> Any:
-    desktop = get_desktop(ctx)
-    load_props = (format_mod.create_property_value("Hidden", True),)
-    return desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, load_props)
+    """Hidden, empty scratch Writer (see ``new_blank_writer``)."""
+    return new_blank_writer(ctx)
 
 
 def xtext_to_content(

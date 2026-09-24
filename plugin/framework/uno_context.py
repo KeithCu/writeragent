@@ -278,6 +278,83 @@ def get_desktop(ctx: Any | None = None) -> Any:
     return _wrap_uno(desktop)
 
 
+def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0, extra_props: tuple[Any, ...] = ()) -> Any:
+    """Hidden, **empty** Writer used as a scratch buffer.
+
+    What was wrong: every scratch document was opened with
+    ``private:factory/swriter``, which honours the user's *default template*.
+    How it happened: a firm that sets its petition model as the default template
+    got that model's text in every scratch doc, and the callers append to it and
+    read the whole body back — so the model's header ("AO DOUTO JUIZO DO ...")
+    came back glued to the caller's real content, and landed in range reads,
+    plain-text conversions and full-document rewrites. Why this change fixes it:
+    the factory URL is still used (it is the only way to get a Writer with the
+    user's own styles), but the body is emptied before the caller sees it.
+
+    Returns None when the desktop is unavailable (no-VCL helper processes).
+    """
+    desktop = get_desktop(ctx)
+    if desktop is None:
+        return None
+    import uno
+
+    hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
+    doc = desktop.loadComponentFromURL("private:factory/swriter", target, flags, (hidden,) + tuple(extra_props))
+    clear_writer_body(doc)
+    return doc
+
+
+def clear_writer_body(doc: Any) -> bool:
+    """Empty *doc* of everything a template can put in it. True when something was removed.
+
+    Not just the body text: a letterhead template is often an empty table or a logo
+    anchored to the page, whose body string is "" -- testing the text alone left that
+    table in the scratch doc, and it came back in range reads. So tables, text frames
+    and drawing shapes are disposed explicitly, then the text is cleared.
+
+    Split out so callers that open (or reuse) a scratch Writer their own way can
+    still drop a default template's content.
+    """
+    if doc is None:
+        return False
+    removed = False
+    for supplier in ("getTextTables", "getTextFrames"):
+        try:
+            container = getattr(doc, supplier)()
+            names = list(container.getElementNames())
+        except Exception:
+            continue
+        for name in names:
+            try:
+                if container.hasByName(name):  # a nested table goes with its parent
+                    container.getByName(name).dispose()
+                    removed = True
+            except Exception:
+                log.debug("clear_writer_body: could not dispose %s %r", supplier, name, exc_info=True)
+    try:
+        page = doc.getDrawPage()
+        # Bounded, never `while getCount()`: if a remove silently fails the count never
+        # drops, and an unbounded loop here would freeze the main thread.
+        for _ in range(int(page.getCount())):
+            before = page.getCount()
+            page.remove(page.getByIndex(0))
+            if page.getCount() >= before:
+                break
+            removed = True
+    except Exception:
+        log.debug("clear_writer_body: could not empty the draw page", exc_info=True)
+    try:
+        text = doc.getText()
+        if (text.getString() or "").strip():
+            removed = True
+        text.setString("")
+    except Exception:
+        log.debug("clear_writer_body failed", exc_info=True)
+    if removed:
+        log.debug("clear_writer_body: dropped default-template content from a scratch Writer")
+    return removed
+
+
 @main_thread_only
 def get_active_document(ctx: Any | None = None) -> Any:
     """Return the currently active document model."""
