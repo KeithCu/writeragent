@@ -36,6 +36,16 @@ such as `"DOCUMENT 7"`. LibreOffice already has the authoritative label.
 heading has that label, resolve raises a clear error. It does not fall back to
 `heading:` ordinals.
 
+## Cache freshness
+
+`TreeService.build_heading_tree` caches per document. `_heading_tree_fingerprint`
+is `CharacterCount`. Turning Chapter Numbering **ON/OFF** moves that count
+(LibreOffice includes generated outline labels; body `getString()` does not),
+so the fingerprint already rebuilds. A same-width rule change (`StartWith` 1→3)
+does **not** move `CharacterCount`; freshness then depends on the document
+modify listener emitting `document:cache_invalidated`. Covered by
+`test_chapter_number_cache_refreshes_on_numbering_toggle_uno`.
+
 ## Tests
 
 Enable/disable Chapter Numbering in `@with_native_doc(..., reuse=False)` tests
