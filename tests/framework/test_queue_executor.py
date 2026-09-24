@@ -8,7 +8,6 @@ import pytest
 import plugin.framework.queue_executor as mt
 
 from unittest.mock import patch, MagicMock
-from plugin.tests.testing_utils import setup_uno_mocks
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.queue_executor import _WorkItem, execute_on_main_thread, post_to_main_thread, default_executor
 
@@ -101,9 +100,6 @@ def test_grammar_llm_request_gate_limit_2_allows_parallel() -> None:
     assert t1.is_alive() is False and t2.is_alive() is False
     assert max(inside) == 2
 
-
-
-setup_uno_mocks()
 
 @pytest.fixture(autouse=True)
 def empty_work_queue():

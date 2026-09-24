@@ -253,6 +253,36 @@ setattr(frame, "DispatchDescriptor", MockBase)
 setattr(frame, "XDispatch", MockXDispatch)
 setattr(frame, "XDispatchProvider", MockXDispatchProvider)
 
+# Shells and attributes that setup_uno_mocks() used to install per test module.
+# They live here so a module-level setup_uno_mocks() call is a no-op under pytest.
+_create_mock_module("com.sun.star.document")
+_create_mock_module("com.sun.star.style")
+_create_mock_module("com.sun.star.style.BreakType")
+_create_mock_module("com.sun.star.ui.UIElementType")
+_create_mock_module("com.sun.star.datatransfer")
+clipboard = _create_mock_module("com.sun.star.datatransfer.clipboard")
+
+
+class MockDate:
+    Year = 2024
+    Month = 1
+    Day = 1
+
+
+class MockXClipboardListener:
+    pass
+
+
+class MockXCallback:
+    pass
+
+
+setattr(util, "Date", MockDate)
+setattr(clipboard, "XClipboardListener", MockXClipboardListener)
+setattr(awt, "XCallback", MockXCallback)
+# setup_uno_mocks also publishes unohelper.Base as its own sys.modules entry.
+sys.modules["unohelper.Base"] = MockUnohelperBase
+
 
 @pytest.fixture(autouse=True)
 def _setup_grammar_persistence_test_env():

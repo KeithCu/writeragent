@@ -10,9 +10,6 @@ from unittest.mock import MagicMock, patch
 
 from plugin.scripting.forecast import get_forecast_template
 from plugin.scripting.python_runner import execute_and_insert_result
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc")

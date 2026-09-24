@@ -14,9 +14,6 @@ import pytest
 from plugin.calc.forecast import ForecastDataTool
 from plugin.calc.forecast_auto_plot import build_viz_request, merge_forecast_plot_data, should_auto_plot
 from plugin.calc.viz_auto_plot import task_hint_implies_plot
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @pytest.fixture

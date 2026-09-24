@@ -13,9 +13,6 @@ import pytest
 from plugin.framework.client import embeddings_service
 from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ToolExecutionError
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @pytest.fixture
@@ -258,6 +255,5 @@ def test_maintain_folder_index_lancedb_mode(ctx, tmp_path):
             with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="lancedb"):
                 embeddings_service.maintain_folder_index(ctx, folder, model=DEFAULT_EMBEDDING_MODEL)
     assert mock_run.call_args.kwargs["params"]["search_mode"] == "lancedb"
-
 
 

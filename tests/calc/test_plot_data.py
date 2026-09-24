@@ -11,9 +11,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.viz import PlotDataTool
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @pytest.fixture

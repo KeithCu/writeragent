@@ -13,9 +13,6 @@ from plugin.framework.constants import (
     folder_rerank_enabled,
     resolve_folder_rerank_model,
 )
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def test_folder_rerank_enabled_defaults_false():

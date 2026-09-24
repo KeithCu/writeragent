@@ -6,8 +6,6 @@
 Fakes implement the minimal XTextTable protocol; no LibreOffice required."""
 from types import SimpleNamespace
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.writer.specialized.tables import (
     TableDelete,

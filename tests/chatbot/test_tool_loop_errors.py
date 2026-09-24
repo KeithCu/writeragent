@@ -2,8 +2,6 @@ import pytest
 import json
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.framework.errors import (
     ToolExecutionError,

@@ -1,6 +1,4 @@
-from plugin.tests.testing_utils import setup_uno_mocks
 
-setup_uno_mocks()
 
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.writer.edit_review import WriterCompoundUndo, WriterStreamedRewriteSession, build_writer_rewrite_prompt

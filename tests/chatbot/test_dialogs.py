@@ -3,7 +3,6 @@ import sys
 from unittest.mock import MagicMock, patch
 
 from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 # Mocks specific to UI and dialogs missing from setup_uno_mocks
 class MockXEventListener:

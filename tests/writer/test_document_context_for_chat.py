@@ -1,8 +1,5 @@
 """Unit tests for Writer chat document context excerpt helpers."""
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 from unittest.mock import MagicMock, patch
 

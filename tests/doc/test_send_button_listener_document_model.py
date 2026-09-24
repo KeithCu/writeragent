@@ -6,9 +6,6 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 # When a real `uno` bridge/types-unopy is loaded, setup_uno_mocks may skip attaching
 # listener stubs; ensure imports used by panel → dialogs → listeners succeed.

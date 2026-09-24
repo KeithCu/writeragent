@@ -3,8 +3,6 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for document research MCP helpers (no LibreOffice required)."""
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.doc.document_research_tools import ListOpenDocuments
 

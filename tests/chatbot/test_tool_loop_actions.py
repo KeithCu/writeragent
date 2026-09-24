@@ -5,9 +5,6 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, build_tool_execute_fn  # noqa: E402
 from plugin.chatbot.tool_loop_state import (  # noqa: E402

@@ -21,9 +21,7 @@ from plugin.notebook.cell_registry import (
     state_from_json,
     state_to_json,
 )
-from plugin.tests.testing_utils import setup_uno_mocks
 
-setup_uno_mocks()
 
 from plugin.doc.udprops import get_document_property  # noqa: E402
 from tests.writer.test_document_helpers import (  # noqa: E402

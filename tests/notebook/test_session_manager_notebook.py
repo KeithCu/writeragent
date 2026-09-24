@@ -9,9 +9,6 @@ from plugin.scripting.session_manager import (
     reset_notebook_python_session,
     reset_workbook_python_session,
 )
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def _writer_doc(url: str = "file:///tmp/nb.odt"):

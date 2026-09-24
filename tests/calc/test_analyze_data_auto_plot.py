@@ -12,9 +12,6 @@ import pytest
 
 from plugin.calc.analysis import AnalyzeDataTool
 from plugin.calc.viz_auto_plot import build_viz_request, should_auto_plot, task_hint_implies_plot
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @pytest.fixture

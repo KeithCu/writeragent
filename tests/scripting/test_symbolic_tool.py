@@ -11,9 +11,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.symbolic_math import SymbolicMathTool
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @pytest.fixture

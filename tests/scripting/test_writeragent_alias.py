@@ -15,9 +15,6 @@ from plugin.framework.uno_bootstrap import (
     register_alias_importer,
 )
 from plugin.scripting.venv_worker import PythonWorkerManager
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def _clear_writeragent_modules() -> None:

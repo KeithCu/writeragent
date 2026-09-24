@@ -210,9 +210,7 @@ def test_from_client_import_llmclient_is_forbidden():
 
 
 def test_librepy_entry_imports_avoid_writeragent_only_modules():
-    from plugin.tests.testing_utils import setup_uno_mocks
 
-    setup_uno_mocks()
     shipped = _get_shipped_paths()
     before = set(sys.modules)
 

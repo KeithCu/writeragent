@@ -11,8 +11,6 @@ defensiveness of comment_matches."""
 import sys
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.writer.search import comment_matches, describe_match_location, _header_footer_label
 

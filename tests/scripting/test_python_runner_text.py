@@ -10,9 +10,6 @@ from unittest.mock import MagicMock, patch
 
 from plugin.scripting.python_runner import execute_and_insert_result
 from plugin.scripting.text_analytics import get_text_analytics_script_templates
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @patch("plugin.scripting.text_analytics.insert_text_analytics_result_into_doc")

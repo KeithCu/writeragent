@@ -1,8 +1,7 @@
 from unittest.mock import MagicMock
 
-from plugin.tests.testing_utils import TestingFactory, setup_uno_mocks
+from plugin.tests.testing_utils import TestingFactory
 
-setup_uno_mocks()
 
 # Set up BreakType PAGE_BEFORE constant explicitly if needed for the test
 import sys

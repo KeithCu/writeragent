@@ -7,8 +7,6 @@ model is correct even if the initialize manual is stale (manual is sent once at 
 the mode later doesn't update it). No LibreOffice required."""
 from unittest.mock import patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.writer.content import ApplyDocumentContent
 

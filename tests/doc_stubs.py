@@ -83,12 +83,17 @@ def setup_uno_mocks():
         pass
 
     if use_magicmock_uno:
-        sys.modules["uno"] = MagicMock()
-        sys.modules["unohelper"] = MagicMock()
-
-        # We must use types.ModuleType and attach empty classes to avoid 'metaclass conflict' with ty
-        sys.modules["unohelper"].Base = MockBase
-        sys.modules["unohelper.Base"] = MockBase
+        # Pytest conftest already installed these. Replacing ``uno`` discards the
+        # session mock, and replacing conftest's unohelper ModuleType with MagicMock
+        # drops ImplementationHelper. Only fill gaps (direct ``python file.py`` runs).
+        if not isinstance(sys.modules.get("uno"), MagicMock):
+            sys.modules["uno"] = MagicMock()
+        uh = sys.modules.get("unohelper")
+        if uh is None or (isinstance(uh, MagicMock) and not hasattr(uh, "Base")):
+            sys.modules["unohelper"] = MagicMock()
+            # We must use types.ModuleType and attach empty classes to avoid 'metaclass conflict' with ty
+            sys.modules["unohelper"].Base = MockBase
+            sys.modules["unohelper.Base"] = MockBase
 
     created_com_shells: set[str] = set()
     for mod in _COM_SUN_STAR_MOCK_MODULE_KEYS:
@@ -101,32 +106,36 @@ def setup_uno_mocks():
     if not use_magicmock_uno and not created_com_shells:
         return
 
+    def _ensure(module_name: str, attr: str, value: object) -> None:
+        # Skip attributes conftest (or an earlier call) already installed. Overwriting
+        # exception and listener classes splits identity across modules imported earlier.
+        mod = sys.modules.get(module_name)
+        if mod is None or hasattr(mod, attr):
+            return
+        setattr(mod, attr, value)
+
     # Specific sub-module attachments (only when we fully mocked uno or installed fresh shells).
     class MockDate(object):
         Year = 2024
         Month = 1
         Day = 1
 
-    setattr(sys.modules["com.sun.star.util"], "Date", MockDate)
+    _ensure("com.sun.star.util", "Date", MockDate)
 
     class MockListener(object):
         pass
 
-    setattr(sys.modules["com.sun.star.awt"], "XActionListener", MockListener)
+    _ensure("com.sun.star.awt", "XActionListener", MockListener)
 
     class MockClipboardListener(object):
         pass
 
-    setattr(
-        sys.modules["com.sun.star.datatransfer.clipboard"],
-        "XClipboardListener",
-        MockClipboardListener,
-    )
+    _ensure("com.sun.star.datatransfer.clipboard", "XClipboardListener", MockClipboardListener)
 
     class MockXCallback(object):
         pass
 
-    setattr(sys.modules["com.sun.star.awt"], "XCallback", MockXCallback)
+    _ensure("com.sun.star.awt", "XCallback", MockXCallback)
 
     awt_mod = sys.modules.get("com.sun.star.awt")
     if awt_mod is not None and not hasattr(awt_mod, "Size"):
@@ -147,53 +156,53 @@ def setup_uno_mocks():
     class MockXTextListener(object):
         pass
 
-    setattr(sys.modules["com.sun.star.awt"], "XTextListener", MockXTextListener)
+    _ensure("com.sun.star.awt", "XTextListener", MockXTextListener)
 
     class MockXWindowListener(object):
         pass
 
-    setattr(sys.modules["com.sun.star.awt"], "XWindowListener", MockXWindowListener)
+    _ensure("com.sun.star.awt", "XWindowListener", MockXWindowListener)
 
     class MockXKeyListener(object):
         pass
 
-    setattr(sys.modules["com.sun.star.awt"], "XKeyListener", MockXKeyListener)
+    _ensure("com.sun.star.awt", "XKeyListener", MockXKeyListener)
 
     class MockXEventListener(object):
         pass
 
-    setattr(sys.modules["com.sun.star.lang"], "XEventListener", MockXEventListener)
+    _ensure("com.sun.star.lang", "XEventListener", MockXEventListener)
 
     class MockXInitialization(object):
         pass
 
-    setattr(sys.modules["com.sun.star.lang"], "XInitialization", MockXInitialization)
+    _ensure("com.sun.star.lang", "XInitialization", MockXInitialization)
 
     class MockXServiceInfo(object):
         pass
 
-    setattr(sys.modules["com.sun.star.lang"], "XServiceInfo", MockXServiceInfo)
+    _ensure("com.sun.star.lang", "XServiceInfo", MockXServiceInfo)
 
     class MockXJobExecutor(object):
         pass
 
-    setattr(sys.modules["com.sun.star.task"], "XJobExecutor", MockXJobExecutor)
+    _ensure("com.sun.star.task", "XJobExecutor", MockXJobExecutor)
 
     class MockXJob(object):
         pass
 
-    setattr(sys.modules["com.sun.star.task"], "XJob", MockXJob)
+    _ensure("com.sun.star.task", "XJob", MockXJob)
 
     class MockXDispatch(object):
         pass
 
-    setattr(sys.modules["com.sun.star.frame"], "XDispatch", MockXDispatch)
+    _ensure("com.sun.star.frame", "XDispatch", MockXDispatch)
 
     class MockXDispatchProvider(object):
         pass
 
-    setattr(sys.modules["com.sun.star.frame"], "XDispatchProvider", MockXDispatchProvider)
-    setattr(sys.modules["com.sun.star.frame"], "DispatchDescriptor", MockBase)
+    _ensure("com.sun.star.frame", "XDispatchProvider", MockXDispatchProvider)
+    _ensure("com.sun.star.frame", "DispatchDescriptor", MockBase)
 
     # Fresh shells replace conftest MagicMock beans; image_tools imports PropertyValue at load time.
     beans_mod = sys.modules.get("com.sun.star.beans")
@@ -221,11 +230,11 @@ def setup_uno_mocks():
     class MockUnoException(Exception):
         pass
 
-    setattr(sys.modules["com.sun.star.container"], "NoSuchElementException", MockNoSuchElementException)
-    setattr(sys.modules["com.sun.star.lang"], "DisposedException", MockDisposedException)
-    setattr(sys.modules["com.sun.star.lang"], "IllegalArgumentException", MockIllegalArgumentException)
-    setattr(sys.modules["com.sun.star.uno"], "RuntimeException", MockRuntimeException)
-    setattr(sys.modules["com.sun.star.uno"], "Exception", MockUnoException)
+    _ensure("com.sun.star.container", "NoSuchElementException", MockNoSuchElementException)
+    _ensure("com.sun.star.lang", "DisposedException", MockDisposedException)
+    _ensure("com.sun.star.lang", "IllegalArgumentException", MockIllegalArgumentException)
+    _ensure("com.sun.star.uno", "RuntimeException", MockRuntimeException)
+    _ensure("com.sun.star.uno", "Exception", MockUnoException)
 
     class MockXSidebarPanel:
         pass
@@ -239,10 +248,10 @@ def setup_uno_mocks():
     class MockXUIElementFactory:
         pass
 
-    setattr(sys.modules["com.sun.star.ui"], "XSidebarPanel", MockXSidebarPanel)
-    setattr(sys.modules["com.sun.star.ui"], "XToolPanel", MockXToolPanel)
-    setattr(sys.modules["com.sun.star.ui"], "XUIElement", MockXUIElement)
-    setattr(sys.modules["com.sun.star.ui"], "XUIElementFactory", MockXUIElementFactory)
+    _ensure("com.sun.star.ui", "XSidebarPanel", MockXSidebarPanel)
+    _ensure("com.sun.star.ui", "XToolPanel", MockXToolPanel)
+    _ensure("com.sun.star.ui", "XUIElement", MockXUIElement)
+    _ensure("com.sun.star.ui", "XUIElementFactory", MockXUIElementFactory)
 
 class ElementStub:
     def __init__(self, text, outline_level=0, services=None):

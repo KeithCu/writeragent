@@ -5,9 +5,6 @@
 """Comment helper tests (list/read paths). No LibreOffice required."""
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
-
 
 def test_read_annotation_falls_back_to_paragraph_context():
     from plugin.writer.specialized.comments import _read_annotation
