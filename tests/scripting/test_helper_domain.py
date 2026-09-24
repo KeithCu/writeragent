@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from plugin.scripting.helper_domain import (
     build_helper_script_template,
     format_elapsed_time,
@@ -13,6 +15,7 @@ from plugin.scripting.helper_domain import (
     parse_run_import_call_params,
     parse_run_import_call_spec,
     prepend_run_import_document_bindings,
+    rps_insert_failed_outcome,
 )
 
 
@@ -141,3 +144,18 @@ def test_prepend_run_import_document_bindings_uses_generic_comment():
     assert "WriterAgent" not in out
     assert 'text = "hi"' in out
     assert out.endswith("result = 1\n")
+
+
+# --- RPS insert-fail logging (from test_rps_insert_failed_logging.py) ---
+# RPS insert-fail path must log str/repr so Arch debug shows UNO errors.
+
+def test_rps_insert_failed_outcome_logs_type_str_repr(caplog):
+    err = RuntimeError("insertDocumentFromURL")
+    with caplog.at_level(logging.ERROR, logger="writeragent.scripting"):
+        out = rps_insert_failed_outcome(err, t0=0.0)
+    assert out["ok"] is False
+    assert "insertDocumentFromURL" in out["message"]
+    assert any("rps_insert_failed_outcome" in r.message for r in caplog.records)
+    joined = " ".join(r.getMessage() for r in caplog.records)
+    assert "RuntimeError" in joined
+    assert "insertDocumentFromURL" in joined
