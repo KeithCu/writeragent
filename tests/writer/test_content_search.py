@@ -118,53 +118,136 @@ def test_drawing_shape_containing_fails_safe_on_count_error():
 
 
 
-# --- deleting a table's text is not deleting the table ------------------------
+# --- an empty replacement deletes a table only when it removes the last text --
 # Regression: asked to delete a table, agents emptied its text with
-# apply_document_content, got status ok, and reported success -- the table stayed.
+# apply_document_content, got status ok, and reported success -- the shell stayed.
+# Clearing one cell of a table that still has other text is a normal edit.
 
-def _range_in_table(table_name):
-    from unittest.mock import MagicMock
+class _Cell:
+    def __init__(self, text, table=None):
+        self.text = text
+        self.table = table
 
-    table = MagicMock()
-    table.getName.return_value = table_name
-    cursor = MagicMock()
-    cursor.getPropertyValue.side_effect = lambda k: table if k == "TextTable" else None
-    found = MagicMock()
-    found.getText.return_value.createTextCursorByRange.return_value = cursor
-    return found
+    def getString(self):
+        return self.text
 
+    def getText(self):
+        return self
 
-def _range_in_body():
-    from unittest.mock import MagicMock
+    def getStart(self):
+        return None
 
-    cursor = MagicMock()
-    cursor.getPropertyValue.return_value = None
-    found = MagicMock()
-    found.getText.return_value.createTextCursorByRange.return_value = cursor
-    return found
+    def createTextCursorByRange(self, start):
+        return self
 
-
-def test_emptying_a_table_cell_names_the_table_and_table_delete():
-    from plugin.writer.content import _emptied_table_cell_hint
-
-    hint = _emptied_table_cell_hint(_range_in_table("Table1"), "")
-    assert hint["table_name"] == "Table1"
-    assert "table_delete(name='Table1')" in hint["message"]
-    assert "still in the document" in hint["message"]
+    def getPropertyValue(self, name):
+        if name == "TextTable":
+            return self.table
+        return None
 
 
-def test_no_table_hint_for_real_edits_or_body_text():
-    from plugin.writer.content import _emptied_table_cell_hint
+class _Match:
+    def __init__(self, cell, text=None):
+        self.cell = cell
+        self._text = cell.getString() if text is None else text
 
-    assert _emptied_table_cell_hint(_range_in_table("Table1"), "novo valor") is None
-    assert _emptied_table_cell_hint(_range_in_body(), "") is None
+    def getText(self):
+        return self.cell
+
+    def getString(self):
+        return self._text
+
+    def getStart(self):
+        return None
 
 
-def test_table_hint_never_raises_on_a_hostile_range():
-    from unittest.mock import MagicMock
+class _Table:
+    def __init__(self, name, cells):
+        self.name = name
+        self.cells = cells
+        for cell in cells.values():
+            cell.table = self
 
-    from plugin.writer.content import _emptied_table_cell_hint
+    def getName(self):
+        return self.name
 
-    found = MagicMock()
-    found.getText.side_effect = RuntimeError("disposed")
-    assert _emptied_table_cell_hint(found, "") is None
+    def getCellNames(self):
+        return list(self.cells)
+
+    def getCellByName(self, name):
+        return self.cells[name]
+
+
+class _Nested:
+    def getName(self):
+        return "Inner"
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.TextTable"
+
+
+class _Enum:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def hasMoreElements(self):
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
+class _HostCell(_Cell):
+    """A cell whose enumeration contains a nested table."""
+
+    def createEnumeration(self):
+        return _Enum([_Nested(), _Cell(self.text)])
+
+
+def _names(ranges, content):
+    from plugin.writer.specialized.tables import writer_tables_emptied_by_matches
+
+    return [name for _table, name in writer_tables_emptied_by_matches(ranges, content)]
+
+
+def test_empty_replacement_of_the_only_text_marks_the_table():
+    table = _Table("Fee", {"A1": _Cell("Custas"), "B1": _Cell("")})
+    assert _names([_Match(table.cells["A1"])], "") == ["Fee"]
+
+
+def test_clearing_one_cell_while_another_has_text_keeps_the_table():
+    table = _Table("Fee", {"A1": _Cell("Custas"), "B1": _Cell("Honorarios")})
+    assert _names([_Match(table.cells["A1"])], "") == []
+
+
+def test_substring_clear_keeps_the_table():
+    table = _Table("Fee", {"A1": _Cell("Custas processuais"), "B1": _Cell("")})
+    assert _names([_Match(table.cells["A1"], text="Custas")], "") == []
+
+
+def test_non_empty_replacement_does_not_delete():
+    table = _Table("Fee", {"A1": _Cell("Custas"), "B1": _Cell("")})
+    assert _names([_Match(table.cells["A1"])], "novo valor") == []
+
+
+def test_matches_that_together_cover_every_cell_mark_the_table():
+    table = _Table("Fee", {"A1": _Cell("Custas"), "B1": _Cell("Honorarios")})
+    ranges = [_Match(table.cells["A1"]), _Match(table.cells["B1"])]
+    assert _names(ranges, "") == ["Fee"]
+
+
+def test_a_table_that_hosts_a_nested_table_is_not_auto_deleted():
+    host = _HostCell("Caption")
+    _Table("Outer", {"A1": host, "B1": _Cell("")})
+    assert _names([_Match(host)], "") == []
+
+
+def test_a_body_match_and_a_hostile_range_delete_nothing():
+    class _Body:
+        def getText(self):
+            raise RuntimeError("disposed")
+
+    assert _names([_Body()], "") == []
+    body = _Cell("paragraph")
+    body.table = None
+    assert _names([_Match(body)], "") == []

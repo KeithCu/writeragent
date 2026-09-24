@@ -265,6 +265,126 @@ def _cell_matrix_text(cell: Any) -> str:
         return ""
 
 
+def _table_from_range(found: Any) -> Any | None:
+    """The TextTable that owns *found*, or None when the match is not in a cell."""
+    try:
+        table = found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable")
+    except Exception:
+        return None
+    if table is None:
+        return None
+    return table
+
+
+def range_table_name(found: Any) -> str | None:
+    """Table name for a search match, or None when the match is not in a cell."""
+    table = _table_from_range(found)
+    if table is None:
+        return None
+    try:
+        name = str(table.getName() or "")
+    except Exception:
+        return None
+    return name or None
+
+
+def _range_in_cell(found: Any, cell: Any) -> bool:
+    """True when *found* lies in *cell*.
+
+    PyUNO hands out distinct wrappers for one cell, so identity is checked with
+    ``uno_same`` and then by asking the cell to build a cursor at the match.
+    A match in a different cell raises instead of building that cursor.
+    """
+    try:
+        from plugin.framework.uno_context import uno_same
+
+        if uno_same(found.getText(), cell):
+            return True
+    except Exception:
+        pass
+    try:
+        cell.createTextCursorByRange(found.getStart())
+        return True
+    except Exception:
+        return False
+
+
+def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tuple[Any, str]]:
+    """Tables whose last text this empty replacement removes.
+
+    What was wrong: asked to delete a table, agents emptied its text with
+    apply_document_content and got status ok — the shell stayed and the agent
+    reported success. A hint on every empty cell was the wrong signal: clearing
+    one cell of a fee table is a normal edit. Why this decides the delete: the
+    table goes only when every cell is already empty or one of *ranges* is that
+    cell's entire text. A table that hosts a nested table is left alone (the
+    host-cell wipe refusal still applies). A non-empty replacement returns [].
+    """
+    if str(content or "").strip():
+        return []
+    grouped: dict[str, tuple[Any, list[Any]]] = {}
+    order: list[str] = []
+    for found in ranges:
+        table = _table_from_range(found)
+        if table is None:
+            continue
+        try:
+            name = str(table.getName() or "")
+        except Exception:
+            continue
+        if not name:
+            continue
+        if name not in grouped:
+            grouped[name] = (table, [])
+            order.append(name)
+        grouped[name][1].append(found)
+    emptied: list[tuple[Any, str]] = []
+    for name in order:
+        table, matches = grouped[name]
+        if _empty_replacement_clears_table(table, matches):
+            emptied.append((table, name))
+    return emptied
+
+
+def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
+    """True when every cell is empty or fully covered by *matches*.
+
+    Unreadable cells and hosted nested tables return False so the caller edits
+    text instead of guessing which table to remove.
+    """
+    try:
+        cell_names = list(table.getCellNames())
+    except Exception:
+        return False
+    if not cell_names:
+        return False
+    for cell_name in cell_names:
+        try:
+            cell = table.getCellByName(cell_name)
+        except Exception:
+            return False
+        if _cell_hosted_table_names(cell):
+            return False
+        try:
+            text = _cell_matrix_text(cell).strip()
+        except Exception:
+            return False
+        if not text:
+            continue
+        if not any(_match_is_whole_cell(found, cell, text) for found in matches):
+            return False
+    return True
+
+
+def _match_is_whole_cell(found: Any, cell: Any, cell_text: str) -> bool:
+    if not _range_in_cell(found, cell):
+        return False
+    try:
+        return str(found.getString() or "").strip() == cell_text
+    except Exception:
+        return False
+
+
 def _set_host_paragraphs(cell: Any, text: str) -> None:
     """Rewrite the cell's own paragraph siblings; leave tables and frames.
 
@@ -445,6 +565,21 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
 
 # The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
 _EMPTY_ROW_ANCHOR = "\u200d"
+
+
+def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: dict[str, Any]) -> bool:
+    """Remove *table*. True when the deletion was recorded as a tracked change.
+
+    ``table_delete`` and ``apply_document_content`` both call this. The caller
+    wraps it in the EditReviewSession it already has, so RecordChanges is on
+    before the tracked path runs. A second review wrapper here would nest
+    sessions and tag the redlines twice.
+    """
+    if _recording_changes(doc):
+        _delete_writer_table_tracked(doc, uno_ctx, table, name)
+        return True
+    _remove_writer_table(doc, table, name, nesting)
+    return False
 
 
 def _remove_writer_table(doc: Any, table: Any, name: str, nesting: dict[str, Any]) -> None:
@@ -1005,11 +1140,8 @@ class TableDelete(ToolWriterTableBase):
                 # In review mode the wrapper below has just turned change tracking on; a user
                 # who tracks changes by hand has it on already. Either way the deletion must
                 # be recorded, not silently applied.
-                if _recording_changes(ctx.doc):
-                    _delete_writer_table_tracked(ctx.doc, uno_ctx, table, name)
+                if delete_writer_table(ctx.doc, uno_ctx, table, name, nesting):
                     tracked.append(True)
-                else:
-                    _remove_writer_table(ctx.doc, table, name, nesting)
 
             from plugin.writer.format import run_writer_mutation_with_optional_review
 
