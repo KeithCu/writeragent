@@ -67,6 +67,7 @@ Start here by task.
 | Writer specialized tool tiers | [writer/specialized-toolsets.md](writer/specialized-toolsets.md) |
 | Styles / LLM styling | [writer/llm-styles.md](writer/llm-styles.md) |
 | Writer list numbering (list-only) | [writer/list-numbering.md](writer/list-numbering.md) |
+| Writer chapter numbering (`chapter_number` on `writer_tree`) | [writer/chapter-numbering.md](writer/chapter-numbering.md) |
 | Writer API references | [writer/bookmarks-api-reference.md](writer/bookmarks-api-reference.md), [writer/footnotes-api-reference.md](writer/footnotes-api-reference.md), [writer/page-api-reference.md](writer/page-api-reference.md), [writer/tracking-api-reference.md](writer/tracking-api-reference.md) |
 | Writer CJK ruby (read/write) | [writer/ruby.md](writer/ruby.md) |
 | Reviewable agent edits (surgical redlines, toolbar) | [writer/reviewable-agent-edits.md](writer/reviewable-agent-edits.md) |

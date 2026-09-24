@@ -18,7 +18,7 @@ import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
 
 import uno
 
@@ -150,14 +150,70 @@ def get_selection_range(model: Any) -> tuple[int, int]:
         return (0, 0)
 
 
-class HeadingTreeNode(TypedDict):
-    """Shape of nodes returned by :func:`build_heading_tree` (recursive heading tree)."""
-
+class _HeadingTreeRequired(TypedDict):
     level: int
     text: str
     para_index: int
     children: list["HeadingTreeNode"]
     body_paragraphs: int
+
+
+class HeadingTreeNode(_HeadingTreeRequired, total=False):
+    """Shape of nodes returned by :func:`build_heading_tree` (recursive heading tree).
+
+    Optional ``chapter_number`` (Tools → Chapter Numbering paint label) is set
+    only when present — omit the key when numbering is off. See
+    :func:`chapter_number_from_para`.
+    """
+
+    chapter_number: str
+
+
+def chapter_number_from_para(para: Any) -> str | None:
+    """Read-only chapter / outline label, or ``None`` when numbering is off.
+
+    Authoritative paint label is paragraph ``ListLabelString`` (discussion
+    #876 / LO 25.2.3). ``NumberingStyleName`` can be ``\"Outline\"`` even
+    when Chapter Numbering is off — do not use it as an on/off signal.
+    ``OutlineLevel`` / ``getString()`` never include the label.
+
+    Normalize on emit: strip a trailing ``.`` so Suffix=``\"\"`` and
+    Suffix=``\".\"`` both become locator ``chapter_number:3.1``.
+    """
+    try:
+        raw = str(para.getPropertyValue("ListLabelString") or "").rstrip(".")
+    except Exception:
+        return None
+    return raw or None
+
+
+def apply_chapter_number(node: Any, para: Any) -> None:
+    """Set optional ``chapter_number`` on a heading node; omit the key when off."""
+    label = chapter_number_from_para(para)
+    if label:
+        node["chapter_number"] = label
+
+
+def iter_heading_nodes(node: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
+    """Yield heading children in document order (not the synthetic root)."""
+    for child in node.get("children", []):
+        yield child
+        yield from iter_heading_nodes(child)
+
+
+def find_heading_by_chapter_number(tree: Mapping[str, Any], label: str) -> Mapping[str, Any] | None:
+    """Exact match on the emitted ``chapter_number`` field (after normalize).
+
+    Does **not** invent a label from sibling ordinals. ``heading:1.2`` remains
+    the ordinal path; this looks up the paint label only.
+    """
+    want = str(label or "").rstrip(".")
+    if not want:
+        return None
+    for child in iter_heading_nodes(tree):
+        if child.get("chapter_number") == want:
+            return child
+    return None
 
 
 def _portion_type(portion: Any) -> str | None:
@@ -370,6 +426,8 @@ def build_heading_tree(model: Any) -> HeadingTreeNode:
                         "children": [],
                         "body_paragraphs": 0,
                     }
+                    # OutlineLevel > 0 only — list-item ListLabelString is not a chapter label.
+                    apply_chapter_number(node, element)
                     stack[-1]["children"].append(node)
                     stack.append(node)
                 else:

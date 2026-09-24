@@ -17,8 +17,10 @@
 """Writer outline / heading navigation tools.
 
 For a simple document outline (headings hierarchy only), use get_document_tree
-with content_strategy=\"heading_only\". For content under a heading by path
-(e.g. \"1.2\"), use nav_heading_children with locator=\"heading:1.2\".
+with content_strategy=\"heading_only\". heading:1.2 is the sibling-ordinal
+path (1st H1 → 2nd child), not Writer's chapter label. When Tools → Chapter
+Numbering is on, heading nodes include chapter_number and
+locator=\"chapter_number:3.1\" matches that paint label.
 """
 
 from __future__ import annotations
@@ -50,6 +52,11 @@ class GetDocumentTree(ToolBase):
         'Use strategy="heading_only" for a simple outline (headings hierarchy). '
         "Creates session-only _mcp_ bookmarks on headings for stable addressing "
         "(omitted from saved files). "
+        "When Tools → Chapter Numbering is on, each heading includes chapter_number "
+        "(the paint label, e.g. '3.1'); the key is omitted when numbering is off. "
+        "Use that field — never invent numbers from outline depth, sibling order, "
+        "or literal titles like 'DOCUMENT 7'. heading:1.2 is sibling-ordinal path, "
+        "not the chapter label; use chapter_number:3.1 when the field is present. "
         "Strategies: heading_only, first_lines (default), full. "
         "depth=0 for unlimited, depth=1 (default) for top-level only. "
         "IMPORTANT: para_index is an INTERNAL addressing index — NEVER cite paragraph numbers to "

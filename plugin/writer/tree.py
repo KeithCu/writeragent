@@ -27,7 +27,12 @@ from typing import Any
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.doc.text_helpers import clone_text_range, get_string_without_tracked_deletions
+from plugin.doc.text_helpers import (
+    apply_chapter_number,
+    clone_text_range,
+    find_heading_by_chapter_number,
+    get_string_without_tracked_deletions,
+)
 
 
 log = logging.getLogger("writeragent.writer.nav.tree")
@@ -93,6 +98,9 @@ class TreeService(ServiceBase):
         Returns root node dict:
             {"level": 0, "text": "root", "para_index": -1,
              "children": [...], "body_paragraphs": N}
+
+        Heading children may include ``chapter_number`` (Chapter Numbering
+        paint label). The key is omitted when numbering is off.
         """
         key = self._doc_svc.doc_key(doc)
         fingerprint = _heading_tree_fingerprint(doc)
@@ -124,6 +132,8 @@ class TreeService(ServiceBase):
                     while len(stack) > 1 and stack[-1]["level"] >= outline_level:
                         stack.pop()
                     node = {"level": outline_level, "text": get_string_without_tracked_deletions(element), "para_index": para_index, "children": [], "body_paragraphs": 0}
+                    # Chapter Numbering paint label only — omit key when ListLabelString is empty.
+                    apply_chapter_number(node, element)
                     stack[-1]["children"].append(node)
                     stack.append(node)
                 else:
@@ -231,6 +241,8 @@ class TreeService(ServiceBase):
 
     def _serialize_tree_node(self, child: dict[str, Any], doc: Any, content_strategy: str, depth: int, current_depth: int = 1, bookmark_map: dict[Any, Any] | None = None) -> dict[str, Any]:
         node = {"type": "heading", "level": child["level"], "text": child["text"], "para_index": child["para_index"], "bookmark": (bookmark_map or {}).get(child["para_index"]), "children_count": self._count_all_children(child), "body_paragraphs": child["body_paragraphs"]}
+        if child.get("chapter_number"):
+            node["chapter_number"] = child["chapter_number"]
         self._apply_content_strategy(node, doc, content_strategy)
         if depth == 0 or current_depth < depth:
             if child.get("children"):
@@ -327,7 +339,10 @@ class TreeService(ServiceBase):
             node = self._serialize_tree_node(child, doc, content_strategy, depth, bookmark_map=bookmark_map)
             children.append(node)
 
-        return {"status": "ok", "parent": {"level": target["level"], "text": target["text"], "para_index": target["para_index"], "bookmark": bookmark_map.get(target["para_index"])}, "content_strategy": content_strategy, "depth": depth, "children": children}
+        parent = {"level": target["level"], "text": target["text"], "para_index": target["para_index"], "bookmark": bookmark_map.get(target["para_index"])}
+        if target.get("chapter_number"):
+            parent["chapter_number"] = target["chapter_number"]
+        return {"status": "ok", "parent": parent, "content_strategy": content_strategy, "depth": depth, "children": children}
 
     # ── Locator resolution (called by document.resolve_locator) ────
 
@@ -386,6 +401,19 @@ class TreeService(ServiceBase):
                     raise ToolExecutionError("Heading index %d out of range (1..%d) in 'heading:%s'" % (part, len(children), loc_value))
                 node = children[part - 1]
             return {"para_index": node["para_index"]}
+
+        if loc_type == "chapter_number":
+            # Exact match on the emitted field — never invent from sibling ordinals.
+            tree = self.build_heading_tree(doc)
+            found = find_heading_by_chapter_number(tree, str(loc_value))
+            if found is None:
+                raise ToolExecutionError(
+                    "No heading with chapter_number:%s. Chapter Numbering may be off "
+                    "(writer_tree omits chapter_number when the outline label is empty), "
+                    "or no heading has that label. heading: is the sibling-ordinal path, "
+                    "not the chapter label." % loc_value
+                )
+            return {"para_index": found["para_index"]}
 
         if loc_type == "heading_text":
             result = self._find_heading_by_text(doc, loc_value)
@@ -457,6 +485,9 @@ class TreeService(ServiceBase):
     def _flatten_headings(self, node: dict[str, Any]) -> list[dict[str, Any]]:
         result = []
         for child in node.get("children", []):
-            result.append({"text": child["text"], "para_index": child["para_index"], "level": child["level"]})
+            flat = {"text": child["text"], "para_index": child["para_index"], "level": child["level"]}
+            if child.get("chapter_number"):
+                flat["chapter_number"] = child["chapter_number"]
+            result.append(flat)
             result.extend(self._flatten_headings(child))
         return result

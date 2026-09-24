@@ -79,11 +79,11 @@ class NavSurroundings(ToolWriterStructuralBase):
 class NavHeadingChildren(ToolWriterStructuralBase):
     name: str | None = "nav_heading_children"
     intent: str | None = "navigate"
-    description: str = "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', 'heading:1.2'), para_index, or bookmark. para_index values are INTERNAL — never cite paragraph numbers to the user; refer to a place by quoting the first words of its text."
+    description: str = "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark. heading: is ordinal path among siblings, not Writer's chapter number. para_index values are INTERNAL — never cite paragraph numbers to the user; refer to a place by quoting the first words of its text."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "locator": {"type": "string", "description": "Locator string (e.g. 'bookmark:_mcp_xxx', 'heading:1.2')"},
+            "locator": {"type": "string", "description": "Locator string (e.g. 'bookmark:_mcp_xxx', ordinal 'heading:1.2', or 'chapter_number:3.1' when Chapter Numbering is on)"},
             "para_index": {"type": "integer", "description": "Paragraph index of the heading"},
             "bookmark": {"type": "string", "description": "Bookmark name of the heading"},
             "strategy": {"type": "string", "enum": ["heading_only", "first_lines", "full"], "description": "Content strategy (default: first_lines)"},

@@ -29,7 +29,7 @@ The `get_draw_tree` tool extracts the hierarchical structure of a Draw page or I
 
 ### Writer (Heading Tree)
 
-Writer documents use a different hierarchy based on `OutlineLevel`. The `writer_tree` tool constructs a navigable index of headings and body paragraphs. This prevents the model from needing to read 100 pages of text linearly. Instead, it "skims" the table of contents and zooms into specific sections.
+Writer documents use a different hierarchy based on `OutlineLevel`. The `writer_tree` tool constructs a navigable index of headings and body paragraphs. This prevents the model from needing to read 100 pages of text linearly. Instead, it "skims" the table of contents and zooms into specific sections. When Tools → Chapter Numbering is on, each heading node includes `chapter_number` (the paint label Writer shows, e.g. `3.1`); the key is omitted when numbering is off. `heading:1.2` is sibling-ordinal addressing, not that label — use `chapter_number:3.1` when the field is present. See [chapter-numbering.md](chapter-numbering.md).
 
 ### Writer (Page-by-Page Context & Embedded Shapes)
 

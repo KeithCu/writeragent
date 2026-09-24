@@ -2,13 +2,82 @@ from unittest.mock import MagicMock, patch
 
 from plugin.doc.text_helpers import (
     _visible_portions,
+    apply_chapter_number,
+    chapter_number_from_para,
     clone_text_range,
+    find_heading_by_chapter_number,
     get_document_path,
     get_full_writer_text,
     get_string_without_tracked_deletions,
     normalize_file_url,
     normalize_linebreaks,
 )
+
+
+class _LabelPara:
+    def __init__(self, label=None, explode=False):
+        self._label = label
+        self._explode = explode
+
+    def getPropertyValue(self, name):
+        if self._explode:
+            raise RuntimeError("property gone")
+        if name == "ListLabelString":
+            return self._label
+        raise KeyError(name)
+
+
+def test_chapter_number_from_para_normalizes_suffix_and_omits_empty():
+    """Locked emit: rstrip('.') so Suffix='' and Suffix='.' share chapter_number:3.1."""
+    assert chapter_number_from_para(_LabelPara("3.1")) == "3.1"
+    assert chapter_number_from_para(_LabelPara("3.1.")) == "3.1"
+    assert chapter_number_from_para(_LabelPara("1.")) == "1"
+    assert chapter_number_from_para(_LabelPara("")) is None
+    assert chapter_number_from_para(_LabelPara(None)) is None
+    assert chapter_number_from_para(_LabelPara(".")) is None
+    assert chapter_number_from_para(_LabelPara(explode=True)) is None
+
+
+def test_apply_chapter_number_omits_key_when_off():
+    on = {}
+    apply_chapter_number(on, _LabelPara("1.2."))
+    assert on == {"chapter_number": "1.2"}
+    off = {}
+    apply_chapter_number(off, _LabelPara(""))
+    assert "chapter_number" not in off
+
+
+def test_find_heading_by_chapter_number_exact_field_not_ordinal():
+    tree = {
+        "level": 0,
+        "text": "root",
+        "para_index": -1,
+        "children": [
+            {
+                "level": 1,
+                "text": "DOCUMENT 7",
+                "para_index": 0,
+                "children": [
+                    {
+                        "level": 2,
+                        "text": "Geographical situation",
+                        "para_index": 1,
+                        "children": [],
+                        "body_paragraphs": 0,
+                        "chapter_number": "3.1",
+                    },
+                ],
+                "body_paragraphs": 0,
+                "chapter_number": "3",
+            },
+        ],
+        "body_paragraphs": 0,
+    }
+    found = find_heading_by_chapter_number(tree, "3.1.")
+    assert found is not None and found["text"] == "Geographical situation"
+    assert find_heading_by_chapter_number(tree, "1.1") is None
+    assert find_heading_by_chapter_number(tree, "7") is None
+    assert find_heading_by_chapter_number(tree, "") is None
 
 
 def test_clone_text_range_uses_range_own_xtext():
