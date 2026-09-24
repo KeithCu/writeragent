@@ -308,10 +308,25 @@ for _mod in _PYTEST_UNO_SHELLS.values():
 
 
 def _restore_pytest_uno_shells() -> None:
+    # unohelper is the one that breaks the next module: a test file assigns
+    # sys.modules['unohelper'] = MagicMock(), then a later import subclasses
+    # MagicMock together with a real interface class.
+    for name in ("uno", "unohelper", "unohelper.Base"):
+        mod = _PYTEST_UNO_SHELLS.get(name)
+        if mod is not None:
+            sys.modules[name] = mod
     for name, mod in _PYTEST_UNO_SHELLS.items():
-        sys.modules[name] = mod
+        if name in ("uno", "unohelper", "unohelper.Base"):
+            continue
+        # Leave intentional replacements alone (test_errors swaps table for a
+        # MagicMock that must still be in place when its tests run). Only put
+        # back a shell another module already removed.
+        if sys.modules.get(name) is None:
+            sys.modules[name] = mod
     for mod, attr, val in _PYTEST_UNO_ATTRS:
-        setattr(mod, attr, val)
+        installed = sys.modules.get(getattr(mod, "__name__", ""))
+        if installed is mod and getattr(mod, attr, None) is not val:
+            setattr(mod, attr, val)
 
 
 def pytest_collectstart(collector):
