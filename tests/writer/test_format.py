@@ -16,6 +16,7 @@ import pytest
 
 from plugin.writer.format import (
     _apply_image_export_options,
+    _content_has_block_markup,
     _resolve_temp_dir,
     _with_temp_buffer,
     strip_embedded_image_data,
@@ -761,3 +762,28 @@ def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
     assert "skip_windows_pooled_writer_reuse" in src
     assert "format_uno cross-paragraph color pooled reuse" in src
     assert "35470191616" in src
+
+
+# --- table-cell HTML block gate (from test_cell_block_html_gate.py) ---
+# R3: pins the block-vs-inline classification that gates the clear "rich HTML in a table cell"
+# error in replace_single_range_with_content. Inline content takes the in-cell path that works;
+# block/rich content is what triggers the nested-XText RuntimeException, so only it should get the
+# clear-error treatment. No LibreOffice required (pure markup classification).
+
+def test_plain_text_is_not_block():
+    assert _content_has_block_markup("hello world") is False
+
+
+def test_inline_tags_are_not_block():
+    # <b>/<span>/<i> are inline -> they go through the in-cell path that works; the cell-error
+    # gate must NOT fire for them.
+    assert _content_has_block_markup("<b>bold</b> text") is False
+
+
+def test_paragraph_is_block():
+    # <p> is block -> the path that can raise inside a table cell; the clear-error gate fires here.
+    assert _content_has_block_markup("<p>a paragraph</p>") is True
+
+
+def test_heading_is_block():
+    assert _content_has_block_markup("<h1>title</h1>") is True

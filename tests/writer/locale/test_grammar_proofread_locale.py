@@ -302,3 +302,15 @@ def test_grammar_max_tokens_and_chars() -> None:
         assert gl.grammar_max_chars() == 65536
 
 
+# --- detected-locale normalization (from test_grammar_proofread_locale_detect.py) ---
+
+def test_normalize_detected_bcp47_registry_and_shorthand() -> None:
+    assert gl.normalize_detected_bcp47("ja-JP") == "ja-JP"
+    assert gl.normalize_detected_bcp47("ja") == "ja-JP"
+    assert gl.normalize_detected_bcp47("en") == "en-US"
+
+
+def test_grammar_bcp47_tags_match() -> None:
+    assert gl.grammar_bcp47_tags_match("ja", "ja-JP")
+    assert gl.grammar_bcp47_tags_match("ja-JP", "ja-JP")
+    assert not gl.grammar_bcp47_tags_match("ja-JP", "zh-CN")
