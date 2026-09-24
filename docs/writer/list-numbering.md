@@ -2,7 +2,9 @@
 
 This page locks **multi-level list** numbering after `apply_document_content`
 HTML import. It is **not** Tools → Chapter Numbering (heading outline numbers).
-Do not enable `ChapterNumberingRules` to exercise these paths.
+Do not enable `ChapterNumberingRules` to exercise these paths. Chapter /
+heading paint labels live on `writer_tree` as optional `chapter_number` —
+see [chapter-numbering.md](chapter-numbering.md).
 
 There is **no** `numbering_inspect` tool and no numbering specialized domain.
 Tests and debug code read UNO paragraph properties (`NumberingStyleName`,

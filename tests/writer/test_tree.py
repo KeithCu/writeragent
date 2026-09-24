@@ -135,5 +135,44 @@ class TestTreeServiceSearch(unittest.TestCase):
         second = self.tree_svc.build_heading_tree(self.doc)
         self.assertIsNot(second, first)
 
+    def test_chapter_number_optional_and_locator(self):
+        class _Labeled(ElementStub):
+            def __init__(self, text, outline_level=1, list_label=""):
+                super().__init__(text, outline_level=outline_level)
+                self._list_label = list_label
+
+            def getPropertyValue(self, name):
+                if name == "ListLabelString":
+                    return self._list_label
+                return super().getPropertyValue(name)
+
+        from plugin.framework.errors import ToolExecutionError
+
+        elements = [
+            _Labeled("DOCUMENT 7", 1, "3"),
+            _Labeled("Section Alpha", 2, "3.1."),
+            ElementStub("Body paragraph"),
+            _Labeled("Bare heading", 1, ""),
+        ]
+        doc = WriterDocStub(elements)
+        root = self.tree_svc.build_heading_tree(doc)
+        doc7 = root["children"][0]
+        alpha = doc7["children"][0]
+        bare = root["children"][1]
+        self.assertEqual(doc7["chapter_number"], "3")
+        self.assertEqual(doc7["text"], "DOCUMENT 7")
+        self.assertEqual(alpha["chapter_number"], "3.1")
+        self.assertEqual(alpha["text"], "Section Alpha")
+        self.assertNotIn("chapter_number", bare)
+
+        hit = self.tree_svc.resolve_writer_locator(doc, "chapter_number", "3.1")
+        self.assertEqual(hit["para_index"], 1)
+        ordinal = self.tree_svc.resolve_writer_locator(doc, "heading", "1.1")
+        self.assertEqual(ordinal["para_index"], 1)
+        with self.assertRaises(ToolExecutionError) as raised:
+            self.tree_svc.resolve_writer_locator(doc, "chapter_number", "1.1")
+        self.assertIn("chapter_number:1.1", str(raised.exception))
+        self.assertIn("sibling-ordinal", str(raised.exception))
+
 if __name__ == "__main__":
     unittest.main()

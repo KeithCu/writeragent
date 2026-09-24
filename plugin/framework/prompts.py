@@ -422,7 +422,9 @@ WRITER_SEARCH_RULES = """SEARCH:
 
 WRITER_NAVIGATION_RULES = """NAVIGATING LARGE DOCUMENTS (map first, then drill — don't dump):
 - get_document_tree(content_strategy='heading_only') gives the heading outline plus stats and stable _mcp_ bookmark ids (session-only; not written to disk).
-- nav_heading_children (structural domain; locator='bookmark:_mcp_…' or 'heading:1.2') reads one section on demand.
+- When Tools → Chapter Numbering is on, heading nodes include chapter_number (the paint label, e.g. '3.1'). Use that field; never invent numbers from outline depth, sibling order, or literal titles like 'DOCUMENT 7'. The key is omitted when numbering is off.
+- heading:1.2 is the sibling-ordinal path (1st H1 → 2nd child), not Writer's chapter label. Use chapter_number:3.1 when the field is present.
+- nav_heading_children (structural domain; locator='bookmark:_mcp_…', ordinal 'heading:1.2', or 'chapter_number:3.1') reads one section on demand.
 - search_in_document jumps to specific text.
 - Reserve get_document_content(scope='full') for short documents or a deliberate full read."""
 

@@ -84,7 +84,7 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `get_document_path` | `file:` URL → repair then `uno.fileUrlToSystemPath`; `None` if untitled / non-file. |
 | `get_selection_range` | Writer `(start, end)` character offsets (cursor = equal ends). |
 | `get_selection_text` | Selected string for Writer / Calc / Draw; `None` if empty. |
-| `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). |
+| `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
 | `collect_tracked_changes` | Bounded list of redlines in a range. |
 | `get_full_writer_text` | Prefix of Writer body, hiding tracked deletions. |
 | `get_document_length` / `get_document_end` | Character length / tail slice. |
@@ -101,7 +101,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 |--------|---------|
 | `get_full_document_text` | Dispatch: Writer → `text_helpers`; Calc → lazy `plugin.calc.analyzer`; Draw/Impress → `plugin.draw.bridge`. |
 | `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler (Writer start/end + selection markers; Calc/Draw delegated). |
-| `resolve_locator` | `paragraph:` / `heading:` / `bookmark:` → paragraph index. |
+| `resolve_locator` | `paragraph:` / `heading:` / `chapter_number:` / `bookmark:` → paragraph index. `heading:` is sibling-ordinal; `chapter_number:` matches the paint label. |
 | `DocumentService` | Chat/MCP facade: active doc, resolve-by-url, type flags, full text, length, chat context, page helpers, paragraph ranges. |
 
 `DocumentService` methods that are **wrappers**, not new logic:

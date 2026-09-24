@@ -44,6 +44,7 @@ from plugin.doc.paragraph_search import (
 )
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.errors import (
+    ToolExecutionError,
     UnoObjectError,
     check_disposed,
     safe_call,
@@ -272,8 +273,10 @@ def _inject_markers_into_excerpt(
 def resolve_locator(model: Any, locator: str) -> dict[str, int]:
     """Resolve a locator string to a paragraph index or other document position.
 
-    Broader than bookmarks: ``paragraph:``, ``heading:``, and ``bookmark:``. Left
-    here because ``plugin.writer.specialized.bookmarks`` only owns bookmark tools.
+    Broader than bookmarks: ``paragraph:``, ``heading:``, ``chapter_number:``,
+    and ``bookmark:``. Left here because ``plugin.writer.specialized.bookmarks``
+    only owns bookmark tools. ``heading:`` is sibling-ordinal path;
+    ``chapter_number:`` is the Chapter Numbering paint label.
     """
     loc_type, sep, loc_value = locator.partition(":")
     if not sep:
@@ -299,6 +302,18 @@ def resolve_locator(model: Any, locator: str) -> dict[str, int]:
             else:
                 break
         return {"para_index": node["para_index"]}
+
+    if loc_type == "chapter_number":
+        tree = _text_helpers.build_heading_tree(model)
+        found = _text_helpers.find_heading_by_chapter_number(tree, loc_value)
+        if found is None:
+            raise ToolExecutionError(
+                "No heading with chapter_number:%s. Chapter Numbering may be off "
+                "(writer_tree omits chapter_number when the outline label is empty), "
+                "or no heading has that label. heading: is the sibling-ordinal path, "
+                "not the chapter label." % loc_value
+            )
+        return {"para_index": found["para_index"]}
 
     if loc_type == "bookmark":
         if hasattr(model, "getBookmarks"):
