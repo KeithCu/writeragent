@@ -6,7 +6,9 @@ import json
 
 from tests.draw.collabora_transform_fixtures import COLLABORA_FIVE_SLIDE_TRANSFORM_JSON
 
-from plugin.testing_runner import native_test
+import unittest
+
+from plugin.testing_runner import native_test, show_window
 from plugin.tests.testing_utils import with_native_doc
 
 
@@ -62,12 +64,9 @@ def test_transform_insert_second_slide(ctx, doc):
     assert pages.getCount() >= 2, "expected at least two slides after InsertMasterSlide"
 
 
-import unittest
-
-# FIXME: Try running this under visible/view-only testing (--visible flag) in the future to see if AWT event drainage resolves layout limitations
-@unittest.skip("Collabora five slide documentation example has transient errors under narrow process layout limitations")
+@unittest.skipIf(not show_window, "Collabora five slide documentation example has transient errors under narrow process layout limitations")
 @native_test
-@with_native_doc("impress")
+@with_native_doc("impress", hidden=not show_window)
 def test_collabora_five_slide_documentation_example(ctx, doc):
     """Full 5-slide deck from Collabora DocumentToolDescriptions.hpp (integration smoke)."""
     result = _exec_transform(doc, ctx, transform=COLLABORA_FIVE_SLIDE_TRANSFORM_JSON)
