@@ -34,8 +34,16 @@ What is implemented today (not every Writer mutation tool):
 | `apply_document_content` (main thread, e.g. debug tests) | Yes | No (UI would freeze) | No |
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
 | Vision / `python_runner` Writer insert | Yes | No | No |
+| `table_delete` | Yes (one agent change; the table stays struck through until accepted) | No | No |
 | Style tools | No (`style_unreviewed: true`) | No | No |
 | Other Writer tools (comments, images, …) | No | No | No |
+
+`table_delete` cannot use `removeTextContent` under tracking: Writer records nothing for it (nor for
+removing every row), so the table would vanish unreviewable. It selects the table and dispatches
+`.uno:DeleteTable`, which Writer records as a tracked deletion. Writer anchors each **empty** row with
+a U+200D but records no redline for it, so the tool deletes those anchors with tracking on — without
+that, Accept All left the empty rows behind as a table. Rejecting keeps the anchor in the empty cell,
+as LibreOffice's own Delete Table does.
 
 Blocking wait applies only to **`apply_document_content`** from a **background thread** (sidebar
 chat worker or MCP HTTP thread). The main thread never block-waits so the user can click accept/reject.
@@ -208,7 +216,8 @@ edit, not just sidebar/MCP `apply_document_content`:
 * Wire `EditReviewSession.wait_for_review()` (or equivalent) into extend/edit selection, vision
   insert, and `python_runner` Writer insert — today those paths record but return immediately.
 * Decide whether other mutation tools (comments, images, page ops, clone heading, …) should go
-  through `record_mutation` or stay direct with explicit flags like styles.
+  through `record_mutation` or stay direct with explicit flags like styles. `table_delete` already
+  goes through it (`run_writer_mutation_with_optional_review`).
 
 If the product intent stays scoped to `apply_document_content`, keep settings and docs aligned
 with that (as in **Current scope** above).

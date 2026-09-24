@@ -985,3 +985,106 @@ def test_table_tools_shortened_name_param():
 
     res_struct = ManageTableStructure().execute(_ctx({"T": t}), action="insert", axis="row", name="T", index=0)
     assert res_struct["status"] == "ok"
+
+
+# ---- table_delete under change tracking --------------------------------------
+# Regression: with tracking on (review mode records every agent edit) table_delete
+# removed the table with removeTextContent, which records no redline -- the table
+# vanished unreviewable, along with any tracked change pending inside it.
+
+class _TrackingCell:
+    def __init__(self, cells, name):
+        self._cells, self._name = cells, name
+
+    def getString(self):
+        return self._cells.get(self._name, "")
+
+    def createTextCursor(self):
+        cells, name = self._cells, self._name
+        cursor = SimpleNamespace()
+        cursor.gotoStart = lambda expand: None
+        cursor.goRight = lambda count, expand: None
+        cursor.setString = lambda v: cells.__setitem__(name, v)
+        return cursor
+
+
+class _TrackingTable(FakeTable):
+    def getCellByName(self, name):
+        return _TrackingCell(self._cells, name)
+
+
+class _TrackingDoc(FakeWriterDoc):
+    """RecordChanges on; .uno:DeleteTable behaves like Writer 26.2 (see tables.py)."""
+
+    def __init__(self, tables, *, redlines_per_delete=1, keep_table=True):
+        super().__init__(tables)
+        self.redlines = 0
+        self.dispatched = []
+        self.selected = []
+        self._redlines_per_delete = redlines_per_delete
+        self._keep_table = keep_table
+        self.previous_selection = object()
+
+    def getPropertyValue(self, name):
+        assert name == "RecordChanges"
+        return True
+
+    def getRedlines(self):
+        return SimpleNamespace(getCount=lambda: self.redlines)
+
+    def getCurrentController(self):
+        return SimpleNamespace(
+            getSelection=lambda: self.previous_selection,
+            select=self.selected.append,
+            getFrame=lambda: "frame",
+        )
+
+    def dispatch(self, command):
+        self.dispatched.append(command)
+        table = self.selected[-1]
+        # Writer anchors each empty row with U+200D but records no redline for it.
+        for name in table.getCellNames():
+            if name.startswith("A") and not table._cells.get(name):
+                table._cells[name] = "‍"
+        self.redlines += self._redlines_per_delete
+        if not self._keep_table:
+            self._tables_map.pop(table.getName(), None)
+
+
+def _uno_ctx_for(doc):
+    helper = SimpleNamespace(executeDispatch=lambda frame, cmd, target, flags, args: doc.dispatch(cmd))
+    smgr = SimpleNamespace(createInstanceWithContext=lambda name, ctx: helper)
+    return SimpleNamespace(ServiceManager=smgr)
+
+
+def test_tracked_delete_keeps_the_table_for_review():
+    table = _TrackingTable(2, 2, cells={"A1": "Item", "A2": "Custas"}, name="T", anchor_text=FakeBodyText())
+    doc = _TrackingDoc({"T": table})
+    res = TableDelete().execute(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
+    assert res["status"] == "ok" and res["pending_review"] is True
+    assert doc.dispatched == [".uno:DeleteTable"]
+    assert table._anchor_text.removed == [], "must not fall back to an untracked removeTextContent"
+    assert doc.selected[-1] is doc.previous_selection, "the user's selection is restored"
+
+
+def test_tracked_delete_marks_the_empty_row_anchor_too():
+    """An empty row got only an unrecorded U+200D: accepting left that row behind."""
+    table = _TrackingTable(3, 1, cells={"A1": "Item", "A3": "Custas"}, name="T")
+    doc = _TrackingDoc({"T": table})
+    TableDelete().execute(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
+    assert table._cells["A2"] == "", "the anchor is deleted with tracking on, so its row has a redline"
+    assert table._cells["A1"] == "Item", "cells that had text are left to the tracked delete"
+
+
+def test_tracked_delete_fails_closed_when_nothing_was_recorded():
+    table = _TrackingTable(1, 1, cells={"A1": "Item"}, name="T")
+    doc = _TrackingDoc({"T": table}, redlines_per_delete=0)
+    res = TableDelete().execute(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
+    assert res["status"] == "error" and "left in place" in res["message"]
+
+
+def test_tracked_delete_reports_an_untracked_removal():
+    table = _TrackingTable(1, 1, cells={"A1": "Item"}, name="T")
+    doc = _TrackingDoc({"T": table}, redlines_per_delete=0, keep_table=False)
+    res = TableDelete().execute(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
+    assert res["status"] == "error" and "no tracked change" in res["message"]

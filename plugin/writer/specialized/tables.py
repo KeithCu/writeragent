@@ -382,6 +382,71 @@ def _is_wrong_start_node(exc: BaseException) -> bool:
     return "start node" in msg or "content node" in msg
 
 
+def _recording_changes(doc: Any) -> bool:
+    try:
+        return bool(doc.getPropertyValue("RecordChanges"))
+    except Exception:
+        return False
+
+
+def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) -> None:
+    """Delete a Writer table as a tracked change. Change tracking must already be on.
+
+    What was wrong: table_delete removed the table with removeTextContent, and with change
+    tracking on -- the agent's review mode records every edit -- that produced no redline.
+    The table vanished, the user had nothing to review or reject, and tracked changes
+    still pending inside it vanished with it. Neither removeTextContent / dispose nor
+    removing every row is recorded (checked on LibreOffice 26.2: 0 redlines each way).
+    Why this fixes it: selecting the table and running .uno:DeleteTable -- the UI's own
+    delete -- is recorded as a tracked deletion; the table stays, struck through, until
+    the change is accepted.
+
+    Empty rows need one more step. Writer records a row deletion as the deletion of the
+    row's text, and for a row with none it inserts a U+200D anchor into the row -- but
+    records no redline for it (26.2, via the API and via .uno:TrackChanges alike). So
+    accepting left the empty rows behind as a table, and an all-empty table recorded
+    nothing. Deleting each such anchor with tracking on gives every row its redline;
+    accepting then removes the whole table. Rejecting keeps the anchor in that empty cell,
+    as LibreOffice's own Delete Table does.
+
+    Fails closed: without a new redline this raises instead of reporting an unreviewable
+    deletion as done.
+    """
+    controller = doc.getCurrentController()
+    if controller is None:
+        raise RuntimeError("no document view to delete the table through")
+    empty_cells = [n for n in table.getCellNames() if not table.getCellByName(n).getString()]
+    try:
+        previous = controller.getSelection()
+    except Exception:
+        previous = None
+    before = doc.getRedlines().getCount()
+    controller.select(table)
+    helper = uno_ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
+    helper.executeDispatch(controller.getFrame(), ".uno:DeleteTable", "", 0, ())
+    for cell_name in empty_cells:
+        cell = table.getCellByName(cell_name)
+        if cell.getString() == _EMPTY_ROW_ANCHOR:
+            cursor = cell.createTextCursor()
+            cursor.gotoStart(False)
+            cursor.goRight(1, True)
+            cursor.setString("")
+    if previous is not None:
+        try:
+            controller.select(previous)  # leave the user's cursor where it was
+        except Exception:
+            log.debug("table_delete: could not restore the previous selection", exc_info=True)
+    if doc.getRedlines().getCount() > before:
+        return
+    if doc.getTextTables().hasByName(name):
+        raise RuntimeError("the tracked delete did not run, so the table was left in place")
+    raise RuntimeError("the table was removed but no tracked change was recorded")
+
+
+# The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
+_EMPTY_ROW_ANCHOR = "\u200d"
+
+
 def _remove_writer_table(doc: Any, table: Any, name: str, nesting: dict[str, Any]) -> None:
     """Remove a TextTable from the XText that contains it (body or host cell).
 
@@ -933,7 +998,32 @@ class TableDelete(ToolWriterTableBase):
                 return self._tool_error("name is required.")
             table = _get_table(ctx.doc, name)
             nesting = _nesting_for(ctx.doc, name)
-            _remove_writer_table(ctx.doc, table, name, nesting)
+            tracked: list[bool] = []
+            uno_ctx = getattr(ctx, "ctx", None)
+
+            def _apply() -> None:
+                # In review mode the wrapper below has just turned change tracking on; a user
+                # who tracks changes by hand has it on already. Either way the deletion must
+                # be recorded, not silently applied.
+                if _recording_changes(ctx.doc):
+                    _delete_writer_table_tracked(ctx.doc, uno_ctx, table, name)
+                    tracked.append(True)
+                else:
+                    _remove_writer_table(ctx.doc, table, name, nesting)
+
+            from plugin.writer.format import run_writer_mutation_with_optional_review
+
+            run_writer_mutation_with_optional_review(ctx.doc, uno_ctx, _apply)
+            if tracked:
+                return {
+                    "status": "ok",
+                    "message": ("Table marked for deletion as a tracked change: it stays in the document, "
+                                "struck through, until the user accepts the change. Do not accept or "
+                                "reject it yourself."),
+                    "table_name": name,
+                    "nesting": nesting,
+                    "pending_review": True,
+                }
             return {
                 "status": "ok",
                 "message": "Table deleted",

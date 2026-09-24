@@ -67,6 +67,38 @@ log = logging.getLogger("writeragent.writer")
 _ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
+def _emptied_table_cell_hint(found: Any, content: Any) -> dict[str, str] | None:
+    """Say so when a deletion (empty content) lands inside a table cell.
+
+    What was wrong: asked to delete a table, agents reached for apply_document_content,
+    emptied the table's text, and got status ok -- the table stayed in the document and the
+    agent reported success. The table's name only appears as a CSS class in the HTML they read
+    (class="table-Table1"), so nothing pointed them to table_delete. Emptying a cell is a
+    legitimate edit, so this does not refuse: it keeps the edit and names the table and the
+    tool that removes it. Returns None when the edit is not a deletion or not in a table.
+    """
+    if content is None or str(content).strip():
+        return None
+    try:
+        table = found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable")
+    except Exception:
+        return None
+    if table is None:
+        return None
+    try:
+        name = str(table.getName() or "")
+    except Exception:
+        name = ""
+    if not name:
+        return None
+    return {
+        "table_name": name,
+        "message": ("The match was inside table '%s': only that text was removed and the table "
+                    "itself is still in the document. To delete the whole table call "
+                    "table_delete(name='%s')." % (name, name)),
+    }
+
+
 
 
 # ------------------------------------------------------------------
@@ -254,6 +286,8 @@ class ApplyDocumentContent(ToolBase):
         "do NOT pass the whole document as old_content. "
         "Use target='beginning', 'end', or 'selection' to insert. "
         "Use target='search' with old_content for find-and-replace of a specific substring only. "
+        "This edits TEXT: it cannot remove a table (emptying its text leaves the table in place). "
+        "To delete a whole table call table_delete with the name from table_list. "
         "Search occurrence is 0-based over replaceable body/table/frame matches only "
         "(not dry_run shape/comment rows); omit it for first-match; do not combine with all_matches=true. "
         "dry_run tags those replaceable rows with occurrence so you can pass the index back. "
@@ -1160,6 +1194,8 @@ class ApplyDocumentContent(ToolBase):
         # outline URL is painted from the paragraph start (_select_replacement), not from
         # this anchor. Outline capture happens inside _replace_found, also before that delete.
         anchor = collapsed_anchor(found)
+        # Read before mutating: the match range may not survive the replace.
+        table_hint = _emptied_table_cell_hint(found, content)
         reports, link_err = self._replace_found(
             session, doc, found, use_preserve=use_preserve, raw_content=raw_content,
             content=content, ctx=ctx, config_svc=config_svc,
@@ -1171,6 +1207,9 @@ class ApplyDocumentContent(ToolBase):
         if occurrence is not None:
             resp["occurrence"] = occurrence
         self._attach_hyperlink_reports(resp, reports or [])
+        if table_hint:
+            resp["message"] += " " + table_hint["message"]
+            resp["table_still_present"] = table_hint["table_name"]
         return attach_edited_context(resp, anchor), session
 
 
