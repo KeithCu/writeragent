@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.draw.shapes import UpsertShape, _ENHANCED_CUSTOM_SHAPE_ENGINE
+from plugin.draw.shapes import UpsertShape, _ENHANCED_CUSTOM_SHAPE_ENGINE, _try_writer_invalidate_and_pump
 
 
 class _Pos:
@@ -236,3 +236,33 @@ def test_shape_upsert_calc_customshape_reapplies_geometry_after_page_add():
     assert any(i > add_idx for i in geom_idxs), events
     assert any(i < add_idx for i in engine_idxs), events
     assert any(i > add_idx for i in engine_idxs), events
+
+
+# --- Writer draw-layer invalidate helper (from test_shapes_writer_invalidate.py) ---
+# Unit tests for Writer draw-layer invalidate helper (no nested VCL pump).
+
+def test_writer_invalidate_does_not_call_process_events_to_idle() -> None:
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+    ctrl = MagicMock()
+    doc.getCurrentController.return_value = ctrl
+    frame = MagicMock()
+    ctrl.getFrame.return_value = frame
+    win = MagicMock()
+    frame.getContainerWindow.return_value = win
+    tk = MagicMock()
+    win.getToolkit.return_value = tk
+
+    _try_writer_invalidate_and_pump(doc)
+
+    win.invalidate.assert_called_once_with(0)
+    tk.processEventsToIdle.assert_not_called()
+
+
+def test_writer_invalidate_skips_non_writer_doc() -> None:
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+
+    _try_writer_invalidate_and_pump(doc)
+
+    doc.getCurrentController.assert_not_called()
