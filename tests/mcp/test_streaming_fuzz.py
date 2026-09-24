@@ -1,5 +1,5 @@
+import pytest
 import json
-import unittest
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.async_stream import StreamQueueKind
@@ -29,8 +29,8 @@ def _mock_connection_with_sse_lines(sse_lines):
     conn.getresponse.return_value = response
     return conn
 
-class TestStreamingFuzz(unittest.TestCase):
-    def setUp(self):
+class TestStreamingFuzz:
+    def setup_method(self):
         self.ctx = MagicMock()
         self.config = {
             "endpoint": "http://127.0.0.1:5000",
@@ -57,7 +57,7 @@ class TestStreamingFuzz(unittest.TestCase):
             content_parts.append,
         )
         # The garbled chunk should be skipped, and the rest parsed.
-        self.assertEqual(content_parts, ["hello ", "world"])
+        assert (content_parts) == (["hello ", "world"])
 
     @patch("plugin.framework.client.llm_client.init_logging")
     def test_truncated_tool_call_arguments(self, mock_init_logging):
@@ -102,13 +102,13 @@ class TestStreamingFuzz(unittest.TestCase):
             tools=[{"type": "function", "function": {"name": "foo", "description": "x"}}],
         )
 
-        self.assertEqual(result["finish_reason"], "length")
-        self.assertIsNotNone(result.get("tool_calls"))
-        self.assertEqual(len(result["tool_calls"]), 1)
+        assert (result["finish_reason"]) == ("length")
+        assert (result.get("tool_calls")) is not None
+        assert (len(result["tool_calls"])) == (1)
 
         fn = result["tool_calls"][0].get("function") or {}
         # The string should be correctly concatenated, even if it's invalid JSON
-        self.assertEqual(fn["arguments"], "{\"arg1\": ")
+        assert (fn["arguments"]) == ("{\"arg1\": ")
 
         # Mocking the UI thread's parsing fallback logic in panel.py
         from plugin.framework.errors import safe_python_literal_eval
@@ -118,7 +118,7 @@ class TestStreamingFuzz(unittest.TestCase):
             func_args = {}
 
         # Proves it recovers gracefully to an empty dict
-        self.assertEqual(func_args, {})
+        assert (func_args) == ({})
 
     @patch("plugin.framework.client.llm_client.init_logging")
     def test_unexpected_schema_structures(self, mock_init_logging):
@@ -151,7 +151,7 @@ class TestStreamingFuzz(unittest.TestCase):
         client = LlmClient(self.config, self.ctx)
         client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
-        with self.assertRaises(Exception) as ctx:
+        with pytest.raises(Exception) as ctx:
             client.stream_request_with_tools(
                 [{"role": "user", "content": "hi"}],
                 max_tokens=100,
@@ -159,7 +159,7 @@ class TestStreamingFuzz(unittest.TestCase):
             )
 
         # The error is formatted by format_error_message, verify it caught the TypeError from accumulate_delta
-        self.assertTrue("Unexpected, list delta entry `index` value is not an integer" in str(ctx.exception))
+        assert ("Unexpected, list delta entry `index` value is not an integer" in str(ctx.value))
 
     @patch("plugin.framework.client.llm_client.init_logging")
     def test_ui_thread_graceful_recovery(self, mock_init_logging):
@@ -199,9 +199,7 @@ class TestStreamingFuzz(unittest.TestCase):
             on_stream_done=on_stream_done, on_stopped=noop, on_error=on_error
         )
 
-        self.assertTrue(job_done[0])
-        self.assertEqual(len(errors), 1)
-        self.assertTrue(isinstance(errors[0], ValueError))
+        assert (job_done[0])
+        assert (len(errors)) == (1)
+        assert (isinstance(errors[0], ValueError))
 
-if __name__ == "__main__":
-    unittest.main()

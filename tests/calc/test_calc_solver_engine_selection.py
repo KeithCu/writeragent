@@ -8,7 +8,6 @@
 
 """Unit tests for calc_solver engine selection (no UNO document required)."""
 
-import unittest
 
 from plugin.calc.analysis import (
     _impl_name_is_java_nlp_headless_unsafe,
@@ -25,39 +24,31 @@ class _FakeSolver:
         return self._impl_name
 
 
-class TestCalcSolverEngineSelection(unittest.TestCase):
+class TestCalcSolverEngineSelection:
     def test_deps_impl_name_is_unsafe_without_nlpsolver_substring(self) -> None:
-        self.assertTrue(
-            _impl_name_is_java_nlp_headless_unsafe(
+        assert (_impl_name_is_java_nlp_headless_unsafe(
                 "com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl"
-            )
-        )
+            ))
 
     def test_nlpsolver_in_name_is_unsafe(self) -> None:
-        self.assertTrue(_impl_name_is_java_nlp_headless_unsafe("Some.NLPSolver.Foo"))
+        assert (_impl_name_is_java_nlp_headless_unsafe("Some.NLPSolver.Foo"))
 
     def test_coinmp_not_unsafe(self) -> None:
-        self.assertFalse(
-            _impl_name_is_java_nlp_headless_unsafe("com.sun.star.comp.Calc.CoinMPSolver")
-        )
+        assert not (_impl_name_is_java_nlp_headless_unsafe("com.sun.star.comp.Calc.CoinMPSolver"))
 
     def test_user_requested_java_nlp(self) -> None:
-        self.assertTrue(_user_requested_java_nlp_engine("com.sun.star.comp.Calc.NLPSolver.X"))
-        self.assertFalse(_user_requested_java_nlp_engine("com.sun.star.sheet.SolverLinear"))
-        self.assertFalse(_user_requested_java_nlp_engine(None))
-        self.assertFalse(_user_requested_java_nlp_engine("com.sun.star.sheet.Solver"))
+        assert (_user_requested_java_nlp_engine("com.sun.star.comp.Calc.NLPSolver.X"))
+        assert not (_user_requested_java_nlp_engine("com.sun.star.sheet.SolverLinear"))
+        assert not (_user_requested_java_nlp_engine(None))
+        assert not (_user_requested_java_nlp_engine("com.sun.star.sheet.Solver"))
 
     def test_reject_deps_when_not_explicitly_requested(self) -> None:
         s = _FakeSolver("com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl")
-        self.assertTrue(_should_reject_solver_for_headless(None, s))
-        self.assertTrue(_should_reject_solver_for_headless("com.sun.star.sheet.SolverLinear", s))
+        assert (_should_reject_solver_for_headless(None, s))
+        assert (_should_reject_solver_for_headless("com.sun.star.sheet.SolverLinear", s))
 
     def test_allow_deps_when_user_requested_nlpsolver(self) -> None:
         s = _FakeSolver("com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl")
-        self.assertFalse(
-            _should_reject_solver_for_headless("com.sun.star.comp.Calc.NLPSolver.DEPS", s)
-        )
+        assert not (_should_reject_solver_for_headless("com.sun.star.comp.Calc.NLPSolver.DEPS", s))
 
 
-if __name__ == "__main__":
-    unittest.main()

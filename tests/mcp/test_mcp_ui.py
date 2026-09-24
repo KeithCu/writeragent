@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import json
-import unittest
 from unittest.mock import MagicMock, patch
 
 from plugin.mcp.mcp_ui import (
@@ -15,17 +14,17 @@ from plugin.mcp.mcp_ui import (
 )
 
 
-class TestMcpUi(unittest.TestCase):
+class TestMcpUi:
     @patch("plugin.mcp.mcp_ui.get_config_int", return_value=18765)
     def test_build_mcp_config_snippet_default(self, mock_port):
         snippet = build_mcp_config_snippet()
         parsed = json.loads(snippet)
-        self.assertEqual(parsed["mcpServers"]["libreoffice"]["url"], "http://localhost:18765/mcp")
+        assert (parsed["mcpServers"]["libreoffice"]["url"]) == ("http://localhost:18765/mcp")
 
     def test_build_mcp_config_snippet_custom(self):
         snippet = build_mcp_config_snippet(url="https://custom.trycloudflare.com/mcp")
         parsed = json.loads(snippet)
-        self.assertEqual(parsed["mcpServers"]["libreoffice"]["url"], "https://custom.trycloudflare.com/mcp")
+        assert (parsed["mcpServers"]["libreoffice"]["url"]) == ("https://custom.trycloudflare.com/mcp")
 
     @patch("plugin.mcp.mcp_ui.copy_to_clipboard", return_value=True)
     def test_copy_mcp_config_listener(self, mock_copy):
@@ -51,18 +50,16 @@ class TestMcpUi(unittest.TestCase):
             listener.on_action_performed(MagicMock())
 
         mock_copy.assert_called_once_with(ctx, '{"test": 1}')
-        self.assertEqual(btn_model.Label, "✓ Copied!")
+        assert (btn_model.Label) == ("✓ Copied!")
 
     def test_active_settings_dialog_tracking(self):
         dlg = MagicMock()
         set_active_settings_dialog(dlg)
         from plugin.mcp import mcp_ui
 
-        self.assertIs(mcp_ui._active_settings_dialog_ref, dlg)
+        assert (mcp_ui._active_settings_dialog_ref) is (dlg)
 
         clear_active_settings_dialog(dlg)
-        self.assertIsNone(mcp_ui._active_settings_dialog_ref)
+        assert (mcp_ui._active_settings_dialog_ref) is None
 
 
-if __name__ == "__main__":
-    unittest.main()
