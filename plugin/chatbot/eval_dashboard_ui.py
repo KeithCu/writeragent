@@ -81,7 +81,20 @@ class EvalRunListener(BaseActionListener):
         if TYPE_CHECKING:
             def run_benchmark_suite(*args: Any, **kwargs: Any) -> dict[str, Any]: ...
         else:
-            from tests.eval_runner import run_benchmark_suite
+            try:
+                from tests.eval_runner import run_benchmark_suite
+            except ImportError:
+                # Release OXTs pass --no-tests, so tests/ is not on the extension
+                # path, and the Debug menu that opens this dialog is stripped.
+                # make build still ships tests/eval_runner.py. Without this catch
+                # the Run button raised ImportError inside the listener.
+                self.dialog.getControl("log_area").setText(
+                    "Evaluation benchmarks are not in this extension build.\n"
+                    "Run scripts/prompt_optimization/run_eval.py, or use a dev\n"
+                    "build (make build) that includes tests/eval_runner.py.\n"
+                )
+                self.dialog.getControl("status").setText("Unavailable")
+                return
         from plugin.framework.uno_context import process_events_to_idle
 
         model_name = self.dialog.getControl("models").getText()
