@@ -139,46 +139,32 @@ class TestMemory(unittest.TestCase):
             {"key": "from_json", "content": "v"},
         )
 
-'''
-@unittest.skip("Disabled per user request - depends on uno")
-class TestMemoryTool(unittest.TestCase):
-    def setUp(self):
-        self.tmp_dir = tempfile.mkdtemp()
-        self.ctx = DummyCtx(self.tmp_dir)
-        try:
-            import uno
-            uno.fileUrlToSystemPath = lambda x: x.replace("file://", "")
-        except ImportError:
-            pass
+def test_memory_tool_insert_update_and_nested_key(tmp_path):
+    """upsert_memory inserts, replaces, and nests keys in USER.md JSON.
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp_dir)
+    The old skipped case asserted YAML text ("favorite_language: Python").
+    MemoryStore now writes json.dumps, so the same actions are checked on
+    the parsed object. user_config_dir is patched the way the other memory
+    tests do; MemoryStore no longer resolves the path through UNO.
+    """
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore(ctx)
 
-    def test_memory_tool_actions(self):
-        tool = MemoryTool()
-        store = MemoryStore(self.ctx)
+        res = tool.execute(ctx, key="favorite_language", content="Python")
+        assert res["status"] == "ok", res
+        assert json.loads(store.read("user"))["favorite_language"] == "Python"
 
-        # Insert new key
-        res = tool.execute(self.ctx, key="favorite_language", content="Python")
-        self.assertEqual(res["status"], "ok", f"Expected ok but got {res}")
+        res = tool.execute(ctx, key="favorite_language", content="Rust")
+        assert res["status"] == "ok", res
+        assert json.loads(store.read("user"))["favorite_language"] == "Rust"
 
-        # Verify store read
-        content = store.read("user")
-        self.assertIn("favorite_language: Python", content)
-
-        # Update existing key
-        res = tool.execute(self.ctx, key="favorite_language", content="Rust")
-        self.assertEqual(res["status"], "ok")
-        content = store.read("user")
-        self.assertIn("favorite_language: Rust", content)
-
-        # Insert nested key
-        res = tool.execute(self.ctx, key="editor.vim", content="Yes")
-        self.assertEqual(res["status"], "ok")
-        content = store.read("user")
-        self.assertIn("editor:", content)
-        self.assertIn("vim: Yes", content)
-'''
+        res = tool.execute(ctx, key="editor.vim", content="Yes")
+        assert res["status"] == "ok", res
+        data = json.loads(store.read("user"))
+        assert data["editor"]["vim"] == "Yes"
+        assert data["favorite_language"] == "Rust"
 
 class TestMemoryWriteConcurrency(unittest.TestCase):
     """Two upserts in one turn must merge (tools now run one at a time, not on threads)."""
