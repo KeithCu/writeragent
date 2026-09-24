@@ -283,6 +283,50 @@ setattr(awt, "XCallback", MockXCallback)
 # setup_uno_mocks also publishes unohelper.Base as its own sys.modules entry.
 sys.modules["unohelper.Base"] = MockUnohelperBase
 
+# Some test modules replace these entries at import (for example unohelper = MagicMock()).
+# The next module then subclasses MagicMock and collection dies with a metaclass conflict.
+# Snapshot the session shells and put them back before each test module imports, so a
+# per-file setup_uno_mocks() call is not required to undo that.
+_PYTEST_UNO_SHELLS = {
+    name: mod
+    for name, mod in list(sys.modules.items())
+    if name in ("uno", "unohelper")
+    or name.startswith("unohelper.")
+    or name == "com"
+    or name.startswith("com.")
+}
+# Attribute writes on the shared module object (not a replacement of the module)
+# survive putting the same object back into sys.modules. Re-apply the originals.
+_PYTEST_UNO_ATTRS: list[tuple[types.ModuleType, str, object]] = []
+for _mod in _PYTEST_UNO_SHELLS.values():
+    if not isinstance(_mod, types.ModuleType):
+        continue
+    for _attr, _val in list(vars(_mod).items()):
+        if _attr.startswith("_"):
+            continue
+        _PYTEST_UNO_ATTRS.append((_mod, _attr, _val))
+
+
+def _restore_pytest_uno_shells() -> None:
+    for name, mod in _PYTEST_UNO_SHELLS.items():
+        sys.modules[name] = mod
+    for mod, attr, val in _PYTEST_UNO_ATTRS:
+        setattr(mod, attr, val)
+
+
+def pytest_collectstart(collector):
+    """Restore session UNO shells immediately before a test module is imported.
+
+    pytest_collect_file runs when the collector is created, which can be long
+    before import. collectstart on the module runs inside collection, just
+    before Module._getobj imports the file. Test modules that assign
+    sys.modules['unohelper'] = MagicMock() would otherwise leak into the next
+    file and break unohelper.Base multiple inheritance.
+    """
+    path = getattr(collector, "path", None)
+    if path is not None and str(path).endswith(".py"):
+        _restore_pytest_uno_shells()
+
 
 @pytest.fixture(autouse=True)
 def _setup_grammar_persistence_test_env():
