@@ -379,7 +379,7 @@ class TestLogRichScroll:
             log_rich_scroll("test_phase2", control=control)
 
         assert rtc._RICH_SCROLL_SEQ == start + 2
-        from tests.strip_bundle import module_source_contains
+        from tests.harness.strip_bundle import module_source_contains
 
         if not module_source_contains(rtc, "log.debug"):
             return
@@ -569,7 +569,7 @@ class TestLogRichControlContext:
             rtc.log_rich_control_context(MagicMock(), "window_shown", peer=0)
             rtc.log_rich_control_context(MagicMock(), "eager_init", peer=1)
         assert rtc._ENV_SNAPSHOT_LOGGED is True
-        from tests.strip_bundle import module_source_contains
+        from tests.harness.strip_bundle import module_source_contains
 
         if not module_source_contains(rtc, "log.info"):
             return

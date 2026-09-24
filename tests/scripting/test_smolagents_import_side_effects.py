@@ -36,7 +36,7 @@ def test_sandbox_import_does_not_load_huggingface_hub() -> None:
 
 
 def test_worker_base_import_does_not_load_huggingface_hub() -> None:
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("compute_service/ not in stripped release tree")
     mods = _child_modules_after("import compute_service.worker_base")
@@ -47,7 +47,7 @@ def test_worker_base_import_does_not_load_huggingface_hub() -> None:
 
 def test_formula_executor_import_does_not_load_huggingface_hub() -> None:
     """formula_worker.py imports executor + worker_base + payload_codec."""
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("compute_service/ not in stripped release tree")
     mods = _child_modules_after(

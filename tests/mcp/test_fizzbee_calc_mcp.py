@@ -257,7 +257,7 @@ def test_full_layout_all_calc_tools_executable_dispatch(calc_mcp_setup):
 def test_fizzbee_randomized_calc_mcp_fuzz(calc_mcp_setup):
     """Randomized multi-step state machine fuzzer over the entire 61 Calc tool layout."""
     import os
-    from tests.vhs_budget import vhs_max_examples
+    from tests.harness.vhs_budget import vhs_max_examples
 
     handler = calc_mcp_setup["handler"]
     tools_reg = calc_mcp_setup["tools"]

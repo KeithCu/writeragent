@@ -245,7 +245,7 @@ def test_named_range_header_survives_py_pack_when_definition_is_used():
     A relative name evaluated from SQL_DuckDB!A23 drops Order_ID and DuckDB
     then reports Region not found (candidates Electronics/Consumer).
     """
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.generate_pretty_demo_spreadsheet import get_sales_dataset

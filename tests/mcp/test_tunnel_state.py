@@ -19,7 +19,7 @@ from plugin.mcp.tunnel_state import (
     compute_backoff_delay,
     next_state,
 )
-from tests.strip_bundle import deal_pre_present
+from tests.harness.strip_bundle import deal_pre_present
 
 
 def test_compute_backoff_delay_exponential_progression():

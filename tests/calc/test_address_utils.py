@@ -59,7 +59,7 @@ def test_address_utils():
 
         # 18278 is past ZZZ; @deal.pre raises when the decorator is still on
     # the function. After make release strip, the body still formats AAAA.
-    from tests.strip_bundle import deal_pre_present
+    from tests.harness.strip_bundle import deal_pre_present
 
     if deal_pre_present(index_to_column):
         with pytest.raises(pre_err):

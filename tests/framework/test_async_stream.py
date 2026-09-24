@@ -766,7 +766,7 @@ def test_accumulate_delta_rejects_non_plain_dict():
     from collections import UserDict
 
     from plugin.framework.async_stream import accumulate_delta
-    from tests.strip_bundle import expect_pre_or_body
+    from tests.harness.strip_bundle import expect_pre_or_body
 
     expect_pre_or_body(
         lambda: accumulate_delta(UserDict({"a": 1}), {"a": 2}),  # type: ignore[arg-type]

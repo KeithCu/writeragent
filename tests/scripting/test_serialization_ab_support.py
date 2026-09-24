@@ -15,7 +15,7 @@ from tests.scripting.serialization_ab_support import (
     ab_hypothesis_max_examples,
     serialization_extensive,
 )
-from tests.vhs_budget import _SERIALIZATION_EXTENSIVE_ENV
+from tests.harness.vhs_budget import _SERIALIZATION_EXTENSIVE_ENV
 
 
 def test_serialization_extensive_default_false(monkeypatch) -> None:

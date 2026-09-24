@@ -64,7 +64,7 @@ def test_parse_worker_dict_result_overflow_pre_fails_closed() -> None:
     import deal
 
     from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
-    from tests.strip_bundle import deal_pre_present
+    from tests.harness.strip_bundle import deal_pre_present
 
     if not deal_pre_present(parse_worker_dict_result):
         pytest.skip("@deal.pre stripped in release bundle")
