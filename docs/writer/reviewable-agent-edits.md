@@ -154,7 +154,12 @@ Delete and Insert as two independent rows. WriterAgent adds:
 2. **Review toolbar** — [`plugin/writer/review_toolbar.py`](../../plugin/writer/review_toolbar.py):
    **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
    agent changes exist; hidden when the count drops to zero. Menu actions `review_prev` /
-   `review_next` call `goto_adjacent_agent_change`.
+   `review_next` call `goto_adjacent_agent_change`. Its per-document modify listener never
+   recounts inside the notification: counting reads each change's text with
+   `XTextCursor.getString`, which forces a synchronous repaint, and a modify fired from inside the
+   comment editor (AutoCorrect, or macOS committing a dead-key character such as "ç") repainted the
+   half-updated comment box and crashed LibreOffice. The listener queues one recount per burst with
+   `post_to_main_thread`, which runs on a later main-loop turn.
 
 It is strictly token-scoped — only `wa-review` changes are listed or resolved.
 

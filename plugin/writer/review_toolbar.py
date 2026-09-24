@@ -11,6 +11,7 @@ main thread).
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 import uno
@@ -25,6 +26,11 @@ TOOLBAR_RESOURCE_URL = "private:resource/toolbar/addon_org.extension.writeragent
 _doc_listener = None
 _modify_listeners: dict[str, Any] = {}  # RuntimeUID -> _ReviewModifyListener (removed on close)
 _docked_uids: set[str] = set()    # RuntimeUIDs whose toolbar has already been docked once (don't re-dock)
+
+# Deferred toolbar recount (see _ReviewModifyListener.modified): documents with a recount
+# already queued. A burst of keystrokes collapses into the one queued run.
+_pending_refresh: set[str] = set()
+_pending_lock = threading.Lock()
 
 
 def _runtime_uid(model: Any) -> str | None:
@@ -47,11 +53,24 @@ class _ReviewModifyListener(unohelper.Base, XModifyListener):
         self._uid = uid  # so disposing() can drop the registry entry without re-reading the model
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
+        # What was wrong: this recounted the pending changes right here, inside the modify
+        # notification. The recount reads each change's text with XTextCursor.getString(), and
+        # Writer serves that through SwWriter::Write -> EndAllAction -> PaintImmediately -- a
+        # synchronous repaint. How it happened: typing a comment while a review is open fires
+        # modified() from INSIDE the comment editor's EditEngine::InsertText (AutoCorrect replacing
+        # a word, or macOS committing a dead-key character like "ç" / "ã"). The forced repaint
+        # re-entered that half-updated comment box, ImpEditEngine::CreateLines crashed, and
+        # LibreOffice's emergency-save dialog then hung the app: eleven .hang reports on one
+        # machine in one night, every one of them in the comment sidebar. Why this change fixes
+        # it: modified() now only schedules; the recount runs on a later main-loop turn, after the
+        # edit that triggered it has finished. The visibility check stays synchronous because the
+        # layout manager is a frame query, not a document read -- it keeps normal typing (no
+        # review open) from queueing anything.
         try:
             model = aEvent.Source
             lm = _layout_manager(model)
             if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):
-                refresh_review_toolbar(model)
+                _schedule_refresh(model, self._uid)
         except Exception:
             log.debug("review_toolbar: modify handler failed", exc_info=True)
 
@@ -64,6 +83,56 @@ class _ReviewModifyListener(unohelper.Base, XModifyListener):
         if self._uid is not None and _modify_listeners.get(self._uid) is self:
             del _modify_listeners[self._uid]
             _docked_uids.discard(self._uid)
+            _cancel_refresh(self._uid)
+
+
+def _refresh_key(model: Any, uid: str | None) -> str:
+    return uid if uid else "id:%d" % id(model)
+
+
+def _cancel_refresh(uid: str | None) -> None:
+    """Drop a queued recount; the queued run then sees it was cancelled and does nothing."""
+    if not uid:
+        return
+    with _pending_lock:
+        _pending_refresh.discard(uid)
+
+
+def _run_deferred_refresh(model: Any, key: str) -> None:
+    """Main thread, a later turn. No-op if the document closed meanwhile (key cancelled)."""
+    with _pending_lock:
+        if key not in _pending_refresh:
+            return
+        _pending_refresh.discard(key)
+    try:
+        lm = _layout_manager(model)
+        if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):
+            refresh_review_toolbar(model)
+    except Exception:
+        log.debug("review_toolbar: deferred refresh failed (document closed?)", exc_info=True)
+
+
+def _schedule_refresh(model: Any, uid: str | None) -> None:
+    """Queue one recount on the main thread, OUTSIDE the current notification.
+
+    post_to_main_thread enqueues through AsyncCallback, so even when called from the main thread
+    the recount runs on a later main-loop turn, after the edit that fired modified() is complete.
+    No timer: the queue already gives the deferral, and coalescing keystrokes needs only a flag.
+    """
+    key = _refresh_key(model, uid)
+    with _pending_lock:
+        if key in _pending_refresh:
+            return  # a recount is already queued; it will see this keystroke's result too
+        _pending_refresh.add(key)
+    from plugin.framework.queue_executor import post_to_main_thread
+
+    try:
+        post_to_main_thread(_run_deferred_refresh, model, key)
+    except Exception:
+        # Un-mark on failure, or this document would never queue a recount again.
+        with _pending_lock:
+            _pending_refresh.discard(key)
+        log.debug("review_toolbar: could not queue the recount", exc_info=True)
 
 
 def _register_modify_listener(model: Any) -> None:
@@ -88,6 +157,7 @@ def _unregister_modify_listener(model: Any) -> None:
     if uid is None:
         return
     _docked_uids.discard(uid)
+    _cancel_refresh(uid)
     listener = _modify_listeners.pop(uid, None)
     if listener is not None:
         try:

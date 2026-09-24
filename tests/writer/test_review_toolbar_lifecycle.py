@@ -107,3 +107,113 @@ def test_disposing_clears_docked_state():
     listener.disposing(MagicMock())
     assert "uid-E" not in rt._modify_listeners
     assert "uid-E" not in rt._docked_uids
+
+
+# --- modified() must never recount inside the modify notification ------------
+# Regression: typing a comment while a review was open fired modified() from inside
+# the comment editor's EditEngine::InsertText. The recount's XTextCursor.getString()
+# forced a synchronous repaint that re-entered the half-updated comment box and
+# crashed; LibreOffice's emergency-save dialog then hung the app (11 .hang reports
+# on one machine in one night, all in sw::sidebarwindows::SidebarTextControl).
+
+def _visible_toolbar_patch(visible=True):
+    lm = MagicMock()
+    lm.isElementVisible.return_value = visible
+    return patch.object(rt, "_layout_manager", return_value=lm)
+
+
+def _event(model):
+    ev = MagicMock()
+    ev.Source = model
+    return ev
+
+
+def _reset_pending():
+    with rt._pending_lock:
+        rt._pending_refresh.clear()
+
+
+def _capture_posts():
+    posted = []
+    return posted, patch("plugin.framework.queue_executor.post_to_main_thread",
+                         side_effect=lambda fn, *a, **k: posted.append((fn, a)))
+
+
+def test_modified_does_not_recount_synchronously():
+    _reset_pending()
+    listener = rt._ReviewModifyListener("uid-sync")
+    posted, post_patch = _capture_posts()
+    with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
+        listener.modified(_event(FakeModel("uid-sync")))
+        refresh.assert_not_called()
+    assert [fn for fn, _ in posted] == [rt._run_deferred_refresh], "the recount must be queued, not run"
+    _reset_pending()
+
+
+def test_keystroke_burst_collapses_into_one_queued_recount():
+    _reset_pending()
+    listener = rt._ReviewModifyListener("uid-burst")
+    model = FakeModel("uid-burst")
+    posted, post_patch = _capture_posts()
+    with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar"):
+        for _ in range(25):  # a long comment, one modified() per keystroke
+            listener.modified(_event(model))
+    assert len(posted) == 1
+    _reset_pending()
+
+
+def test_normal_typing_without_a_review_queues_nothing():
+    _reset_pending()
+    listener = rt._ReviewModifyListener("uid-idle")
+    posted, post_patch = _capture_posts()
+    with _visible_toolbar_patch(False), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
+        listener.modified(_event(FakeModel("uid-idle")))
+    refresh.assert_not_called()
+    assert posted == []
+
+
+def test_queued_recount_runs_once_then_allows_the_next():
+    _reset_pending()
+    model = FakeModel("uid-run")
+    posted, post_patch = _capture_posts()
+    with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
+        rt._schedule_refresh(model, "uid-run")
+        fn, args = posted[0]
+        fn(*args)  # the main loop gets to it
+        refresh.assert_called_once()
+        rt._schedule_refresh(model, "uid-run")  # a later keystroke queues again
+    assert len(posted) == 2
+    _reset_pending()
+
+
+def test_deferred_recount_rechecks_visibility():
+    _reset_pending()
+    model = FakeModel("uid-v")
+    with rt._pending_lock:
+        rt._pending_refresh.add("uid-v")
+    with _visible_toolbar_patch(False), patch.object(rt, "refresh_review_toolbar") as refresh:
+        rt._run_deferred_refresh(model, "uid-v")
+    refresh.assert_not_called()
+
+
+def test_closing_the_document_cancels_a_queued_recount():
+    _reset_pending()
+    rt._modify_listeners.clear()
+    model = FakeModel("uid-close")
+    rt._register_modify_listener(model)
+    posted, post_patch = _capture_posts()
+    with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
+        rt._modify_listeners["uid-close"].modified(_event(model))
+        rt._unregister_modify_listener(model)
+        fn, args = posted[0]
+        fn(*args)  # the queued run arrives after the close
+        refresh.assert_not_called()
+    _reset_pending()
+
+
+def test_a_failed_queue_does_not_block_later_recounts():
+    _reset_pending()
+    model = FakeModel("uid-fail")
+    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=RuntimeError("no AsyncCallback")):
+        rt._schedule_refresh(model, "uid-fail")
+    assert "uid-fail" not in rt._pending_refresh, "a failed post must not leave the doc marked as queued"
