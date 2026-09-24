@@ -678,7 +678,7 @@ open, `close_doc: skip writer close` or `close_doc: start` (not raw
 exist (no 30s Timeout on `detect_without_filtername`), leftover
 `simpress` after notebook leftovers using `target=_wa_simpress`
 (not `_wa_factory_10`) then
-`TEST end uno.test_ppt_master_pptx_import_uno.test_lo_import_minimal_pptx_multi_slide OK`
+`TEST end ppt_master.test_ppt_master_pptx_import_uno.test_lo_import_minimal_pptx_multi_slide OK`
 or `TEST end … SKIP` with `windows leftover skip: leftover simpress`
 when leftover_open>2 (no 30s Timeout in `create_native_doc` on leftover
 Impress), leftover notebook host using
