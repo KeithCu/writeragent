@@ -332,7 +332,7 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 
 | Area | Status | Notes |
 |------|--------|-------|
-| Settings data path + Test probe | Shipped | [`paths.py`](../plugin/ppt_master/paths.py), [`test_ppt_master_data_test_listener.py`](../tests/chatbot/test_ppt_master_data_test_listener.py) |
+| Settings data path + Test probe | Shipped | [`paths.py`](../plugin/ppt_master/paths.py), [`test_dialog_views.py`](../tests/chatbot/test_dialog_views.py) |
 | Sidebar PPT-Master mode (Impress/Draw) | Shipped | [`chat_sidebar_mode.py`](../plugin/chatbot/chat_sidebar_mode.py) |
 | Smol sub-agent session | Shipped | Venv-hosted via [`plugin/ppt_master/venv/`](../plugin/ppt_master/venv/); forked SKILL + host LLM/UNO RPC |
 | Specialized tools | Shipped | [`tools.py`](../plugin/ppt_master/tools.py) — export, validate, template-fill, native-enhance (host UNO) |
@@ -503,7 +503,7 @@ Run: `pytest tests/ppt_master/`; full matrix: `make test`.
 | `tests/ppt_master/test_ppt_master_venv_runner.py` | path guards, SKILL load, venv session delegation |
 | `tests/scripting/test_venv_ppt_master_rpc.py` | `llm_request` / `tool_call` / `worker_event` RPC dispatch |
 | `tests/ppt_master/test_ppt_master_paths.py` | config path, dev clone, upstream `pptx_discovery` |
-| `tests/chatbot/test_ppt_master_data_test_listener.py` | Settings Test button probe |
+| `tests/chatbot/test_dialog_views.py` | Settings Test button probe |
 | `tests/ppt_master/test_ppt_master_project.py` | Project fixture, collect_svg_files, notes |
 | `tests/ppt_master/test_ppt_master_pptx_build.py` | PPTX discovery + venv build |
 | `tests/ppt_master/test_ppt_master_fidelity.py` | PNG diff math, summary writer |
