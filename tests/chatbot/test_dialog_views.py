@@ -1,8 +1,7 @@
-import unittest
 from unittest.mock import MagicMock, patch
 
 
-class TestInputBoxExtraTokens(unittest.TestCase):
+class TestInputBoxExtraTokens:
     def _mock_dialog(self, *, execute_ok=True):
         dlg = MagicMock()
         edit_ctrl = MagicMock()
@@ -61,7 +60,7 @@ class TestInputBoxExtraTokens(unittest.TestCase):
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
             result = input_box(ctx, "msg", "title", "")
 
-        self.assertEqual(result, ("", ""))
+        assert (result) == (("", ""))
         mock_set_text.assert_any_call(extend_tokens_ctrl, "1200")
         mock_set_text.assert_any_call(extra_tokens_ctrl, "750")
 
@@ -96,7 +95,7 @@ class TestInputBoxExtraTokens(unittest.TestCase):
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
             text, prompt = input_box(ctx, "msg", "title", "")
 
-        self.assertEqual(text, "rewrite this")
+        assert (text) == ("rewrite this")
         mock_set_config.assert_any_call("extend_selection_max_tokens", "1500")
         mock_set_config.assert_any_call("edit_selection_max_new_tokens", "250")
 
@@ -135,7 +134,7 @@ class TestInputBoxExtraTokens(unittest.TestCase):
         mock_set_config.assert_any_call("edit_selection_max_new_tokens", "99999")
 
 
-class TestSettingsInitialModelsFetch(unittest.TestCase):
+class TestSettingsInitialModelsFetch:
     def test_schedule_initial_models_fetch_openrouter_with_key(self):
         from plugin.chatbot.dialog_views import SettingsDialog
 
@@ -166,7 +165,7 @@ class TestSettingsInitialModelsFetch(unittest.TestCase):
         listener._schedule_debounced_models_fetch.assert_not_called()
 
 
-class TestEndpointCombinedListener(unittest.TestCase):
+class TestEndpointCombinedListener:
     def test_item_state_changed_applies_dropdowns_before_background_fetch(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
 
@@ -194,10 +193,10 @@ class TestEndpointCombinedListener(unittest.TestCase):
         event.Selected = 0
         listener.itemStateChanged(event)
 
-        self.assertEqual(len(apply_calls), 1)
-        self.assertEqual(apply_calls[0][0][0], 'https://openrouter.ai/api')
-        self.assertTrue(apply_calls[0][1].get('skip_fetch'))
-        self.assertEqual(len(bg_calls), 1)
+        assert (len(apply_calls)) == (1)
+        assert (apply_calls[0][0][0]) == ('https://openrouter.ai/api')
+        assert (apply_calls[0][1].get('skip_fetch'))
+        assert (len(bg_calls)) == (1)
 
     def test_ollama_select_does_not_skip_sync_fetch(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
@@ -222,8 +221,8 @@ class TestEndpointCombinedListener(unittest.TestCase):
         event.Selected = 0
         listener.itemStateChanged(event)
 
-        self.assertEqual(len(apply_calls), 1)
-        self.assertFalse(apply_calls[0][1].get('skip_fetch'))
+        assert (len(apply_calls)) == (1)
+        assert not (apply_calls[0][1].get('skip_fetch'))
 
     def test_apply_dropdowns_openrouter_stt_skips_text_remote_models(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
@@ -261,10 +260,10 @@ class TestEndpointCombinedListener(unittest.TestCase):
 
         stt_calls = [c for c in populate_calls if c['lru_key'] == 'audio_model_lru']
         text_calls = [c for c in populate_calls if c['lru_key'] == 'model_lru']
-        self.assertEqual(len(stt_calls), 1)
-        self.assertIsNone(stt_calls[0]['remote_models'])
-        self.assertEqual(len(text_calls), 1)
-        self.assertIsNotNone(text_calls[0]['remote_models'])
+        assert (len(stt_calls)) == (1)
+        assert (stt_calls[0]['remote_models']) is None
+        assert (len(text_calls)) == (1)
+        assert (text_calls[0]['remote_models']) is not None
 
     def test_apply_dropdowns_uses_combobox_text_for_text_model(self):
         """Endpoint refresh must seed text model from combobox text, not empty string."""
@@ -297,8 +296,8 @@ class TestEndpointCombinedListener(unittest.TestCase):
                     listener._apply_dropdowns('http://localhost:11434', models=['llama3'], skip_fetch=True)
 
         text_calls = [c for c in populate_calls if c['lru_key'] == 'model_lru']
-        self.assertEqual(len(text_calls), 1)
-        self.assertEqual(text_calls[0]['current'], 'user-typed-model')
+        assert (len(text_calls)) == (1)
+        assert (text_calls[0]['current']) == ('user-typed-model')
 
     def test_apply_dropdowns_clears_combo_current_on_provider_switch(self):
         """Provider change must not seed populate with leftover foreign slugs."""
@@ -337,10 +336,10 @@ class TestEndpointCombinedListener(unittest.TestCase):
                 listener._apply_dropdowns('https://api.together.xyz', models=None, skip_fetch=True)
 
         by_key = {c['lru_key']: c for c in populate_calls}
-        self.assertEqual(by_key['model_lru']['current'], '')
-        self.assertEqual(by_key['audio_model_lru']['current'], '')
-        self.assertEqual(by_key['image_model_lru']['current'], '')
-        self.assertEqual(by_key['model_lru']['endpoint'], 'https://api.together.xyz')
+        assert (by_key['model_lru']['current']) == ('')
+        assert (by_key['audio_model_lru']['current']) == ('')
+        assert (by_key['image_model_lru']['current']) == ('')
+        assert (by_key['model_lru']['endpoint']) == ('https://api.together.xyz')
 
     def test_apply_dropdowns_drops_openrouter_slug_from_together_list(self):
         """Regression: uncatalogued OpenRouter LRU ids must not reappear on Together."""
@@ -381,26 +380,26 @@ class TestEndpointCombinedListener(unittest.TestCase):
                     listener._apply_dropdowns('https://api.together.xyz', models=None, skip_fetch=True)
 
         text_items = list(text_ctrl.addItems.call_args[0][0])
-        self.assertNotIn(sticky, text_items)
-        self.assertNotEqual(text_ctrl.setText.call_args[0][0], sticky)
-        self.assertIn('MiniMaxAI/MiniMax-M3', text_items)
+        assert (sticky) not in (text_items)
+        assert (text_ctrl.setText.call_args[0][0]) != (sticky)
+        assert ('MiniMaxAI/MiniMax-M3') in (text_items)
 
         stt_items = list(stt_ctrl.addItems.call_args[0][0])
-        self.assertNotIn('openai/whisper-large-v3', stt_items)
+        assert ('openai/whisper-large-v3') not in (stt_items)
         image_items = list(image_ctrl.addItems.call_args[0][0])
-        self.assertNotIn('openai/gpt-5-image', image_items)
+        assert ('openai/gpt-5-image') not in (image_items)
 
 
-class TestSettingsEnhancements(unittest.TestCase):
+class TestSettingsEnhancements:
     def test_get_signup_url_for_endpoint(self):
         from plugin.chatbot.config_ui_helpers import get_signup_url_for_endpoint
 
-        self.assertEqual(get_signup_url_for_endpoint("https://openrouter.ai/api"), "https://openrouter.ai/keys")
-        self.assertEqual(get_signup_url_for_endpoint("https://api.together.xyz"), "https://api.together.ai/settings/api-keys")
-        self.assertEqual(get_signup_url_for_endpoint("https://api.groq.com/openai"), "https://console.groq.com/keys")
-        self.assertEqual(get_signup_url_for_endpoint("https://integrate.api.nvidia.com/v1"), "https://build.nvidia.com/settings/api-keys")
-        self.assertIsNone(get_signup_url_for_endpoint("http://localhost:11434"))
-        self.assertIsNone(get_signup_url_for_endpoint("http://127.0.0.1:1234"))
+        assert (get_signup_url_for_endpoint("https://openrouter.ai/api")) == ("https://openrouter.ai/keys")
+        assert (get_signup_url_for_endpoint("https://api.together.xyz")) == ("https://api.together.ai/settings/api-keys")
+        assert (get_signup_url_for_endpoint("https://api.groq.com/openai")) == ("https://console.groq.com/keys")
+        assert (get_signup_url_for_endpoint("https://integrate.api.nvidia.com/v1")) == ("https://build.nvidia.com/settings/api-keys")
+        assert (get_signup_url_for_endpoint("http://localhost:11434")) is None
+        assert (get_signup_url_for_endpoint("http://127.0.0.1:1234")) is None
 
     @patch("plugin.chatbot.dialog_views.open_system_url")
     def test_get_api_key_listener_action(self, mock_open_url):
@@ -486,7 +485,7 @@ class TestSettingsEnhancements(unittest.TestCase):
 
         snippet = build_mcp_config_snippet()
         parsed = json.loads(snippet)
-        self.assertEqual(parsed["mcpServers"]["libreoffice"]["url"], "http://localhost:18765/mcp")
+        assert (parsed["mcpServers"]["libreoffice"]["url"]) == ("http://localhost:18765/mcp")
 
     def test_build_mcp_config_snippet_custom_port(self):
         import json
@@ -494,7 +493,7 @@ class TestSettingsEnhancements(unittest.TestCase):
 
         snippet = build_mcp_config_snippet(9000)
         parsed = json.loads(snippet)
-        self.assertEqual(parsed["mcpServers"]["libreoffice"]["url"], "http://localhost:9000/mcp")
+        assert (parsed["mcpServers"]["libreoffice"]["url"]) == ("http://localhost:9000/mcp")
 
     @patch("plugin.mcp.mcp_ui.copy_to_clipboard", return_value=True)
     def test_copy_mcp_config_listener_action(self, mock_copy):
@@ -521,7 +520,7 @@ class TestSettingsEnhancements(unittest.TestCase):
             listener.on_action_performed(MagicMock())
 
         mock_copy.assert_called_once_with(ctx, '{"mcpServers": {}}')
-        self.assertEqual(btn_model.Label, "✓ Copied!")
+        assert (btn_model.Label) == ("✓ Copied!")
 
     def test_mcp_port_text_listener_updates_snippet(self):
         from plugin.chatbot.dialog_views import McpPortTextListener
@@ -545,19 +544,19 @@ class TestSettingsEnhancements(unittest.TestCase):
 
         mock_set_text.assert_called_once()
         args = mock_set_text.call_args[0]
-        self.assertEqual(args[0], snippet_ctrl)
-        self.assertIn("19999", args[1])
+        assert (args[0]) == (snippet_ctrl)
+        assert ("19999") in (args[1])
 
 
-class TestProviderButtonIcons(unittest.TestCase):
+class TestProviderButtonIcons:
     def test_provider_icon_filename_picks_nearest_shipped_size(self):
         from plugin.chatbot.dialog_views import provider_icon_filename
 
         # Explicit px= is the post-menu-map target (16 / 32 / 48).
-        self.assertEqual(provider_icon_filename("openrouter", px=16), "openrouter_16.png")
-        self.assertEqual(provider_icon_filename("huggingface", px=16), "huggingface_16.png")
-        self.assertEqual(provider_icon_filename("together", px=32), "together_32.png")
-        self.assertEqual(provider_icon_filename("nvidia", px=48), "nvidia_48.png")
+        assert (provider_icon_filename("openrouter", px=16)) == ("openrouter_16.png")
+        assert (provider_icon_filename("huggingface", px=16)) == ("huggingface_16.png")
+        assert (provider_icon_filename("together", px=32)) == ("together_32.png")
+        assert (provider_icon_filename("nvidia", px=48)) == ("nvidia_48.png")
 
     def test_provider_icon_maps_menu_dpi_to_48_on_hidpi(self):
         from plugin.chatbot.dialog_views import provider_icon_filename
@@ -565,15 +564,15 @@ class TestProviderButtonIcons(unittest.TestCase):
         with patch(
             "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=32
         ):
-            self.assertEqual(provider_icon_filename("openrouter", ctx=MagicMock()), "openrouter_48.png")
+            assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_48.png")
         with patch(
             "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=16
         ):
-            self.assertEqual(provider_icon_filename("openrouter", ctx=MagicMock()), "openrouter_16.png")
+            assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_16.png")
         with patch(
             "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=26
         ):
-            self.assertEqual(provider_icon_filename("openrouter", ctx=MagicMock()), "openrouter_32.png")
+            assert (provider_icon_filename("openrouter", ctx=MagicMock())) == ("openrouter_32.png")
 
     def test_apply_sets_image_url_from_extension_assets(self):
         from plugin.chatbot.dialog_views import apply_provider_button_icon
@@ -588,8 +587,8 @@ class TestProviderButtonIcons(unittest.TestCase):
         ):
             apply_provider_button_icon(ctrl, ctx, "openrouter")
 
-        self.assertEqual(model.ImageURL, "file:///tmp/oxt/assets/openrouter_16.png")
-        self.assertEqual(model.ImagePosition, 1)
+        assert (model.ImageURL) == ("file:///tmp/oxt/assets/openrouter_16.png")
+        assert (model.ImagePosition) == (1)
 
     def test_apply_uses_dpi_selected_asset(self):
         from plugin.chatbot.dialog_views import apply_provider_button_icon
@@ -605,10 +604,10 @@ class TestProviderButtonIcons(unittest.TestCase):
             apply_provider_button_icon(ctrl, ctx, "nvidia")
 
         pick.assert_called_once_with("nvidia", ctx=ctx)
-        self.assertEqual(model.ImageURL, "file:///tmp/oxt/assets/nvidia_32.png")
+        assert (model.ImageURL) == ("file:///tmp/oxt/assets/nvidia_32.png")
 
 
-class TestRecheckGrammarListener(unittest.TestCase):
+class TestRecheckGrammarListener:
     def test_click_calls_recheck_helper(self) -> None:
         from plugin.chatbot.dialog_views import RecheckGrammarListener
 
@@ -664,10 +663,5 @@ def test_dialog_parent_for_child_prefers_settings_peer() -> None:
     parent.getPeer.return_value = "settings-peer"
     assert _dialog_parent_for_child(MagicMock(), parent) == "settings-peer"
     parent.getPeer.assert_called_once()
-
-
-if __name__ == '__main__':
-    unittest.main()
-
 
 

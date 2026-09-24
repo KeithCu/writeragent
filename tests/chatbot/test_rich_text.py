@@ -8,7 +8,6 @@
 
 """Unit tests for plugin.chatbot.rich_text (append_rich_text, theme colors, HTML detection)."""
 
-import unittest
 from unittest.mock import MagicMock, patch
 
 
@@ -86,7 +85,7 @@ class MockDoc:
         return self._controller
 
 
-class AppendRichTextTests(unittest.TestCase):
+class AppendRichTextTests:
     """Tests for append_rich_text formatting logic."""
 
     def _call(self, text, role="assistant"):
@@ -99,25 +98,25 @@ class AppendRichTextTests(unittest.TestCase):
     def test_user_role_prefix(self):
         doc = self._call("Hello", role="user")
         content = doc.getText().getString()
-        self.assertIn("You: ", content)
-        self.assertIn("Hello", content)
+        assert ("You: ") in (content)
+        assert ("Hello") in (content)
 
     def test_assistant_role_prefix(self):
         doc = self._call("World", role="assistant")
         content = doc.getText().getString()
-        self.assertIn("Assistant: ", content)
-        self.assertIn("World", content)
+        assert ("Assistant: ") in (content)
+        assert ("World") in (content)
 
     def test_plain_text_inserted_for_non_html(self):
         """Non-HTML text is inserted via insertString (no HTML import)."""
         doc = self._call("Just some text", role="assistant")
         content = doc.getText().getString()
-        self.assertIn("Just some text", content)
+        assert ("Just some text") in (content)
 
     def test_empty_text(self):
         doc = self._call("", role="assistant")
         content = doc.getText().getString()
-        self.assertIn("Assistant: ", content)
+        assert ("Assistant: ") in (content)
 
     def test_user_color(self):
         """Verify the prefix cursor gets USER_COLOR via createTextCursorByRange."""
@@ -136,17 +135,17 @@ class AppendRichTextTests(unittest.TestCase):
         from plugin.chatbot.rich_text import append_rich_text
         append_rich_text(doc, "hi", role="user")
         prefix_cursor = created_cursors[0]
-        self.assertEqual(prefix_cursor.CharColor, USER_COLOR)
+        assert (prefix_cursor.CharColor) == (USER_COLOR)
 
     def test_assistant_color_is_deep_slate_gray(self):
         from plugin.chatbot.rich_text import ASSISTANT_COLOR
 
-        self.assertEqual(ASSISTANT_COLOR, 0x1E293B)
+        assert (ASSISTANT_COLOR) == (0x1E293B)
 
     def test_user_color_is_indigo_blue(self):
         from plugin.chatbot.rich_text import USER_COLOR
 
-        self.assertEqual(USER_COLOR, 0x2A6099)
+        assert (USER_COLOR) == (0x2A6099)
 
     def test_get_theme_colors_light_mode(self):
         """get_theme_colors returns light palette for high luminance background."""
@@ -158,9 +157,9 @@ class AppendRichTextTests(unittest.TestCase):
         doc.getCurrentController().getFrame().getContainerWindow().StyleSettings = style_settings
 
         bg_color, user_color, assistant_color = get_theme_colors(doc)
-        self.assertEqual(bg_color, 0xE0E1E2)
-        self.assertEqual(user_color, 0x2A6099)
-        self.assertEqual(assistant_color, 0x1E293B)
+        assert (bg_color) == (0xE0E1E2)
+        assert (user_color) == (0x2A6099)
+        assert (assistant_color) == (0x1E293B)
 
     def test_get_theme_colors_dark_mode(self):
         """get_theme_colors returns dark palette for low luminance background."""
@@ -171,9 +170,9 @@ class AppendRichTextTests(unittest.TestCase):
         doc.getCurrentController().getFrame().getContainerWindow().StyleSettings = style_settings
 
         bg_color, user_color, assistant_color = get_theme_colors(doc)
-        self.assertEqual(bg_color, 0x1E1E1E)
-        self.assertEqual(user_color, 0x60A5FA)
-        self.assertEqual(assistant_color, 0xE2E8F0)
+        assert (bg_color) == (0x1E1E1E)
+        assert (user_color) == (0x60A5FA)
+        assert (assistant_color) == (0xE2E8F0)
 
     def test_get_theme_colors_from_style_window(self):
         """get_theme_colors can read StyleSettings directly from the sidebar window."""
@@ -185,9 +184,9 @@ class AppendRichTextTests(unittest.TestCase):
         style_window.StyleSettings = style_settings
 
         bg_color, user_color, assistant_color = get_theme_colors(style_window=style_window)
-        self.assertEqual(bg_color, 0x1E1E1E)
-        self.assertEqual(user_color, 0x60A5FA)
-        self.assertEqual(assistant_color, 0xE2E8F0)
+        assert (bg_color) == (0x1E1E1E)
+        assert (user_color) == (0x60A5FA)
+        assert (assistant_color) == (0xE2E8F0)
 
     def test_get_theme_colors_graceful_fallback(self):
         """get_theme_colors returns standard light palette when window or StyleSettings are missing/mocked."""
@@ -195,9 +194,9 @@ class AppendRichTextTests(unittest.TestCase):
         doc = MockDoc()
         # Missing Frame / Container Window (getCurrentController returns MagicMock, which returns MagicMock)
         bg_color, user_color, assistant_color = get_theme_colors(doc)
-        self.assertEqual(bg_color, 0xE0E1E2)
-        self.assertEqual(user_color, 0x2A6099)
-        self.assertEqual(assistant_color, 0x1E293B)
+        assert (bg_color) == (0xE0E1E2)
+        assert (user_color) == (0x2A6099)
+        assert (assistant_color) == (0x1E293B)
 
     def test_append_rich_text_uses_dynamic_dark_colors(self):
         """append_rich_text formats role prefix using dynamic dark mode colors."""
@@ -216,7 +215,7 @@ class AppendRichTextTests(unittest.TestCase):
 
         append_rich_text(doc, "hi", role="user")
         prefix_cursor = created_cursors[0]
-        self.assertEqual(prefix_cursor.CharColor, 0x60A5FA)  # Dark-mode-optimized user blue
+        assert (prefix_cursor.CharColor) == (0x60A5FA)  # Dark-mode-optimized user blue
 
     def test_html_body_preserves_span_colors(self):
         """Successful HTML import must not blanket-overwrite body CharColor."""
@@ -235,8 +234,8 @@ class AppendRichTextTests(unittest.TestCase):
         with patch("plugin.chatbot.rich_text._insert_html_at_cursor"):
             append_rich_text(doc, '<p><span style="color:#ff0000">red</span></p>', role="assistant")
 
-        self.assertGreaterEqual(len(body_cursors), 2)
-        self.assertIsNone(body_cursors[-1].CharColor)
+        assert (len(body_cursors)) >= (2)
+        assert (body_cursors[-1].CharColor) is None
 
     def test_plain_body_gets_role_color(self):
         """Non-HTML body still receives the role tint."""
@@ -253,11 +252,11 @@ class AppendRichTextTests(unittest.TestCase):
         doc.getText().createTextCursor = track_body_cursor
         append_rich_text(doc, "plain answer", role="assistant")
 
-        self.assertGreaterEqual(len(body_cursors), 2)
-        self.assertEqual(body_cursors[-1].CharColor, ASSISTANT_COLOR)
+        assert (len(body_cursors)) >= (2)
+        assert (body_cursors[-1].CharColor) == (ASSISTANT_COLOR)
 
 
-class TightenListIndentTests(unittest.TestCase):
+class TightenListIndentTests:
     """Tests for _tighten_list_indent post-processing helper."""
 
     def _make_list_para(self, text="• item", level=0, list_id="list1", is_number=True):
@@ -346,7 +345,7 @@ class TightenListIndentTests(unittest.TestCase):
 
         _tighten_list_indent(body_range)
 
-        self.assertEqual(mock_uno.invoke.call_count, 1)
+        assert (mock_uno.invoke.call_count) == (1)
 
     def test_processes_different_levels(self):
         import sys
@@ -363,10 +362,10 @@ class TightenListIndentTests(unittest.TestCase):
 
         _tighten_list_indent(body_range)
 
-        self.assertEqual(mock_uno.invoke.call_count, 2)
+        assert (mock_uno.invoke.call_count) == (2)
 
 
-class HtmlDetectionRegexTests(unittest.TestCase):
+class HtmlDetectionRegexTests:
     """Tests for _HTML_TAG_RE used in append_rich_text HTML detection."""
 
     def _matches(self, text):
@@ -376,125 +375,125 @@ class HtmlDetectionRegexTests(unittest.TestCase):
     # --- True positives ---
 
     def test_p_tag(self):
-        self.assertTrue(self._matches("<p>hello</p>"))
+        assert (self._matches("<p>hello</p>"))
 
     def test_p_with_attrs(self):
-        self.assertTrue(self._matches('<p class="intro">text</p>'))
+        assert (self._matches('<p class="intro">text</p>'))
 
     def test_br_self_closing(self):
-        self.assertTrue(self._matches("<br/>"))
+        assert (self._matches("<br/>"))
 
     def test_br_space_closing(self):
-        self.assertTrue(self._matches("<br />"))
+        assert (self._matches("<br />"))
 
     def test_br_uppercase(self):
-        self.assertTrue(self._matches("<BR>"))
+        assert (self._matches("<BR>"))
 
     def test_closing_h1(self):
-        self.assertTrue(self._matches("</h1>"))
+        assert (self._matches("</h1>"))
 
     def test_closing_h2(self):
-        self.assertTrue(self._matches("</h2>"))
+        assert (self._matches("</h2>"))
 
     def test_closing_h6(self):
-        self.assertTrue(self._matches("</h6>"))
+        assert (self._matches("</h6>"))
 
     def test_ul(self):
-        self.assertTrue(self._matches("<ul>"))
+        assert (self._matches("<ul>"))
 
     def test_ol_uppercase(self):
-        self.assertTrue(self._matches("<OL>"))
+        assert (self._matches("<OL>"))
 
     def test_li(self):
-        self.assertTrue(self._matches("<li>"))
+        assert (self._matches("<li>"))
 
     def test_strong(self):
-        self.assertTrue(self._matches("<strong>bold</strong>"))
+        assert (self._matches("<strong>bold</strong>"))
 
     def test_strong_mixed_case(self):
-        self.assertTrue(self._matches("<Strong>text</Strong>"))
+        assert (self._matches("<Strong>text</Strong>"))
 
     def test_em(self):
-        self.assertTrue(self._matches("<em>italic</em>"))
+        assert (self._matches("<em>italic</em>"))
 
     def test_code(self):
-        self.assertTrue(self._matches("<code>x</code>"))
+        assert (self._matches("<code>x</code>"))
 
     def test_pre(self):
-        self.assertTrue(self._matches("<pre>block</pre>"))
+        assert (self._matches("<pre>block</pre>"))
 
     def test_div(self):
-        self.assertTrue(self._matches("<div>content</div>"))
+        assert (self._matches("<div>content</div>"))
 
     def test_table(self):
-        self.assertTrue(self._matches("<table>"))
+        assert (self._matches("<table>"))
 
     def test_html_embedded_in_prose(self):
-        self.assertTrue(self._matches("some text\n<ul>\n<li>item</li>\n</ul>"))
+        assert (self._matches("some text\n<ul>\n<li>item</li>\n</ul>"))
 
     def test_p_all_uppercase(self):
-        self.assertTrue(self._matches("<P>"))
+        assert (self._matches("<P>"))
 
     def test_tag_at_start(self):
-        self.assertTrue(self._matches("<div>first thing"))
+        assert (self._matches("<div>first thing"))
 
     def test_tag_at_end(self):
-        self.assertTrue(self._matches("last thing<br/>"))
+        assert (self._matches("last thing<br/>"))
 
     # --- True negatives ---
 
     def test_plain_text(self):
-        self.assertFalse(self._matches("Hello world"))
+        assert not (self._matches("Hello world"))
 
     def test_math_comparisons(self):
-        self.assertFalse(self._matches("a < b and c > d"))
+        assert not (self._matches("a < b and c > d"))
 
     def test_numeric_comparisons(self):
-        self.assertFalse(self._matches("3 < 5 and 10 > 7"))
+        assert not (self._matches("3 < 5 and 10 > 7"))
 
     def test_prevent_not_p(self):
-        self.assertFalse(self._matches("<prevent>"))
+        assert not (self._matches("<prevent>"))
 
     def test_tablet_not_table(self):
-        self.assertFalse(self._matches("<tablet>"))
+        assert not (self._matches("<tablet>"))
 
     def test_preview_not_pre(self):
-        self.assertFalse(self._matches("Use <preview> mode"))
+        assert not (self._matches("Use <preview> mode"))
 
     def test_coding_not_code(self):
-        self.assertFalse(self._matches("<coding>"))
+        assert not (self._matches("<coding>"))
 
     def test_olive_not_ol(self):
-        self.assertFalse(self._matches("the <olive> tree"))
+        assert not (self._matches("the <olive> tree"))
 
     def test_empty_string(self):
-        self.assertFalse(self._matches(""))
+        assert not (self._matches(""))
 
     def test_email_angle_brackets(self):
-        self.assertFalse(self._matches("email@<domain>"))
+        assert not (self._matches("email@<domain>"))
 
     def test_lt_without_gt(self):
-        self.assertFalse(self._matches("a < b"))
+        assert not (self._matches("a < b"))
 
     def test_emphasis_not_em(self):
-        self.assertFalse(self._matches("<emphasis>"))
+        assert not (self._matches("<emphasis>"))
 
     def test_listing_not_li(self):
-        self.assertFalse(self._matches("<listing>"))
+        assert not (self._matches("<listing>"))
 
     def test_division_not_div(self):
-        self.assertFalse(self._matches("<division>"))
+        assert not (self._matches("<division>"))
 
     # --- Edge cases ---
 
     def test_large_plain_text(self):
-        self.assertFalse(self._matches("x" * 1_000_000))
+        assert not (self._matches("x" * 1_000_000))
 
     def test_large_text_with_tag_at_end(self):
-        self.assertTrue(self._matches("x" * 1_000_000 + "<p>"))
+        assert (self._matches("x" * 1_000_000 + "<p>"))
 
 
-class ChatTypographyTests(unittest.TestCase):
+class ChatTypographyTests:
     """Tests for shared sidebar chat typography helpers."""
 
     def test_apply_chat_char_props(self):
@@ -545,7 +544,7 @@ class ChatTypographyTests(unittest.TestCase):
         cursor.gotoEnd.assert_called_once_with(True)
 
 
-class ChatThemeAndImporterTests(unittest.TestCase):
+class ChatThemeAndImporterTests:
     """Test suite for ChatTheme and HiddenDocHTMLImporter classes."""
 
     def test_chat_theme_resolution(self):
@@ -557,9 +556,9 @@ class ChatThemeAndImporterTests(unittest.TestCase):
         style_window.StyleSettings = style_settings
 
         theme = ChatTheme.resolve(style_window=style_window)
-        self.assertEqual(theme.bg_color, 0x1E1E1E)
-        self.assertEqual(theme.user_color, 0x60A5FA)
-        self.assertEqual(theme.assistant_color, 0xE2E8F0)
+        assert (theme.bg_color) == (0x1E1E1E)
+        assert (theme.user_color) == (0x60A5FA)
+        assert (theme.assistant_color) == (0xE2E8F0)
 
     def test_importer_insert_and_tighten(self):
         from plugin.chatbot.rich_text import HiddenDocHTMLImporter
@@ -590,5 +589,3 @@ class ChatThemeAndImporterTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()

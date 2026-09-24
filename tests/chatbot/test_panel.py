@@ -9,7 +9,6 @@
 """Unit tests for sidebar query Enter-to-send key classification and send dispose."""
 
 import sys
-import unittest
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.config_schema import _get_schema_default
@@ -26,21 +25,21 @@ from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.queue_executor import SendCancellation
 
 
-class QueryEnterSendTests(unittest.TestCase):
+class QueryEnterSendTests:
     def test_enter_without_shift_triggers(self):
-        self.assertTrue(query_enter_triggers_primary_send(1280, 0))
+        assert (query_enter_triggers_primary_send(1280, 0))
 
     def test_shift_enter_does_not_trigger(self):
-        self.assertFalse(query_enter_triggers_primary_send(1280, 1))
+        assert not (query_enter_triggers_primary_send(1280, 1))
 
     def test_shift_with_other_modifiers(self):
-        self.assertFalse(query_enter_triggers_primary_send(1280, 1 | 2))
+        assert not (query_enter_triggers_primary_send(1280, 1 | 2))
 
     def test_non_return_key_ignored(self):
-        self.assertFalse(query_enter_triggers_primary_send(1279, 0))
+        assert not (query_enter_triggers_primary_send(1279, 0))
 
     def test_doc_yaml_default_enter_sends_true(self):
-        self.assertIs(_get_schema_default("doc.chat_enter_key_sends_message"), True)
+        assert (_get_schema_default("doc.chat_enter_key_sends_message")) is (True)
 
 
 def _make_send_listener() -> SendButtonListener:
@@ -60,32 +59,34 @@ def _make_send_listener() -> SendButtonListener:
     )
 
 
-class SendDisposeTests(unittest.TestCase):
-    def setUp(self) -> None:
-        patcher = patch.dict(sys.modules, {"plugin.main": MagicMock()}, clear=False)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+class SendDisposeTests:
+    def setup_method(self) -> None:
+        self._modules_patcher = patch.dict(sys.modules, {"plugin.main": MagicMock()}, clear=False)
+        self._modules_patcher.start()
+
+    def teardown_method(self) -> None:
+        self._modules_patcher.stop()
 
     def test_disposing_cancels_in_flight_send(self) -> None:
         listener = _make_send_listener()
         scope = SendCancellation()
         listener._send_cancellation = scope
         checker = listener.resolve_stop_checker()
-        self.assertFalse(checker())
+        assert not (checker())
         listener.disposing(None)
-        self.assertTrue(scope.is_cancelled())
-        self.assertTrue(checker())
-        self.assertTrue(listener._stop_requested_fallback)
-        self.assertIsNone(listener.ctx)
-        self.assertIsNone(listener.panel)
+        assert (scope.is_cancelled())
+        assert (checker())
+        assert (listener._stop_requested_fallback)
+        assert (listener.ctx) is None
+        assert (listener.panel) is None
 
     def test_disposing_without_active_send_still_latches_stop(self) -> None:
         listener = _make_send_listener()
         listener._send_cancellation = None
         listener.disposing(None)
-        self.assertTrue(listener._stop_requested_fallback)
-        self.assertIsNone(listener.ctx)
-        self.assertIsNone(listener.panel)
+        assert (listener._stop_requested_fallback)
+        assert (listener.ctx) is None
+        assert (listener.panel) is None
 
     def test_start_send_posts_drain_off_action_listener(self) -> None:
         """Send must return from actionPerformed before drain so GTK delivers Stop."""
@@ -95,10 +96,10 @@ class SendDisposeTests(unittest.TestCase):
         listener._do_send = MagicMock()
         listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
-        self.assertEqual(len(posted), 1)
+        assert (len(posted)) == (1)
         listener._do_send.assert_not_called()
-        self.assertTrue(listener.sidebar_state.send.is_busy)
-        self.assertIsNotNone(listener._send_cancellation)
+        assert (listener.sidebar_state.send.is_busy)
+        assert (listener._send_cancellation) is not None
         posted[0]()
         listener._do_send.assert_called_once()
 
@@ -110,11 +111,11 @@ class SendDisposeTests(unittest.TestCase):
         listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
         listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
-        self.assertTrue(listener._stop_requested_fallback)
-        self.assertTrue(listener._send_cancellation.is_cancelled())
+        assert (listener._stop_requested_fallback)
+        assert (listener._send_cancellation.is_cancelled())
         posted[0]()
         listener._do_send.assert_not_called()
-        self.assertFalse(listener.sidebar_state.send.is_busy)
+        assert not (listener.sidebar_state.send.is_busy)
 
     def test_stop_before_drain_does_not_drop_posted_closer(self) -> None:
         """Stop must not cancel_pending_work the posted drain (Send would stay busy)."""
@@ -127,16 +128,13 @@ class SendDisposeTests(unittest.TestCase):
             with patch.object(listener.queue_executor, "_poke_main_thread", lambda: None):
                 listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
                 listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
-                self.assertTrue(listener.sidebar_state.send.is_busy)
-                self.assertFalse(listener.queue_executor._work_queue.empty())
+                assert (listener.sidebar_state.send.is_busy)
+                assert not (listener.queue_executor._work_queue.empty())
                 listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
-                self.assertFalse(
-                    listener.queue_executor._work_queue.empty(),
-                    "cancel_pending_work dropped _run_send_drain",
-                )
+                assert not (listener.queue_executor._work_queue.empty()), "cancel_pending_work dropped _run_send_drain"
                 listener.queue_executor.process_queue()
             listener._do_send.assert_not_called()
-            self.assertFalse(listener.sidebar_state.send.is_busy)
+            assert not (listener.sidebar_state.send.is_busy)
         finally:
             qe.set_force_marshal_mode(False)
             while not listener.queue_executor._work_queue.empty():
@@ -158,26 +156,26 @@ class SendDisposeTests(unittest.TestCase):
         listener.audio_recorder.start_recording.side_effect = RuntimeError("no microphone")
         listener._append_response = MagicMock()
         listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
-        self.assertFalse(listener.sidebar_state.send.is_recording)
-        self.assertFalse(listener.sidebar_state.send.is_busy)
-        self.assertNotEqual(send_model.Label, "Stop Rec")
+        assert not (listener.sidebar_state.send.is_recording)
+        assert not (listener.sidebar_state.send.is_busy)
+        assert (send_model.Label) != ("Stop Rec")
 
     def test_stop_mouse_pressed_cancels_busy_send(self) -> None:
         listener = _make_send_listener()
         listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
         listener.queue_executor.post = lambda fn, *a, **k: None
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
-        self.assertTrue(listener.sidebar_state.send.is_busy)
-        self.assertFalse(listener._stop_requested_fallback)
+        assert (listener.sidebar_state.send.is_busy)
+        assert not (listener._stop_requested_fallback)
         notify_stop_mouse_pressed(listener)
-        self.assertTrue(listener._stop_requested_fallback)
-        self.assertTrue(listener._send_cancellation.is_cancelled())
+        assert (listener._stop_requested_fallback)
+        assert (listener._send_cancellation.is_cancelled())
 
     def test_stop_mouse_pressed_idle_is_noop(self) -> None:
         listener = _make_send_listener()
         notify_stop_mouse_pressed(listener)
-        self.assertFalse(listener._stop_requested_fallback)
-        self.assertFalse(listener.sidebar_state.send.is_busy)
+        assert not (listener._stop_requested_fallback)
+        assert not (listener.sidebar_state.send.is_busy)
 
     def test_stop_mouse_pressed_skips_web_search_approval(self) -> None:
         listener = _make_send_listener()
@@ -186,7 +184,7 @@ class SendDisposeTests(unittest.TestCase):
         listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
         listener._approval_event = object()
         notify_stop_mouse_pressed(listener)
-        self.assertFalse(listener._stop_requested_fallback)
+        assert not (listener._stop_requested_fallback)
 
     def test_stop_mouse_entered_stops_query_restore(self) -> None:
         from plugin.framework import uno_context as uc
@@ -219,7 +217,7 @@ class _ConsumeEvent:
         object.__setattr__(self, name, value)
 
 
-class QueryKeyListenerDisposeTests(unittest.TestCase):
+class QueryKeyListenerDisposeTests:
     def test_consume_disposed_still_sends(self) -> None:
         send_listener = MagicMock()
         send_model = MagicMock()
@@ -238,8 +236,6 @@ class QueryKeyListenerDisposeTests(unittest.TestCase):
         event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
         listener.on_key_pressed(event)
         send_listener.on_action_performed.assert_not_called()
-        self.assertTrue(event.Consume)
+        assert (event.Consume)
 
 
-if __name__ == "__main__":
-    unittest.main()
