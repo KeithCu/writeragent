@@ -299,7 +299,7 @@ def test_fizzbee_randomized_mcp_fuzz(writer_mcp_setup):
     """
     import os
     from tests.mcp.writer_full_layout import run_randomized_mcp_fuzz
-    from tests.vhs_budget import vhs_max_examples
+    from tests.harness.vhs_budget import vhs_max_examples
 
     handler = writer_mcp_setup["handler"]
     tools_reg = writer_mcp_setup["tools"]

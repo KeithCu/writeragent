@@ -29,7 +29,7 @@ from plugin.calc.excel_py_convert.to_dag import (
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_PLACEHOLDER_INDEX, DEAL_MAX_SOURCE, DEAL_MAX_XL_EXPR
-from tests.strip_bundle import deal_pre_present
+from tests.harness.strip_bundle import deal_pre_present
 
 
 def test_xl_binding_expr_header_mode_annotation_is_str() -> None:

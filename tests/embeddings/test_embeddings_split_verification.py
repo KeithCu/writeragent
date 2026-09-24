@@ -28,8 +28,8 @@ from plugin.embeddings.embeddings_split import (
     split_passage_to_sentences,
 )
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-from tests.strip_bundle import deal_pre_present, expect_pre_or_body
-from tests.vhs_budget import vhs_max_examples
+from tests.harness.strip_bundle import deal_pre_present, expect_pre_or_body
+from tests.harness.vhs_budget import vhs_max_examples
 
 
 def test_merge_small_sentences_rejects_negative_start() -> None:

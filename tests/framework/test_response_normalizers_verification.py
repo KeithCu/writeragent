@@ -23,7 +23,7 @@ from plugin.framework.client.response_normalizers import (
     normalize_multimodal_messages,
     strip_leaked_chat_template_control_tokens,
 )
-from tests.vhs_budget import vhs_max_examples
+from tests.harness.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
