@@ -48,10 +48,17 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     calc_doc, cell, desktop, temp_doc, calc_ctrl, writer_ctrl = _cell_and_docs()
     hidden_prop = object()
 
+    order: list[str] = []
+
+    def _record_clear(doc: object) -> None:
+        order.append("clear")
+        assert doc is temp_doc
+
     with (
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.clear_writer_body", side_effect=_record_clear) as mock_clear,
         caplog.at_level(logging.INFO, logger="writeragent.calc"),
     ):
         mock_bridge = mock_bridge_cls.return_value
@@ -59,6 +66,7 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
         mock_bridge.get_cell.return_value = cell
         mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.create_property_value.return_value = hidden_prop
+        mock_fmt._insert_starwriter_html_at_cursor.side_effect = lambda *_a, **_k: order.append("insert")
 
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "Plain <b>BoldBit</b> tail")
 
@@ -77,7 +85,8 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     calc_ctrl.insertTransferable.assert_called_once()
     # GHA 33771766524: close after a live paste hung the next desktop enum.
     temp_doc.close.assert_not_called()
-    temp_doc.getText.return_value.setString.assert_called_with("")
+    mock_clear.assert_called_once_with(temp_doc)
+    assert order[:2] == ["clear", "insert"]
     from tests.strip_bundle import is_release_build
 
     # _step() log.info/print are stripped; the message string literals remain.
@@ -170,6 +179,7 @@ def test_insert_cell_html_rich_skips_close_when_uid_matches_open_writer():
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.clear_writer_body") as mock_clear,
     ):
         mock_bridge = mock_bridge_cls.return_value
         mock_bridge.get_active_sheet.return_value = MagicMock()
@@ -177,6 +187,7 @@ def test_insert_cell_html_rich_skips_close_when_uid_matches_open_writer():
         mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
         mock_fmt.create_property_value.return_value = object()
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
+    mock_clear.assert_called_once_with(temp_doc)
     temp_doc.close.assert_not_called()
 
 

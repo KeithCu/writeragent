@@ -349,8 +349,9 @@ drawing shapes as well as the text — a letterhead is often just an empty table
 body string is "").
 
 **Still local:** [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) reuses a keeper Writer
-(`CREATE|GLOBAL`) rather than opening one per call; it can call `clear_writer_body` on that keeper
-if the template leak shows up there.
+(`CREATE|GLOBAL` on `_wa_calc_html`) rather than going through `new_blank_writer`. It calls
+`clear_writer_body` on that Writer after every load, including the reused keeper, so a
+default-template letterhead (table or logo) is not pasted into the cell.
 
 ### Smaller cleanups
 
