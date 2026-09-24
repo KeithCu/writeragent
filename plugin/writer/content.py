@@ -21,6 +21,7 @@ LO findFirst / chained-regex helpers live in ``plugin.writer.search``.
 
 from __future__ import annotations
 
+import html as html_mod
 import logging
 import re
 import threading
@@ -60,6 +61,10 @@ from plugin.writer.hyperlink_fixup import (
 
 
 log = logging.getLogger("writeragent.writer")
+
+# Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references.
+# Guards the plain-text unescape so a bare "&" is never touched.
+_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
 
@@ -865,6 +870,25 @@ class ApplyDocumentContent(ToolBase):
             _nl_after_esc = content.count("\n")
             if _nl_after_esc != _nl_before_esc:
                 log.debug("apply_document_content: literal \\\\n/\\\\t escape expand (plain text) newline_count %d -> %d", _nl_before_esc, _nl_after_esc)
+            # What was wrong: the import path unescapes HTML entities (html_import
+            # `_ensure_html_linebreaks`, and LO's own filter), but this
+            # format-preserving path wrote raw_content straight into the document. How it
+            # happened: content_has_markup() sees no tag in "R&#36;5.000,00", so a model
+            # that escaped the dollar sign took the plain path and the six characters
+            # "&#36;" landed in the petition verbatim. Why this change fixes it: run the
+            # same html.unescape the import path uses, so both paths agree on what the
+            # model's text means. Decode ONLY complete references (_ENTITY_RE, ";" required):
+            # html.unescape on the whole string also expands semicolon-less names, so
+            # "&sect 2o" became "§ 2o" and "&not incluidos" became "¬ incluidos". A bare "&"
+            # in "Banco & Cia" is never touched.
+            if _ENTITY_RE.search(content):
+                _before_ent = content
+                content = _ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), content)
+                if content != _before_ent:
+                    log.debug(
+                        "apply_document_content: decoded HTML entities on the plain-text path (len %d -> %d)",
+                        len(_before_ent), len(content),
+                    )
 
         raw_content = content
 
