@@ -385,7 +385,7 @@ def test_background_pool_max_workers_default_and_env(monkeypatch: pytest.MonkeyP
 
 class TestWorkerPoolErrorHandling():
 
-    def test_run_in_background_success(self):
+    def test_run_in_background_success_thread_exits(self):
 
         def mock_task(x, y):
             return (x + y)
