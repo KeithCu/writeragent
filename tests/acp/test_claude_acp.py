@@ -7,7 +7,6 @@
 # (at your option) any later version.
 """Tests for the Claude ACP backend adapter."""
 
-import unittest
 from unittest.mock import patch
 
 from plugin.acp.claude_simple import (
@@ -15,43 +14,41 @@ from plugin.acp.claude_simple import (
 )
 
 
-class TestClaudeBinaryDiscovery(unittest.TestCase):
+class TestClaudeBinaryDiscovery:
     """Test binary discovery through backend methods."""
 
     def test_binary_name_is_correct(self):
         """Test that the backend returns the correct binary name."""
         backend = ClaudeBackend()
-        self.assertEqual(backend.get_binary_name(), "claude-code-acp-rs")
+        assert (backend.get_binary_name()) == ("claude-code-acp-rs")
 
     def test_display_name_is_correct(self):
         """Test that the backend returns the correct display name."""
         backend = ClaudeBackend()
-        self.assertEqual(backend.get_display_name(), "Claude Code (ACP)")
+        assert (backend.get_display_name()) == ("Claude Code (ACP)")
 
 
-class TestClaudeBackendInit(unittest.TestCase):
+class TestClaudeBackendInit:
     """Test backend initialization."""
 
     def test_backend_id(self):
         backend = ClaudeBackend()
-        self.assertEqual(backend.backend_id, "claude")
-        self.assertEqual(backend.get_display_name(), "Claude Code (ACP)")
+        assert (backend.backend_id) == ("claude")
+        assert (backend.get_display_name()) == ("Claude Code (ACP)")
 
 
-class TestIsAvailable(unittest.TestCase):
+class TestIsAvailable:
     """Test availability check."""
 
     @patch("shutil.which", return_value="/usr/bin/claude-code-acp")
     def test_available_when_binary_in_path(self, mock_which):
         backend = ClaudeBackend()
-        self.assertTrue(backend.is_available(None))
+        assert (backend.is_available(None))
 
     @patch("shutil.which", return_value=None)
     @patch("os.path.isfile", return_value=False)
     def test_unavailable_when_no_binary(self, mock_isfile, mock_which):
         backend = ClaudeBackend()
-        self.assertFalse(backend.is_available(None))
+        assert not (backend.is_available(None))
 
 
-if __name__ == "__main__":
-    unittest.main()
