@@ -207,23 +207,203 @@ def _get_style_prop(style: Any, prop_name: str) -> Any:
 
 
 def _schema_prop_value(prop_name: str, raw: Any) -> Any:
-    """Read-back form that matches the write schema (ParaAdjust as a word)."""
+    """Read-back form that matches the write schema (ParaAdjust as a word, structs as objects)."""
     if prop_name == "ParaAdjust":
         return _para_adjust_from_uno(raw)
+    if prop_name in _STRUCT_PROPERTIES:
+        return _struct_to_json(_STRUCT_PROPERTIES[prop_name], raw)
+    if prop_name in _STRUCT_SEQUENCE_PROPERTIES and isinstance(raw, (list, tuple)):
+        return [_struct_to_json(_STRUCT_SEQUENCE_PROPERTIES[prop_name], item) for item in raw]
     return raw
 
 
+# Properties whose value is a UNO struct, not a simple type. PyUNO cannot take a
+# plain dict for these: setPropertyValue calls getTypes() on whatever it is given,
+# so a dict raised "AttributeError: 'dict' object has no attribute 'getTypes'" and
+# the whole update failed. Line spacing is the one users hit — it is the only way
+# to set 1.5 lines or an exact leading on a style.
+_STRUCT_PROPERTIES = {
+    "ParaLineSpacing": "com.sun.star.style.LineSpacing",
+    "DropCapFormat": "com.sun.star.style.DropCapFormat",
+    "LeftBorder": "com.sun.star.table.BorderLine2",
+    "RightBorder": "com.sun.star.table.BorderLine2",
+    "TopBorder": "com.sun.star.table.BorderLine2",
+    "BottomBorder": "com.sun.star.table.BorderLine2",
+    "CharLeftBorder": "com.sun.star.table.BorderLine2",
+    "CharRightBorder": "com.sun.star.table.BorderLine2",
+    "CharTopBorder": "com.sun.star.table.BorderLine2",
+    "CharBottomBorder": "com.sun.star.table.BorderLine2",
+}
+
+# Sequence-of-struct properties: the value is a list of dicts.
+_STRUCT_SEQUENCE_PROPERTIES = {
+    "ParaTabStops": "com.sun.star.style.TabStop",
+}
+
+# com.sun.star.style.LineSpacingMode. Models write the word far more often than
+# the number, and the number alone is unreadable in a tool call.
+_LINE_SPACING_MODES = {
+    "prop": 0, "proportional": 0, "percent": 0,
+    "minimum": 1, "min": 1,
+    "leading": 2,
+    "fix": 3, "exact": 3,
+}
+
+
+# Field lists for reading a struct back as JSON. A UNO struct is not JSON-serializable:
+# returning one made update_style apply the change and then fail to report it.
+_STRUCT_FIELDS = {
+    "com.sun.star.style.LineSpacing": ("Mode", "Height"),
+    "com.sun.star.style.DropCapFormat": ("Lines", "Count", "Distance"),
+    "com.sun.star.table.BorderLine2": (
+        "Color", "InnerLineWidth", "OuterLineWidth", "LineDistance", "LineStyle", "LineWidth"),
+    "com.sun.star.style.TabStop": ("Position", "Alignment", "DecimalChar", "FillChar"),
+}
+_LINE_SPACING_MODE_WORDS = {0: "prop", 1: "minimum", 2: "leading", 3: "fix"}
+
+# Fields a fresh createUnoStruct leaves unusable. A TabStop's FillChar starts as NUL;
+# Writer's own tab stops use a space.
+_STRUCT_DEFAULTS = {
+    "com.sun.star.style.TabStop": {"FillChar": " "},
+}
+
+
+def _uno_scalar_to_json(value: Any) -> Any:
+    """uno.Enum / uno.Char -> their plain value; everything else unchanged."""
+    inner = getattr(value, "value", None)
+    if inner is not None and type(value).__module__ in ("uno", "pyuno"):
+        return inner
+    return value
+
+
+def _struct_to_json(struct_name: str, value: Any) -> Any:
+    fields = _STRUCT_FIELDS.get(struct_name)
+    if value is None or not fields:
+        return value
+    out = {}
+    for field in fields:
+        try:
+            out[field] = _uno_scalar_to_json(getattr(value, field))
+        except Exception:
+            continue
+    if struct_name == "com.sun.star.style.LineSpacing" and isinstance(out.get("Mode"), int):
+        out["Mode"] = _LINE_SPACING_MODE_WORDS.get(out["Mode"], out["Mode"])
+    return out
+
+
+def _coerce_uno_field(struct: Any, field: str, value: Any) -> Any:
+    """Strings into UNO enum / char fields, detected from the field's own default.
+
+    TabStop.Alignment is a com.sun.star.style.TabAlign enum and FillChar a UNO char:
+    setattr with a plain "LEFT" or "." is refused, so the whole update failed.
+    """
+    if not isinstance(value, str):
+        return value
+    import uno
+
+    current: Any = getattr(struct, field, None)
+    enum_cls = getattr(uno, "Enum", None)
+    char_cls = getattr(uno, "Char", None)
+    try:
+        if isinstance(enum_cls, type) and isinstance(current, enum_cls):
+            return enum_cls(cast("Any", current).typeName, value.strip().upper())
+        if isinstance(char_cls, type) and isinstance(current, char_cls):
+            return char_cls(value[:1] or " ")
+    except Exception:
+        return value
+    return value
+
+
+def _struct_field_value(struct_name: str, field: str, value: Any) -> tuple[Any, str | None]:
+    """Translate the handful of fields that read better as words."""
+    if struct_name == "com.sun.star.style.LineSpacing" and field == "Mode" and isinstance(value, str):
+        mode = _LINE_SPACING_MODES.get(value.strip().lower())
+        if mode is None:
+            return None, (
+                "ParaLineSpacing Mode must be one of prop, minimum, leading, fix "
+                "(or the UNO integer), got %r" % (value,)
+            )
+        return mode, None
+    return value, None
+
+
+def _dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> tuple[Any, str | None]:
+    """Build a UNO struct from a plain dict. Returns (struct, error_message)."""
+    if not isinstance(value, dict):
+        return None, (
+            "%s takes an object of fields, e.g. {\"Mode\": \"prop\", \"Height\": 150}, got %r"
+            % (prop_name, value)
+        )
+    import uno
+
+    try:
+        struct = cast("Any", uno.createUnoStruct(struct_name))
+    except Exception as e:
+        return None, "Could not build %s for %s: %s" % (struct_name, prop_name, e)
+    fields = dict(_STRUCT_DEFAULTS.get(struct_name, {}))
+    fields.update(value)
+    for field, raw in fields.items():
+        if not hasattr(struct, str(field)):
+            return None, (
+                "%s has no field %r. Fields for %s: %s"
+                % (prop_name, field, struct_name,
+                   ", ".join(sorted(n for n in dir(struct) if not n.startswith("_"))))
+            )
+        converted, err = _struct_field_value(struct_name, str(field), raw)
+        if err:
+            return None, err
+        converted = _coerce_uno_field(struct, str(field), converted)
+        try:
+            setattr(struct, str(field), converted)
+        except Exception as e:
+            return None, "%s.%s rejected %r: %s" % (prop_name, field, raw, e)
+    return struct, None
+
+
+def _set_style_property(style: Any, prop_name: str, value: Any) -> None:
+    """setPropertyValue that also handles sequence-of-struct properties.
+
+    PyUNO passes a Python tuple of structs as a generic sequence, and Writer refuses it
+    for ParaTabStops with a bare IllegalArgumentException. The property needs the
+    typed sequence ``[]com.sun.star.style.TabStop``, which only uno.invoke with a
+    uno.Any can express (a plain uno.Any argument is rejected outside uno.invoke).
+    """
+    struct_name = _STRUCT_SEQUENCE_PROPERTIES.get(prop_name)
+    if struct_name and isinstance(value, tuple):
+        import uno
+
+        # uno.Any / uno.invoke are runtime PyUNO helpers the type stubs do not declare.
+        uno_rt = cast("Any", uno)
+        uno_rt.invoke(style, "setPropertyValue", (prop_name, uno_rt.Any("[]" + struct_name, value)))
+        return
+    style.setPropertyValue(prop_name, value)
+
+
 def _normalize_property_updates(property_updates: Any) -> tuple[dict[str, Any], str | None]:
-    """Copy updates and translate ParaAdjust. Returns (dict, error_message)."""
+    """Copy updates and translate ParaAdjust and UNO structs. Returns (dict, error_message)."""
     if not isinstance(property_updates, dict):
         return {}, None
     updates = dict(property_updates)
-    if "ParaAdjust" not in updates:
-        return updates, None
-    uno_adj, err = _para_adjust_to_uno(updates["ParaAdjust"])
-    if err:
-        return {}, err
-    updates["ParaAdjust"] = uno_adj
+    if "ParaAdjust" in updates:
+        uno_adj, err = _para_adjust_to_uno(updates["ParaAdjust"])
+        if err:
+            return {}, err
+        updates["ParaAdjust"] = uno_adj
+    for name, struct_name in _STRUCT_PROPERTIES.items():
+        if name in updates and isinstance(updates[name], dict):
+            struct, err = _dict_to_uno_struct(name, struct_name, updates[name])
+            if err:
+                return {}, err
+            updates[name] = struct
+    for name, struct_name in _STRUCT_SEQUENCE_PROPERTIES.items():
+        if name in updates and isinstance(updates[name], list):
+            built = []
+            for item in updates[name]:
+                struct, err = _dict_to_uno_struct(name, struct_name, item)
+                if err:
+                    return {}, err
+                built.append(struct)
+            updates[name] = tuple(built)
     return updates, None
 
 
@@ -640,6 +820,11 @@ class StyleUpdate(ToolWriterStyleBase):
         "(e.g. {'CharColor': '#FF0000', 'CharWeight': 150, 'ParaAdjust': 'center'}). "
         "ParaAdjust is left/center/right/justify, not 0/1/2/3. "
         "Colors can be provided as hex strings or integers. "
+        "Struct properties take an object of fields: ParaLineSpacing "
+        "{'Mode': 'prop'|'minimum'|'leading'|'fix', 'Height': N} (Height is a percent "
+        "for prop -- 150 is 1.5 lines -- and 1/100 mm for the others); the border "
+        "properties (Left/Right/Top/BottomBorder, and the Char* ones) take a "
+        "BorderLine2 object; ParaTabStops takes a list of TabStop objects. "
         "You can also update the 'parent_style' separately."
     )
     parameters: dict[str, Any] | None = {
@@ -723,10 +908,8 @@ class StyleUpdate(ToolWriterStyleBase):
                 prop_val = parsed
 
             try:
-                style.setPropertyValue(prop_name, prop_val)
-                applied[prop_name] = (
-                    _para_adjust_from_uno(prop_val) if prop_name == "ParaAdjust" else prop_val
-                )
+                _set_style_property(style, prop_name, prop_val)
+                applied[prop_name] = _schema_prop_value(prop_name, prop_val)
             except Exception as e:
                 log.warning("Failed to set property %s on %s: %s", prop_name, style_name, e, exc_info=True)
                 hint = ""
@@ -868,7 +1051,7 @@ class StyleCreate(ToolWriterStyleBase):
                         continue
                     prop_val = parsed
                 try:
-                    new_style.setPropertyValue(prop_name, prop_val)
+                    _set_style_property(new_style, prop_name, prop_val)
                     if prop_name == "CharFontName":
                         applied_font = prop_val
                 except Exception:

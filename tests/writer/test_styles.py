@@ -13,6 +13,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import sys
+from contextlib import contextmanager
+
 import pytest
 from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
@@ -572,3 +575,140 @@ def test_apply_style_selection_failure_at_tool_layer(mock_ctx):
         res = ApplyStyle().execute(mock_ctx, style="Heading 1", target="selection")
     assert res["status"] == "error"
     assert "selection" in res["message"].lower()
+
+
+# --- UNO struct values in update_style's property_updates -------------------
+# Regression: ParaLineSpacing={'Mode':0,'Height':100} reached PyUNO as a plain
+# dict and failed with "'dict' object has no attribute 'getTypes'", taking the
+# whole style update down with it.
+
+class _FakeLineSpacing:
+    """Stands in for com.sun.star.style.LineSpacing (fixed field set)."""
+
+    def __init__(self):
+        self.Mode = 0
+        self.Height = 100
+
+
+@contextmanager
+def _fake_uno_struct_factory():
+    """Install a struct factory on the mocked ``uno`` module, then un-install it.
+
+    ``patch()`` would leave ``createUnoStruct`` *materialised* in the MagicMock's
+    __dict__, and test_tracking's "Date struct missing" case depends on it being
+    absent. Restore the attribute's presence, not just its value.
+    """
+    uno_mod = sys.modules["uno"]
+    had = "createUnoStruct" in uno_mod.__dict__
+    previous = uno_mod.__dict__.get("createUnoStruct")
+    uno_mod.createUnoStruct = lambda _name: _FakeLineSpacing()
+    try:
+        yield
+    finally:
+        if had:
+            uno_mod.createUnoStruct = previous
+        else:
+            uno_mod.__dict__.pop("createUnoStruct", None)
+
+
+def _normalize_with_fake_struct(updates):
+    from plugin.writer import styles
+
+    with _fake_uno_struct_factory():
+        return styles._normalize_property_updates(updates)
+
+
+def test_line_spacing_dict_becomes_a_uno_struct():
+    out, err = _normalize_with_fake_struct({"ParaLineSpacing": {"Mode": 0, "Height": 150}})
+    assert err is None
+    assert not isinstance(out["ParaLineSpacing"], dict)
+    assert out["ParaLineSpacing"].Height == 150
+
+
+def test_line_spacing_mode_accepts_the_word():
+    out, err = _normalize_with_fake_struct({"ParaLineSpacing": {"Mode": "fix", "Height": 500}})
+    assert err is None
+    assert out["ParaLineSpacing"].Mode == 3
+
+
+def test_unknown_line_spacing_mode_is_refused_with_the_options():
+    out, err = _normalize_with_fake_struct({"ParaLineSpacing": {"Mode": "duplo"}})
+    assert out == {}
+    assert "prop" in err and "duplo" in err
+
+
+def test_unknown_struct_field_names_the_real_fields():
+    out, err = _normalize_with_fake_struct({"ParaLineSpacing": {"Altura": 150}})
+    assert out == {}
+    assert "Altura" in err and "Height" in err
+
+
+def test_struct_property_given_a_scalar_is_refused():
+    out, err = _normalize_with_fake_struct({"ParaLineSpacing": 150})
+    # Not a dict -> left for UNO to reject; the normalizer must not crash.
+    assert err is None
+    assert out["ParaLineSpacing"] == 150
+
+
+def test_simple_properties_pass_through_untouched():
+    out, err = _normalize_with_fake_struct({"CharWeight": 150, "CharColor": "#FF0000"})
+    assert err is None
+    assert out == {"CharWeight": 150, "CharColor": "#FF0000"}
+
+
+# --- struct values must come back as JSON, and sequences must be typed --------
+# Regression: update_style applied ParaLineSpacing and then returned the UNO struct in
+# before/after, which is not JSON-serializable -- the change landed but the tool
+# reported failure. ParaTabStops failed outright: Writer refuses a plain tuple of
+# structs; the property needs a typed []com.sun.star.style.TabStop.
+
+class _FakeStruct:
+    def __init__(self, **fields):
+        for k, v in fields.items():
+            setattr(self, k, v)
+
+
+def test_line_spacing_reads_back_as_a_json_object_with_the_mode_word():
+    import json
+
+    from plugin.writer.styles import _schema_prop_value
+
+    out = _schema_prop_value("ParaLineSpacing", _FakeStruct(Mode=0, Height=150))
+    assert out == {"Mode": "prop", "Height": 150}
+    json.dumps(out)
+
+
+def test_tab_stops_read_back_as_a_list_of_objects():
+    import json
+
+    from plugin.writer.styles import _schema_prop_value
+
+    out = _schema_prop_value("ParaTabStops", (_FakeStruct(Position=2000, Alignment="LEFT", DecimalChar=",", FillChar=" "),))
+    assert out == [{"Position": 2000, "Alignment": "LEFT", "DecimalChar": ",", "FillChar": " "}]
+    json.dumps(out)
+
+
+def test_simple_values_read_back_unchanged():
+    from plugin.writer.styles import _schema_prop_value
+
+    assert _schema_prop_value("CharWeight", 150) == 150
+
+
+def test_tab_stops_are_set_through_a_typed_sequence():
+    from plugin.writer import styles
+
+    style = MagicMock()
+    value = (object(),)
+    with patch("uno.invoke", create=True) as invoke, patch("uno.Any", create=True) as any_:
+        styles._set_style_property(style, "ParaTabStops", value)
+    any_.assert_called_once_with("[]com.sun.star.style.TabStop", value)
+    assert invoke.call_args.args[1] == "setPropertyValue"
+    style.setPropertyValue.assert_not_called()
+
+
+def test_plain_properties_use_set_property_value():
+    from plugin.writer import styles
+
+    style = MagicMock()
+    styles._set_style_property(style, "CharWeight", 150)
+    style.setPropertyValue.assert_called_once_with("CharWeight", 150)

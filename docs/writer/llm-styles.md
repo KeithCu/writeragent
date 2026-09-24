@@ -122,6 +122,15 @@ The LLM can create new styles from scratch, allowing for document-wide consisten
 * `property_updates`: Initial font, margin, and color settings.
 * `conditional_rules`: (Optional, ParagraphStyles only) Map contexts like `Table` or `Header` to other styles.
 
+**Struct-valued properties** (`style_create` and `style_update`): `ParaLineSpacing`, the border
+properties (`Left/Right/Top/BottomBorder` and the `Char*` ones), `DropCapFormat` take an **object of
+fields**, and `ParaTabStops` a **list** of them — e.g. `{"ParaLineSpacing": {"Mode": "prop",
+"Height": 150}}` is 1.5 lines (`Mode` is `prop` / `minimum` / `leading` / `fix`; `Height` is a percent
+for `prop`, 1/100 mm otherwise). They are read back in the same object form. A plain dict used to
+reach PyUNO unconverted and fail with `'dict' object has no attribute 'getTypes'`; `ParaTabStops`
+additionally needs the typed `[]com.sun.star.style.TabStop` sequence, set through `uno.invoke`
+([`styles.py`](../../plugin/writer/styles.py) `_set_style_property`).
+
 ### The `style_import` Tool
 
 If the user has a preferred template file (.ott or .odt), the agent can import all its styles at once to ensure branding consistency.
