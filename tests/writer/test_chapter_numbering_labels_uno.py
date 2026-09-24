@@ -6,6 +6,9 @@
 
 Confirms the authoritative visible heading label and the enable/disable UNO
 sequence. Does **not** implement ``chapter_number`` on ``writer_tree``.
+
+``reuse=False``: ChapterNumberingRules persist on leftover Writer and make
+Heading 2 ``NumberingStyleName='Outline'``, which breaks the list-only suite.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from tests.writer.chapter_numbering_fixtures import (
 
 
 @native_test
-@with_native_doc("writer")
+@with_native_doc("writer", reuse=False)
 def test_chapter_numbering_listlabel_on_off_uno(ctx, doc):
     insert_chapter_heading_fixture(doc)
 
@@ -53,7 +56,7 @@ def test_chapter_numbering_listlabel_on_off_uno(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer")
+@with_native_doc("writer", reuse=False)
 def test_chapter_number_from_para_omit_when_off_uno(ctx, doc):
     insert_chapter_heading_fixture(doc)
     disable_chapter_numbering(doc)
@@ -68,7 +71,7 @@ def test_chapter_number_from_para_omit_when_off_uno(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer")
+@with_native_doc("writer", reuse=False)
 def test_chapter_numbering_start_with_three_uno(ctx, doc):
     """start_with=3 yields discussion-shaped 3 / 3.1 / 3.1.1 labels."""
     insert_chapter_heading_fixture(doc)

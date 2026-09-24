@@ -90,8 +90,10 @@ def enable_chapter_numbering(
             "Suffix": suffix,
             "Prefix": "",
         }
-        if start_with is not None and i == 0:
-            updates["StartWith"] = int(start_with)
+        # Always write StartWith — leftover Writer reuse keeps the last
+        # value (e.g. 3) across tests / sequential enable() calls.
+        if i == 0:
+            updates["StartWith"] = int(start_with) if start_with is not None else 1
         replace_chapter_numbering_level(rules, i, **updates)
 
 

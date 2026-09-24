@@ -174,7 +174,7 @@ def _heading_by_text(tree):
 
 
 @native_test
-@with_native_doc("writer")
+@with_native_doc("writer", reuse=False)
 def test_chapter_number_on_off_and_locator_uno(ctx, doc):
     """Discussion #876: ListLabelString → optional chapter_number + locator."""
     from plugin.doc.document_helpers import resolve_locator
@@ -264,7 +264,7 @@ def test_chapter_number_on_off_and_locator_uno(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer")
+@with_native_doc("writer", reuse=False)
 def test_chapter_number_not_invented_from_literal_title_uno(ctx, doc):
     """A title like DOCUMENT 7 is not a chapter_number — only ListLabelString is."""
     from tests.writer.chapter_numbering_fixtures import (

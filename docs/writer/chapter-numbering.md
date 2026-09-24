@@ -38,7 +38,10 @@ heading has that label, resolve raises a clear error. It does not fall back to
 
 ## Tests
 
-Enable/disable Chapter Numbering in `@with_native_doc` tests with typed
+Enable/disable Chapter Numbering in `@with_native_doc(..., reuse=False)` tests
+with typed
 `uno.invoke(..., replaceByIndex, uno.Any("[]com.sun.star.beans.PropertyValue", level))`
-— see `tests/writer/chapter_numbering_fixtures.py`. Do not fold those fixtures
-into `tests/writer/test_numbering_lists_uno.py` (list-only by design).
+— see `tests/writer/chapter_numbering_fixtures.py`. `reuse=False` is required:
+touched `ChapterNumberingRules` survive leftover Writer wipe and make Heading 2
+`NumberingStyleName='Outline'`, which breaks the list-only suite. Do not fold
+those fixtures into `tests/writer/test_numbering_lists_uno.py`.

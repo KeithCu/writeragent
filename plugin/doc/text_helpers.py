@@ -18,7 +18,7 @@ import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
 
 import uno
 
@@ -187,21 +187,21 @@ def chapter_number_from_para(para: Any) -> str | None:
     return raw or None
 
 
-def apply_chapter_number(node: dict[str, Any], para: Any) -> None:
+def apply_chapter_number(node: Any, para: Any) -> None:
     """Set optional ``chapter_number`` on a heading node; omit the key when off."""
     label = chapter_number_from_para(para)
     if label:
         node["chapter_number"] = label
 
 
-def iter_heading_nodes(node: HeadingTreeNode) -> Iterator[HeadingTreeNode]:
+def iter_heading_nodes(node: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
     """Yield heading children in document order (not the synthetic root)."""
     for child in node.get("children", []):
         yield child
         yield from iter_heading_nodes(child)
 
 
-def find_heading_by_chapter_number(tree: HeadingTreeNode, label: str) -> HeadingTreeNode | None:
+def find_heading_by_chapter_number(tree: Mapping[str, Any], label: str) -> Mapping[str, Any] | None:
     """Exact match on the emitted ``chapter_number`` field (after normalize).
 
     Does **not** invent a label from sibling ordinals. ``heading:1.2`` remains
