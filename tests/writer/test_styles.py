@@ -749,3 +749,17 @@ def test_apply_style_occurrence_out_of_range():
                                    old_content="Title", occurrence=5)
     assert res["status"] == "error" and "out of range" in res["message"]
 
+# ---- 8) recoverable error messages ----------------------------------------------
+
+def test_apply_style_unknown_style_lists_names_and_suggests():
+    from plugin.writer.styles import ApplyStyle
+
+    fam = MagicMock()
+    fam.hasByName.return_value = False
+    fam.getElementNames.return_value = ["Heading 1", "Heading 2", "Text body", "Quotations"]
+    ctx = MagicMock()
+    ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
+    res = ApplyStyle().execute(ctx, style="heading 1", family="ParagraphStyles")
+    assert res["status"] == "error"
+    assert "Did you mean 'Heading 1'" in res["message"]
+    assert "Text body" in res["message"]
