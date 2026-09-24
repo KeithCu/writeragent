@@ -12,9 +12,6 @@ import pytest
 
 from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session
 from plugin.scripting.venv.worker_harness import _execute_request, _handle_request
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @pytest.fixture(autouse=True)

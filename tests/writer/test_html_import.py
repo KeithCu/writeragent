@@ -1,6 +1,4 @@
-from plugin.tests.testing_utils import setup_uno_mocks
 
-setup_uno_mocks()
 
 from plugin.writer.html_import import content_has_markup, extract_and_strip_ruby
 

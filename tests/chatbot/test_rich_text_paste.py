@@ -11,9 +11,6 @@ import logging
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 from plugin.chatbot.rich_text_control import HISTORY_RENDER_BATCH_CHARS
 from plugin.chatbot.rich_text_paste import (

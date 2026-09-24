@@ -18,9 +18,6 @@ from plugin.notebook.notebook_controls import (
     wire_run_button_listener,
     wired_run_listener_count,
 )
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def setup_function() -> None:

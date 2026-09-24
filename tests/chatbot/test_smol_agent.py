@@ -81,9 +81,6 @@ from plugin.contrib.smolagents.models import ChatMessage, MessageRole
 from plugin.contrib.smolagents.monitoring import Timing
 from plugin.contrib.smolagents.tools import Tool
 from plugin.framework.tool import ToolBase
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 # =============================================================================
@@ -349,7 +346,6 @@ def test_to_smol_inputs_specialized_preserves_enum_and_default_type():
     assert inputs["domain"]["description"] == "pick"
     assert inputs["domain"]["nullable"] is False
     assert inputs["optional_param"]["nullable"] is True
-
 
 
 class _StubTool(ToolBase):

@@ -9,8 +9,6 @@ the pieces of the original chat system prompt (constants.py) — updated in plac
 ARE the manual now. The sidebar template assembles them directly; agent_manual maps topic -> piece
 for the MCP channel (get_guidance) and the agent-backend path, adding the MCP-only extras; and the
 sections are per document type so a Calc session never reads Writer advice. No LibreOffice required."""
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.chatbot.agent_manual import (
     MANUAL_SECTIONS,

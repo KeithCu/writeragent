@@ -38,10 +38,7 @@ from plugin.scripting.domain_registry import (
     SCRIPT_ORIGIN_VISION,
     VISION_SCRIPT_DISPLAY_PREFIX,
 )
-from plugin.tests.testing_utils import setup_uno_mocks
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
-
-setup_uno_mocks()
 
 
 def test_document_scripts_identity_uses_shared_trailing_slash_normalize():

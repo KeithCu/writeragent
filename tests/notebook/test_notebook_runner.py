@@ -32,9 +32,6 @@ from plugin.notebook.notebook_runner import (
     update_in_prompt,
     run_cell_target_url,
 )
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def test_format_run_output_text_stdout_and_result():

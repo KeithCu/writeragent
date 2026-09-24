@@ -3,8 +3,7 @@
 import unittest
 from unittest.mock import patch
 
-from plugin.tests.testing_utils import WriterDocStub, setup_uno_mocks
-setup_uno_mocks()
+from plugin.tests.testing_utils import WriterDocStub
 
 from plugin.main import get_tools
 

@@ -5,9 +5,6 @@
 
 from unittest.mock import MagicMock
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 

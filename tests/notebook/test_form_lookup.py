@@ -9,9 +9,6 @@ from plugin.notebook.form_lookup import (
     find_form_control_model_by_name,
     index_form_control_models,
 )
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def test_index_form_control_models_from_draw_page():

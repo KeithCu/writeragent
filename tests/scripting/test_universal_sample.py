@@ -1,7 +1,5 @@
 from unittest.mock import patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.framework.uno_bootstrap import register_alias_importer
 register_alias_importer()
@@ -96,7 +94,6 @@ def test_universal_sample_calc():
         )
 
 
-
 def test_config_injects_universal_sample():
     from plugin.framework.config_schema import WriterAgentConfig
     
@@ -151,6 +148,5 @@ def test_config_keeps_user_edited_universal_sample():
     config = WriterAgentConfig.from_dict({"saved_python_scripts": {"Universal Sample": custom}})
     config.validate()
     assert config.saved_python_scripts["Universal Sample"] == custom
-
 
 

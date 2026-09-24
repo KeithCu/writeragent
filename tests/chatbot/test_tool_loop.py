@@ -2,8 +2,6 @@ import sys
 import types
 from unittest.mock import Mock, MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 # Define exact structure for awt to avoid metaclass inheritance issues not covered by setup_uno_mocks
 class XTopWindowListener(object):

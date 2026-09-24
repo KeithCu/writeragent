@@ -53,3 +53,40 @@ def test_run_suite_imports_eval_runner_at_runtime() -> None:
         listener.run_suite()
     fake_mod.run_benchmark_suite.assert_called_once()
     sys.modules.pop("tests.eval_runner", None)
+
+
+def test_run_suite_reports_when_eval_runner_is_missing() -> None:
+    """Release builds omit tests/. Run must say so instead of raising ImportError."""
+    saved = sys.modules.get("tests.eval_runner")
+    sys.modules["tests.eval_runner"] = None  # type: ignore[assignment]
+
+    class _Ctrl:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def setText(self, text: str) -> None:
+            self.text = text
+
+    log_area = _Ctrl()
+    status = _Ctrl()
+    dialog = MagicMock()
+
+    def _control(name: str) -> _Ctrl:
+        if name == "log_area":
+            return log_area
+        if name == "status":
+            return status
+        return _Ctrl()
+
+    dialog.getControl.side_effect = _control
+    listener = EvalRunListener(MagicMock(), dialog)
+    try:
+        listener.run_suite()
+    finally:
+        if saved is None:
+            sys.modules.pop("tests.eval_runner", None)
+        else:
+            sys.modules["tests.eval_runner"] = saved
+    assert status.text == "Unavailable"
+    assert "not in this extension build" in log_area.text
+    assert "run_eval.py" in log_area.text

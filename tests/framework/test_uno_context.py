@@ -5,12 +5,10 @@ import threading
 import time
 from plugin.testing_runner import native_test
 from unittest.mock import MagicMock, patch
-from plugin.tests.testing_utils import setup_uno_mocks
 from plugin.framework.uno_context import set_fallback_ctx, get_ctx
 _test_doc1 = None
 _test_doc2 = None
 _test_ctx = None
-
 
 
 @native_test
@@ -37,15 +35,13 @@ def test_service_registry():
     registry.register('dummy', svc)
     assert (registry.get('dummy') is svc), 'ServiceRegistry failed'
 
-setup_uno_mocks()
-
 
 def test_get_ctx_with_uno():
     mock_uno = MagicMock()
     mock_ctx = MagicMock()
     mock_uno.getComponentContext.return_value = mock_ctx
     # patch.dict RESTORES the previous sys.modules['uno'] (the session-wide mock installed by
-    # setup_uno_mocks). The old pop('uno') left the whole run without a 'uno' module, so any
+    # tests/conftest.py). The old pop('uno') left the whole run without a 'uno' module, so any
     # later test that imports uno lazily hit the real uno.py -> "No module named 'pyuno'"
     # (this is what broke tests/mcp/test_long_running_concurrency.py in combined runs).
     with patch.dict(sys.modules, {'uno': mock_uno}):

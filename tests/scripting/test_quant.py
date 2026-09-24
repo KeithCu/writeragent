@@ -19,9 +19,6 @@ from plugin.scripting.quant import (
 )
 from plugin.scripting.venv.quant import run_quant as venv_run_quant
 from plugin.framework.errors import ToolExecutionError
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def test_quant_template_is_executable():

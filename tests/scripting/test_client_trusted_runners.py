@@ -12,9 +12,7 @@ import pytest
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting import client
-from plugin.tests.testing_utils import setup_uno_mocks
 
-setup_uno_mocks()
 
 _SPEC_RUNNERS = (
     ("run_analysis", "writeragent:analysis", "analysis", "ANALYSIS_ERROR"),

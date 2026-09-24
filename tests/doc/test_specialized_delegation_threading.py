@@ -21,12 +21,9 @@ from plugin.framework.prompts import get_peer_inner_choice_block
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.worker_pool import run_in_background
-from plugin.tests.testing_utils import setup_uno_mocks
 from plugin.writer.specialized.footnotes import FootnotesList
 from plugin.writer.specialized_base import DelegateToSpecializedWriter, ToolWriterFootnoteBase, ToolWriterShapeBase
 from tests.framework.thread_safety import start_uno_thread_safety_session
-
-setup_uno_mocks()
 
 
 class _DummyAnalysisTool(ToolCalcAnalysisBase):

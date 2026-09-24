@@ -9,8 +9,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.writer.selection import SetSelection
 from plugin.writer.target_resolver import resolve_target_cursor

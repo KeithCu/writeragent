@@ -5,8 +5,7 @@
 """Tests for images.py helpers (no LibreOffice required)."""
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import TestingFactory, setup_uno_mocks
-setup_uno_mocks()
+from plugin.tests.testing_utils import TestingFactory
 
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.doc.document_research_tools import ListNearbyFiles

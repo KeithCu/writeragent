@@ -22,11 +22,9 @@ from plugin.framework.config import (
 from plugin.framework.errors import ConfigError
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
 from plugin.framework.event_bus import global_event_bus
-from plugin.tests.testing_utils import setup_uno_mocks
 from plugin.framework.constants import get_plugin_dir
 import sys
 
-setup_uno_mocks()
 sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
 class TestConfigSync(unittest.TestCase):

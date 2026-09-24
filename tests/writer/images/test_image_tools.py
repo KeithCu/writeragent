@@ -5,9 +5,6 @@ import types
 import unittest
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 # image_tools imports TextContentAnchorType at load time; conftest usually provides it.
 _anchor_key = "com.sun.star.text.TextContentAnchorType"

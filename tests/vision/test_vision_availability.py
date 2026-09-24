@@ -5,8 +5,6 @@
 """Tests for vision tool-list gating (no LibreOffice required)."""
 from unittest.mock import patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.vision.vision_availability import (
     chat_text_model_has_native_vision,

@@ -15,8 +15,6 @@ from unittest.mock import patch
 
 import pytest
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.framework.tool import ToolContext
 from plugin.writer.get_image import GetImage, _is_draw_family, _render_page_png
