@@ -7,11 +7,10 @@
 from __future__ import annotations
 
 import sys
-import unittest
 from unittest.mock import MagicMock, patch
 
 
-class TestGuardUnoBoundaries(unittest.TestCase):
+class TestGuardUnoBoundaries:
     def test_open_document_for_read_new_load_calls_guard_uno(self) -> None:
         from plugin.doc.doc_type import DocumentType
 
@@ -27,11 +26,11 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             from plugin.doc.document_research import open_document_for_read
 
             model, doc_type, err, opened = open_document_for_read(MagicMock(), "/tmp/Budget.ods")
-        self.assertIsNone(err)
-        self.assertEqual(doc_type, "calc")
-        self.assertTrue(opened)
+        assert (err) is None
+        assert (doc_type) == ("calc")
+        assert (opened)
         mock_guard.assert_called_once_with(opened_model)
-        self.assertIs(model, opened_model)
+        assert (model) is (opened_model)
 
     def test_get_calc_document_from_ctx_wraps_active_doc(self) -> None:
         calc_doc = MagicMock()
@@ -45,7 +44,7 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             from plugin.scripting.document_scripts import get_calc_document_from_ctx
 
             out = get_calc_document_from_ctx(MagicMock())
-        self.assertIs(out, calc_doc)
+        assert (out) is (calc_doc)
         mock_guard.assert_called_once_with(calc_doc)
 
     def test_mcp_long_running_context_uses_get_ctx(self) -> None:
@@ -89,7 +88,7 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             from plugin.calc.python.function import _get_calc_doc
 
             out = _get_calc_doc(MagicMock())
-        self.assertIs(out, calc_doc)
+        assert (out) is (calc_doc)
         mock_guard.assert_called_once_with(calc_doc)
 
     def test_get_calc_doc_returns_none_off_main(self) -> None:
@@ -101,7 +100,7 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             from plugin.calc.python.function import _get_calc_doc
 
             out = _get_calc_doc(MagicMock())
-        self.assertIsNone(out)
+        assert (out) is None
         mock_desktop.assert_not_called()
         mock_guard.assert_not_called()
 
@@ -133,7 +132,7 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             from plugin.calc.python.function import _get_calc_doc
 
             out = _get_calc_doc(MagicMock())
-        self.assertIs(out, calc_model)
+        assert (out) is (calc_model)
         mock_guard.assert_called_once_with(calc_model)
 
     def test_export_graphic_to_bytes_uses_get_ctx_when_ctx_none(self) -> None:
@@ -154,7 +153,7 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             data = export_graphic_to_bytes(None, MagicMock())
         mock_get_ctx.assert_called_once()
         gp.storeGraphic.assert_called_once()
-        self.assertIsInstance(data, bytes)
+        assert isinstance(data, bytes)
 
     def test_get_lo_locale_none_ctx_uses_get_ctx_on_main(self) -> None:
         guarded_ctx = MagicMock(name="guarded_ctx")
@@ -181,7 +180,7 @@ class TestGuardUnoBoundaries(unittest.TestCase):
 
             locale = get_lo_locale(None)
         mock_get_ctx.assert_called_once()
-        self.assertEqual(locale, "de_DE")
+        assert (locale) == ("de_DE")
 
     def test_get_lo_locale_none_ctx_off_main_returns_default(self) -> None:
         with (
@@ -191,7 +190,7 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             from plugin.framework.i18n import get_lo_locale
 
             locale = get_lo_locale(None)
-        self.assertEqual(locale, "en_US")
+        assert (locale) == ("en_US")
         mock_get_ctx.assert_not_called()
 
     def test_office_model_from_desktop_element_wraps_controller_model(self) -> None:
@@ -204,7 +203,7 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             from plugin.doc.document_research import _office_model_from_desktop_element
 
             out = _office_model_from_desktop_element(elem)
-        self.assertIs(out, model)
+        assert (out) is (model)
         mock_guard.assert_called_once_with(model)
 
     def test_office_model_from_desktop_element_wraps_element_without_controller(self) -> None:
@@ -214,7 +213,7 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             from plugin.doc.document_research import _office_model_from_desktop_element
 
             out = _office_model_from_desktop_element(elem)
-        self.assertIs(out, elem)
+        assert (out) is (elem)
         mock_guard.assert_called_once_with(elem)
 
     def test_office_model_from_desktop_element_skips_broken_controller(self) -> None:
@@ -227,7 +226,7 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             from plugin.doc.document_research import _office_model_from_desktop_element
 
             out = _office_model_from_desktop_element(elem)
-        self.assertIsNone(out)
+        assert (out) is None
         mock_guard.assert_not_called()
 
     def test_get_active_calc_cell_wraps_model(self) -> None:
@@ -260,13 +259,11 @@ class TestGuardUnoBoundaries(unittest.TestCase):
             from plugin.calc.python.editor import _get_active_calc_cell
 
             out = _get_active_calc_cell(MagicMock())
-        self.assertIsNotNone(out)
+        assert (out) is not None
         assert out is not None
-        self.assertIs(out[0], model)
+        assert (out[0]) is (model)
         mock_guard.assert_called_once_with(model)
         mock_bridge.assert_called_once()
-        self.assertIs(mock_bridge.call_args[0][0], model)
+        assert (mock_bridge.call_args[0][0]) is (model)
 
 
-if __name__ == "__main__":
-    unittest.main()

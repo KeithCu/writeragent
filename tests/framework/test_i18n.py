@@ -1,4 +1,4 @@
-import unittest
+import pytest
 from gettext import NullTranslations
 from unittest.mock import MagicMock, patch
 import deal
@@ -15,28 +15,28 @@ from plugin.framework.constants import get_locales_dir
 PO_JUNK = "Project-Id-Version: WriterAgent 1.0\nReport-Msgid-Bugs-To: x\n"
 
 
-class TestI18n(unittest.TestCase):
-    def setUp(self):
+class TestI18n:
+    def setup_method(self):
         # Reset i18n initialization state
         i18n_module._translation = None
 
     def test_i18n_fallback(self):
         """With NullTranslations, msgid passes through unchanged."""
         i18n_module._translation = NullTranslations()
-        self.assertEqual(_("ThisIsAnUntranslatedString999"), "ThisIsAnUntranslatedString999")
+        assert (_("ThisIsAnUntranslatedString999")) == ("ThisIsAnUntranslatedString999")
 
     def test_i18n_msgid_must_be_str(self):
         i18n_module._translation = NullTranslations()
         for bad in (123, ["a"], ("a",), None):
-            with self.assertRaises((TypeError, deal.PreContractError), msg=repr(bad)):
+            with pytest.raises((TypeError, deal.PreContractError)):
                 _(bad)
 
     def test_i18n_msgid_allows_unicode_and_empty(self):
         """gettext msgids are not an ASCII-only domain (deal.pre must not use isascii)."""
         i18n_module._translation = NullTranslations()
-        self.assertEqual(_("✓ Copied!"), "✓ Copied!")
-        self.assertEqual(_("Testing…"), "Testing…")
-        self.assertEqual(_(""), "")
+        assert (_("✓ Copied!")) == ("✓ Copied!")
+        assert (_("Testing…")) == ("Testing…")
+        assert (_("")) == ("")
 
     def test_i18n_msgid_rejects_over_deal_max_msgid(self):
         from tests.harness.strip_bundle import deal_pre_present
@@ -44,7 +44,7 @@ class TestI18n(unittest.TestCase):
         if not deal_pre_present(_):
             self.skipTest("@deal.pre stripped in release bundle")
         i18n_module._translation = NullTranslations()
-        with self.assertRaises(deal.PreContractError):
+        with pytest.raises(deal.PreContractError):
             _("x" * (DEAL_MAX_MSGID + 1))
 
     def test_locale_detection_uno(self):
@@ -65,7 +65,7 @@ class TestI18n(unittest.TestCase):
 
         with patch.dict(sys.modules, {'uno': mock_uno}):
             locale = get_lo_locale(mock_ctx)
-            self.assertEqual(locale, "fr_FR")
+            assert (locale) == ("fr_FR")
 
     def test_locale_detection_default_when_uno_fails(self):
         """When UNO/config is unavailable, locale defaults to English (not OS LANG)."""
@@ -73,7 +73,7 @@ class TestI18n(unittest.TestCase):
         mock_ctx.getServiceManager.side_effect = Exception("No UNO")
 
         locale = get_lo_locale(mock_ctx)
-        self.assertEqual(locale, "en_US")
+        assert (locale) == ("en_US")
 
     def test_config_validate_maps_translated_label_to_canonical_in_extra_config(self):
         """Saved UI label (wrong) in dotted key is normalized to schema value via _()."""
@@ -99,7 +99,7 @@ class TestI18n(unittest.TestCase):
         with patch("plugin.framework.config_schema.MODULES", mock_modules):
             with patch("plugin.framework.config_schema._", side_effect=_fake):
                 cfg.validate()
-        self.assertEqual(cfg._extra_config["agent_backend.backend_id"], "hermes")
+        assert (cfg._extra_config["agent_backend.backend_id"]) == ("hermes")
 
     def test_config_validate_maps_translated_label_flat_module_field(self):
         """Flat module-backed keys normalize via the same manifest schema options."""
@@ -126,7 +126,7 @@ class TestI18n(unittest.TestCase):
         with patch("plugin.framework.config_schema.MODULES", mock_modules):
             with patch("plugin.framework.config_schema._", side_effect=_fake):
                 cfg.validate()
-        self.assertEqual(cfg._extra_config["backend_id"], "hermes")
+        assert (cfg._extra_config["backend_id"]) == ("hermes")
 
     def test_config_validate_normalization_noop_when_already_canonical(self):
         """When stored value already matches canonical option value, leave unchanged."""
@@ -146,7 +146,7 @@ class TestI18n(unittest.TestCase):
         )
         with patch("plugin.framework.config_schema.MODULES", mock_modules):
             cfg.validate()
-        self.assertEqual(cfg._extra_config["agent_backend.backend_id"], "hermes")
+        assert (cfg._extra_config["agent_backend.backend_id"]) == ("hermes")
 
     def test_po_strip_extra_config_on_validate(self):
         data = {
@@ -157,21 +157,21 @@ class TestI18n(unittest.TestCase):
         }
         cfg = WriterAgentConfig.from_dict(data)
         cfg.validate()
-        self.assertEqual(cfg._extra_config.get("agent_backend.path"), "")
-        self.assertEqual(cfg._extra_config.get("agent_backend.args"), "")
-        self.assertEqual(cfg._extra_config.get("agent_backend.acp_agent_name"), "")
+        assert (cfg._extra_config.get("agent_backend.path")) == ("")
+        assert (cfg._extra_config.get("agent_backend.args")) == ("")
+        assert (cfg._extra_config.get("agent_backend.acp_agent_name")) == ("")
 
     def test_po_strip_seed_to_minus_one(self):
         data = {"endpoint": "http://x", "seed": PO_JUNK}
         cfg = WriterAgentConfig.from_dict(data)
         cfg.validate()
-        self.assertEqual(cfg.seed, "-1")
+        assert (cfg.seed) == ("-1")
 
     def test_po_strip_top_level_string_field(self):
         data = {"endpoint": "http://x", "additional_instructions": PO_JUNK}
         cfg = WriterAgentConfig.from_dict(data)
         cfg.validate()
-        self.assertEqual(cfg.additional_instructions, "")
+        assert (cfg.additional_instructions) == ("")
 
     def test_export_uses_validated_extra_not_raw_json(self):
         """Merged dict for get_config must use cleaned _extra_config, not stale JSON."""
@@ -183,8 +183,8 @@ class TestI18n(unittest.TestCase):
         cfg = WriterAgentConfig.from_dict(data)
         cfg.validate()
         out = _build_validated_config_export(data, cfg)
-        self.assertEqual(out["agent_backend.path"], "")
-        self.assertNotEqual(out["agent_backend.path"], PO_JUNK)
+        assert (out["agent_backend.path"]) == ("")
+        assert (out["agent_backend.path"]) != (PO_JUNK)
 
     def test_export_dataclass_keys_from_attributes(self):
         data = {
@@ -195,13 +195,13 @@ class TestI18n(unittest.TestCase):
         cfg = WriterAgentConfig.from_dict(data)
         cfg.validate()
         out = _build_validated_config_export(data, cfg)
-        self.assertEqual(out["endpoint"], "http://example.com")
-        self.assertEqual(out["chat_max_tokens"], 2048)
+        assert (out["endpoint"]) == ("http://example.com")
+        assert (out["chat_max_tokens"]) == (2048)
 
     def test_config_validate_chatbot_max_tool_rounds(self):
         cfg = WriterAgentConfig.from_dict({"endpoint": "http://x", "chatbot.max_tool_rounds": 12})
         cfg.validate()
-        self.assertEqual(cfg._extra_config["chatbot.max_tool_rounds"], 12)
+        assert (cfg._extra_config["chatbot.max_tool_rounds"]) == (12)
 
     def test_extra_key_fallback_when_missing_from_extra_config(self):
         """If a key is absent from _extra_config, keep JSON value (edge case)."""
@@ -210,23 +210,23 @@ class TestI18n(unittest.TestCase):
         cfg.validate()
         del cfg._extra_config["orphan.key"]
         out = _build_validated_config_export(data, cfg)
-        self.assertEqual(out.get("orphan.key"), "keep-me")
+        assert (out.get("orphan.key")) == ("keep-me")
 
     def test_backend_translation_normalization(self):
         from plugin.acp.registry import normalize_backend_id, get_backend
 
-        self.assertEqual(normalize_backend_id("builtin"), "builtin")
-        self.assertEqual(normalize_backend_id("hermes"), "hermes")
-        self.assertEqual(normalize_backend_id("claude"), "claude")
-        self.assertEqual(normalize_backend_id("gemini"), "builtin")
-        self.assertEqual(normalize_backend_id("opencode"), "opencode")
-        self.assertEqual(normalize_backend_id("Built-in"), "builtin")
-        self.assertEqual(normalize_backend_id("Eingebaut"), "builtin")
-        self.assertEqual(normalize_backend_id("Integriert"), "builtin")
-        self.assertEqual(normalize_backend_id("Hermes"), "hermes")
-        self.assertEqual(normalize_backend_id("nonexistent"), "builtin")
-        self.assertIsNotNone(get_backend("Eingebaut"))
-        self.assertIsNotNone(get_backend("Integriert"))
+        assert (normalize_backend_id("builtin")) == ("builtin")
+        assert (normalize_backend_id("hermes")) == ("hermes")
+        assert (normalize_backend_id("claude")) == ("claude")
+        assert (normalize_backend_id("gemini")) == ("builtin")
+        assert (normalize_backend_id("opencode")) == ("opencode")
+        assert (normalize_backend_id("Built-in")) == ("builtin")
+        assert (normalize_backend_id("Eingebaut")) == ("builtin")
+        assert (normalize_backend_id("Integriert")) == ("builtin")
+        assert (normalize_backend_id("Hermes")) == ("hermes")
+        assert (normalize_backend_id("nonexistent")) == ("builtin")
+        assert (get_backend("Eingebaut")) is not None
+        assert (get_backend("Integriert")) is not None
 
     def _ensure_mo(self, lang: str) -> str:
         """Return locales dir, compiling *lang* from .po when .mo is missing."""
@@ -242,21 +242,21 @@ class TestI18n(unittest.TestCase):
         mo = po.with_suffix(".mo")
         if not mo.is_file():
             compile_po(po, mo)
-        self.assertTrue(mo.is_file(), "compiled catalog missing: %s" % mo)
+        assert (mo.is_file()), "compiled catalog missing: %s" % mo
         return localedir
 
     def test_i18n_translation_loading(self):
         """gettext can load writeragent.mo and translate 'Built-in' to German (Integriert)."""
         localedir = self._ensure_mo("de")
         translation = i18n_module.load_translation(["de"], localedir, fallback=False)
-        self.assertEqual(translation.gettext("Built-in"), "Integriert")
-        self.assertEqual(translation.gettext("Backend"), "Backend")
+        assert (translation.gettext("Built-in")) == ("Integriert")
+        assert (translation.gettext("Backend")) == ("Backend")
 
     def test_i18n_translation_loading_korean(self):
         """gettext can load writeragent.mo and translate 'Built-in' to Korean."""
         localedir = self._ensure_mo("ko")
         translation = i18n_module.load_translation(["ko"], localedir, fallback=False)
-        self.assertEqual(translation.gettext("Built-in"), "내장")
+        assert (translation.gettext("Built-in")) == ("내장")
 
     def test_load_translation_opens_explicit_mo_when_find_misses(self):
         """Windows gettext.find can miss locales/<lang>/… even when the .mo exists."""
@@ -264,8 +264,8 @@ class TestI18n(unittest.TestCase):
         dummy = NullTranslations()
         with patch("plugin.framework.i18n.gettext.translation", return_value=dummy):
             translation = i18n_module.load_translation(["de"], localedir, fallback=False)
-        self.assertEqual(translation.gettext("Built-in"), "Integriert")
-        self.assertIsNot(type(translation), NullTranslations)
+        assert (translation.gettext("Built-in")) == ("Integriert")
+        assert (type(translation)) is not (NullTranslations)
 
     def test_days_ago_translation_across_all_locales(self):
         """Verify that all 35 compiled locales contain a valid translation for '{0}d ago'."""
@@ -277,46 +277,41 @@ class TestI18n(unittest.TestCase):
             d for d in os.listdir(localedir)
             if os.path.isdir(os.path.join(localedir, d, "LC_MESSAGES"))
         ]
-        self.assertGreaterEqual(len(locale_dirs), 35)
+        assert (len(locale_dirs)) >= (35)
 
         for lang in locale_dirs:
             self._ensure_mo(lang)
             translation = i18n_module.load_translation([lang], localedir, fallback=False)
             translated = translation.gettext("{0}d ago")
-            self.assertTrue(translated, f"Empty translation for {lang}")
+            assert (translated), f"Empty translation for {lang}"
             if lang != "en_US.UTF-8":
-                self.assertNotEqual(
-                    translated,
-                    "{0}d ago",
-                    f"Locale {lang} missing translation for '{{0}}d ago'",
-                )
+                assert (translated) != ("{0}d ago"), f"Locale {lang} missing translation for '{{0}}d ago'"
 
         # Spot-check specific languages
         es_trans = i18n_module.load_translation(["es"], localedir, fallback=False)
-        self.assertEqual(es_trans.gettext("{0}d ago"), "hace {0}d")
+        assert (es_trans.gettext("{0}d ago")) == ("hace {0}d")
 
         de_trans = i18n_module.load_translation(["de"], localedir, fallback=False)
-        self.assertEqual(de_trans.gettext("{0}d ago"), "vor {0} T.")
+        assert (de_trans.gettext("{0}d ago")) == ("vor {0} T.")
 
         fr_trans = i18n_module.load_translation(["fr"], localedir, fallback=False)
-        self.assertEqual(fr_trans.gettext("{0}d ago"), "il y a {0}j")
+        assert (fr_trans.gettext("{0}d ago")) == ("il y a {0}j")
 
         ja_trans = i18n_module.load_translation(["ja"], localedir, fallback=False)
-        self.assertEqual(ja_trans.gettext("{0}d ago"), "{0}日前")
+        assert (ja_trans.gettext("{0}d ago")) == ("{0}日前")
 
         zh_trans = i18n_module.load_translation(["zh_CN"], localedir, fallback=False)
-        self.assertEqual(zh_trans.gettext("{0}d ago"), "{0}天前")
+        assert (zh_trans.gettext("{0}d ago")) == ("{0}天前")
 
 
     def test_dialog_views_imports(self):
         """Import dialog_views with full UNO; otherwise expect ImportError (headless pytest)."""
         try:
             from plugin.chatbot import dialog_views
-            self.assertIsNotNone(dialog_views)
+            assert (dialog_views) is not None
         except ImportError as e:
             err = str(e)
-            self.assertTrue(
-                any(
+            assert (any(
                     part in err
                     for part in (
                         "unohelper",
@@ -326,10 +321,6 @@ class TestI18n(unittest.TestCase):
                         "XItemListener",
                         "unknown",
                     )
-                ),
-                f"Unexpected import error: {e!r}",
-            )
+                )), f"Unexpected import error: {e!r}"
 
 
-if __name__ == '__main__':
-    unittest.main()

@@ -1,6 +1,5 @@
 
 import queue
-import unittest
 import pytest
 import sys
 from plugin.framework.errors import WriterAgentException, format_error_payload, safe_json_loads
@@ -32,51 +31,51 @@ class DummyTool(ToolBase):
     def execute(self, **kwargs):
         pass
 
-class TestErrorHandling(unittest.TestCase):
+class TestErrorHandling:
 
     def test_format_error_payload_writer_agent_exception(self):
         exc = WriterAgentException('Test message', code='TEST_CODE', details={'key': 'value'})
         payload = format_error_payload(exc)
-        self.assertEqual(payload['status'], 'error')
-        self.assertEqual(payload['code'], 'TEST_CODE')
-        self.assertEqual(payload['message'], 'Test message')
-        self.assertEqual(payload['details'], {'key': 'value'})
+        assert (payload['status']) == ('error')
+        assert (payload['code']) == ('TEST_CODE')
+        assert (payload['message']) == ('Test message')
+        assert (payload['details']) == ({'key': 'value'})
 
     def test_format_error_payload_generic_exception(self):
         exc = ValueError('Test message')
         payload = format_error_payload(exc)
-        self.assertEqual(payload['status'], 'error')
-        self.assertEqual(payload['code'], 'INTERNAL_ERROR')
-        self.assertEqual(payload['message'], 'Test message')
-        self.assertEqual(payload['details'], {'type': 'ValueError'})
+        assert (payload['status']) == ('error')
+        assert (payload['code']) == ('INTERNAL_ERROR')
+        assert (payload['message']) == ('Test message')
+        assert (payload['details']) == ({'type': 'ValueError'})
 
     def test_tool_base_error_formatting(self):
         tool = DummyTool()
         result = tool._tool_error('Tool failed', code='CUSTOM_CODE', key='val')
-        self.assertEqual(result['status'], 'error')
-        self.assertEqual(result['code'], 'CUSTOM_CODE')
-        self.assertEqual(result['message'], 'Tool failed')
-        self.assertEqual(result['details'], {'key': 'val'})
+        assert (result['status']) == ('error')
+        assert (result['code']) == ('CUSTOM_CODE')
+        assert (result['message']) == ('Tool failed')
+        assert (result['details']) == ({'key': 'val'})
 
     def test_format_error_for_display(self):
         exc = WriterAgentException('User error', code='ERR')
         display_str = format_error_for_display(exc)
-        self.assertEqual(display_str, 'Error: User error')
+        assert (display_str) == ('Error: User error')
         exc_generic = ValueError('System error')
         display_str_generic = format_error_for_display(exc_generic)
-        self.assertEqual(display_str_generic, 'Error: System error')
+        assert (display_str_generic) == ('Error: System error')
 
     def test_format_error_for_display_payload_dict(self):
         display_str = format_error_for_display(
             {"status": "error", "code": "HTTP_ERROR", "message": "HTTP Error 500 from AI Provider"}
         )
-        self.assertEqual(display_str, "Error: HTTP Error 500 from AI Provider")
+        assert (display_str) == ("Error: HTTP Error 500 from AI Provider")
 
     def test_format_error_for_display_payload_dict_missing_message(self):
         display_str = format_error_for_display({"status": "error", "code": "HTTP_ERROR"})
-        self.assertEqual(display_str, "Error: HTTP_ERROR")
+        assert (display_str) == ("Error: HTTP_ERROR")
         display_empty = format_error_for_display({})
-        self.assertEqual(display_empty, "Error: {}")
+        assert (display_empty) == ("Error: {}")
 
     def test_librepy_exceptions_hierarchy_and_codes(self):
         from plugin.framework.errors import (
@@ -115,12 +114,12 @@ class TestErrorHandling(unittest.TestCase):
         ]
 
         for exc, expected_code, parent_cls in cases:
-            self.assertIsInstance(exc, WriterAgentException)
-            self.assertIsInstance(exc, parent_cls)
-            self.assertEqual(exc.code, expected_code)
+            assert isinstance(exc, WriterAgentException)
+            assert isinstance(exc, parent_cls)
+            assert (exc.code) == (expected_code)
             payload = format_error_payload(exc)
-            self.assertEqual(payload["status"], "error")
-            self.assertEqual(payload["code"], expected_code)
+            assert (payload["status"]) == ("error")
+            assert (payload["code"]) == (expected_code)
 
     def test_librepy_format_error_message_advice(self):
         from plugin.framework.errors import (
@@ -132,19 +131,19 @@ class TestErrorHandling(unittest.TestCase):
         )
 
         msg_venv = format_error_message(VenvNotFoundError("No python executable found"))
-        self.assertIn("Python venv not found", msg_venv)
+        assert ("Python venv not found") in (msg_venv)
 
         msg_timeout = format_error_message(VenvTimeoutError("Python timed out after 30 seconds"))
-        self.assertIn("Python execution timed out", msg_timeout)
+        assert ("Python execution timed out") in (msg_timeout)
 
         msg_spill = format_error_message(SpillCollisionError("#SPILL!"))
-        self.assertIn("Formula spill collision", msg_spill)
+        assert ("Formula spill collision") in (msg_spill)
 
         msg_sandbox = format_error_message(SandboxSecurityError("Import os forbidden"))
-        self.assertIn("Script execution blocked by sandbox policy", msg_sandbox)
+        assert ("Script execution blocked by sandbox policy") in (msg_sandbox)
 
         msg_generic_venv = format_error_message(RuntimeError("venv not found at /tmp/x"))
-        self.assertIn("Python venv not found", msg_generic_venv)
+        assert ("Python venv not found") in (msg_generic_venv)
 
     def test_format_error_message_http_exception(self):
         import http.client
@@ -152,8 +151,8 @@ class TestErrorHandling(unittest.TestCase):
 
         err = http.client.RemoteDisconnected("Remote end closed connection")
         msg = format_error_message(err)
-        self.assertTrue("HTTP Error" in msg or "Remote" in msg)
-        self.assertNotIn("Connection Error", msg)
+        assert ("HTTP Error" in msg or "Remote" in msg)
+        assert ("Connection Error") not in (msg)
 
     def test_writeragent_exception_subclasses_and_details_unification(self):
         from plugin.framework.errors import (
@@ -188,89 +187,89 @@ class TestErrorHandling(unittest.TestCase):
         ]
 
         for exc, expected_code in subclasses:
-            self.assertEqual(exc.code, expected_code)
-            self.assertEqual(exc.details, {})
-            self.assertEqual(exc.context, {})
+            assert (exc.code) == (expected_code)
+            assert (exc.details) == ({})
+            assert (exc.context) == ({})
             payload = format_error_payload(exc)
-            self.assertEqual(payload["code"], expected_code)
-            self.assertNotIn("details", payload)
+            assert (payload["code"]) == (expected_code)
+            assert ("details") not in (payload)
 
         # Test overriding code and passing details
         custom_exc = ConfigError("bad config", code="CUSTOM_CFG", details={"key": "api_key"})
-        self.assertEqual(custom_exc.code, "CUSTOM_CFG")
-        self.assertEqual(custom_exc.details, {"key": "api_key"})
-        self.assertEqual(custom_exc.context, {"key": "api_key"})
+        assert (custom_exc.code) == ("CUSTOM_CFG")
+        assert (custom_exc.details) == ({"key": "api_key"})
+        assert (custom_exc.context) == ({"key": "api_key"})
         payload = format_error_payload(custom_exc)
-        self.assertEqual(payload["code"], "CUSTOM_CFG")
-        self.assertEqual(payload["details"], {"key": "api_key"})
+        assert (payload["code"]) == ("CUSTOM_CFG")
+        assert (payload["details"]) == ({"key": "api_key"})
 
         # Test legacy context= parameter backward compatibility
         legacy_exc = NetworkError("timeout", context={"url": "http://localhost"})
-        self.assertEqual(legacy_exc.code, "NETWORK_ERROR")
-        self.assertEqual(legacy_exc.details, {"url": "http://localhost"})
-        self.assertEqual(legacy_exc.context, {"url": "http://localhost"})
+        assert (legacy_exc.code) == ("NETWORK_ERROR")
+        assert (legacy_exc.details) == ({"url": "http://localhost"})
+        assert (legacy_exc.context) == ({"url": "http://localhost"})
         payload = format_error_payload(legacy_exc)
-        self.assertEqual(payload["details"], {"url": "http://localhost"})
+        assert (payload["details"]) == ({"url": "http://localhost"})
 
         # Test DocumentDisposedError with custom field object_type
         disp_exc = DocumentDisposedError("Object disposed", object_type="TextRange", details={"line": 42})
-        self.assertEqual(disp_exc.code, "DISPOSED_OBJECT")
-        self.assertEqual(disp_exc.object_type, "TextRange")
-        self.assertEqual(disp_exc.details, {"line": 42})
+        assert (disp_exc.code) == ("DISPOSED_OBJECT")
+        assert (disp_exc.object_type) == ("TextRange")
+        assert (disp_exc.details) == ({"line": 42})
 
         # Test ResourceNotFoundError with custom fields resource_type and identifier
         res_exc = ResourceNotFoundError("Template", "default.ott", details={"path": "/tmp"})
-        self.assertEqual(res_exc.code, "RESOURCE_NOT_FOUND")
-        self.assertEqual(res_exc.resource_type, "Template")
-        self.assertEqual(res_exc.identifier, "default.ott")
-        self.assertEqual(res_exc.details, {"path": "/tmp"})
-        self.assertIn("Template not found: default.ott", str(res_exc))
+        assert (res_exc.code) == ("RESOURCE_NOT_FOUND")
+        assert (res_exc.resource_type) == ("Template")
+        assert (res_exc.identifier) == ("default.ott")
+        assert (res_exc.details) == ({"path": "/tmp"})
+        assert ("Template not found: default.ott") in (str(res_exc))
 
 
-class TestSafeJsonLoads(unittest.TestCase):
+class TestSafeJsonLoads:
 
     def test_safe_json_loads_valid(self):
-        self.assertEqual(safe_json_loads('{"key": "value"}'), {'key': 'value'})
-        self.assertEqual(safe_json_loads('[1, 2, 3]'), [1, 2, 3])
-        self.assertEqual(safe_json_loads('"string"'), 'string')
-        self.assertEqual(safe_json_loads('123'), 123)
+        assert (safe_json_loads('{"key": "value"}')) == ({'key': 'value'})
+        assert (safe_json_loads('[1, 2, 3]')) == ([1, 2, 3])
+        assert (safe_json_loads('"string"')) == ('string')
+        assert (safe_json_loads('123')) == (123)
 
     def test_safe_json_loads_repair_truncated(self):
-        self.assertEqual(safe_json_loads('{"key": "value"'), {'key': 'value'})
-        self.assertEqual(safe_json_loads('[1, 2'), [1, 2])
-        self.assertEqual(safe_json_loads('{"a": {"b": 1'), {'a': {'b': 1}})
+        assert (safe_json_loads('{"key": "value"')) == ({'key': 'value'})
+        assert (safe_json_loads('[1, 2')) == ([1, 2])
+        assert (safe_json_loads('{"a": {"b": 1')) == ({'a': {'b': 1}})
 
     def test_safe_json_loads_repair_trailing_comma(self):
-        self.assertEqual(safe_json_loads('{"key": "value",}'), {'key': 'value'})
-        self.assertEqual(safe_json_loads('[1, 2, ]'), [1, 2])
+        assert (safe_json_loads('{"key": "value",}')) == ({'key': 'value'})
+        assert (safe_json_loads('[1, 2, ]')) == ([1, 2])
 
     def test_safe_json_loads_literal_eval(self):
-        self.assertEqual(safe_json_loads("{'key': 'value'}"), {'key': 'value'})
-        self.assertEqual(safe_json_loads('[True, False, None]'), [True, False, None])
+        assert (safe_json_loads("{'key': 'value'}")) == ({'key': 'value'})
+        assert (safe_json_loads('[True, False, None]')) == ([True, False, None])
 
     def test_safe_json_loads_invalid(self):
-        self.assertIsNone(safe_json_loads('not json at all'))
-        self.assertIsNone(safe_json_loads('<<< completely broken garbage >>>'))
+        assert (safe_json_loads('not json at all')) is None
+        assert (safe_json_loads('<<< completely broken garbage >>>')) is None
 
     def test_safe_json_loads_wrong_type(self):
-        self.assertIsNone(safe_json_loads(None))
-        self.assertIsNone(safe_json_loads(123))
-        self.assertIsNone(safe_json_loads({'not': 'a string'}))
+        assert (safe_json_loads(None)) is None
+        assert (safe_json_loads(123)) is None
+        assert (safe_json_loads({'not': 'a string'})) is None
 
     def test_safe_json_loads_null_eval(self):
-        self.assertIsNone(safe_json_loads('null'))
-        self.assertEqual(safe_json_loads('null', default={}), {})
+        assert (safe_json_loads('null')) is None
+        assert (safe_json_loads('null', default={})) == ({})
 
     def test_safe_json_loads_custom_default(self):
-        self.assertEqual(safe_json_loads('invalid', default={'error': True}), {'error': True})
-        self.assertEqual(safe_json_loads(None, default='default'), 'default')
+        assert (safe_json_loads('invalid', default={'error': True})) == ({'error': True})
+        assert (safe_json_loads(None, default='default')) == ('default')
 
     def test_safe_json_loads_silent_latex_corruption(self):
         corrupted_json = '{"content": "\nabla \times \x0crac{1}{c}"}'
         repaired = safe_json_loads(corrupted_json)
-        self.assertEqual(repaired, {'content': '\\nabla \\times \\frac{1}{c}'})
+        assert (repaired) == ({'content': '\\nabla \\times \\frac{1}{c}'})
 
-class TestAsyncStreamErrorHandling(unittest.TestCase):
+class TestAsyncStreamErrorHandling:
 
     def test_run_stream_drain_loop_error_handler(self):
         q = queue.Queue()
@@ -288,10 +287,10 @@ class TestAsyncStreamErrorHandling(unittest.TestCase):
             def processEventsToIdle(self):
                 pass
         run_stream_drain_loop(q, DummyToolkit(), job_done, (lambda c, t: None), on_error=on_error, on_stream_done=(lambda x: True), on_stopped=(lambda : None))
-        self.assertTrue(job_done[0])
-        self.assertEqual(len(error_received), 1)
-        self.assertEqual(error_received[0]['status'], 'error')
-        self.assertEqual(error_received[0]['message'], 'Simulation error')
+        assert (job_done[0])
+        assert (len(error_received)) == (1)
+        assert (error_received[0]['status']) == ('error')
+        assert (error_received[0]['message']) == ('Simulation error')
 sys.modules['uno'] = MagicMock()
 sys.modules['unohelper'] = MagicMock()
 sys.modules['com.sun.star.beans'] = MagicMock()
@@ -497,14 +496,14 @@ def test_draw_shapes_safe_create_shape_exception_handling():
     assert ('Some UNO error' in exc_info.value.details['original_error'])
 
 
-class TestSecurityFix(unittest.TestCase):
+class TestSecurityFix:
 
     def test_nested_structures_no_crash(self):
         depth = 5000
         nested_list_str = (('[' * depth) + (']' * depth))
         try:
             result = safe_python_literal_eval(nested_list_str, default='fallback')
-            self.assertTrue((isinstance(result, list) or (result == 'fallback')))
+            assert (isinstance(result, list) or (result == 'fallback'))
         except Exception as e:
             self.fail(f'safe_python_literal_eval crashed with {type(e).__name__}: {e}')
 
@@ -512,45 +511,45 @@ class TestSecurityFix(unittest.TestCase):
         large_input = (('[' + ('1,' * 1000000)) + '1]')
         try:
             result = safe_python_literal_eval(large_input, default='fallback')
-            self.assertTrue((isinstance(result, list) or (result == 'fallback')))
+            assert (isinstance(result, list) or (result == 'fallback'))
         except Exception as e:
             self.fail(f'safe_python_literal_eval crashed with {type(e).__name__}: {e}')
 
     def test_common_literals(self):
-        self.assertEqual(safe_python_literal_eval('True'), True)
-        self.assertEqual(safe_python_literal_eval('true'), True)
-        self.assertEqual(safe_python_literal_eval('False'), False)
-        self.assertEqual(safe_python_literal_eval('false'), False)
-        self.assertEqual(safe_python_literal_eval('None'), None)
-        self.assertEqual(safe_python_literal_eval('none'), None)
-        self.assertEqual(safe_python_literal_eval('null'), None)
-        self.assertEqual(safe_python_literal_eval('NULL'), None)
-        self.assertEqual(safe_python_literal_eval('123'), 123)
-        self.assertEqual(safe_python_literal_eval('"hello"'), 'hello')
-        self.assertEqual(safe_python_literal_eval("'hello'"), 'hello')
+        assert (safe_python_literal_eval('True')) == (True)
+        assert (safe_python_literal_eval('true')) == (True)
+        assert (safe_python_literal_eval('False')) == (False)
+        assert (safe_python_literal_eval('false')) == (False)
+        assert (safe_python_literal_eval('None')) == (None)
+        assert (safe_python_literal_eval('none')) == (None)
+        assert (safe_python_literal_eval('null')) == (None)
+        assert (safe_python_literal_eval('NULL')) == (None)
+        assert (safe_python_literal_eval('123')) == (123)
+        assert (safe_python_literal_eval('"hello"')) == ('hello')
+        assert (safe_python_literal_eval("'hello'")) == ('hello')
 
     def test_json_structures(self):
-        self.assertEqual(safe_python_literal_eval('[1, 2, 3]'), [1, 2, 3])
-        self.assertEqual(safe_python_literal_eval('{"a": 1}'), {'a': 1})
+        assert (safe_python_literal_eval('[1, 2, 3]')) == ([1, 2, 3])
+        assert (safe_python_literal_eval('{"a": 1}')) == ({'a': 1})
 
     def test_single_quoted_strings_restricted(self):
-        self.assertEqual(safe_python_literal_eval("'safe'"), 'safe')
-        self.assertEqual(safe_python_literal_eval("'it\\'s unsafe'", default='fallback'), 'fallback')
+        assert (safe_python_literal_eval("'safe'")) == ('safe')
+        assert (safe_python_literal_eval("'it\\'s unsafe'", default='fallback')) == ('fallback')
 
     def test_non_json_python_literals_fallback(self):
-        self.assertEqual(safe_python_literal_eval('(1, 2)', default='(1, 2)'), '(1, 2)')
-        self.assertEqual(safe_python_literal_eval("{'a': 1}", default='fallback'), 'fallback')
+        assert (safe_python_literal_eval('(1, 2)', default='(1, 2)')) == ('(1, 2)')
+        assert (safe_python_literal_eval("{'a': 1}", default='fallback')) == ('fallback')
 
     def test_smolagents_deserializer(self):
-        self.assertEqual(safe_python_literal_eval('{"type": "string"}'), {'type': 'string'})
+        assert (safe_python_literal_eval('{"type": "string"}')) == ({'type': 'string'})
 
 
-class TestSuppressDisposed(unittest.TestCase):
+class TestSuppressDisposed:
 
     def test_check_disposed_none_raises_dummy_ok(self):
         from plugin.framework.errors import UnoObjectError, check_disposed
 
-        with self.assertRaises(UnoObjectError):
+        with pytest.raises(UnoObjectError):
             check_disposed(None, "Document Model")
         check_disposed(object(), "Document Model")
 
@@ -569,11 +568,11 @@ class TestSuppressDisposed(unittest.TestCase):
         class UnrelatedError(Exception):
             pass
 
-        self.assertTrue(is_disposed_exception(DocumentDisposedError("Object disposed")))
-        self.assertTrue(is_disposed_exception(CustomDisposedException("Disposed")))
-        self.assertTrue(is_disposed_exception(CustomRuntimeException("Runtime UNO error")))
-        self.assertFalse(is_disposed_exception(UnrelatedError("Regular failure")))
-        self.assertFalse(is_disposed_exception(ValueError("Bad value")))
+        assert (is_disposed_exception(DocumentDisposedError("Object disposed")))
+        assert (is_disposed_exception(CustomDisposedException("Disposed")))
+        assert (is_disposed_exception(CustomRuntimeException("Runtime UNO error")))
+        assert not (is_disposed_exception(UnrelatedError("Regular failure")))
+        assert not (is_disposed_exception(ValueError("Bad value")))
 
     def test_is_tool_document_disposed_live_doc_bare_runtime(self):
         from plugin.framework.errors import (
@@ -597,13 +596,13 @@ class TestSuppressDisposed(unittest.TestCase):
 
         live = LiveDoc()
         # Bare RuntimeException from a live doc is a real UNO error, not dispose.
-        self.assertFalse(is_tool_document_disposed(CustomRuntimeException(""), live))
-        self.assertTrue(is_tool_document_disposed(CustomDisposedException("Disposed"), live))
-        self.assertTrue(is_tool_document_disposed(DocumentDisposedError("gone"), live))
+        assert not (is_tool_document_disposed(CustomRuntimeException(""), live))
+        assert (is_tool_document_disposed(CustomDisposedException("Disposed"), live))
+        assert (is_tool_document_disposed(DocumentDisposedError("gone"), live))
         # No live probe: keep the lifecycle heuristic.
-        self.assertTrue(is_tool_document_disposed(CustomRuntimeException(""), None))
-        self.assertTrue(is_tool_document_disposed(CustomRuntimeException(""), DeadDoc()))
-        self.assertFalse(is_tool_document_disposed(ValueError("Bad value"), live))
+        assert (is_tool_document_disposed(CustomRuntimeException(""), None))
+        assert (is_tool_document_disposed(CustomRuntimeException(""), DeadDoc()))
+        assert not (is_tool_document_disposed(ValueError("Bad value"), live))
 
     def test_suppress_disposed_with_disposed_error(self):
         from plugin.framework.errors import (
@@ -617,10 +616,10 @@ class TestSuppressDisposed(unittest.TestCase):
             executed = True
             raise DocumentDisposedError("Model was disposed")
 
-        self.assertTrue(executed)
+        assert (executed)
         if _suppress_disposed_debug_logs_present():
             mock_logger.debug.assert_called_once()
-            self.assertEqual(mock_logger.debug.call_args[0][1], "test_disposed_action")
+            assert (mock_logger.debug.call_args[0][1]) == ("test_disposed_action")
         else:
             mock_logger.debug.assert_not_called()
         mock_logger.exception.assert_not_called()
@@ -634,21 +633,21 @@ class TestSuppressDisposed(unittest.TestCase):
             executed = True
             raise ValueError("Something unexpected")
 
-        self.assertTrue(executed)
+        assert (executed)
         mock_logger.exception.assert_called_once()
-        self.assertEqual(mock_logger.exception.call_args[0][1], "test_unexpected_action")
+        assert (mock_logger.exception.call_args[0][1]) == ("test_unexpected_action")
         mock_logger.debug.assert_not_called()
 
     def test_suppress_disposed_unexpected_error_raised(self):
         from plugin.framework.errors import suppress_disposed
 
         mock_logger = MagicMock()
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             with suppress_disposed("test_raise_action", logger=mock_logger, suppress_all=False):
                 raise ValueError("Must be raised")
 
         mock_logger.exception.assert_called_once()
-        self.assertEqual(mock_logger.exception.call_args[0][1], "test_raise_action")
+        assert (mock_logger.exception.call_args[0][1]) == ("test_raise_action")
 
     def test_suppress_disposed_as_decorator(self):
         from plugin.framework.errors import (
@@ -664,12 +663,12 @@ class TestSuppressDisposed(unittest.TestCase):
             raise DocumentDisposedError("Peer disposed")
 
         result = faulty_fn()
-        self.assertIsNone(result)
+        assert (result) is None
         if _suppress_disposed_debug_logs_present():
             mock_logger.debug.assert_called_once()
         else:
             mock_logger.debug.assert_not_called()
-        self.assertIs(ignore_disposed, suppress_disposed)
+        assert (ignore_disposed) is (suppress_disposed)
 
     def test_safe_uno_call_returns_default_on_runtime_error(self):
         from plugin.framework.errors import safe_uno_call
@@ -678,7 +677,7 @@ class TestSuppressDisposed(unittest.TestCase):
         def _failing_fn():
             raise RuntimeError("bridge error")
 
-        self.assertEqual(_failing_fn(), "default_value")
+        assert (_failing_fn()) == ("default_value")
 
     def test_safe_uno_call_re_raises_disposed_exception(self):
         from plugin.framework.errors import DocumentDisposedError, safe_uno_call
@@ -687,9 +686,6 @@ class TestSuppressDisposed(unittest.TestCase):
         def _disposed_fn():
             raise DocumentDisposedError("Object was disposed")
 
-        with self.assertRaises(DocumentDisposedError):
+        with pytest.raises(DocumentDisposedError):
             _disposed_fn()
 
-
-if (__name__ == '__main__'):
-    unittest.main()

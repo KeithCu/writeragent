@@ -1,6 +1,5 @@
 
 import io
-import unittest
 import json
 import logging
 import os
@@ -29,9 +28,9 @@ from plugin.framework.logging import (
     log,
 )
 
-class TestInitLogging(unittest.TestCase):
+class TestInitLogging:
 
-    def setUp(self):
+    def setup_method(self):
         import plugin.framework.config as config_mod
         import plugin.framework.logging as logging_mod
 
@@ -60,7 +59,7 @@ class TestInitLogging(unittest.TestCase):
                     pass
         logging_mod._debug_log_path = None
 
-    def tearDown(self):
+    def teardown_method(self):
         import plugin.framework.config as config_mod
         import plugin.framework.logging as logging_mod
 
@@ -95,9 +94,9 @@ class TestInitLogging(unittest.TestCase):
             patch("sys.stderr", new_callable=io.StringIO) as err,
         ):
             init_logging(mock_ctx)
-        self.assertIsNone(get_debug_log_path())
-        self.assertNotIn("file handler failed", err.getvalue())
-        self.assertNotIn("MagicMock", err.getvalue())
+        assert (get_debug_log_path()) is None
+        assert ("file handler failed") not in (err.getvalue())
+        assert ("MagicMock") not in (err.getvalue())
 
     def test_init_logging_uses_ctx_config_dir(self):
         # Windows can keep the FileHandler lock briefly after close(); ignore cleanup then.
@@ -114,13 +113,13 @@ class TestInitLogging(unittest.TestCase):
                 init_logging(mock_ctx)
 
             expected_log = os.path.join(tmp, "writeragent_debug.log")
-            self.assertEqual(get_debug_log_path(), expected_log)
-            self.assertTrue(os.path.isfile(expected_log))
+            assert (get_debug_log_path()) == (expected_log)
+            assert (os.path.isfile(expected_log))
             with open(expected_log, encoding="utf-8") as fh:
                 contents = fh.read()
-            self.assertIn("Debug log active", contents)
-            self.assertIn(expected_log, contents)
-            self.assertNotIn("DIAG |", contents)
+            assert ("Debug log active") in (contents)
+            assert (expected_log) in (contents)
+            assert ("DIAG |") not in (contents)
             self._release_debug_handlers()
 
     def test_init_logging_strips_stray_console_handlers(self):
@@ -154,12 +153,12 @@ class TestInitLogging(unittest.TestCase):
             expected_log = os.path.join(tmp, "writeragent_debug.log")
             with open(expected_log, encoding="utf-8") as fh:
                 contents = fh.read()
-            self.assertIn("writeragent-console-probe", contents)
-            self.assertIn("module-console-probe", contents)
-            self.assertEqual(wa_buf.getvalue(), "")
-            self.assertEqual(root_buf.getvalue(), "")
+            assert ("writeragent-console-probe") in (contents)
+            assert ("module-console-probe") in (contents)
+            assert (wa_buf.getvalue()) == ("")
+            assert (root_buf.getvalue()) == ("")
             # Root-only sweep: module logger may keep its StreamHandler; file still receives via root.
-            self.assertIn("module-console-probe", module_stderr_buf.getvalue())
+            assert ("module-console-probe") in (module_stderr_buf.getvalue())
             self._release_debug_handlers()
 
     def test_init_logging_disables_last_resort(self):
@@ -175,35 +174,35 @@ class TestInitLogging(unittest.TestCase):
             ):
                 init_logging(mock_ctx)
 
-            self.assertIsNone(logging.lastResort)
+            assert (logging.lastResort) is None
             self._release_debug_handlers()
 
 
-class TestLogRedaction(unittest.TestCase):
+class TestLogRedaction:
 
     def test_redact_chat_multimodal(self) -> None:
         messages = [{'role': 'user', 'content': [{'type': 'text', 'text': 'hi'}, {'type': 'input_audio', 'input_audio': {'data': 'AAAABBBB', 'format': 'wav'}}, {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,ZZZZ'}}]}]
         out = redact_sensitive_payload_for_log(messages)
-        self.assertIsNot(out, messages)
+        assert (out) is not (messages)
         parts = out[0]['content']
-        self.assertEqual(parts[0], {'type': 'text', 'text': 'hi'})
-        self.assertEqual(parts[1]['input_audio']['data'], (LOG_REDACT_AUDIO_PLACEHOLDER % 8))
-        self.assertEqual(parts[2]['image_url']['url'], (LOG_REDACT_IMAGE_PLACEHOLDER % len('data:image/jpeg;base64,ZZZZ')))
-        self.assertEqual(messages[0]['content'][1]['input_audio']['data'], 'AAAABBBB')
+        assert (parts[0]) == ({'type': 'text', 'text': 'hi'})
+        assert (parts[1]['input_audio']['data']) == (LOG_REDACT_AUDIO_PLACEHOLDER % 8)
+        assert (parts[2]['image_url']['url']) == (LOG_REDACT_IMAGE_PLACEHOLDER % len('data:image/jpeg;base64,ZZZZ'))
+        assert (messages[0]['content'][1]['input_audio']['data']) == ('AAAABBBB')
 
     def test_redact_image_generations_request_body(self) -> None:
         u = ('data:image/png;base64,' + ('x' * 100))
         data = {'prompt': 'p', 'image_url': u}
         r = redact_sensitive_payload_for_log(data)
-        self.assertEqual(r['prompt'], 'p')
-        self.assertEqual(r['image_url'], (LOG_REDACT_IMAGE_PLACEHOLDER % len(u)))
+        assert (r['prompt']) == ('p')
+        assert (r['image_url']) == (LOG_REDACT_IMAGE_PLACEHOLDER % len(u))
 
     def test_redact_image_api_response_nested(self) -> None:
         raw = {'data': [{'b64_json': 'Ym9n', 'url': 'http://ok'}, {'url': 'data:image/png;base64,QQ=='}]}
         r = redact_sensitive_payload_for_log(raw)
-        self.assertEqual(r['data'][0]['b64_json'], (LOG_REDACT_IMAGE_PLACEHOLDER % 4))
-        self.assertEqual(r['data'][0]['url'], 'http://ok')
-        self.assertEqual(r['data'][1]['url'], (LOG_REDACT_IMAGE_PLACEHOLDER % len('data:image/png;base64,QQ==')))
+        assert (r['data'][0]['b64_json']) == (LOG_REDACT_IMAGE_PLACEHOLDER % 4)
+        assert (r['data'][0]['url']) == ('http://ok')
+        assert (r['data'][1]['url']) == (LOG_REDACT_IMAGE_PLACEHOLDER % len('data:image/png;base64,QQ=='))
 
     def test_redact_long_reasoning_details_signature(self) -> None:
         long_sig = "S" * (LOG_REDACT_SIGNATURE_MIN_LEN + 100)
@@ -226,24 +225,24 @@ class TestLogRedaction(unittest.TestCase):
             ],
         }
         out = redact_sensitive_payload_for_log(raw)
-        self.assertIsNot(out, raw)
+        assert (out) is not (raw)
         details = out["choices"][0]["message"]["reasoning_details"]
-        self.assertEqual(details[0]["signature"], LOG_REDACT_SIGNATURE_PLACEHOLDER % len(long_sig))
-        self.assertEqual(details[1]["signature"], short_sig)
-        self.assertEqual(raw["choices"][0]["message"]["reasoning_details"][0]["signature"], long_sig)
-        self.assertEqual(out["id"], "gen-1")
-        self.assertEqual(out["model"], "google/gemini-2.5-flash-image")
-        self.assertEqual(out["choices"][0]["finish_reason"], "stop")
-        self.assertEqual(out["choices"][0]["message"]["content"], "hello")
+        assert (details[0]["signature"]) == (LOG_REDACT_SIGNATURE_PLACEHOLDER % len(long_sig))
+        assert (details[1]["signature"]) == (short_sig)
+        assert (raw["choices"][0]["message"]["reasoning_details"][0]["signature"]) == (long_sig)
+        assert (out["id"]) == ("gen-1")
+        assert (out["model"]) == ("google/gemini-2.5-flash-image")
+        assert (out["choices"][0]["finish_reason"]) == ("stop")
+        assert (out["choices"][0]["message"]["content"]) == ("hello")
 
     def test_redact_signature_threshold_boundary(self) -> None:
         just_under = "a" * (LOG_REDACT_SIGNATURE_MIN_LEN - 1)
         at_min = "b" * LOG_REDACT_SIGNATURE_MIN_LEN
         raw = {"signature": just_under, "nested": {"signature": at_min}}
         out = redact_sensitive_payload_for_log(raw)
-        self.assertEqual(out["signature"], just_under)
-        self.assertEqual(out["nested"]["signature"], LOG_REDACT_SIGNATURE_PLACEHOLDER % LOG_REDACT_SIGNATURE_MIN_LEN)
-        self.assertEqual(raw["nested"]["signature"], at_min)
+        assert (out["signature"]) == (just_under)
+        assert (out["nested"]["signature"]) == (LOG_REDACT_SIGNATURE_PLACEHOLDER % LOG_REDACT_SIGNATURE_MIN_LEN)
+        assert (raw["nested"]["signature"]) == (at_min)
 
 def test_resolve_log_level_allowlist():
     assert resolve_log_level("DEBUG") == logging.DEBUG
@@ -274,15 +273,15 @@ def test_update_activity_state():
     assert (_activity_state['last_activity'] > 0)
 
 
-class TestAgentLog(unittest.TestCase):
+class TestAgentLog:
 
-    def setUp(self):
+    def setup_method(self):
         import plugin.framework.logging as logging_mod
         self._saved_enable = logging_mod._enable_agent_log
         for h in list(log.handlers):
             log.removeHandler(h)
 
-    def tearDown(self):
+    def teardown_method(self):
         import plugin.framework.logging as logging_mod
         logging_mod._enable_agent_log = self._saved_enable
         for h in list(log.handlers):
@@ -318,13 +317,13 @@ class TestAgentLog(unittest.TestCase):
         assert len(handler.buffer) == 0
 
 
-class TestOptionalFlushFileHandler(unittest.TestCase):
+class TestOptionalFlushFileHandler:
 
-    def setUp(self):
+    def setup_method(self):
         import plugin.framework.logging as logging_mod
         logging_mod._debug_log_last_flush = 0.0
 
-    def tearDown(self):
+    def teardown_method(self):
         import plugin.framework.logging as logging_mod
         logging_mod._debug_log_last_flush = 0.0
 
@@ -433,5 +432,3 @@ class TestLoggingErrorHandling():
             safe_log_exception(e, logger=broken_logger)
         captured = capsys.readouterr()
         assert ('CRITICAL: Logging failed for exception' in captured.out)
-if __name__ == '__main__':
-    unittest.main()
