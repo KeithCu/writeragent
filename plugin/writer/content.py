@@ -67,36 +67,37 @@ log = logging.getLogger("writeragent.writer")
 _ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
-def _emptied_table_cell_hint(found: Any, content: Any) -> dict[str, str] | None:
-    """Say so when a deletion (empty content) lands inside a table cell.
-
-    What was wrong: asked to delete a table, agents reached for apply_document_content,
-    emptied the table's text, and got status ok -- the table stayed in the document and the
-    agent reported success. The table's name only appears as a CSS class in the HTML they read
-    (class="table-Table1"), so nothing pointed them to table_delete. Emptying a cell is a
-    legitimate edit, so this does not refuse: it keeps the edit and names the table and the
-    tool that removes it. Returns None when the edit is not a deletion or not in a table.
-    """
-    if content is None or str(content).strip():
-        return None
-    try:
-        table = found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable")
-    except Exception:
-        return None
-    if table is None:
-        return None
-    try:
-        name = str(table.getName() or "")
-    except Exception:
-        name = ""
-    if not name:
-        return None
-    return {
-        "table_name": name,
-        "message": ("The match was inside table '%s': only that text was removed and the table "
-                    "itself is still in the document. To delete the whole table call "
-                    "table_delete(name='%s')." % (name, name)),
+def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
+    """Result fields when an empty replacement removed the table, not just its text."""
+    label = ", ".join("'%s'" % name for name in names)
+    if tracked:
+        message = (
+            "Table %s marked for deletion as a tracked change: it stays in the document, "
+            "struck through, until the user accepts the change. Do not accept or reject it yourself."
+            % label
+        )
+    elif len(names) == 1:
+        message = "Table %s deleted." % label
+    else:
+        message = "Tables deleted: %s." % label
+    result: dict[str, Any] = {
+        "status": "ok",
+        "message": message,
+        "table_deleted": names[0] if len(names) == 1 else names,
     }
+    if tracked:
+        result["pending_review"] = True
+    return result
+
+
+def _attach_table_deletion(resp: dict[str, Any], names: list[str], tracked: bool) -> dict[str, Any]:
+    """Add a table deletion onto a response that also replaced other text."""
+    extra = _table_deletion_result(names, tracked)
+    resp["table_deleted"] = extra["table_deleted"]
+    if tracked:
+        resp["pending_review"] = True
+    resp["message"] = (resp.get("message") or "").rstrip() + " " + extra["message"]
+    return resp
 
 
 
@@ -286,8 +287,8 @@ class ApplyDocumentContent(ToolBase):
         "do NOT pass the whole document as old_content. "
         "Use target='beginning', 'end', or 'selection' to insert. "
         "Use target='search' with old_content for find-and-replace of a specific substring only. "
-        "This edits TEXT: it cannot remove a table (emptying its text leaves the table in place). "
-        "To delete a whole table call table_delete with the name from table_list. "
+        "An empty replacement that removes the last text in a table deletes that table. "
+        "Clearing one cell while another cell still has text leaves the table in place. "
         "Search occurrence is 0-based over replaceable body/table/frame matches only "
         "(not dry_run shape/comment rows); omit it for first-match; do not combine with all_matches=true. "
         "dry_run tags those replaceable rows with occurrence so you can pass the index back. "
@@ -441,6 +442,29 @@ class ApplyDocumentContent(ToolBase):
                 code="HYPERLINK_UPDATE_FAILED")
         finally:
             close_surgical_context(mgr, session, changes_before, applied_ok, undo_title)
+
+    def _record_table_deletions(self, session: EditReviewSession, doc: Any, ctx: ToolContext,
+                                 doomed: list[tuple[Any, str]]) -> bool:
+        """Delete tables inside the caller's already-open review session.
+
+        Returns True when at least one deletion was a tracked change. Does not
+        open a second EditReviewSession: apply_document_content is already in
+        one, and nesting would tag the same redlines twice.
+        """
+        from plugin.writer.specialized.tables import _nesting_for, delete_writer_table
+
+        tracked = False
+        uno_ctx = ctx.ctx
+        for table, name in doomed:
+            nesting = _nesting_for(doc, name)
+
+            def _apply(table: Any = table, name: str = name, nesting: dict[str, Any] = nesting) -> None:
+                nonlocal tracked
+                if delete_writer_table(doc, uno_ctx, table, name, nesting):
+                    tracked = True
+
+            session.record_mutation(_apply)
+        return tracked
 
     def _replace_found(self, session: EditReviewSession, doc: Any, found: Any, *,
                        use_preserve: bool, raw_content: str, content: Any,
@@ -1025,7 +1049,18 @@ class ApplyDocumentContent(ToolBase):
                       if _use_opts else search_mod.find_all_ranges(doc, search_string))
             if not ranges:
                 return search_mod.build_search_not_found_response(all_matches=True), session
-            anchor = collapsed_anchor(ranges[0])
+            # Decide before any replace. An empty replacement that is the last text
+            # in a table deletes the table instead of leaving an empty shell; those
+            # matches are not also cleared as text (that would add a second redline).
+            from plugin.writer.specialized.tables import range_table_name, writer_tables_emptied_by_matches
+
+            doomed = writer_tables_emptied_by_matches(list(ranges), content)
+            doomed_names = {name for _table, name in doomed}
+            if doomed_names:
+                anchor_range = next((item for item in ranges if range_table_name(item) not in doomed_names), None)
+                anchor = collapsed_anchor(anchor_range) if anchor_range is not None else None
+            else:
+                anchor = collapsed_anchor(ranges[0])
             undo_title = next_agent_edit_undo_title()
             try:
                 mgr = doc.getUndoManager()
@@ -1041,9 +1076,12 @@ class ApplyDocumentContent(ToolBase):
             applied_ok = False
             count = 0
             link_reports: list[dict[str, Any]] = []
+            tracked_delete = False
             try:
                 with session:
                     for found in reversed(ranges):
+                        if doomed_names and range_table_name(found) in doomed_names:
+                            continue
                         # batch=True: this loop already holds the undo context, so the
                         # outline URL write stays in the same Ctrl+Z as the text.
                         reports, link_err = self._replace_found(
@@ -1056,6 +1094,8 @@ class ApplyDocumentContent(ToolBase):
                         if reports:
                             link_reports.extend(reports)
                         count += 1
+                    if doomed:
+                        tracked_delete = self._record_table_deletions(session, doc, ctx, doomed)
                 applied_ok = True
             except Exception as e:
                 log.exception("apply_document_content all_matches failed mid-batch")
@@ -1067,9 +1107,14 @@ class ApplyDocumentContent(ToolBase):
             finally:
                 if applied_ok:
                     close_surgical_context(mgr, session, changes_before, True, undo_title)
-            resp = search_mod.build_search_replace_response(count, use_preserve=use_preserve)
-            if count > 1:
-                resp["message"] += " edited_context shows the first occurrence's neighborhood."
+            if doomed and count == 0:
+                resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
+            else:
+                resp = search_mod.build_search_replace_response(count, use_preserve=use_preserve)
+                if count > 1:
+                    resp["message"] += " edited_context shows the first occurrence's neighborhood."
+                if doomed:
+                    _attach_table_deletion(resp, [name for _table, name in doomed], tracked_delete)
             self._attach_hyperlink_reports(resp, link_reports)
             return attach_edited_context(resp, anchor), session
         if occurrence is not None:
@@ -1194,8 +1239,25 @@ class ApplyDocumentContent(ToolBase):
         # outline URL is painted from the paragraph start (_select_replacement), not from
         # this anchor. Outline capture happens inside _replace_found, also before that delete.
         anchor = collapsed_anchor(found)
-        # Read before mutating: the match range may not survive the replace.
-        table_hint = _emptied_table_cell_hint(found, content)
+        # What was wrong: an empty replacement inside a table only cleared that text and
+        # returned success, so a request to delete the table left the empty shell. How it
+        # happened: the table's name is a CSS class in the HTML, and the agent edited text
+        # instead of calling table_delete. Why this deletes: the replacement is the last
+        # text in the table, so the shell would be all that remained. A partial cell clear
+        # (other cells still have text, or the match is only part of its cell) falls
+        # through to the text replace below. Same delete path as table_delete, inside this
+        # edit's review session — not a second one.
+        from plugin.writer.specialized.tables import writer_tables_emptied_by_matches
+
+        doomed = writer_tables_emptied_by_matches([found], content)
+        if doomed:
+            try:
+                with session:
+                    tracked_delete = self._record_table_deletions(session, doc, ctx, doomed)
+            except Exception as e:
+                log.exception("apply_document_content: deleting the emptied table failed")
+                return self._tool_error("Could not delete table: %s" % e), session
+            return _table_deletion_result([name for _table, name in doomed], tracked_delete), session
         reports, link_err = self._replace_found(
             session, doc, found, use_preserve=use_preserve, raw_content=raw_content,
             content=content, ctx=ctx, config_svc=config_svc,
@@ -1207,9 +1269,6 @@ class ApplyDocumentContent(ToolBase):
         if occurrence is not None:
             resp["occurrence"] = occurrence
         self._attach_hyperlink_reports(resp, reports or [])
-        if table_hint:
-            resp["message"] += " " + table_hint["message"]
-            resp["table_still_present"] = table_hint["table_name"]
         return attach_edited_context(resp, anchor), session
 
 
