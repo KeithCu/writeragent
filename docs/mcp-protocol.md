@@ -350,7 +350,7 @@ Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `image_gener
 
 **Per-result document echo:** Successful tool results include `document: {name, uid}` when the tool did not already set a `document` field. The echo reflects the **resolved** target for that call (from `document_url`, header, or active window) — not necessarily the user's current focus. Check it when multiple documents are open or when you did not pass an explicit target.
 
-**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../tests/mcp/test_long_running_concurrency.py), [`tests/mcp/test_mcp_qol_extras.py`](../tests/mcp/test_mcp_qol_extras.py).
+**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../tests/mcp/test_long_running_concurrency.py), [`tests/mcp/test_mcp_protocol.py`](../tests/mcp/test_mcp_protocol.py).
 
 **Full design:** [Threading architecture — MCP](framework/threading.md#2-http-server-and-mcp-protocol-pluginmcp) (paths, diagram, known limits: sidebar chat, gate dict lifetime, save-as key changes).
 

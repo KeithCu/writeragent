@@ -448,3 +448,21 @@ def test_nearby_uno_env_does_not_open_second_scalc_factory():
     # GHA 34655847157: first Hidden copy bitmap-failed; next hung 30s.
     assert "note_windows_hidden_open_bitmap" in src
     assert "skip_windows_hidden_open_after_bitmap" in src
+
+def test_is_same_document_uses_uid_not_identity():
+    from plugin.doc.document_research import _is_same_document
+
+    class Doc:
+        def __init__(self, uid, url=""):
+            self.RuntimeUID = uid
+            self.URL = url
+
+    # Distinct proxy-like objects, same uid -> same document (object identity was always False).
+    assert _is_same_document(Doc("u1"), Doc("u1")) is True
+    assert _is_same_document(Doc("u1"), Doc("u2")) is False
+    assert _is_same_document(None, Doc("u1")) is False
+    assert _is_same_document(Doc("u1"), None) is False
+    # No uid on either side -> fall back to URL equality (empty URL never matches).
+    a, b = Doc(None, "file:///x.odt"), Doc(None, "file:///x.odt")
+    assert _is_same_document(a, b) is True
+    assert _is_same_document(Doc(None, ""), Doc(None, "")) is False

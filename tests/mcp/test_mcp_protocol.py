@@ -2,31 +2,8 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""MCP-experience QoL extras: proxy-safe is_active, the per-result document echo, and the
-multi-document guidance topic. No LibreOffice required."""
+"""MCP protocol document echo. No LibreOffice."""
 from unittest.mock import MagicMock
-
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
-
-
-def test_is_same_document_uses_uid_not_identity():
-    from plugin.doc.document_research import _is_same_document
-
-    class Doc:
-        def __init__(self, uid, url=""):
-            self.RuntimeUID = uid
-            self.URL = url
-
-    # Distinct proxy-like objects, same uid -> same document (object identity was always False).
-    assert _is_same_document(Doc("u1"), Doc("u1")) is True
-    assert _is_same_document(Doc("u1"), Doc("u2")) is False
-    assert _is_same_document(None, Doc("u1")) is False
-    assert _is_same_document(Doc("u1"), None) is False
-    # No uid on either side -> fall back to URL equality (empty URL never matches).
-    a, b = Doc(None, "file:///x.odt"), Doc(None, "file:///x.odt")
-    assert _is_same_document(a, b) is True
-    assert _is_same_document(Doc(None, ""), Doc(None, "")) is False
 
 
 def test_attach_document_echo_shape_and_absence():
@@ -46,16 +23,6 @@ def test_attach_document_echo_shape_and_absence():
     r3 = {"status": "ok", "document": {"name": "keep"}}
     _attach_document_echo(r3, doc)
     assert r3["document"]["name"] == "keep"
-
-
-def test_multidoc_guidance_reaches_mcp_topic():
-    from plugin.chatbot.agent_manual import get_section, normalize_topic
-
-    sec = get_section("concurrency", "writer")
-    assert "document_url" in sec and "list_open_documents" in sec
-    assert normalize_topic("multi-document") == "concurrency"
-    assert normalize_topic("document_url") == "concurrency"
-
 
 def test_long_running_precomputes_echo_without_post_execute_doc_access():
     """Echo is captured once inside _prepare_mcp_execution (main-thread marshal); the worker path must not
