@@ -6,7 +6,6 @@ requires-python = ">=3.11"
 license = {text = "GPL-3.0-or-later"}
 dependencies = [
     "polib",
-    "pytest-cov>=7.1.0",
     "ty",
     "bowler",
 ]
