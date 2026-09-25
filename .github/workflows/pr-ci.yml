@@ -67,6 +67,8 @@ jobs:
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
+      # Quiet-tail heartbeats (pytest: N / last=). Local make pytest stays dots.
+      WRITERAGENT_PYTEST_PROGRESS: "1"
       WRITERAGENT_CI_DEBUG: ${{ inputs.ci_debug == true && '1' || '' }}
 
     steps:

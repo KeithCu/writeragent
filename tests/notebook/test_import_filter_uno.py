@@ -13,7 +13,7 @@ import uno
 from plugin.doc.doc_type import is_writer
 from plugin.framework.uno_context import get_desktop
 from plugin.notebook.cell_registry import load_registry
-from plugin.testing_runner import _progress, native_test
+from plugin.testing_runner import _progress_verbose as _progress, native_test
 from plugin.tests.testing_utils import (
     TestingFactory,
     skip_windows_leftover_hidden_load,

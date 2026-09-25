@@ -890,6 +890,16 @@ What the two killer tests do (no product change):
 
 ## What the breadcrumb prints
 
+Default `make test-uno` prints which test is running (`TEST call` /
+`TEST returned`), `TEST end` OK / FAIL / SKIP, suite start/end counts, and
+death lines for the current test (`LIFECYCLE` office death, URP dispose,
+`ABORT`). Bootstrap dumps, soffice pid lines, `TEST start`, `SUITE selected`
+name lists, soak iter lines, keeper load/close chatter, and per-step
+breadcrumbs in the harness and `*_uno.py` callers are quiet unless
+`WRITERAGENT_CI_DEBUG=1` (PR CI `ci_debug`). Pytest `pytest: N last=`
+heartbeats stay in code behind `WRITERAGENT_PYTEST_PROGRESS=1`. Local
+`make pytest` does not set it (dots only). PR CI sets it in `pr-ci.yml`.
+
 On every native **FAIL**, stderr `TEST end … FAIL` includes:
 
 ```

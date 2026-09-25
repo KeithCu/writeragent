@@ -124,7 +124,8 @@ def test_testing_factory_create_context_native_requires_doc():
         TestingFactory.create_context(env="native", doc_type="writer")
 
 
-def test_with_native_doc_logs_teardown_for_insert_cell_html(capsys):
+def test_with_native_doc_logs_teardown_for_insert_cell_html(capsys, monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     """GHA 33703959362: no TEST end after execute-done — name body vs teardown."""
     from unittest.mock import patch
 
@@ -184,7 +185,8 @@ def _calc_doc_for_reset():
     return doc
 
 
-def test_reset_calc_doc_logs_when_teardown_flag_set(capsys):
+def test_reset_calc_doc_logs_when_teardown_flag_set(capsys, monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     from plugin.tests import testing_utils as tu
@@ -1066,6 +1068,7 @@ def test_draw_doc_has_math_ole_reads_clsid():
 
 
 def test_close_doc_windows_skips_math_ole_draw(monkeypatch, capsys):
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     """GHA 34607010446: close_doc dispose of Math OLE Draw killed soffice."""
     from unittest.mock import MagicMock
 
@@ -1301,6 +1304,7 @@ def test_native_doc_windows_marks_pooled_writer_reuse_at_leftover_open_zero(
 
 
 def test_native_doc_windows_reuses_notebook_host(monkeypatch, capsys):
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     """GHA 34661915875: leftover notebook host reuse keeps leftover_open low."""
     from unittest.mock import MagicMock
 
@@ -1441,6 +1445,7 @@ def test_native_doc_impress_teardown_skips_close_when_windows_leftovers(
     monkeypatch, capsys
 ):
     """GHA 35450779692: leftover Writer + raw Impress close killed soffice."""
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     import plugin.tests.testing_utils as tu
@@ -1486,6 +1491,7 @@ def test_native_doc_draw_teardown_skips_close_when_windows_leftovers(
     monkeypatch, capsys
 ):
     """Same leftover skip for @with_native_doc('draw') on win32."""
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     import plugin.tests.testing_utils as tu
@@ -2063,6 +2069,7 @@ def test_close_draw_family_doc_none_skips_settle(monkeypatch):
 
 
 def test_close_draw_family_doc_logs_svc_and_steps(capsys, monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     from plugin.tests.testing_utils import close_draw_family_doc
@@ -2085,6 +2092,7 @@ def test_close_draw_family_doc_logs_svc_and_steps(capsys, monkeypatch):
 
 
 def test_close_draw_family_doc_windows_logs_raw_close(capsys, monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     from plugin.tests.testing_utils import close_draw_family_doc
@@ -2197,6 +2205,7 @@ def test_teardown_peer_pair_windows_closes_impress_skips_writer(monkeypatch):
 
 def test_teardown_peer_pair_windows_skips_second_impress_close(capsys, monkeypatch):
     """GHA 34547869791: second Impress raw close exited soffice 0."""
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     import tests.chatbot.test_peer_message_uno as peer
@@ -2280,6 +2289,7 @@ def test_windows_skip_doc_close_follows_platform(monkeypatch):
 
 def test_close_skips_on_windows(capsys, monkeypatch):
     """GHA 34544965319: second Writer close_doc hung before any Impress."""
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     import tests.chatbot.test_peer_message_uno as peer
@@ -2305,6 +2315,7 @@ def test_close_skips_on_windows(capsys, monkeypatch):
 
 
 def test_close_logs_uid_before_close_doc(capsys, monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from unittest.mock import MagicMock
 
     import tests.chatbot.test_peer_message_uno as peer

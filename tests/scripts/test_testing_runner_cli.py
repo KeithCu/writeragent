@@ -559,8 +559,57 @@ def test_run_module_suite_prints_call_and_returned(capsys) -> None:
     assert "TEST call fake.ok.test_ok" in err
     assert "TEST returned fake.ok.test_ok" in err
     assert "TEST end fake.ok.test_ok OK" in err
+    assert "SUITE start fake.ok" in err
+    # Pid dumps and TEST start are opt-in; which-test lines stay.
+    assert "TEST start " not in err
+    assert "soffice.bin=" not in err
     assert "hang dump" not in err
     assert "timeout armed" not in err
+
+
+def test_run_module_suite_verbose_pids_only_with_ci_debug(capsys, monkeypatch) -> None:
+    """WRITERAGENT_CI_DEBUG=1 restores TEST start, pid dumps, and SUITE selected."""
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
+    monkeypatch.setattr(tr, "_soffice_pids", lambda: "42")
+    tr._cli_filters = ["test_ok"]
+
+    def test_ok(ctx=None):
+        return None
+
+    def test_other(ctx=None):
+        return None
+
+    test_ok._is_test = True
+    test_other._is_test = True
+
+    class _Mod:
+        pass
+
+    module = _Mod()
+    module.test_ok = test_ok
+    module.test_other = test_other
+    try:
+        passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.verbose")
+    finally:
+        tr._cli_filters = []
+    assert passed == 1
+    assert failed == 0
+    err = capsys.readouterr().err
+    assert "TEST call fake.verbose.test_ok" in err
+    assert "TEST returned fake.verbose.test_ok" in err
+    assert "TEST start fake.verbose.test_ok" in err
+    assert "soffice.bin=42" in err
+    assert "SUITE selected fake.verbose: test_ok" in err
+    assert "TEST call fake.verbose.test_other" not in err
+
+
+def test_progress_verbose_silent_without_ci_debug(capsys, monkeypatch) -> None:
+    monkeypatch.delenv("WRITERAGENT_CI_DEBUG", raising=False)
+    tr._progress_verbose("BOOTSTRAP should stay hidden")
+    tr._progress("TEST call still.prints")
+    err = capsys.readouterr().err
+    assert "BOOTSTRAP" not in err
+    assert "TEST call still.prints" in err
 
 
 def test_run_module_suite_arms_timeout_watchdog_for_every_test(monkeypatch) -> None:
@@ -795,7 +844,8 @@ def test_headless_connect_delays_windows_longer(monkeypatch) -> None:
 
 
 def test_connect_uno_accept_logs_stderr_tail_on_miss(monkeypatch) -> None:
-    """Connect-fail path surfaces soffice stderr_tail for Windows GHA digs."""
+    """Connect-fail path surfaces soffice stderr_tail when CI debug is on."""
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     import plugin.testing_runner as tr
 
     class _Proc:

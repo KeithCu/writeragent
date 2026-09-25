@@ -291,7 +291,7 @@ def test_master_slides(ctx, doc):
 @native_test
 @with_native_doc("draw")
 def test_get_draw_tree(ctx, doc):
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
 
     # GHA 34606276107: this TEST end OK; the next insert_math_draw close
     # killed soffice. Name the tree call vs teardown.
@@ -464,7 +464,7 @@ def test_insert_math_draw(ctx, doc):
     # The runner also defers this file until just before the peer suite
     # so this leftover is not closed (34607010446). Notebook detect hang
     # on 34619751330 was leftover Hidden _blank, not this Draw.
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
     from plugin.tests.testing_utils import mark_windows_math_ole_doc
 
     # GHA 34606276107: load done uid=48 then ~8s later close_doc dispose

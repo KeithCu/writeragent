@@ -31,6 +31,7 @@ def test_pr_ci_debug_env_only_when_input_true() -> None:
     text = _workflow()
     assert "WRITERAGENT_CI_DEBUG:" in text
     assert "inputs.ci_debug == true && '1' || ''" in text
+    assert 'WRITERAGENT_PYTEST_PROGRESS: "1"' in text
     # runner is not available in jobs.<job_id>.env (startup_failure 33452656845).
     job_env = text.split("    env:", 1)[1].split("    steps:", 1)[0]
     assert "runner" not in job_env

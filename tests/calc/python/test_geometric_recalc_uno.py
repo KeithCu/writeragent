@@ -206,7 +206,7 @@ def _patch_config_files(ctx, mutator) -> None:
         _load_config_dict,
         _write_config_file,
     )
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
 
     for path in _session_config_paths(ctx):
         data: dict = {}
@@ -367,7 +367,7 @@ def _leftover_shared_diag(ctx, a1, a3) -> str:
         python_session_mode,
         recorded_calc_session_count,
     )
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
 
     try:
         mode = python_session_mode(ctx)
@@ -720,7 +720,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
         reset_geometric_runtime_for_tests,
     )
     from plugin.tests.testing_utils import _clear_undo
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
 
     reset_geometric_runtime_for_tests()
     previous = _enable_geometric_flag(ctx)
@@ -813,7 +813,7 @@ def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
     from com.sun.star.util import XModifyListener
 
     import plugin.calc.python.geometric_recalc as geo
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
 
     geo.reset_geometric_runtime_for_tests()
     previous = _enable_geometric_flag(ctx)
@@ -921,7 +921,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         recorded_calc_session_count,
         workbook_session_id,
     )
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
 
     reset_geometric_runtime_for_tests()
     _cold_kernel()
