@@ -225,3 +225,97 @@ def test_parse_tts_speed():
     assert parse_tts_speed("abc") == 1.0
     assert parse_tts_speed(None) == 1.0
     assert parse_tts_speed("") == 1.0
+
+
+def test_get_default_voice_for_locale():
+    from plugin.audio.tts_service import get_default_voice_for_locale
+
+    # Piper per-locale defaults
+    assert get_default_voice_for_locale("piper", "de_DE") == "de_DE-thorsten-medium"
+    assert get_default_voice_for_locale("piper", "de") == "de_DE-thorsten-medium"
+    assert get_default_voice_for_locale("piper", "fr_FR") == "fr_FR-siwis-medium"
+    assert get_default_voice_for_locale("piper", "es_ES") == "es_ES-davefx-medium"
+    assert get_default_voice_for_locale("piper", "it_IT") == "it_IT-paola-medium"
+    assert get_default_voice_for_locale("piper", "ru_RU") == "ru_RU-denis-medium"
+    assert get_default_voice_for_locale("piper", "zh_CN") == "zh_CN-huayan-medium"
+    assert get_default_voice_for_locale("piper", "ja_JP") == "ja_JP-hi_fi_captain-medium"
+    assert get_default_voice_for_locale("piper", "nb_NO") == "no_NO-talesyntese-medium"
+    assert get_default_voice_for_locale("piper", "nn_NO") == "no_NO-talesyntese-medium"
+    assert get_default_voice_for_locale("piper", "hr") == "sl_SI-artur-medium"
+    assert get_default_voice_for_locale("piper", "en_US") == "en_US-lessac-medium"
+
+    # Kokoro per-locale defaults
+    assert get_default_voice_for_locale("kokoro", "es_ES") == "ef_dora"
+    assert get_default_voice_for_locale("kokoro", "fr_FR") == "ff_siwis"
+    assert get_default_voice_for_locale("kokoro", "it_IT") == "if_sara"
+    assert get_default_voice_for_locale("kokoro", "ja_JP") == "jf_alpha"
+    assert get_default_voice_for_locale("kokoro", "zh_CN") == "zf_xiaobei"
+    assert get_default_voice_for_locale("kokoro", "hi_IN") == "hf_alpha"
+    assert get_default_voice_for_locale("kokoro", "pt_BR") == "pf_dora"
+    assert get_default_voice_for_locale("kokoro", "en_US") == "af_bella"
+    assert get_default_voice_for_locale("kokoro", "de_DE") == "af_bella"
+
+
+def test_get_voice_catalog_locale_prioritized():
+    from plugin.audio.tts_service import get_voice_catalog
+
+    # German locale puts Thorsten first
+    de_catalog = get_voice_catalog("piper", "de_DE")
+    assert de_catalog[0]["value"] == "de_DE-thorsten-medium"
+    assert any("de_DE-thorsten_emotional-medium" == v["value"] for v in de_catalog[:3])
+
+    # French locale puts Siwis first
+    fr_catalog = get_voice_catalog("piper", "fr_FR")
+    assert fr_catalog[0]["value"] == "fr_FR-siwis-medium"
+
+    # Spanish locale with Kokoro puts Dora first
+    es_kokoro = get_voice_catalog("kokoro", "es_ES")
+    assert es_kokoro[0]["value"] == "ef_dora"
+
+    # English locale puts Lessac first
+    en_catalog = get_voice_catalog("piper", "en_US")
+    assert en_catalog[0]["value"] == "en_US-lessac-medium"
+
+
+def test_kokoro_lang_for_voice():
+    from plugin.audio.tts_service import _kokoro_lang_for_voice
+
+    assert _kokoro_lang_for_voice("af_bella") == "en-us"
+    assert _kokoro_lang_for_voice("am_adam") == "en-us"
+    assert _kokoro_lang_for_voice("bf_emma") == "en-gb"
+    assert _kokoro_lang_for_voice("bm_george") == "en-gb"
+    assert _kokoro_lang_for_voice("ef_dora") == "es"
+    assert _kokoro_lang_for_voice("em_alex") == "es"
+    assert _kokoro_lang_for_voice("ff_siwis") == "fr-fr"
+    assert _kokoro_lang_for_voice("if_sara") == "it"
+    assert _kokoro_lang_for_voice("jf_alpha") == "ja"
+    assert _kokoro_lang_for_voice("zf_xiaobei") == "zh"
+    assert _kokoro_lang_for_voice("hf_alpha") == "hi"
+    assert _kokoro_lang_for_voice("pf_dora") == "pt-br"
+
+
+def test_resolve_piper_model_file_ondemand_download(tmp_path):
+    from plugin.audio.tts_service import _resolve_piper_model_file
+    import io
+    import os
+
+    cache_dir = tmp_path / "piper_cache"
+    with patch("os.path.expanduser", return_value=str(cache_dir)):
+        with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: io.BytesIO(b"fake-piper-model-bytes")):
+            resolved = _resolve_piper_model_file("de_DE-thorsten-medium")
+            assert resolved == str(cache_dir / "de_DE-thorsten-medium.onnx")
+            assert os.path.exists(resolved)
+            assert os.path.exists(str(cache_dir / "de_DE-thorsten-medium.onnx.json"))
+
+
+def test_all_writeragent_locales_have_piper_model_mapping():
+    from plugin.audio.tts_service import get_default_voice_for_locale, _PIPER_VOICE_MODELS
+    import os
+
+    locales_dir = os.path.join(os.path.dirname(__file__), "..", "..", "locales")
+    locale_dirs = [d for d in os.listdir(locales_dir) if os.path.isdir(os.path.join(locales_dir, d))]
+
+    for loc in locale_dirs:
+        voice = get_default_voice_for_locale("piper", loc)
+        assert voice in _PIPER_VOICE_MODELS, f"Locale {loc} resolved to unmapped voice {voice}"
+

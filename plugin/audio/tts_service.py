@@ -94,26 +94,503 @@ def stop_speech() -> None:
                 _active_speech_proc = None
 
 
+# Curated Piper ONNX voice models covering all 34 WriterAgent locales from HuggingFace
+# Schema: voice_id -> (onnx_relative_path, json_relative_path, lang_code, display_label)
+_PIPER_VOICE_MODELS: dict[str, tuple[str, str, str, str]] = {
+    # English (US & UK)
+    "en_US-lessac-medium": (
+        "en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+        "en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
+        "en_US",
+        "en_US-lessac-medium (US English Female - Lessac)",
+    ),
+    "en_US-amy-medium": (
+        "en/en_US/amy/medium/en_US-amy-medium.onnx",
+        "en/en_US/amy/medium/en_US-amy-medium.onnx.json",
+        "en_US",
+        "en_US-amy-medium (US English Female - Amy)",
+    ),
+    "en_US-ryan-medium": (
+        "en/en_US/ryan/medium/en_US-ryan-medium.onnx",
+        "en/en_US/ryan/medium/en_US-ryan-medium.onnx.json",
+        "en_US",
+        "en_US-ryan-medium (US English Male - Ryan)",
+    ),
+    "en_US-danny-low": (
+        "en/en_US/danny/low/en_US-danny-low.onnx",
+        "en/en_US/danny/low/en_US-danny-low.onnx.json",
+        "en_US",
+        "en_US-danny-low (US English Male - Danny)",
+    ),
+    "en_GB-alan-medium": (
+        "en/en_GB/alan/medium/en_GB-alan-medium.onnx",
+        "en/en_GB/alan/medium/en_GB-alan-medium.onnx.json",
+        "en_GB",
+        "en_GB-alan-medium (UK English Male - Alan)",
+    ),
+    "en_GB-alba-medium": (
+        "en/en_GB/alba/medium/en_GB-alba-medium.onnx",
+        "en/en_GB/alba/medium/en_GB-alba-medium.onnx.json",
+        "en_GB",
+        "en_GB-alba-medium (UK English Female - Alba)",
+    ),
+    # German (de)
+    "de_DE-thorsten-medium": (
+        "de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx",
+        "de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json",
+        "de_DE",
+        "de_DE-thorsten-medium (German Male - Thorsten)",
+    ),
+    "de_DE-thorsten_emotional-medium": (
+        "de/de_DE/thorsten_emotional/medium/de_DE-thorsten_emotional-medium.onnx",
+        "de/de_DE/thorsten_emotional/medium/de_DE-thorsten_emotional-medium.onnx.json",
+        "de_DE",
+        "de_DE-thorsten_emotional-medium (German Male - Thorsten Emotional)",
+    ),
+    # French (fr)
+    "fr_FR-siwis-medium": (
+        "fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx",
+        "fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx.json",
+        "fr_FR",
+        "fr_FR-siwis-medium (French Female - Siwis)",
+    ),
+    "fr_FR-upmc-medium": (
+        "fr/fr_FR/upmc/medium/fr_FR-upmc-medium.onnx",
+        "fr/fr_FR/upmc/medium/fr_FR-upmc-medium.onnx.json",
+        "fr_FR",
+        "fr_FR-upmc-medium (French Female - UPMC)",
+    ),
+    # Spanish (es)
+    "es_ES-davefx-medium": (
+        "es/es_ES/davefx/medium/es_ES-davefx-medium.onnx",
+        "es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json",
+        "es_ES",
+        "es_ES-davefx-medium (Spanish Male - Davefx)",
+    ),
+    "es_ES-sharvard-medium": (
+        "es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx",
+        "es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx.json",
+        "es_ES",
+        "es_ES-sharvard-medium (Spanish Male - Sharvard)",
+    ),
+    # Italian (it)
+    "it_IT-paola-medium": (
+        "it/it_IT/paola/medium/it_IT-paola-medium.onnx",
+        "it/it_IT/paola/medium/it_IT-paola-medium.onnx.json",
+        "it_IT",
+        "it_IT-paola-medium (Italian Female - Paola)",
+    ),
+    # Dutch (nl)
+    "nl_NL-mls-medium": (
+        "nl/nl_NL/mls/medium/nl_NL-mls-medium.onnx",
+        "nl/nl_NL/mls/medium/nl_NL-mls-medium.onnx.json",
+        "nl_NL",
+        "nl_NL-mls-medium (Dutch Female - MLS)",
+    ),
+    "nl_BE-nathalie-medium": (
+        "nl/nl_BE/nathalie/medium/nl_BE-nathalie-medium.onnx",
+        "nl/nl_BE/nathalie/medium/nl_BE-nathalie-medium.onnx.json",
+        "nl_BE",
+        "nl_BE-nathalie-medium (Dutch Belgian Female - Nathalie)",
+    ),
+    # Polish (pl)
+    "pl_PL-darkman-medium": (
+        "pl/pl_PL/darkman/medium/pl_PL-darkman-medium.onnx",
+        "pl/pl_PL/darkman/medium/pl_PL-darkman-medium.onnx.json",
+        "pl_PL",
+        "pl_PL-darkman-medium (Polish Male - Darkman)",
+    ),
+    # Portuguese (pt)
+    "pt_BR-cadu-medium": (
+        "pt/pt_BR/cadu/medium/pt_BR-cadu-medium.onnx",
+        "pt/pt_BR/cadu/medium/pt_BR-cadu-medium.onnx.json",
+        "pt_BR",
+        "pt_BR-cadu-medium (Portuguese Male - Cadu)",
+    ),
+    "pt_BR-faber-medium": (
+        "pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx",
+        "pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx.json",
+        "pt_BR",
+        "pt_BR-faber-medium (Portuguese Male - Faber)",
+    ),
+    # Russian (ru)
+    "ru_RU-denis-medium": (
+        "ru/ru_RU/denis/medium/ru_RU-denis-medium.onnx",
+        "ru/ru_RU/denis/medium/ru_RU-denis-medium.onnx.json",
+        "ru_RU",
+        "ru_RU-denis-medium (Russian Male - Denis)",
+    ),
+    "ru_RU-dmitri-medium": (
+        "ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx",
+        "ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx.json",
+        "ru_RU",
+        "ru_RU-dmitri-medium (Russian Male - Dmitri)",
+    ),
+    # Chinese (zh_CN, zh_TW)
+    "zh_CN-huayan-medium": (
+        "zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx",
+        "zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json",
+        "zh_CN",
+        "zh_CN-huayan-medium (Chinese Female - Huayan)",
+    ),
+    # Japanese (ja)
+    "ja_JP-hi_fi_captain-medium": (
+        "ja/ja_JP/hi_fi_captain/medium/ja_JP-hi_fi_captain-medium.onnx",
+        "ja/ja_JP/hi_fi_captain/medium/ja_JP-hi_fi_captain-medium.onnx.json",
+        "ja_JP",
+        "ja_JP-hi_fi_captain-medium (Japanese Male - Hi-Fi Captain)",
+    ),
+    # Korean (ko)
+    "ko_KR-kss-medium": (
+        "ko/ko_KR/kss/medium/ko_KR-kss-medium.onnx",
+        "ko/ko_KR/kss/medium/ko_KR-kss-medium.onnx.json",
+        "ko_KR",
+        "ko_KR-kss-medium (Korean Female - KSS)",
+    ),
+    # Turkish (tr)
+    "tr_TR-dfki-medium": (
+        "tr/tr_TR/dfki/medium/tr_TR-dfki-medium.onnx",
+        "tr/tr_TR/dfki/medium/tr_TR-dfki-medium.onnx.json",
+        "tr_TR",
+        "tr_TR-dfki-medium (Turkish Male - DFKI)",
+    ),
+    # Ukrainian (uk)
+    "uk_UA-ukrainian_tts-medium": (
+        "uk/uk_UA/ukrainian_tts/medium/uk_UA-ukrainian_tts-medium.onnx",
+        "uk/uk_UA/ukrainian_tts/medium/uk_UA-ukrainian_tts-medium.onnx.json",
+        "uk_UA",
+        "uk_UA-ukrainian_tts-medium (Ukrainian Female - UKR TTS)",
+    ),
+    # Czech (cs)
+    "cs_CZ-jirka-medium": (
+        "cs/cs_CZ/jirka/medium/cs_CZ-jirka-medium.onnx",
+        "cs/cs_CZ/jirka/medium/cs_CZ-jirka-medium.onnx.json",
+        "cs_CZ",
+        "cs_CZ-jirka-medium (Czech Male - Jirka)",
+    ),
+    # Danish (da)
+    "da_DK-talesyntese-medium": (
+        "da/da_DK/talesyntese/medium/da_DK-talesyntese-medium.onnx",
+        "da/da_DK/talesyntese/medium/da_DK-talesyntese-medium.onnx.json",
+        "da_DK",
+        "da_DK-talesyntese-medium (Danish Male - Talesyntese)",
+    ),
+    # Finnish (fi)
+    "fi_FI-harri-medium": (
+        "fi/fi_FI/harri/medium/fi_FI-harri-medium.onnx",
+        "fi/fi_FI/harri/medium/fi_FI-harri-medium.onnx.json",
+        "fi_FI",
+        "fi_FI-harri-medium (Finnish Male - Harri)",
+    ),
+    # Swedish (sv)
+    "sv_SE-nst-medium": (
+        "sv/sv_SE/nst/medium/sv_SE-nst-medium.onnx",
+        "sv/sv_SE/nst/medium/sv_SE-nst-medium.onnx.json",
+        "sv_SE",
+        "sv_SE-nst-medium (Swedish Female - NST)",
+    ),
+    # Greek (el)
+    "el_GR-rapunzelina-medium": (
+        "el/el_GR/rapunzelina/medium/el_GR-rapunzelina-medium.onnx",
+        "el/el_GR/rapunzelina/medium/el_GR-rapunzelina-medium.onnx.json",
+        "el_GR",
+        "el_GR-rapunzelina-medium (Greek Female - Rapunzelina)",
+    ),
+    # Hungarian (hu)
+    "hu_HU-anna-medium": (
+        "hu/hu_HU/anna/medium/hu_HU-anna-medium.onnx",
+        "hu/hu_HU/anna/medium/hu_HU-anna-medium.onnx.json",
+        "hu_HU",
+        "hu_HU-anna-medium (Hungarian Female - Anna)",
+    ),
+    # Romanian (ro)
+    "ro_RO-mihai-medium": (
+        "ro/ro_RO/mihai/medium/ro_RO-mihai-medium.onnx",
+        "ro/ro_RO/mihai/medium/ro_RO-mihai-medium.onnx.json",
+        "ro_RO",
+        "ro_RO-mihai-medium (Romanian Male - Mihai)",
+    ),
+    # Bulgarian (bg)
+    "bg_BG-dimitar-medium": (
+        "bg/bg_BG/dimitar/medium/bg_BG-dimitar-medium.onnx",
+        "bg/bg_BG/dimitar/medium/bg_BG-dimitar-medium.onnx.json",
+        "bg_BG",
+        "bg_BG-dimitar-medium (Bulgarian Male - Dimitar)",
+    ),
+    # Slovak (sk)
+    "sk_SK-lili-medium": (
+        "sk/sk_SK/lili/medium/sk_SK-lili-medium.onnx",
+        "sk/sk_SK/lili/medium/sk_SK-lili-medium.onnx.json",
+        "sk_SK",
+        "sk_SK-lili-medium (Slovak Female - Lili)",
+    ),
+    # Estonian (et)
+    "et_EE-news-medium": (
+        "et/et_EE/news/medium/et_EE-news-medium.onnx",
+        "et/et_EE/news/medium/et_EE-news-medium.onnx.json",
+        "et_EE",
+        "et_EE-news-medium (Estonian Female - News)",
+    ),
+    # Lithuanian (lt)
+    "lt_LT-reginute1-medium": (
+        "lt/lt_LT/reginute1/medium/lt_LT-reginute1-medium.onnx",
+        "lt/lt_LT/reginute1/medium/lt_LT-reginute1-medium.onnx.json",
+        "lt_LT",
+        "lt_LT-reginute1-medium (Lithuanian Female - Reginute)",
+    ),
+    # Latvian (lv)
+    "lv_LV-aivars-medium": (
+        "lv/lv_LV/aivars/medium/lv_LV-aivars-medium.onnx",
+        "lv/lv_LV/aivars/medium/lv_LV-aivars-medium.onnx.json",
+        "lv_LV",
+        "lv_LV-aivars-medium (Latvian Male - Aivars)",
+    ),
+    # Croatian / Slovenian (hr / sl)
+    "sl_SI-artur-medium": (
+        "sl/sl_SI/artur/medium/sl_SI-artur-medium.onnx",
+        "sl/sl_SI/artur/medium/sl_SI-artur-medium.onnx.json",
+        "sl_SI",
+        "sl_SI-artur-medium (Slovenian/Croatian Male - Artur)",
+    ),
+    # Norwegian (nb_NO / nn_NO / no_NO)
+    "no_NO-talesyntese-medium": (
+        "no/no_NO/talesyntese/medium/no_NO-talesyntese-medium.onnx",
+        "no/no_NO/talesyntese/medium/no_NO-talesyntese-medium.onnx.json",
+        "no_NO",
+        "no_NO-talesyntese-medium (Norwegian Male - Talesyntese)",
+    ),
+    # Catalan (ca)
+    "ca_ES-upc_ona-medium": (
+        "ca/ca_ES/upc_ona/medium/ca_ES-upc_ona-medium.onnx",
+        "ca/ca_ES/upc_ona/medium/ca_ES-upc_ona-medium.onnx.json",
+        "ca_ES",
+        "ca_ES-upc_ona-medium (Catalan Female - UPC Ona)",
+    ),
+    # Indonesian (id)
+    "id_ID-news_tts-medium": (
+        "id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx",
+        "id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx.json",
+        "id_ID",
+        "id_ID-news_tts-medium (Indonesian Female - News TTS)",
+    ),
+    # Hindi (hi_IN)
+    "hi_IN-pratham-medium": (
+        "hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx",
+        "hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx.json",
+        "hi_IN",
+        "hi_IN-pratham-medium (Hindi Male - Pratham)",
+    ),
+    # Bengali (bn_IN)
+    "bn_BD-google-medium": (
+        "bn/bn_BD/google/medium/bn_BD-google-medium.onnx",
+        "bn/bn_BD/google/medium/bn_BD-google-medium.onnx.json",
+        "bn_BD",
+        "bn_BD-google-medium (Bengali Female - Google)",
+    ),
+    # Urdu (ur_PK)
+    "ur_PK-aegis_female-medium": (
+        "ur/ur_PK/aegis_female/medium/ur_PK-aegis_female-medium.onnx",
+        "ur/ur_PK/aegis_female/medium/ur_PK-aegis_female-medium.onnx.json",
+        "ur_PK",
+        "ur_PK-aegis_female-medium (Urdu Female - Aegis)",
+    ),
+}
+
+_LOCALE_TO_PIPER_DEFAULT: dict[str, str] = {
+    "bg": "bg_BG-dimitar-medium",
+    "bn": "bn_BD-google-medium",
+    "ca": "ca_ES-upc_ona-medium",
+    "cs": "cs_CZ-jirka-medium",
+    "da": "da_DK-talesyntese-medium",
+    "de": "de_DE-thorsten-medium",
+    "el": "el_GR-rapunzelina-medium",
+    "en": "en_US-lessac-medium",
+    "es": "es_ES-davefx-medium",
+    "et": "et_EE-news-medium",
+    "fi": "fi_FI-harri-medium",
+    "fr": "fr_FR-siwis-medium",
+    "hi": "hi_IN-pratham-medium",
+    "hr": "sl_SI-artur-medium",
+    "hu": "hu_HU-anna-medium",
+    "id": "id_ID-news_tts-medium",
+    "it": "it_IT-paola-medium",
+    "ja": "ja_JP-hi_fi_captain-medium",
+    "ko": "ko_KR-kss-medium",
+    "lt": "lt_LT-reginute1-medium",
+    "lv": "lv_LV-aivars-medium",
+    "nb": "no_NO-talesyntese-medium",
+    "nn": "no_NO-talesyntese-medium",
+    "no": "no_NO-talesyntese-medium",
+    "nl": "nl_NL-mls-medium",
+    "pl": "pl_PL-darkman-medium",
+    "pt": "pt_BR-cadu-medium",
+    "ro": "ro_RO-mihai-medium",
+    "ru": "ru_RU-denis-medium",
+    "sk": "sk_SK-lili-medium",
+    "sl": "sl_SI-artur-medium",
+    "sv": "sv_SE-nst-medium",
+    "tr": "tr_TR-dfki-medium",
+    "uk": "uk_UA-ukrainian_tts-medium",
+    "ur": "ur_PK-aegis_female-medium",
+    "zh": "zh_CN-huayan-medium",
+}
+
+_KOKORO_CATALOG_ITEMS: list[dict[str, str]] = [
+    # English (US)
+    {"value": "af_bella", "label": "af_bella (Kokoro US Female - Bella)", "lang": "en"},
+    {"value": "af_heart", "label": "af_heart (Kokoro US Female - Heart)", "lang": "en"},
+    {"value": "af_sarah", "label": "af_sarah (Kokoro US Female - Sarah)", "lang": "en"},
+    {"value": "af_sky", "label": "af_sky (Kokoro US Female - Sky)", "lang": "en"},
+    {"value": "am_adam", "label": "am_adam (Kokoro US Male - Adam)", "lang": "en"},
+    {"value": "am_michael", "label": "am_michael (Kokoro US Male - Michael)", "lang": "en"},
+    # English (UK)
+    {"value": "bf_emma", "label": "bf_emma (Kokoro UK Female - Emma)", "lang": "en"},
+    {"value": "bf_isabella", "label": "bf_isabella (Kokoro UK Female - Isabella)", "lang": "en"},
+    {"value": "bm_george", "label": "bm_george (Kokoro UK Male - George)", "lang": "en"},
+    {"value": "bm_lewis", "label": "bm_lewis (Kokoro UK Male - Lewis)", "lang": "en"},
+    # Spanish
+    {"value": "ef_dora", "label": "ef_dora (Kokoro Spanish Female - Dora)", "lang": "es"},
+    {"value": "em_alex", "label": "em_alex (Kokoro Spanish Male - Alex)", "lang": "es"},
+    {"value": "em_santa", "label": "em_santa (Kokoro Spanish Male - Santa)", "lang": "es"},
+    # French
+    {"value": "ff_siwis", "label": "ff_siwis (Kokoro French Female - Siwis)", "lang": "fr"},
+    # Italian
+    {"value": "if_sara", "label": "if_sara (Kokoro Italian Female - Sara)", "lang": "it"},
+    {"value": "im_nicola", "label": "im_nicola (Kokoro Italian Male - Nicola)", "lang": "it"},
+    # Japanese
+    {"value": "jf_alpha", "label": "jf_alpha (Kokoro Japanese Female - Alpha)", "lang": "ja"},
+    {"value": "jf_gongitsune", "label": "jf_gongitsune (Kokoro Japanese Female - Gongitsune)", "lang": "ja"},
+    {"value": "jm_kumo", "label": "jm_kumo (Kokoro Japanese Male - Kumo)", "lang": "ja"},
+    # Chinese
+    {"value": "zf_xiaobei", "label": "zf_xiaobei (Kokoro Chinese Female - Xiaobei)", "lang": "zh"},
+    {"value": "zm_yunjian", "label": "zm_yunjian (Kokoro Chinese Male - Yunjian)", "lang": "zh"},
+    # Portuguese
+    {"value": "pf_dora", "label": "pf_dora (Kokoro Portuguese Female - Dora)", "lang": "pt"},
+    # Hindi
+    {"value": "hf_alpha", "label": "hf_alpha (Kokoro Hindi Female - Alpha)", "lang": "hi"},
+    {"value": "hf_beta", "label": "hf_beta (Kokoro Hindi Female - Beta)", "lang": "hi"},
+    {"value": "hm_omega", "label": "hm_omega (Kokoro Hindi Male - Omega)", "lang": "hi"},
+    {"value": "hm_psi", "label": "hm_psi (Kokoro Hindi Male - Psi)", "lang": "hi"},
+]
+
+_LOCALE_TO_KOKORO_DEFAULT: dict[str, str] = {
+    "en": "af_bella",
+    "es": "ef_dora",
+    "fr": "ff_siwis",
+    "it": "if_sara",
+    "ja": "jf_alpha",
+    "zh": "zf_xiaobei",
+    "hi": "hf_alpha",
+    "pt": "pf_dora",
+}
+
+
+def _kokoro_lang_for_voice(voice: str) -> str:
+    """Determine the Kokoro phonemizer language code from voice prefix."""
+    clean = voice.lower().strip()
+    if clean.startswith("b"):
+        return "en-gb"
+    if clean.startswith("e"):
+        return "es"
+    if clean.startswith("f"):
+        return "fr-fr"
+    if clean.startswith("i"):
+        return "it"
+    if clean.startswith("j"):
+        return "ja"
+    if clean.startswith("z"):
+        return "zh"
+    if clean.startswith("h"):
+        return "hi"
+    if clean.startswith("p"):
+        return "pt-br"
+    return "en-us"
+
+
+def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
+    """Return the optimal default voice for a voice family and locale."""
+    fam = clean_provider_name(family)
+    if locale is None:
+        try:
+            from plugin.framework.i18n import get_active_locale
+            locale = get_active_locale()
+        except Exception:
+            locale = "en_US"
+    stem = (locale or "").split(".")[0].split("_")[0].lower()
+    if fam == "piper":
+        return _LOCALE_TO_PIPER_DEFAULT.get(stem, "en_US-lessac-medium")
+    if fam == "kokoro":
+        return _LOCALE_TO_KOKORO_DEFAULT.get(stem, "af_bella")
+    if fam in ("openai", "endpoint"):
+        return "alloy"
+    return "default"
+
+
+def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, str]]:
+    """Return ordered voice options for the family, prioritizing the active locale."""
+    fam = clean_provider_name(family)
+    if fam not in ("piper", "kokoro"):
+        return VOICE_CATALOGS.get(fam, [])
+
+    if locale is None:
+        try:
+            from plugin.framework.i18n import get_active_locale
+            locale = get_active_locale()
+        except Exception:
+            locale = "en_US"
+
+    stem = (locale or "").split(".")[0].split("_")[0].lower()
+
+    if fam == "kokoro":
+        locale_voices: list[dict[str, str]] = []
+        en_voices: list[dict[str, str]] = []
+        other_voices: list[dict[str, str]] = []
+        for opt in _KOKORO_CATALOG_ITEMS:
+            v_lang = opt.get("lang", "en")
+            item = {"value": opt["value"], "label": opt["label"]}
+            if stem != "en" and v_lang == stem:
+                locale_voices.append(item)
+            elif v_lang == "en":
+                en_voices.append(item)
+            else:
+                other_voices.append(item)
+        return locale_voices + en_voices + other_voices
+
+    # Piper: matching locale voices first, then English, then others
+    locale_voices = []
+    en_voices = []
+    other_voices = []
+
+    preferred_default = _LOCALE_TO_PIPER_DEFAULT.get(stem)
+
+    for voice_id, (_, _, lang_code, label) in _PIPER_VOICE_MODELS.items():
+        v_stem = lang_code.split("_")[0].lower()
+        item = {"value": voice_id, "label": label}
+        is_loc = stem != "en" and (
+            voice_id == preferred_default
+            or v_stem == stem
+            or (stem in ("nb", "nn") and v_stem == "no")
+            or (stem == "hr" and v_stem == "sl")
+        )
+        if is_loc:
+            if voice_id == preferred_default:
+                locale_voices.insert(0, item)
+            else:
+                locale_voices.append(item)
+        elif v_stem == "en":
+            en_voices.append(item)
+        else:
+            other_voices.append(item)
+
+    return locale_voices + en_voices + other_voices
+
+
 VOICE_CATALOGS: dict[str, list[dict[str, str]]] = {
     "kokoro": [
-        {"value": "af_bella", "label": "af_bella (Kokoro US Female - Bella)"},
-        {"value": "af_heart", "label": "af_heart (Kokoro US Female - Heart)"},
-        {"value": "af_sarah", "label": "af_sarah (Kokoro US Female - Sarah)"},
-        {"value": "af_sky", "label": "af_sky (Kokoro US Female - Sky)"},
-        {"value": "am_adam", "label": "am_adam (Kokoro US Male - Adam)"},
-        {"value": "am_michael", "label": "am_michael (Kokoro US Male - Michael)"},
-        {"value": "bf_emma", "label": "bf_emma (Kokoro UK Female - Emma)"},
-        {"value": "bf_isabella", "label": "bf_isabella (Kokoro UK Female - Isabella)"},
-        {"value": "bm_george", "label": "bm_george (Kokoro UK Male - George)"},
-        {"value": "bm_lewis", "label": "bm_lewis (Kokoro UK Male - Lewis)"},
+        {"value": opt["value"], "label": opt["label"]} for opt in _KOKORO_CATALOG_ITEMS
     ],
     "piper": [
-        {"value": "en_US-lessac-medium", "label": "en_US-lessac-medium (Piper US Female - Lessac)"},
-        {"value": "en_US-amy-medium", "label": "en_US-amy-medium (Piper US Female - Amy)"},
-        {"value": "en_US-ryan-medium", "label": "en_US-ryan-medium (Piper US Male - Ryan)"},
-        {"value": "en_US-danny-low", "label": "en_US-danny-low (Piper US Male - Danny)"},
-        {"value": "en_GB-alan-medium", "label": "en_GB-alan-medium (Piper UK Male - Alan)"},
-        {"value": "en_GB-alba-medium", "label": "en_GB-alba-medium (Piper UK Female - Alba)"},
+        {"value": k, "label": v[3]} for k, v in _PIPER_VOICE_MODELS.items()
     ],
     "openai": [
         {"value": "alloy", "label": "alloy (OpenAI Neutral)"},
@@ -169,7 +646,11 @@ def get_voice_family(provider: str | None, model: str | None = None) -> str:
     return "system"
 
 
-def get_scoped_tts_voice(provider: str | None = None, model: str | None = None) -> str:
+def get_scoped_tts_voice(
+    provider: str | None = None,
+    model: str | None = None,
+    locale: str | None = None,
+) -> str:
     """Get the scoped voice for the given provider/model's voice family."""
     if provider is None:
         provider = str(get_config("audio.tts_provider") or "system")
@@ -189,11 +670,11 @@ def get_scoped_tts_voice(provider: str | None = None, model: str | None = None) 
 
     general_voice = str(get_config("audio.tts_voice") or "").strip()
     clean_gen = clean_voice_name(general_voice)
-    valid_voices = {opt["value"] for opt in VOICE_CATALOGS.get(family, [])}
+    valid_voices = {opt["value"] for opt in get_voice_catalog(family, locale)}
     if clean_gen in valid_voices:
         return clean_gen
 
-    return DEFAULT_VOICE_FOR_FAMILY.get(family, "default")
+    return get_default_voice_for_locale(family, locale)
 
 
 def set_scoped_tts_voice(voice: str, provider: str | None = None, model: str | None = None) -> None:
@@ -460,17 +941,55 @@ def _resolve_kokoro_model_files() -> tuple[str, str]:
 
 
 def _resolve_piper_model_file(voice: str) -> str:
-    """Resolve path to Piper ONNX model file, downloading default if missing."""
-    if os.path.exists(voice):
-        return voice
+    """Resolve path to Piper ONNX model file, downloading on demand if missing."""
+    clean_v = clean_voice_name(voice)
+    if not clean_v:
+        clean_v = "en_US-lessac-medium"
+
+    if os.path.isabs(clean_v) and os.path.exists(clean_v):
+        return clean_v
+
     cache_dir = os.path.expanduser("~/.cache/piper")
-    voice_file = os.path.join(cache_dir, f"{voice}.onnx")
-    if os.path.exists(voice_file):
+    voice_file = os.path.join(cache_dir, f"{clean_v}.onnx")
+    json_file = os.path.join(cache_dir, f"{clean_v}.onnx.json")
+
+    if os.path.exists(voice_file) and os.path.exists(json_file):
         return voice_file
 
+    # If voice is in curated catalog, download on-demand
+    if clean_v in _PIPER_VOICE_MODELS:
+        rel_onnx, rel_json, _, _ = _PIPER_VOICE_MODELS[clean_v]
+        base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
+        onnx_url = f"{base_url}/{rel_onnx}"
+        json_url = f"{base_url}/{rel_json}"
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            import urllib.request
+            log.info("Downloading Piper voice model '%s' to %s...", clean_v, voice_file)
+            req_onnx = urllib.request.Request(onnx_url, headers={"User-Agent": "WriterAgent/1.0"})
+            with urllib.request.urlopen(req_onnx, timeout=60) as resp, open(voice_file, "wb") as f_out:
+                shutil.copyfileobj(resp, f_out)
+            req_json = urllib.request.Request(json_url, headers={"User-Agent": "WriterAgent/1.0"})
+            with urllib.request.urlopen(req_json, timeout=30) as resp, open(json_file, "wb") as f_out:
+                shutil.copyfileobj(resp, f_out)
+            return voice_file
+        except Exception as e:
+            log.warning("Could not auto-download Piper voice '%s': %s", clean_v, e)
+            if os.path.exists(voice_file):
+                try:
+                    os.remove(voice_file)
+                except Exception:
+                    pass
+            if os.path.exists(json_file):
+                try:
+                    os.remove(json_file)
+                except Exception:
+                    pass
+
+    # Fallback to English default
     default_voice_file = os.path.join(cache_dir, "en_US-lessac-medium.onnx")
     default_json = os.path.join(cache_dir, "en_US-lessac-medium.onnx.json")
-    if os.path.exists(default_voice_file):
+    if os.path.exists(default_voice_file) and os.path.exists(default_json):
         return default_voice_file
 
     try:
@@ -482,7 +1001,7 @@ def _resolve_piper_model_file(voice: str) -> str:
         urllib.request.urlretrieve(f"{base_url}/en_US-lessac-medium.onnx.json", default_json)
         return default_voice_file
     except Exception as e:
-        log.warning("Could not auto-download Piper voice model: %s", e)
+        log.warning("Could not auto-download Piper default voice model: %s", e)
 
     return voice
 
@@ -541,6 +1060,7 @@ def _speak_kokoro_local(text: str, voice: str = "af_bella", speed: float = 1.0) 
         _speak_system(text, speed=speed)
         return
 
+    lang = _kokoro_lang_for_voice(voice)
     tmp_wav = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -550,10 +1070,11 @@ def _speak_kokoro_local(text: str, voice: str = "af_bella", speed: float = 1.0) 
             "from kokoro_onnx import Kokoro\n"
             "import soundfile as sf\n"
             "kokoro = Kokoro(sys.argv[5], sys.argv[6])\n"
-            "samples, rate = kokoro.create(sys.argv[1], voice=sys.argv[2], speed=float(sys.argv[3]), lang='en-us')\n"
+            "v = sys.argv[2] if sys.argv[2] in kokoro.voices else ('af_bella' if 'af_bella' in kokoro.voices else kokoro.voices[0])\n"
+            "samples, rate = kokoro.create(sys.argv[1], voice=v, speed=float(sys.argv[3]), lang=sys.argv[7])\n"
             "sf.write(sys.argv[4], samples, rate)\n"
         )
-        cmd = [py_exe, "-c", script, text, voice, str(speed), tmp_wav, model_path, voices_path]
+        cmd = [py_exe, "-c", script, text, voice, str(speed), tmp_wav, model_path, voices_path, lang]
         with _speech_lock:
             if _speech_active and _speech_cancelled.is_set():
                 return

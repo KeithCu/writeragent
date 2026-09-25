@@ -842,7 +842,7 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 clean_voice_name,
                 get_voice_family,
                 get_scoped_tts_voice,
-                VOICE_CATALOGS,
+                get_voice_catalog,
             )
             prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
             model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
@@ -857,7 +857,7 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
 
             if voice_ctrl and hasattr(voice_ctrl, "getModel"):
                 family = get_voice_family(provider, raw_model)
-                catalog = VOICE_CATALOGS.get(family, [])
+                catalog = get_voice_catalog(family)
                 labels = tuple(opt["label"] for opt in catalog)
 
                 model = voice_ctrl.getModel()
