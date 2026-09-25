@@ -377,8 +377,7 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags.
 - Headers/footers: edit the region with page_get_header_footer_text then page_set_header_footer_text.
-  Get returns the same XHTML as get_document_content (fields as <span title="page-number"/>, tables, logos) plus images/fields lists.
-  Set imports that HTML into the region's XText so logos, tables, and page-number fields survive.
+  Get/Set use the same XHTML as get_document_content (fields as <span title="page-number"/>, tables, logos) — Get also lists images/fields; Set imports so logos, tables, and fields survive.
   page_set_style_properties header_is_on=false / footer_is_on=false refuses while the region still has content; clear with page_set_header_footer_text first, then disable. Enabling is always allowed.
   Creating a different first page letterhead: use header_first / footer_first.
   page_get_style_properties reports first_is_shared when that split is off.
