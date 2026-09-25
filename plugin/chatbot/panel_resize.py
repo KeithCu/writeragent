@@ -44,6 +44,7 @@ _BOTTOM_CLUSTER = frozenset({
     "send",
     "stop",
     "clear",
+    "chk_voice",
     "chat_mode_selector",
     "model_label",
     "model_selector",

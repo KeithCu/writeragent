@@ -33,3 +33,11 @@ def test_image_default_aspect_has_sidebar_matching_options():
         "Landscape (3:2)",
         "Portrait (2:3)",
     )
+
+
+def test_update_lru_for_tts_model():
+    from plugin.chatbot.settings_dialog import _update_lru_for_key
+
+    with patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
+        _update_lru_for_key(MagicMock(), "audio__tts_model", "hexgrad/Kokoro-82M", "https://openrouter.ai/api")
+        mock_lru.assert_called_once_with("hexgrad/Kokoro-82M", "tts_model_lru", "https://openrouter.ai/api")

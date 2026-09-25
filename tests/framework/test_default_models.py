@@ -10,6 +10,19 @@ class TestGetProviderDefaults:
         assert (bool(d.get("text_model")))
         assert (bool(d.get("image_model")))
         assert (bool(d.get("stt_model")))
+        assert (bool(d.get("tts_model")))
+
+    def test_openrouter_default_tts_model_uses_kokoro(self):
+        d = get_provider_defaults("openrouter")
+        assert (d.get("tts_model")) == ("hexgrad/Kokoro-82M")
+
+    def test_together_default_tts_model_uses_kokoro(self):
+        d = get_provider_defaults("together")
+        assert (d.get("tts_model")) == ("hexgrad/Kokoro-82M")
+
+    def test_openai_default_tts_model_uses_tts_1(self):
+        d = get_provider_defaults("openai")
+        assert (d.get("tts_model")) == ("tts-1")
 
     def test_resolve_model_id_requires_ids_dict(self):
         assert (resolve_model_id({"": 0, "ids": ""}, 0)) is None

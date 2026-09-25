@@ -1,0 +1,57 @@
+name: audio
+title: Audio / Speech
+requires: [config]
+
+config:
+  tts_enabled:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Enable Speech Output (TTS)
+    helper: Speak assistant responses aloud using text-to-speech.
+
+  tts_provider:
+    type: string
+    default: system
+    widget: select
+    label: TTS Provider
+    helper: "Choose whether to use built-in OS speech or your configured API endpoint."
+    options:
+      - value: system
+        label: "OS Native (Offline, Free: say / spd-say / SAPI)"
+      - value: endpoint
+        label: "Current Chat Endpoint (/audio/speech)"
+
+  tts_model:
+    type: string
+    default: ""
+    widget: combo
+    label: TTS Model
+    helper: "Model for speech synthesis (e.g. hexgrad/Kokoro-82M, cartesia/sonic, openai/tts-1)."
+
+  tts_voice:
+    type: string
+    default: "alloy"
+    widget: select
+    label: Voice
+    helper: "Voice character / persona for speech synthesis."
+    options:
+      - value: "alloy"
+        label: "alloy (Neutral, clear)"
+      - value: "nova"
+        label: "nova (Warm, engaging)"
+      - value: "shimmer"
+        label: "shimmer (Expressive)"
+      - value: "af_bella"
+        label: "af_bella (Kokoro natural American female)"
+      - value: "am_adam"
+        label: "am_adam (Kokoro natural American male)"
+
+  tts_speed:
+    type: float
+    default: 1.0
+    min: 0.5
+    max: 2.0
+    widget: number
+    label: Speech Speed
+    helper: "Playback speed multiplier (0.5 to 2.0, default 1.0)."

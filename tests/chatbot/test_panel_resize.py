@@ -44,6 +44,7 @@ def _xdl_snapshot():
         "send": (4, 186, 50, 15),
         "stop": (56, 186, 50, 15),
         "clear": (108, 186, 50, 15),
+        "chk_voice": (154, 186, 22, 15),
         "chat_mode_selector": (4, 203, 142, 14),
         "model_label": (4, 217, 142, 10),
         "model_selector": (4, 229, 142, 14),
@@ -59,10 +60,12 @@ class TestComputeChatPanelLayout:
         layouts = compute_chat_panel_layout(900, 500, _xdl_snapshot())
         response = layouts["response"]
         status = layouts["status"]
+        chk_voice = layouts["chk_voice"]
 
         assert response.y == 16
         assert status.y > response.y + response.height
         assert status.y > 300
+        assert chk_voice.y == layouts["clear"].y
         assert response.height > 200
 
     def test_inflated_response_snapshot_height_is_ignored(self):

@@ -665,3 +665,58 @@ def test_dialog_parent_for_child_prefers_settings_peer() -> None:
     parent.getPeer.assert_called_once()
 
 
+def test_populate_fields_wires_tts_model_lru() -> None:
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dlg = MagicMock()
+    tts_ctrl = MagicMock()
+    dlg.getControl.side_effect = lambda name: tts_ctrl if name == "audio__tts_model" else None
+
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+    field_specs = [{"name": "audio__tts_model", "value": ""}]
+
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
+        view._populate_fields(field_specs, "https://openrouter.ai/api")
+        mock_lru.assert_called_once_with(
+            view._ctx, tts_ctrl, "", "tts_model_lru", "https://openrouter.ai/api", api_key_override=""
+        )
+
+
+def test_apply_dropdowns_updates_tts_combobox() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    dlg = MagicMock()
+    ctx = MagicMock()
+    combo = MagicMock()
+    listener = EndpointCombinedListener(dlg, ctx, combo)
+
+    tts_ctrl = MagicMock()
+    tts_ctrl.getText.return_value = ""
+
+    def get_optional_side_effect(d, name):
+        if name == "audio__tts_model":
+            return tts_ctrl
+        return None
+
+    populate_calls = []
+
+    def track_populate(c, ctrl, current, lru_key, endpoint, **kwargs):
+        populate_calls.append({"lru_key": lru_key, "current": current, "remote_models": kwargs.get("remote_models")})
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
+        with patch("plugin.framework.config.get_config_str", return_value="endpoint"):
+            with patch("plugin.framework.config.get_config", return_value=""):
+                with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"):
+                    listener.populate_combobox_with_lru = track_populate
+                    listener._apply_dropdowns(
+                        "https://openrouter.ai/api",
+                        models=["openrouter/fusion"],
+                        skip_fetch=False,
+                    )
+
+    tts_calls = [c for c in populate_calls if c["lru_key"] == "tts_model_lru"]
+    assert len(tts_calls) == 1
+    assert tts_calls[0]["remote_models"] is None
+
+

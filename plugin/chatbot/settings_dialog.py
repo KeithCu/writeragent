@@ -159,6 +159,8 @@ def _update_lru_for_key(ctx: Any, key: str, val: Any, current_endpoint: str) -> 
         
     if key == "stt_model":
         update_lru_history(val, "audio_model_lru", current_endpoint)
+    elif key in ("audio__tts_model", "tts_model", "audio.tts_model"):
+        update_lru_history(val, "tts_model_lru", current_endpoint)
     elif key == "image_model":
         set_image_model(val)
     elif key == "additional_instructions":

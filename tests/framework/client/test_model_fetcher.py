@@ -456,3 +456,18 @@ class TestV1ContextHarvest:
         with patch("plugin.framework.client.requests.sync_request") as mock_sync:
             assert (mf.cached_v1_context_tokens(self.ENDPOINT, "openai/gpt-oss-120b")) is None
             mock_sync.assert_not_called()
+
+
+class TestGetTtsModel:
+    def test_explicit_config_wins(self):
+        from plugin.framework.client.model_fetcher import get_tts_model
+
+        with patch("plugin.framework.client.model_fetcher.get_config", return_value="custom-tts"):
+            assert get_tts_model() == "custom-tts"
+
+    def test_default_from_provider(self):
+        from plugin.framework.client.model_fetcher import get_tts_model
+
+        with patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
+            with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api/v1"):
+                assert get_tts_model() == "hexgrad/Kokoro-82M"

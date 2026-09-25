@@ -68,6 +68,9 @@ def get_provider_defaults(provider: str | None) -> dict[str, str]:
         if (caps & ModelCapability.AUDIO) and "stt_model" not in defaults:
             if model.get("default_audio"):
                 defaults["stt_model"] = effective_id
+        if (caps & ModelCapability.AUDIO) and "tts_model" not in defaults:
+            if model.get("default_tts"):
+                defaults["tts_model"] = effective_id
 
     # Fallback to first available if no explicit default was flagged
     for model in DEFAULT_MODELS:
@@ -80,7 +83,11 @@ def get_provider_defaults(provider: str | None) -> dict[str, str]:
         if (caps & ModelCapability.IMAGE) and "image_model" not in defaults:
             defaults["image_model"] = effective_id
         if (caps & ModelCapability.AUDIO) and "stt_model" not in defaults:
-            defaults["stt_model"] = effective_id
+            if not model.get("default_tts"):
+                defaults["stt_model"] = effective_id
+        if (caps & ModelCapability.AUDIO) and "tts_model" not in defaults:
+            if not model.get("default_audio"):
+                defaults["tts_model"] = effective_id
 
     return defaults
 
@@ -101,6 +108,10 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
     {"display_name": "Gemini Flash Image 2.5", "capability": ModelCapability.IMAGE, "ids": {"together": "google/flash-image-2.5"}},
     {"display_name": "Gemini 3.1 Flash Lite Image", "capability": ModelCapability.IMAGE, "ids": {"openrouter": "google/gemini-3.1-flash-lite-image"}, "default_image": True},
     {"display_name": "Nvidia Parakeet TDT 0.6B v3", "capability": ModelCapability.AUDIO, "ids": {"together": "nvidia/parakeet-tdt-0.6b-v3"}, "default_audio": True},
+    {"display_name": "Kokoro 82M", "capability": ModelCapability.AUDIO, "ids": {"together": "hexgrad/Kokoro-82M", "openrouter": "hexgrad/Kokoro-82M"}, "default_tts": True},
+    {"display_name": "Cartesia Sonic", "capability": ModelCapability.AUDIO, "ids": {"together": "cartesia/sonic"}, "tts": True},
+    {"display_name": "GPT Audio Mini", "capability": ModelCapability.AUDIO | ModelCapability.CHAT, "ids": {"openrouter": "openai/gpt-audio-mini"}},
+    {"display_name": "OpenAI TTS-1", "capability": ModelCapability.AUDIO, "ids": {"openai": "tts-1"}, "default_tts": True},
     {"display_name": "GLM 5.2", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 200000, "ids": {"zai": "glm-5.2"}, "default_text": True},
     {"display_name": "GLM ASR 2512", "capability": ModelCapability.AUDIO, "ids": {"zai": "glm-asr-2512"}, "default_audio": True},
     {"display_name": "WriterAgent Mock", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.TOOLS, "context_length": 32768, "ids": {"mock": "writeragent-mock"}},

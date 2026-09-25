@@ -32,7 +32,7 @@ from plugin.framework.uno_context import get_desktop, get_extension_url, menu_ic
 from plugin.framework.i18n import _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int
 from plugin.framework.config_schema import as_bool
-from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, set_text_model
+from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, get_tts_model, set_text_model
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
 from plugin.chatbot.history_db import HAS_SQLITE
@@ -386,6 +386,10 @@ class SettingsDialog:
             elif name == "stt_model":
                 populate_combobox_with_lru(
                     self._ctx, ctrl, val, "audio_model_lru", current_endpoint, api_key_override=api_key_val,
+                )
+            elif name in ("audio__tts_model", "tts_model"):
+                populate_combobox_with_lru(
+                    self._ctx, ctrl, val, "tts_model_lru", current_endpoint, api_key_override=api_key_val,
                 )
             elif name == "additional_instructions":
                 populate_combobox_with_lru(self._ctx, ctrl, val, "prompt_lru", "")
@@ -774,6 +778,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _sanitize_model_combobox_value: Callable[..., Any]
     get_provider_from_endpoint: Callable[..., Any]
     get_image_model: Callable[..., Any]
+    get_tts_model: Callable[..., Any]
 
     def __init__(self, dialog: Any, context: Any, combo_ctrl: Any) -> None:
         from plugin.framework.queue_executor import post_to_main_thread
@@ -808,6 +813,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._sanitize_model_combobox_value = _sanitize_model_combobox_value
         self.get_provider_from_endpoint = get_provider_from_endpoint
         self.get_image_model = get_image_model
+        self.get_tts_model = get_tts_model
 
         resolved_init = self.endpoint_from_selector_text(self._ctrl.getText())
         self._update_key_link_state(resolved_init)
@@ -880,6 +886,25 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 "audio_model_lru",
                 resolved,
                 remote_models=stt_remote,
+                api_key_override=api_key_ov,
+                skip_remote_fetch=skip_remote,
+            )
+
+        tts_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
+        if tts_ctrl:
+            tts_val = self._combo_current_for_provider(
+                tts_ctrl,
+                same_provider=same_provider,
+                fallback=str(get_config("audio.tts_model") or self.get_tts_model() or ""),
+            )
+            tts_remote = None if resolved_provider in {"openrouter", "together"} else models
+            self.populate_combobox_with_lru(
+                self._ctx,
+                tts_ctrl,
+                tts_val,
+                "tts_model_lru",
+                resolved,
+                remote_models=tts_remote,
                 api_key_override=api_key_ov,
                 skip_remote_fetch=skip_remote,
             )

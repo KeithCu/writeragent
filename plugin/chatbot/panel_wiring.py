@@ -63,6 +63,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
         "response": root_window.getControl("response"),
         "stop": get_optional("stop"),
         "clear": get_optional("clear"),
+        "chk_voice": get_optional("chk_voice"),
         "image_model_selector": get_optional("image_model_selector"),
         "prompt_selector": get_optional("prompt_selector"),
         "model_selector": get_optional("model_selector"),

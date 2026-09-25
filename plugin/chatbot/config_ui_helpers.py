@@ -36,7 +36,7 @@ def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
         return bool(cap & ModelCapability.CHAT)
     if req_cap == "image":
         return bool(cap & ModelCapability.IMAGE)
-    if req_cap == "audio":
+    if req_cap in ("audio", "tts"):
         return bool(cap & ModelCapability.AUDIO)
     return False
 
@@ -105,6 +105,7 @@ _MODEL_COMBO_PLACEHOLDER_MSGIDS = (
     "(Enter API Key to load models)",
     "(Connection failed)",
     "(No image models on this endpoint)",
+    "(Default for current endpoint)",
 )
 
 
@@ -143,10 +144,15 @@ def _resolve_display_model_for_combobox(
         return first
 
     preferred = ""
-    if provider and req_cap in ("text", "audio"):
+    if provider and req_cap in ("text", "audio", "tts"):
         from plugin.framework.default_models import get_provider_defaults
 
-        key = "text_model" if req_cap == "text" else "stt_model"
+        if req_cap == "text":
+            key = "text_model"
+        elif req_cap == "tts":
+            key = "tts_model"
+        else:
+            key = "stt_model"
         preferred = str(get_provider_defaults(provider).get(key, "") or "").strip()
 
     if preferred:
@@ -202,6 +208,8 @@ def _merge_provider_default_models(to_show: list[str], provider: str, req_cap: s
             is_default = True
         elif req_cap == "audio" and m.get("default_audio"):
             is_default = True
+        elif req_cap == "tts" and (m.get("default_tts") or m.get("tts")):
+            is_default = True
         if not is_default:
             continue
         if effective_id not in to_show:
@@ -232,7 +240,15 @@ def populate_combobox_with_lru(
         return _populate_plain_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint)
 
     provider = get_provider_from_endpoint(endpoint)
-    req_cap = "image" if "image" in lru_key.lower() else "audio" if "audio" in lru_key.lower() or "stt" in lru_key.lower() else "text"
+    req_cap = (
+        "tts"
+        if "tts" in lru_key.lower()
+        else "image"
+        if "image" in lru_key.lower()
+        else "audio"
+        if "audio" in lru_key.lower() or "stt" in lru_key.lower()
+        else "text"
+    )
     effective_key = _effective_api_key(ctx, endpoint, api_key_override)
     auth_blocked = bool(provider and provider_requires_api_key(provider) and not effective_key and remote_models is None)
 
@@ -252,8 +268,8 @@ def populate_combobox_with_lru(
         massive_providers = {"openrouter", "together"}
         fetched_models: list[str] | None = None
         if remote_models is not None:
-            # OpenRouter/Together /v1/models has no audio modality; curated STT list only.
-            if not (req_cap == "audio" and provider in massive_providers):
+            # OpenRouter/Together /v1/models has no audio modality; curated STT/TTS list only.
+            if not (req_cap in ("audio", "tts") and provider in massive_providers):
                 fetch_succeeded = True
                 fetched_models = remote_models
         elif skip_remote_fetch:
@@ -300,6 +316,15 @@ def populate_combobox_with_lru(
             from plugin.framework.client.model_fetcher import get_stt_model
 
             curr_val_str = _sanitize_model_combobox_value(str(get_stt_model() or ""))
+    elif not auth_blocked and not curr_val_str and req_cap == "tts":
+        if provider:
+            from plugin.framework.default_models import get_provider_defaults
+
+            curr_val_str = str(get_provider_defaults(provider).get("tts_model", "") or "").strip()
+        if not curr_val_str:
+            from plugin.framework.client.model_fetcher import get_tts_model
+
+            curr_val_str = _sanitize_model_combobox_value(str(get_tts_model() or ""))
 
     is_incompatible = _is_incompatible_model_for_provider(curr_val_str, provider)
     if auth_blocked:
