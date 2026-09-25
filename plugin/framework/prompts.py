@@ -396,6 +396,7 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
   Blank or near-empty document: put the styled HTML in one apply with target='full_document' (not 'beginning'/'end'), or insert then call apply_style.
   v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.
 - Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
+- Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML or via page_set_header_footer_text.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. READ-ONLY — send it back and the result says it was ignored; it is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
   apply_style defaults to clear_direct='style_props': the style's font name/size and paragraph indents show; bold/italic/colour stay. Pass clear_direct='none' only to keep a hand-set font. clear_direct='all' is Ctrl+M (refused on target='full_document').
   Re-applying a style does not keep a quote indent — LibreOffice drops direct Para* (margins/alignment) when ParaStyleName is set.
@@ -405,6 +406,7 @@ EXAMPLES:
 - Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>", "\\[E = mc^2\\]", "<p>Water molecule: H<sub>2</sub>O, 10<sup>th</sup> edition.</p>"]
 - Good styles (target='full_document'): ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
 - Good outline link: ["<p><a href=\\"#Introduction|outline\\">Introduction</a></p>"]
+- Good field: ["<p>Page <span title=\"page-number\"/></p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 - Bad styles: data-lo-style with target='beginning'/'end' on a blank doc (styles ignored; use full_document)
 """

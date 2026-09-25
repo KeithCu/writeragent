@@ -213,6 +213,7 @@ def test_writer_apply_document_math_latex_rules_document_only():
     assert "Local edits use target='search'" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "blank or new document when you need named styles via data-lo-style" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "|outline" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "page-number" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Blank or near-empty document" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "page_get_header_footer_text" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "page_set_header_footer_text" in WRITER_APPLY_DOCUMENT_HTML_RULES
