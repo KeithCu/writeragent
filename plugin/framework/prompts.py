@@ -406,7 +406,6 @@ EXAMPLES:
 - Good outline link: ["<p><a href=\\"#Introduction|outline\\">Introduction</a></p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 - Bad styles: data-lo-style with target='beginning'/'end' on a blank doc (styles ignored; use full_document)
-- Bad outline link: href="#Introduction" without |outline
 """
 
 
