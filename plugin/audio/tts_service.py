@@ -16,8 +16,9 @@ import tempfile
 import threading
 from typing import Any, Callable
 
-from plugin.framework.config import get_config, set_config, get_api_key_for_endpoint
+from plugin.framework.config import get_config, get_config_str, set_config, get_api_key_for_endpoint
 from plugin.framework.worker_pool import run_in_background
+from plugin.scripting.sandbox import resolve_venv_python
 
 log = logging.getLogger(__name__)
 
@@ -428,14 +429,85 @@ def _speak_endpoint(text: str, endpoint_url: str, api_key: str, model: str, voic
                 pass
 
 
+def _resolve_kokoro_model_files() -> tuple[str, str]:
+    """Resolve paths to Kokoro ONNX model and voices file, downloading if missing."""
+    cache_dir = os.path.expanduser("~/.cache/kokoro")
+    default_model = os.path.join(cache_dir, "kokoro-v0_19.onnx")
+    default_voices = os.path.join(cache_dir, "voices.bin")
+
+    model_path = os.environ.get("KOKORO_MODEL_PATH") or default_model
+    voices_path = os.environ.get("KOKORO_VOICES_PATH") or default_voices
+
+    if os.path.exists(model_path) and os.path.exists(voices_path):
+        return model_path, voices_path
+
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        import urllib.request
+        base_url = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files"
+        if not os.path.exists(voices_path) and voices_path == default_voices:
+            log.info("Downloading Kokoro voices to %s...", default_voices)
+            urllib.request.urlretrieve(f"{base_url}/voices.bin", default_voices)
+            voices_path = default_voices
+        if not os.path.exists(model_path) and model_path == default_model:
+            log.info("Downloading Kokoro ONNX model to %s...", default_model)
+            urllib.request.urlretrieve(f"{base_url}/kokoro-v0_19.onnx", default_model)
+            model_path = default_model
+    except Exception as e:
+        log.warning("Could not auto-download Kokoro models: %s", e)
+
+    return model_path, voices_path
+
+
+def _resolve_piper_model_file(voice: str) -> str:
+    """Resolve path to Piper ONNX model file, downloading default if missing."""
+    if os.path.exists(voice):
+        return voice
+    cache_dir = os.path.expanduser("~/.cache/piper")
+    voice_file = os.path.join(cache_dir, f"{voice}.onnx")
+    if os.path.exists(voice_file):
+        return voice_file
+
+    default_voice_file = os.path.join(cache_dir, "en_US-lessac-medium.onnx")
+    default_json = os.path.join(cache_dir, "en_US-lessac-medium.onnx.json")
+    if os.path.exists(default_voice_file):
+        return default_voice_file
+
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        import urllib.request
+        base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
+        log.info("Downloading Piper default voice model to %s...", default_voice_file)
+        urllib.request.urlretrieve(f"{base_url}/en_US-lessac-medium.onnx", default_voice_file)
+        urllib.request.urlretrieve(f"{base_url}/en_US-lessac-medium.onnx.json", default_json)
+        return default_voice_file
+    except Exception as e:
+        log.warning("Could not auto-download Piper voice model: %s", e)
+
+    return voice
+
+
 def _speak_kokoro_local(text: str, voice: str = "af_bella", speed: float = 1.0) -> None:
-    """Synthesize text using local Kokoro ONNX model and play audio."""
+    """Synthesize text using local Kokoro ONNX model in configured venv and play audio."""
     global _active_speech_proc
     log.info("Speaking via local Kokoro (voice=%s, speed=%.2f)", voice, speed)
     if _speech_active and _speech_cancelled.is_set():
         return
 
-    kokoro_cli = shutil.which("kokoro")
+    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    py_exe = resolve_venv_python(venv_dir) if venv_dir else None
+    if not py_exe:
+        log.warning(
+            "Local Kokoro TTS requires a configured Python venv. "
+            "Please configure your venv path in Settings → Python."
+        )
+        _speak_system(text, speed=speed)
+        return
+
+    bin_dir = os.path.dirname(py_exe)
+    cand_cli = os.path.join(bin_dir, "kokoro.exe" if sys.platform == "win32" else "kokoro")
+    kokoro_cli: str | None = cand_cli if os.path.isfile(cand_cli) and os.access(cand_cli, os.X_OK) else None
+
     if kokoro_cli:
         tmp_wav = None
         try:
@@ -463,56 +535,78 @@ def _speak_kokoro_local(text: str, voice: str = "af_bella", speed: float = 1.0) 
                 except Exception:
                     pass
 
+    model_path, voices_path = _resolve_kokoro_model_files()
+    if not os.path.exists(model_path) or not os.path.exists(voices_path):
+        log.warning("Kokoro ONNX model files missing (%s, %s); falling back to OS speech.", model_path, voices_path)
+        _speak_system(text, speed=speed)
+        return
+
+    tmp_wav = None
     try:
-        from kokoro_onnx import Kokoro  # type: ignore
-        import soundfile as sf  # type: ignore
-
-        model_path = os.environ.get("KOKORO_MODEL_PATH") or "kokoro-v0_19.onnx"
-        voices_path = os.environ.get("KOKORO_VOICES_PATH") or "voices.bin"
-        if not os.path.exists(model_path):
-            log.warning(
-                "Kokoro ONNX model file not found (%s). Set KOKORO_MODEL_PATH. Falling back to OS speech.",
-                model_path,
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            tmp_wav = f.name
+        script = (
+            "import sys\n"
+            "from kokoro_onnx import Kokoro\n"
+            "import soundfile as sf\n"
+            "kokoro = Kokoro(sys.argv[5], sys.argv[6])\n"
+            "samples, rate = kokoro.create(sys.argv[1], voice=sys.argv[2], speed=float(sys.argv[3]), lang='en-us')\n"
+            "sf.write(sys.argv[4], samples, rate)\n"
+        )
+        cmd = [py_exe, "-c", script, text, voice, str(speed), tmp_wav, model_path, voices_path]
+        with _speech_lock:
+            if _speech_active and _speech_cancelled.is_set():
+                return
+            _active_speech_proc = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
             )
-            _speak_system(text, speed=speed)
-            return
-
-        kokoro = Kokoro(model_path, voices_path)
-        samples, sample_rate = kokoro.create(text, voice=voice, speed=speed, lang="en-us")
-        if _speech_active and _speech_cancelled.is_set():
-            return
-        tmp_wav = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                tmp_wav = f.name
-            sf.write(tmp_wav, samples, sample_rate)
+        _, stderr = _active_speech_proc.communicate()
+        if _active_speech_proc.returncode != 0:
+            log.warning("Venv Kokoro failed (code %d): %s", _active_speech_proc.returncode, stderr)
+        elif os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0:
             _play_audio_file(tmp_wav)
             return
-        finally:
-            if tmp_wav and os.path.exists(tmp_wav):
-                try:
-                    os.remove(tmp_wav)
-                except Exception:
-                    pass
-    except ImportError:
-        log.warning(
-            "Local Kokoro engine not installed ('kokoro-onnx' or 'kokoro' CLI). "
-            "Install with: pip install kokoro-onnx soundfile. Falling back to OS speech."
-        )
     except Exception as e:
-        log.warning("Kokoro synthesis error: %s; falling back to OS speech", e)
+        log.warning("Venv Kokoro execution error: %s", e)
+    finally:
+        with _speech_lock:
+            _active_speech_proc = None
+        if tmp_wav and os.path.exists(tmp_wav):
+            try:
+                os.remove(tmp_wav)
+            except Exception:
+                pass
 
+    log.warning(
+        "Local Kokoro engine not available in configured venv. "
+        "Install with: uv pip install kokoro-onnx soundfile. Falling back to OS speech."
+    )
     _speak_system(text, speed=speed)
 
 
 def _speak_piper_local(text: str, voice: str = "en_US-lessac-medium", speed: float = 1.0) -> None:
-    """Synthesize text using local Piper fast neural TTS and play audio."""
+    """Synthesize text using local Piper fast neural TTS in configured venv and play audio."""
     global _active_speech_proc
     log.info("Speaking via local Piper (voice=%s, speed=%.2f)", voice, speed)
     if _speech_active and _speech_cancelled.is_set():
         return
 
-    piper_bin = shutil.which("piper")
+    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    py_exe = resolve_venv_python(venv_dir) if venv_dir else None
+    if not py_exe:
+        log.warning(
+            "Local Piper TTS requires a configured Python venv. "
+            "Please configure your venv path in Settings → Python."
+        )
+        _speak_system(text, speed=speed)
+        return
+
+    model_file = _resolve_piper_model_file(voice)
+
+    bin_dir = os.path.dirname(py_exe)
+    cand_bin = os.path.join(bin_dir, "piper.exe" if sys.platform == "win32" else "piper")
+    piper_bin: str | None = cand_bin if os.path.isfile(cand_bin) and os.access(cand_bin, os.X_OK) else None
+
     tmp_wav = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -522,9 +616,9 @@ def _speak_piper_local(text: str, voice: str = "en_US-lessac-medium", speed: flo
 
         cmd: list[str] | None = None
         if piper_bin:
-            cmd = [piper_bin, "--model", voice, "--length_scale", str(length_scale), "--output_file", tmp_wav]
+            cmd = [piper_bin, "--model", model_file, "--length_scale", str(length_scale), "--output_file", tmp_wav]
         else:
-            cmd = [sys.executable, "-m", "piper", "--model", voice, "--length_scale", str(length_scale), "--output_file", tmp_wav]
+            cmd = [py_exe, "-m", "piper", "--model", model_file, "--length_scale", str(length_scale), "--output_file", tmp_wav]
 
         with _speech_lock:
             if _speech_active and _speech_cancelled.is_set():
@@ -533,11 +627,13 @@ def _speak_piper_local(text: str, voice: str = "en_US-lessac-medium", speed: flo
                 cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 text=True,
             )
         try:
-            _active_speech_proc.communicate(input=text, timeout=30)
+            _, stderr = _active_speech_proc.communicate(input=text, timeout=30)
+            if _active_speech_proc.returncode != 0:
+                log.warning("Piper process failed (code %d): %s", _active_speech_proc.returncode, stderr)
         except Exception:
             _active_speech_proc.kill()
             raise
@@ -549,7 +645,7 @@ def _speak_piper_local(text: str, voice: str = "en_US-lessac-medium", speed: flo
             log.warning("Piper produced empty audio for voice %s; falling back to OS speech", voice)
     except FileNotFoundError:
         log.warning(
-            "Local Piper executable not found. Install via 'pip install piper-tts'. "
+            "Local Piper executable not found in configured venv. Install via 'uv pip install piper-tts'. "
             "Falling back to OS speech."
         )
     except Exception as e:
