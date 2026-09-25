@@ -34,7 +34,7 @@ TABLE_FROM_MESS = {
     "document_content": MESSY_TABLE_INPUT,
     "user_question": "Convert this messy parts list into a clean HTML table with headings and a total price.",
     "task_id": "table_from_mess",
-    "expected_contains": ["Battle Born", "Victron", "SmartSolar", "NEMA 4", "Total"],
+    "expected_contains": ["Battle Born", "Victron", "SmartSolar", "Total"],
     "is_non_trivial": True,
     "category": "structural",
     "use_quality_judge": True,

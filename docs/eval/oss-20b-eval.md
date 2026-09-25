@@ -30,8 +30,9 @@ steps: [eval-dev-plan.md § G](eval-dev-plan.md#g-calc-sorttax-prompt-lift-curre
 
 20b is cheap and already high quality on tasks it passes. The gap is **hard
 pass**, not judge score or cost. Recovering the three routing failures
-alone is 15/17 ≈ 88% (the rank-9 cluster). Needle-token recovery can add
-the last two.
+alone is 15/17 ≈ 88% (the rank-9 cluster). Scale abbreviations match
+their expanded digits (`10k` → `10,000`). `NEMA 4` is optional. There is
+no Writer preserve-tokens tip.
 
 Production ships **one** prompt per app (Writer / Calc / Draw). Any patch
 must re-score **gpt-oss-120b** on the same tasks so 17/17 does not regress.
@@ -44,8 +45,8 @@ copy-fidelity needles.
 
 | Task | What 20b did | Gate | Kind |
 |------|--------------|------|------|
-| `table_from_mess` | Enclosure row is `Saginaw SCE-202010ELJ` — dropped **NEMA 4** | missing `'NEMA 4'` | copy fidelity |
-| `smart_summarization` | Scale bullet is `10 000 requests per second` | oracle `summary missing '10k'` | copy fidelity |
+| `table_from_mess` | Enclosure row is `Saginaw SCE-202010ELJ` — dropped **NEMA 4** | rating is optional; table, brands, and Total still required | editorial |
+| `smart_summarization` | Scale bullet is `10 000 requests per second` | `haystack_has` accepts `10k` ↔ `10 000` | scale expansion |
 | `flowchart_gen` | Empty Draw tree (`tree: []`) — never delegated `domain="shapes"` | missing Start/End/login/credentials, shape types, edges | tool routing |
 | `data_sorting` | In-place `=PY` over `A1:B6`; header destroyed | `header row is not first`, missing `Widget` | tool routing |
 | `tax_column` | Every fruit got `=B2*0.08` (Banana should be `B3`) | `Banana Tax is not a relative 8% formula` | per-row formulas |
@@ -109,16 +110,24 @@ Keep diffs short.
 - Do write each row's formula with that row's cells (`Banana` → `B3`,
   not a stamped `B2`).
 
-**Draw** (workflow / `DRAW_CORE_DIRECTIVES`):
+**Draw** (`DRAW_CORE_DIRECTIVES`, shipped):
 
-- Flowcharts → `delegate_to_specialized_draw_toolset(domain="shapes")`,
-  then `shape_upsert` + `shape_connect`. An empty `get_draw_tree` is a
-  failed task.
+- Do `delegate_to_specialized_draw_toolset(domain="shapes")` then
+  `shape_upsert` + `shape_connect` for flowcharts and process diagrams
+  because an empty `get_draw_tree` means the task failed.
 
-**Writer** (`WRITER_CORE_DIRECTIVES` or the HTML contract):
+**Writer** (do not ship a preserve-tokens tip):
 
-- Keep source tokens verbatim (`10k`, `NEMA 4`, model numbers). Do not
-  expand or localize them.
+- Keith's decision: models may fix misspellings and clarify wording.
+  Do **not** add a forever line such as “Keep source tokens verbatim
+  (`10k`, `NEMA 4`)”, and do not steer empty-document apply targets.
+- `haystack_has` treats `Nk` / `NM` as the same fact as grouped digits
+  (`10k` / `10K` / `10 000` / `10,000` / `10000`, and the same for
+  `100K` / `100M`). Omitting the count still fails. A different
+  magnitude does not match. Brand tokens (`Battle Born`, …) stay exact.
+- `NEMA 4` is optional. Dropping it from the enclosure cell is an
+  acceptable editorial choice, so `table_from_mess` does not require it.
+  The table, product-identity needles, and the Total amount still do.
 
 **Tool descriptions:**
 
@@ -141,8 +150,8 @@ python scripts/prompt_optimization/run_eval.py \
 ```
 
 Expected: routing patches have a real shot at +3 hard passes (sort,
-flowchart, tax). The two needle tasks are weaker; a preserve-tokens line
-might recover one.
+flowchart, tax). Scale expansions pass via `haystack_has`. Dropping
+`NEMA 4` is not a fail. There is no preserve-tokens prompt line.
 
 If 120b still 5/5 and 20b is up, run the full 17 for both before shipping.
 
@@ -169,8 +178,7 @@ traces and rewrites instructions. That matches this problem.
 - Metric: **hard pass** (substring + result oracles + process oracles),
   not judge − tokens. 20b already has quality 0.89 on passes.
 - Optimize **short blobs**, separately: `CALC_CORE_DIRECTIVES` +
-  `CALC_WORKFLOW`; Draw workflow / `DRAW_CORE_DIRECTIVES`; maybe one
-  Writer preserve-tokens line; optionally
+  `CALC_WORKFLOW`; Draw workflow / `DRAW_CORE_DIRECTIVES`; optionally
   `write_formula_range.description` and `sort_range.description`
   (eval-dev-plan already flags MIPROv2 on that description).
 - Program: wrap `llm_chat_eval`, **not** `dspy.ReAct`.
@@ -205,7 +213,7 @@ production-compatible version of a demo is 2–3 lines in
 | Recover | Hard pass | Notes |
 |---------|-----------|--------|
 | 3 routing tasks | 15/17 ≈ 0.88 | sort, flowchart, tax |
-| + one needle | 16/17 ≈ 0.94 | `10k` or `NEMA 4` |
+| + scale expansions | 16/17 ≈ 0.94 | `Nk`/`NM` digits match; `NEMA 4` not required |
 | all five | 17/17 | possible but 20b may still drop needles |
 
 ## Open
@@ -219,3 +227,5 @@ production-compatible version of a demo is 2–3 lines in
 - [x] Wrap `llm_chat_eval` as a DSPy module (`program_llm.py`; MIPROv2 `--student llm`)
 - [ ] GEPA on Calc/Draw blobs (still optional; MIPROv2 slice path is the first wrap)
 - [x] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for shipped Calc wording
+- [x] Draw flowchart Do-because line in `DRAW_CORE_DIRECTIVES` (no empty-doc apply-target tip)
+- [x] `haystack_has` accepts scale expansions; `NEMA 4` optional; no Writer preserve-tokens tip

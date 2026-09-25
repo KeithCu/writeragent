@@ -48,6 +48,11 @@ def test_calc_draw_eval_prompts_use_production_builder() -> None:
     draw = get_draw_eval_chat_system_prompt()
     assert "get_draw_tree" in draw
     assert EVAL_HARNESS_NOTE in draw
+    assert (
+        'Do delegate_to_specialized_draw_toolset(domain="shapes") then '
+        "shape_upsert + shape_connect for flowcharts and process diagrams "
+        "because an empty get_draw_tree means the task failed."
+    ) in draw
 
 
 # gpt-oss-20b data_sorting / tax_column routing (docs/eval/oss-20b-eval.md).

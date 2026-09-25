@@ -585,13 +585,16 @@ set_style: fixed properties only — not mixed rich text in a cell; use insert_c
 # Draw
 # ---------------------------------------------------------------------------
 
+# flowchart_gen: gpt-oss-20b never delegated domain="shapes" and left
+# get_draw_tree empty. One Do-because line (same shape as Calc SORT routing).
 DRAW_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (including when the user refers to any other file, document, spreadsheet, or sheet by name or path, e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt", etc., or asks to pull, read, search, or reference data from them):
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
 - You MUST call delegate_to_specialized_draw_toolset(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_draw_toolset(domain="web_research").
 
 {delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_draw_toolset")}
-When asked to make a script or run Python, use delegate_to_specialized_draw_toolset(domain="python")."""
+When asked to make a script or run Python, use delegate_to_specialized_draw_toolset(domain="python").
+Do delegate_to_specialized_draw_toolset(domain="shapes") then shape_upsert + shape_connect for flowcharts and process diagrams because an empty get_draw_tree means the task failed."""
 
 
 # Impress/Draw sidebar modes — PPT-Master combo box; hidden from main chat and draw delegate.

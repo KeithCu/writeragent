@@ -63,10 +63,11 @@ Writer edits and **all five Calc tasks** fail.
 ## Shared with 20b vs Lightning-only
 
 The 20b Calc dest / `sort_range` patches are **shared medicine** and matter
-**more** here (Lightning failed both Phase F rows; 20b passed them). The 20b
-Writer preserve-tokens line (`NEMA 4`, `10k`) does **not** apply: Lightning
-passed `table_from_mess`, and summarization failed because it **did not write**
-the Executive Summary.
+**more** here (Lightning failed both Phase F rows; 20b passed them). A Writer
+preserve-tokens line is **not shipped**. `haystack_has` accepts scale
+expansions (`10k` → `10,000`), and `NEMA 4` is not required.
+Lightning's summarization fail was a no-op (it never wrote the Executive
+Summary). `table_from_mess` already passed.
 
 | Patch (from [oss-20b-eval.md](oss-20b-eval.md)) | Help Lightning? |
 |------------------------------------------------|-----------------|
@@ -74,7 +75,7 @@ the Executive Summary.
 | `=PY` dest outside DataRange even if the user said H1 | **Yes** — both Phase F rows |
 | Relative formulas use *this* row (`Banana` → `B3`) | Weak — it never kept a Tax column |
 | Draw: MUST delegate `domain="shapes"` | **No** — it already created shapes |
-| Writer: keep source tokens (`10k`, `NEMA 4`) | **No** |
+| Writer preserve-tokens tip | **Not shipped** — scale expansions match; `NEMA 4` optional |
 
 Lightning-only (do not fold these into a 20b-only A/B):
 

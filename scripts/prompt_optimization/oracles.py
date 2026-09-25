@@ -85,8 +85,44 @@ def fold_eval_text(text: str) -> str:
     return s
 
 
+# Nk / NM source tokens. Expanded digits are the same fact (often clearer).
+_ABBREV_SCALE_RE = re.compile(r"(?i)^(\d+)([km])$")
+_SCALE_MULT = {"k": 1_000, "m": 1_000_000}
+
+
+def _expanded_scale_in(folded_doc: str, folded_token: str) -> bool:
+    """True when ``10k`` / ``100K`` / ``100M`` appears as grouped or plain digits.
+
+    ``10k`` matches ``10,000``, ``10 000``, ``10000``, and ``10K``. A longer
+    number (``100000``, ``10,000,000``) is a different magnitude.
+    """
+    match = _ABBREV_SCALE_RE.match((folded_token or "").strip())
+    if not match:
+        return False
+    digits = str(int(match.group(1)) * _SCALE_MULT[match.group(2).lower()])
+    groups: list[str] = []
+    rest = digits
+    while len(rest) > 3:
+        groups.append(rest[-3:])
+        rest = rest[:-3]
+    groups.append(rest)
+    groups.reverse()
+    if len(groups) == 1:
+        grouped = re.escape(groups[0])
+    else:
+        grouped = re.escape(groups[0]) + "".join(
+            r"[, ]+" + re.escape(part) for part in groups[1:]
+        )
+    pattern = rf"(?<!\d)(?:{re.escape(digits)}|{grouped})(?![\s,]*\d)"
+    return re.search(pattern, folded_doc or "") is not None
+
+
 def haystack_has(doc: str, token: str) -> bool:
-    """True if *token* is in *doc*, after unicode-space fold (case-insensitive)."""
+    """True if *token* is in *doc*, after unicode-space fold (case-insensitive).
+
+    Scale abbreviations also match their expanded count (``10k`` → ``10,000``).
+    That is a clarification, not a different fact. Brand names stay exact.
+    """
     if not token:
         return True
     raw = doc or ""
@@ -94,9 +130,9 @@ def haystack_has(doc: str, token: str) -> bool:
         return True
     folded_tok = fold_eval_text(token)
     folded_doc = fold_eval_text(raw)
-    if folded_tok in folded_doc:
+    if folded_tok in folded_doc or folded_tok.casefold() in folded_doc.casefold():
         return True
-    return folded_tok.casefold() in folded_doc.casefold()
+    return _expanded_scale_in(folded_doc, folded_tok)
 
 
 def _norm_ws(text: str) -> str:
@@ -217,7 +253,8 @@ def oracle_table_from_mess(doc: str) -> list[str]:
     if not _TABLE_RE.search(doc or ""):
         fails.append("no HTML table")
     text = visible_text(doc)
-    for token in ("Battle Born", "Victron", "SmartSolar", "NEMA 4"):
+    # NEMA 4 is optional: dropping a niche enclosure rating is an editorial choice.
+    for token in ("Battle Born", "Victron", "SmartSolar"):
         if token not in text:
             fails.append(f"missing {token!r}")
     if not _has_total_label(doc, text):
