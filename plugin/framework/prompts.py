@@ -369,7 +369,7 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Required: `content` and `target`.
   Targets: 'beginning', 'end', 'selection', 'full_document', 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
-- Local edits use target='search' + old_content as a substring; target='full_document' is rewrite/translation only.
+- Local edits use target='search' + old_content as a substring; target='full_document' for whole-document rewrite/translation, and for a blank or new document when you need named styles via data-lo-style.
 - **Never** pass the entire document as old_content — that is not supported and will fail search.
 - target='search': old_content may span paragraphs, but each interior line must match a WHOLE paragraph.
   position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.
@@ -392,7 +392,9 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
   data-lo-style applies only on target='full_document' — on 'beginning'/'end'/'selection'/'search' it is ignored because it would restyle adjacent text (use apply_style or a full_document rewrite).
+  Blank or near-empty document: put the styled HTML in one apply with target='full_document' (not 'beginning'/'end'), or insert then call apply_style.
   v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.
+- Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. READ-ONLY — send it back and the result says it was ignored; it is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
   apply_style defaults to clear_direct='style_props': the style's font name/size and paragraph indents show; bold/italic/colour stay. Pass clear_direct='none' only to keep a hand-set font. clear_direct='all' is Ctrl+M (refused on target='full_document').
   Re-applying a style does not keep a quote indent — LibreOffice drops direct Para* (margins/alignment) when ParaStyleName is set.
@@ -400,8 +402,12 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
 - Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>", "\\[E = mc^2\\]", "<p>Water molecule: H<sub>2</sub>O, 10<sup>th</sup> edition.</p>"]
-- Good styles: ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
-- Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)"""
+- Good styles (target='full_document'): ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
+- Good outline link: ["<p><a href=\\"#Introduction|outline\\">Introduction</a></p>"]
+- Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
+- Bad styles: data-lo-style with target='beginning'/'end' on a blank doc (styles ignored; use full_document)
+- Bad outline link: href="#Introduction" without |outline
+"""
 
 
 # Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
