@@ -41,3 +41,36 @@ def test_update_lru_for_tts_model():
     with patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
         _update_lru_for_key(MagicMock(), "audio__tts_model", "hexgrad/Kokoro-82M", "https://openrouter.ai/api")
         mock_lru.assert_called_once_with("hexgrad/Kokoro-82M", "tts_model_lru", "https://openrouter.ai/api")
+
+
+def test_apply_settings_result_tts_provider_and_voice():
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    stored = {}
+    specs = [
+        {
+            "name": "audio__tts_provider",
+            "options": [
+                {"value": "kokoro", "label": "Kokoro (Local Neural, ONNX CPU)"},
+                {"value": "piper", "label": "Piper (Local Fast Neural, CPU)"},
+            ],
+        },
+        {
+            "name": "audio__tts_voice",
+            "options": [
+                {"value": "af_bella", "label": "af_bella (Kokoro US Female - Bella)"},
+            ],
+        },
+    ]
+
+    with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
+         patch("plugin.chatbot.settings_dialog.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+         patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)):
+        apply_settings_result(MagicMock(), {
+            "audio__tts_provider": "Kokoro (Local Neural, ONNX CPU)",
+            "audio__tts_voice": "af_bella (Kokoro US Female - Bella)",
+        })
+        assert stored.get("audio.tts_provider") == "kokoro"
+        assert stored.get("audio.tts_voice_kokoro") == "af_bella"
+        assert stored.get("audio.tts_voice") == "af_bella"

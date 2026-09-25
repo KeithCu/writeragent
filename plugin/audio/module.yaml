@@ -15,10 +15,14 @@ config:
     default: system
     widget: select
     label: TTS Provider
-    helper: "Choose whether to use built-in OS speech or your configured API endpoint."
+    helper: "Choose whether to use built-in OS speech, a local neural engine, or your API endpoint."
     options:
       - value: system
-        label: "OS Native (Offline, Free: say / spd-say / SAPI)"
+        label: "OS Native (say / SAPI / spd-say)"
+      - value: kokoro
+        label: "Kokoro (Local Neural, ONNX CPU)"
+      - value: piper
+        label: "Piper (Local Fast Neural, CPU)"
       - value: endpoint
         label: "Current Chat Endpoint (/audio/speech)"
 
@@ -27,7 +31,7 @@ config:
     default: ""
     widget: combo
     label: TTS Model
-    helper: "Model for speech synthesis (e.g. hexgrad/Kokoro-82M, cartesia/sonic, openai/tts-1)."
+    helper: "Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
 
   tts_voice:
     type: string
@@ -37,15 +41,29 @@ config:
     helper: "Voice character / persona for speech synthesis."
     options:
       - value: "alloy"
-        label: "alloy (Neutral, clear)"
+        label: "alloy (OpenAI Neutral)"
       - value: "nova"
-        label: "nova (Warm, engaging)"
+        label: "nova (OpenAI Warm)"
       - value: "shimmer"
-        label: "shimmer (Expressive)"
+        label: "shimmer (OpenAI Expressive)"
       - value: "af_bella"
-        label: "af_bella (Kokoro natural American female)"
+        label: "af_bella (Kokoro US Female - Bella)"
+      - value: "af_heart"
+        label: "af_heart (Kokoro US Female - Heart)"
+      - value: "af_sarah"
+        label: "af_sarah (Kokoro US Female - Sarah)"
       - value: "am_adam"
-        label: "am_adam (Kokoro natural American male)"
+        label: "am_adam (Kokoro US Male - Adam)"
+      - value: "am_michael"
+        label: "am_michael (Kokoro US Male - Michael)"
+      - value: "en_US-lessac-medium"
+        label: "en_US-lessac-medium (Piper US Female - Lessac)"
+      - value: "en_US-amy-medium"
+        label: "en_US-amy-medium (Piper US Female - Amy)"
+      - value: "en_US-ryan-medium"
+        label: "en_US-ryan-medium (Piper US Male - Ryan)"
+      - value: "default"
+        label: "default (System Default)"
 
   tts_speed:
     type: float
@@ -55,3 +73,23 @@ config:
     widget: number
     label: Speech Speed
     helper: "Playback speed multiplier (0.5 to 2.0, default 1.0)."
+
+  tts_voice_kokoro:
+    type: string
+    default: "af_bella"
+    internal: true
+
+  tts_voice_piper:
+    type: string
+    default: "en_US-lessac-medium"
+    internal: true
+
+  tts_voice_openai:
+    type: string
+    default: "alloy"
+    internal: true
+
+  tts_voice_system:
+    type: string
+    default: "default"
+    internal: true

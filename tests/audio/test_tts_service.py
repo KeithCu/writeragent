@@ -127,3 +127,74 @@ def test_get_tts_model_sanitizes_placeholder():
             model = get_tts_model()
             assert model == "hexgrad/Kokoro-82M"
             assert "(Default for current endpoint)" not in model
+
+
+def test_clean_provider_and_voice_names():
+    from plugin.audio.tts_service import clean_provider_name, clean_voice_name
+
+    assert clean_provider_name("Kokoro (Local Neural, ONNX CPU)") == "kokoro"
+    assert clean_provider_name("Piper (Local Fast Neural, CPU)") == "piper"
+    assert clean_provider_name("Current Chat Endpoint (/audio/speech)") == "endpoint"
+    assert clean_provider_name("OS Native (say / SAPI / spd-say)") == "system"
+
+    assert clean_voice_name("af_bella (Kokoro US Female - Bella)") == "af_bella"
+    assert clean_voice_name("en_US-lessac-medium (Piper US Female - Lessac)") == "en_US-lessac-medium"
+    assert clean_voice_name("alloy (OpenAI Neutral)") == "alloy"
+    assert clean_voice_name("alloy") == "alloy"
+
+
+def test_get_voice_family():
+    from plugin.audio.tts_service import get_voice_family
+
+    assert get_voice_family("kokoro") == "kokoro"
+    assert get_voice_family("piper") == "piper"
+    assert get_voice_family("system") == "system"
+    assert get_voice_family("endpoint", "hexgrad/Kokoro-82M") == "kokoro"
+    assert get_voice_family("endpoint", "openai/tts-1") == "openai"
+
+
+def test_scoped_tts_voice_persistence():
+    from plugin.audio.tts_service import get_scoped_tts_voice, set_scoped_tts_voice
+
+    store = {}
+    with patch("plugin.audio.tts_service.get_config", side_effect=lambda k, d=None: store.get(k, d)), \
+         patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: store.__setitem__(k, v)):
+        # Default for kokoro
+        assert get_scoped_tts_voice("kokoro") == "af_bella"
+        # Set kokoro voice
+        set_scoped_tts_voice("af_sarah", "kokoro")
+        assert get_scoped_tts_voice("kokoro") == "af_sarah"
+        assert store.get("audio.tts_voice_kokoro") == "af_sarah"
+        assert store.get("audio.tts_voice") == "af_sarah"
+
+        # Piper has its own scoped voice
+        assert get_scoped_tts_voice("piper") == "en_US-lessac-medium"
+        set_scoped_tts_voice("en_US-amy-medium", "piper")
+        assert get_scoped_tts_voice("piper") == "en_US-amy-medium"
+        assert store.get("audio.tts_voice_piper") == "en_US-amy-medium"
+
+        # Kokoro is still preserved
+        assert get_scoped_tts_voice("kokoro") == "af_sarah"
+
+
+def test_speak_text_async_routing_local():
+    from plugin.audio.tts_service import speak_text_async
+
+    cfg = {
+        "audio.tts_enabled": True,
+        "audio.tts_provider": "kokoro",
+        "audio.tts_speed": 1.1,
+        "audio.tts_voice_kokoro": "af_bella",
+    }
+    with patch("plugin.audio.tts_service.get_config", side_effect=lambda k, d=None: cfg.get(k, d)), \
+         patch("plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kw: fn()), \
+         patch("plugin.audio.tts_service._speak_kokoro_local") as mock_kokoro, \
+         patch("plugin.audio.tts_service._speak_piper_local") as mock_piper:
+        speak_text_async("Hello Kokoro")
+        mock_kokoro.assert_called_once_with("Hello Kokoro", voice="af_bella", speed=1.1)
+        mock_piper.assert_not_called()
+
+        cfg["audio.tts_provider"] = "piper"
+        cfg["audio.tts_voice_piper"] = "en_US-lessac-medium"
+        speak_text_async("Hello Piper")
+        mock_piper.assert_called_once_with("Hello Piper", voice="en_US-lessac-medium", speed=1.1)

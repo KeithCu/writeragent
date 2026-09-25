@@ -16,7 +16,7 @@ import tempfile
 import threading
 from typing import Any, Callable
 
-from plugin.framework.config import get_config, get_api_key_for_endpoint
+from plugin.framework.config import get_config, set_config, get_api_key_for_endpoint
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
@@ -93,6 +93,129 @@ def stop_speech() -> None:
                 _active_speech_proc = None
 
 
+VOICE_CATALOGS: dict[str, list[dict[str, str]]] = {
+    "kokoro": [
+        {"value": "af_bella", "label": "af_bella (Kokoro US Female - Bella)"},
+        {"value": "af_heart", "label": "af_heart (Kokoro US Female - Heart)"},
+        {"value": "af_sarah", "label": "af_sarah (Kokoro US Female - Sarah)"},
+        {"value": "af_sky", "label": "af_sky (Kokoro US Female - Sky)"},
+        {"value": "am_adam", "label": "am_adam (Kokoro US Male - Adam)"},
+        {"value": "am_michael", "label": "am_michael (Kokoro US Male - Michael)"},
+        {"value": "bf_emma", "label": "bf_emma (Kokoro UK Female - Emma)"},
+        {"value": "bf_isabella", "label": "bf_isabella (Kokoro UK Female - Isabella)"},
+        {"value": "bm_george", "label": "bm_george (Kokoro UK Male - George)"},
+        {"value": "bm_lewis", "label": "bm_lewis (Kokoro UK Male - Lewis)"},
+    ],
+    "piper": [
+        {"value": "en_US-lessac-medium", "label": "en_US-lessac-medium (Piper US Female - Lessac)"},
+        {"value": "en_US-amy-medium", "label": "en_US-amy-medium (Piper US Female - Amy)"},
+        {"value": "en_US-ryan-medium", "label": "en_US-ryan-medium (Piper US Male - Ryan)"},
+        {"value": "en_US-danny-low", "label": "en_US-danny-low (Piper US Male - Danny)"},
+        {"value": "en_GB-alan-medium", "label": "en_GB-alan-medium (Piper UK Male - Alan)"},
+        {"value": "en_GB-alba-medium", "label": "en_GB-alba-medium (Piper UK Female - Alba)"},
+    ],
+    "openai": [
+        {"value": "alloy", "label": "alloy (OpenAI Neutral)"},
+        {"value": "nova", "label": "nova (OpenAI Warm)"},
+        {"value": "shimmer", "label": "shimmer (OpenAI Expressive)"},
+        {"value": "echo", "label": "echo (OpenAI Soft Male)"},
+        {"value": "onyx", "label": "onyx (OpenAI Deep Male)"},
+        {"value": "fable", "label": "fable (OpenAI British Narrator)"},
+    ],
+    "system": [
+        {"value": "default", "label": "default (System Default)"},
+    ],
+}
+
+DEFAULT_VOICE_FOR_FAMILY: dict[str, str] = {
+    "kokoro": "af_bella",
+    "piper": "en_US-lessac-medium",
+    "openai": "alloy",
+    "system": "default",
+}
+
+
+def clean_provider_name(provider_or_label: str) -> str:
+    """Normalize provider name or UI label to clean provider code."""
+    low = (provider_or_label or "").strip().lower()
+    if "kokoro" in low:
+        return "kokoro"
+    if "piper" in low:
+        return "piper"
+    if "endpoint" in low:
+        return "endpoint"
+    return "system"
+
+
+def clean_voice_name(voice_or_label: str) -> str:
+    """Extract canonical voice code from a voice string or UI label."""
+    if not voice_or_label:
+        return ""
+    return voice_or_label.split(" (")[0].strip()
+
+
+def get_voice_family(provider: str | None, model: str | None = None) -> str:
+    """Return voice family key ('kokoro', 'piper', 'openai', 'system')."""
+    prov = clean_provider_name(provider or "")
+    if prov == "kokoro":
+        return "kokoro"
+    if prov == "piper":
+        return "piper"
+    if prov == "endpoint":
+        if model and "kokoro" in model.lower():
+            return "kokoro"
+        return "openai"
+    return "system"
+
+
+def get_scoped_tts_voice(provider: str | None = None, model: str | None = None) -> str:
+    """Get the scoped voice for the given provider/model's voice family."""
+    if provider is None:
+        provider = str(get_config("audio.tts_provider") or "system")
+    prov_clean = clean_provider_name(provider)
+    if model is None and prov_clean == "endpoint":
+        try:
+            from plugin.framework.client.model_fetcher import get_tts_model
+            model = get_tts_model()
+        except ImportError:
+            model = None
+
+    family = get_voice_family(prov_clean, model)
+    scoped_key = f"audio.tts_voice_{family}"
+    val = get_config(scoped_key)
+    if val and isinstance(val, str) and val.strip():
+        return clean_voice_name(val.strip())
+
+    general_voice = str(get_config("audio.tts_voice") or "").strip()
+    clean_gen = clean_voice_name(general_voice)
+    valid_voices = {opt["value"] for opt in VOICE_CATALOGS.get(family, [])}
+    if clean_gen in valid_voices:
+        return clean_gen
+
+    return DEFAULT_VOICE_FOR_FAMILY.get(family, "default")
+
+
+def set_scoped_tts_voice(voice: str, provider: str | None = None, model: str | None = None) -> None:
+    """Persist the voice selection for the given provider/model family."""
+    clean_v = clean_voice_name(voice)
+    if not clean_v:
+        return
+    if provider is None:
+        provider = str(get_config("audio.tts_provider") or "system")
+    prov_clean = clean_provider_name(provider)
+    if model is None and prov_clean == "endpoint":
+        try:
+            from plugin.framework.client.model_fetcher import get_tts_model
+            model = get_tts_model()
+        except ImportError:
+            model = None
+
+    family = get_voice_family(prov_clean, model)
+    scoped_key = f"audio.tts_voice_{family}"
+    set_config(scoped_key, clean_v)
+    set_config("audio.tts_voice", clean_v)
+
+
 _KOKORO_VOICES = {
     "alloy": "af_bella",
     "nova": "af_bella",
@@ -105,6 +228,7 @@ _KOKORO_VOICES = {
 
 def _resolve_tts_voice(model: str, voice: str) -> str:
     """Ensure voice name is compatible with the target model."""
+    voice = clean_voice_name(voice)
     if not voice:
         voice = "alloy"
     if "kokoro" in model.lower():
@@ -290,6 +414,144 @@ def _speak_endpoint(text: str, endpoint_url: str, api_key: str, model: str, voic
                 pass
 
 
+def _speak_kokoro_local(text: str, voice: str = "af_bella", speed: float = 1.0) -> None:
+    """Synthesize text using local Kokoro ONNX model and play audio."""
+    global _active_speech_proc
+    log.info("Speaking via local Kokoro (voice=%s, speed=%.2f)", voice, speed)
+    if _speech_active and _speech_cancelled.is_set():
+        return
+
+    kokoro_cli = shutil.which("kokoro")
+    if kokoro_cli:
+        tmp_wav = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                tmp_wav = f.name
+            cmd = [kokoro_cli, "--voice", voice, "--speed", str(speed), "--output", tmp_wav, text]
+            with _speech_lock:
+                if _speech_active and _speech_cancelled.is_set():
+                    return
+                _active_speech_proc = subprocess.Popen(
+                    cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+            _active_speech_proc.wait()
+            if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0:
+                _play_audio_file(tmp_wav)
+                return
+        except Exception as e:
+            log.warning("Kokoro CLI execution error: %s", e)
+        finally:
+            with _speech_lock:
+                _active_speech_proc = None
+            if tmp_wav and os.path.exists(tmp_wav):
+                try:
+                    os.remove(tmp_wav)
+                except Exception:
+                    pass
+
+    try:
+        from kokoro_onnx import Kokoro  # type: ignore
+        import soundfile as sf  # type: ignore
+
+        model_path = os.environ.get("KOKORO_MODEL_PATH") or "kokoro-v0_19.onnx"
+        voices_path = os.environ.get("KOKORO_VOICES_PATH") or "voices.bin"
+        if not os.path.exists(model_path):
+            log.warning(
+                "Kokoro ONNX model file not found (%s). Set KOKORO_MODEL_PATH. Falling back to OS speech.",
+                model_path,
+            )
+            _speak_system(text, speed=speed)
+            return
+
+        kokoro = Kokoro(model_path, voices_path)
+        samples, sample_rate = kokoro.create(text, voice=voice, speed=speed, lang="en-us")
+        if _speech_active and _speech_cancelled.is_set():
+            return
+        tmp_wav = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                tmp_wav = f.name
+            sf.write(tmp_wav, samples, sample_rate)
+            _play_audio_file(tmp_wav)
+            return
+        finally:
+            if tmp_wav and os.path.exists(tmp_wav):
+                try:
+                    os.remove(tmp_wav)
+                except Exception:
+                    pass
+    except ImportError:
+        log.warning(
+            "Local Kokoro engine not installed ('kokoro-onnx' or 'kokoro' CLI). "
+            "Install with: pip install kokoro-onnx soundfile. Falling back to OS speech."
+        )
+    except Exception as e:
+        log.warning("Kokoro synthesis error: %s; falling back to OS speech", e)
+
+    _speak_system(text, speed=speed)
+
+
+def _speak_piper_local(text: str, voice: str = "en_US-lessac-medium", speed: float = 1.0) -> None:
+    """Synthesize text using local Piper fast neural TTS and play audio."""
+    global _active_speech_proc
+    log.info("Speaking via local Piper (voice=%s, speed=%.2f)", voice, speed)
+    if _speech_active and _speech_cancelled.is_set():
+        return
+
+    piper_bin = shutil.which("piper")
+    tmp_wav = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            tmp_wav = f.name
+
+        length_scale = round(1.0 / max(0.2, min(5.0, speed)), 2)
+
+        cmd: list[str] | None = None
+        if piper_bin:
+            cmd = [piper_bin, "--model", voice, "--length_scale", str(length_scale), "--output_file", tmp_wav]
+        else:
+            cmd = [sys.executable, "-m", "piper", "--model", voice, "--length_scale", str(length_scale), "--output_file", tmp_wav]
+
+        with _speech_lock:
+            if _speech_active and _speech_cancelled.is_set():
+                return
+            _active_speech_proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+        try:
+            _active_speech_proc.communicate(input=text, timeout=30)
+        except Exception:
+            _active_speech_proc.kill()
+            raise
+
+        if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0:
+            _play_audio_file(tmp_wav)
+            return
+        else:
+            log.warning("Piper produced empty audio for voice %s; falling back to OS speech", voice)
+    except FileNotFoundError:
+        log.warning(
+            "Local Piper executable not found. Install via 'pip install piper-tts'. "
+            "Falling back to OS speech."
+        )
+    except Exception as e:
+        log.warning("Piper synthesis error: %s; falling back to OS speech", e)
+    finally:
+        with _speech_lock:
+            _active_speech_proc = None
+        if tmp_wav and os.path.exists(tmp_wav):
+            try:
+                os.remove(tmp_wav)
+            except Exception:
+                pass
+
+    _speak_system(text, speed=speed)
+
+
 def speak_text_async(text: str, on_complete: Callable[[], None] | None = None) -> None:
     """Synthesize and speak text in a background thread."""
     global _speech_active
@@ -314,20 +576,28 @@ def speak_text_async(text: str, on_complete: Callable[[], None] | None = None) -
             if _speech_cancelled.is_set():
                 return
 
-            provider = str(get_config("audio.tts_provider") or "system").strip().lower()
+            raw_prov = str(get_config("audio.tts_provider") or "system")
+            provider = clean_provider_name(raw_prov)
             speed = float(get_config("audio.tts_speed") or 1.0)
-            voice = str(get_config("audio.tts_voice") or "alloy").strip()
+            model = ""
+            if provider == "endpoint":
+                from plugin.framework.client.model_fetcher import get_tts_model
+                model = get_tts_model() or "hexgrad/Kokoro-82M"
 
-            log.info("TTS worker executing: provider=%s, speed=%.2f, voice=%s", provider, speed, voice)
+            voice = get_scoped_tts_voice(provider, model)
+
+            log.info("TTS worker executing: provider=%s, speed=%.2f, voice=%s, model=%s", provider, speed, voice, model)
 
             if provider == "system":
                 _speak_system(clean, speed=speed)
+            elif provider == "kokoro":
+                _speak_kokoro_local(clean, voice=voice, speed=speed)
+            elif provider == "piper":
+                _speak_piper_local(clean, voice=voice, speed=speed)
             elif provider == "endpoint":
                 from plugin.framework.config import get_current_endpoint
-                from plugin.framework.client.model_fetcher import get_tts_model
                 url = get_current_endpoint()
                 api_key = get_api_key_for_endpoint(url)
-                model = get_tts_model() or "hexgrad/Kokoro-82M"
 
                 log.info("TTS endpoint resolved: url=%s, model=%s, has_key=%s", url, model, bool(api_key))
 
