@@ -30,8 +30,9 @@ steps: [eval-dev-plan.md § G](eval-dev-plan.md#g-calc-sorttax-prompt-lift-curre
 
 20b is cheap and already high quality on tasks it passes. The gap is **hard
 pass**, not judge score or cost. Recovering the three routing failures
-alone is 15/17 ≈ 88% (the rank-9 cluster). Needle-token recovery can add
-the last two.
+alone is 15/17 ≈ 88% (the rank-9 cluster). The two needle misses are
+clarifying expansions (`10 000`, dropped `NEMA 4` punctuation): the
+oracles accept those forms. There is no Writer preserve-tokens tip.
 
 Production ships **one** prompt per app (Writer / Calc / Draw). Any patch
 must re-score **gpt-oss-120b** on the same tasks so 17/17 does not regress.
@@ -109,16 +110,23 @@ Keep diffs short.
 - Do write each row's formula with that row's cells (`Banana` → `B3`,
   not a stamped `B2`).
 
-**Draw** (workflow / `DRAW_CORE_DIRECTIVES`):
+**Draw** (`DRAW_CORE_DIRECTIVES`, shipped):
 
-- Flowcharts → `delegate_to_specialized_draw_toolset(domain="shapes")`,
-  then `shape_upsert` + `shape_connect`. An empty `get_draw_tree` is a
-  failed task.
+- Do `delegate_to_specialized_draw_toolset(domain="shapes")` then
+  `shape_upsert` + `shape_connect` for flowcharts and process diagrams
+  because an empty `get_draw_tree` means the task failed.
 
-**Writer** (`WRITER_CORE_DIRECTIVES` or the HTML contract):
+**Writer** (do not ship a preserve-tokens tip):
 
-- Keep source tokens verbatim (`10k`, `NEMA 4`, model numbers). Do not
-  expand or localize them.
+- Keith's decision: models may fix misspellings and clarify wording.
+  Do **not** add a forever line such as “Keep source tokens verbatim
+  (`10k`, `NEMA 4`)”.
+- The string harness accepts the clarifying expansions instead.
+  `oracle_smart_summarization` treats `10k` / `10K` / `10 000` /
+  `10,000` / `10000` as the same scale fact (omitting it still fails).
+  `oracle_table_from_mess` accepts `NEMA 4` / `NEMA4` / `NEMA-4`;
+  dropping the rating still fails. Brand tokens (`Battle Born`, …)
+  stay exact. Other needles (`99.9%`, `45ms`) stay literal.
 
 **Tool descriptions:**
 
@@ -141,8 +149,9 @@ python scripts/prompt_optimization/run_eval.py \
 ```
 
 Expected: routing patches have a real shot at +3 hard passes (sort,
-flowchart, tax). The two needle tasks are weaker; a preserve-tokens line
-might recover one.
+flowchart, tax). The two needle tasks are oracle aliases, not a
+preserve-tokens prompt line: expansions of `10k` and `NEMA 4`
+punctuation pass; a missing scale fact or a dropped rating still fails.
 
 If 120b still 5/5 and 20b is up, run the full 17 for both before shipping.
 
@@ -169,8 +178,7 @@ traces and rewrites instructions. That matches this problem.
 - Metric: **hard pass** (substring + result oracles + process oracles),
   not judge − tokens. 20b already has quality 0.89 on passes.
 - Optimize **short blobs**, separately: `CALC_CORE_DIRECTIVES` +
-  `CALC_WORKFLOW`; Draw workflow / `DRAW_CORE_DIRECTIVES`; maybe one
-  Writer preserve-tokens line; optionally
+  `CALC_WORKFLOW`; Draw workflow / `DRAW_CORE_DIRECTIVES`; optionally
   `write_formula_range.description` and `sort_range.description`
   (eval-dev-plan already flags MIPROv2 on that description).
 - Program: wrap `llm_chat_eval`, **not** `dspy.ReAct`.
@@ -205,7 +213,7 @@ production-compatible version of a demo is 2–3 lines in
 | Recover | Hard pass | Notes |
 |---------|-----------|--------|
 | 3 routing tasks | 15/17 ≈ 0.88 | sort, flowchart, tax |
-| + one needle | 16/17 ≈ 0.94 | `10k` or `NEMA 4` |
+| + needle expansions | 16/17 ≈ 0.94 | oracle aliases for `10k` / `NEMA 4`, not a verbatim tip |
 | all five | 17/17 | possible but 20b may still drop needles |
 
 ## Open
@@ -219,3 +227,5 @@ production-compatible version of a demo is 2–3 lines in
 - [x] Wrap `llm_chat_eval` as a DSPy module (`program_llm.py`; MIPROv2 `--student llm`)
 - [ ] GEPA on Calc/Draw blobs (still optional; MIPROv2 slice path is the first wrap)
 - [x] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for shipped Calc wording
+- [x] Draw flowchart Do-because line in `DRAW_CORE_DIRECTIVES` (no empty-doc apply-target tip)
+- [x] Loosen `10k` / `NEMA 4` oracles; no Writer preserve-tokens tip

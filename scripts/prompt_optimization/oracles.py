@@ -99,6 +99,25 @@ def haystack_has(doc: str, token: str) -> bool:
     return folded_tok.casefold() in folded_doc.casefold()
 
 
+# ``10k`` expanded or localized (``10 000``, ``10,000``, ``10000``). A different
+# magnitude (``100000``, ``10,000,000``) is not the same fact.
+_SCALE_10K_RE = re.compile(
+    r"(?i)(?<!\d)(?:10\s*k\b|(?:10[\s,]+000|10000)(?![\s,]*\d))"
+)
+# Punctuation only: ``NEMA4`` / ``NEMA-4``. ``NEMA 4X`` is a different rating.
+_NEMA4_RE = re.compile(r"(?<![A-Za-z])NEMA[\s\-]*4(?!\d|[A-Za-z])")
+
+
+def _has_10k_scale(text: str) -> bool:
+    """True when the 10k scale fact is present, including expanded forms."""
+    return _SCALE_10K_RE.search(fold_eval_text(text or "")) is not None
+
+
+def _has_nema4(text: str) -> bool:
+    """True for ``NEMA 4`` and punctuation variants. Dropping the rating still fails."""
+    return _NEMA4_RE.search(fold_eval_text(text or "")) is not None
+
+
 def _norm_ws(text: str) -> str:
     return " ".join((text or "").split())
 
@@ -217,9 +236,11 @@ def oracle_table_from_mess(doc: str) -> list[str]:
     if not _TABLE_RE.search(doc or ""):
         fails.append("no HTML table")
     text = visible_text(doc)
-    for token in ("Battle Born", "Victron", "SmartSolar", "NEMA 4"):
+    for token in ("Battle Born", "Victron", "SmartSolar"):
         if token not in text:
             fails.append(f"missing {token!r}")
+    if not _has_nema4(text):
+        fails.append("missing 'NEMA 4'")
     if not _has_total_label(doc, text):
         fails.append("no Total row")
     amounts = parse_money(text)
@@ -751,9 +772,12 @@ def oracle_smart_summarization(doc: str) -> list[str]:
     later = summary.casefold().find("findings", 1)
     if later > 20:
         summary = summary[:later]
-    for token in ("99.9%", "45ms", "0.01%", "10k", "40%"):
+    for token in ("99.9%", "45ms", "0.01%", "40%"):
         if not haystack_has(summary, token):
             fails.append(f"summary missing {token!r}")
+    # Clarifying ``10 000`` / ``10000`` is fine; omitting the scale fact is not.
+    if not _has_10k_scale(summary):
+        fails.append("summary missing '10k'")
     for junk in ("9001ms", "12%", "canary", "intern"):
         if junk.casefold() in summary.casefold():
             fails.append(f"distractor {junk!r} leaked into Executive Summary")

@@ -371,6 +371,16 @@ def test_draw_core_directives_local_before_web():
     assert 'domain="web_research") first to find information' not in DRAW_CORE_DIRECTIVES
 
 
+def test_draw_core_directives_flowchart_routes_to_shapes():
+    """flowchart_gen left an empty tree when shapes stayed off the core list."""
+    tip = (
+        'Do delegate_to_specialized_draw_toolset(domain="shapes") then '
+        "shape_upsert + shape_connect for flowcharts and process diagrams "
+        "because an empty get_draw_tree means the task failed."
+    )
+    assert tip in DRAW_CORE_DIRECTIVES
+
+
 def test_get_core_directives_calc():
     model = MagicMock()
     def supportsService(service):

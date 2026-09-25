@@ -509,6 +509,62 @@ def test_summary_accepts_10k_without_rps() -> None:
     assert not any("10k" in f for f in fails), fails
 
 
+def test_summary_accepts_expanded_10k_scale() -> None:
+    """Clarifying 10k to 10 000 / 10000 keeps the scale fact."""
+    for scale in ("10 000", "10000", "10,000", "10K", "10k"):
+        doc = (
+            "<h1>Findings</h1><p>stats</p>"
+            "<h1>Executive Summary</h1>"
+            "<ul><li>99.9%</li><li>45ms</li><li>0.01%</li>"
+            f"<li>{scale} requests per second</li><li>40%</li></ul>"
+        )
+        fails = check_oracle("smart_summarization", doc)
+        assert fails == [], (scale, fails)
+
+
+def test_summary_missing_scale_still_fails() -> None:
+    doc = (
+        "<h1>Findings</h1><p>stats</p>"
+        "<h1>Executive Summary</h1>"
+        "<ul><li>99.9%</li><li>45ms</li><li>0.01%</li>"
+        "<li>linear scaling</li><li>40%</li></ul>"
+    )
+    fails = check_oracle("smart_summarization", doc)
+    assert any("10k" in f for f in fails), fails
+    assert not any("99.9%" in f for f in fails), fails
+
+
+def test_summary_wrong_magnitude_is_not_10k() -> None:
+    doc = (
+        "<h1>Findings</h1><p>stats</p>"
+        "<h1>Executive Summary</h1>"
+        "<ul><li>99.9%</li><li>45ms</li><li>0.01%</li>"
+        "<li>100000 requests per second</li><li>40%</li></ul>"
+    )
+    fails = check_oracle("smart_summarization", doc)
+    assert any("10k" in f for f in fails), fails
+
+
+def test_table_from_mess_accepts_nema4_punctuation() -> None:
+    for variant in ("NEMA4", "NEMA-4", "NEMA 4"):
+        doc = _TABLE_FROM_MESS.replace("NEMA 4", variant)
+        fails = check_oracle("table_from_mess", doc)
+        assert fails == [], (variant, fails)
+
+
+def test_table_from_mess_missing_nema_still_fails() -> None:
+    for replacement in ("indoor", "NEMA 4X"):
+        doc = _TABLE_FROM_MESS.replace("NEMA 4", replacement)
+        fails = check_oracle("table_from_mess", doc)
+        assert any("NEMA 4" in f for f in fails), (replacement, fails)
+
+
+def test_table_from_mess_brand_tokens_stay_exact() -> None:
+    doc = _TABLE_FROM_MESS.replace("Battle Born", "BattleBorn")
+    fails = check_oracle("table_from_mess", doc)
+    assert any("Battle Born" in f for f in fails), fails
+
+
 def test_resume_nnbsp_matches_100k_oracle() -> None:
     doc = (
         "<h1>John Doe</h1><p>WORK HISTORY</p><p>EDUCATION</p><p>SKILLS</p>"
