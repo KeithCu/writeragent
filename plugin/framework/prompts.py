@@ -369,7 +369,7 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Required: `content` and `target`.
   Targets: 'beginning', 'end', 'selection', 'full_document', 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
-- Local edits use target='search' + old_content as a substring; target='full_document' for whole-document rewrite/translation, and for a blank or new document when you need named styles via data-lo-style.
+- Local edits: target='search' + old_content. Rewrite/translation (or blank-doc named styles): target='full_document'.
 - **Never** pass the entire document as old_content — that is not supported and will fail search.
 - target='search': old_content may span paragraphs, but each interior line must match a WHOLE paragraph.
   position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.

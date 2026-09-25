@@ -210,8 +210,8 @@ def test_writer_apply_document_math_latex_rules_document_only():
     assert r"\[" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Math (display):" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Math (CRITICAL)" not in HTML_FRAGMENT_RULES
-    assert "Local edits use target='search'" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "blank or new document when you need named styles via data-lo-style" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "Local edits: target='search'" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "blank-doc named styles" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "|outline" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "page-number" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Blank or near-empty document" in WRITER_APPLY_DOCUMENT_HTML_RULES
