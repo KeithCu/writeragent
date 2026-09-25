@@ -198,3 +198,30 @@ def test_speak_text_async_routing_local():
         cfg["audio.tts_voice_piper"] = "en_US-lessac-medium"
         speak_text_async("Hello Piper")
         mock_piper.assert_called_once_with("Hello Piper", voice="en_US-lessac-medium", speed=1.1)
+
+
+def test_parse_tts_speed():
+    from plugin.audio.tts_service import parse_tts_speed
+
+    assert parse_tts_speed(1) == 1.0
+    assert parse_tts_speed(1.0) == 1.0
+    assert parse_tts_speed("1") == 1.0
+    assert parse_tts_speed("1.0") == 1.0
+    assert parse_tts_speed("1.0x") == 1.0
+    assert parse_tts_speed("1.0x (Normal)") == 1.0
+    assert parse_tts_speed("1.1") == 1.1
+    assert parse_tts_speed("1.1x") == 1.1
+    assert parse_tts_speed("1.25x") == 1.25
+    assert parse_tts_speed("1,5x") == 1.5
+    assert parse_tts_speed("1.75x") == 1.75
+    assert parse_tts_speed("2x") == 2.0
+    assert parse_tts_speed("0.5") == 0.5
+    assert parse_tts_speed("0.25") == 0.25
+    # Clamped to slowest 0.25
+    assert parse_tts_speed("0.1") == 0.25
+    assert parse_tts_speed("0") == 0.25
+    assert parse_tts_speed(-2) == 0.25
+    # Fallback to default 1.0 on invalid
+    assert parse_tts_speed("abc") == 1.0
+    assert parse_tts_speed(None) == 1.0
+    assert parse_tts_speed("") == 1.0

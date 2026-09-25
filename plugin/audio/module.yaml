@@ -66,13 +66,24 @@ config:
         label: "default (System Default)"
 
   tts_speed:
-    type: float
-    default: 1.0
-    min: 0.5
-    max: 2.0
-    widget: number
+    type: string
+    default: "1.0x"
+    widget: combo
     label: Speech Speed
-    helper: "Playback speed multiplier (0.5 to 2.0, default 1.0)."
+    helper: "Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom down to 0.25x)."
+    options:
+      - value: "1.0x"
+        label: "1.0x"
+      - value: "1.1x"
+        label: "1.1x"
+      - value: "1.25x"
+        label: "1.25x"
+      - value: "1.5x"
+        label: "1.5x"
+      - value: "1.75x"
+        label: "1.75x"
+      - value: "2.0x"
+        label: "2.0x"
 
   tts_voice_kokoro:
     type: string

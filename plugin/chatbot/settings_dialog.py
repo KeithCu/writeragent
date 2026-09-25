@@ -160,6 +160,11 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
             prov = result.get("audio__tts_provider") or result.get("audio.tts_provider") or ""
             model = result.get("audio__tts_model") or result.get("tts_model") or ""
             set_scoped_tts_voice(val, provider=str(prov), model=str(model))
+        elif key in ("audio__tts_speed", "audio.tts_speed"):
+            from plugin.audio.tts_service import parse_tts_speed
+            spd = parse_tts_speed(val)
+            s_val = str(val).strip()
+            val = f"{spd:g}x" if s_val.endswith(("x", "X")) or s_val.startswith("1.0x") else f"{spd:g}"
 
         set_config(save_key, val)
         _update_lru_for_key(ctx, key, val, current_endpoint)

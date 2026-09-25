@@ -74,3 +74,33 @@ def test_apply_settings_result_tts_provider_and_voice():
         assert stored.get("audio.tts_provider") == "kokoro"
         assert stored.get("audio.tts_voice_kokoro") == "af_bella"
         assert stored.get("audio.tts_voice") == "af_bella"
+
+
+def test_apply_settings_result_tts_speed():
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    stored = {}
+    specs = [
+        {
+            "name": "audio__tts_speed",
+            "options": [
+                {"value": "1.0x", "label": "1.0x"},
+                {"value": "1.25x", "label": "1.25x"},
+            ],
+        },
+    ]
+
+    with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
+         patch("plugin.chatbot.settings_dialog.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"):
+        # Select from dropdown
+        apply_settings_result(MagicMock(), {"audio__tts_speed": "1.25x"})
+        assert stored.get("audio.tts_speed") == "1.25x"
+
+        # Type custom valid lower number
+        apply_settings_result(MagicMock(), {"audio__tts_speed": "0.5"})
+        assert stored.get("audio.tts_speed") == "0.5"
+
+        # Type number below 0.25 minimum -> clamped to 0.25
+        apply_settings_result(MagicMock(), {"audio__tts_speed": "0.1"})
+        assert stored.get("audio.tts_speed") == "0.25"

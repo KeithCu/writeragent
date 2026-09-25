@@ -226,6 +226,20 @@ _KOKORO_VOICES = {
 }
 
 
+def parse_tts_speed(val: Any) -> float:
+    """Parse speech speed safely, enforcing a minimum of 0.25x."""
+    if val is None or val == "":
+        return 1.0
+    if isinstance(val, (int, float)):
+        return max(0.25, min(5.0, float(val)))
+    cleaned = str(val).split("(")[0].strip().rstrip("xX").strip().replace(",", ".")
+    try:
+        speed = float(cleaned)
+        return max(0.25, min(5.0, speed))
+    except (ValueError, TypeError):
+        return 1.0
+
+
 def _resolve_tts_voice(model: str, voice: str) -> str:
     """Ensure voice name is compatible with the target model."""
     voice = clean_voice_name(voice)
@@ -578,7 +592,7 @@ def speak_text_async(text: str, on_complete: Callable[[], None] | None = None) -
 
             raw_prov = str(get_config("audio.tts_provider") or "system")
             provider = clean_provider_name(raw_prov)
-            speed = float(get_config("audio.tts_speed") or 1.0)
+            speed = parse_tts_speed(get_config("audio.tts_speed"))
             model = ""
             if provider == "endpoint":
                 from plugin.framework.client.model_fetcher import get_tts_model
