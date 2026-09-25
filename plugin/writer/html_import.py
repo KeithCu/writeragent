@@ -591,12 +591,11 @@ def _insert_mixed_or_plain_html(
 ) -> None:
     """HTML import (optional MathML + TeX layer).
 
-    data-lo-style paragraph styling is applied via UNO after the import only when *apply_styles*
-    is True (target=full_document). For insert/replace targets it is False: the StarWriter import
-    merges the first inserted block into the cursor's EXISTING paragraph, so applying the named
-    style there would restyle the pre-existing text (corruption). On those paths we still strip
-    data-lo-style (clean import) but do not apply it — styled writes go through full_document, or
-    use apply_style to (re)style existing text. (Targeted styled inserts are a future follow-up.)
+    data-lo-style paragraph styling is applied via UNO after the import when *apply_styles* is True
+    (``full_document``, and ``beginning``/``end`` after absorb prep in ``insert_content_at_position``).
+    For ``selection``/``search`` it stays False: those paths split or merge into neighbor text, so
+    applying the named style would restyle pre-existing content. We still strip data-lo-style for a
+    clean StarWriter import either way.
     """
     # Strip data-lo-style so the StarWriter import sees clean markup (it drops unknown attributes
     # anyway); we re-apply the named styles via UNO afterwards only when apply_styles is True.
@@ -699,6 +698,49 @@ def _selection_is_draw_shape(obj: Any) -> bool:
     return False
 
 
+
+def _cursor_paragraph_has_visible_text(cursor: Any) -> bool:
+    """True if the paragraph containing *cursor* has non-whitespace text."""
+    try:
+        text_obj = cursor.getText()
+        para = text_obj.createTextCursorByRange(cursor.getStart())
+        para.gotoStartOfParagraph(False)
+        para.gotoEndOfParagraph(True)
+        return bool((para.getString() or "").strip())
+    except Exception:
+        # Fail safe: treat as non-empty so end-path prep still runs.
+        return True
+
+
+def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str) -> Any:
+    """Place *cursor* in a paragraph safe for styled HTML import (``apply_styles=True``).
+
+    StarWriter HTML import behavior (verified with headed/native UNO probes):
+
+    - **Paragraph start** (``target=beginning`` after ``gotoStart``): imported ``<p>`` blocks are
+      inserted as *new* paragraphs *before* the current one — the first block does **not** merge
+      into existing text — so no prep is required; styling by paragraph index leaves neighbors alone.
+    - **Paragraph end** (``target=end``) when the absorb paragraph has visible text: the first
+      imported ``<p>`` *merges* into that paragraph, so applying ``data-lo-style`` would restyle
+      neighbor text. Insert ``PARAGRAPH_BREAK`` first; LibreOffice leaves the cursor in the new
+      empty trailing paragraph, which the import then absorbs (no leftover empty absorb para).
+      A trailing empty paragraph after import is the same StarWriter quirk as ``full_document``.
+    - **Empty absorb paragraph** (blank doc / already-empty trailing): merge is harmless — no prep.
+
+    ``selection`` / ``search`` are not handled here (still ``apply_styles=False``).
+    """
+    if position != "end":
+        return cursor
+    if not _cursor_paragraph_has_visible_text(cursor):
+        return cursor
+    try:
+        # 0 == com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
+        text.insertControlCharacter(cursor, 0, False)
+    except Exception:
+        log.debug("styled-insert: PARAGRAPH_BREAK at end failed", exc_info=True)
+    return cursor
+
+
 def insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
@@ -776,9 +818,13 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
     else:
         raise ToolExecutionError("Unknown position: %s" % position)
 
-    # apply_styles=False: inserting next to existing text merges the first block into it, so the
-    # named style would restyle that text. Styled paragraph writes go through full_document.
-    _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc, apply_styles=False)
+    # beginning/end: honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
+    # selection/search: still apply_styles=False — replace splits/merges into neighbor text (phase 3).
+    if position in ("beginning", "end"):
+        cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
+        _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc, apply_styles=True)
+    else:
+        _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc, apply_styles=False)
 
 
 

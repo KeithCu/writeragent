@@ -369,7 +369,7 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Required: `content` and `target`.
   Targets: 'beginning', 'end', 'selection', 'full_document', 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
-- Local edits: target='search' + old_content. Rewrite/translation (or blank-doc named styles): target='full_document'.
+- Local edits: target='search' + old_content. Rewrite/translation: target='full_document'.
 - **Never** pass the entire document as old_content — that is not supported and will fail search.
 - target='search': old_content may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph.
   position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.
@@ -391,8 +391,7 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
 - Named styles: get_document_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
-  data-lo-style applies only on target='full_document' — on 'beginning'/'end'/'selection'/'search' it is ignored because it would restyle adjacent text (use apply_style or a full_document rewrite).
-  Blank or near-empty document: put the styled HTML in one apply with target='full_document' (not 'beginning'/'end'), or insert then call apply_style.
+  data-lo-style is honored on target='full_document', 'beginning', and 'end' (insert prep keeps neighbor text/styles untouched). On 'selection'/'search' it is still ignored (would restyle adjacent text; use apply_style or a full_document rewrite).
   v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.
 - Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML or via page_set_header_footer_text.
@@ -407,7 +406,6 @@ EXAMPLES:
 - Good outline link: ["<p><a href=\\"#Introduction|outline\\">Introduction</a></p>"]
 - Good field: ["<p>Page <span title=\"page-number\"/></p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
-- Bad styles: data-lo-style with target='beginning'/'end' on a blank doc (styles ignored; use full_document)
 """
 
 

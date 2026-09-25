@@ -255,6 +255,133 @@ def test_insert_content_at_position_empty_selection_uses_doc_end():
 
 
 
+
+
+def test_insert_content_at_position_beginning_applies_styles():
+    """beginning path passes apply_styles=True (no PARAGRAPH_BREAK prep needed at para start)."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.format import insert_content_at_position
+
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getText.return_value = body_text
+
+    with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, patch(
+        "plugin.writer.html_import._ensure_empty_absorb_for_styled_insert",
+        side_effect=lambda text, cursor, position: cursor,
+    ) as mock_prep:
+        insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Heading1\">x</p>", "beginning")
+
+    body_cursor.gotoStart.assert_called_once_with(False)
+    mock_prep.assert_called_once()
+    assert mock_prep.call_args.args[2] == "beginning"
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs.get("apply_styles") is True
+
+
+def test_insert_content_at_position_end_preps_then_applies_styles():
+    """end path runs absorb prep then passes apply_styles=True."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.format import insert_content_at_position
+
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getText.return_value = body_text
+
+    with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, patch(
+        "plugin.writer.html_import._ensure_empty_absorb_for_styled_insert",
+        side_effect=lambda text, cursor, position: cursor,
+    ) as mock_prep:
+        insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Caption\">x</p>", "end")
+
+    body_cursor.gotoEnd.assert_called_once_with(False)
+    mock_prep.assert_called_once()
+    assert mock_prep.call_args.args[2] == "end"
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs.get("apply_styles") is True
+
+
+def test_insert_content_at_position_selection_still_skips_styles():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.format import insert_content_at_position
+
+    sel = MagicMock()
+    sel.getCount.return_value = 0
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    controller.getViewCursor.side_effect = Exception("no view")
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value = body_text
+
+    with patch("plugin.doc.visual_helpers.is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ) as mock_insert:
+        insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Heading1\">x</p>", "selection")
+
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs.get("apply_styles") is False
+
+
+def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    # Simulate non-empty absorb paragraph
+    para = MagicMock()
+    para.getString.return_value = "Existing"
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = para
+    cursor.getText.return_value = text_obj
+    cursor.getStart.return_value = MagicMock()
+
+    out = hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+    assert out is cursor
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+
+
+def test_ensure_empty_absorb_skips_break_when_end_para_empty():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    para = MagicMock()
+    para.getString.return_value = "   "
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = para
+    cursor.getText.return_value = text_obj
+    cursor.getStart.return_value = MagicMock()
+
+    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+    text.insertControlCharacter.assert_not_called()
+
+
+def test_ensure_empty_absorb_noop_for_beginning():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    hi._ensure_empty_absorb_for_styled_insert(text, cursor, "beginning")
+    text.insertControlCharacter.assert_not_called()
+
+
 def test_replace_preserving_format_atomic_when_split_author_false_even_in_undo_context():
     # Configurable coloring: split_author=False forces the SINGLE atomic setString (one author -> one
     # color) even INSIDE an open undo context, where split_author=True (the default) would use the

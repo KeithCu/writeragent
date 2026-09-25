@@ -54,7 +54,7 @@ Two phases solve different problems. **v1** fixes read→write→read idempotenc
 |-------|--------|
 | **Read body + char overrides** | `XHTML Writer File` export → [`xhtml_to_semantic_html()`](../../plugin/writer/xhtml_style_postprocess.py) in [`xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) |
 | **Read autostyle names when XHTML omits them** | Second export: **OpenDocument Text Flat XML** (`.fodt`); [`extract_autostyle_parents_from_fodt()`](../../plugin/writer/xhtml_style_postprocess.py) builds a **`Pn → parent-style-name`** map; joined to XHTML by matching the `paragraph-Pn` class suffix (order-independent — no block-index alignment) |
-| **Write** | Keep `HTML (StarWriter)` import + strip `data-lo-style` + UNO `apply_paragraph_style_preserving_direct_char` (full document only) |
+| **Write** | Keep `HTML (StarWriter)` import + strip `data-lo-style` + UNO `apply_paragraph_style_preserving_direct_char` (`full_document`, plus `beginning`/`end` after absorb prep; `selection`/`search` still skip apply) |
 
 **Why flat ODF:** Probe B showed UNO still has `ParaStyleName = Caption` after write, but XHTML re-export emits autostyle `paragraph-P1` with no `.paragraph-Caption` rule — string-only XHTML post-process cannot recover the token. Flat ODF keeps `style:parent-style-name` on automatic styles; the autostyle name `Pn` is identical in both exports. Probe C ruled out symmetric **XHTML Writer File** import on write (0 body paragraphs inserted on test LO build).
 
@@ -226,7 +226,7 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 
 6. **Fallback:** Unknown style name → `Standard` (or skip apply and log).
 
-**Hook points:** Named-style application runs on `replace_full_document` only. Targeted inserts/replaces (`insert_content_at_position`, `replace_single_range_with_content`) still insert the content but **skip** style application: the first imported block merges into the cursor's existing paragraph, so applying its `data-lo-style` would restyle the adjacent (pre-existing) text. For styling existing text use `apply_style`. (Applying styles only to genuinely-new paragraphs on partial edits is a **post-v1** follow-up.)
+**Hook points:** Named-style application runs on `replace_full_document` and on `insert_content_at_position` for `beginning` / `end` (after absorb prep so neighbor text is not restyled — see UNO-verified notes in `html_import._ensure_empty_absorb_for_styled_insert`). `selection` / `search` (`replace_single_range_with_content`) still insert the content but **skip** style application: those paths split or merge into the cursor's existing paragraph. For styling existing text use `apply_style`. (Styled `selection`/`search` is a later follow-up.)
 
 ---
 
@@ -272,7 +272,8 @@ These are intentional trade-offs in v1. Tests document the behavior ([`test_xhtm
 |------------|-------------|----------------------------|-------------------|
 | **Whole-paragraph direct overrides** (margins, indent, alignment, line-height, paragraph-level font, para colour) | Do not round-trip on **write**. **Read** reports them as read-only `data-lo-para` from the FODT automatic style, including `color:` when `fo:color` is set (see [Direct formatting on read](#direct-formatting-on-read)). Run colour also appears on spans. | DO: read `data-lo-para` to tell an indented or coloured quote from body text. `apply_style` defaults to `clear_direct='style_props'` so house font/size and style indents show (bold/italic stay). Pass `clear_direct='none'` only to keep a hand-set font. Re-applying a style does **not** keep a quote indent — LO drops direct `Para*` | Make `data-lo-para` writable |
 | **Table cell paragraph styles** | `paragraph-*` stripped inside `<table>`; no `data-lo-style` on cell blocks | `apply_style` on cell text; don't rely on agent HTML for table styling | Table-aware style index or cell-level tokens |
-| **Partial edits** (`end` / `search` / `selection` / `beginning`) | Content inserted; `data-lo-style` **not** applied (would restyle merged adjacent text) | `target='full_document'` for styled rewrites; `apply_style` to restyle existing text | Apply only to genuinely new paragraphs after import |
+| **Partial edits** (`beginning` / `end`) | Content inserted; `data-lo-style` **applied** after absorb prep (beginning: LO inserts before current para; end: `PARAGRAPH_BREAK` into empty trailing when absorb para has text) | Prefer `beginning`/`end` for styled append/prepend; `apply_style` to restyle existing text | — |
+| **Partial edits** (`search` / `selection`) | Content inserted; `data-lo-style` **not** applied (would restyle split/merged adjacent text) | `target='full_document'` for styled rewrites; `apply_style` to restyle existing text | Apply only to genuinely new paragraphs after import |
 | **Dual export cost** | Every full read (and range read via temp doc) runs XHTML + FODT `storeToURL` | `scope=range`, `get_document_tree`, `search_in_document` before full reads | Cached UNO paragraph-style index; drop FODT on `scope=full` |
 | **Token collision** (two UNO names compact to same token, e.g. `Heading 1` + literal `Heading1`) | Read omits token; write falls back to `Standard` | Use tokens exactly as returned; avoid duplicate style names | Per-document disambiguation or spaced-token policy |
 | **Unresolvable autostyle** (no FODT map, ambiguous fingerprint) | No `data-lo-style`; write treats as default body | Accept as Standard on rewrite | UNO `ParaStyleName` index as authoritative fallback |

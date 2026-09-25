@@ -211,12 +211,11 @@ def test_writer_apply_document_math_latex_rules_document_only():
     assert "Math (display):" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Math (CRITICAL)" not in HTML_FRAGMENT_RULES
     assert "Local edits: target='search'" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "honored on target='full_document', 'beginning', and 'end'" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "middle line must equal a whole paragraph" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "interior line" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "blank-doc named styles" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "|outline" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "page-number" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "Blank or near-empty document" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "page_get_header_footer_text" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "page_set_header_footer_text" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "setString wipe" not in WRITER_APPLY_DOCUMENT_HTML_RULES
