@@ -118,6 +118,14 @@ def test_hypothesis_parse_address_row_non_negative_or_raises(s: str) -> None:
 
 @pytest.mark.slow
 def test_crosshair_address_utils_if_available() -> None:
+    from tests.harness.strip_bundle import deal_pre_present
+
+    # make release strips @deal.pre but keeps @inverse_ensure; CrossHair then
+    # reports pre-violations (e.g. column_to_index('\x00'), format_address(-1, 0))
+    # as post/inverse failures. Same skip pattern as overflow pre test above.
+    if not deal_pre_present(format_address) or not deal_pre_present(column_to_index):
+        pytest.skip("@deal.pre stripped in release bundle; CrossHair needs @deal.pre preconditions")
+
     crosshair_path = _find_crosshair()
     if not crosshair_path:
         pytest.skip("CrossHair concolic execution engine is not installed.")
