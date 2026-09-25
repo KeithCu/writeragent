@@ -38,30 +38,17 @@ config:
     default: "alloy"
     widget: select
     label: Voice
-    helper: "Voice character / persona for speech synthesis."
+    helper: "Voice for the selected provider. The list matches the Piper or Kokoro catalog for your locale."
+    # Runtime options come from the voice catalog (same source as the sidebar).
+    # This stub is only the XDL fallback when options_provider cannot run.
+    options_provider: plugin.audio.tts_service:settings_voice_options
     options:
       - value: "alloy"
         label: "alloy (OpenAI Neutral)"
-      - value: "nova"
-        label: "nova (OpenAI Warm)"
-      - value: "shimmer"
-        label: "shimmer (OpenAI Expressive)"
       - value: "af_bella"
         label: "af_bella (Kokoro US Female - Bella)"
-      - value: "af_heart"
-        label: "af_heart (Kokoro US Female - Heart)"
-      - value: "af_sarah"
-        label: "af_sarah (Kokoro US Female - Sarah)"
-      - value: "am_adam"
-        label: "am_adam (Kokoro US Male - Adam)"
-      - value: "am_michael"
-        label: "am_michael (Kokoro US Male - Michael)"
       - value: "en_US-lessac-medium"
-        label: "en_US-lessac-medium (Piper US Female - Lessac)"
-      - value: "en_US-amy-medium"
-        label: "en_US-amy-medium (Piper US Female - Amy)"
-      - value: "en_US-ryan-medium"
-        label: "en_US-ryan-medium (Piper US Male - Ryan)"
+        label: "en_US-lessac-medium (US English Female - Lessac)"
       - value: "default"
         label: "default (System Default)"
 

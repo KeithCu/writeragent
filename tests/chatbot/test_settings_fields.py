@@ -85,6 +85,68 @@ def test_call_options_provider_skips_plugin_main_when_absent():
     assert seen == [None]
 
 
+def test_build_module_field_specs_voice_options_come_from_catalog():
+    """Settings voice options follow the catalog, not the short yaml stub."""
+    manifest = {
+        "name": "audio",
+        "config": {
+            "tts_voice": {
+                "type": "string",
+                "widget": "select",
+                "options_provider": "plugin.audio.tts_service:settings_voice_options",
+                "options": [{"value": "alloy", "label": "alloy (OpenAI Neutral)"}],
+            }
+        },
+    }
+
+    def _cfg(key, default=None):
+        values = {
+            "audio.tts_voice": "de_DE-thorsten-medium",
+            "audio.tts_provider": "piper",
+            "audio.tts_model": "",
+        }
+        return values.get(key, default if default is not None else "")
+
+    with (
+        patch("plugin._manifest.MODULES", [manifest]),
+        patch("plugin.chatbot.settings_fields.get_config", side_effect=_cfg),
+        patch("plugin.audio.tts_service.get_config", side_effect=_cfg),
+        patch("plugin.framework.i18n.get_active_locale", return_value="de_DE"),
+        patch("plugin.main.get_services", return_value=None),
+    ):
+        specs = build_module_field_specs("audio", ctx=object(), control_ids="prefixed")
+
+    voice = next(spec for spec in specs if spec["name"] == "audio__tts_voice")
+    values = [opt["value"] for opt in voice["options"]]
+    assert values[0] == "de_DE-thorsten-medium"
+    assert "fr_FR-siwis-medium" in values
+    assert "alloy" not in values
+    assert "Thorsten" in voice["value"]
+
+
+def test_build_module_field_specs_options_provider_falls_back_to_yaml():
+    manifest = {
+        "name": "audio",
+        "config": {
+            "tts_voice": {
+                "type": "string",
+                "options_provider": "plugin.audio.tts_service:missing_voice_options",
+                "options": [{"value": "default", "label": "default (System Default)"}],
+            }
+        },
+    }
+    with (
+        patch("plugin._manifest.MODULES", [manifest]),
+        patch("plugin.chatbot.settings_fields.get_config", return_value="default"),
+        patch("plugin.main.get_services", return_value=None),
+    ):
+        specs = build_module_field_specs("audio", ctx=object(), control_ids="flat")
+
+    voice = specs[0]
+    assert voice["options"] == [{"value": "default", "label": "default (System Default)"}]
+    assert voice["value"] == "default (System Default)"
+
+
 def test_build_module_field_specs_omits_internal_and_non_persisting():
     manifest_agent = {
         "name": "agent_backend",

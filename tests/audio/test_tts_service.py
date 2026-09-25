@@ -191,13 +191,13 @@ def test_speak_text_async_routing_local():
          patch("plugin.audio.tts_service._speak_kokoro_local") as mock_kokoro, \
          patch("plugin.audio.tts_service._speak_piper_local") as mock_piper:
         speak_text_async("Hello Kokoro")
-        mock_kokoro.assert_called_once_with("Hello Kokoro", voice="af_bella", speed=1.1)
+        mock_kokoro.assert_called_once_with("Hello Kokoro", voice="af_bella", speed=1.1, on_status=None)
         mock_piper.assert_not_called()
 
         cfg["audio.tts_provider"] = "piper"
         cfg["audio.tts_voice_piper"] = "en_US-lessac-medium"
         speak_text_async("Hello Piper")
-        mock_piper.assert_called_once_with("Hello Piper", voice="en_US-lessac-medium", speed=1.1)
+        mock_piper.assert_called_once_with("Hello Piper", voice="en_US-lessac-medium", speed=1.1, on_status=None)
 
 
 def test_parse_tts_speed():
@@ -306,6 +306,139 @@ def test_resolve_piper_model_file_ondemand_download(tmp_path):
             assert resolved == str(cache_dir / "de_DE-thorsten-medium.onnx")
             assert os.path.exists(resolved)
             assert os.path.exists(str(cache_dir / "de_DE-thorsten-medium.onnx.json"))
+
+
+def test_module_yaml_voice_options_use_catalog_provider():
+    """Settings yaml keeps a short stub; the catalog provider fills the real list."""
+    import os
+
+    import yaml
+
+    with open(os.path.join(os.path.dirname(__file__), "..", "..", "plugin", "audio", "module.yaml"), encoding="utf-8") as handle:
+        manifest = yaml.safe_load(handle)
+    voice = manifest["config"]["tts_voice"]
+    assert voice["options_provider"] == "plugin.audio.tts_service:settings_voice_options"
+    assert len(voice["options"]) <= 4
+
+
+def test_voice_catalog_asset_drives_runtime_maps():
+    import json
+    import os
+
+    from plugin.audio.tts_service import VOICE_CATALOGS, _PIPER_VOICE_MODELS, _KOKORO_CATALOG_ITEMS
+    from plugin.audio.voice_catalog import CATALOG_PATH, voice_short_name
+
+    assert os.path.isfile(CATALOG_PATH)
+    with open(CATALOG_PATH, encoding="utf-8") as handle:
+        raw = json.load(handle)
+
+    piper_ids = [row["id"] for row in raw["piper"]["voices"]]
+    assert list(_PIPER_VOICE_MODELS) == piper_ids
+    assert [item["value"] for item in VOICE_CATALOGS["piper"]] == piper_ids
+    assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == [row["id"] for row in raw["kokoro"]["voices"]]
+    assert voice_short_name("de_DE-thorsten-medium") == "Thorsten"
+    assert voice_short_name("en_US-lessac-medium") == "Lessac"
+    # Catalog file is the model path used for on-demand Hugging Face downloads.
+    onnx, config, lang, _label = _PIPER_VOICE_MODELS["de_DE-thorsten-medium"]
+    assert onnx.endswith("de_DE-thorsten-medium.onnx")
+    assert config.endswith(".onnx.json")
+    assert lang == "de_DE"
+
+
+def test_settings_voice_options_match_catalog_for_provider():
+    from plugin.audio.tts_service import get_voice_catalog, settings_voice_options
+
+    def _cfg(key, default=None):
+        values = {
+            "audio.tts_provider": "piper",
+            "audio.tts_model": "",
+        }
+        return values.get(key, default)
+
+    with patch("plugin.audio.tts_service.get_config", side_effect=_cfg), \
+         patch("plugin.framework.i18n.get_active_locale", return_value="de_DE"):
+        options = settings_voice_options(None)
+
+    assert options == get_voice_catalog("piper", "de_DE")
+    assert options[0]["value"] == "de_DE-thorsten-medium"
+    assert any(opt["value"] == "fr_FR-siwis-medium" for opt in options)
+    assert all(opt["value"] != "af_bella" for opt in options)
+
+
+def test_resolve_piper_model_file_reports_download_status(tmp_path):
+    from plugin.audio.tts_service import _resolve_piper_model_file
+    import io
+    import os
+
+    messages: list[str] = []
+    cache_dir = tmp_path / "piper_cache"
+    with patch("os.path.expanduser", return_value=str(cache_dir)):
+        with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: io.BytesIO(b"fake-piper-model-bytes")):
+            resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
+
+    assert resolved == str(cache_dir / "de_DE-thorsten-medium.onnx")
+    assert os.path.exists(resolved)
+    assert messages == ["Downloading Piper voice Thorsten…"]
+
+
+def test_resolve_piper_model_file_reports_lessac_fallback(tmp_path):
+    from plugin.audio.tts_service import _resolve_piper_model_file
+    import urllib.error
+
+    messages: list[str] = []
+    cache_dir = tmp_path / "piper_cache"
+    cache_dir.mkdir()
+    (cache_dir / "en_US-lessac-medium.onnx").write_bytes(b"lessac")
+    (cache_dir / "en_US-lessac-medium.onnx.json").write_bytes(b"{}")
+
+    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)):
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
+            resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
+
+    assert resolved == str(cache_dir / "en_US-lessac-medium.onnx")
+    assert messages == [
+        "Downloading Piper voice Thorsten…",
+        "Couldn't download Thorsten; using Lessac",
+    ]
+
+
+def test_resolve_piper_model_file_reports_os_speech_fallback(tmp_path):
+    from plugin.audio.tts_service import _resolve_piper_model_file
+    import urllib.error
+
+    messages: list[str] = []
+    cache_dir = tmp_path / "piper_cache"
+
+    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)):
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
+            with patch("urllib.request.urlretrieve", side_effect=urllib.error.URLError("offline")):
+                resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
+
+    assert resolved == "de_DE-thorsten-medium"
+    assert messages[0] == "Downloading Piper voice Thorsten…"
+    assert "using Lessac" in messages[1]
+    assert messages[-1] == "Couldn't download Thorsten; using OS speech"
+
+
+def test_resolve_kokoro_model_files_reports_download_failure(tmp_path):
+    from plugin.audio.tts_service import _resolve_kokoro_model_files
+    import urllib.error
+
+    messages: list[str] = []
+    cache_dir = tmp_path / "kokoro_cache"
+
+    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)), \
+         patch("plugin.audio.tts_service.os.makedirs"), \
+         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}), \
+         patch("urllib.request.urlretrieve", side_effect=urllib.error.URLError("offline")):
+        model_path, voices_path = _resolve_kokoro_model_files(on_status=messages.append)
+
+    assert model_path.endswith("kokoro-v0_19.onnx")
+    assert voices_path.endswith("voices.bin")
+    assert messages == [
+        "Downloading Kokoro voice model…",
+        "Couldn't download Kokoro; using OS speech",
+    ]
 
 
 def test_all_writeragent_locales_have_piper_model_mapping():

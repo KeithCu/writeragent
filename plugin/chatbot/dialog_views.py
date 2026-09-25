@@ -839,7 +839,6 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
         try:
             from plugin.audio.tts_service import (
                 clean_provider_name,
-                clean_voice_name,
                 get_voice_family,
                 get_scoped_tts_voice,
                 get_voice_catalog,
@@ -867,7 +866,6 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
 
                 scoped_voice = get_scoped_tts_voice(provider, raw_model)
                 current_text = voice_ctrl.getText() if hasattr(voice_ctrl, "getText") else ""
-                current_clean = clean_voice_name(current_text)
 
                 target_label = ""
                 for opt in catalog:
@@ -877,7 +875,8 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 if not target_label and catalog:
                     target_label = catalog[0]["label"]
 
-                if (current_clean != scoped_voice or not current_text) and target_label:
+                # Promote a raw voice id (or a previous family's label) to the catalog label.
+                if target_label and current_text != target_label:
                     voice_ctrl.setText(target_label)
         except Exception:
             log.exception("Error syncing TTS UI settings")

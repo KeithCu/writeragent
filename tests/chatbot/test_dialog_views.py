@@ -758,6 +758,41 @@ def test_tts_settings_listener_sync():
         assert any("af_bella" in arg for arg in voice_ctrl.setText.call_args[0])
 
 
+def test_tts_settings_listener_promotes_raw_voice_id_to_catalog_label():
+    from plugin.chatbot.dialog_views import TtsSettingsListener
+
+    dlg = MagicMock()
+    prov_ctrl = MagicMock()
+    prov_ctrl.getText.return_value = "Piper (Local Fast Neural, CPU)"
+    model_ctrl = MagicMock()
+    model_ctrl.getText.return_value = ""
+    voice_ctrl = MagicMock()
+    voice_ctrl.getModel.return_value = MagicMock()
+    voice_ctrl.getText.return_value = "de_DE-thorsten-medium"
+
+    def get_optional_side_effect(d, name):
+        if name == "audio__tts_provider":
+            return prov_ctrl
+        if name in ("audio__tts_model", "tts_model"):
+            return model_ctrl
+        if name == "audio__tts_voice":
+            return voice_ctrl
+        return None
+
+    def _cfg(key, default=None):
+        if key == "audio.tts_voice_piper":
+            return "de_DE-thorsten-medium"
+        return default
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+         patch("plugin.chatbot.dialog_views.set_control_enabled"), \
+         patch("plugin.audio.tts_service.get_config", side_effect=_cfg):
+        TtsSettingsListener(dlg, MagicMock()).sync_ui()
+
+    voice_ctrl.setText.assert_called_once()
+    assert "Thorsten" in voice_ctrl.setText.call_args[0][0]
+
+
 def test_tts_voice_listener_on_change():
     from plugin.chatbot.dialog_views import TtsSettingsListener, TtsVoiceListener
 

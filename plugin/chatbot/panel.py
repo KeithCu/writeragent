@@ -1094,15 +1094,33 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             if last_msg.get("role") == "assistant" and last_msg.get("content"):
                                 from plugin.audio.tts_service import speak_text_async, is_speaking
 
+                                # Restore the send-complete status after download/fallback lines.
+                                prior_status = self._terminal_status or "Ready"
+
+                                def _on_tts_status(message: str) -> None:
+                                    # Speech runs on a worker; the status control is a UNO widget.
+                                    def _apply() -> None:
+                                        self._set_status(message)
+
+                                    try:
+                                        self.queue_executor.post(_apply)
+                                    except Exception:
+                                        log.debug("TTS status post failed", exc_info=True)
+
                                 def _on_speech_complete() -> None:
                                     def _disable_stop() -> None:
                                         if not getattr(self, "_send_busy", False):
                                             if self.stop_control and self.stop_control.getModel():
                                                 with suppress_disposed("disable stop after speech", logger=log):
                                                     self.stop_control.getModel().Enabled = False
+                                            self._set_status(_(prior_status))
                                     self.queue_executor.post(_disable_stop)
 
-                                speak_text_async(last_msg["content"], on_complete=_on_speech_complete)
+                                speak_text_async(
+                                    last_msg["content"],
+                                    on_complete=_on_speech_complete,
+                                    on_status=_on_tts_status,
+                                )
                                 if is_speaking():
                                     if self.stop_control and self.stop_control.getModel():
                                         with suppress_disposed("enable stop for speech", logger=log):
