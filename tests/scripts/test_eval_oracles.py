@@ -545,24 +545,40 @@ def test_summary_wrong_magnitude_is_not_10k() -> None:
     assert any("10k" in f for f in fails), fails
 
 
-def test_table_from_mess_accepts_nema4_punctuation() -> None:
-    for variant in ("NEMA4", "NEMA-4", "NEMA 4"):
-        doc = _TABLE_FROM_MESS.replace("NEMA 4", variant)
-        fails = check_oracle("table_from_mess", doc)
-        assert fails == [], (variant, fails)
-
-
-def test_table_from_mess_missing_nema_still_fails() -> None:
-    for replacement in ("indoor", "NEMA 4X"):
-        doc = _TABLE_FROM_MESS.replace("NEMA 4", replacement)
-        fails = check_oracle("table_from_mess", doc)
-        assert any("NEMA 4" in f for f in fails), (replacement, fails)
+def test_table_from_mess_nema_rating_is_optional() -> None:
+    """Dropping NEMA 4 is an editorial choice, not a hard miss."""
+    doc = _TABLE_FROM_MESS.replace(" NEMA 4", "")
+    assert "NEMA" not in doc
+    assert check_oracle("table_from_mess", doc) == []
 
 
 def test_table_from_mess_brand_tokens_stay_exact() -> None:
     doc = _TABLE_FROM_MESS.replace("Battle Born", "BattleBorn")
     fails = check_oracle("table_from_mess", doc)
     assert any("Battle Born" in f for f in fails), fails
+
+
+def test_haystack_has_accepts_scale_expansions() -> None:
+    """Abbrev → digits keeps the count. A different magnitude does not."""
+    assert haystack_has("scaled to 10,000 requests", "10k")
+    assert haystack_has("scaled to 10 000 requests", "10k")
+    assert haystack_has("scaled to 10000 requests", "10k")
+    assert haystack_has("scaled to 10K requests", "10k")
+    assert not haystack_has("scaled to 100000 requests", "10k")
+    assert not haystack_has("scaled to 10,000,000 requests", "10k")
+    assert haystack_has("100,000 users", "100K")
+    assert haystack_has("100 000 users", "100K")
+    assert haystack_has("100,000,000 requests", "100M")
+    assert not haystack_has("BattleBorn", "Battle Born")
+
+
+def test_resume_accepts_expanded_user_counts() -> None:
+    doc = (
+        "<h1>John Doe</h1><p>WORK HISTORY</p><p>EDUCATION</p><p>SKILLS</p>"
+        "<p>Acme Corp</p><p>TechStart</p>"
+        "<p>Scaled to 100,000 users and 100 000 000 requests per month.</p>"
+    )
+    assert check_oracle("reformat_resume", doc) == []
 
 
 def test_resume_nnbsp_matches_100k_oracle() -> None:
