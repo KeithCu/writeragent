@@ -371,7 +371,7 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
   Targets: 'beginning', 'end', 'selection', 'full_document', 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
 - Local edits: target='search' + old_content. Rewrite/translation (or blank-doc named styles): target='full_document'.
 - **Never** pass the entire document as old_content — that is not supported and will fail search.
-- target='search': old_content may span paragraphs, but each interior line must match a WHOLE paragraph.
+- target='search': old_content may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph.
   position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.
 - Reach: body, table cells, text frames, headers and footers.
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
