@@ -55,8 +55,11 @@ def test_maintain_incremental_skips_fresh_file(tmp_path: Path):
     meta = tmp_path / "writeragent_embeddings" / "corpus_meta.json"
     db_path = tmp_path / "writeragent_embeddings" / "corpus.db"
     meta.parent.mkdir(parents=True)
+    # schema_version must match EMBEDDINGS_SCHEMA_VERSION. A legacy version makes
+    # maybe_upgrade_legacy_index wipe corpus.db before the incremental pass, so a
+    # file that is already indexed looks stale and is re-embedded.
     meta.write_text(
-        '{"schema_version":"3","embedding_model":"all-MiniLM-L6-v2","chunk_count":"1"}',
+        '{"schema_version":"6","embedding_model":"all-MiniLM-L6-v2","chunk_count":"1"}',
         encoding="utf-8",
     )
 

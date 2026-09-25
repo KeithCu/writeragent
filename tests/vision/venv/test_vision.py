@@ -274,14 +274,15 @@ def test_extract_text_runtime_error_returns_vision_error(mock_get_engine, mock_d
     assert "model failed" in result["message"]
 
 
-@patch("plugin.scripting.client.run_code_in_user_venv")
-def test_vision_client_passes_payload(mock_venv):
+@patch("plugin.scripting.client._run_trusted_action")
+def test_vision_client_passes_payload(mock_action):
     from plugin.scripting.client import run_vision as run_trusted_vision
 
     ctx = MagicMock()
-    mock_venv.return_value = {
+    mock_action.return_value = {
         "status": "ok",
-        "result": {"status": "ok", "helper": "extract_text", "full_text": "ok"},
+        "helper": "extract_text",
+        "full_text": "ok",
     }
 
     result = run_trusted_vision(
@@ -292,9 +293,11 @@ def test_vision_client_passes_payload(mock_venv):
     )
 
     assert result["full_text"] == "ok"
-    mock_venv.assert_called_once()
-    _args, kwargs = mock_venv.call_args
+    mock_action.assert_called_once()
+    _args, kwargs = mock_action.call_args
     assert kwargs["session_id"] == "writeragent:vision"
-    assert kwargs["data"]["spec"] == {"helper": "extract_text", "params": {}}
-    assert kwargs["data"]["image"] == b"png"
-    assert kwargs["data"]["context"] == {"source": "selection"}
+    assert kwargs["domain"] == "vision"
+    assert kwargs["helper"] == "extract_text"
+    assert kwargs["params"] == {}
+    assert kwargs["context"] == {"source": "selection"}
+    assert kwargs["additional_data"] == {"image": b"png"}

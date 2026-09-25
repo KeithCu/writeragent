@@ -342,6 +342,9 @@ def test_extract_structure_real_docling_pdf_magic():
     from pathlib import Path
 
     _require_installed_od_docling()
+    pytest.importorskip("PIL.Image")
+    pytest.importorskip("rapidocr")
+    pytest.importorskip("onnxruntime")
     pytest.importorskip("css_inline")
     pdf_path = (
         Path(__file__).resolve().parents[2]

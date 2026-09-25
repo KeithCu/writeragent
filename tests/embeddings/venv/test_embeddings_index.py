@@ -62,7 +62,7 @@ def test_embed_texts_reuses_cached_model():
         embeddings_index.embed_texts("all-MiniLM-L6-v2", ["a"])
         embeddings_index.embed_texts("all-MiniLM-L6-v2", ["b"])
 
-    mock_ctor.assert_called_once_with("all-MiniLM-L6-v2")
+    mock_ctor.assert_called_once_with("all-MiniLM-L6-v2", local_files_only=True)
     assert mock_embedder.encode.call_count == 2
 
 

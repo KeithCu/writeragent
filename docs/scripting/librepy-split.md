@@ -1152,7 +1152,7 @@ Registered in [`trusted_action_registry.py`](../../plugin/scripting/trusted_acti
 ### User venv packages
 
 ```bash
-uv pip install docling rapidocr-paddle numpy pillow css-inline
+uv pip install docling rapidocr-paddle numpy pillow css-inline onnxruntime
 # optional fallback: paddleocr paddlepaddle
 ```
 

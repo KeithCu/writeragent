@@ -102,7 +102,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 
 ```text
 1. Settings → Python → set venv path
-2. In that venv: pip install docling rapidocr-paddle numpy pillow
+2. In that venv: pip install docling rapidocr-paddle numpy pillow onnxruntime
    (Paddle-only fallback: pip install paddleocr paddlepaddle numpy — set params engine=paddle)
    (ultralytics not required until Phase 4 helpers)
 3. Open a Writer document
@@ -116,7 +116,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 
 ```text
 1. Settings → Python → set venv path (same venv as analysis helpers)
-2. pip install docling rapidocr-paddle numpy pillow
+2. pip install docling rapidocr-paddle numpy pillow onnxruntime
 3. Open a Calc document with a cell-anchored embedded image
 4. Click the image so it is selected (export source)
 5. WriterAgent → Run Python Script… → Vision Helpers → [Vision] extract_text → Run
@@ -406,14 +406,14 @@ Extended [`test_vision.py`](../../tests/scripting/test_vision.py), [`test_vision
 
 | # | Library | Install | Role |
 |---|---------|---------|------|
-| **1** | **Docling** | `pip install docling rapidocr-paddle numpy pillow` | **Default** OCR, layout, tables — `engine=docling` |
+| **1** | **Docling** | `pip install docling rapidocr-paddle numpy pillow onnxruntime` | **Default** OCR, layout, tables — `engine=docling` |
 | **2** | **PaddleOCR** | `pip install paddleocr paddlepaddle numpy` | Lightweight fallback — `engine=paddle` |
 | **3** | **Ultralytics** | `pip install ultralytics` | YOLO detection — **Phase 4+** helpers only |
 
 Primary install (Docling default):
 
 ```bash
-pip install docling rapidocr-paddle numpy pillow
+pip install docling rapidocr-paddle numpy pillow onnxruntime
 ```
 
 Paddle-only fallback:
@@ -425,7 +425,7 @@ pip install paddleocr paddlepaddle numpy
 Full stack:
 
 ```bash
-pip install docling rapidocr-paddle paddleocr paddlepaddle ultralytics numpy pillow
+pip install docling rapidocr-paddle paddleocr paddlepaddle ultralytics numpy pillow onnxruntime
 ```
 
 Helpers degrade with `DOCLING_UNAVAILABLE` / `PADDLEOCR_UNAVAILABLE` / `OCR_BACKEND_UNAVAILABLE` / `YOLO_UNAVAILABLE` and messages pointing to **Settings → Python**.
@@ -481,7 +481,7 @@ Docling does **not** ship native PaddleOCR; it uses **[RapidOCR](https://github.
 
 | Goal | Params / install |
 |------|------------------|
-| Default (Docling + Paddle models via RapidOCR) | defaults — `pip install docling rapidocr-paddle` |
+| Default (Docling + Paddle models via RapidOCR) | defaults — `pip install docling rapidocr-paddle onnxruntime` |
 | Compare EasyOCR / Tesseract | `ocr_backend=easyocr` or `tesseract` + matching pip extra |
 | Surya via Docling plugin | `pip install docling-surya surya-ocr`; `ocr_backend=surya`, `allow_external_plugins=true` |
 | Apple macOS Vision | Docling `OcrMacOptions` (system dependency) |
@@ -741,7 +741,7 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../.
 Venv package requirements for Vision Helpers are also summarized in the [domain package groups table](../scripting/numpy-domains.md#planned-domain-package-groups). Trusted-code pattern (host stub → venv module): [../enabling_numpy_in_libreoffice.md §5](../enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv).
 
 ```bash
-pip install docling rapidocr-paddle numpy pillow
+pip install docling rapidocr-paddle numpy pillow onnxruntime
 ```
 
 **First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.

@@ -23,7 +23,7 @@ from plugin.vision.vision_common import (
 
 log = logging.getLogger(__name__)
 
-_DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow css-inline"
+_DOCLING_INSTALL_CMD = "pip install docling rapidocr-paddle numpy pillow css-inline onnxruntime"
 
 _converter_cache: dict[tuple[Any, ...], Any] = {}
 

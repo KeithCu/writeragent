@@ -206,7 +206,7 @@ _VISION_PACKAGE_KEYS = ("docling", "rapidocr", "css_inline", "paddleocr", "paddl
 _VISION_OCR_PRIMARY_KEYS = ("docling", "rapidocr", "css_inline")
 # Always optional in Test output (never required Missing once OCR readiness is decided).
 _VISION_OPTIONAL_KEYS = ("paddleocr", "paddle", "ultralytics", "skimage")
-_DOCLING_INSTALL_CMD = "uv pip install docling rapidocr-paddle numpy pillow css-inline"
+_DOCLING_INSTALL_CMD = "uv pip install docling rapidocr-paddle numpy pillow css-inline onnxruntime"
 _VISION_PADDLE_FALLBACK_CMD = "uv pip install paddleocr paddlepaddle numpy"
 _VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn"
 _SYMBOLIC_INSTALL_CMD = "uv pip install sympy"
@@ -776,6 +776,10 @@ def _format_install_footer(missing_probe_keys: list[str]) -> list[str]:
         pip_names.append(pip_name)
     if not pip_names:
         return []
+
+    # Docling's RapidOCR path imports onnxruntime; it is not a separate probe key.
+    if any(key in missing_probe_keys for key in ("docling", "rapidocr")) and "onnxruntime" not in seen_pip:
+        pip_names.append("onnxruntime")
 
     pkg_args = " ".join(pip_names)
     lines = [

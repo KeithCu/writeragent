@@ -295,7 +295,7 @@ def test_format_self_check_success_vision_install_hint():
     assert "To install remaining packages:" in msg
     install_idx = msg.index("To install remaining packages:")
     footer = msg[install_idx:]
-    assert "uv pip install docling rapidocr-paddle css-inline" in footer
+    assert "uv pip install docling rapidocr-paddle css-inline onnxruntime" in footer
     pip_line = [line for line in footer.splitlines() if line.startswith("pip install ")][0]
     uv_line = [line for line in footer.splitlines() if line.startswith("uv pip install ")][0]
     assert footer.index(uv_line) < footer.index(pip_line)
@@ -608,7 +608,7 @@ def test_format_self_check_success_vision_probe_failure_hint():
     assert "Vision probe timed out" in msg
     assert "Missing (OCR): docling, rapidocr, css_inline" in msg
     assert "To install remaining packages:" in msg
-    assert "uv pip install docling rapidocr-paddle css-inline" in msg
+    assert "uv pip install docling rapidocr-paddle css-inline onnxruntime" in msg
 
 
 def test_probe_vision_packages_subprocess_timeout():
@@ -693,8 +693,8 @@ def test_format_self_check_success_global_install_footer_mixed_groups():
     }
     msg = _format_self_check_success(data)
     footer = msg[msg.index("To install remaining packages:") :]
-    assert "uv pip install scipy scikit-learn docling rapidocr-paddle css-inline" in footer
-    assert "pip install scipy scikit-learn docling rapidocr-paddle css-inline" in footer
+    assert "uv pip install scipy scikit-learn docling rapidocr-paddle css-inline onnxruntime" in footer
+    assert "pip install scipy scikit-learn docling rapidocr-paddle css-inline onnxruntime" in footer
     lines = footer.splitlines()
     uv_idx = next(i for i, line in enumerate(lines) if line.startswith("uv pip install "))
     pip_idx = next(i for i, line in enumerate(lines) if line.startswith("pip install "))
