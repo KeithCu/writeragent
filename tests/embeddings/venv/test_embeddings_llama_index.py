@@ -183,8 +183,10 @@ def test_run_hybrid_retrieval_pipeline_uses_rerank_postprocessor():
     )
     mock_retriever = MagicMock()
     mock_retriever.retrieve.return_value = [mock_node]
-    mock_reranker = MagicMock()
-    mock_reranker.postprocess_nodes.return_value = [mock_node]
+
+    def _fake_rerank(_query, candidates, *, model, top_n):
+        del model, top_n
+        return candidates
 
     with patch(
         "plugin.embeddings.venv.embeddings_llama_index.build_writer_agent_hybrid_retriever",
@@ -193,9 +195,9 @@ def test_run_hybrid_retrieval_pipeline_uses_rerank_postprocessor():
         "plugin.embeddings.venv.embeddings_parent_hits.expand_nodes_to_parent_paragraphs",
         side_effect=lambda _db, nodes: nodes,
     ), patch(
-        "plugin.embeddings.venv.embeddings_llama_index.SentenceTransformerRerank",
-        return_value=mock_reranker,
-    ):
+        "plugin.embeddings.venv.embeddings_cross_encoder_rerank.cross_encoder_rerank_candidates",
+        side_effect=_fake_rerank,
+    ) as mock_rerank:
         hits = embeddings_llama_index.run_hybrid_retrieval_pipeline(
             "/tmp/corpus.db",
             "query",
@@ -205,4 +207,4 @@ def test_run_hybrid_retrieval_pipeline_uses_rerank_postprocessor():
         )
     assert len(hits) == 1
     assert hits[0]["doc_url"] == "file:///hit.odt"
-    mock_reranker.postprocess_nodes.assert_called_once()
+    mock_rerank.assert_called_once()

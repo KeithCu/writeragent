@@ -23,7 +23,24 @@ include = ["plugin*"]
 testpaths = ["tests"]
 timeout = 60
 timeout_method = "signal"
-addopts = "--ignore=build --ignore-glob=*_uno.py --ignore=tests/scripting/test_serialization_verification.py"
+addopts = "--ignore=build --ignore-glob=*_uno.py --ignore=tests/scripting/test_serialization_verification.py --import-mode=importlib"
+# Pytest's default norecursedirs includes "venv", which also hid tests/embeddings/venv
+# and tests/vision/venv. Drop only that basename. Real virtualenvs stay skipped:
+# ".*" covers .venv, and pytest ignores any directory with pyvenv.cfg (or conda-meta).
+# importlib mode: three parent/venv pairs share a basename (test_embeddings_index,
+# test_embeddings_folder_maintain, test_embeddings_ingest_graph). Prepend import
+# mode raises "import file mismatch" when both are collected. importlib gives each
+# path its own module name so both trees run. Do not merge those files here.
+norecursedirs = [
+    "*.egg",
+    ".*",
+    "_darcs",
+    "build",
+    "CVS",
+    "dist",
+    "node_modules",
+    "{arch}",
+]
 markers = [
     "slow: excluded from default pytest; run via make slowtests",
     "integration: full subprocess worker IPC (optional, slower)",

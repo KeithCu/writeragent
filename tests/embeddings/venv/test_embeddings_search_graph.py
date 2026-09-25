@@ -87,8 +87,17 @@ def test_public_hit_omits_char_offsets():
     assert "char_end" not in hit
 
 
-def test_rerank_returns_snippet_hits():
+def test_rerank_returns_snippet_hits(tmp_path):
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema
+
+    db_path = tmp_path / "corpus.db"
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn)
+    finally:
+        conn.close()
     state = {
+        "db_path": str(db_path),
         "k": 2,
         "query_vec": [1.0, 0.0],
         "candidates": [
