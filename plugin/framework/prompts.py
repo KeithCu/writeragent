@@ -369,18 +369,18 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Required: `content` and `target`.
   Targets: 'beginning', 'end', 'selection', 'full_document', 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
-- Local edits use target='search' + old_content as a substring; target='full_document' is rewrite/translation only.
+- Local edits: target='search' + old_content. Rewrite/translation: target='full_document'.
 - **Never** pass the entire document as old_content — that is not supported and will fail search.
-- target='search': old_content may span paragraphs, but each interior line must match a WHOLE paragraph.
+- target='search': old_content may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph.
   position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.
 - Reach: body, table cells, text frames, headers and footers.
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags.
 - Headers/footers: edit the region with page_get_header_footer_text then page_set_header_footer_text.
-  Get returns the same XHTML as get_document_content (fields as <span title="page-number"/>, tables, logos) plus images/fields lists.
-  Set imports that HTML into the region's XText so logos, tables, and page-number fields survive.
+  Get/Set use the same XHTML as get_document_content (Writer fields as <span title="page-number"/>).
   page_set_style_properties header_is_on=false / footer_is_on=false refuses while the region still has content; clear with page_set_header_footer_text first, then disable. Enabling is always allowed.
-  A "different first page" letterhead lives in header_first / footer_first (page_get_style_properties reports first_is_shared); style_list(family='PageStyles') gives the page-style names, and style_get_info(family='PageStyles') returns the same margins/header/footer payload.
+  Creating a different first page letterhead: use header_first / footer_first.
+  page_get_style_properties reports first_is_shared when that split is off.
 - `content` is a JSON array of HTML strings (one fragment per heading/paragraph).
   We wrap in <html>/<body>.
 {HTML_FRAGMENT_RULES}
@@ -393,6 +393,8 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
   inline style="" is a character override on top of the named style.
   data-lo-style is honored on target='full_document', 'beginning', and 'end' (insert prep keeps neighbor text/styles untouched). On 'selection'/'search' it is still ignored (would restyle adjacent text; use apply_style or a full_document rewrite).
   v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.
+- Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
+- Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML or via page_set_header_footer_text.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. READ-ONLY — send it back and the result says it was ignored; it is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
   apply_style defaults to clear_direct='style_props': the style's font name/size and paragraph indents show; bold/italic/colour stay. Pass clear_direct='none' only to keep a hand-set font. clear_direct='all' is Ctrl+M (refused on target='full_document').
   Re-applying a style does not keep a quote indent — LibreOffice drops direct Para* (margins/alignment) when ParaStyleName is set.
@@ -400,8 +402,11 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
 - Good math: ["<p>The identity \\(a^2+b^2=c^2\\) holds.</p>", "\\[E = mc^2\\]", "<p>Water molecule: H<sub>2</sub>O, 10<sup>th</sup> edition.</p>"]
-- Good styles: ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
-- Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)"""
+- Good styles (target='full_document'): ["<p data-lo-style=\\"Heading1\\">Section title</p>", "<p data-lo-style=\\"Quotations\\">A quoted clause.</p>"]
+- Good outline link: ["<p><a href=\\"#Introduction|outline\\">Introduction</a></p>"]
+- Good field: ["<p>Page <span title=\"page-number\"/></p>"]
+- Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
+"""
 
 
 # Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
