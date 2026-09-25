@@ -313,10 +313,53 @@ def _para_pairs(doc):
 
 @native_test
 @with_native_doc("writer")
-def test_write_end_does_not_restyle_existing_text_uno(ctx, doc):
-    """data-lo-style is applied only on full_document. For target=end the first block merges into
-    the existing paragraph, so we DON'T apply the named style (it would restyle the existing
-    text). The pre-existing paragraph must stay Standard; the content is still inserted."""
+def test_write_blank_beginning_applies_heading1_uno(ctx, doc):
+    """Blank doc + target=beginning + styled HTML → first para is Heading 1."""
+    text = doc.getText()
+    text.setString("")
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="beginning",
+        content=['<p data-lo-style="Heading1">Intro</p>', '<p>body</p>'])
+    assert res.get("status") == "ok", res
+    pairs = _para_pairs(doc)
+    assert pairs, pairs
+    assert pairs[0][0] == "Heading 1", pairs
+    assert "Intro" in pairs[0][1], pairs
+    assert any(t.strip() == "body" or t == "body" for _, t in pairs), pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_beginning_styles_new_heading_keeps_existing_body_uno(ctx, doc):
+    """target=beginning: new Heading1 is styled; existing body text + ParaStyleName unchanged."""
+    text = doc.getText()
+    text.setString("Existing body text")
+    _baseline = text.createTextCursor()
+    _baseline.gotoStart(False)
+    _baseline.gotoEnd(True)
+    # Prefer Text body when present; fall back to Standard (both are default body styles).
+    try:
+        _baseline.setPropertyValue("ParaStyleName", "Text body")
+    except Exception:
+        _baseline.setPropertyValue("ParaStyleName", "Standard")
+    body_style = _baseline.getPropertyValue("ParaStyleName")
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="beginning",
+        content=['<p data-lo-style="Heading1">Title</p>'])
+    assert res.get("status") == "ok", res
+    pairs = _para_pairs(doc)
+    title = next(((s, t) for s, t in pairs if "Title" in t), None)
+    assert title is not None and title[0] == "Heading 1", pairs
+    existing = next(((s, t) for s, t in pairs if t.startswith("Existing body text")), None)
+    assert existing is not None, pairs
+    assert existing[0] == body_style, pairs
+    assert existing[1] == "Existing body text", pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_end_styles_new_paras_keeps_existing_body_uno(ctx, doc):
+    """target=end: append styled blocks after existing content; neighbor style/text unchanged."""
     text = doc.getText()
     text.setString("Existing line")
     _baseline = text.createTextCursor()
@@ -328,12 +371,14 @@ def test_write_end_does_not_restyle_existing_text_uno(ctx, doc):
         content=['<p data-lo-style="Caption">CAPX para</p>', '<p data-lo-style="Heading2">HEADX para</p>'])
     assert res.get("status") == "ok", res
     pairs = _para_pairs(doc)
-    # The pre-existing text must NOT be restyled to Caption (no corruption).
-    existing = next(s for s, t in pairs if t.startswith("Existing line"))
-    assert existing == "Standard", pairs
-    # The content was still inserted.
-    assert any("CAPX" in t for _, t in pairs), pairs
-    assert any("HEADX" in t for _, t in pairs), pairs
+    existing = next(((s, t) for s, t in pairs if t.startswith("Existing line")), None)
+    assert existing is not None, pairs
+    assert existing[0] == "Standard", pairs
+    assert existing[1] == "Existing line", pairs
+    cap = next(((s, t) for s, t in pairs if "CAPX" in t), None)
+    head = next(((s, t) for s, t in pairs if "HEADX" in t), None)
+    assert cap is not None and cap[0] == "Caption", pairs
+    assert head is not None and head[0] == "Heading 2", pairs
 
 
 @native_test
