@@ -8,7 +8,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-from plugin.testing_runner import _progress, native_test
+from plugin.testing_runner import _progress_verbose as _progress, native_test
 from plugin.tests.testing_utils import (
     TestingFactory,
     note_windows_html_paste_leftover,

@@ -730,8 +730,9 @@ typecheck-full: manifest ruff-for-build
 # Unit pytest only: no *_uno.py collection, no testing_runner / live soffice.
 # Exact command: $(PYTHON) -m pytest tests -m "not slow and not integration" --ignore-glob='*_uno.py'
 # Default adds $(PYTEST_XDIST) (-n auto --dist=loadgroup). PYTEST_WORKERS=0 is serial.
-# Progress goes to stderr as full lines: pytest/xdist otherwise use \r rewrites
-# (and classic mode never wraps), so Make/IDE terminals stay blank until exit.
+# Default is pytest dots. Full stderr heartbeats (pytest: N / last= / idle)
+# are opt-in: WRITERAGENT_PYTEST_PROGRESS=1. PR CI sets that in pr-ci.yml
+# so a quiet tail still names the last nodeid. Local make pytest does not.
 PYTEST_WORKERS ?= auto
 ifeq ($(PYTEST_WORKERS),0)
 PYTEST_XDIST :=
@@ -766,7 +767,7 @@ endif
 # sessionstart, or the xdist controller wait, and it cannot abort a native or
 # subprocess block (33447705893: 261s gap, no Failed: Timeout). Not in
 # pyproject addopts — vhs/slowtests need longer.
-PYTEST_UNIT = WRITERAGENT_PYTEST_PROGRESS=1 PYTHONUNBUFFERED=1 "$(PYTHON)" -u -m pytest tests -m "not slow and not integration" --ignore-glob="*_uno.py" --timeout=300 --timeout-method=thread $(PYTEST_XDIST) $(PYTEST_CI_DEBUG_FLAGS)
+PYTEST_UNIT = PYTHONUNBUFFERED=1 "$(PYTHON)" -u -m pytest tests -m "not slow and not integration" --ignore-glob="*_uno.py" --timeout=300 --timeout-method=thread $(PYTEST_XDIST) $(PYTEST_CI_DEBUG_FLAGS)
 
 pytest:
 	@echo "=== pytest ==="

@@ -142,6 +142,7 @@ def test_makefile_gha_and_ci_debug_disable_worker_restart() -> None:
     assert "--max-worker-restart=0" in text
     unit_line = [ln for ln in text.splitlines() if ln.startswith("PYTEST_UNIT")][0]
     assert "$(PYTEST_CI_DEBUG_FLAGS)" in unit_line
+    assert "WRITERAGENT_PYTEST_PROGRESS" not in unit_line
 
 
 @pytest.mark.skipif(shutil.which("make") is None, reason="make not on PATH")

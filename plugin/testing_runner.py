@@ -42,8 +42,24 @@ _cli_filters: list[str] = []
 
 
 def _progress(msg: str) -> None:
-    """Print a line immediately so soffice aborts still name the last test."""
+    """Print a line immediately so soffice aborts still name the last test.
+
+    Always on: which test (``TEST call`` / ``TEST returned``), FAIL / SKIP /
+    end, and death attribution for the current test. Bootstrap, pid dumps,
+    soak iters, and other non-test chatter go through ``_progress_verbose``.
+    """
     print(msg, file=sys.stderr, flush=True)
+
+
+def _uno_progress_verbose() -> bool:
+    """Opt-in harness chatter. ``WRITERAGENT_CI_DEBUG=1`` (PR CI ``ci_debug``)."""
+    return os.environ.get("WRITERAGENT_CI_DEBUG") == "1"
+
+
+def _progress_verbose(msg: str) -> None:
+    """Bootstrap, recycle, soak, and pid dumps. Hidden unless CI debug is on."""
+    if _uno_progress_verbose():
+        _progress(msg)
 
 
 # Every native test aborts after this many seconds (override with
@@ -789,7 +805,7 @@ def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
     src = _user_writeragent_uno_packages()
     if src is None:
         hint = _libreoffice_user_profile_dir() / "user" / "uno_packages"
-        _progress(
+        _progress_verbose(
             "BOOTSTRAP throwaway seed skip — no user-level WriterAgent.oxt under %s "
             "(user unopkg is invisible to throwaway UserInstallation; "
             "sheet =PY() will be #NAME? 504/525) GITHUB_ACTIONS=%s"
@@ -807,7 +823,7 @@ def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
-    _progress(
+    _progress_verbose(
         "BOOTSTRAP throwaway seeded uno_packages from %s -> %s GITHUB_ACTIONS=%s"
         % (src, dest, on_github_actions())
     )
@@ -822,7 +838,7 @@ def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
         seeded["scripting.python_venv_path"] = worker
     cfg_path = cfg / "writeragent.json"
     cfg_path.write_text(json.dumps(seeded, indent=2) + "\n", encoding="utf-8")
-    _progress(
+    _progress_verbose(
         "BOOTSTRAP throwaway writeragent.json session_mode=shared venv=%s path=%s"
         % (worker, cfg_path)
     )
@@ -1028,19 +1044,19 @@ def _connect_uno_accept(
             )
         try:
             ctx = resolver.resolve(url)
-            _progress(
+            _progress_verbose(
                 "BOOTSTRAP path=%s connected=True attempt=%s/%s elapsed=%.1fs soffice_exit=%s pids=%s"
                 % (path_label, i, n, elapsed, proc.poll(), _soffice_pids())
             )
             return ctx
         except NoConnectException as exc:
             last_exc = exc
-            _progress(
+            _progress_verbose(
                 "BOOTSTRAP path=%s attempt=%s/%s elapsed=%.1fs no_connect=%s pids=%s"
                 % (path_label, i, n, elapsed, exc, _soffice_pids())
             )
     tail = office_stderr_tail()
-    _progress(
+    _progress_verbose(
         "BOOTSTRAP path=%s connected=False soffice_exit=%s pids=%s last=%s stderr_tail=%r"
         % (path_label, proc.poll(), _soffice_pids(), last_exc, tail[-30:])
     )
@@ -1065,7 +1081,7 @@ def _bootstrap_user_profile_gui(officehelper_module: Any) -> Any:
     cmd = _user_profile_soffice_argv(soffice, accept)
     stripped = [key for key in _SOFFICE_STRIP_ENV if key in os.environ]
     child_env = _child_env_without_runner_python(uno_thread_guard=False)
-    _progress(
+    _progress_verbose(
         "BOOTSTRAP path=user-profile stripped=%s officehelper=%s soffice_cmd=%r"
         % (stripped, getattr(officehelper_module, "__file__", "?"), cmd)
     )
@@ -1218,7 +1234,7 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
     """
     from plugin.framework.uno_context import get_desktop, set_fallback_ctx
 
-    _progress("LIFECYCLE recycle office after impress start")
+    _progress_verbose("LIFECYCLE recycle office after impress start")
     _terminate_bootstrap_soffice()
     time.sleep(0.5)
     reset_office_death_signals(clear_proc=True)
@@ -1264,7 +1280,7 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
                 )
             except Exception:
                 pass
-        _progress(
+        _progress_verbose(
             "LIFECYCLE recycle office after impress done pids=%s"
             % _soffice_pids()
         )
@@ -1302,7 +1318,7 @@ def _bootstrap_office(officehelper_module: Any) -> Any:
     stripped = [key for key in _SOFFICE_STRIP_ENV if key in os.environ]
     child_env = _child_env_without_runner_python()
     resolved = _resolve_soffice_bin(officehelper_module)
-    _progress(
+    _progress_verbose(
         "BOOTSTRAP path=headless stripped=%s officehelper=%s soffice_cmd=%r resolved_soffice=%s"
         % (
             stripped,
@@ -1322,7 +1338,7 @@ def _bootstrap_office(officehelper_module: Any) -> Any:
                 raise RuntimeError(
                     "soffice not found (PATH, officehelper dir, or common install paths)"
                 )
-            _progress(
+            _progress_verbose(
                 "BOOTSTRAP path=headless retry=%s/%s after pipe miss; new profile"
                 % (attempt, attempts)
             )
@@ -1345,7 +1361,7 @@ def _bootstrap_office(officehelper_module: Any) -> Any:
                 path_label="headless",
                 delays=_headless_connect_delays(),
             )
-            _progress(
+            _progress_verbose(
                 "BOOTSTRAP path=headless returned=%s attempt=%s/%s pids=%s leftover_PYTHONPATH=%s"
                 % (
                     ctx is not None,
@@ -1358,7 +1374,7 @@ def _bootstrap_office(officehelper_module: Any) -> Any:
             return ctx
         except Exception as exc:
             last_exc = exc
-            _progress(
+            _progress_verbose(
                 "BOOTSTRAP path=headless error=%s:%s attempt=%s/%s pids=%s stderr_tail=%r"
                 % (
                     type(exc).__name__,
@@ -1470,7 +1486,10 @@ def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) ->
 
     # Do not reset the lifecycle trail here: the first test of this suite may
     # fail on factory open because the *previous suite's last test* killed URP.
-    _progress(f"SUITE start {name} python_pid={os.getpid()} soffice.bin={_soffice_pids()}")
+    _progress(f"SUITE start {name}")
+    _progress_verbose(
+        f"SUITE pids {name} python_pid={os.getpid()} soffice.bin={_soffice_pids()}"
+    )
     # GHA 34643210006: leftover HTML-paste Writers forced leftover Writer
     # reuse into notebook_runner. Isolate those suites on _wa_notebook_host.
     from tests.testing_utils import set_windows_notebook_host
@@ -1494,7 +1513,7 @@ def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) ->
         _progress(f"SUITE end {name} passed=0 failed=1")
         return 0, 1, [msg]
     if name_filters:
-        _progress(f"SUITE selected {name}: {', '.join(tf.__name__ for tf in selected)}")
+        _progress_verbose(f"SUITE selected {name}: {', '.join(tf.__name__ for tf in selected)}")
 
     try:
         if setup_func:
@@ -1514,7 +1533,7 @@ def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) ->
             test_line = f"Running test: {test_func.__name__}"
             qual = f"{name}.{test_func.__name__}"
             record_test_start(qual, ctx)
-            _progress(
+            _progress_verbose(
                 "TEST start %s soffice=%s bridge=%s"
                 % (qual, _lifecycle_current_start_pids, _lifecycle_current_bridge or "-")
             )
@@ -1589,8 +1608,9 @@ def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) ->
                 suite_log.append(f"{test_line} — OK")
                 record_test_end(qual, "OK")
                 exit_code = soffice_exit_code()
-                _progress(
-                    "TEST end %s OK soffice=%s exit=%s"
+                _progress(f"TEST end {qual} OK")
+                _progress_verbose(
+                    "TEST end detail %s soffice=%s exit=%s"
                     % (qual, _lifecycle_last_end_pids, "-" if exit_code is None else exit_code)
                 )
             except ModuleNotFoundError as e:
@@ -1771,7 +1791,7 @@ def run_all_tests(ctx: Any) -> str:
         # User-profile sidebar tests must not open a hidden Writer — that steals
         # the restored deck / current component.
         if not use_user_profile:
-            _progress(
+            _progress_verbose(
                 "KEEPER load start target=_blank hidden=True "
                 "python_pid=%s soffice=%s" % (os.getpid(), _soffice_pids())
             )
@@ -1781,7 +1801,7 @@ def run_all_tests(ctx: Any) -> str:
                 keeper_uid = str(getattr(keeper_doc, "RuntimeUID", None) or "-")
             except Exception:
                 keeper_uid = "-"
-            _progress(
+            _progress_verbose(
                 "KEEPER load done ok=%s uid=%s python_pid=%s soffice=%s"
                 % (keeper_doc is not None, keeper_uid, os.getpid(), _soffice_pids())
             )
@@ -1910,13 +1930,13 @@ def run_all_tests(ctx: Any) -> str:
         soak_rounds = max(1, _soak_repeat)
         skip_keeper_close = False
         if soak_rounds > 1:
-            _progress(
+            _progress_verbose(
                 "SOAK start rounds=%s suites=%s filter=%s"
                 % (soak_rounds, len(test_candidates), filter_strs or "-")
             )
         for soak_i in range(soak_rounds):
             if soak_rounds > 1:
-                _progress("SOAK iter %s/%s" % (soak_i + 1, soak_rounds))
+                _progress_verbose("SOAK iter %s/%s" % (soak_i + 1, soak_rounds))
             if _urp_bridge_dead:
                 _progress("SOAK stop: URP already disposed")
                 break
@@ -1976,7 +1996,7 @@ def run_all_tests(ctx: Any) -> str:
                         else:
                             # GHA 34551644954: rebootstrap then hung the next
                             # scalc load. No remaining suites — just kill.
-                            _progress(
+                            _progress_verbose(
                                 "LIFECYCLE recycle office skipped; no remaining suites"
                             )
                             skip_keeper_close = True
@@ -1995,15 +2015,15 @@ def run_all_tests(ctx: Any) -> str:
 
         if skip_keeper_close:
             # Leftover peer docs / Impress: do not close(True). Kill soffice.
-            _progress("LIFECYCLE terminate office after peer leftovers start")
+            _progress_verbose("LIFECYCLE terminate office after peer leftovers start")
             _terminate_bootstrap_soffice()
-            _progress("LIFECYCLE terminate office after peer leftovers done")
+            _progress_verbose("LIFECYCLE terminate office after peer leftovers done")
             keeper_doc = None
         if keeper_doc is not None:
             try:
-                _progress("KEEPER close start")
+                _progress_verbose("KEEPER close start")
                 keeper_doc.close(True)
-                _progress("KEEPER close done")
+                _progress_verbose("KEEPER close done")
             except Exception:
                 _progress("KEEPER close failed")
 

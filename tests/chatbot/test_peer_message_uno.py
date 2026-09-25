@@ -16,7 +16,7 @@ from plugin.doc.peer_message import (
 from plugin.framework.async_drain_guard import drain_owner_scope, reset_sentry_state
 from plugin.framework.tool import ToolContext
 from plugin.framework.uno_context import get_desktop, get_runtime_uid
-from plugin.testing_runner import _progress, native_test
+from plugin.testing_runner import _progress_verbose as _progress, native_test
 from plugin.tests.testing_utils import (
     TestingFactory,
     _draw_family_raw_close,

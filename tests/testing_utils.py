@@ -88,7 +88,7 @@ _LOG_NATIVE_DOC_TEARDOWN = False
 def _native_teardown_progress(msg: str) -> None:
     if not _LOG_NATIVE_DOC_TEARDOWN:
         return
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
 
     _progress(msg)
 
@@ -233,7 +233,7 @@ def reactivate_harness_keeper(desktop=None) -> bool:
     desktop current becomes a leftover paste Writer. Reactivate the
     keeper so the next ``swriter`` load is not against that leftover.
     """
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
 
     doc = _STATE.keeper_doc
     if doc is None:
@@ -274,7 +274,7 @@ def prepare_windows_writer_factory(ctx) -> int:
     if ctx is None:
         return 0
     from plugin.framework.uno_context import get_desktop
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
 
     desktop = get_desktop(ctx)
     keeper = _STATE.keeper_uid
@@ -1008,7 +1008,7 @@ def close_draw_family_doc(doc):
     """
     if not doc:
         return
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress, _progress_verbose
 
     svc = _draw_family_doc_label(doc)
     uid = "?"
@@ -1016,10 +1016,10 @@ def close_draw_family_doc(doc):
         uid = str(getattr(doc, "RuntimeUID", None) or "?")
     except Exception:
         uid = "?"
-    _progress("close_draw_family: start svc=%s uid=%s" % (svc, uid))
+    _progress_verbose("close_draw_family: start svc=%s uid=%s" % (svc, uid))
     if _draw_family_raw_close():
         # Do not GC or sleep here — that is the hung close/dispose path.
-        _progress("close_draw_family: raw close(True) start svc=%s uid=%s" % (svc, uid))
+        _progress_verbose("close_draw_family: raw close(True) start svc=%s uid=%s" % (svc, uid))
         try:
             if hasattr(doc, "close"):
                 doc.close(True)
@@ -1032,14 +1032,14 @@ def close_draw_family_doc(doc):
                 % (svc, uid, type(exc).__name__)
             )
         else:
-            _progress("close_draw_family: raw close(True) done svc=%s uid=%s" % (svc, uid))
+            _progress_verbose("close_draw_family: raw close(True) done svc=%s uid=%s" % (svc, uid))
         return
     try:
         if hasattr(doc, "setModified"):
             doc.setModified(False)
-            _progress("close_draw_family: setModified(False) ok svc=%s uid=%s" % (svc, uid))
+            _progress_verbose("close_draw_family: setModified(False) ok svc=%s uid=%s" % (svc, uid))
     except Exception as exc:
-        _progress(
+        _progress_verbose(
             "close_draw_family: setModified skipped svc=%s uid=%s err=%s"
             % (svc, uid, type(exc).__name__)
         )
@@ -1047,12 +1047,12 @@ def close_draw_family_doc(doc):
     import time
 
     gc.collect()
-    _progress(
+    _progress_verbose(
         "close_draw_family: gc done; sleep %.2fs svc=%s uid=%s"
         % (_DRAW_FAMILY_PRE_CLOSE_SETTLE_S, svc, uid)
     )
     time.sleep(_DRAW_FAMILY_PRE_CLOSE_SETTLE_S)
-    _progress("close_draw_family: close(True) start svc=%s uid=%s" % (svc, uid))
+    _progress_verbose("close_draw_family: close(True) start svc=%s uid=%s" % (svc, uid))
     try:
         if hasattr(doc, "close"):
             doc.close(True)
@@ -1065,7 +1065,7 @@ def close_draw_family_doc(doc):
             % (svc, uid, type(exc).__name__)
         )
     else:
-        _progress("close_draw_family: close(True) done svc=%s uid=%s" % (svc, uid))
+        _progress_verbose("close_draw_family: close(True) done svc=%s uid=%s" % (svc, uid))
 
 
 def settle_after_draw_family_close() -> None:
@@ -1571,7 +1571,7 @@ class TestingFactory:
         if sys.platform == "win32" and factory_url.startswith("private:factory/"):
             leftover_open = prepare_windows_writer_factory(ctx)
             target, flags = _windows_factory_load_args(factory_url, leftover_open)
-            from plugin.testing_runner import _progress
+            from plugin.testing_runner import _progress_verbose as _progress
 
             _progress(
                 "create_native_doc: windows factory leftover_open=%s url=%s target=%s flags=%s"
@@ -1605,7 +1605,7 @@ class TestingFactory:
             raise
         try:
             if sys.platform == "win32" and leftover_open:
-                from plugin.testing_runner import _progress
+                from plugin.testing_runner import _progress_verbose as _progress
 
                 _progress(
                     "create_native_doc: load start url=%s target=%s flags=%s"
@@ -1613,7 +1613,7 @@ class TestingFactory:
                 )
             doc = desktop.loadComponentFromURL(factory_url, target, flags, tuple(props))
             if sys.platform == "win32" and leftover_open:
-                from plugin.testing_runner import _progress
+                from plugin.testing_runner import _progress_verbose as _progress
 
                 uid = ""
                 try:
@@ -1649,7 +1649,7 @@ class TestingFactory:
             # 34607010446 closed that same forms Draw. Check the Math
             # mark from RuntimeUID only — no supportsService / getDrawPages.
             if _windows_should_skip_math_ole_close(uid):
-                from plugin.testing_runner import _progress, _soffice_pids
+                from plugin.testing_runner import _progress_verbose as _progress, _soffice_pids
 
                 leftover_open = _windows_leftover_open()
                 reactivate_harness_keeper()
@@ -1672,7 +1672,7 @@ class TestingFactory:
                 is_writer = False
             leftover_open = _windows_leftover_open()
             if is_writer:
-                from plugin.testing_runner import _progress
+                from plugin.testing_runner import _progress_verbose as _progress
 
                 _progress(
                     "close_doc: start uid=%s leftovers=%s" % (uid or "-", leftover_open)
@@ -1723,7 +1723,7 @@ class TestingFactory:
             elif hasattr(doc, "dispose"):
                 doc.dispose()
             if sys.platform == "win32" and is_writer:
-                from plugin.testing_runner import _progress
+                from plugin.testing_runner import _progress_verbose as _progress
 
                 # Test Writer close returned (34554275072). Leftover close
                 # hangs (34556185752). Reactivate keeper so the next factory
@@ -1743,7 +1743,7 @@ class TestingFactory:
         if reuse is None:
             reuse = _default_native_doc_reuse(doc_type)
             if doc_type == "writer" and _windows_should_reuse_writer(ctx):
-                from plugin.testing_runner import _progress
+                from plugin.testing_runner import _progress_verbose as _progress
 
                 reuse = True
                 if _windows_notebook_host():
@@ -1753,7 +1753,7 @@ class TestingFactory:
         # reuse=False still calls create_native_doc. Leftover _wa_scalc
         # hung 30s (34643210006). Wipe-and-reuse the pooled Calc instead.
         if doc_type == "calc" and not reuse and _windows_should_reuse_calc(ctx):
-            from plugin.testing_runner import _progress
+            from plugin.testing_runner import _progress_verbose as _progress
 
             reuse = True
             _progress("native_doc: leftover calc reuse")
@@ -1778,7 +1778,7 @@ class TestingFactory:
                             _NATIVE_DOC_POOL.mark_clean(candidate, True)
                     if doc_type == "writer" and not _writer_pool_is_clean(candidate):
                         if sys.platform == "win32" and _windows_leftover_open() > 0:
-                            from plugin.testing_runner import _progress
+                            from plugin.testing_runner import _progress_verbose as _progress
 
                             # close + factory hangs (34602219973). Wipe again
                             # and keep the leftover-window Writer.
@@ -1798,7 +1798,7 @@ class TestingFactory:
                         writer_reused = doc_type == "writer"
                 except Exception:
                     if sys.platform == "win32" and _windows_leftover_open() > 0:
-                        from plugin.testing_runner import _progress
+                        from plugin.testing_runner import _progress_verbose as _progress
 
                         _progress("native_doc: leftover writer reset failed; keep")
                         doc = candidate
@@ -1886,7 +1886,7 @@ class TestingFactory:
                     doc_type in ("impress", "draw")
                     and not _windows_should_skip_math_ole_close(uid)
                 ):
-                    from plugin.testing_runner import _progress
+                    from plugin.testing_runner import _progress_verbose as _progress
 
                     leftover_open = _windows_leftover_open()
                     if _windows_should_skip_draw_family_close():
@@ -2017,7 +2017,7 @@ def with_native_doc(doc_type="writer", hidden=True, reuse=None):
             prev_teardown_log = _LOG_NATIVE_DOC_TEARDOWN
             if log_teardown:
                 _LOG_NATIVE_DOC_TEARDOWN = True
-                from plugin.testing_runner import _progress
+                from plugin.testing_runner import _progress_verbose as _progress
 
                 _progress(
                     "with_native_doc: enter name=%s doc_type=%s" % (func.__name__, doc_type)
@@ -2038,7 +2038,7 @@ def with_native_doc(doc_type="writer", hidden=True, reuse=None):
                     else:
                         result = func(*args, **kwargs)
                     if log_teardown:
-                        from plugin.testing_runner import _progress
+                        from plugin.testing_runner import _progress_verbose as _progress
 
                         _progress(
                             "with_native_doc: body returned name=%s; teardown start"
@@ -2048,7 +2048,7 @@ def with_native_doc(doc_type="writer", hidden=True, reuse=None):
             finally:
                 _LOG_NATIVE_DOC_TEARDOWN = prev_teardown_log
                 if log_teardown:
-                    from plugin.testing_runner import _progress
+                    from plugin.testing_runner import _progress_verbose as _progress
 
                     _progress("with_native_doc: teardown done name=%s" % func.__name__)
         return wrapper

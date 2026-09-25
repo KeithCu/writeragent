@@ -327,8 +327,9 @@ def _portion_cell(blocks):
     return cell
 
 
-def test_iter_cell_text_portions_logs_enumeration(capsys):
+def test_iter_cell_text_portions_logs_enumeration(capsys, monkeypatch):
     """GHA 33703959362: hang after execute-done may be createEnumeration / nextElement."""
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from tests.calc.test_rich_html_uno import _iter_cell_text_portions_for_test
 
     portion = MagicMock()
@@ -376,7 +377,8 @@ def test_insert_cell_html_post_execute_breadcrumbs_present():
         assert needle in src, needle
 
 
-def test_diagnose_insert_cell_html_bold_logs_enter_exit(capsys):
+def test_diagnose_insert_cell_html_bold_logs_enter_exit(capsys, monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from tests.calc.test_rich_html_uno import _diagnose_insert_cell_html_bold
 
     portion = MagicMock()

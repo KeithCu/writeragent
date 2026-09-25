@@ -25,7 +25,7 @@ from plugin.tests.testing_utils import (
 
 def _nearby_progress(msg: str) -> None:
     """Name the last UNO call if Windows GHA fails without a Python traceback."""
-    from plugin.testing_runner import _progress
+    from plugin.testing_runner import _progress_verbose as _progress
 
     _progress("document_research_uno: %s" % msg)
 
