@@ -32,9 +32,6 @@ from plugin.notebook.notebook_runner import (
     update_in_prompt,
     run_cell_target_url,
 )
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def test_format_run_output_text_stdout_and_result():
@@ -170,7 +167,7 @@ def test_run_cell_updates_registry_and_execution_count():
 
 
 def test_run_cell_logs_status_after_execute():
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.info stripped in release bundle")
     src = inspect.getsource(_execute_and_apply)

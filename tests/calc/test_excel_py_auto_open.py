@@ -17,9 +17,7 @@ from plugin.calc.excel_py_convert.auto_open import (
 )
 from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 from plugin.calc.excel_py_convert.parse_excel_ooxml import has_excel_python_xlsx
-from plugin.tests.testing_utils import CalcDocStub, setup_uno_mocks
-
-setup_uno_mocks()
+from plugin.tests.testing_utils import CalcDocStub
 
 
 def _minimal_xlsx(path: Path, *, with_scripts: bool = False, with_xlws: bool = False) -> None:
@@ -187,7 +185,6 @@ def test_script_bank_only_long_scripts_and_mirrors_a1():
     assert any("non-binding xl()" in w for w in collect_safety_warnings('y = xl("A1")'))
     assert collect_safety_warnings('y = xl("%P2%", headers=True)') == []
     assert any("whitelist" in w for w in collect_safety_warnings("import requests\nx=1"))
-
 
 
 def test_maybe_convert_skips_non_candidate(tmp_path: Path):

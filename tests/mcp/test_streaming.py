@@ -1,3 +1,4 @@
+import pytest
 # Tests for core/api.py streaming and edge cases.
 # Edge-case behavior and test ideas adapted from LiteLLM (BerriAI/litellm);
 # see inline comments and core/api.py LiteLLM references for source locations.
@@ -5,7 +6,6 @@ import json
 import os
 from plugin.framework.constants import get_plugin_dir
 import sys
-import unittest
 from unittest.mock import MagicMock, patch
 
 # Add project root to path
@@ -50,10 +50,10 @@ def _mock_connection_with_sse_lines(sse_lines):
     return conn
 
 
-class TestStreamingBasic(unittest.TestCase):
+class TestStreamingBasic:
     """Basic streaming behavior (LiteLLM-equivalent: SSE parsing, [DONE], comments)."""
 
-    def setUp(self):
+    def setup_method(self):
         self.ctx = MagicMock()
         self.config = {
             "endpoint": "http://127.0.0.1:5000",
@@ -78,7 +78,7 @@ class TestStreamingBasic(unittest.TestCase):
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
-        self.assertEqual(content_parts, ["Hello", " world"])
+        assert (content_parts) == (["Hello", " world"])
 
     @patch("plugin.framework.client.llm_client.init_logging")
     def test_sse_no_space_after_colon(self, mock_init_logging):
@@ -96,7 +96,7 @@ class TestStreamingBasic(unittest.TestCase):
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
-        self.assertEqual(content_parts, ["ok"])
+        assert (content_parts) == (["ok"])
 
     @patch("plugin.framework.client.llm_client.init_logging")
     def test_sse_comment_lines_skipped(self, mock_init_logging):
@@ -114,7 +114,7 @@ class TestStreamingBasic(unittest.TestCase):
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
-        self.assertEqual(content_parts, ["x"])
+        assert (content_parts) == (["x"])
 
     @patch("plugin.framework.client.llm_client.init_logging")
     def test_malformed_json_skipped(self, mock_init_logging):
@@ -131,13 +131,13 @@ class TestStreamingBasic(unittest.TestCase):
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
-        self.assertEqual(content_parts, ["fine"])
+        assert (content_parts) == (["fine"])
 
 
-class TestStreamingFinishReasonError(unittest.TestCase):
+class TestStreamingFinishReasonError:
     """finish_reason='error' should raise. LiteLLM: streaming_handler.py ~L736."""
 
-    def setUp(self):
+    def setup_method(self):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
@@ -149,19 +149,19 @@ class TestStreamingFinishReasonError(unittest.TestCase):
         client = LlmClient(self.config, self.ctx)
         client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
-        with self.assertRaises(Exception) as ctx:
+        with pytest.raises(Exception) as ctx:
             client.stream_request(
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
             )
         # API re-raises with format_error_message(); user sees friendly text
-        self.assertIn("finish_reason=error", str(ctx.exception))
+        assert ("finish_reason=error") in (str(ctx.value))
 
 
-class TestStreamingRepeatedChunks(unittest.TestCase):
+class TestStreamingRepeatedChunks:
     """Repeated identical content chunks raise (infinite loop). LiteLLM: streaming_handler.py ~L198, issue #5158."""
 
-    def setUp(self):
+    def setup_method(self):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
@@ -174,20 +174,20 @@ class TestStreamingRepeatedChunks(unittest.TestCase):
         client = LlmClient(self.config, self.ctx)
         client._get_connection = lambda: _mock_connection_with_sse_lines(lines)
 
-        with self.assertRaises(Exception) as ctx:
+        with pytest.raises(Exception) as ctx:
             client.stream_request(
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
             )
-        self.assertIn("repeating", str(ctx.exception).lower())
+        assert ("repeating") in (str(ctx.value).lower())
 
 
-class TestNormalizeDelta(unittest.TestCase):
+class TestNormalizeDelta:
     """Mistral/Azure compat: None role, None tool type, None function.arguments.
     LiteLLM: streaming_handler.py ~L847 (role), ~L853 (type), ~L820 (arguments).
     """
 
-    def setUp(self):
+    def setup_method(self):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
@@ -217,12 +217,12 @@ class TestNormalizeDelta(unittest.TestCase):
             max_tokens=100,
             tools=[{"type": "function", "function": {"name": "foo", "description": "x"}}],
         )
-        self.assertIsNotNone(result.get("tool_calls"))
-        self.assertEqual(len(result["tool_calls"]), 1)
+        assert (result.get("tool_calls")) is not None
+        assert (len(result["tool_calls"])) == (1)
         fn = result["tool_calls"][0].get("function") or {}
         # Normalized from None to ""
-        self.assertIn("arguments", fn)
-        self.assertEqual(fn["arguments"], "")
+        assert ("arguments") in (fn)
+        assert (fn["arguments"]) == ("")
 
     @patch("plugin.framework.client.llm_client.init_logging")
     def test_tool_none_type_normalized(self, mock_init_logging):
@@ -249,9 +249,9 @@ class TestNormalizeDelta(unittest.TestCase):
             max_tokens=100,
             tools=[{"type": "function", "function": {"name": "bar", "description": "y"}}],
         )
-        self.assertIsNotNone(result.get("tool_calls"))
-        self.assertEqual(len(result["tool_calls"]), 1)
-        self.assertEqual(result["tool_calls"][0].get("type"), "function")
+        assert (result.get("tool_calls")) is not None
+        assert (len(result["tool_calls"])) == (1)
+        assert (result["tool_calls"][0].get("type")) == ("function")
 
     @patch("plugin.framework.client.llm_client.init_logging")
     def test_role_none_normalized(self, mock_init_logging):
@@ -273,13 +273,13 @@ class TestNormalizeDelta(unittest.TestCase):
             max_tokens=100,
         )
         # Delta had role=None; _normalize_delta sets role='assistant' before accumulate_delta.
-        self.assertEqual(_normalize_message_content(result.get("content")), "ok")
+        assert (_normalize_message_content(result.get("content"))) == ("ok")
 
 
-class TestFinishReasonRemap(unittest.TestCase):
+class TestFinishReasonRemap:
     """finish_reason='stop' with tool_calls present -> 'tool_calls'. LiteLLM: streaming_handler.py ~L970."""
 
-    def setUp(self):
+    def setup_method(self):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
@@ -308,14 +308,14 @@ class TestFinishReasonRemap(unittest.TestCase):
             max_tokens=100,
             tools=[{"type": "function", "function": {"name": "f", "description": "d"}}],
         )
-        self.assertEqual(result["finish_reason"], "tool_calls")
-        self.assertIsNotNone(result.get("tool_calls"))
+        assert (result["finish_reason"]) == ("tool_calls")
+        assert (result.get("tool_calls")) is not None
 
 
-class TestStreamingComplexDeltas(unittest.TestCase):
+class TestStreamingComplexDeltas:
     """Mixed content and tool_calls, and chunking irregularities."""
 
-    def setUp(self):
+    def setup_method(self):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
@@ -363,12 +363,12 @@ class TestStreamingComplexDeltas(unittest.TestCase):
             tools=[{"type": "function", "function": {"name": "foo", "description": "x"}}],
         )
 
-        self.assertEqual(result["content"], "I will use the tool now.")
-        self.assertEqual(result["finish_reason"], "tool_calls")
-        self.assertIsNotNone(result.get("tool_calls"))
-        self.assertEqual(len(result["tool_calls"]), 1)
-        self.assertEqual(result["tool_calls"][0]["function"]["name"], "foo")
-        self.assertEqual(result["tool_calls"][0]["function"]["arguments"], '{"arg": "val"}')
+        assert (result["content"]) == ("I will use the tool now.")
+        assert (result["finish_reason"]) == ("tool_calls")
+        assert (result.get("tool_calls")) is not None
+        assert (len(result["tool_calls"])) == (1)
+        assert (result["tool_calls"][0]["function"]["name"]) == ("foo")
+        assert (result["tool_calls"][0]["function"]["arguments"]) == ('{"arg": "val"}')
 
     @patch("plugin.framework.client.llm_client.init_logging")
     def test_tool_call_arguments_split_across_chunks(self, mock_init_logging):
@@ -405,11 +405,11 @@ class TestStreamingComplexDeltas(unittest.TestCase):
             tools=[{"type": "function", "function": {"name": "foo", "description": "x"}}],
         )
 
-        self.assertEqual(result["finish_reason"], "tool_calls")
-        self.assertIsNotNone(result.get("tool_calls"))
-        self.assertEqual(len(result["tool_calls"]), 1)
-        self.assertEqual(result["tool_calls"][0]["function"]["name"], "foo")
-        self.assertEqual(result["tool_calls"][0]["function"]["arguments"], '{"arg": "val"}')
+        assert (result["finish_reason"]) == ("tool_calls")
+        assert (result.get("tool_calls")) is not None
+        assert (len(result["tool_calls"])) == (1)
+        assert (result["tool_calls"][0]["function"]["name"]) == ("foo")
+        assert (result["tool_calls"][0]["function"]["arguments"]) == ('{"arg": "val"}')
 
 
 def _mock_error_connection(status, reason, body):
@@ -424,10 +424,10 @@ def _mock_error_connection(status, reason, body):
     return conn
 
 
-class TestStreamingHttpErrors(unittest.TestCase):
+class TestStreamingHttpErrors:
     """Test non-200 HTTP error envelope parsing."""
 
-    def setUp(self):
+    def setup_method(self):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
@@ -440,7 +440,7 @@ class TestStreamingHttpErrors(unittest.TestCase):
         json_error_body = b'{"error": {"message": "Model not found"}}'
         client._get_connection = lambda: _mock_error_connection(404, "Not Found", json_error_body)
 
-        with self.assertRaises(Exception) as ctx:
+        with pytest.raises(Exception) as ctx:
             client.stream_request(
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
@@ -448,19 +448,17 @@ class TestStreamingHttpErrors(unittest.TestCase):
         # `format_error_message` operates on the string for generic Exception,
         # meaning it outputs what `_format_http_error_response` built, which is
         # "HTTP Error <status>: <reason>. <detail>"
-        self.assertEqual(str(ctx.exception), "HTTP Error 404 from AI Provider: Not Found. Model not found")
+        assert (str(ctx.value)) == ("HTTP Error 404 from AI Provider: Not Found. Model not found")
 
         # Scenario 2: Non-JSON body (e.g., HTML or plain text)
         plain_error_body = b"Internal Server Error: Database Down"
         client._get_connection = lambda: _mock_error_connection(500, "Internal Server Error", plain_error_body)
 
-        with self.assertRaises(Exception) as ctx:
+        with pytest.raises(Exception) as ctx:
             client.stream_request(
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
             )
-        self.assertEqual(str(ctx.exception), "HTTP Error 500 from AI Provider: Internal Server Error.\nProvider Response:\nInternal Server Error: Database Down")
+        assert (str(ctx.value)) == ("HTTP Error 500 from AI Provider: Internal Server Error.\nProvider Response:\nInternal Server Error: Database Down")
 
 
-if __name__ == "__main__":
-    unittest.main()

@@ -6,7 +6,6 @@ requires-python = ">=3.11"
 license = {text = "GPL-3.0-or-later"}
 dependencies = [
     "polib",
-    "pytest-cov>=7.1.0",
     "ty",
     "bowler",
 ]
@@ -24,7 +23,7 @@ include = ["plugin*"]
 testpaths = ["tests"]
 timeout = 60
 timeout_method = "signal"
-addopts = "--ignore=build --ignore=tests/uno --ignore-glob=*_uno.py --ignore=tests/scripting/test_serialization_verification.py"
+addopts = "--ignore=build --ignore-glob=*_uno.py --ignore=tests/scripting/test_serialization_verification.py"
 markers = [
     "slow: excluded from default pytest; run via make slowtests",
     "integration: full subprocess worker IPC (optional, slower)",

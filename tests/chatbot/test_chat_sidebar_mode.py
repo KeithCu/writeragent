@@ -179,7 +179,7 @@ def test_mode_from_label_dropped_from_check_all_fqns():
     """Deep check-all run 32840960268: Prev 10:13 on gettext labels."""
     from pathlib import Path
 
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module

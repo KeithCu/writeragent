@@ -1,15 +1,15 @@
+import pytest
 import io
 import sys
-import unittest
 
 from plugin.framework import uno_bootstrap
 
 
-class TestEnsureUtf8Stdio(unittest.TestCase):
-    def setUp(self) -> None:
+class TestEnsureUtf8Stdio:
+    def setup_method(self) -> None:
         uno_bootstrap._stdio_utf8_done = False
 
-    def tearDown(self) -> None:
+    def teardown_method(self) -> None:
         uno_bootstrap._stdio_utf8_done = False
 
     def test_reconfigure_ascii_stream_allows_unicode_print(self) -> None:
@@ -18,16 +18,16 @@ class TestEnsureUtf8Stdio(unittest.TestCase):
         old_stdout = sys.stdout
         try:
             sys.stdout = ascii_stdout
-            with self.assertRaises(UnicodeEncodeError):
+            with pytest.raises(UnicodeEncodeError):
                 print("hello \U0001f44b \u2014")
             buffer.seek(0)
             buffer.truncate(0)
 
             uno_bootstrap.ensure_utf8_stdio()
-            self.assertEqual(sys.stdout.encoding, "utf-8")
+            assert (sys.stdout.encoding) == ("utf-8")
             print("hello \U0001f44b \u2014")
             sys.stdout.flush()
-            self.assertIn(b"hello", buffer.getvalue())
+            assert (b"hello") in (buffer.getvalue())
         finally:
             sys.stdout = old_stdout
 
@@ -40,15 +40,13 @@ class TestEnsureUtf8Stdio(unittest.TestCase):
             uno_bootstrap.ensure_utf8_stdio()
             first_encoding = sys.stdout.encoding
             uno_bootstrap.ensure_utf8_stdio()
-            self.assertEqual(sys.stdout.encoding, first_encoding)
+            assert (sys.stdout.encoding) == (first_encoding)
         finally:
             sys.stdout = old_stdout
 
 
-class TestEnsurePluginOnPathDoc(unittest.TestCase):
+class TestEnsurePluginOnPathDoc:
     def test_ensure_plugin_on_path_has_docstring(self) -> None:
-        self.assertTrue(uno_bootstrap.ensure_plugin_on_path.__doc__)
+        assert (uno_bootstrap.ensure_plugin_on_path.__doc__)
 
 
-if __name__ == "__main__":
-    unittest.main()

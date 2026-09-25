@@ -3,10 +3,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Comment helper tests (list/read paths). No LibreOffice required."""
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 
 def test_read_annotation_falls_back_to_paragraph_context():
@@ -254,3 +252,91 @@ def test_name_of_new_annotation_reads_back_from_doc():
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([listed])
     assert _name_of_new_annotation(doc, field, names_before=[]) == "__Annotation__9_1"
 
+# ---- D4: add_comment span / occurrence / author -----------------------------
+
+class _FiniteEnum:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def hasMoreElements(self):
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
+def _fields_that_grow():
+    """getTextFields mock: empty on first enumeration, one Annotation after insert."""
+    calls = {"n": 0}
+    field = MagicMock()
+    field.supportsService.return_value = True
+    fields = MagicMock()
+
+    def _enum():
+        calls["n"] += 1
+        return _FiniteEnum([] if calls["n"] == 1 else [field])
+
+    fields.createEnumeration.side_effect = _enum
+    return fields
+
+
+def test_add_comment_occurrence_author_and_span():
+    from plugin.writer.specialized.comments import AddComment
+
+    doc = MagicMock()
+    first, second = MagicMock(), MagicMock()
+    second.getString.return_value = "second hit"
+    second.getText.return_value = mtext = MagicMock()
+    cursor = MagicMock()
+    mtext.createTextCursorByRange.return_value = cursor
+    doc.findFirst.return_value = first
+    doc.findNext.return_value = second
+    doc.getTextFields.return_value = _fields_that_grow()
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.writer.specialized.comments._set_annotation_date"):
+        res = AddComment().execute(ctx, content="note", search="hit", occurrence=1, author="Rev")
+    assert res["status"] == "ok" and res["author"] == "Rev" and res["anchor_text"] == "second hit"
+    # Assert spanning-anchor insert: cursor covers found, absorb=True.
+    mtext.createTextCursorByRange.assert_called_once_with(second.getStart.return_value)
+    cursor.gotoRange.assert_called_once_with(second.getEnd.return_value, True)
+    mtext.insertTextContent.assert_called_once_with(cursor, doc.createInstance.return_value, True)
+
+
+def test_add_comment_errors_when_annotation_does_not_register():
+    from plugin.writer.specialized.comments import AddComment
+
+    doc = MagicMock()
+    found = MagicMock()
+    found.getString.return_value = "hit"
+    found.getText.return_value = MagicMock()
+    doc.findFirst.return_value = found
+    empty = MagicMock()
+    empty.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    doc.getTextFields.return_value = empty
+    res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit")
+    assert res["status"] == "error" and res["comment_added"] is False and res["matched"] is True
+
+
+def test_add_comment_not_found_at_occurrence():
+    from plugin.writer.specialized.comments import AddComment
+
+    doc = MagicMock()
+    doc.findFirst.return_value = MagicMock()
+    doc.findNext.return_value = None
+    res = AddComment().execute(SimpleNamespace(doc=doc), content="n", search="x", occurrence=3)
+    assert res["status"] == "error" and res["comment_added"] is False
+
+
+# ---- 4) delete_comment miss is an error ---------------------------------------
+
+def test_delete_comment_not_found_is_error():
+    from plugin.writer.specialized.comments import CommentDelete
+
+    doc = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
+    ctx = MagicMock()
+    ctx.doc = doc
+    res = CommentDelete().execute(ctx, name="nope")
+    assert res["status"] == "error" and res["code"] == "COMMENT_NOT_FOUND"
+    assert res["deleted"] == 0
+    assert "comment_list" in res["message"]

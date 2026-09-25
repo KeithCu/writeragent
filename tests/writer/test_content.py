@@ -2,86 +2,78 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The 8-point QoL/bug batch (2026-07-02): reads must not save, is_active must be proxy-safe,
-misses must be errors (regex, delete_comment), position='before'/'after' inserts, document echo,
-undo/redo exposure, and recoverable error messages. No LibreOffice required."""
+"""ApplyDocumentContent dry-run coverage. No LibreOffice."""
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
+import pytest
 
-
-# ---- 1) reads never doc.store() ----------------------------------------------
-
-def test_ensure_heading_bookmarks_never_stores():
-    from plugin.writer.specialized.bookmarks import BookmarkService
-
-    doc = MagicMock()
-    text = MagicMock()
-    enum = MagicMock()
-    enum.hasMoreElements.return_value = False
-    text.createEnumeration.return_value = enum
-    doc.getText.return_value = text
-    doc.getBookmarks.return_value.getElementNames.return_value = []
-    BookmarkService().ensure_heading_bookmarks(doc)
-    doc.store.assert_not_called()
-
-
-# (is_active proxy-safe + document echo + multi-doc guidance tests live in the MCP experience PR,
-# tests/mcp/test_mcp_qol_extras.py — they exercise document_research/mcp_protocol/agent_manual.)
-
-# ---- 3) invalid regex is an error, not a clean miss ---------------------------
-
-def _search_zero_hits(pattern, use_regex):
-    """Run SearchInDocument against a doc that finds nothing."""
-    from plugin.writer.search import SearchInDocument
-
-    doc = MagicMock()
-    doc.createSearchDescriptor.return_value = MagicMock()
-    doc.findFirst.return_value = None
-    doc.getDrawPage.return_value = []
-    doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
+def _edit_ctx():
     ctx = MagicMock()
-    ctx.doc = doc
-    return SearchInDocument().execute(ctx, pattern=pattern, regex=use_regex)
+    ctx.doc.getUndoManager.return_value.isLocked.return_value = False
+    # dry_run sweeps shapes/comments; bare MagicMock enumerations never terminate.
+    # Outline-hyperlink preview also walks portions; that stop is `_enum_has_more`
+    # (UNO True only), not this stub.
+    ctx.doc.getDrawPage.return_value = []
+    ctx.doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
+    return ctx
+
+# ---- D1: dry_run ------------------------------------------------------------
+
+@pytest.mark.timeout(5)
+def test_dry_run_reports_matches_without_mutating():
+    from plugin.writer.content import ApplyDocumentContent
+
+    r1, r2 = MagicMock(), MagicMock()
+    r1.getString.return_value = "clause 3.2 text"
+    r2.getString.return_value = "clause 3.2 again"
+    ctx = _edit_ctx()
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+         patch("plugin.writer.search.describe_match_location", return_value="body"), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.format.content_has_markup", return_value=False):
+        res = ApplyDocumentContent().execute(ctx, content=["x"], target="search", old_content="clause 3.2", dry_run=True)
+    assert res["status"] == "ok" and res["dry_run"] is True and res["count"] == 2
+    assert res["matches"][0]["location"] == "body"
+    # No session/undo context opened for a dry run.
+    ctx.doc.getUndoManager.assert_not_called()
 
 
-def test_invalid_regex_zero_hits_is_error():
-    res = _search_zero_hits("([a-", True)
+def test_dry_run_requires_search_target():
+    from plugin.writer.content import ApplyDocumentContent
+    res = ApplyDocumentContent().execute(_edit_ctx(), content=["x"], target="end", dry_run=True)
+    assert res["status"] == "error" and "search" in res["message"]
+
+
+@pytest.mark.timeout(5)
+def test_dry_run_honors_regex_via_the_same_matcher_as_the_edit():
+    """A preview that uses a different matcher than the commit is worse than none: with
+    regex=true, dry_run must route through find_ranges_regex_case with the RAW pattern."""
+    from plugin.writer.content import ApplyDocumentContent
+
+    r = MagicMock()
+    r.getString.return_value = "bravo charlie"
+    ctx = _edit_ctx()
+    with patch("plugin.writer.search.find_ranges_regex_case", return_value=[r]) as frc, \
+         patch("plugin.writer.search.find_all_ranges") as far, \
+         patch("plugin.writer.search.describe_match_location", return_value="body"), \
+         patch("plugin.writer.format.content_has_markup", return_value=False):
+        res = ApplyDocumentContent().execute(
+            ctx, content=["x"], target="search", old_content=r"brav. charl.e", dry_run=True, regex=True)
+    assert res["status"] == "ok" and res["count"] == 1
+    far.assert_not_called()
+    args = frc.call_args[0]
+    assert args[1] == r"brav. charl.e" and args[2] is True  # raw pattern, regex on
+
+
+def test_dry_run_invalid_regex():
+    from plugin.writer.content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    ctx.services.get.return_value = MagicMock()
+    with patch("plugin.writer.format.content_has_markup", return_value=False):
+        res = ApplyDocumentContent().execute(
+            ctx, content=["x"], target="search", old_content="([a-", dry_run=True, regex=True)
     assert res["status"] == "error" and res["code"] == "INVALID_REGEX"
-    assert "regex=false" in res["message"]
-
-
-def test_valid_regex_zero_hits_stays_ok():
-    res = _search_zero_hits("nunca_existe_\\d+", True)
-    assert res["status"] == "ok" and res["count"] == 0
-
-
-def test_literal_zero_hits_stays_ok():
-    res = _search_zero_hits("([a-", False)  # literal search for weird chars is legitimate
-    assert res["status"] == "ok" and res["count"] == 0
-
-
-def test_search_return_offsets_rejects_regex():
-    from plugin.writer.search import SearchInDocument
-
-    res = SearchInDocument().execute(MagicMock(doc=MagicMock()), pattern="a+", regex=True, return_offsets=True)
-    assert res["status"] == "error" and res["code"] == "INVALID_PARAM"
-
-
-# ---- 4) delete_comment miss is an error ---------------------------------------
-
-def test_delete_comment_not_found_is_error():
-    from plugin.writer.specialized.comments import CommentDelete
-
-    doc = MagicMock()
-    doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
-    ctx = MagicMock()
-    ctx.doc = doc
-    res = CommentDelete().execute(ctx, name="nope")
-    assert res["status"] == "error" and res["code"] == "COMMENT_NOT_FOUND"
-    assert res["deleted"] == 0
-    assert "comment_list" in res["message"]
 
 
 # ---- 5) position='before'/'after' contract ------------------------------------
@@ -188,58 +180,6 @@ def test_position_in_schema():
     props = ApplyDocumentContent.parameters["properties"]
     assert props["position"]["enum"] == ["replace", "before", "after"]
 
-
-# ---- 7) undo/redo exposed --------------------------------------------------------
-
-def test_undo_redo_are_real_core_tools():
-    from plugin.framework.tool import ToolBase
-    from plugin.doc.undo import Redo, Undo
-
-    for cls in (Undo, Redo):
-        assert issubclass(cls, ToolBase)
-        assert cls.tier == "core"
-        assert cls.is_mutation is True
-        assert "user" in cls.description.lower()  # the shared-stack caution must be in the description
-
-
-def test_undo_counts_steps_and_reports_stack_state():
-    from plugin.doc.undo import Undo
-
-    um = MagicMock()
-    um.isUndoPossible.side_effect = [True, True, False, False]
-    um.isRedoPossible.return_value = True
-    ctx = MagicMock()
-    ctx.doc.getUndoManager.return_value = um
-    res = Undo().execute(ctx, steps=3)
-    assert res["status"] == "ok" and res["undone"] == 2
-    assert "can_undo" in res and res["can_redo"] is True  # promised by the tool description
-
-
-def test_redo_counts_steps():
-    from plugin.doc.undo import Redo
-
-    um = MagicMock()
-    um.isRedoPossible.side_effect = [True, False, True]
-    ctx = MagicMock()
-    ctx.doc.getUndoManager.return_value = um
-    res = Redo().execute(ctx, steps=2)
-    assert res["status"] == "ok" and res["redone"] == 1
-
-
-# ---- 8) recoverable error messages ----------------------------------------------
-
-def test_apply_style_unknown_style_lists_names_and_suggests():
-    from plugin.writer.styles import ApplyStyle
-
-    fam = MagicMock()
-    fam.hasByName.return_value = False
-    fam.getElementNames.return_value = ["Heading 1", "Heading 2", "Text body", "Quotations"]
-    ctx = MagicMock()
-    ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
-    res = ApplyStyle().execute(ctx, style="heading 1", family="ParagraphStyles")
-    assert res["status"] == "error"
-    assert "Did you mean 'Heading 1'" in res["message"]
-    assert "Text body" in res["message"]
 
 
 def test_truncated_flag_on_get_document_content():

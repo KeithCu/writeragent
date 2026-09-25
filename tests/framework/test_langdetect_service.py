@@ -14,9 +14,6 @@ from plugin.framework.client.langdetect_service import detect_languages
 from plugin.framework.constants import EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import long_trusted_worker_timeout_sec
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @pytest.fixture

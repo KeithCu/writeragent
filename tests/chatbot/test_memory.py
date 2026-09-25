@@ -2,7 +2,6 @@ import json
 import os
 import shutil
 import tempfile
-import unittest
 from unittest.mock import Mock, patch
 
 from plugin.chatbot.memory import (
@@ -34,12 +33,12 @@ class _ToolContextLike:
         self.ctx = inner_ctx
 
 
-class TestMemory(unittest.TestCase):
-    def setUp(self):
+class TestMemory:
+    def setup_method(self):
         self.tmp_dir = tempfile.mkdtemp()
         self.ctx = DummyCtx(self.tmp_dir)
 
-    def tearDown(self):
+    def teardown_method(self):
         shutil.rmtree(self.tmp_dir)
 
     def test_memory_store_uses_tool_context_inner_ctx(self):
@@ -79,10 +78,10 @@ class TestMemory(unittest.TestCase):
         with patch("plugin.chatbot.memory.user_config_dir", return_value=self.tmp_dir):
             result = tool.execute(tctx, key="user_name", content="Keith")
 
-        self.assertEqual(result.get("status"), "ok")
+        assert (result.get("status")) == ("ok")
         user_memory_path = os.path.join(self.tmp_dir, "memories", "USER.md")
         with open(user_memory_path, "r", encoding="utf-8") as f:
-            self.assertIn('"user_name": "Keith"', f.read())
+            assert ('"user_name": "Keith"') in (f.read())
 
     def test_memory_tool_execute_skips_redundant_write(self):
         inner_ctx = object()
@@ -97,98 +96,75 @@ class TestMemory(unittest.TestCase):
             with patch("plugin.chatbot.memory.MemoryStore.write") as mock_write:
                 result = tool.execute(tctx, key="color", content="blue")
 
-        self.assertEqual(result.get("status"), "ok")
-        self.assertIn("already up to date", result.get("message", ""))
+        assert (result.get("status")) == ("ok")
+        assert ("already up to date") in (result.get("message", ""))
         mock_write.assert_not_called()
 
     def test_format_upsert_memory_chat_line_shows_key_and_value(self):
         line = format_upsert_memory_chat_line({"key": "nickname", "content": "Bob"})
-        self.assertIn("nickname", line)
-        self.assertIn("Bob", line)
-        self.assertTrue(line.startswith("[Memory update:"))
+        assert ("nickname") in (line)
+        assert ("Bob") in (line)
+        assert (line.startswith("[Memory update:"))
 
     def test_format_upsert_memory_chat_line_truncates_long_value(self):
         long_val = "x" * (UPSERT_MEMORY_CHAT_VALUE_MAX + 50)
         line = format_upsert_memory_chat_line({"key": "k", "content": long_val})
-        self.assertIn("...", line)
-        self.assertLess(len(line), len(long_val) + 80)
+        assert ("...") in (line)
+        assert (len(line)) < (len(long_val) + 80)
 
     def test_format_upsert_memory_chat_line_from_arguments_json_string(self):
         line = format_upsert_memory_chat_line_from_arguments(
             '{"key": "a", "content": "b"}'
         )
-        self.assertIn("'a'", line)
-        self.assertIn("'b'", line)
+        assert ("'a'") in (line)
+        assert ("'b'") in (line)
 
     def test_memory_key_from_tool_arguments(self):
-        self.assertEqual(memory_key_from_tool_arguments({"key": "name"}), "name")
-        self.assertIsNone(memory_key_from_tool_arguments({}))
-        self.assertEqual(
-            memory_key_from_tool_arguments('{"key": "nested.k", "content": "v"}'),
-            "nested.k",
-        )
+        assert (memory_key_from_tool_arguments({"key": "name"})) == ("name")
+        assert (memory_key_from_tool_arguments({})) is None
+        assert (memory_key_from_tool_arguments('{"key": "nested.k", "content": "v"}')) == ("nested.k")
 
     def test_upsert_memory_arguments_dict(self):
-        self.assertEqual(
-            upsert_memory_arguments_dict({"key": "x", "content": "y"}),
-            {"key": "x", "content": "y"},
-        )
-        self.assertIsNone(upsert_memory_arguments_dict("not json"))
-        self.assertEqual(
-            upsert_memory_arguments_dict('{"key": "from_json", "content": "v"}'),
-            {"key": "from_json", "content": "v"},
-        )
+        assert (upsert_memory_arguments_dict({"key": "x", "content": "y"})) == ({"key": "x", "content": "y"})
+        assert (upsert_memory_arguments_dict("not json")) is None
+        assert (upsert_memory_arguments_dict('{"key": "from_json", "content": "v"}')) == ({"key": "from_json", "content": "v"})
 
-'''
-@unittest.skip("Disabled per user request - depends on uno")
-class TestMemoryTool(unittest.TestCase):
-    def setUp(self):
-        self.tmp_dir = tempfile.mkdtemp()
-        self.ctx = DummyCtx(self.tmp_dir)
-        try:
-            import uno
-            uno.fileUrlToSystemPath = lambda x: x.replace("file://", "")
-        except ImportError:
-            pass
+def test_memory_tool_insert_update_and_nested_key(tmp_path):
+    """upsert_memory inserts, replaces, and nests keys in USER.md JSON.
 
-    def tearDown(self):
-        shutil.rmtree(self.tmp_dir)
+    The old skipped case asserted YAML text ("favorite_language: Python").
+    MemoryStore now writes json.dumps, so the same actions are checked on
+    the parsed object. user_config_dir is patched the way the other memory
+    tests do; MemoryStore no longer resolves the path through UNO.
+    """
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore(ctx)
 
-    def test_memory_tool_actions(self):
-        tool = MemoryTool()
-        store = MemoryStore(self.ctx)
+        res = tool.execute(ctx, key="favorite_language", content="Python")
+        assert res["status"] == "ok", res
+        assert json.loads(store.read("user"))["favorite_language"] == "Python"
 
-        # Insert new key
-        res = tool.execute(self.ctx, key="favorite_language", content="Python")
-        self.assertEqual(res["status"], "ok", f"Expected ok but got {res}")
+        res = tool.execute(ctx, key="favorite_language", content="Rust")
+        assert res["status"] == "ok", res
+        assert json.loads(store.read("user"))["favorite_language"] == "Rust"
 
-        # Verify store read
-        content = store.read("user")
-        self.assertIn("favorite_language: Python", content)
+        res = tool.execute(ctx, key="editor.vim", content="Yes")
+        assert res["status"] == "ok", res
+        data = json.loads(store.read("user"))
+        assert data["editor"]["vim"] == "Yes"
+        assert data["favorite_language"] == "Rust"
 
-        # Update existing key
-        res = tool.execute(self.ctx, key="favorite_language", content="Rust")
-        self.assertEqual(res["status"], "ok")
-        content = store.read("user")
-        self.assertIn("favorite_language: Rust", content)
-
-        # Insert nested key
-        res = tool.execute(self.ctx, key="editor.vim", content="Yes")
-        self.assertEqual(res["status"], "ok")
-        content = store.read("user")
-        self.assertIn("editor:", content)
-        self.assertIn("vim: Yes", content)
-'''
-
-class TestMemoryWriteConcurrency(unittest.TestCase):
+class TestMemoryWriteConcurrency:
     """Two upserts in one turn must merge (tools now run one at a time, not on threads)."""
 
-    def setUp(self):
+    def setup_method(self):
         self.tmp_dir = tempfile.mkdtemp()
         self.ctx = DummyCtx(self.tmp_dir)
         self.store = MemoryStore(self.ctx)
 
-    def tearDown(self):
+    def teardown_method(self):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_sequential_upserts_merge_without_corruption(self):
@@ -197,20 +173,20 @@ class TestMemoryWriteConcurrency(unittest.TestCase):
         tool = MemoryTool()
         res1 = tool.execute(self.ctx, key="name", content="Andre")
         res2 = tool.execute(self.ctx, key="favorite_colors", content="dark blue")
-        self.assertEqual(res1.get("status"), "ok", res1)
-        self.assertEqual(res2.get("status"), "ok", res2)
+        assert (res1.get("status")) == ("ok"), res1
+        assert (res2.get("status")) == ("ok"), res2
 
         data = json.loads(self.store.read("user"))
-        self.assertEqual(data["name"], "Andre")
-        self.assertEqual(data["favorite_colors"], "dark blue")
+        assert (data["name"]) == ("Andre")
+        assert (data["favorite_colors"]) == ("dark blue")
 
     def test_write_is_atomic_and_cleans_temp_files(self):
         import os
 
         self.store.write("user", json.dumps({"name": "Andre"}))
-        self.assertEqual(json.loads(self.store.read("user")), {"name": "Andre"})
+        assert (json.loads(self.store.read("user"))) == ({"name": "Andre"})
         leftovers = [f for f in os.listdir(self.tmp_dir) if f.startswith(".memory-")]
-        self.assertEqual(leftovers, [], "atomic-write temp files must not leak")
+        assert (leftovers) == ([]), "atomic-write temp files must not leak"
 
     def test_upserting_name_clears_seed_marker(self):
         # After the user confirms their name, the seed guidance must stop
@@ -223,11 +199,11 @@ class TestMemoryWriteConcurrency(unittest.TestCase):
         self.store.write("user", json.dumps(seeded))
 
         res = MemoryTool().execute(self.ctx, key="name", content="André")
-        self.assertEqual(res["status"], "ok")
+        assert (res["status"]) == ("ok")
 
         data = json.loads(self.store.read("user"))
-        self.assertNotIn("name_source", data)
-        self.assertEqual(data["name"], "André")
+        assert ("name_source") not in (data)
+        assert (data["name"]) == ("André")
 
     def test_color_upsert_alone_keeps_seed_marker(self):
         seeded = {"name_source": "auto-detected", "favorite_colors": "", "name": "andre"}
@@ -236,14 +212,14 @@ class TestMemoryWriteConcurrency(unittest.TestCase):
         MemoryTool().execute(self.ctx, key="favorite_colors", content="blue")
 
         data = json.loads(self.store.read("user"))
-        self.assertIn("name_source", data)  # name still unconfirmed → keep asking once
+        assert ("name_source") in (data)  # name still unconfirmed → keep asking once
 
 
 def test_format_upsert_memory_chat_line_dropped_from_check_all_fqns():
     """Deep check-all run 32840960268: Prev 20:53."""
     from pathlib import Path
 
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module
@@ -252,5 +228,3 @@ def test_format_upsert_memory_chat_line_dropped_from_check_all_fqns():
     assert not any(f.endswith(".format_upsert_memory_chat_line") for f in fqns)
 
 
-if __name__ == '__main__':
-    unittest.main()

@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from typing import Any
 from unittest.mock import MagicMock, patch

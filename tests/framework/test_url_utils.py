@@ -1,4 +1,3 @@
-import unittest
 from plugin.framework.url_utils import (
     _is_zai_host,
     dispatch_command_from_url,
@@ -115,7 +114,7 @@ class TestGetUrlQueryDict:
         assert get_url_query_dict("") == {}
 
 
-class TestLibrePyDispatchUrl(unittest.TestCase):
+class TestLibrePyDispatchUrl:
     class _Url:
         def __init__(self, complete="", path="", protocol=""):
             self.Complete = complete

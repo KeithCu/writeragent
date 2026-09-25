@@ -1,4 +1,3 @@
-import unittest
 
 import pytest
 
@@ -54,32 +53,28 @@ def test_is_incompatible_model_for_provider_matrix(provider, model_id, compatibl
     assert _is_incompatible_model_for_provider(model_id, provider) is (not compatible)
 
 
-class TestProviderSlugPolicy(unittest.TestCase):
+class TestProviderSlugPolicy:
 
     def test_only_openrouter_and_together_require_slug(self):
         slug_providers = {pid for pid, cfg in PROVIDERS.items() if cfg.model_id_style == "slug"}
-        self.assertEqual(slug_providers, {"openrouter", "together"})
+        assert (slug_providers) == ({"openrouter", "together"})
 
     def test_provider_requires_slug_model_id(self):
-        self.assertTrue(provider_requires_slug_model_id("openrouter"))
-        self.assertTrue(provider_requires_slug_model_id("together"))
-        self.assertFalse(provider_requires_slug_model_id("zai"))
-        self.assertFalse(provider_requires_slug_model_id("deepseek"))
-        self.assertFalse(provider_requires_slug_model_id("lmstudio"))
-        self.assertFalse(provider_requires_slug_model_id(None))
+        assert (provider_requires_slug_model_id("openrouter"))
+        assert (provider_requires_slug_model_id("together"))
+        assert not (provider_requires_slug_model_id("zai"))
+        assert not (provider_requires_slug_model_id("deepseek"))
+        assert not (provider_requires_slug_model_id("lmstudio"))
+        assert not (provider_requires_slug_model_id(None))
 
 
-class TestPresetProviderDetection(unittest.TestCase):
+class TestPresetProviderDetection:
 
     def test_every_endpoint_preset_resolves_expected_provider(self):
         for _label, url in ENDPOINT_PRESETS:
             normalized = normalize_endpoint_url(url)
             expected = _PRESET_EXPECTED_PROVIDER[normalized]
-            self.assertEqual(
-                get_provider_from_endpoint(normalized),
-                expected,
-                msg=f"preset url {url!r} normalized {normalized!r}",
-            )
+            assert (get_provider_from_endpoint(normalized)) == (expected), f"preset url {url!r} normalized {normalized!r}"
 
     def test_auth_matches_detection_for_hosted_presets(self):
         """Hosted presets in PROVIDERS: detection hint and host_matches agree."""
@@ -89,6 +84,6 @@ class TestPresetProviderDetection(unittest.TestCase):
             if normalized in skip_normalized:
                 continue
             detected = get_provider_from_endpoint(normalized)
-            self.assertIsNotNone(detected, normalized)
+            assert (detected) is not None, normalized
             resolved = _resolve_provider_id(normalized, detected)
-            self.assertEqual(resolved, detected, normalized)
+            assert (resolved) == (detected), normalized

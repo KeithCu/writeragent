@@ -3,8 +3,6 @@ from plugin.framework.constants import get_plugin_dir
 import unittest
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 # Additional specific mocks for UI elements
 class BaseStub: pass

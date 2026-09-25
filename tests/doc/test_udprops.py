@@ -14,7 +14,7 @@ def test_get_document_property_missing_api_returns_default():
 
 def test_set_document_property_trace_names_each_uno_step(capsys, monkeypatch):
     """GHA 33763078357: hang dump must name getDocumentProperties vs setPropertyValue."""
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.debug/print stripped in release bundle")
     from plugin.doc import udprops as udprops_mod

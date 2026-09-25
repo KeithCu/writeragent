@@ -14,9 +14,6 @@ from plugin.framework.client.embedding_client import EmbeddingBatch, embed_texts
 from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
 from plugin.scripting.config_limits import long_trusted_worker_timeout_sec
 from plugin.framework.errors import ConfigError, ToolExecutionError
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @pytest.fixture

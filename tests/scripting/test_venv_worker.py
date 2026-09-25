@@ -35,9 +35,6 @@ from plugin.scripting.venv_worker import (
     warm_venv_worker,
 )
 from plugin.scripting.venv.worker_harness import _execute_request, _serialize
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -197,7 +194,6 @@ def test_harness_main_loop_integration():
 
     proc_pickle.stdin.close()
     proc_pickle.wait(timeout=5)
-
 
 
 def test_manager_real_spawn_drains_stderr_flood(tmp_path, monkeypatch):

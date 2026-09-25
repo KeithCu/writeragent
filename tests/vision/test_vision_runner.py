@@ -18,9 +18,6 @@ from plugin.vision.vision_runner import (
     run_and_insert_vision_for_selection,
     run_trusted_vision,
 )
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def test_get_selected_image_bytes_decodes_png():

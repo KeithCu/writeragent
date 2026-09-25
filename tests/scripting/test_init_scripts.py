@@ -17,10 +17,7 @@ from plugin.scripting.document_scripts import (
     set_calc_init_script,
 )
 from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session, run_sandboxed_code
-from plugin.tests.testing_utils import setup_uno_mocks
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
-
-setup_uno_mocks()
 
 
 @pytest.fixture(autouse=True)
@@ -203,7 +200,6 @@ def test_workbook_session_id_recursion_off_main_thread(monkeypatch: pytest.Monke
     ctx = MagicMock()
     res = workbook_session_id(ctx)
     assert res is None
-
 
 
 def test_init_helper_function_in_shared_kernel():

@@ -496,7 +496,7 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 - `tests/draw/test_tree.py` / `tests/draw/test_field_fill.py` - blank detection, label hints, `fill_draw_fields` resolve
 - `tests/draw/test_draw_specialized_tiers.py` - Specialized tier registration
 - `tests/draw/test_draw_forms_uno.py` - ControlShapes (list/edit by name, checkbox State) + `fill_draw_fields`
-- `tests/draw/test_draw_headers_footers.py` - Headers/footers
+- `tests/draw/test_headers_footers.py` - Headers/footers
 - `tests/draw/test_designs.py` / `test_designs_uno.py` - PathSettings list, current-doc Metropolis clone+assign, internal create-from-template helper
 
 ----

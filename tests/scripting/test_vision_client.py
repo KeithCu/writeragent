@@ -13,9 +13,6 @@ import pytest
 from plugin.scripting.client import run_vision
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import DOCLING_WORKER_TIMEOUT_SEC, VISION_WORKER_TIMEOUT_SEC
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 @pytest.fixture

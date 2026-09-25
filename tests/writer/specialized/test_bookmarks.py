@@ -184,3 +184,18 @@ def test_untracked_restores_modified_and_unlocks_on_error():
     um.lock.assert_called_once()
     um.unlock.assert_called_once()
     doc.setModified.assert_called_with(False)
+
+# ---- 1) reads never doc.store() ----------------------------------------------
+
+def test_ensure_heading_bookmarks_never_stores():
+    from plugin.writer.specialized.bookmarks import BookmarkService
+
+    doc = MagicMock()
+    text = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.return_value = False
+    text.createEnumeration.return_value = enum
+    doc.getText.return_value = text
+    doc.getBookmarks.return_value.getElementNames.return_value = []
+    BookmarkService().ensure_heading_bookmarks(doc)
+    doc.store.assert_not_called()

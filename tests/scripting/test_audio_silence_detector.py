@@ -51,7 +51,7 @@ def test_pcm_energy_int16_dropped_from_check_all_fqns():
     """Deep check-all run 32877875221 hung on the RMS/peak float post at [42/56]."""
     from pathlib import Path
 
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module

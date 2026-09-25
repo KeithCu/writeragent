@@ -7,8 +7,6 @@ with their text, so a reader can tell new-vs-old and that changes await review. 
 required (drives the portion walk with light fakes). Inline live behavior is verified separately."""
 from unittest.mock import MagicMock
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.doc.text_helpers import collect_tracked_changes
 

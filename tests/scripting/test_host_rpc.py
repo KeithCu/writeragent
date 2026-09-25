@@ -16,9 +16,6 @@ from plugin.scripting.host_rpc import (
     handle_tool_call_frame,
     resolve_allowed_tools,
 )
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def test_resolve_allowed_tools_unrestricted():

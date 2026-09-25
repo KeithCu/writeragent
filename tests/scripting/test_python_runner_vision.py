@@ -12,9 +12,6 @@ from unittest.mock import MagicMock, patch
 
 from plugin.scripting.python_runner import execute_and_insert_result
 from plugin.vision.vision_templates import get_vision_script_templates
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def _vision_params_for(helper: str) -> dict:

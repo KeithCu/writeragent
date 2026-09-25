@@ -23,7 +23,7 @@ from plugin.writer.word_diff_split import (
     split_change,
     tokenize,
 )
-from tests.strip_bundle import deal_pre_present
+from tests.harness.strip_bundle import deal_pre_present
 from plugin.writer.xhtml_style_postprocess import (
     compact_lo_style_name,
     decode_lo_css_class_suffix,
@@ -31,7 +31,7 @@ from plugin.writer.xhtml_style_postprocess import (
     extract_autostyle_parents_from_fodt,
     parse_style_block,
 )
-from tests.vhs_budget import vhs_max_examples
+from tests.harness.vhs_budget import vhs_max_examples
 
 # Cap size/alphabet so deep VHS does not fight greedy regex oracles (FV §8.1 C).
 _SAFE_TEXT = st.text(

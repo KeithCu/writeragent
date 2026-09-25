@@ -5,9 +5,6 @@
 
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 from plugin.writer.math.latex_dialog import show_latex_input_dialog  # noqa: E402
 

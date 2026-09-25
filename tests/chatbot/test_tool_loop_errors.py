@@ -2,8 +2,6 @@ import pytest
 import json
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-setup_uno_mocks()
 
 from plugin.framework.errors import (
     ToolExecutionError,
@@ -131,29 +129,34 @@ def test_tool_execution_error_handling(test_instance, mock_get_tools):
         assert "Unexpected error executing tool" in parsed_res["message"]
         assert parsed_res["details"]["original_error"] == "Something unexpected"
 
-# Disabled outside LibreOffice: tool_loop.py catches Exception and imports
-# com.sun.star.lang.DisposedException etc., which raises ImportError in pytest.
-# def test_document_context_error_handling(test_instance, mock_get_tools):
-#     mock_get_tools.get_schemas.return_value = [{"name": "test_tool"}]
-#
-#     with patch("plugin.chatbot.tool_loop.get_document_context_for_chat") as mock_doc_context:
-#
-#         # Test 1: UnoObjectError
-#         mock_doc_context.side_effect = UnoObjectError("Document dead")
-#
-#         test_instance._do_send_chat_with_tools("test", "test_model", "writer")
-#
-#         assert test_instance._terminal_status == "Error"
-#         assert any("[Document closed or unavailable.]" in r for r in test_instance.responses)
-#
-#         # Test 2: Unexpected Exception
-#         test_instance.responses.clear()
-#         mock_doc_context.side_effect = RuntimeError("Something bad")
-#
-#         test_instance._do_send_chat_with_tools("test", "test_model", "writer")
-#
-#         assert test_instance._terminal_status == "Error"
-#         assert any("[Error reading document: Failed to get document context]" in r for r in test_instance.responses)
+def test_document_context_error_handling(test_instance, mock_get_tools):
+    """Send fails closed when refreshing the live document snapshot fails.
+
+    tool_loop calls ChatSession.refresh_document_context (it does not import
+    get_document_context_for_chat). UnoObjectError and other failures both
+    set the terminal status; disposal is reported as closed, anything else
+    as a document-context error.
+    """
+    from plugin.framework.errors import UnoObjectError
+
+    mock_get_tools.get_schemas.return_value = [{"name": "test_tool"}]
+
+    with patch.object(test_instance.session, "refresh_document_context") as mock_refresh:
+        mock_refresh.side_effect = UnoObjectError("Document dead")
+
+        test_instance._do_send_chat_with_tools("test", "test_model", "writer")
+
+        assert test_instance._terminal_status == "Error"
+        assert any("[Document closed or unavailable.]" in r for r in test_instance.responses)
+
+        test_instance.responses.clear()
+        test_instance._terminal_status = None
+        mock_refresh.side_effect = RuntimeError("Something bad")
+
+        test_instance._do_send_chat_with_tools("test", "test_model", "writer")
+
+        assert test_instance._terminal_status == "Error"
+        assert any("[Error reading document: Failed to get document context]" in r for r in test_instance.responses)
 
 def test_audio_handling_error(test_instance, mock_get_tools):
     mock_get_tools.get_schemas.return_value = [{"name": "test_tool"}]

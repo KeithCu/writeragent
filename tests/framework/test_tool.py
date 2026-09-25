@@ -846,3 +846,49 @@ def test_execute_with_timeout_parameterizes_result_queue() -> None:
     src = inspect.getsource(ToolRegistry._execute_with_timeout)
     assert "result_queue: queue.Queue[tuple[str, Any]]" in src
 
+
+def test_execute_bypass_thread_guard_allows_background_thread() -> None:
+    """Regression: DSPy eval (tools_lo) may call tools from the LO worker thread."""
+    calls: list[str] = []
+
+    class DummyTool:
+        name = "dummy_sync"
+        description = "x"
+        parameters = {"type": "object", "properties": {}}
+        uno_services = None
+        doc_types = None
+
+        def get_parameters(self, doc_type=None):
+            return self.parameters
+
+        def get_description(self, doc_type=None):
+            return self.description
+
+        def validate(self, *, doc_type=None, **kwargs):
+            return True, None
+
+        def execute(self, ctx, **kwargs):
+            calls.append("execute")
+            return {"status": "ok"}
+
+        def execute_safe(self, ctx, **kwargs):
+            calls.append("execute_safe")
+            return {"status": "ok"}
+
+    reg = ToolRegistry(MagicMock())
+    reg.register(DummyTool())  # type: ignore[arg-type]
+    ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
+
+    out: dict | None = None
+
+    def bg():
+        nonlocal out
+        out = reg.execute("dummy_sync", ctx, bypass_thread_guard=True)
+
+    t = threading.Thread(target=bg)
+    t.start()
+    t.join()
+
+    assert out == {"status": "ok"}
+    assert calls == ["execute"]
+

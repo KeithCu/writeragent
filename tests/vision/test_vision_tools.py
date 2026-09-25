@@ -12,7 +12,6 @@ import pytest
 
 from plugin.framework.service import ServiceRegistry
 from plugin.framework.tool import ToolRegistry
-from plugin.tests.testing_utils import setup_uno_mocks
 from plugin.vision.vision_availability import (
     filter_vision_delegate_schemas,
     filter_vision_specialized_tools,
@@ -22,8 +21,6 @@ from plugin.vision.vision_availability import (
     vision_venv_configured,
 )
 from plugin.vision.vision_tools import ExtractStructureFromImage
-
-setup_uno_mocks()
 
 
 @pytest.fixture

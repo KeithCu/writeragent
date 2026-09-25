@@ -86,7 +86,7 @@ def test_menu_icon_filename_uses_only_32_when_that_is_all(monkeypatch, tmp_path)
 def test_strong_cache_logs_info_once(monkeypatch, caplog):
     import logging
     from plugin.framework import menu_icon_dpi as m
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.info stripped in release bundle")
 

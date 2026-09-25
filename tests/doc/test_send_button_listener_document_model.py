@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 import sys
-import unittest
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 # When a real `uno` bridge/types-unopy is loaded, setup_uno_mocks may skip attaching
 # listener stubs; ensure imports used by panel → dialogs → listeners succeed.
@@ -36,8 +32,8 @@ def _non_document_component() -> MagicMock:
     return m
 
 
-class TestSendButtonListenerDocumentModel(unittest.TestCase):
-    def setUp(self) -> None:
+class TestSendButtonListenerDocumentModel:
+    def setup_method(self) -> None:
         self.ctx = MagicMock()
         self.frame = MagicMock()
         self.send_control = MagicMock()
@@ -50,9 +46,8 @@ class TestSendButtonListenerDocumentModel(unittest.TestCase):
         self.session = MagicMock()
         self.session.messages = [{"role": "system", "content": "test"}]
 
-        patcher = patch.dict(sys.modules, {"plugin.main": MagicMock()}, clear=False)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self._modules_patcher = patch.dict(sys.modules, {"plugin.main": MagicMock()}, clear=False)
+        self._modules_patcher.start()
 
         self.listener = SendButtonListener(
             self.ctx,
@@ -67,25 +62,26 @@ class TestSendButtonListenerDocumentModel(unittest.TestCase):
             self.session,
         )
 
+    def teardown_method(self) -> None:
+        self._modules_patcher.stop()
+
     def test_returns_compatible_document_from_frame(self) -> None:
         writer = _writer_model()
         self.listener.cached_doc_type = "writer"
         self.frame.getController.return_value.getModel.return_value = writer
-        self.assertIs(self.listener._get_document_model(), writer)
+        assert (self.listener._get_document_model()) is (writer)
 
     def test_returns_none_when_frame_missing(self) -> None:
         self.listener.frame = None
-        self.assertIsNone(self.listener._get_document_model())
+        assert (self.listener._get_document_model()) is None
 
     def test_returns_none_when_frame_get_model_raises(self) -> None:
         self.frame.getController.return_value.getModel.side_effect = ValueError("simulated frame failure")
-        self.assertIsNone(self.listener._get_document_model())
+        assert (self.listener._get_document_model()) is None
 
     def test_returns_none_when_no_compatible_document(self) -> None:
         bad = _non_document_component()
         self.frame.getController.return_value.getModel.return_value = bad
-        self.assertIsNone(self.listener._get_document_model())
+        assert (self.listener._get_document_model()) is None
 
 
-if __name__ == "__main__":
-    unittest.main()

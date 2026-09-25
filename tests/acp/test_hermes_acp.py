@@ -10,7 +10,6 @@
 import json
 import queue
 import threading
-import unittest
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.worker_pool import run_in_background
@@ -23,46 +22,46 @@ from plugin.acp.builtin import BuiltinBackend
 from plugin.acp.hermes_simple import HermesBackend
 
 
-class TestHermesBinaryDiscovery(unittest.TestCase):
+class TestHermesBinaryDiscovery:
     """Test binary / identity hooks used by ACPBackend._find_binary()."""
 
     def test_binary_name_is_hermes(self):
         backend = HermesBackend()
-        self.assertEqual(backend.get_binary_name(), "hermes")
+        assert (backend.get_binary_name()) == ("hermes")
 
     def test_display_name(self):
         backend = HermesBackend()
-        self.assertEqual(backend.get_display_name(), "Hermes")
+        assert (backend.get_display_name()) == ("Hermes")
 
     def test_agent_name(self):
         backend = HermesBackend()
-        self.assertEqual(backend.get_agent_name(), "hermes")
+        assert (backend.get_agent_name()) == ("hermes")
 
 
-class TestHermesBackendInit(unittest.TestCase):
+class TestHermesBackendInit:
     """Test backend initialization."""
 
     def test_backend_id(self):
         backend = HermesBackend()
-        self.assertEqual(backend.backend_id, "hermes")
-        self.assertEqual(backend.get_display_name(), "Hermes")
+        assert (backend.backend_id) == ("hermes")
+        assert (backend.get_display_name()) == ("Hermes")
 
 
-class TestIsAvailable(unittest.TestCase):
+class TestIsAvailable:
     """Test availability check."""
 
     @patch("os.path.isfile", return_value=True)
     @patch("shutil.which", return_value="/usr/bin/hermes")
     def test_available_when_hermes_in_path(self, mock_which, mock_isfile):
         backend = HermesBackend()
-        self.assertTrue(backend.is_available(None))
-        self.assertEqual(backend._extra_args, ["acp"])
+        assert (backend.is_available(None))
+        assert (backend._extra_args) == (["acp"])
 
     @patch("shutil.which", return_value=None)
     @patch("os.path.isfile", return_value=False)
     def test_unavailable_when_no_binary(self, mock_isfile, mock_which):
         backend = HermesBackend()
-        self.assertFalse(backend.is_available(None))
+        assert not (backend.is_available(None))
 
     @patch("os.path.isfile", side_effect=lambda p: p == "/usr/bin/hermes")
     @patch(
@@ -72,22 +71,22 @@ class TestIsAvailable(unittest.TestCase):
     def test_available_when_hermes_cli_in_path(self, mock_which, mock_isfile):
         """Official install uses `hermes` + `acp` subcommand."""
         backend = HermesBackend()
-        self.assertTrue(backend.is_available(None))
-        self.assertEqual(backend._binary_path, "/usr/bin/hermes")
-        self.assertEqual(backend._extra_args, ["acp"])
+        assert (backend.is_available(None))
+        assert (backend._binary_path) == ("/usr/bin/hermes")
+        assert (backend._extra_args) == (["acp"])
 
 
-class TestAgentBackendDisplayLabel(unittest.TestCase):
+class TestAgentBackendDisplayLabel:
     """Error messages must use get_display_name(), not inherited display_name."""
 
     def test_label_builtin(self):
-        self.assertEqual(_agent_backend_label(BuiltinBackend(), "builtin"), "Built-in")
+        assert (_agent_backend_label(BuiltinBackend(), "builtin")) == ("Built-in")
 
     def test_label_hermes(self):
-        self.assertEqual(_agent_backend_label(HermesBackend(), "hermes"), "Hermes")
+        assert (_agent_backend_label(HermesBackend(), "hermes")) == ("Hermes")
 
 
-class TestACPConnection(unittest.TestCase):
+class TestACPConnection:
     """Test the JSON-RPC connection logic."""
 
     def test_reader_parses_json_response(self):
@@ -121,7 +120,7 @@ class TestACPConnection(unittest.TestCase):
         reader.join(timeout=2)
 
         # Check the response was stored
-        self.assertEqual(conn._pending.get(1, {}).get("response"), response)
+        assert (conn._pending.get(1, {}).get("response")) == (response)
 
     def test_reader_dispatches_notifications(self):
         """Reader loop dispatches notifications to callback."""
@@ -152,11 +151,11 @@ class TestACPConnection(unittest.TestCase):
         reader.join(timeout=2)
         conn._running = False
 
-        self.assertEqual(len(received), 1)
-        self.assertEqual(received[0][0], "notifications/session")
+        assert (len(received)) == (1)
+        assert (received[0][0]) == ("notifications/session")
 
 
-class TestHandleAcpUpdate(unittest.TestCase):
+class TestHandleAcpUpdate:
     """Test ACPBackend update handling (used by Hermes via ACP)."""
 
     def test_text_content_list_queues_chunk(self):
@@ -169,8 +168,8 @@ class TestHandleAcpUpdate(unittest.TestCase):
         events = []
         while not q.empty():
             events.append(q.get_nowait())
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0], (StreamQueueKind.CHUNK, "Hello world"))
+        assert (len(events)) == (1)
+        assert (events[0]) == ((StreamQueueKind.CHUNK, "Hello world"))
 
     def test_text_content_dict_queues_chunk(self):
         backend = HermesBackend()
@@ -182,7 +181,7 @@ class TestHandleAcpUpdate(unittest.TestCase):
         events = []
         while not q.empty():
             events.append(q.get_nowait())
-        self.assertEqual(events, [(StreamQueueKind.CHUNK, "Hello")])
+        assert (events) == ([(StreamQueueKind.CHUNK, "Hello")])
 
     def test_tool_call_in_content_queues_tool_call(self):
         backend = HermesBackend()
@@ -192,9 +191,9 @@ class TestHandleAcpUpdate(unittest.TestCase):
         events = []
         while not q.empty():
             events.append(q.get_nowait())
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0][0], StreamQueueKind.TOOL_CALL)
-        self.assertEqual(events[0][1], item)
+        assert (len(events)) == (1)
+        assert (events[0][0]) == (StreamQueueKind.TOOL_CALL)
+        assert (events[0][1]) == (item)
 
     def test_tool_result_in_content_queues_tool_result(self):
         backend = HermesBackend()
@@ -204,11 +203,11 @@ class TestHandleAcpUpdate(unittest.TestCase):
         events = []
         while not q.empty():
             events.append(q.get_nowait())
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0], (StreamQueueKind.TOOL_RESULT, item))
+        assert (len(events)) == (1)
+        assert (events[0]) == ((StreamQueueKind.TOOL_RESULT, item))
 
 
-class TestSend(unittest.TestCase):
+class TestSend:
     """Test the send method with mocked connection."""
 
     @patch("shutil.which", return_value="/usr/bin/hermes")
@@ -233,8 +232,6 @@ class TestSend(unittest.TestCase):
             events.append(q.get_nowait())
 
         types = [e[0] for e in events]
-        self.assertIn(StreamQueueKind.ERROR, types)
+        assert (StreamQueueKind.ERROR) in (types)
 
 
-if __name__ == "__main__":
-    unittest.main()

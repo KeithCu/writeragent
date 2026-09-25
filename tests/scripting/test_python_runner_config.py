@@ -1,4 +1,3 @@
-import unittest
 from unittest.mock import MagicMock, patch
 import sys
 import os
@@ -8,7 +7,7 @@ sys.path.append(os.getcwd())
 
 from plugin.scripting.python_runner import run_python_dialog
 
-class TestPythonRunnerConfig(unittest.TestCase):
+class TestPythonRunnerConfig:
     @patch('plugin.scripting.python_runner.monaco_open_expected', return_value=(None, False))
     @patch('plugin.scripting.python_runner.get_ctx')
     @patch('plugin.scripting.python_runner.get_desktop')
@@ -80,9 +79,7 @@ class TestPythonRunnerConfig(unittest.TestCase):
     def test_config_defaults(self):
         from plugin.framework.config_schema import WriterAgentConfig
         config = WriterAgentConfig()
-        self.assertEqual(config.last_python_script_name_writer, "Universal Sample")
-        self.assertEqual(config.last_python_script_name_calc, "Universal Sample")
-        self.assertEqual(config.last_python_script_name_draw, "Universal Sample")
+        assert (config.last_python_script_name_writer) == ("Universal Sample")
+        assert (config.last_python_script_name_calc) == ("Universal Sample")
+        assert (config.last_python_script_name_draw) == ("Universal Sample")
 
-if __name__ == '__main__':
-    unittest.main()

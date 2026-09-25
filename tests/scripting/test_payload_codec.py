@@ -53,9 +53,6 @@ from tests.scripting.payload_codec_test_support import (
     rect_shape_for_cell_count,
 )
 from tests.scripting.serialization_ab_support import cython_accelerator_context
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 
 def test_host_module_does_not_import_numpy_at_module_level():
@@ -636,7 +633,6 @@ def test_child_pack_below_threshold_returns_list() -> None:
     assert isinstance(wire, np.ndarray)
     assert wire.shape[0] == rows
     # Also tolerate if some future change decides to list-ify small; the key is "no split envelope".
-
 
 
 def test_child_pack_numpy_scalar_types() -> None:

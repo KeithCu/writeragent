@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests to verify math preservation during string expansion."""
 
-import unittest
 from unittest.mock import MagicMock, patch
 import sys
 
@@ -20,7 +19,7 @@ from plugin.writer.format import (
 )
 from plugin.writer.content import ApplyDocumentContent
 
-class TestWriterMathPreservation(unittest.TestCase):
+class TestWriterMathPreservation:
     def test_mixed_math_preservation(self):
         """Verify that \nabla in TeX is preserved while \n in HTML is expanded."""
         ctx = MagicMock()
@@ -39,12 +38,12 @@ class TestWriterMathPreservation(unittest.TestCase):
                 # Check that HTML segment 2 (with the newline) was expanded
                 calls = mock_insert_html.call_args_list
                 last_html_chunk = calls[-1][0][2]
-                self.assertIn("\nHello.", last_html_chunk)
-                self.assertNotIn("\\nHello.", last_html_chunk)
+                assert ("\nHello.") in (last_html_chunk)
+                assert ("\\nHello.") not in (last_html_chunk)
                 
                 # Verify TeX segment 1: \nabla was NOT expanded
                 tex_chunk = mock_convert_tex.call_args[0][1]
-                self.assertEqual(tex_chunk, r"\nabla \cdot \mathbf{E}")
+                assert (tex_chunk) == (r"\nabla \cdot \mathbf{E}")
 
     def test_brl_currency_never_becomes_a_formula(self):
         """End-to-end insert path: ``R$ 1.234,56`` pairs must not build a Math object.
@@ -70,9 +69,9 @@ class TestWriterMathPreservation(unittest.TestCase):
         mock_convert_tex.assert_not_called()
         mock_formula.assert_not_called()
         inserted = "".join(c[0][2] for c in mock_insert_html.call_args_list)
-        self.assertIn("R$ 12.798,82", inserted)
-        self.assertIn("R$ 500,00", inserted)
-        self.assertIn("evitando-se, assim", inserted)
+        assert ("R$ 12.798,82") in (inserted)
+        assert ("R$ 500,00") in (inserted)
+        assert ("evitando-se, assim") in (inserted)
 
     def test_plain_html_expansion(self):
         """Verify that expansion still happens when no math is present."""
@@ -86,9 +85,9 @@ class TestWriterMathPreservation(unittest.TestCase):
             _insert_mixed_or_plain_html(model, ctx, cursor, test_content)
             
             inserted_html = mock_insert_html.call_args[0][2]
-            self.assertIn("Line 1", inserted_html)
-            self.assertIn("Line 2", inserted_html)
-            self.assertNotIn("Line 1\\n", inserted_html)
+            assert ("Line 1") in (inserted_html)
+            assert ("Line 2") in (inserted_html)
+            assert ("Line 1\\n") not in (inserted_html)
 
     def test_apply_document_content_plain_text_expansion(self):
         """Verify that ApplyDocumentContent expands \\n for plain text."""
@@ -109,7 +108,5 @@ class TestWriterMathPreservation(unittest.TestCase):
             tool.execute(ctx, content=content, target="full_document")
             
             passed_content = mock_replace.call_args[0][2]
-            self.assertEqual(passed_content, "Line 1\nLine 2")
+            assert (passed_content) == ("Line 1\nLine 2")
 
-if __name__ == "__main__":
-    unittest.main()

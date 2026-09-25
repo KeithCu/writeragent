@@ -1,7 +1,7 @@
+import pytest
 import sys
 from plugin.framework.constants import get_plugin_dir
 import os
-import unittest
 import json
 import base64
 from unittest.mock import MagicMock, patch
@@ -14,8 +14,8 @@ from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, c
 from plugin.framework.client.llm_client import LlmClient
 from plugin.tests.testing_utils import MockContext, create_mock_client
 
-class TestEndpointImageProvider(unittest.TestCase):
-    def setUp(self):
+class TestEndpointImageProvider:
+    def setup_method(self):
         self.mock_ctx = MockContext()
         self.api_config = {"model": "test-model"}
         with patch('plugin.writer.images.image_utils.LlmClient'):
@@ -37,9 +37,9 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         paths, err = self.provider.generate("test prompt")
         
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(err, "")
-        self.assertTrue(paths[0].endswith(".webp"))
+        assert (len(paths)) == (1)
+        assert (err) == ("")
+        assert (paths[0].endswith(".webp"))
         from plugin.framework.config import get_config_int
         mock_sync.assert_called_once_with(
             "http://example.com/image.png",
@@ -60,11 +60,11 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         paths, err = self.provider.generate("test prompt")
         
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(err, "")
-        self.assertTrue(paths[0].endswith(".png"))
+        assert (len(paths)) == (1)
+        assert (err) == ("")
+        assert (paths[0].endswith(".png"))
         with open(paths[0], 'rb') as f:
-            self.assertEqual(f.read(), b"fake-image-data-b64")
+            assert (f.read()) == (b"fake-image-data-b64")
         os.unlink(paths[0])
 
     def test_generate_standard_b64(self):
@@ -74,11 +74,11 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         paths, err = self.provider.generate("test prompt")
 
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(err, "")
-        self.assertTrue(paths[0].endswith(".png"))
+        assert (len(paths)) == (1)
+        assert (err) == ("")
+        assert (paths[0].endswith(".png"))
         with open(paths[0], 'rb') as f:
-            self.assertEqual(f.read(), b"standard-b64-data")
+            assert (f.read()) == (b"standard-b64-data")
         os.unlink(paths[0])
 
     @patch('plugin.writer.images.image_utils.sync_request')
@@ -96,8 +96,8 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         paths, err = self.provider.generate("test prompt")
         
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(err, "")
+        assert (len(paths)) == (1)
+        assert (err) == ("")
         from plugin.framework.config import get_config_int
         mock_sync.assert_called_with(
             "http://fallback.com/image.png",
@@ -120,10 +120,10 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         paths, err = self.provider.generate("test prompt")
         
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(err, "")
+        assert (len(paths)) == (1)
+        assert (err) == ("")
         with open(paths[0], 'rb') as f:
-            self.assertEqual(f.read(), b"fallback-b64-data")
+            assert (f.read()) == (b"fallback-b64-data")
         os.unlink(paths[0])
 
     def test_scoping_bug_fix_verification(self):
@@ -135,7 +135,7 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         # This should NOT crash now. It should just return [].
         result = self.provider.generate("test prompt")
-        self.assertEqual(result, ([], "No image data returned from provider"))
+        assert (result) == (([], "No image data returned from provider"))
 
     def test_generate_error_handling_missing_fields(self):
         """When provider response lacks expected image fields, ensure we return ([], '')."""
@@ -149,8 +149,8 @@ class TestEndpointImageProvider(unittest.TestCase):
         self.mock_client.request_with_tools.return_value = mock_resp
 
         paths, err = self.provider.generate("test prompt")
-        self.assertEqual(paths, [])
-        self.assertEqual(err, "")
+        assert (paths) == ([])
+        assert (err) == ("")
 
     def test_fallback_logic_non_string_content(self):
         """When provider response content is non-string (e.g. dict or list), fallback should handle it gracefully."""
@@ -165,8 +165,8 @@ class TestEndpointImageProvider(unittest.TestCase):
         self.mock_client.request_with_tools.return_value = mock_resp
 
         paths, err = self.provider.generate("test prompt")
-        self.assertEqual(paths, [])
-        self.assertEqual(err, "")
+        assert (paths) == ([])
+        assert (err) == ("")
 
     def test_generate_multi_image(self):
         """If provider returns multiple images, ensure paths preserves ordering and all paths are created/cleaned."""
@@ -178,16 +178,16 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         paths, err = self.provider.generate("test prompt")
 
-        self.assertEqual(len(paths), 2)
-        self.assertEqual(err, "")
+        assert (len(paths)) == (2)
+        assert (err) == ("")
 
-        self.assertTrue(paths[0].endswith(".png"))
+        assert (paths[0].endswith(".png"))
         with open(paths[0], 'rb') as f:
-            self.assertEqual(f.read(), b"multi-image-b64-data-1")
+            assert (f.read()) == (b"multi-image-b64-data-1")
 
-        self.assertTrue(paths[1].endswith(".png"))
+        assert (paths[1].endswith(".png"))
         with open(paths[1], 'rb') as f:
-            self.assertEqual(f.read(), b"multi-image-b64-data-2")
+            assert (f.read()) == (b"multi-image-b64-data-2")
 
         os.unlink(paths[0])
         os.unlink(paths[1])
@@ -206,8 +206,8 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         paths, err = self.provider.generate("test prompt")
 
-        self.assertEqual(paths, [])
-        self.assertEqual(err, "")
+        assert (paths) == ([])
+        assert (err) == ("")
 
     @patch('plugin.writer.images.image_utils.LlmClient')
     def test_edit_image_openrouter_sends_multimodal_message(self, mock_client_cls):
@@ -225,12 +225,12 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         mock_client.make_chat_request.assert_called_once()
         call_messages = mock_client.make_chat_request.call_args[0][0]
-        self.assertEqual(len(call_messages), 1)
+        assert (len(call_messages)) == (1)
         content = call_messages[0]["content"]
-        self.assertIsInstance(content, list)
-        self.assertEqual(content[0], {"type": "text", "text": "edit prompt"})
-        self.assertEqual(content[1]["type"], "image_url")
-        self.assertEqual(content[1]["image_url"]["url"], "data:image/png;base64," + b64)
+        assert isinstance(content, list)
+        assert (content[0]) == ({"type": "text", "text": "edit prompt"})
+        assert (content[1]["type"]) == ("image_url")
+        assert (content[1]["image_url"]["url"]) == ("data:image/png;base64," + b64)
 
     @patch('plugin.writer.images.image_utils.LlmClient')
     def test_edit_image_standard_endpoint_passes_source_image(self, mock_client_cls):
@@ -246,7 +246,7 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         mock_client.image_completion.assert_called_once()
         kwargs = mock_client.image_completion.call_args[1]
-        self.assertEqual(kwargs.get("source_image"), b64)
+        assert (kwargs.get("source_image")) == (b64)
 
     @patch('plugin.framework.client.llm_client.init_logging')
     def test_make_image_request_body_includes_image_url_when_source_image(self, mock_init):
@@ -255,8 +255,8 @@ class TestEndpointImageProvider(unittest.TestCase):
         client = LlmClient(config, MockContext())
         method, path, body, headers = client.make_image_request("a cat", source_image="b64data")
         data = json.loads(body.decode("utf-8"))
-        self.assertIn("image_url", data)
-        self.assertEqual(data["image_url"], "data:image/png;base64,b64data")
+        assert ("image_url") in (data)
+        assert (data["image_url"]) == ("data:image/png;base64,b64data")
 
     @patch('plugin.framework.client.llm_client.init_logging')
     def test_openrouter_image_request_uses_input_references_for_edit(self, mock_init):
@@ -270,11 +270,8 @@ class TestEndpointImageProvider(unittest.TestCase):
         with patch.object(client, "_resolve_auth", return_value={"provider": "openrouter"}):
             method, path, body, headers = client.make_image_request("make him a wizard", source_image="b64data")
         data = json.loads(body.decode("utf-8"))
-        self.assertNotIn("image_url", data)
-        self.assertEqual(
-            data["input_references"],
-            [{"type": "image_url", "image_url": {"url": "data:image/png;base64,b64data"}}],
-        )
+        assert ("image_url") not in (data)
+        assert (data["input_references"]) == ([{"type": "image_url", "image_url": {"url": "data:image/png;base64,b64data"}}])
 
     @patch('plugin.framework.client.llm_client.init_logging')
     def test_openai_image_request_uses_images_edits_for_edit(self, mock_init):
@@ -284,22 +281,22 @@ class TestEndpointImageProvider(unittest.TestCase):
         with patch.object(client, "_resolve_auth", return_value={"provider": "openai"}):
             method, path, body, headers = client.make_image_request("a cat", model="gpt-image-2")
             data = json.loads(body.decode("utf-8"))
-            self.assertTrue(path.endswith("/images/generations"))
-            self.assertFalse(path.endswith("/images/edits"))
-            self.assertNotIn("image_url", data)
-            self.assertNotIn("images", data)
-            self.assertNotIn("steps", data)
-            self.assertEqual(data["response_format"], "b64_json")
+            assert (path.endswith("/images/generations"))
+            assert not (path.endswith("/images/edits"))
+            assert ("image_url") not in (data)
+            assert ("images") not in (data)
+            assert ("steps") not in (data)
+            assert (data["response_format"]) == ("b64_json")
 
             method, path, body, headers = client.make_image_request(
                 "make him a wizard", model="gpt-image-2", source_image="b64data"
             )
         data = json.loads(body.decode("utf-8"))
-        self.assertTrue(path.endswith("/images/edits"))
-        self.assertNotIn("image_url", data)
-        self.assertEqual(data["images"], [{"image_url": "data:image/png;base64,b64data"}])
-        self.assertEqual(data["response_format"], "b64_json")
-        self.assertEqual(data["model"], "gpt-image-2")
+        assert (path.endswith("/images/edits"))
+        assert ("image_url") not in (data)
+        assert (data["images"]) == ([{"image_url": "data:image/png;base64,b64data"}])
+        assert (data["response_format"]) == ("b64_json")
+        assert (data["model"]) == ("gpt-image-2")
 
     @patch('plugin.framework.client.llm_client.init_logging')
     def test_openai_dalle3_rejects_edit(self, mock_init):
@@ -307,10 +304,10 @@ class TestEndpointImageProvider(unittest.TestCase):
         config = {"endpoint": "https://api.openai.com", "model": "dall-e-3", "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
         with patch.object(client, "_resolve_auth", return_value={"provider": "openai"}):
-            with self.assertRaises(ValueError) as raised:
+            with pytest.raises(ValueError) as raised:
                 client.make_image_request("make it dusk", model="dall-e-3", source_image="b64data")
-        self.assertIn("dall-e-3", str(raised.exception).lower())
-        self.assertIn("cannot edit", str(raised.exception).lower())
+        assert ("dall-e-3") in (str(raised.value).lower())
+        assert ("cannot edit") in (str(raised.value).lower())
 
     @patch('plugin.framework.client.llm_client.init_logging')
     def test_together_image_request_uses_reference_images_for_edit(self, mock_init):
@@ -320,26 +317,26 @@ class TestEndpointImageProvider(unittest.TestCase):
         with patch.object(client, "_resolve_auth", return_value={"provider": "together"}):
             method, path, body, headers = client.make_image_request("a cat", model="google/flash-image-2.5")
             data = json.loads(body.decode("utf-8"))
-            self.assertNotIn("image_url", data)
-            self.assertNotIn("reference_images", data)
-            self.assertNotIn("size", data)
-            self.assertEqual(data["width"], 1024)
-            self.assertEqual(data["height"], 1024)
+            assert ("image_url") not in (data)
+            assert ("reference_images") not in (data)
+            assert ("size") not in (data)
+            assert (data["width"]) == (1024)
+            assert (data["height"]) == (1024)
 
             method, path, body, headers = client.make_image_request(
                 "wide", model="google/flash-image-2.5", width=896, height=512
             )
             data = json.loads(body.decode("utf-8"))
-            self.assertEqual(data["width"], 896)
-            self.assertEqual(data["height"], 512)
-            self.assertNotIn("size", data)
+            assert (data["width"]) == (896)
+            assert (data["height"]) == (512)
+            assert ("size") not in (data)
 
             method, path, body, headers = client.make_image_request(
                 "make him a wizard", model="google/flash-image-2.5", source_image="b64data"
             )
         data = json.loads(body.decode("utf-8"))
-        self.assertNotIn("image_url", data)
-        self.assertEqual(data["reference_images"], ["data:image/png;base64,b64data"])
+        assert ("image_url") not in (data)
+        assert (data["reference_images"]) == (["data:image/png;base64,b64data"])
 
     @patch('plugin.framework.client.llm_client.init_logging')
     def test_together_kontext_image_request_uses_image_url_for_edit(self, mock_init):
@@ -351,23 +348,23 @@ class TestEndpointImageProvider(unittest.TestCase):
                 "a lake", model="black-forest-labs/FLUX.1-kontext-pro", width=896, height=512
             )
             create = json.loads(body.decode("utf-8"))
-            self.assertEqual(create["aspect_ratio"], "16:9")
-            self.assertNotIn("size", create)
-            self.assertNotIn("width", create)
-            self.assertNotIn("height", create)
+            assert (create["aspect_ratio"]) == ("16:9")
+            assert ("size") not in (create)
+            assert ("width") not in (create)
+            assert ("height") not in (create)
 
             method, path, body, headers = client.make_image_request(
                 "watercolor", model="black-forest-labs/FLUX.1-kontext-pro", source_image="b64data"
             )
         data = json.loads(body.decode("utf-8"))
-        self.assertEqual(data["image_url"], "data:image/png;base64,b64data")
-        self.assertNotIn("reference_images", data)
-        self.assertNotIn("size", data)
-        self.assertNotIn("width", data)
-        self.assertNotIn("height", data)
-        self.assertEqual(data["aspect_ratio"], "1:1")
+        assert (data["image_url"]) == ("data:image/png;base64,b64data")
+        assert ("reference_images") not in (data)
+        assert ("size") not in (data)
+        assert ("width") not in (data)
+        assert ("height") not in (data)
+        assert (data["aspect_ratio"]) == ("1:1")
 
-class TestImageService(unittest.TestCase):
+class TestImageService:
     def test_endpoint_provider_with_none_config(self):
         """ImageService(..., None) must not call .get on None (regression: generate_image / endpoint)."""
         mock_ctx = MagicMock()
@@ -382,8 +379,8 @@ class TestImageService(unittest.TestCase):
         ):
             service = ImageService(mock_ctx, None)
             provider = service.get_provider("endpoint")
-            self.assertIsInstance(provider, EndpointImageProvider)
-            self.assertEqual(provider.model, "image-model-fallback")
+            assert isinstance(provider, EndpointImageProvider)
+            assert (provider.model) == ("image-model-fallback")
 
         with (
             patch("plugin.framework.config.get_api_config", return_value=api.copy()),
@@ -391,7 +388,7 @@ class TestImageService(unittest.TestCase):
         ):
             service = ImageService(mock_ctx, {"image_model": "  my-image-model  "})
             provider = service.get_provider("endpoint")
-            self.assertEqual(provider.model, "my-image-model")
+            assert (provider.model) == ("my-image-model")
 
     def test_openrouter_image_request_uses_resolved_model(self):
         """Per-request image_model must reach make_chat_request (OpenRouter modalities path)."""
@@ -419,8 +416,8 @@ class TestImageService(unittest.TestCase):
         ):
             provider.generate("a dog", width=512, height=512, image_model="multimodal-custom-model")
 
-        self.assertEqual(captured.get("model"), "multimodal-custom-model")
-        self.assertEqual(captured.get("rwt_model"), "multimodal-custom-model")
+        assert (captured.get("model")) == ("multimodal-custom-model")
+        assert (captured.get("rwt_model")) == ("multimodal-custom-model")
 
     def test_openrouter_image_request_dedicated_routing(self):
         """Image models should route to image_completion on OpenRouter."""
@@ -447,10 +444,10 @@ class TestImageService(unittest.TestCase):
         ):
             provider.generate("a dog", width=1024, height=1024, image_model="black-forest-labs/flux.2-klein-4b")
 
-        self.assertEqual(captured.get("prompt"), "a dog")
-        self.assertEqual(captured.get("model"), "black-forest-labs/flux.2-klein-4b")
-        self.assertEqual(captured.get("width"), 1024)
-        self.assertEqual(captured.get("height"), 1024)
+        assert (captured.get("prompt")) == ("a dog")
+        assert (captured.get("model")) == ("black-forest-labs/flux.2-klein-4b")
+        assert (captured.get("width")) == (1024)
+        assert (captured.get("height")) == (1024)
 
     def test_openrouter_chat_path_sends_image_config_aspect(self):
         """Gemini multimodal create must hint aspect_ratio / 0.5K via image_config."""
@@ -486,9 +483,9 @@ class TestImageService(unittest.TestCase):
 
         body = captured["body"]
         assert isinstance(body, dict)
-        self.assertEqual(body["modalities"], ["image"])
-        self.assertEqual(body["image_config"], {"aspect_ratio": "1:1", "image_size": "0.5K"})
-        self.assertNotIn("size", body)
+        assert (body["modalities"]) == (["image"])
+        assert (body["image_config"]) == ({"aspect_ratio": "1:1", "image_size": "0.5K"})
+        assert ("size") not in (body)
 
     def test_openrouter_chat_edit_omits_image_config(self):
         """Img2img must not send sidebar size/aspect; source image defines geometry."""
@@ -526,41 +523,39 @@ class TestImageService(unittest.TestCase):
 
         body = captured["body"]
         assert isinstance(body, dict)
-        self.assertEqual(body["modalities"], ["image"])
-        self.assertNotIn("image_config", body)
+        assert (body["modalities"]) == (["image"])
+        assert ("image_config") not in (body)
 
 
-class TestCanonicalAspectRatio(unittest.TestCase):
+class TestCanonicalAspectRatio:
     def test_canonical_aspect_ratio_named_and_pixels(self):
-        self.assertEqual(canonical_aspect_ratio(named="square"), "1:1")
-        self.assertEqual(canonical_aspect_ratio(named="Square"), "1:1")
-        self.assertEqual(canonical_aspect_ratio(named="Landscape (16:9)"), "16:9")
-        self.assertEqual(canonical_aspect_ratio(named="landscape_3_2"), "3:2")
-        self.assertEqual(canonical_aspect_ratio(1024, 1024), "1:1")
-        self.assertEqual(canonical_aspect_ratio(1024, 576), "16:9")
-        self.assertEqual(canonical_aspect_ratio(896, 512), "16:9")
-        self.assertEqual(canonical_aspect_ratio(1024, 768), "4:3")
-        self.assertEqual(canonical_aspect_ratio(768, 1024), "3:4")
+        assert (canonical_aspect_ratio(named="square")) == ("1:1")
+        assert (canonical_aspect_ratio(named="Square")) == ("1:1")
+        assert (canonical_aspect_ratio(named="Landscape (16:9)")) == ("16:9")
+        assert (canonical_aspect_ratio(named="landscape_3_2")) == ("3:2")
+        assert (canonical_aspect_ratio(1024, 1024)) == ("1:1")
+        assert (canonical_aspect_ratio(1024, 576)) == ("16:9")
+        assert (canonical_aspect_ratio(896, 512)) == ("16:9")
+        assert (canonical_aspect_ratio(1024, 768)) == ("4:3")
+        assert (canonical_aspect_ratio(768, 1024)) == ("3:4")
 
     def test_canonical_resolution_tiers_and_clamps(self):
-        self.assertEqual(canonical_resolution(512, 512), "512")
-        self.assertEqual(canonical_resolution(1024, 1024), "1K")
-        self.assertEqual(canonical_resolution(2048, 2048), "2K")
-        self.assertEqual(canonical_resolution(4096, 4096), "4K")
-        self.assertEqual(canonical_resolution(512, 512, family="openrouter_chat"), "0.5K")
-        self.assertEqual(canonical_resolution(1024, 1024, family="openrouter_chat"), "1K")
-        self.assertEqual(canonical_resolution(2048, 2048, family="openrouter_chat"), "2K")
-        self.assertEqual(canonical_resolution(4096, 4096, family="openrouter_chat"), "4K")
-        self.assertEqual(canonical_resolution(512, 512, family="grok"), "1k")
-        self.assertEqual(canonical_resolution(1024, 1024, family="grok"), "1k")
-        self.assertEqual(canonical_resolution(2048, 2048, family="grok"), "2k")
-        self.assertEqual(canonical_resolution(4096, 4096, family="grok"), "2k")
-        self.assertEqual(canonical_resolution(512, 512, family="imagen"), "1K")
-        self.assertEqual(canonical_resolution(1024, 768, family="imagen"), "1K")
-        self.assertEqual(canonical_resolution(2048, 2048, family="imagen"), "2K")
-        self.assertEqual(canonical_resolution(4096, 4096, family="imagen"), "2K")
-        self.assertIsNone(canonical_resolution(0, 512))
+        assert (canonical_resolution(512, 512)) == ("512")
+        assert (canonical_resolution(1024, 1024)) == ("1K")
+        assert (canonical_resolution(2048, 2048)) == ("2K")
+        assert (canonical_resolution(4096, 4096)) == ("4K")
+        assert (canonical_resolution(512, 512, family="openrouter_chat")) == ("0.5K")
+        assert (canonical_resolution(1024, 1024, family="openrouter_chat")) == ("1K")
+        assert (canonical_resolution(2048, 2048, family="openrouter_chat")) == ("2K")
+        assert (canonical_resolution(4096, 4096, family="openrouter_chat")) == ("4K")
+        assert (canonical_resolution(512, 512, family="grok")) == ("1k")
+        assert (canonical_resolution(1024, 1024, family="grok")) == ("1k")
+        assert (canonical_resolution(2048, 2048, family="grok")) == ("2k")
+        assert (canonical_resolution(4096, 4096, family="grok")) == ("2k")
+        assert (canonical_resolution(512, 512, family="imagen")) == ("1K")
+        assert (canonical_resolution(1024, 768, family="imagen")) == ("1K")
+        assert (canonical_resolution(2048, 2048, family="imagen")) == ("2K")
+        assert (canonical_resolution(4096, 4096, family="imagen")) == ("2K")
+        assert (canonical_resolution(0, 512)) is None
 
 
-if __name__ == '__main__':
-    unittest.main()

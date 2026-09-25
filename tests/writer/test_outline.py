@@ -1,16 +1,12 @@
 """Unit tests for Writer outline tools."""
 
-import unittest
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 from plugin.writer.outline import GetDocumentTree
 
 
-class TestGetDocumentTreeMergedStats(unittest.TestCase):
+class TestGetDocumentTreeMergedStats:
     @patch("plugin.writer.outline.collect_document_stats")
     def test_execute_includes_stats(self, mock_collect):
         mock_collect.return_value = {
@@ -35,11 +31,9 @@ class TestGetDocumentTreeMergedStats(unittest.TestCase):
         tool = GetDocumentTree()
         result = tool.execute(ctx)
 
-        self.assertEqual(result["stats"], mock_collect.return_value)
-        self.assertIn("children", result)
+        assert (result["stats"]) == (mock_collect.return_value)
+        assert ("children") in (result)
         mock_collect.assert_called_once_with(ctx.doc, ctx.services.document)
         tree_svc.get_document_tree.assert_called_once()
 
 
-if __name__ == "__main__":
-    unittest.main()

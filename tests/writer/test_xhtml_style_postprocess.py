@@ -330,7 +330,7 @@ def test_xhtml_hot_sinks_off_cover_all() -> None:
     """cover-all 35546602462: xhtml_style_postprocess ~18m; HTML/CSS sinks stay out of cover_fqns."""
     from pathlib import Path
 
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module

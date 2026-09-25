@@ -1,8 +1,11 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Settings → Python Test shows a modal dialog with incremental probe output."""
 
 from unittest.mock import MagicMock, patch
 
-from plugin.chatbot.dialog_views import _dialog_parent_for_child
 from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener
 
 
@@ -55,10 +58,3 @@ def test_python_test_uses_modal_incremental_probe() -> None:
     assert any("Scientific Libraries: numpy" in text for text in probe_displays)
     assert any("Cython Accelerator" in text for text in probe_displays)
     assert any("numpy" in status for status in probe_statuses)
-
-
-def test_dialog_parent_for_child_prefers_settings_peer() -> None:
-    parent = MagicMock()
-    parent.getPeer.return_value = "settings-peer"
-    assert _dialog_parent_for_child(MagicMock(), parent) == "settings-peer"
-    parent.getPeer.assert_called_once()

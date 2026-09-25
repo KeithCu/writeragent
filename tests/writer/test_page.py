@@ -1,8 +1,8 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from plugin.tests.testing_utils import TestingFactory, setup_uno_mocks
+from plugin.tests.testing_utils import TestingFactory
 
-setup_uno_mocks()
 
 # Set up BreakType PAGE_BEFORE constant explicitly if needed for the test
 import sys
@@ -678,3 +678,66 @@ def test_page_uno_skips_windows_leftover_hidden_xtext() -> None:
         assert "skip_windows_leftover_hidden_load" in src, name
         assert "page_header Hidden _blank xtext_to_content" in src, name
         assert "34689136372" in src, name
+
+
+# ---- D5: page break happy paths + last-paragraph edge ------------------------
+
+def _pagebreak_doc(found_next=True):
+    import types as _types
+    import sys as _sys
+    bt = _types.ModuleType("com.sun.star.style.BreakType")
+    bt.PAGE_BEFORE = "PAGE_BEFORE"
+    _sys.modules["com.sun.star.style.BreakType"] = bt
+    doc = MagicMock()
+    found = MagicMock()
+    para = MagicMock()
+    para.gotoNextParagraph.return_value = found_next
+    found.getText.return_value.createTextCursorByRange.return_value = para
+    doc.findFirst.return_value = found
+    return doc, para
+
+
+def test_page_break_before_text_sets_break_on_match_paragraph():
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc()
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Assinaturas")
+    assert res["status"] == "ok" and "before" in res["message"]
+    para.setPropertyValue.assert_called_once_with("BreakType", "PAGE_BEFORE")
+    para.gotoNextParagraph.assert_not_called()
+
+
+def test_page_break_after_text_breaks_on_following_paragraph():
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc(found_next=True)
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), after_text="clausula")
+    assert res["status"] == "ok" and "after" in res["message"]
+    para.gotoNextParagraph.assert_called_once()
+    para.setPropertyValue.assert_called_once_with("BreakType", "PAGE_BEFORE")
+
+
+def test_page_break_after_text_last_paragraph_errors_instead_of_wrong_direction():
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc(found_next=False)
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), after_text="assinatura final")
+    assert res["status"] == "error" and "last paragraph" in res["message"]
+    para.setPropertyValue.assert_not_called()  # never the wrong-direction silent break
+
+# ---- D5: insert_page_break anchored -----------------------------------------
+
+def test_page_break_both_anchors_rejected():
+    from plugin.writer.page import PageInsertBreak
+    res = PageInsertBreak().execute(SimpleNamespace(doc=MagicMock()), before_text="a", after_text="b")
+    assert res["status"] == "error" and "only one" in res["message"]
+
+
+def test_page_break_anchor_not_found():
+    from plugin.writer.page import PageInsertBreak
+    doc = MagicMock()
+    doc.findFirst.return_value = None
+    # com.sun.star.style.BreakType is a mocked module; the import inside execute resolves via the uno mock.
+    res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Signature")
+    assert res["status"] == "error" and "not found" in res["message"]
+

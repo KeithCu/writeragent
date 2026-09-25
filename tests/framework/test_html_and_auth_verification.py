@@ -20,7 +20,7 @@ from plugin.framework.client.auth import (
     provider_requires_api_key,
     provider_requires_slug_model_id,
 )
-from tests.strip_bundle import deal_pre_present
+from tests.harness.strip_bundle import deal_pre_present
 
 
 @given(text=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=DEAL_MAX_HTML_CHUNK))

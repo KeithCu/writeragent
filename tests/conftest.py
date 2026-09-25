@@ -253,6 +253,95 @@ setattr(frame, "DispatchDescriptor", MockBase)
 setattr(frame, "XDispatch", MockXDispatch)
 setattr(frame, "XDispatchProvider", MockXDispatchProvider)
 
+# Shells and attributes that setup_uno_mocks() used to install per test module.
+# They live here so a module-level setup_uno_mocks() call is a no-op under pytest.
+_create_mock_module("com.sun.star.document")
+_create_mock_module("com.sun.star.style")
+_create_mock_module("com.sun.star.style.BreakType")
+_create_mock_module("com.sun.star.ui.UIElementType")
+_create_mock_module("com.sun.star.datatransfer")
+clipboard = _create_mock_module("com.sun.star.datatransfer.clipboard")
+
+
+class MockDate:
+    Year = 2024
+    Month = 1
+    Day = 1
+
+
+class MockXClipboardListener:
+    pass
+
+
+class MockXCallback:
+    pass
+
+
+setattr(util, "Date", MockDate)
+setattr(clipboard, "XClipboardListener", MockXClipboardListener)
+setattr(awt, "XCallback", MockXCallback)
+# setup_uno_mocks also publishes unohelper.Base as its own sys.modules entry.
+sys.modules["unohelper.Base"] = MockUnohelperBase
+
+# Some test modules replace these entries at import (for example unohelper = MagicMock()).
+# The next module then subclasses MagicMock and collection dies with a metaclass conflict.
+# Snapshot the session shells and put them back before each test module imports, so a
+# per-file setup_uno_mocks() call is not required to undo that.
+_PYTEST_UNO_SHELLS = {
+    name: mod
+    for name, mod in list(sys.modules.items())
+    if name in ("uno", "unohelper")
+    or name.startswith("unohelper.")
+    or name == "com"
+    or name.startswith("com.")
+}
+# Attribute writes on the shared module object (not a replacement of the module)
+# survive putting the same object back into sys.modules. Re-apply the originals.
+_PYTEST_UNO_ATTRS: list[tuple[types.ModuleType, str, object]] = []
+for _mod in _PYTEST_UNO_SHELLS.values():
+    if not isinstance(_mod, types.ModuleType):
+        continue
+    for _attr, _val in list(vars(_mod).items()):
+        if _attr.startswith("_"):
+            continue
+        _PYTEST_UNO_ATTRS.append((_mod, _attr, _val))
+
+
+def _restore_pytest_uno_shells() -> None:
+    # unohelper is the one that breaks the next module: a test file assigns
+    # sys.modules['unohelper'] = MagicMock(), then a later import subclasses
+    # MagicMock together with a real interface class.
+    for name in ("uno", "unohelper", "unohelper.Base"):
+        mod = _PYTEST_UNO_SHELLS.get(name)
+        if mod is not None:
+            sys.modules[name] = mod
+    for name, mod in _PYTEST_UNO_SHELLS.items():
+        if name in ("uno", "unohelper", "unohelper.Base"):
+            continue
+        # Leave intentional replacements alone (test_errors swaps table for a
+        # MagicMock that must still be in place when its tests run). Only put
+        # back a shell another module already removed.
+        if sys.modules.get(name) is None:
+            sys.modules[name] = mod
+    for mod, attr, val in _PYTEST_UNO_ATTRS:
+        installed = sys.modules.get(getattr(mod, "__name__", ""))
+        if installed is mod and getattr(mod, attr, None) is not val:
+            setattr(mod, attr, val)
+
+
+def pytest_collectstart(collector):
+    """Restore session UNO shells immediately before a test module is imported.
+
+    pytest_collect_file runs when the collector is created, which can be long
+    before import. collectstart on the module runs inside collection, just
+    before Module._getobj imports the file. Test modules that assign
+    sys.modules['unohelper'] = MagicMock() would otherwise leak into the next
+    file and break unohelper.Base multiple inheritance.
+    """
+    path = getattr(collector, "path", None)
+    if path is not None and str(path).endswith(".py"):
+        _restore_pytest_uno_shells()
+
 
 @pytest.fixture(autouse=True)
 def _setup_grammar_persistence_test_env():
@@ -442,13 +531,13 @@ def _stop_idle_pytest_progress() -> None:
 
 def pytest_configure(config):
     """Arm opt-in CI hang diagnostics (no-op unless WRITERAGENT_CI_DEBUG=1)."""
-    from tests.ci_debug import start_ci_debug
+    from tests.harness.ci_debug import start_ci_debug
 
     start_ci_debug()
 
 
 def pytest_runtest_logstart(nodeid, location):
-    from tests.ci_debug import log_ci_debug
+    from tests.harness.ci_debug import log_ci_debug
 
     log_ci_debug(f"start {nodeid}")
     global _pytest_progress_last_nodeid
@@ -461,7 +550,7 @@ def pytest_runtest_logstart(nodeid, location):
 
 
 def pytest_runtest_logfinish(nodeid, location):
-    from tests.ci_debug import log_ci_debug
+    from tests.harness.ci_debug import log_ci_debug
 
     log_ci_debug(f"end {nodeid}")
     _pytest_progress_inflight.discard(nodeid)
@@ -533,7 +622,7 @@ def _shutdown_harper_runtime_after_test():
 
 def pytest_sessionfinish(session, exitstatus):
     """Fail the run if isolation leaked a ``MagicMock/`` tree under the repo root."""
-    from tests.ci_debug import stop_ci_debug
+    from tests.harness.ci_debug import stop_ci_debug
 
     stop_ci_debug()
     _shutdown_harper_if_loaded()

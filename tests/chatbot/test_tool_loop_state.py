@@ -146,7 +146,7 @@ def test_format_empty_model_response_debug_overflow_pre_fails_closed():
     import pytest
 
     import deal
-    from tests.strip_bundle import deal_pre_present
+    from tests.harness.strip_bundle import deal_pre_present
 
     if not deal_pre_present(format_empty_model_response_debug):
         pytest.skip("@deal.pre stripped in release bundle")
@@ -354,7 +354,7 @@ def test_next_tool_delegate_keeps_full_task_on_spawn():
 def test_truncate_delegate_task_pre_rejects_over_sanity_cap():
     from plugin.chatbot.tool_loop_state import _truncate_delegate_task
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-    from tests.strip_bundle import deal_pre_present
+    from tests.harness.strip_bundle import deal_pre_present
 
     if not deal_pre_present(_truncate_delegate_task):
         pytest.skip("@deal.pre stripped in release bundle")
@@ -368,7 +368,7 @@ def test_truncate_delegate_task_crosshair_floors_stay_tiny():
 
     from plugin.chatbot import tool_loop_state as tls
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("@deal.pre stripped in release bundle")
     assert UNDER_CROSSHAIR is False
@@ -653,7 +653,7 @@ def test_empty_and_delegate_formatters_dropped_from_check_all_fqns():
     """Deep check-all run 32840960268: engine traceback after 1:53 / Prev 56:34."""
     from pathlib import Path
 
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module
@@ -666,7 +666,7 @@ def test_empty_and_delegate_formatters_dropped_from_check_all_fqns():
 def test_describe_empty_response_tool_calls_pre_rejects_non_list() -> None:
     """Vacuous ``not list`` pre let CrossHair explore arbitrary objects (~5s / 5753 lines)."""
     from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS
-    from tests.strip_bundle import deal_pre_present
+    from tests.harness.strip_bundle import deal_pre_present
 
     if not deal_pre_present(_describe_empty_response_tool_calls):
         pytest.skip("@deal.pre stripped in release bundle")

@@ -5,12 +5,10 @@ import threading
 import time
 from plugin.testing_runner import native_test
 from unittest.mock import MagicMock, patch
-from plugin.tests.testing_utils import setup_uno_mocks
 from plugin.framework.uno_context import set_fallback_ctx, get_ctx
 _test_doc1 = None
 _test_doc2 = None
 _test_ctx = None
-
 
 
 @native_test
@@ -37,15 +35,13 @@ def test_service_registry():
     registry.register('dummy', svc)
     assert (registry.get('dummy') is svc), 'ServiceRegistry failed'
 
-setup_uno_mocks()
-
 
 def test_get_ctx_with_uno():
     mock_uno = MagicMock()
     mock_ctx = MagicMock()
     mock_uno.getComponentContext.return_value = mock_ctx
     # patch.dict RESTORES the previous sys.modules['uno'] (the session-wide mock installed by
-    # setup_uno_mocks). The old pop('uno') left the whole run without a 'uno' module, so any
+    # tests/conftest.py). The old pop('uno') left the whole run without a 'uno' module, so any
     # later test that imports uno lazily hit the real uno.py -> "No module named 'pyuno'"
     # (this is what broke tests/mcp/test_long_running_concurrency.py in combined runs).
     with patch.dict(sys.modules, {'uno': mock_uno}):
@@ -634,7 +630,7 @@ def test_uno_same_proxy_eq_unwraps_target():
     """GUARD_ON proxy ``__eq__`` unwraps ``_target`` so proxy↔unwrapped is same (step 2)."""
     from plugin.framework import thread_guard as tg
     from plugin.framework.uno_context import uno_same
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("GUARD_ON thread guard proxy stripped in release bundle")
     real = object()
@@ -648,7 +644,7 @@ def test_uno_same_issame_unwraps_proxy_first():
     """``uno.isSame`` must see the real PyUNO target, not the viral proxy wrapper."""
     from plugin.framework import thread_guard as tg
     from plugin.framework.uno_context import uno_same
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("GUARD_ON thread guard proxy stripped in release bundle")
     real_a, real_b = object(), object()

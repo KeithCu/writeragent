@@ -25,7 +25,7 @@ from plugin.calc.excel_py_convert.resolve_refs import (
 )
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN
 from plugin.framework.errors import UnoObjectError
-from tests.strip_bundle import deal_pre_present
+from tests.harness.strip_bundle import deal_pre_present
 
 import deal
 
@@ -182,7 +182,7 @@ def test_filter_operator2_code_to_name_is_off_cover_all() -> None:
     """
     from pathlib import Path
 
-    from tests.strip_bundle import skip_if_release_build
+    from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module

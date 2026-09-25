@@ -14,9 +14,7 @@ from plugin.calc.python.workbook_lifecycle import (
     _lifecycle_key,
     ensure_calc_workbook_unload_resets_python,
 )
-from plugin.tests.testing_utils import CalcDocStub, setup_uno_mocks
-
-setup_uno_mocks()
+from plugin.tests.testing_utils import CalcDocStub
 
 
 @pytest.fixture(autouse=True)

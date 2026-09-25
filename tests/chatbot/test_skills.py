@@ -6,7 +6,6 @@ Follows the same style and patterns as tests for memory.py and todo.
 import os
 import shutil
 import tempfile
-import unittest
 from unittest.mock import Mock, patch
 
 from plugin.chatbot.skills import SkillStore
@@ -35,10 +34,10 @@ def _skills_tree_root(skill_md_path: str) -> str:
     return os.path.dirname(os.path.dirname(skill_md_path))
 
 
-class _SkillTestBase(unittest.TestCase):
+class _SkillTestBase:
     """Isolate skill file I/O under a temp dir and remove seeded SKILL.md after each test."""
 
-    def setUp(self):
+    def setup_method(self):
         self.tmp_dir = tempfile.mkdtemp()
         self.ctx = DummyCtx(self.tmp_dir)
         self._skill_paths_to_cleanup: list[str] = []
@@ -48,7 +47,7 @@ class _SkillTestBase(unittest.TestCase):
         )
         self._user_config_patcher.start()
 
-    def tearDown(self):
+    def teardown_method(self):
         self._user_config_patcher.stop()
         for skill_md in self._skill_paths_to_cleanup:
             skills_root = _skills_tree_root(skill_md)
@@ -65,10 +64,10 @@ class TestHumanizerSkillStore(_SkillTestBase):
         store = SkillStore(self.ctx)
         guidance = store.get_humanizer_guidance()
         self._track_skill_path(store)
-        self.assertIn("HUMANIZER GUIDANCE", guidance)
-        self.assertIn("Vary sentence length", guidance)
+        assert ("HUMANIZER GUIDANCE") in (guidance)
+        assert ("Vary sentence length") in (guidance)
         # It should have seeded the file
-        self.assertTrue(os.path.exists(store.get_humanizer_skill_path()))
+        assert (os.path.exists(store.get_humanizer_skill_path()))
 
     def test_user_override_wins(self):
         store = SkillStore(self.ctx)
@@ -76,7 +75,7 @@ class TestHumanizerSkillStore(_SkillTestBase):
         store.write_humanizer_guidance(custom)
         self._track_skill_path(store)
         got = store.get_humanizer_guidance()
-        self.assertEqual(got, custom)
+        assert (got) == (custom)
 
     def test_front_matter_is_stripped(self):
         store = SkillStore(self.ctx)
@@ -88,9 +87,7 @@ Vary your sentences.
         store.write_humanizer_guidance(content)
         self._track_skill_path(store)
         got = store.get_humanizer_guidance()
-        self.assertIn("Vary your sentences", got)
-        self.assertNotIn("name: humanizer", got)
+        assert ("Vary your sentences") in (got)
+        assert ("name: humanizer") not in (got)
 
 
-if __name__ == "__main__":
-    unittest.main()

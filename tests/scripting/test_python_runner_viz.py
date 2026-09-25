@@ -10,9 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.scripting.python_runner import execute_and_insert_result
 from plugin.scripting.viz import get_viz_script_templates
-from plugin.tests.testing_utils import setup_uno_mocks
 
-setup_uno_mocks()
 
 _SAMPLE_IMAGE = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
 

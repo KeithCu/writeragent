@@ -11,9 +11,6 @@ from contextlib import contextmanager
 import logging
 from unittest.mock import MagicMock, patch
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-setup_uno_mocks()
 
 from plugin.chatbot.rich_text_control import (
     _is_automatic_char_color,
@@ -379,7 +376,7 @@ class TestLogRichScroll:
             log_rich_scroll("test_phase2", control=control)
 
         assert rtc._RICH_SCROLL_SEQ == start + 2
-        from tests.strip_bundle import module_source_contains
+        from tests.harness.strip_bundle import module_source_contains
 
         if not module_source_contains(rtc, "log.debug"):
             return
@@ -569,7 +566,7 @@ class TestLogRichControlContext:
             rtc.log_rich_control_context(MagicMock(), "window_shown", peer=0)
             rtc.log_rich_control_context(MagicMock(), "eager_init", peer=1)
         assert rtc._ENV_SNAPSHOT_LOGGED is True
-        from tests.strip_bundle import module_source_contains
+        from tests.harness.strip_bundle import module_source_contains
 
         if not module_source_contains(rtc, "log.info"):
             return
