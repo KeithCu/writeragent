@@ -37,6 +37,7 @@ These Python / NumPy features also now ship in **LibrePy.oxt**. The WriterAgent 
 | [Monaco editor dev plan](scripting/monaco-editor-dev-plan.md) | IPC, phases 2B–2F |
 | [Collabora Online / jail-safe](scripting/numpy-jailsafe.md) | Thin C++ Add-In + compute service |
 | [Collabora engine spill](calc/collabora-engine-spill-plan.md) | Single-cell `=PY()` spill in Core Calc |
+| [Collabora engine plot egress](calc/collabora-engine-plot-plan.md) | Single & multiple plot/image egress in Collabora Online Calc |
 | [Calc spreadsheet → Python import](calc/spreadsheet-to-python-import.md) | Prototype / low priority — convert formulas to `=PY()` |
 | [Jupyter notebook import](writer/jupyter-notebook-import.md) | Writer `.ipynb` import + ▶ run (shared `notebook:…` kernel; not Calc `=PY()`) |
 

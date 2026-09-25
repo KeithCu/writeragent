@@ -304,7 +304,7 @@ AddIn `timeout_ms` emission is **deferred** (wsd defaults 60s; service clamps; p
 |---|-------|--------------|-----|
 | F1 | UnitWSD wire CI — **done** | `collabofficefull/test/` | Proves kit↔wsd↔HTTP without waiting on Core rebuilds in CI |
 | F2 | Scalar NumPy smoke | writeragent + local coolwsd | Human/demo proof NumPy never enters the kit |
-| F3 | `images[]` sheet insert | Core AddIn + kit (+ maybe browser) | Service already emits plots; Online currently stubs a string |
+| F3 | `images[]` sheet insert | Core AddIn + Drawing Layer ([Plan](../calc/collabora-engine-plot-plan.md)) | Single & multiple plot egress; replaces stub string with native sheet shapes |
 | F4 | Compute container hardening | `compute_service/Dockerfile` + run scripts | Makes the OS boundary real for Collabora admins |
 | F5 | Shared workbook kernel | AddIn + kit + service (already half-ready) | LibrePy `mode=shared` parity; tenant-safe session ids |
 | F6 | Visible short Python errors | Core `jsonResultToAny` / bridge | Authors can see exception message in-cell (not opaque `#VALUE!`) |
@@ -388,6 +388,8 @@ then watch `pythoncomputeresult:` (echo or volatile-complete).
 ---
 
 ### F3 — Online `images[]` / plot insert
+
+- **Design note:** [`docs/calc/collabora-engine-plot-plan.md`](../calc/collabora-engine-plot-plan.md).
 
 **Today:**
 
