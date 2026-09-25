@@ -229,7 +229,7 @@ JSON lists already convert to `sequence<sequence<double|Any>>` → `ScUnoAddInCa
 **Single-cell `=PY(...)` does not auto-spill.** If the formula was not entered as a matrix / dynamic-array formula, Core keeps **only the top-left** value and drops the rest:
 
 ```text
-// engine/sc/source/core/data/formulacell.cxx (~2501–2508)
+// engine/sc/source/core/data/formulacell.cxx (~2577–2582)
 // If the formula wasn't entered as a matrix formula, live on with
 // the upper left corner and let reference counting delete the matrix.
 ```
@@ -241,7 +241,7 @@ JSON lists already convert to `sequence<sequence<double|Any>>` → `ScUnoAddInCa
 | Single-cell → list/2D | Top-left only | `scripting.python_auto_spill` writes neighbors + `#SPILL!` |
 | Ctrl+Shift+Enter matrix block | Full `ScMatrix` into declared range | matrix / index / spill paths |
 
-**Future (do not forget — comments/README in tree when touching anyjson):** single-cell auto-spill for Online AddIn `PY` (LibrePy-style UNO write-back, or Core dynamic-array promotion for this AddIn). Not required for Gerrit of the thin tip. Track as [F7](#f7--single-cell-auto-spill). See also Classic docs [Dynamic auto-spill](../enabling_numpy_in_libreoffice.md#dynamic-auto-spill).
+**Future (do not forget — comments/README in tree when touching anyjson):** single-cell auto-spill for Online AddIn `PY` requires Core dynamic-array promotion for the AddIn (Classic extension-style UNO write-back does not belong in Core). Not required for Gerrit of the thin tip. Full design note and code pointers: [Collabora Engine Spill Plan](../calc/collabora-engine-spill-plan.md). Track as [F7](#f7--single-cell-auto-spill).
 
 ### Security invariants
 
@@ -515,18 +515,18 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 
 ### F7 — Single-cell auto-spill
 
-**Goal:** Single-cell `=PY(...)` returning a list / 2D array fills adjacent cells (Excel / LibrePy parity), with `#SPILL!` when blocked.
+**Goal:** Single-cell `=PY(...)` returning a list / 2D array fills the neighboring cells of the matrix the AddIn already built, with `#SPILL!` when that rectangle is blocked.
 
-**Today:** list→`ScMatrix` works, but non-matrix formulas keep **top-left only** (`formulacell.cxx` ~2501–2508). Matrix formula (Ctrl+Shift+Enter) over a range still works for full grids.
+**Today:** list→`ScMatrix` works, but non-matrix formulas keep **top-left only** (`formulacell.cxx` ~2577–2582). Matrix formula (Ctrl+Shift+Enter) over a range still works for full grids. A flat JSON list is a **1×N row**, so `[1, 2, 3]` is three columns. Classic `_result_as_spill_grid` spills that same list down a column; F7 does not change the row.
 
-**Options (pick when implementing):**
-
-- LibrePy-style deferred UNO write into neighbors + spill registry (`scripting.python_auto_spill` pattern in Classic), or
-- Promote AddIn `PY` into Core dynamic-array eligibility / matrix-function intent so Calc’s native spill path runs.
+**Architecture:**
+- **Rejected:** Extension-style deferred UNO write-back into neighbors + custom spill registry (`scripting.python_auto_spill` in Classic).
+- **Accepted:** One check in `intendsArrayResultInRange` so UI-entered `PY` / `PYTHON` promotes to a 1×1 dynamic-array master before interpret. Calc’s existing spill path then runs. A later scalar or error collapses a previous spill; the interim `"#BUSY!"` string does not. `TrackFormulas` does not interpret this AddIn — pass 2 is the next `Interpret` of the dirty cell (on screen, paint).
+- **Design note:** [`docs/calc/collabora-engine-spill-plan.md`](../calc/collabora-engine-spill-plan.md).
 
 **Until then:** leave **code comments** near `elemsToAny` / README so this is not forgotten. Do not block Gerrit on F7.
 
-**Done when:** single-cell `=PY("result = [1,2,3]")` spills three cells (or shows `#SPILL!` if blocked), matching Classic auto-spill expectations.
+**Done when:** single-cell `=PY("result = [[1, 2], [3, 4]]")` spills 2×2, `[1, 2, 3]` spills A1:C1, a blocked neighbor shows `#SPILL!`, and a later scalar removes the old reference cells.
 
 ---
 

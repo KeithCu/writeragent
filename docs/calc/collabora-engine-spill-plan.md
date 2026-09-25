@@ -1,269 +1,235 @@
-# Collabora Online & Core Calc Dynamic Array Spill Architecture Plan
+# Collabora Online Calc — single-cell `=PY()` spill
 
-> **Status:** Draft Architectural Plan / Design Note for **F7 (Single-cell auto-spill)** and **G11** from [`docs/scripting/numpy-jailsafe.md`](../scripting/numpy-jailsafe.md).  
-> **Scope:** LibreOffice Core (`collabofficefull/engine`) + Collabora Online (`coolwsd`/`coolkit`).  
-> **Target:** Seamless single-cell `=PY(...)` auto-spill into neighboring cells (matching Microsoft Excel and LibrePy Classic), with native `#SPILL!` collision detection.
-
----
-
-## 1. Executive Summary & Goals
-
-In Microsoft Excel and LibrePy Classic (desktop), entering a single-cell `=PY(...)` formula that returns a list, NumPy 2D array, or pandas DataFrame automatically **spills** into adjacent rows and columns. If any destination cell is occupied, the formula reports `#SPILL!`.
-
-In Collabora Online / Core AddIn Step C today:
-- The Python compute service emits dumb JSON grids (`[[1, 2], [3, 4]]`).
-- `scaddins/source/pythoncompute/anyjson.cxx` parses them into `sequence<sequence<double>>` or `sequence<sequence<Any>>`.
-- `ScUnoAddInCall::SetResult` builds an `ScMatrix`, and `ScInterpreter::ScExternal` pushes it onto the interpreter stack via `PushMatrix`.
-- **However, single-cell `=PY(...)` keeps only the top-left value (`1`) and drops the rest.** Full matrices only appear if entered via **Ctrl+Shift+Enter** over a pre-selected rectangular block.
-
-This document details the architectural path to native dynamic array auto-spill for `=PY(...)` in Collabora Online, explains why extension-style UNO write-backs do not belong in Core, maps LibreOffice Calc's existing dynamic array engine, diagnoses the exact async volatile timing knot, and proposes a clean implementation plan with code pointers.
+> **Status:** Second draft, 2026-09-24. Design for **F7** / checklist row **G11** in [`docs/scripting/numpy-jailsafe.md`](../scripting/numpy-jailsafe.md).
+> **Code:** Collabora engine tree on this machine, `collabofficefull/engine` (Calc) and `collabofficefull/kit` (Online). This note lives in WriterAgent; the change does not.
+> **Decision:** Teach Calc’s existing dynamic-array promotion that `PY` / `PYTHON` intends an array, and collapse a previous spill when a later result is a scalar or an error. Do not add a spill registry, an IDL flag, or a LOKit invalidation path.
 
 ---
 
-## 2. Why LibrePy Classic UNO Write-back Does Not Apply to Core
+## 1. What “done” means
 
-In Classic LibrePy (`plugin/calc/python/function.py:L874-L1130`), auto-spill was built as an out-of-engine extension:
-1. `_queue_off_main_auto_spill` posts a task to a background queue.
-2. The UI thread runs `_prepare_auto_spill` ~100ms later.
-3. It inspects neighboring cells via UNO `getCellByPosition`, checks for collisions, writes literal cell values, and saves spill bounds in document user-defined properties (`WriterAgentSpillRegistry`).
-4. On subsequent recalculations, it clears those literal cells before re-spilling.
+A single cell entered as `=PY(...)` (Online: `.uno:EnterString`) whose Python result is a grid fills the neighboring cells through Calc’s dynamic-array engine, and shows `#SPILL!` when that rectangle is blocked.
 
-### Why this fails for Core C++ / Collabora Online:
-1. **Wrong Abstraction Level:** `scaddins/source/pythoncompute/` is an `XVolatileResult` provider implementing `org.collaboraoffice.sheet.addin.PythonComputeFunctions`. It does not have document mutation permissions, access to `ScDocFunc`, or a UNO macro event loop.
-2. **Formula Engine Bypassing:** Injecting synthetic literal cells bypasses Calc's formula dependency graph, dirty tracking, undo/redo stacks, and recalculation cascades.
-3. **LOKit / Multi-user Rendering Races:** In Collabora Online, out-of-band cell writes bypass the unified tile invalidation path, creating race conditions across connected client views.
-4. **Redundant Complexity:** LibreOffice Calc already has a **native dynamic-array and auto-spill engine** built directly into Core. The AddIn must plug into this native engine rather than reimplementing a shadow spill registry.
+The grid is the matrix the AddIn already builds. It is not re-shaped here.
 
----
+| Python result (service JSON) | Matrix today | Spill |
+| --- | --- | --- |
+| `42`, `"ok"`, `null` | scalar (no matrix) | the formula cell only |
+| `[1, 2, 3]` | **1×3 row** (`promoteFlatNumeric` in [`anyjson.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/anyjson.cxx)) | across columns: A1:C1 |
+| `[[1, 2], [3, 4]]` | 2×2 | the block |
+| one-element list | 1×1 matrix | the formula cell only |
 
-## 3. Existing LibreOffice Calc Dynamic Array Architecture
+LibrePy Classic spills a 1D list **down** a column (`_result_as_spill_grid` in `plugin/calc/python/function.py`). That is a different shape from the matrix Online already ships, and CSE matrix entry of `=PY` already uses the row. Turning the row into a column is an `anyjson` contract change with its own tests. It is not part of making the matrix spill.
 
-Modern LibreOffice Calc (`engine/sc/`) has full native dynamic-array and auto-spill machinery. The key components and code paths are:
-
-### 3.1 Data Structures & Flags
-- **`ScFormulaCell::mbDynamicArrayMaster`** ([`sc/inc/formulacell.hxx:L143`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/inc/formulacell.hxx#L143)):
-  Bit flag indicating that this formula cell is the origin (top-left master) of a dynamic array that can expand or contract.
-- **`ScFormulaCell::mbAutoDynamicArrayEligible`** ([`sc/inc/formulacell.hxx:L147`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/inc/formulacell.hxx#L147)):
-  Bit flag set when a formula is freshly entered in the UI without legacy Ctrl+Shift+Enter ([`sc/source/ui/view/viewfunc.cxx:L574-L575`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/ui/view/viewfunc.cxx#L574-L575)):
-  ```cpp
-  if (context->bAutoDynamicArray)
-      pCell->SetAutoDynamicArrayEligible(true);
-  ```
-- **`FormulaError::Spill`** ([`include/formula/errorcodes.hxx`](file:///home/keithcu/Desktop/collabofficefull/engine/include/formula/errorcodes.hxx)):
-  Native error code surfaced in Calc as `#SPILL!`.
-
-### 3.2 Dynamic Array Promotion on Entry
-When a cell is interpreted ([`sc/source/core/data/formulacell.cxx:L2227-L2240`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx#L2227-L2240)):
-```cpp
-if (mbAutoDynamicArrayEligible
-    && cMatrixFlag == ScMatrixMode::NONE
-    && !pCode->IsHyperLink()
-    && !mxGroup)
-{
-    if (!rpnTopIsImplicitIntersection(*pCode)
-        && rpnIntendsArrayResult(*pCode))
-    {
-        cMatrixFlag = ScMatrixMode::Formula;
-        SetMatColsRows(1, 1);
-        mbDynamicArrayMaster = true;
-    }
-    mbAutoDynamicArrayEligible = false;
-}
-```
-If eligible, entered without `@` (implicit intersection), and `rpnIntendsArrayResult(*pCode)` is true, the cell promotes from a plain formula (`ScMatrixMode::NONE`) to a dynamic array master (`ScMatrixMode::Formula`, declared dimensions `1x1`, `mbDynamicArrayMaster = true`).
-
-### 3.3 Array Intent Classification
-`rpnIntendsArrayResult` calls `intendsArrayResultInRange` ([`sc/source/core/data/formulacell.cxx:L1737-L1752`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx#L1737-L1752)):
-```cpp
-else if (eOp == ocSpill)
-    bResultArray = true;
-else if (formula::FormulaCompiler::IsMatrixFunction(eOp) || p->IsInForceArray())
-    bResultArray = true;
-else if (eOp == ocRange || eOp == ocUnion || eOp == ocIntersect)
-    bResultArray = true;
-```
-Built-in matrix functions (e.g. `SEQUENCE`, `FILTER`, `SORT`, `TRANSPOSE`) are identified via `IsMatrixFunction(eOp)`.
-
-### 3.4 Spill Checking & Deferred Resize
-After interpretation, if `aResult.GetMatrix()` is non-null ([`sc/source/core/data/formulacell.cxx:L2575-L2668`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx#L2575-L2668)):
-- If `cMatrixFlag != ScMatrixMode::Formula`:
-  ```cpp
-  // If the formula wasn't entered as a matrix formula, live on with
-  // the upper left corner and let reference counting delete the matrix.
-  aResult.SetToken( aResult.GetCellResultToken().get());
-  ```
-  The matrix is **dropped**.
-- If `cMatrixFlag == ScMatrixMode::Formula`:
-  Calc checks if the result dimensions (`nResCols`, `nResRows`) exceed declared dimensions (`nDeclCols`, `nDeclRows`).
-  If `bShouldCheckSpill` (`mbDynamicArrayMaster || rDocument.IsFormulaSpilled(aPos)`):
-  1. It checks for collisions via `rDocument.IsMatrixSpillBlocked(ScRange(...), nDeclCols, nDeclRows)`.
-  2. If blocked:
-     ```cpp
-     aResult.SetResultError(FormulaError::Spill);
-     rDocument.MarkFormulaSpilled(aPos);
-     rDocument.MarkPendingMatrixResize(aPos); // collapses back to 1x1
-     ```
-  3. If unblocked:
-     ```cpp
-     rDocument.UnmarkFormulaSpilled(aPos);
-     rDocument.MarkPendingMatrixResize(aPos); // queues expansion
-     ```
-
-### 3.5 Queue Draining
-`MarkPendingMatrixResize(aPos)` registers the origin in `maPendingMatrixResizes` ([`sc/inc/document.hxx:L1017`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/inc/document.hxx#L1017)).
-At the conclusion of formula recalculation ([`sc/source/core/data/documen7.cxx:L440`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/documen7.cxx#L440)):
-```cpp
-// Process any dynamic-array expansions queued during interpretation.
-ProcessPendingMatrixResizes();
-```
-`ProcessPendingMatrixResizes()` ([`sc/source/core/data/documen4.cxx:L642-L715`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/documen4.cxx#L642-L715)) calls `rDocument.ResizeMatrixFormula(rPos, SCCOL(nResCols), SCROW(nResRows))` to materialize reference cells across the expanded rectangular area.
+`=@PY(...)` stays a scalar (top-left). Ctrl+Shift+Enter stays a static array of the size the user selected.
 
 ---
 
-## 4. The Async Volatile Timing Knot (Why `=PY()` Fails Today)
+## 2. Why Classic’s write-back stays out of Core
 
-The root obstacle preventing `=PY(...)` from auto-spilling is a timing and classification mismatch between asynchronous volatile execution and Calc's compile-time dynamic array promotion.
+Classic (`plugin/calc/python/function.py`, `_prepare_auto_spill` / `_queue_off_main_auto_spill`) posts a UI-thread task, writes literal values into neighbors, and remembers them in `WriterAgentSpillRegistry`.
+
+`scaddins/source/pythoncompute/` is an `XVolatileResult` AddIn. It has no `ScDocument` and no `ScDocFunc`. Literal neighbor writes would also skip the dependency graph, undo, and the paint hint that LOKit turns into tiles. Calc already creates those neighbor cells as matrix **reference formulas** inside `ScDocument::ResizeMatrixFormula`. Plug into that.
+
+---
+
+## 3. How Calc spills today
+
+Verified in the engine tree. Line numbers are this tree, not a stock LibreOffice checkout.
+
+### 3.1 A typed formula may promote once, before the interpreter runs
+
+`.uno:EnterString` / the input line call `EnterData(..., bAutoDynamicArray = true)` ([`cellsh3.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/ui/view/cellsh3.cxx) `SID_ENTER_STRING` and `FID_INPUTLINE_ENTER`). That does two things:
+
+1. Compiles with `bComputeII = false`, so the RPN keeps array-shaped tokens ([`viewfunc.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/ui/view/viewfunc.cxx) `applyFormulaToCell`).
+2. After the cell is cloned onto the document, sets `mbAutoDynamicArrayEligible`. The copy constructor clears that bit, so the setter has to run on the document cell.
+
+`SID_SET_CELL_FORMULA` uses `SetCellText` and does **not** set the bit. Loaded cells and macro-created cells do not get it either. That is existing policy: only a UI entry auto-promotes.
+
+On the first `InterpretTail`, if the bit is set, the cell is not already a matrix, not grouped, not a hyperlink, the RPN is not topped by `@`, and `rpnIntendsArrayResult` is true, the cell becomes a dynamic-array master **before** `ScInterpreter::Interpret()` ([`formulacell.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx) around 2220–2239):
+
+- `cMatrixFlag = ScMatrixMode::Formula`
+- declared size 1×1
+- `mbDynamicArrayMaster = true`
+- the eligible bit is cleared either way
+
+The comment there is the constraint: matrix mode has to be set before the interpreter runs, or the array context is already gone. `=PY(...)+1` only adds 1 to every spilled cell when the interpret itself is in matrix mode. Promoting after the interpreter returns keeps the raw AddIn matrix and still loses elementwise array context.
+
+`rpnIntendsArrayResult` is a stack walk ([same file](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx) `intendsArrayResultInRange`). A function result is an array only for `IsMatrixFunction`, a forced-array parameter, `ocSpill`, or a range operator. `ocExternal` is not in `FormulaCompiler::IsMatrixFunction`. `=SUM(PY(...))` must stay a scalar; an array-wide “this formula contains PY” flag would get that wrong, so the check belongs in the walk, on that token.
+
+`FormulaTokenArray::HasDynamicArrayFunction` is set for `UNIQUE` / `FILTER` / `SORT` / … at compile time and is not read by this walk. Do not add `PY` to that flag as a second list.
+
+### 3.2 The matrix is kept only for a matrix formula
+
+After interpret, a non-null matrix on a cell whose `cMatrixFlag` is not `Formula` is replaced by its top-left token (around 2577–2582). That is the whole of today’s `=PY` bug once the AddIn has pushed an `ScMatrix`.
+
+When the flag is `Formula` and the cell is a dynamic-array master (or already in spill state):
+
+- Result larger than the declared size: `IsMatrixSpillBlocked`. Cells already inside the declared rectangle are skipped. Matrix reference cells are skipped. Any other non-empty cell, or a spill past the sheet edge, is `#SPILL!` (`FormulaError::Spill` on the **result**, not a sticky code error).
+- Blocked, and the declared size is already bigger than 1×1: `MarkPendingMatrixResize` so the drain can collapse to 1×1.
+- Unblocked and **smaller**: `ResizeMatrixFormula` inline.
+- Unblocked and **larger**: `MarkPendingMatrixResize` (creating reference cells during interpret would recurse).
+
+`ProcessPendingMatrixResizes` ([`documen4.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/documen4.cxx) around 642) performs the queued resize. A `#SPILL!` master collapses to 1×1. A master with **no matrix is skipped**. That hole matters for `PY` and is called out in §5.
+
+Drains today:
+
+- end of `CalcFormulaTree` ([`documen7.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/documen7.cxx) around 440)
+- end of `TrackFormulas`, when not inside an interpreter (around 584–588)
+- end of the outermost `ScFormulaCell::Interpret` (formulacell around 2179–2186)
+
+`ResizeMatrixFormula` broadcasts `SfxHintId::ScDataChanged` on the union of the old and new rectangles and `PostPaint`s that same range. `ScDocShell::PostPaint` broadcasts an `ScPaintHint`. LOKit tile invalidation listens to those paint hints. There is no separate “invalidate the origin cell only” path to fix.
+
+`ResizeMatrixFormula` is not an undo step of its own. Editing a blocker already replays spill through `ScDocShell::ResolveSpilledOutputs` from `ScUndoEnterData`. A spilled `PY` uses that same undo.
+
+The formula bar shows a dynamic-array master without `{...}` braces (formulacell around 1134).
+
+---
+
+## 4. What `=PY` does instead
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    actor User
+    participant User
     participant Cell as ScFormulaCell
     participant Interp as ScInterpreter
-    participant Bridge as pythoncompute (C++)
-    participant Service as Python Compute Service
-    participant Listener as ScAddInListener
+    participant Vol as PythonComputeVolatileResult
+    participant Lis as ScAddInListener
+    participant View as ScTabView
 
-    User->>Cell: Enters =PY("result = [[1, 2], [3, 4]]")
-    Note over Cell: rpnIntendsArrayResult is false for ocExternal.<br/>cMatrixFlag = NONE, mbDynamicArrayMaster = false
-    Cell->>Interp: Interpret() (Pass 1)
-    Interp->>Bridge: getPy() -> returns XVolatileResult
-    Bridge-->>Interp: Initial result = "#BUSY!" (scalar string)
-    Interp-->>Cell: Result = "#BUSY!" (Matrix is null)
-    Note over Cell: mbAutoDynamicArrayEligible cleared to false!
-    Bridge->>Service: POST /v1/execute (async HTTP)
-
-    Service-->>Bridge: pythoncomputeresult: {"status":"ok","result":[[1,2],[3,4]]}
-    Bridge->>Listener: modified(ResultEvent with Sequence<Sequence<double>>)
-    Listener->>Cell: pDoc->TrackFormulas() (Pass 2)
-    Cell->>Interp: Interpret() (Pass 2)
-    Interp->>Bridge: aCall.SetResult(Value) -> creates ScMatrix
-    Interp-->>Cell: aResult.GetMatrix() is 2x2 ScMatrix!
-    Note over Cell: cMatrixFlag is still NONE!<br/>formulacell.cxx:2579 executes:<br/>aResult.SetToken(aResult.GetCellResultToken())
-    Note over Cell: MATRIX DISCARDED! Cell displays top-left scalar '1'.
+    User->>Cell: EnterString =PY("result = [[1, 2], [3, 4]]")
+    Note over Cell: eligible bit set; rpnIntendsArrayResult is false for ocExternal
+    Cell->>Interp: Interpret (pass 1)
+    Interp->>Vol: getPy returns XVolatileResult
+    Vol-->>Lis: modified("#BUSY!") while still inside pass 1
+    Note over Lis: TrackFormulas sees IsInInterpreter and does not calc
+    Interp-->>Cell: store literal #BUSY!; eligible bit cleared; matrix flag still NONE
+    Vol->>Lis: finish() later, under SolarMutexGuard
+    Lis->>Cell: Notify → dirty + formula track
+    Note over Lis: TrackFormulas moves the cell onto the formula tree.<br/>ONLOAD_LENIENT is not FORCED, so it does not Interpret.
+    Lis->>View: doc shell ScDataChanged
+    View->>Cell: paint → InterpretVisible → Interpret (pass 2)
+    Note over Cell: matrix is 2×2 but cMatrixFlag is still NONE
+    Note over Cell: top-left token replaces the matrix; cell shows 1
 ```
 
-### The Two Breakdown Points:
-1. **Static Array Intent Gap:**  
-   `=PY(...)` compiles to `ocExternal` (`ScUnoAddInCall`). In [`formulacell.cxx:L1737`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx#L1737), `intendsArrayResultInRange` only looks for built-in matrix functions (`IsMatrixFunction(eOp)`). It has no awareness that `org.collaboraoffice.sheet.addin.PythonComputeFunctions.getPy` can return a matrix. Therefore, `rpnIntendsArrayResult` returns `false`, and `mbDynamicArrayMaster` is never armed on entry.
-2. **Async Volatile Result Timing Gap:**  
-   Even if the cell was flagged `mbAutoDynamicArrayEligible`, on Pass 1 the result is `"#BUSY!"` (a scalar string). `mbAutoDynamicArrayEligible` is cleared to `false`. When the async HTTP response arrives (Pass 2), the matrix is ready, but `cMatrixFlag` is still `ScMatrixMode::NONE`. The engine hits line 2579:
-   ```cpp
-   if (cMatrixFlag != ScMatrixMode::Formula && !pCode->IsHyperLink())
-   {
-       aResult.SetToken( aResult.GetCellResultToken().get());
-   }
-   ```
-   The 2x2 matrix is unconditionally dropped, leaving only the scalar `1`.
+Two separate misses:
+
+1. **Intent.** The RPN walk never treats this AddIn as an array, so pass 1 never sets `mbDynamicArrayMaster`. The eligible bit is one-shot. Pass 2 cannot promote through that gate.
+2. **When pass 2 runs.** `ScExternal` marks the formula `ScRecalcMode::ONLOAD_LENIENT` ([`interpr4.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/interpr4.cxx) around 3436), same as the compiler’s `ocExternal` case. `TrackFormulas` only calls `CalcFormulaTree(true)` for `IsRecalcModeForced()`. The second interpret is whoever next interprets that dirty cell. On screen that is `ScTabView::InterpretVisible` during paint, after the doc-shell `ScDataChanged` from `ScAddInListener::modified`. A headless test that only calls `pythoncompute_complete_json` leaves the cell dirty until something calls `Interpret` or `CalcFormulaTree(false)`.
+
+`g_aPending` is one process-wide map from request id to volatile result ([`bridge.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/bridge.cxx)). Every view shares the document. `finish()` re-acquires the solar mutex because kit poll delivers the result with solar released. Do not add another mutex.
+
+The interim value is the string `"#BUSY!"`, not a formula error ([`volatile.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/volatile.cxx)). There is no `FormulaError::Busy`. Keep it that way.
 
 ---
 
-## 5. Architectural Design Options
+## 5. The change
 
-Two distinct routes can resolve this in Core Calc:
+One helper, used from `intendsArrayResultInRange` when the opcode is `ocExternal` and the token is `svExternal`. True when the programmatic name equals, ASCII-case-insensitive:
 
-### Route A: Speculative Promotion on Entry (Static Intent for AddIn)
+- `org.collaboraoffice.sheet.addin.PythonComputeFunctions.getPy`
+- `org.collaboraoffice.sheet.addin.PythonComputeFunctions.getPython`
 
-Allow `rpnIntendsArrayResult` to recognize `PythonComputeFunctions` as array-capable:
-1. In `intendsArrayResultInRange` ([`sc/source/core/data/formulacell.cxx:L1737`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx#L1737)), when `eOp == ocExternal`, inspect the external function name. If it matches `PythonComputeFunctions.getPy` / `getPython` (or queries `ScUnoAddInFuncData` for a matrix-return capability):
-   ```cpp
-   else if (formula::FormulaCompiler::IsMatrixFunction(eOp) || p->IsInForceArray()
-            || isDynamicArrayAddIn(p))
-       bResultArray = true;
-   ```
-2. When the formula is entered without `@`, Calc sets `cMatrixFlag = ScMatrixMode::Formula`, `SetMatColsRows(1, 1)`, and `mbDynamicArrayMaster = true`.
-3. **Pass 1:** Cell displays `"#BUSY!"`. Since declared dimensions are 1x1 and result is scalar, no resize is queued.
-4. **Pass 2:** Matrix arrives. Because `cMatrixFlag == ScMatrixMode::Formula` and `mbDynamicArrayMaster == true`, the engine automatically enters lines 2585–2668:
-   - Evaluates `IsMatrixSpillBlocked`.
-   - If blocked: sets `FormulaError::Spill` (`#SPILL!`).
-   - If unblocked: calls `MarkPendingMatrixResize(aPos)`.
-   - At the end of `TrackFormulas()`, `ProcessPendingMatrixResizes()` expands the matrix cleanly.
-5. **Scalar Returns:** If user code returns `result = 42`, `aResult.GetMatrix()` is 1x1. Declared is 1x1 -> no resize, cell displays `42`.
-6. **Explicit Scalar Intent:** If the user enters `=@PY(...)`, `rpnTopIsImplicitIntersection(*pCode)` is `true`, suppressing dynamic array promotion.
+That is the same `FormulaExternalToken::GetExternal()` string the compiler already special-cases for `Analysis.getRandbetween`. The display names `PY` and `PYTHON` are not what the token stores.
 
-*Evaluation:* **Recommended.** Requires zero changes to the post-calculation matrix truncation logic and leverages the existing `ProcessPendingMatrixResizes` lifecycle.
+Then the existing gate does the rest for a UI-entered cell:
 
----
+1. Pass 1 promotes to a 1×1 dynamic-array master, then stores `"#BUSY!"`. Declared size is already 1×1, and the result is not a matrix, so nothing resizes.
+2. Pass 2 interprets in matrix mode. `SetResult` has already built the `ScMatrix` ([`addincol.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/addincol.cxx) `sequence<sequence<double>>` / `sequence<sequence<Any>>`). The matrix is kept. A larger result queues `MarkPendingMatrixResize`; the interpret epilogue drains it.
+3. A 1×1 matrix or a scalar leaves the cell as a 1×1 master. The displayed value is that scalar.
 
-### Route B: Late Dynamic Promotion on Async Matrix Arrival
+### Scalar and error after a spill
 
-Instead of promoting on entry, promote the cell to a dynamic-array master when a matrix result actually arrives:
-1. In `formulacell.cxx` (~line 2575), if `aResult.GetMatrix()` is non-null and `cMatrixFlag == ScMatrixMode::NONE`:
-   - Check if the formula cell was entered without `@` implicit intersection (`!rpnTopIsImplicitIntersection(*pCode)`).
-   - If the cell originated from an asynchronous volatile AddIn (`pCode->IsRecalcModeAlways()` or has volatile listener):
-     - Dynamically promote:
-       ```cpp
-       cMatrixFlag = ScMatrixMode::Formula;
-       SetMatColsRows(1, 1);
-       mbDynamicArrayMaster = true;
-       ```
-2. Proceed immediately into the existing spill check (`bShouldCheckSpill`).
-3. `MarkPendingMatrixResize` is queued, and `TrackFormulas()` drains it via `ProcessPendingMatrixResizes()`.
+`PY` is allowed to return a scalar after it has returned a grid. `GetMatrix()` is then null, and today’s drain **ignores** a pending resize with no matrix. The old reference cells would stay.
 
-*Evaluation:* More flexible if user-defined functions or arbitrary AddIns return unknown shapes, but mutates cell metadata (`cMatrixFlag`) during the recalculation phase rather than the entry/compilation phase.
+When the master is dynamic, the new result is not a matrix, the declared size is larger than 1×1, and a threaded group calc is not running: call `ResizeMatrixFormula(pos, 1, 1)`, same as a shrinking matrix. `ResizeMatrixFormula` already re-queues itself while a cell-store iterator is live. Extend `ProcessPendingMatrixResizes` so that deferred retry still collapses a dynamic master with no matrix and a declared size above 1×1. Without that, the guarded retry is a no-op.
+
+Do not collapse when the result string is `"#BUSY!"`. Pass 1, and any later recalc that observes the interim, would otherwise wipe a live spill and expand it again when the real result arrives. A finished Python value that is exactly the string `#BUSY!` also skips collapse. That one string is the interim marker; leave it.
+
+`#SPILL!` already collapses through the error branch of the drain. Blocked spills do not need a new path.
+
+### What this deliberately does not touch
+
+- IDL and `XPythonComputeFunctions`. The return is `Any` because of the volatile. An extra “returns matrix” annotation would be a second copy of the name check.
+- `anyjson` shape, including the 1×N row for a flat list.
+- `IsMatrixFunction`’s opcode list. Other AddIns stay scalars.
+- CSE entry (`FID_INPUTLINE_MATRIX` → `EnterMatrix`). `cMatrixFlag` is already `Formula`, so the eligible-bit gate does not run, and `bShouldCheckSpill` stays false for a static master.
+- Formula groups. `mxGroup` refuses promotion. Identical filled-down `PY` cells stay single-cell, same as any other grouped formula.
+- LOKit / `ChildSession`. The paint rect is already the resized bounding box. Confirm with a test; do not add an invalidation API up front.
+- A Cypress test. CppUnit is the gate. A browser check is optional after the engine test is green.
+- WriterAgent’s Excel converter. `ANCHORARRAY` / `cm="1"` import there is still an A1 snapshot ([`ms-py-compatibility.md`](../scripting/ms-py-compatibility.md)). This work does not make those snapshots live.
 
 ---
 
-## 6. Collabora Online & LOKit Integration
+## 6. Files on disk
 
-### 6.1 Tile Invalidation
-When `ResizeMatrixFormula(rPos, nCols, nRows)` runs inside `ProcessPendingMatrixResizes()`:
-- In desktop Calc, `ScDocument::ResizeMatrixFormula` broadcasts range modifications via `ScHint(SfxHintId::ScDataChanged, ScRange(...))`.
-- In Collabora Online (`collabofficefull/kit/ChildSession.cpp`):
-  - LOKit listens to document broadcasts to invalidate tiles (`.uno:InvalidateTiles` / `LOK_CALLBACK_INVALIDATE_TILES`).
-  - **Requirement:** Ensure that when `ResizeMatrixFormula` materializes reference cells across `(Col ... Col+nCols-1, Row ... Row+nRows-1)`, tile invalidation covers the **entire expanded bounding box**, not just the single origin cell `aPos`.
+Dynamic vs static is **not** “ODF matrix span, therefore dynamic.”
 
-### 6.2 Multi-View Editing
-- In-flight `#BUSY!` is pinned per process by `g_aPending`.
-- When `pythoncompute_complete_json` finishes, `ScAddInListener::modified()` executes under `SolarMutexGuard`.
-- All view instances sharing the `ScDocument` see the dynamic expansion synchronously without re-triggering separate HTTP executes.
+**ODS** ([`xmlexprt.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/filter/xml/xmlexprt.cxx) `WriteCell`, [`xmlcelli.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/filter/xml/xmlcelli.cxx)):
 
----
+- An expanded dynamic master is a matrix cell (`table:number-matrix-columns-spanned` / `rows-spanned`) plus extended-ODF `coext:spill="true"`.
+- A master currently in `#SPILL!` is saved as a **non-array** formula with `coext:spill="true"`. Import calls `SetDynamicArrayMaster(true)` and `MarkFormulaSpilled`.
+- A static CSE matrix has the span attributes and no `coext:spill`.
+- Plain ODF (not extended) has nowhere to store dynamic-vs-static. That limitation is Calc’s, shared with `UNIQUE`.
 
-## 7. File Persistence & Interop (ODS & XLSX)
+**XLSX** is the other filter, not the ODS one. `sc/source/filter/oox/formulabuffer.cxx` is OOXML import: `SetDynamicArrayMaster(true)` when the cell was a dynamic-array master. Export writes `cm="1"` from `IsDynamicArrayMaster()` ([`xetable.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/filter/excel/xetable.cxx) `XclExpFormulaCell::SaveXml`) and the `xl/metadata.xml` dynamic-array record. `_xlfn.ANCHORARRAY` is the spilled-range operator (`A1#`), not the master’s `cm` bit.
 
-### 7.1 OpenDocument Spreadsheet (ODS)
-- Dynamic array formulas in LibreOffice are stored in ODF using standard matrix attributes (`table:number-matrix-columns-spanned` and `table:number-matrix-rows-spanned`) on the master cell, with `table:matrix-covered` on covered cells.
-- When saving a spilled `=PY(...)` cell, Calc persists the expanded matrix range.
-- On reload, `oox/formulabuffer.cxx` and `ScXMLTableRowCellContext` restore the matrix dimensions.
-- If precedents change after load, `mbDynamicArrayMaster` allows the matrix to resize or collapse to `#SPILL!`.
+Once pass 1 has set `mbDynamicArrayMaster`, save/load already round-trips it. No new file-format attribute.
 
-### 7.2 Microsoft Excel (XLSX)
-- In Excel, dynamic arrays use formula metadata and the `_xlfn.ANCHORARRAY` token or metadata records (`xl/metadata.xml`).
-- WriterAgent's Excel converter ([`docs/scripting/ms-py-compatibility.md`](../scripting/ms-py-compatibility.md#58-ooxml--xlfnpy-import)) already handles translating between Excel's formula bridge and Calc's `=PY()`.
+The eligible bit is not saved and must not be. It exists only until the first interpret.
 
 ---
 
-## 8. Implementation Roadmap
+## 7. Tests
 
-| Phase | Task | Primary Files |
-|-------|------|---------------|
-| **Phase 1** | IDL & AddIn Metadata Annotation | `engine/scaddins/source/pythoncompute/XPythonComputeFunctions.idl`, `addincol.cxx` |
-| **Phase 2** | Dynamic Array Intent in Compiler | `engine/sc/source/core/data/formulacell.cxx` (`intendsArrayResultInRange`) |
-| **Phase 3** | CppUnit Test (Static Speculative Promotion) | `engine/sc/qa/unit/ucalc_spilled_range.cxx`, `engine/scaddins/qa/pythoncompute.cxx` |
-| **Phase 4** | LOKit Tile Invalidation Verification | `collabofficefull/test/UnitPythonCompute.cpp`, `kit/ChildSession.cpp` |
-| **Phase 5** | Online Cypress / Tile Test | `cypress_test/` (verify visual spill of 3-element list in browser canvas) |
+Engine CppUnit, not WriterAgent pytest. `sc/ucalc_setup.mk` already optionally links `pythoncompute`.
+
+Confirm while writing the test that this harness compiles `=PY` to an `ocExternal` token. If it does not, the formula-level test belongs in a subsequent test that has the office service manager, and the intent helper still needs a direct token-array test.
+
+Drive the volatile the way the AddIn does: install no HTTP emitter, call `pythoncompute_complete_json` with a finished envelope, then `Interpret()` the cell (or `CalcFormulaTree(false)`). Do not expect `TrackFormulas` alone to replace `#BUSY!`.
+
+| Case | Expect |
+| --- | --- |
+| UI-style entry (`SetAutoDynamicArrayEligible(true)`) of `=PY` returning `[[1, 2], [3, 4]]` | master, 2×2, values in the block, reference cells are `ScMatrixMode::Reference` |
+| same, with a non-empty neighbor in the block | `FormulaError::Spill`, declared size back to 1×1, blocker cell unchanged |
+| clear the blocker and interpret again | spill expands |
+| `[1, 2, 3]` | 1×3, values to the **right** |
+| scalar `42` after a 2×2 spill | reference cells removed, origin shows 42 |
+| `"#BUSY!"` while a 2×2 spill is already up | spill unchanged |
+| `=@PY` returning a 2×2 | top-left only, not a dynamic master |
+| CSE over a pre-sized range | static matrix, no auto-resize |
+| `=SUM(PY(...))` with a grid result | scalar, not a master |
+
+One ODS round-trip and one XLSX round-trip of a spilled master: `coext:spill="true"` / `cm="1"`, and the block is still a dynamic master after reload. Copy the shape of `testArrayFormulaSpillRoundtripODS` / `testDynamicArraySpilledExportXLSX` in `sc/qa/unit/subsequent_export_test2.cxx`.
+
+If `ResizeMatrixFormula`’s `PostPaint` range in that test is the single origin cell, stop and fix the paint rect. Do not start that work before the assert exists.
 
 ---
 
-## 9. Code Pointers & References
+## 8. Out of scope
 
-- **Calc Dynamic Array Promotion:** [`collabofficefull/engine/sc/source/core/data/formulacell.cxx:L2227-L2240`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx#L2227-L2240)
-- **Matrix Dropping / Truncation:** [`collabofficefull/engine/sc/source/core/data/formulacell.cxx:L2577-L2582`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx#L2577-L2582)
-- **Spill Detection & Error:** [`collabofficefull/engine/sc/source/core/data/formulacell.cxx:L2585-L2637`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx#L2585-L2637)
-- **Deferred Resize Execution:** [`collabofficefull/engine/sc/source/core/data/documen4.cxx:L642-L715`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/documen4.cxx#L642-L715)
-- **Formula Recalculation Drain:** [`collabofficefull/engine/sc/source/core/data/documen7.cxx:L440`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/documen7.cxx#L440)
-- **Async Result Event Handler:** [`collabofficefull/engine/sc/source/core/tool/addinlis.cxx:L105-L120`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/addinlis.cxx#L105-L120)
-- **AddIn Result Conversion:** [`collabofficefull/engine/sc/source/core/tool/addincol.cxx:L1650-L1684`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/addincol.cxx#L1650-L1684)
-- **Core AddIn Bridge:** [`collabofficefull/engine/scaddins/source/pythoncompute/bridge.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/bridge.cxx)
-- **Online Jail-Safe Reference:** [`docs/scripting/numpy-jailsafe.md`](../scripting/numpy-jailsafe.md)
+- DataFrame header rows. Classic adds those in `result_to_calc_grid` before spilling. Online spills the JSON grid the service sent.
+- Short Python errors in the cell (F6).
+- Images (F3).
+- Changing TrackFormulas so `ONLOAD_LENIENT` interprets immediately. Visible cells already leave `#BUSY!` on the next paint. Off-screen cells wait for paint or a real recalc, which is today’s volatile behavior.
+- Making formula groups spill.
+
+---
+
+## 9. Pointers
+
+| What | Where |
+| --- | --- |
+| Promotion gate | [`formulacell.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/formulacell.cxx) ~2220–2239 |
+| Array-intent walk | same file, `intendsArrayResultInRange` ~1668–1754 |
+| Top-left drop and spill check | same file, ~2575–2668 |
+| Interpret drains a queued resize | same file, ~2179–2186 |
+| Eligible bit set only for UI entry | [`viewfunc.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/ui/view/viewfunc.cxx) ~570–575, [`cellsh3.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/ui/view/cellsh3.cxx) `SID_ENTER_STRING` |
+| Collision, resize, drain | [`documen4.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/documen4.cxx) `IsMatrixSpillBlocked`, `ResizeMatrixFormula`, `ProcessPendingMatrixResizes` |
+| TrackFormulas does not interpret this AddIn | [`documen7.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/data/documen7.cxx) `TrackFormulas` |
+| Async listener | [`addinlis.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/addinlis.cxx) `ScAddInListener::modified` |
+| AddIn call and matrix push | [`interpr4.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/interpr4.cxx) `ScExternal`, [`addincol.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/addincol.cxx) `SetResult` |
+| `#BUSY!`, solar, pending map | [`volatile.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/volatile.cxx), [`bridge.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/bridge.cxx) |
+| Flat list is a row | [`anyjson.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/anyjson.cxx) `promoteFlatNumeric`; asserted in `scaddins/qa/pythoncompute.cxx` |
+| Classic column spill | `plugin/calc/python/function.py` `_result_as_spill_grid` |

@@ -36,6 +36,7 @@ These Python / NumPy features also now ship in **LibrePy.oxt**. The WriterAgent 
 | [LibrePy-surface live QA plan](librepy-manual-qa-plan.md) | Real-scenario Calc/RPS/domain checks (`=PY("1 + 1")` upward). Either OXT; do not test chat/`=PROMPT()`. |
 | [Monaco editor dev plan](scripting/monaco-editor-dev-plan.md) | IPC, phases 2B–2F |
 | [Collabora Online / jail-safe](scripting/numpy-jailsafe.md) | Thin C++ Add-In + compute service |
+| [Collabora engine spill](calc/collabora-engine-spill-plan.md) | Single-cell `=PY()` spill in Core Calc |
 | [Calc spreadsheet → Python import](calc/spreadsheet-to-python-import.md) | Prototype / low priority — convert formulas to `=PY()` |
 | [Jupyter notebook import](writer/jupyter-notebook-import.md) | Writer `.ipynb` import + ▶ run (shared `notebook:…` kernel; not Calc `=PY()`) |
 
@@ -587,7 +588,7 @@ Calc's legacy add-in bridge only accepts **one scalar** (number, text, or boolea
     ```
   3. Confirm with **Ctrl+Shift+Enter** (curly braces `{=…}` in each cell of the block is normal).
 
-
+The add-in takes only `(code, data)`. A third argument, such as a range plus `ROW()-n`, is **Err:504**. Pass `ROW()-n` alone when it is the per-cell index. Pass the range alone when `data` should be that grid.
 
 #### Matrix Formula Optimization (Fast-Path)
 
@@ -595,29 +596,9 @@ Calc evaluates matrix formulas once per cell; without optimization that means ma
 
 Without the index argument, repeated evaluations in the same recalc pass return successive list elements (best-effort; prefer the `ROW()` form for reliability).
 
-#### Dynamic auto-spill (shipped) {#dynamic-auto-spill}
+#### Dynamic auto-spill {#dynamic-auto-spill}
 
-Microsoft Excel can **auto-spill** multi-cell results (DataFrames, 2D arrays) into adjacent rows and columns and surfaces `#SPILL!` when blocking cells are in the way ([Microsoft Python in Excel vs Calc](#microsoft-python-in-excel-vs-writeragent) `=PY()`). A single-cell `=PY(...)` that returns a list, 2D array, or DataFrame **spills into adjacent cells** via a deferred background task (~0.1s). If any target cell is occupied by non-spilled user data, the formula cell shows `#SPILL!`. Spill coordinates are tracked in the document (`WriterAgentSpillRegistry`) so recalc clears old spill cells correctly. Toggle with **Settings → Python → Python auto spill in Calc** (`scripting.python_auto_spill`, default **on**). For explicit dimensions, use a **matrix formula** (**Ctrl+Shift+Enter**), a selected output range, or a **per-row index** (`ROW()-n`) as the 2nd argument.
-
-**Off-main recalc:** Calc may invoke `=PY()` off the UI thread (multithreaded calculation). `finalize_python_return` must not treat a missing `target_doc` as a matrix formula (that painted only the top-left cell). When the caller passed a document or at most one Calc session is recorded, locate + collision + neighbor writes are posted to the UI thread. Two recorded workbooks stay corner-only — XAddIn has no calling document. Collision `#SPILL!` as the add-in *return* still requires the on-main path; off-main collision skips the neighbor write.
-
-- **Grid egress over a data range** — use **two arguments only**: `=PY("np.sum(data)"; B1:B10)` or `=PY("(np.array(data) * 2).tolist()"; D6:G9)` as a matrix formula (**Ctrl+Shift+Enter**). The add-in IDL accepts only `(code, data)`; a third argument such as `ROW()-1` causes **Err:504** (error in parameter list). When the 2nd argument is the full range, `data` in Python is that grid; use `ROW()-n` as the 2nd argument only when it is the per-cell index, not together with a range.
-- **Single cell, full list as text** — `=PY("result = str([1, 2, 3])")` + Enter.
-
-##### Auto-spill cleanup and undo isolation {#auto-spill-optimizations}
-
-An `XModifyListener` (`CalcSpillModifyListener`) is registered on sheets that contain auto-spill cells. If the originating `=PY()` formula cell is cleared, overwritten, or deleted, the listener clears associated spilled cells, updates `WriterAgentSpillRegistry`, and saves document properties.
-
-**Undo isolation:** Background spill population and orphaned spill cleanup execute inside an undo-isolated context (`_undo_lock` via `enterHiddenUndoContext()` or `lock()`). This ensures background cell writes do not fragment Calc's undo stack or push stray undo actions on top of the formula. When a user undoes with **Ctrl+Z**, the formula in the originating cell is undone immediately in a single step, and the modify listener automatically cleans up the spilled values.
-
-Still open:
-
-- **Dynamic spill references** — a helper such as `=PY_REF("A1")` for the spill bounding range (Calc has no Excel `#` suffix, e.g. `=A1#`).
-- **UI-thread drain** — replace the background `threading.Timer` with Calc’s event-loop / async drain to reduce recalc lifecycle hazards.
-- **Core spill** — a UNO recalc/resize hook, or native multi-dimensional `XVolatileResult` in Calc (`sc`), would replace simulated dynamic arrays.
-
-
-
+Desktop spill is the `scripting.python_auto_spill` setting. Collabora Online single-cell spill: [engine spill plan](calc/collabora-engine-spill-plan.md).
 
 ### Usage
 
