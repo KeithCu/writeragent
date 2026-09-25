@@ -183,8 +183,8 @@ def _strip_html_boilerplate(html_string: str) -> str:  # pyright: ignore[reportU
 
 # ---------------------------------------------------------------------------
 # Semantic style model (write path): honor data-lo-style on incoming HTML.
-# Named styles applied only on replace_full_document (apply_styles=True). Partial inserts
-# strip the attribute but do not apply — see docs/writer/html-style-model-plan.md#v1-limitations-shipped.
+# Named styles on replace_full_document and on beginning/end inserts (after absorb prep).
+# selection/search still strip without applying — see docs/writer/html-style-model-plan.md.
 # ---------------------------------------------------------------------------
 
 

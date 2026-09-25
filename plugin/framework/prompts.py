@@ -391,7 +391,7 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
 - Named styles: get_document_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
-  data-lo-style applies only on target='full_document' — on 'beginning'/'end'/'selection'/'search' it is ignored because it would restyle adjacent text (use apply_style or a full_document rewrite).
+  data-lo-style is honored on target='full_document', 'beginning', and 'end' (insert prep keeps neighbor text/styles untouched). On 'selection'/'search' it is still ignored (would restyle adjacent text; use apply_style or a full_document rewrite).
   v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. READ-ONLY — send it back and the result says it was ignored; it is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
   apply_style defaults to clear_direct='style_props': the style's font name/size and paragraph indents show; bold/italic/colour stay. Pass clear_direct='none' only to keep a hand-set font. clear_direct='all' is Ctrl+M (refused on target='full_document').
