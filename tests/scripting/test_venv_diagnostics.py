@@ -819,3 +819,56 @@ def test_format_self_check_success_nlp_language_tool_python_present():
     assert "Optional (not installed): language_tool_python" not in msg
     assert "Missing:" not in msg
 
+
+def test_format_self_check_success_audio_tts_optional_installed():
+    from plugin.scripting.venv_diagnostics import _format_self_check_success, _AUDIO_PACKAGE_KEYS
+
+    data = {
+        "v": "3.13.0",
+        "p": {
+            "sounddevice": "present",
+            "input_device": "present",
+            "kokoro_onnx": "present",
+            "soundfile": "present",
+            "piper": "present",
+        },
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "nlp": [],
+        "audio": list(_AUDIO_PACKAGE_KEYS),
+        "vector_search": [],
+        "vision": [],
+        "data_eng": [],
+    }
+    msg = _format_self_check_success(data)
+    assert "Audio Recording & Speech: sounddevice, input_device, kokoro_onnx, soundfile, piper" in msg
+    assert "Optional (not installed):" not in msg
+
+
+def test_format_self_check_success_audio_tts_optional_missing_shows_hint():
+    from plugin.scripting.venv_diagnostics import _format_self_check_success, _AUDIO_PACKAGE_KEYS
+
+    data = {
+        "v": "3.13.0",
+        "p": {
+            "sounddevice": "present",
+            "input_device": "present",
+            "kokoro_onnx": None,
+            "soundfile": None,
+            "piper": None,
+        },
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "nlp": [],
+        "audio": list(_AUDIO_PACKAGE_KEYS),
+        "vector_search": [],
+        "vision": [],
+        "data_eng": [],
+    }
+    msg = _format_self_check_success(data)
+    assert "Audio Recording & Speech: sounddevice, input_device" in msg
+    assert "Optional (not installed): kokoro_onnx, soundfile, piper" in msg
+    assert "Local TTS engines (optional): uv pip install kokoro-onnx soundfile piper-tts" in msg
+

@@ -239,3 +239,48 @@ class TestQueryKeyListenerDispose:
         assert (event.Consume)
 
 
+class TestTtsStopInteraction:
+    def test_stop_button_stops_speech_when_speaking(self) -> None:
+        from plugin.chatbot.panel import StopButtonListener
+
+        send_listener = MagicMock()
+        send_listener._approval_event = None
+        send_listener._send_busy = False
+        stop_model = MagicMock()
+        stop_model.Enabled = True
+        send_listener.stop_control.getModel.return_value = stop_model
+
+        listener = StopButtonListener(send_listener)
+        with patch("plugin.audio.tts_service.is_speaking", return_value=True):
+            with patch("plugin.audio.tts_service.stop_speech") as mock_stop_speech:
+                listener.on_action_performed(MagicMock())
+                mock_stop_speech.assert_called_once()
+                assert stop_model.Enabled is False
+                send_listener.dispatch.assert_not_called()
+
+    def test_notify_stop_mouse_pressed_stops_speech_when_speaking(self) -> None:
+        send_listener = MagicMock()
+        send_listener._approval_event = None
+        send_listener._send_busy = False
+        stop_model = MagicMock()
+        stop_model.Enabled = True
+        send_listener.stop_control.getModel.return_value = stop_model
+
+        with patch("plugin.audio.tts_service.is_speaking", return_value=True):
+            with patch("plugin.audio.tts_service.stop_speech") as mock_stop_speech:
+                notify_stop_mouse_pressed(send_listener)
+                mock_stop_speech.assert_called_once()
+                assert stop_model.Enabled is False
+                send_listener.dispatch.assert_not_called()
+
+    def test_clear_stops_speech(self) -> None:
+        from plugin.chatbot.panel import ClearButtonListener
+
+        session = MagicMock()
+        listener = ClearButtonListener(session, MagicMock(), MagicMock(), "greeting")
+        with patch("plugin.audio.tts_service.stop_speech") as mock_stop_speech:
+            listener.on_action_performed(MagicMock())
+            mock_stop_speech.assert_called_once()
+            session.clear.assert_called_once()
+
+

@@ -406,6 +406,12 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
             m_lower = m.lower()
             if any(kw in m_lower for kw in include):
                 out.append(m)
+    elif req_cap == "tts":
+        include = {"tts", "kokoro", "sonic", "speech"}
+        for m in models:
+            m_lower = m.lower()
+            if any(kw in m_lower for kw in include):
+                out.append(m)
     else:
         # Audio/STT: name heuristics for local /v1/models (hosted catalogs lack modality).
         include = {"whisper", "voxtral", "parakeet", "transcribe", "speech", "asr"}
@@ -525,6 +531,36 @@ def get_stt_model() -> str:
     provider = get_provider_from_endpoint(current_endpoint)
     defaults = get_provider_defaults(provider)
     return str(defaults.get("stt_model", "") or "").strip()
+
+
+def get_tts_model() -> str:
+    """Return the configured TTS model, or default for the current endpoint's provider."""
+    val = _sanitize_stored_model_value(get_config("audio.tts_model"))
+    if val:
+        return val
+    current_endpoint = get_current_endpoint()
+    provider = get_provider_from_endpoint(current_endpoint)
+    defaults = get_provider_defaults(provider)
+    return str(defaults.get("tts_model", "") or "").strip()
+
+
+def set_tts_model(val: Any, update_lru: bool = True) -> None:
+    """Set TTS model and optionally update tts_model_lru for the current endpoint."""
+    if val is None:
+        return
+    val_str = _sanitize_stored_model_value(val)
+    if not val_str:
+        return
+
+    current = str(get_config("audio.tts_model") or "").strip()
+    if val_str == current:
+        return
+
+    set_config("audio.tts_model", val_str)
+    if update_lru:
+        from plugin.chatbot.config_ui_helpers import update_lru_history
+
+        update_lru_history(val_str, "tts_model_lru", get_current_endpoint())
 
 
 def get_grammar_model() -> str:

@@ -142,6 +142,30 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
                 set_text_model(val, update_lru=True)
             continue
 
+        spec = field_specs_by_name.get(key)
+        opts = spec.get("options") if spec else None
+        if isinstance(opts, list):
+            for opt in opts:
+                if isinstance(opt, dict):
+                    if opt.get("label") == val or opt.get("value") == val:
+                        val = opt.get("value", val)
+                        break
+
+        if key in ("audio__tts_provider", "audio.tts_provider"):
+            from plugin.audio.tts_service import clean_provider_name
+            val = clean_provider_name(str(val))
+        elif key in ("audio__tts_voice", "audio.tts_voice"):
+            from plugin.audio.tts_service import clean_voice_name, set_scoped_tts_voice
+            val = clean_voice_name(str(val))
+            prov = result.get("audio__tts_provider") or result.get("audio.tts_provider") or ""
+            model = result.get("audio__tts_model") or result.get("tts_model") or ""
+            set_scoped_tts_voice(val, provider=str(prov), model=str(model))
+        elif key in ("audio__tts_speed", "audio.tts_speed"):
+            from plugin.audio.tts_service import parse_tts_speed
+            spd = parse_tts_speed(val)
+            s_val = str(val).strip()
+            val = f"{spd:g}x" if s_val.endswith(("x", "X")) or s_val.startswith("1.0x") else f"{spd:g}"
+
         set_config(save_key, val)
         _update_lru_for_key(ctx, key, val, current_endpoint)
 
@@ -159,6 +183,8 @@ def _update_lru_for_key(ctx: Any, key: str, val: Any, current_endpoint: str) -> 
         
     if key == "stt_model":
         update_lru_history(val, "audio_model_lru", current_endpoint)
+    elif key in ("audio__tts_model", "tts_model", "audio.tts_model"):
+        update_lru_history(val, "tts_model_lru", current_endpoint)
     elif key == "image_model":
         set_image_model(val)
     elif key == "additional_instructions":

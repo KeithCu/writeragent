@@ -1084,6 +1084,29 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception:
                 log.exception("Clear button wiring failed")
 
+        if controls.get("chk_voice"):
+            try:
+                chk_ctrl = controls["chk_voice"]
+                from plugin.framework.config import get_config_bool_safe, set_config
+                from plugin.framework.uno_listeners import BaseItemListener
+
+                is_voice = get_config_bool_safe("audio.tts_enabled")
+                if hasattr(chk_ctrl, "setState"):
+                    chk_ctrl.setState(1 if is_voice else 0)
+                if hasattr(chk_ctrl, "getModel") and hasattr(chk_ctrl.getModel(), "HelpText"):
+                    chk_ctrl.getModel().HelpText = _("Speak responses aloud (TTS)")
+
+                class VoiceCheckboxListener(BaseItemListener):
+                    def on_item_state_changed(self, rEvent: Any) -> None:
+                        val = bool(getattr(rEvent, "Selected", 0) == 1)
+                        set_config("audio.tts_enabled", val)
+                        log.info("Voice checkbox toggled: tts_enabled=%s", val)
+
+                if hasattr(chk_ctrl, "addItemListener"):
+                    chk_ctrl.addItemListener(VoiceCheckboxListener())
+            except Exception:
+                log.exception("Voice checkbox wiring failed")
+
         self._apply_sidebar_mode(initial_mode, model, controls["response"], send_listener, clear_listener, toggle_image_ui)
         self._wire_chat_mode_listener(
             controls["chat_mode_selector"],

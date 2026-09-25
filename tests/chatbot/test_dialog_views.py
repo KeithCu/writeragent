@@ -665,3 +665,129 @@ def test_dialog_parent_for_child_prefers_settings_peer() -> None:
     parent.getPeer.assert_called_once()
 
 
+def test_populate_fields_wires_tts_model_lru() -> None:
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dlg = MagicMock()
+    tts_ctrl = MagicMock()
+    dlg.getControl.side_effect = lambda name: tts_ctrl if name == "audio__tts_model" else None
+
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+    field_specs = [{"name": "audio__tts_model", "value": ""}]
+
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
+        view._populate_fields(field_specs, "https://openrouter.ai/api")
+        mock_lru.assert_called_once_with(
+            view._ctx, tts_ctrl, "", "tts_model_lru", "https://openrouter.ai/api", api_key_override=""
+        )
+
+
+def test_apply_dropdowns_updates_tts_combobox() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    dlg = MagicMock()
+    ctx = MagicMock()
+    combo = MagicMock()
+    listener = EndpointCombinedListener(dlg, ctx, combo)
+
+    tts_ctrl = MagicMock()
+    tts_ctrl.getText.return_value = ""
+
+    def get_optional_side_effect(d, name):
+        if name == "audio__tts_model":
+            return tts_ctrl
+        return None
+
+    populate_calls = []
+
+    def track_populate(c, ctrl, current, lru_key, endpoint, **kwargs):
+        populate_calls.append({"lru_key": lru_key, "current": current, "remote_models": kwargs.get("remote_models")})
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
+        with patch("plugin.framework.config.get_config_str", return_value="endpoint"):
+            with patch("plugin.framework.config.get_config", return_value=""):
+                with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"):
+                    listener.populate_combobox_with_lru = track_populate
+                    listener._apply_dropdowns(
+                        "https://openrouter.ai/api",
+                        models=["openrouter/fusion"],
+                        skip_fetch=False,
+                    )
+
+    tts_calls = [c for c in populate_calls if c["lru_key"] == "tts_model_lru"]
+    assert len(tts_calls) == 1
+    assert tts_calls[0]["remote_models"] is None
+
+
+def test_tts_settings_listener_sync():
+    from plugin.chatbot.dialog_views import TtsSettingsListener
+
+    dlg = MagicMock()
+    ctx = MagicMock()
+
+    prov_ctrl = MagicMock()
+    prov_ctrl.getText.return_value = "Kokoro (Local Neural, ONNX CPU)"
+    model_ctrl = MagicMock()
+    model_ctrl.getText.return_value = ""
+    voice_ctrl = MagicMock()
+    voice_ctrl_model = MagicMock()
+    voice_ctrl.getModel.return_value = voice_ctrl_model
+    voice_ctrl.getText.return_value = ""
+
+    def get_optional_side_effect(d, name):
+        if name == "audio__tts_provider":
+            return prov_ctrl
+        if name in ("audio__tts_model", "tts_model"):
+            return model_ctrl
+        if name == "audio__tts_voice":
+            return voice_ctrl
+        return None
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+         patch("plugin.chatbot.dialog_views.set_control_enabled") as mock_set_enabled, \
+         patch("plugin.framework.config.get_config", return_value=""):
+        listener = TtsSettingsListener(dlg, ctx)
+        listener.sync_ui()
+
+        # Model combobox is disabled for non-endpoint
+        mock_set_enabled.assert_called_once_with(model_ctrl, False)
+        # Voice list is updated with Kokoro voices
+        assert any("af_bella" in label for label in voice_ctrl_model.StringItemList)
+        # Voice text is set to Bella
+        assert any("af_bella" in arg for arg in voice_ctrl.setText.call_args[0])
+
+
+def test_tts_voice_listener_on_change():
+    from plugin.chatbot.dialog_views import TtsSettingsListener, TtsVoiceListener
+
+    dlg = MagicMock()
+    ctx = MagicMock()
+
+    prov_ctrl = MagicMock()
+    prov_ctrl.getText.return_value = "Piper (Local Fast Neural, CPU)"
+    model_ctrl = MagicMock()
+    model_ctrl.getText.return_value = ""
+    voice_ctrl = MagicMock()
+    voice_ctrl.getText.return_value = "en_US-amy-medium (Piper US Female - Amy)"
+
+    def get_optional_side_effect(d, name):
+        if name == "audio__tts_provider":
+            return prov_ctrl
+        if name in ("audio__tts_model", "tts_model"):
+            return model_ctrl
+        if name == "audio__tts_voice":
+            return voice_ctrl
+        return None
+
+    settings_listener = TtsSettingsListener(dlg, ctx)
+    voice_listener = TtsVoiceListener(dlg, settings_listener)
+
+    stored = {}
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+         patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)):
+        voice_listener._on_change()
+        assert stored.get("audio.tts_voice_piper") == "en_US-amy-medium"
+        assert stored.get("audio.tts_voice") == "en_US-amy-medium"
+
+

@@ -1,0 +1,106 @@
+name: audio
+title: Audio / Speech
+requires: [config]
+
+config:
+  tts_enabled:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Enable Speech Output (TTS)
+    helper: Speak assistant responses aloud using text-to-speech.
+
+  tts_provider:
+    type: string
+    default: system
+    widget: select
+    label: TTS Provider
+    helper: "Choose whether to use built-in OS speech, a local neural engine, or your API endpoint."
+    options:
+      - value: system
+        label: "OS Native (say / SAPI / spd-say)"
+      - value: kokoro
+        label: "Kokoro (Local Neural, ONNX CPU)"
+      - value: piper
+        label: "Piper (Local Fast Neural, CPU)"
+      - value: endpoint
+        label: "Current Chat Endpoint (/audio/speech)"
+
+  tts_model:
+    type: string
+    default: ""
+    widget: combo
+    label: TTS Model
+    helper: "Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
+
+  tts_voice:
+    type: string
+    default: "alloy"
+    widget: select
+    label: Voice
+    helper: "Voice character / persona for speech synthesis."
+    options:
+      - value: "alloy"
+        label: "alloy (OpenAI Neutral)"
+      - value: "nova"
+        label: "nova (OpenAI Warm)"
+      - value: "shimmer"
+        label: "shimmer (OpenAI Expressive)"
+      - value: "af_bella"
+        label: "af_bella (Kokoro US Female - Bella)"
+      - value: "af_heart"
+        label: "af_heart (Kokoro US Female - Heart)"
+      - value: "af_sarah"
+        label: "af_sarah (Kokoro US Female - Sarah)"
+      - value: "am_adam"
+        label: "am_adam (Kokoro US Male - Adam)"
+      - value: "am_michael"
+        label: "am_michael (Kokoro US Male - Michael)"
+      - value: "en_US-lessac-medium"
+        label: "en_US-lessac-medium (Piper US Female - Lessac)"
+      - value: "en_US-amy-medium"
+        label: "en_US-amy-medium (Piper US Female - Amy)"
+      - value: "en_US-ryan-medium"
+        label: "en_US-ryan-medium (Piper US Male - Ryan)"
+      - value: "default"
+        label: "default (System Default)"
+
+  tts_speed:
+    type: string
+    default: "1.0x"
+    widget: combo
+    label: Speech Speed
+    helper: "Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom down to 0.25x)."
+    options:
+      - value: "1.0x"
+        label: "1.0x"
+      - value: "1.1x"
+        label: "1.1x"
+      - value: "1.25x"
+        label: "1.25x"
+      - value: "1.5x"
+        label: "1.5x"
+      - value: "1.75x"
+        label: "1.75x"
+      - value: "2.0x"
+        label: "2.0x"
+
+  tts_voice_kokoro:
+    type: string
+    default: "af_bella"
+    internal: true
+
+  tts_voice_piper:
+    type: string
+    default: "en_US-lessac-medium"
+    internal: true
+
+  tts_voice_openai:
+    type: string
+    default: "alloy"
+    internal: true
+
+  tts_voice_system:
+    type: string
+    default: "default"
+    internal: true

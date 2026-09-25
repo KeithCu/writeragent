@@ -210,8 +210,10 @@ _DOCLING_INSTALL_CMD = "uv pip install docling rapidocr-paddle numpy pillow css-
 _VISION_PADDLE_FALLBACK_CMD = "uv pip install paddleocr paddlepaddle numpy"
 _VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn"
 _SYMBOLIC_INSTALL_CMD = "uv pip install sympy"
-_AUDIO_PACKAGE_KEYS = ("sounddevice", "input_device")
+_AUDIO_PACKAGE_KEYS = ("sounddevice", "input_device", "kokoro_onnx", "soundfile", "piper")
+_AUDIO_OPTIONAL_KEYS = ("kokoro_onnx", "soundfile", "piper")
 _AUDIO_INSTALL_CMD = "uv pip install sounddevice"
+_TTS_INSTALL_CMD = "uv pip install kokoro-onnx soundfile piper-tts"
 _AUDIO_LINUX_PORTAUDIO_HINT = _("On Linux also install system PortAudio: sudo pacman -S portaudio")
 # Hardware / non-PyPI probe keys must not appear in the copy-paste install footer.
 _NON_PIP_PROBE_KEYS = frozenset({"input_device"})
@@ -232,6 +234,8 @@ _PROBE_KEY_TO_PIP: dict[str, str] = {
     "langchain_core": "langchain-core",
     "langchain_text_splitters": "langchain-text-splitters",
     "paddle": "paddlepaddle",
+    "kokoro_onnx": "kokoro-onnx",
+    "piper": "piper-tts",
 }
 _AUDIO_PROBE_SCRIPT = """
 import json
@@ -245,6 +249,25 @@ try:
 except Exception:
     out["sounddevice"] = None
     out["input_device"] = None
+
+try:
+    import kokoro_onnx
+    out["kokoro_onnx"] = "present"
+except Exception:
+    out["kokoro_onnx"] = None
+
+try:
+    import soundfile
+    out["soundfile"] = "present"
+except Exception:
+    out["soundfile"] = None
+
+try:
+    import piper
+    out["piper"] = "present"
+except Exception:
+    out["piper"] = None
+
 print(json.dumps(out))
 """
 _AUDIO_PROBE_TIMEOUT_HINT = _("Audio probe timed out (sounddevice import failed or hung).")
@@ -691,7 +714,7 @@ def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], pa
 
 def _self_check_group_specs(data: dict[str, Any]) -> list[tuple[str, tuple[str, ...]]]:
     return [
-        (_("Audio Recording"), tuple(data.get("audio", ()))),
+        (_("Audio Recording & Speech"), tuple(data.get("audio", ()))),
         (_("Scientific Libraries"), tuple(data.get("sci", ()))),
         (_("Data Analysis / EDA Libraries"), tuple(data.get("eda", ()))),
         (_("UI / Monaco Libraries"), tuple(data.get("ui", ()))),
@@ -758,9 +781,9 @@ def _collect_missing_probe_keys_for_display(
         elif title == _("Vector Search Libraries"):
             if include_vector_search:
                 _add(_missing_keys(keys, packages))
-        elif title == _("Audio Recording"):
+        elif title in (_("Audio Recording"), _("Audio Recording & Speech")):
             if include_audio:
-                _add(_missing_keys(keys, packages))
+                _add(_missing_keys([k for k in keys if k not in _AUDIO_OPTIONAL_KEYS], packages))
     return missing
 
 
@@ -863,14 +886,17 @@ def _build_probe_display(
                 vector_search_failure = data.get("vector_search_probe_failure")
                 if vector_search_failure:
                     msg_lines.append(f"  {vector_search_failure}")
-        elif title == _("Audio Recording"):
+        elif title in (_("Audio Recording"), _("Audio Recording & Speech")):
             if include_audio:
-                msg_lines.extend(_format_group_lines(title, keys, packages))
+                msg_lines.extend(_format_group_lines(title, keys, packages, optional_keys=_AUDIO_OPTIONAL_KEYS))
                 audio_failure = data.get("audio_probe_failure")
                 if audio_failure:
                     msg_lines.append(f"  {audio_failure}")
                 elif packages.get("sounddevice") == "present" and packages.get("input_device") != "present":
                     msg_lines.append(f"  {_('No microphone input devices detected.')}")
+                tts_missing = [k for k in _AUDIO_OPTIONAL_KEYS if packages.get(k) != "present"]
+                if tts_missing and include_install_footer:
+                    msg_lines.append(f"  {_('Local TTS engines (optional):')} {_TTS_INSTALL_CMD}")
 
     probe_warnings = data.get("probe_warnings")
     if isinstance(probe_warnings, list):
@@ -996,7 +1022,7 @@ def run_venv_self_check_with_progress(
     }
 
     if include_audio:
-        _status(_("Audio Recording: checking sounddevice..."))
+        _status(_("Audio & Speech: checking sounddevice and TTS engines..."))
         audio_probes, audio_failure = _probe_audio_packages(
             python_exe,
             timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),

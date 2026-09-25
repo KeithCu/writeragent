@@ -414,6 +414,74 @@ class TestPopulateComboboxWithLruFetchOptions:
         )
         ctrl.setText.assert_called_with('mistralai/voxtral-mini-transcribe')
 
+    def test_openrouter_tts_defaults_kokoro(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = 'https://openrouter.ai/api'
+        populate_combobox_with_lru(
+            self.ctx,
+            ctrl,
+            '',
+            'tts_model_lru',
+            ep,
+            skip_remote_fetch=True,
+            api_key_override='test-key',
+        )
+        ctrl.setText.assert_called_with('hexgrad/Kokoro-82M')
+
+    def test_tts_placeholder_sanitized_and_excluded(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = 'https://openrouter.ai/api'
+        populate_combobox_with_lru(
+            self.ctx,
+            ctrl,
+            '(Default for current endpoint)',
+            'tts_model_lru',
+            ep,
+            skip_remote_fetch=True,
+            api_key_override='test-key',
+        )
+        # Must resolve to real default, not placeholder
+        ctrl.setText.assert_called_with('hexgrad/Kokoro-82M')
+        items = list(ctrl.addItems.call_args[0][0])
+        assert '(Default for current endpoint)' not in items
+        assert 'hexgrad/Kokoro-82M' in items
+
+    def test_together_tts_models_include_sonic(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = 'https://api.together.xyz'
+        populate_combobox_with_lru(
+            self.ctx,
+            ctrl,
+            '',
+            'tts_model_lru',
+            ep,
+            skip_remote_fetch=True,
+            api_key_override='test-key',
+        )
+        items = list(ctrl.addItems.call_args[0][0])
+        assert 'hexgrad/Kokoro-82M' in items
+        assert 'cartesia/sonic' in items
+
+    def test_tts_model_lru_at_top(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = 'https://openrouter.ai/api'
+        with patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=lambda k: ['custom/my-tts'] if k == f'tts_model_lru@{ep}' else None):
+            populate_combobox_with_lru(
+                self.ctx,
+                ctrl,
+                '',
+                'tts_model_lru',
+                ep,
+                skip_remote_fetch=True,
+                api_key_override='test-key',
+            )
+        items = list(ctrl.addItems.call_args[0][0])
+        assert items[0] == 'custom/my-tts'
+
     def test_populate_combobox_placeholder_no_provider(self):
         ctx = MagicMock()
         ctrl = MagicMock()

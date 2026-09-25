@@ -958,6 +958,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     self._set_status(_(effect.status_text))
 
             case StartRecordingEffect():
+                try:
+                    from plugin.audio.tts_service import stop_speech
+                    stop_speech()
+                except Exception:
+                    pass
                 if not self.audio_recorder:
                     return
                 try:
@@ -988,6 +993,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             case StartSendEffect():
                 from plugin.framework.queue_executor import SendCancellation
 
+                try:
+                    from plugin.audio.tts_service import stop_speech
+                    stop_speech()
+                except Exception:
+                    pass
+
                 self._stop_requested_fallback = False
                 self._terminal_status = "Ready"
                 # Create the scope before posting so a Stop click between Send
@@ -1006,6 +1017,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             case StopSendEffect():
                 log.info("Stop clicked (cancel in-flight send)")
+                try:
+                    from plugin.audio.tts_service import stop_speech
+                    stop_speech()
+                except Exception:
+                    pass
                 scope = getattr(self, "_send_cancellation", None)
                 if scope is not None:
                     scope.cancel()
@@ -1028,10 +1044,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         label = btn_model.Label
 
         if label == _("Record"):
+            from plugin.audio.tts_service import stop_speech
+            stop_speech()
             self.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
         elif label == _("Stop Rec"):
             self.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
         elif label == _("Send"):
+            from plugin.audio.tts_service import stop_speech
+            stop_speech()
             self.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
     # _transcribe_audio_async is provided by SendHandlersMixin.
@@ -1066,6 +1086,29 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
                 if self._terminal_status:
                     self._set_status(_(self._terminal_status))
+                try:
+                    from plugin.framework.config import get_config_bool_safe
+                    if get_config_bool_safe("audio.tts_enabled"):
+                        if self.session and self.session.messages:
+                            last_msg = self.session.messages[-1]
+                            if last_msg.get("role") == "assistant" and last_msg.get("content"):
+                                from plugin.audio.tts_service import speak_text_async, is_speaking
+
+                                def _on_speech_complete() -> None:
+                                    def _disable_stop() -> None:
+                                        if not getattr(self, "_send_busy", False):
+                                            if self.stop_control and self.stop_control.getModel():
+                                                with suppress_disposed("disable stop after speech", logger=log):
+                                                    self.stop_control.getModel().Enabled = False
+                                    self.queue_executor.post(_disable_stop)
+
+                                speak_text_async(last_msg["content"], on_complete=_on_speech_complete)
+                                if is_speaking():
+                                    if self.stop_control and self.stop_control.getModel():
+                                        with suppress_disposed("enable stop for speech", logger=log):
+                                            self.stop_control.getModel().Enabled = True
+                except Exception as e:
+                    log.debug("TTS playback trigger: %s", e)
             from plugin.doc.peer_message import kick_pending_peer_starts
 
             kick_pending_peer_starts()
@@ -1430,6 +1473,14 @@ def notify_stop_mouse_pressed(send_listener: Any) -> None:
         return
     if getattr(send_listener, "_approval_event", None) is not None:
         return
+    from plugin.audio.tts_service import is_speaking, stop_speech
+    if is_speaking():
+        stop_speech()
+        if not getattr(send_listener, "_send_busy", False):
+            if send_listener.stop_control and send_listener.stop_control.getModel():
+                with suppress_disposed("disable stop on mousePressed speech stopped", logger=log):
+                    send_listener.stop_control.getModel().Enabled = False
+            return
     send = getattr(getattr(send_listener, "sidebar_state", None), "send", None)
     if send is None or not send.is_busy:
         return
@@ -1488,6 +1539,14 @@ class StopButtonListener(BaseActionListener):
                 self.send_listener._finish_inline_web_approval(False)
                 return
         if self.send_listener:
+            from plugin.audio.tts_service import is_speaking, stop_speech
+            if is_speaking():
+                stop_speech()
+                if not getattr(self.send_listener, "_send_busy", False):
+                    if self.send_listener.stop_control and self.send_listener.stop_control.getModel():
+                        with suppress_disposed("disable stop on speech stopped", logger=log):
+                            self.send_listener.stop_control.getModel().Enabled = False
+                    return
             log.info("StopButtonListener: STOP_CLICKED")
             self.send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
 
@@ -1526,6 +1585,8 @@ class ClearButtonListener(BaseActionListener):
             self.greeting = greeting
 
     def on_action_performed(self, rEvent: Any) -> None:
+        from plugin.audio.tts_service import stop_speech
+        stop_speech()
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             self.send_listener._finish_inline_web_approval(False)
             return

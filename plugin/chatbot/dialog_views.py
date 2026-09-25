@@ -32,7 +32,7 @@ from plugin.framework.uno_context import get_desktop, get_extension_url, menu_ic
 from plugin.framework.i18n import _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int
 from plugin.framework.config_schema import as_bool
-from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, set_text_model
+from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, get_tts_model, set_text_model
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
 from plugin.chatbot.history_db import HAS_SQLITE
@@ -198,6 +198,8 @@ class SettingsDialog:
     _mcp_tunnel_enabled_listener: Any
     _mcp_tunnel_provider_listener: Any
     _mcp_port_listener: Any
+    _tts_listener: Any
+    _tts_voice_listener: Any
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
@@ -213,6 +215,8 @@ class SettingsDialog:
         self._mcp_tunnel_enabled_listener = None
         self._mcp_tunnel_provider_listener = None
         self._mcp_port_listener = None
+        self._tts_listener = None
+        self._tts_voice_listener = None
 
     def show(self) -> dict[str, Any]:
         """Execute the settings dialog and apply results."""
@@ -387,6 +391,10 @@ class SettingsDialog:
                 populate_combobox_with_lru(
                     self._ctx, ctrl, val, "audio_model_lru", current_endpoint, api_key_override=api_key_val,
                 )
+            elif name in ("audio__tts_model", "tts_model"):
+                populate_combobox_with_lru(
+                    self._ctx, ctrl, val, "tts_model_lru", current_endpoint, api_key_override=api_key_val,
+                )
             elif name == "additional_instructions":
                 populate_combobox_with_lru(self._ctx, ctrl, val, "prompt_lru", "")
             elif name == "endpoint":
@@ -399,6 +407,35 @@ class SettingsDialog:
 
         # Populate non-persisted client config snippet
         sync_mcp_config_snippet(self._dlg)
+        self._setup_tts_listeners()
+
+    def _setup_tts_listeners(self) -> None:
+        prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
+        voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
+        model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
+
+        if not (prov_ctrl or voice_ctrl or model_ctrl):
+            return
+
+        self._tts_listener = TtsSettingsListener(self._dlg, self._ctx)
+
+        if prov_ctrl and hasattr(prov_ctrl, "addItemListener"):
+            prov_ctrl.addItemListener(self._tts_listener)
+            if hasattr(prov_ctrl, "addTextListener"):
+                prov_ctrl.addTextListener(self._tts_listener)
+
+        if model_ctrl and hasattr(model_ctrl, "addItemListener"):
+            model_ctrl.addItemListener(self._tts_listener)
+            if hasattr(model_ctrl, "addTextListener"):
+                model_ctrl.addTextListener(self._tts_listener)
+
+        if voice_ctrl and hasattr(voice_ctrl, "addItemListener"):
+            self._tts_voice_listener = TtsVoiceListener(self._dlg, self._tts_listener)
+            voice_ctrl.addItemListener(self._tts_voice_listener)
+            if hasattr(voice_ctrl, "addTextListener"):
+                voice_ctrl.addTextListener(self._tts_voice_listener)
+
+        self._tts_listener.sync_ui()
 
     def _schedule_initial_models_fetch(self, endpoint: str) -> None:
         """OpenRouter/Together skip inline fetch; load full catalog when a saved key exists."""
@@ -567,6 +604,43 @@ class SettingsDialog:
                 except Exception:
                     pass
             self._mcp_port_listener = None
+        if self._tts_listener and self._dlg is not None:
+            prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
+            if prov_ctrl and hasattr(prov_ctrl, "removeItemListener"):
+                try:
+                    prov_ctrl.removeItemListener(self._tts_listener)
+                except Exception:
+                    pass
+            if prov_ctrl and hasattr(prov_ctrl, "removeTextListener"):
+                try:
+                    prov_ctrl.removeTextListener(self._tts_listener)
+                except Exception:
+                    pass
+            model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
+            if model_ctrl and hasattr(model_ctrl, "removeItemListener"):
+                try:
+                    model_ctrl.removeItemListener(self._tts_listener)
+                except Exception:
+                    pass
+            if model_ctrl and hasattr(model_ctrl, "removeTextListener"):
+                try:
+                    model_ctrl.removeTextListener(self._tts_listener)
+                except Exception:
+                    pass
+            self._tts_listener = None
+        if self._tts_voice_listener and self._dlg is not None:
+            voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
+            if voice_ctrl and hasattr(voice_ctrl, "removeItemListener"):
+                try:
+                    voice_ctrl.removeItemListener(self._tts_voice_listener)
+                except Exception:
+                    pass
+            if voice_ctrl and hasattr(voice_ctrl, "removeTextListener"):
+                try:
+                    voice_ctrl.removeTextListener(self._tts_voice_listener)
+                except Exception:
+                    pass
+            self._tts_voice_listener = None
         clear_active_settings_dialog(self._dlg)
         if self._dlg:
             self._dlg.dispose()
@@ -746,6 +820,121 @@ class PptMasterDataTestListener(BaseActionListener):
         VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(probe)
 
 
+class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
+    """Synchronizes TTS voice choices and model enablement when provider/model changes."""
+
+    _dlg: Any
+    _ctx: Any
+    _syncing: bool
+
+    def __init__(self, dialog: Any, ctx: Any) -> None:
+        self._dlg = dialog
+        self._ctx = ctx
+        self._syncing = False
+
+    def sync_ui(self) -> None:
+        if self._syncing or not self._dlg:
+            return
+        self._syncing = True
+        try:
+            from plugin.audio.tts_service import (
+                clean_provider_name,
+                clean_voice_name,
+                get_voice_family,
+                get_scoped_tts_voice,
+                get_voice_catalog,
+            )
+            prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
+            model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
+            voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
+
+            raw_prov = prov_ctrl.getText() if prov_ctrl and hasattr(prov_ctrl, "getText") else ""
+            provider = clean_provider_name(raw_prov)
+            raw_model = model_ctrl.getText() if model_ctrl and hasattr(model_ctrl, "getText") else ""
+
+            if model_ctrl:
+                set_control_enabled(model_ctrl, provider == "endpoint")
+
+            if voice_ctrl and hasattr(voice_ctrl, "getModel"):
+                family = get_voice_family(provider, raw_model)
+                catalog = get_voice_catalog(family)
+                labels = tuple(opt["label"] for opt in catalog)
+
+                model = voice_ctrl.getModel()
+                if hasattr(model, "StringItemList"):
+                    if tuple(getattr(model, "StringItemList", ())) != labels:
+                        model.StringItemList = labels
+
+                scoped_voice = get_scoped_tts_voice(provider, raw_model)
+                current_text = voice_ctrl.getText() if hasattr(voice_ctrl, "getText") else ""
+                current_clean = clean_voice_name(current_text)
+
+                target_label = ""
+                for opt in catalog:
+                    if opt["value"] == scoped_voice:
+                        target_label = opt["label"]
+                        break
+                if not target_label and catalog:
+                    target_label = catalog[0]["label"]
+
+                if (current_clean != scoped_voice or not current_text) and target_label:
+                    voice_ctrl.setText(target_label)
+        except Exception:
+            log.exception("Error syncing TTS UI settings")
+        finally:
+            self._syncing = False
+
+    def itemStateChanged(self, rEvent: ItemEvent) -> None:
+        self.sync_ui()
+
+    def textChanged(self, rEvent: TextEvent) -> None:
+        self.sync_ui()
+
+
+class TtsVoiceListener(BaseListener, XItemListener, XTextListener):
+    """Saves user-selected voice scoped to the active provider and voice family."""
+
+    _dlg: Any
+    _tts_listener: TtsSettingsListener
+
+    def __init__(self, dialog: Any, tts_listener: TtsSettingsListener) -> None:
+        self._dlg = dialog
+        self._tts_listener = tts_listener
+
+    def itemStateChanged(self, rEvent: ItemEvent) -> None:
+        self._on_change()
+
+    def textChanged(self, rEvent: TextEvent) -> None:
+        self._on_change()
+
+    def _on_change(self) -> None:
+        if self._tts_listener._syncing or not self._dlg:
+            return
+        try:
+            from plugin.audio.tts_service import (
+                clean_provider_name,
+                clean_voice_name,
+                set_scoped_tts_voice,
+            )
+            prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
+            model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
+            voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
+
+            if not voice_ctrl or not hasattr(voice_ctrl, "getText"):
+                return
+
+            raw_voice = voice_ctrl.getText()
+            clean_voice = clean_voice_name(raw_voice)
+            if not clean_voice:
+                return
+
+            raw_prov = prov_ctrl.getText() if prov_ctrl and hasattr(prov_ctrl, "getText") else ""
+            raw_model = model_ctrl.getText() if model_ctrl and hasattr(model_ctrl, "getText") else ""
+            set_scoped_tts_voice(clean_voice, clean_provider_name(raw_prov), raw_model)
+        except Exception:
+            log.exception("Error saving scoped TTS voice on change")
+
+
 class ApiKeyTextListener(BaseListener, XTextListener):
     _el: Any
 
@@ -774,6 +963,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _sanitize_model_combobox_value: Callable[..., Any]
     get_provider_from_endpoint: Callable[..., Any]
     get_image_model: Callable[..., Any]
+    get_tts_model: Callable[..., Any]
 
     def __init__(self, dialog: Any, context: Any, combo_ctrl: Any) -> None:
         from plugin.framework.queue_executor import post_to_main_thread
@@ -808,6 +998,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._sanitize_model_combobox_value = _sanitize_model_combobox_value
         self.get_provider_from_endpoint = get_provider_from_endpoint
         self.get_image_model = get_image_model
+        self.get_tts_model = get_tts_model
 
         resolved_init = self.endpoint_from_selector_text(self._ctrl.getText())
         self._update_key_link_state(resolved_init)
@@ -880,6 +1071,25 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 "audio_model_lru",
                 resolved,
                 remote_models=stt_remote,
+                api_key_override=api_key_ov,
+                skip_remote_fetch=skip_remote,
+            )
+
+        tts_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
+        if tts_ctrl:
+            tts_val = self._combo_current_for_provider(
+                tts_ctrl,
+                same_provider=same_provider,
+                fallback=str(get_config("audio.tts_model") or self.get_tts_model() or ""),
+            )
+            tts_remote = None if resolved_provider in {"openrouter", "together"} else models
+            self.populate_combobox_with_lru(
+                self._ctx,
+                tts_ctrl,
+                tts_val,
+                "tts_model_lru",
+                resolved,
+                remote_models=tts_remote,
                 api_key_override=api_key_ov,
                 skip_remote_fetch=skip_remote,
             )
