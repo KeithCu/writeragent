@@ -510,10 +510,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     if role == "user":
                         text += "\nUser: %s\n" % content
                     elif role == "assistant":
+                        # Plain-text fallback when the rich widget is absent.
+                        # Literal inside _() so the role prefix is extractable.
                         if content:
-                            text += "\nAssistant: %s" % content
+                            text += "\n%s %s" % (_("Assistant:"), content)
                         elif msg.get("tool_calls"):
-                            text += "\nAssistant: [Thinking...]"
+                            text += "\n%s [Thinking...]" % _("Assistant:")
                         text += "\n"
 
                 set_control_text(response_ctrl, text)
@@ -776,10 +778,17 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, is_image_mode, librarian_default_mode, mark_librarian_invoked, populate_mode_selector_with_flags, set_selector_mode_with_flags
 
         if aspect_ratio_selector:
-            from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_LABELS
+            from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_LABELS, aspect_label_gettext, canonical_aspect_label
 
-            aspect_ratio_selector.addItems(IMAGE_ASPECT_RATIO_LABELS, 0)
-            aspect_ratio_selector.setText(get_config("image_default_aspect") or "Square")
+            # What was wrong: this runs after translate_dialog and refilled the
+            # combo with the English tuple, so Square stayed English even though
+            # the catalog had 正方形 / Cuadrado.
+            aspect_ratio_selector.addItems(
+                tuple(aspect_label_gettext(label) for label in IMAGE_ASPECT_RATIO_LABELS),
+                0,
+            )
+            stored_aspect = canonical_aspect_label(str(get_config("image_default_aspect") or "Square"))
+            aspect_ratio_selector.setText(aspect_label_gettext(stored_aspect))
 
         if base_size_input:
             from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
@@ -790,10 +799,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             if not base_size_label:
                 return
+            # Combo text may be translated; Height/Width still key off the English label.
+            from plugin.chatbot.settings_dialog import canonical_aspect_label
+
+            canonical = canonical_aspect_label(aspect_str)
             txt = _("Size:")
-            if "Landscape" in aspect_str:
+            if "Landscape" in canonical:
                 txt = _("Height:")
-            elif "Portrait" in aspect_str:
+            elif "Portrait" in canonical:
                 txt = _("Width:")
             if hasattr(base_size_label, "setText"):
                 base_size_label.setText(txt)

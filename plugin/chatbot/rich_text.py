@@ -22,6 +22,7 @@ import re
 from typing import Any, cast
 
 from plugin.framework.appearance import get_theme_colors
+from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
@@ -263,9 +264,11 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
         if text_obj.getString():
             text_obj.insertString(cursor, "\n\n", False)
 
-        # Bold colored role prefix
+        # Bold colored role prefix.
+        # What was wrong: "Assistant:" was a bare literal, so JA/ES catalogs
+        # could not translate the sidebar role prefix (xgettext skips _(CONST)).
         start_pos = cursor.getStart()
-        prefix = "You: " if role == "user" else "Assistant: "
+        prefix = "You: " if role == "user" else _("Assistant:") + " "
         text_obj.insertString(cursor, prefix, False)
 
         prefix_range = text_obj.createTextCursorByRange(start_pos)

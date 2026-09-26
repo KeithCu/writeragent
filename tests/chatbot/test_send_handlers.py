@@ -420,6 +420,23 @@ def _run_direct_image_send(panel, model, execute_return, selected_graphic=None):
     return mock_registry
 
 
+def test_direct_image_maps_translated_aspect_label_to_tool_enum():
+    """Sidebar combo text is translated; image_generate still receives the English enum."""
+    panel = DummyChatbotPanel()
+    panel.aspect_ratio_selector.getText.return_value = "横長"
+
+    def fake_canonical(displayed: str) -> str:
+        assert displayed == "横長"
+        return "Landscape (16:9)"
+
+    model = MockDocument()
+    with patch("plugin.chatbot.settings_dialog.canonical_aspect_label", side_effect=fake_canonical):
+        mock_registry = _run_direct_image_send(panel, model, {"status": "done", "message": "ok"})
+    args, kwargs = mock_registry.execute.call_args
+    assert args[0] == "image_generate"
+    assert kwargs["aspect_ratio"] == "landscape_16_9"
+
+
 def test_direct_image_source_arg_none_without_selection():
     from plugin.chatbot.send_handlers import _direct_image_source_arg
 

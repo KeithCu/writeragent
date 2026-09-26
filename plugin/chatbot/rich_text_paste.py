@@ -61,6 +61,7 @@ from plugin.calc.navigation import (
     portion_looks_like_cell_link,
     register_cell_link_span,
 )
+from plugin.framework.i18n import _
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 
 log = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ def build_message_html(text: str, role: str = "assistant") -> str:
     from plugin.calc.navigation import render_calc_cell_refs
 
     text = render_calc_cell_refs(text)
-    label = "You:" if role == "user" else "Assistant:"
+    label = "You:" if role == "user" else _("Assistant:")
     if _HTML_TAG_RE.search(text):
         body = text
     else:
@@ -239,7 +240,9 @@ def _role_color_for_text(text: str, user_color: int, assistant_color: int, defau
     stripped = (text or "").lstrip()
     if stripped.startswith("You:"):
         return user_color
-    if stripped.startswith("Assistant:"):
+    # Written prefix is _("Assistant:"); also accept the English msgid so a
+    # portion copied before translation still picks the assistant color.
+    if stripped.startswith("Assistant:") or stripped.startswith(_("Assistant:")):
         return assistant_color
     return user_color if default_role == "user" else assistant_color
 

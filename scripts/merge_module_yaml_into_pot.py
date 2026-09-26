@@ -60,7 +60,10 @@ def _collect_strings_from_module_yaml(path: str) -> list[str]:
             continue
         if schema.get("internal"):
             continue
-        for key in ("label", "helper"):
+        # button_text is the control caption (XDL dlg:value → Button.Label).
+        # label on a button is the separate caption beside it; both must be
+        # in the pot or translate_dialog's _("Recheck") stays English.
+        for key in ("label", "helper", "button_text"):
             val = schema.get(key)
             if isinstance(val, str) and val.strip():
                 results.append(val.strip())

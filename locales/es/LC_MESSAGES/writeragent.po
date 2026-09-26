@@ -4099,3 +4099,15 @@ msgstr "Tiempo de espera del documento Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Tiempo de espera por conversión dentro de Docling. 0 = sin límite."
+
+msgid "Assistant:"
+msgstr "Asistente:"
+
+msgid "Recheck"
+msgstr "Recomprobar"
+
+msgid "Copy Config"
+msgstr "Copiar configuración"
+
+msgid "Download"
+msgstr "Descargar"

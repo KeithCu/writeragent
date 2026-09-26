@@ -261,6 +261,10 @@ class SendHandlersMixin:
                 if self.aspect_ratio_selector and hasattr(self.aspect_ratio_selector, "getText"):
                     aspect_ratio_str = self.aspect_ratio_selector.getText()
 
+                # Combo shows the translated label; the tool map is English.
+                from plugin.chatbot.settings_dialog import canonical_aspect_label
+
+                aspect_ratio_str = canonical_aspect_label(str(aspect_ratio_str or ""))
                 aspect_map = {"Square": "square", "Landscape (16:9)": "landscape_16_9", "Portrait (9:16)": "portrait_9_16", "Landscape (3:2)": "landscape_3_2", "Portrait (2:3)": "portrait_2_3"}
                 mapped_aspect = aspect_map.get(aspect_ratio_str, "square")
 
