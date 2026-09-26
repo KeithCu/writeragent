@@ -315,7 +315,7 @@ class TestEndpointCombinedListener:
         text_ctrl = MagicMock()
         text_ctrl.getText.return_value = 'inception/mercury-2.5'
         stt_ctrl = MagicMock()
-        stt_ctrl.getText.return_value = 'openai/whisper-large-v3'
+        stt_ctrl.getText.return_value = 'mistralai/voxtral-mini-transcribe'
         image_ctrl = MagicMock()
         image_ctrl.getText.return_value = 'openai/gpt-5-image'
         api_key_ctrl = MagicMock()
@@ -359,7 +359,9 @@ class TestEndpointCombinedListener:
         text_ctrl.getText.return_value = sticky
         text_ctrl.getItemCount.return_value = 0
         stt_ctrl = MagicMock()
-        stt_ctrl.getText.return_value = 'openai/whisper-large-v3'
+        # Voxtral is OpenRouter's STT default. Whisper Large v3 is a Together catalog id.
+        stt_sticky = 'mistralai/voxtral-mini-transcribe'
+        stt_ctrl.getText.return_value = stt_sticky
         stt_ctrl.getItemCount.return_value = 0
         image_ctrl = MagicMock()
         image_ctrl.getText.return_value = 'openai/gpt-5-image'
@@ -389,7 +391,9 @@ class TestEndpointCombinedListener:
         assert ('MiniMaxAI/MiniMax-M3') in (text_items)
 
         stt_items = list(stt_ctrl.addItems.call_args[0][0])
-        assert ('openai/whisper-large-v3') not in (stt_items)
+        assert (stt_sticky) not in (stt_items)
+        assert ('nvidia/parakeet-tdt-0.6b-v3') in (stt_items)
+        assert ('openai/whisper-large-v3') in (stt_items)
         image_items = list(image_ctrl.addItems.call_args[0][0])
         assert ('openai/gpt-5-image') not in (image_items)
 
