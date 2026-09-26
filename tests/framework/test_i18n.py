@@ -307,6 +307,9 @@ class TestI18n:
 
     def test_ja_es_catalogs_fill_survey_leftovers(self):
         """JA/ES msgstrs for the headed-survey leftovers are real translations."""
+        from tests.harness.strip_bundle import skip_if_release_build
+
+        skip_if_release_build("locales/*.po not in stripped release tree")
         import polib
 
         root = Path(__file__).resolve().parents[2]
