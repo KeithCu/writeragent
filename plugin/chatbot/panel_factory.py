@@ -1125,7 +1125,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         # re-enter set_config → config:changed → refresh (UNO fires listeners).
                         if getattr(self.panel, "_in_refresh_controls", False):
                             return
-                        val = bool(getattr(rEvent, "Selected", 0) == 1)
+                        # Prefer the control state: ItemEvent.Selected is not always set on
+                        # programmatic setState, which would wrongly persist False.
+                        src = getattr(rEvent, "Source", None)
+                        if src is not None and hasattr(src, "getState"):
+                            try:
+                                val = bool(int(src.getState()) == 1)
+                            except Exception:
+                                val = bool(getattr(rEvent, "Selected", 0) == 1)
+                        else:
+                            val = bool(getattr(rEvent, "Selected", 0) == 1)
                         set_config("audio.tts_enabled", val)
                         log.info("Voice checkbox toggled: tts_enabled=%s", val)
 
