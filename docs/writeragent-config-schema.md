@@ -76,6 +76,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `tts_voice_kokoro` | `string` | `"af_bella"` |  | Internal |
 | `tts_voice_piper` | `string` | `"en_US-lessac-medium"` |  | Internal |
 | `tts_voice_openai` | `string` | `"alloy"` |  | Internal |
+| `tts_voice_openrouter` | `string` | `""` |  | Internal |
 | `tts_voice_system` | `string` | `"default"` |  | Internal |
 
 ## Calc spreadsheet tools (`calc`)

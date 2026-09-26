@@ -73,6 +73,11 @@ _model_fetch_tts_cache: dict[str, list[str] | None] = {}
 _model_fetch_stt_cache: dict[str, list[str] | None] = {}
 # Speech-list supported_voices, keyed by the API model id (process lifetime).
 _tts_supported_voices: dict[str, list[str]] = {}
+# response_format that worked for that model (mp3 / pcm / wav). Same lifetime
+# as the voice list: learned while speaking, not written to writeragent.json.
+# Gemini-class speech models reject mp3; remembering pcm skips that 400 next time.
+_tts_response_format: dict[str, str] = {}
+_TTS_RESPONSE_FORMATS = ("mp3", "pcm", "wav")
 # Same key as _model_fetch_cache. Per-id context tokens harvested from /v1/models
 # (context_length or context_window only). None after a failed fetch. Lookup
 # never HTTP — compact reads this; Settings/sidebar populate it.
@@ -523,6 +528,63 @@ def cached_tts_supported_voices(model_id: str) -> list[str]:
         if key.casefold() == folded and voices:
             return list(voices)
     return []
+
+
+def _tts_meta_key(model_id: str, table: dict[str, str]) -> str | None:
+    """Exact or case-insensitive key already stored for ``model_id``."""
+    mid = str(model_id or "").strip()
+    if not mid:
+        return None
+    if mid in table:
+        return mid
+    folded = mid.casefold()
+    for key in table:
+        if key.casefold() == folded:
+            return key
+    return None
+
+
+def cached_tts_response_format(model_id: str) -> str | None:
+    """``response_format`` learned for this speech model, if any.
+
+    Absent means the caller should try ``mp3``. Lookup matches the voice cache:
+    ``hexgrad/Kokoro-82M`` and ``hexgrad/kokoro-82m`` share one entry.
+    """
+    key = _tts_meta_key(model_id, _tts_response_format)
+    if key is None:
+        return None
+    fmt = _tts_response_format.get(key) or ""
+    if fmt in _TTS_RESPONSE_FORMATS:
+        return fmt
+    return None
+
+
+def remember_tts_response_format(model_id: str, fmt: str) -> None:
+    """Remember a speech ``response_format`` until this process exits."""
+    mid = str(model_id or "").strip()
+    clean = str(fmt or "").strip().lower()
+    if not mid or clean not in _TTS_RESPONSE_FORMATS:
+        return
+    key = _tts_meta_key(mid, _tts_response_format) or mid
+    _tts_response_format[key] = clean
+
+
+def openrouter_speech_list_loaded() -> bool:
+    """True after a successful OpenRouter speech-list fetch in this process."""
+    return any(isinstance(ids, list) for ids in _model_fetch_tts_cache.values())
+
+
+def openrouter_speech_list_has_model(model_id: str) -> bool:
+    """True when ``model_id`` appeared on a fetched OpenRouter speech list."""
+    mid = str(model_id or "").strip().casefold()
+    if not mid:
+        return False
+    for ids in _model_fetch_tts_cache.values():
+        if not ids:
+            continue
+        if any(str(api_id).casefold() == mid for api_id in ids):
+            return True
+    return False
 
 
 def preferred_openrouter_tts_model_id(model_id: str) -> str:

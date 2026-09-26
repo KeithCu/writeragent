@@ -858,6 +858,7 @@ def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:
         if "openrouter.ai" in key:
             cfg._model_fetch_tts_cache.pop(key, None)
     cfg._tts_supported_voices.pop("hexgrad/kokoro-82m", None)
+    cfg._tts_response_format.pop("hexgrad/kokoro-82m", None)
 
     def get_optional_side_effect(d, name):
         if name in ("audio__tts_model", "tts_model"):
@@ -971,6 +972,70 @@ def test_tts_settings_listener_promotes_raw_voice_id_to_catalog_label():
 
     voice_ctrl.setText.assert_called_once()
     assert "Thorsten" in voice_ctrl.setText.call_args[0][0]
+
+
+def test_tts_settings_listener_uses_cached_openrouter_voices():
+    from plugin.chatbot.dialog_views import TtsSettingsListener
+    from plugin.framework.client import model_fetcher as cfg
+
+    model_id = "google/gemini-2.5-flash-preview-tts"
+    cfg._tts_supported_voices[model_id] = ["Kore", "Puck"]
+    dlg = MagicMock()
+    prov_ctrl = MagicMock()
+    prov_ctrl.getText.return_value = "Current Chat Endpoint (/audio/speech)"
+    model_ctrl = MagicMock()
+    model_ctrl.getText.return_value = model_id
+    voice_ctrl = MagicMock()
+    voice_model = MagicMock()
+    voice_model.StringItemList = ()
+    voice_ctrl.getModel.return_value = voice_model
+    voice_ctrl.getText.return_value = "alloy (OpenAI Neutral)"
+
+    def get_optional_side_effect(d, name):
+        del d
+        if name == "audio__tts_provider":
+            return prov_ctrl
+        if name in ("audio__tts_model", "tts_model"):
+            return model_ctrl
+        if name == "audio__tts_voice":
+            return voice_ctrl
+        return None
+
+    stored = {}
+    try:
+        with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+             patch("plugin.chatbot.dialog_views.set_control_enabled"), \
+             patch("plugin.audio.tts_service.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
+             patch("plugin.audio.tts_service.set_config", side_effect=lambda key, val: stored.__setitem__(key, val)):
+            TtsSettingsListener(dlg, MagicMock()).sync_ui()
+        assert list(voice_model.StringItemList) == ["Kore", "Puck"]
+        assert voice_ctrl.setText.call_args[0][0] == "Kore"
+        assert stored.get("audio.tts_voice_openrouter") == "Kore"
+        assert stored.get("audio.tts_voice") == "Kore"
+    finally:
+        cfg._tts_supported_voices.pop(model_id, None)
+
+
+def test_tts_test_voice_status_shows_http_body():
+    from plugin.chatbot.dialog_views import TtsTestVoiceListener
+
+    listener = TtsTestVoiceListener(MagicMock(), MagicMock())
+
+    def _speak(*args, **kwargs):
+        del args
+        kwargs["on_status"]("Speech request failed (400): response_format must be pcm")
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=_tts_test_controls()), \
+         patch("plugin.chatbot.dialog_views.is_checkbox_control", return_value=True), \
+         patch("plugin.chatbot.dialog_views.get_checkbox_state", return_value=1), \
+         patch("plugin.audio.tts_service.tts_test_sample", return_value="Hello"), \
+         patch("plugin.audio.tts_service.speak_text_async", side_effect=_speak), \
+         patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)), \
+         patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
+        listener.on_action_performed(None)
+
+    mock_msgbox.assert_called_once()
+    assert "response_format must be pcm" in mock_msgbox.call_args[0][2]
 
 
 def _tts_test_controls(*, enabled: int = 1):

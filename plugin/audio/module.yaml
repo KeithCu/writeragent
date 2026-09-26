@@ -115,6 +115,14 @@ config:
     default: "alloy"
     internal: true
 
+  # Voice chosen for an OpenRouter speech model that advertises its own ids
+  # (Grok, Gemini, …). Separate from tts_voice_openai so alloy is not sent
+  # to those models, and a Gemini voice is not sent to OpenAI-compat TTS.
+  tts_voice_openrouter:
+    type: string
+    default: ""
+    internal: true
+
   tts_voice_system:
     type: string
     default: "default"

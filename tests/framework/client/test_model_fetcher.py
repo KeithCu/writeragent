@@ -524,6 +524,7 @@ class TestFetchAvailableSpeechModels:
                 if "openrouter.ai" in key or "together.xyz" in key:
                     cache.pop(key, None)
         cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
     def test_openrouter_tts_queries_speech_modality(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -550,6 +551,18 @@ class TestFetchAvailableSpeechModels:
         assert ids_again == ids
         assert cfg.cached_tts_supported_voices("hexgrad/kokoro-82m") == ["af_bella"]
         assert cfg.preferred_openrouter_tts_model_id("hexgrad/Kokoro-82M") == "hexgrad/kokoro-82m"
+        assert cfg.openrouter_speech_list_has_model("hexgrad/Kokoro-82M")
+        assert not cfg.openrouter_speech_list_has_model("google/lyria-3-pro-preview")
+
+    def test_response_format_cache_is_case_insensitive(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        model = "google/gemini-2.5-flash-preview-tts"
+        cfg.remember_tts_response_format(model, "pcm")
+        assert cfg.cached_tts_response_format("Google/Gemini-2.5-Flash-Preview-TTS") == "pcm"
+        cfg.remember_tts_response_format(model, "not-a-format")
+        assert cfg.cached_tts_response_format(model) == "pcm"
+        assert cfg.cached_tts_response_format("x-ai/grok-voice-tts-1.0") is None
 
     def test_openrouter_stt_queries_transcription_modality(self):
         from plugin.framework.client import model_fetcher as cfg
