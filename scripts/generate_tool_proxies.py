@@ -13,6 +13,7 @@ Usage: python scripts/generate_tool_proxies.py > plugin/scripting/writeragent_ap
 
 import keyword
 import os
+import re
 import sys
 import pprint
 from collections import defaultdict
@@ -139,11 +140,6 @@ def _python_param_name(schema_key: str) -> str:
     return schema_key
 
 
-def _first_sentence(description: str) -> str:
-    first = (description or "").split(". ")[0].rstrip(".")
-    return f"{first}." if first else ""
-
-
 def _iter_params(tool: "ToolBase") -> list[tuple[str, str, dict]]:
     """Yield (python_name, schema_key, property_schema) in schema order."""
     props = (tool.parameters or {}).get("properties", {})
@@ -171,6 +167,112 @@ def schema_to_signature(tool: "ToolBase") -> tuple[list[str], list[str]]:
     return positional, keyword
 
 
+# Sidebar-only / chat-mode domains: not part of the Python proxy surface.
+API_EXCLUDED_DOMAINS = frozenset({
+    "writing_plan",
+    "deep_research",
+    "brainstorming",
+    "document_research",
+    "ppt-master",
+    "ppt_master",
+})
+
+
+def _domain_excluded(domain: str | None) -> bool:
+    """True for chat-mode domains, including ``ppt-master`` / ``ppt_master`` spellings."""
+    if not isinstance(domain, str) or not domain:
+        return False
+    folded = {domain, domain.replace("-", "_"), domain.replace("_", "-")}
+    return bool(folded & API_EXCLUDED_DOMAINS)
+
+
+def _doc_paragraphs(text: str) -> list[str]:
+    """Collapse runs of whitespace inside each paragraph; keep blank-line breaks."""
+    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    paragraphs: list[str] = []
+    for block in re.split(r"\n\s*\n", normalized):
+        collapsed = " ".join(block.split())
+        if collapsed:
+            paragraphs.append(collapsed)
+    return paragraphs
+
+
+def _as_sentence(text: str) -> str:
+    text = text.strip()
+    if not text:
+        return ""
+    if text[-1] not in ".!?":
+        return text + "."
+    return text
+
+
+def _format_arg_doc(py_name: str, schema: dict, *, required: bool) -> str:
+    """One Google-style Args line. Type stays on the signature, not here."""
+    kind = "required" if required else "optional"
+    desc = _as_sentence(" ".join(str(schema.get("description") or "").split()))
+    enum = schema.get("enum")
+    bits = [desc] if desc else []
+    if isinstance(enum, (list, tuple)) and enum:
+        shown = ", ".join(" ".join(str(item).split()) for item in enum)
+        bits.append(f"One of: {shown}.")
+    detail = " ".join(bits)
+    if detail:
+        return f"    {py_name} ({kind}): {detail}"
+    return f"    {py_name} ({kind}):"
+
+
+def _method_doc_lines(tool: "ToolBase") -> list[str]:
+    """Full tool description plus Args. Empty when the tool has neither."""
+    lines: list[str] = []
+    for index, paragraph in enumerate(_doc_paragraphs(getattr(tool, "description", "") or "")):
+        if index:
+            lines.append("")
+        lines.append(paragraph)
+
+    required = set((tool.parameters or {}).get("required", []))
+    params = _iter_params(tool)
+    ordered = [item for item in params if item[1] in required]
+    ordered.extend(item for item in params if item[1] not in required)
+    arg_lines: list[str] = []
+    seen: set[str] = set()
+    for py_name, schema_key, schema in ordered:
+        seen.add(schema_key)
+        arg_lines.append(_format_arg_doc(py_name, schema, required=schema_key in required))
+    # Same extras the signature appends (e.g. set_style number_format).
+    for extra in sorted(getattr(tool, "scripting_only_parameters", None) or ()):
+        if extra not in seen:
+            arg_lines.append(f"    {extra} (optional): Scripting-only parameter.")
+    if arg_lines:
+        if lines:
+            lines.append("")
+        lines.append("Args:")
+        lines.extend(arg_lines)
+    return lines
+
+
+def _py_doc_escape(text: str) -> str:
+    """Make text safe inside a non-raw triple-quoted docstring.
+
+    Backslashes are escapes there, and an embedded ``\"\"\"`` would end the
+    literal. Escaping both keeps the runtime docstring equal to the tool text.
+    """
+    return text.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+
+
+def _append_docstring(lines: list[str], doc_lines: list[str]) -> None:
+    if not doc_lines:
+        lines.append('        """"""')
+        return
+    escaped = [_py_doc_escape(line) for line in doc_lines]
+    if len(escaped) == 1:
+        lines.append(f'        """{escaped[0]}"""')
+        return
+    lines.append(f'        """{escaped[0]}')
+    for line in escaped[1:]:
+        lines.append(f"        {line}" if line else "")
+    lines.append('        """')
+
+
 def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"]]]:
     """Group tools by namespace prefix, stripping the prefix from method names."""
     groups: dict[str, list[tuple[str, "ToolBase"]]] = defaultdict(list)
@@ -178,6 +280,8 @@ def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"
         name = tool.name or ""
         # 1. Check specialized_domain
         domain = getattr(tool, "specialized_domain", None)
+        if _domain_excluded(domain if isinstance(domain, str) else None):
+            continue
         if domain:
             namespace = domain
             # Strip prefix if it matches domain (e.g. footnotes_insert -> insert)
@@ -228,6 +332,10 @@ def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"
             # Very basic singularization
             namespace = namespace[:-1]
 
+        # Catch hyphen/underscore spellings that only show up as the namespace key.
+        if _domain_excluded(namespace):
+            continue
+
         groups[namespace].append((rest, tool))
     return dict(groups)
 
@@ -241,6 +349,8 @@ def generate_module(tools: list["ToolBase"]) -> str:
         '',
         'Generated by scripts/generate_tool_proxies.py — DO NOT EDIT.',
         'Provides Python-native access to WriterAgent tools from venv subprocess scripts.',
+        'Method docstrings include the full tool description and an Args section',
+        '(schema description, enum values, and required or optional).',
         '',
         'Skip replacing this with a __getattr__ proxy over DOMAIN_TOOLS: explicit',
         'per-tool classes are the public script API (IDE jump and types). Change this',
@@ -356,10 +466,8 @@ def generate_module(tools: list["ToolBase"]) -> str:
             else:
                 kwargs_body = ""
 
-            desc = _first_sentence(tool.description or "").replace('"', '\\"')
-
             lines.append(f"    def {short_name}({all_params}) -> dict[str, Any]:")
-            lines.append(f'        """{desc}"""')
+            _append_docstring(lines, _method_doc_lines(tool))
             lines.append(f'        return _rpc_call("{tool.name}"{kwargs_body})')
             lines.append("")
 
