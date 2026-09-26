@@ -277,25 +277,34 @@ def test_get_voice_catalog_locale_prioritized():
     assert en_catalog[0]["value"] == "en_US-lessac-medium"
 
 
-def test_kokoro_lang_for_ui_locale():
-    from plugin.audio.tts_service import kokoro_lang_for_ui_locale
+def test_kokoro_g2p_lang_routes_misaki_from_text():
+    """Script picks Misaki; ASCII Latin stays on English espeak even with a ja/fr voice."""
+    from plugin.audio.tts_service import kokoro_g2p_lang
 
-    assert kokoro_lang_for_ui_locale("ja_JP") == "ja"
-    assert kokoro_lang_for_ui_locale("zh_TW") == "zh"
-    assert kokoro_lang_for_ui_locale("zh-CN") == "zh"
-    assert kokoro_lang_for_ui_locale("fr_FR") == "fr-fr"
-    assert kokoro_lang_for_ui_locale("es") == "es"
-    assert kokoro_lang_for_ui_locale("it_IT") == "it"
-    assert kokoro_lang_for_ui_locale("hi_IN") == "hi"
-    assert kokoro_lang_for_ui_locale("pt_PT") == "pt-br"
-    assert kokoro_lang_for_ui_locale("en_US") == "en-us"
-    assert kokoro_lang_for_ui_locale("en_GB") == "en-gb"
-    # Locale wins even when the sample is still the English source.
-    assert kokoro_lang_for_ui_locale("ja", "Hello, I'm your LibreOffice WriterAgent.") == "ja"
-    # Unknown locale: CJK script, otherwise English espeak.
-    assert kokoro_lang_for_ui_locale("de_DE", "こんにちは") == "ja"
-    assert kokoro_lang_for_ui_locale("de_DE", "你好") == "zh"
-    assert kokoro_lang_for_ui_locale("de_DE", "Hallo") == "en-us"
+    english = "Hello, I'm your LibreOffice WriterAgent."
+    # English-looking text keeps the voice but does not enter ja/fr/es Misaki.
+    assert kokoro_g2p_lang(english, "jf_alpha", "ja_JP") == "en-us"
+    assert kokoro_g2p_lang(english, "ff_siwis", "fr_FR") == "en-us"
+    assert kokoro_g2p_lang(english, "ef_dora", "es_ES") == "en-us"
+    assert kokoro_g2p_lang("hello", "jf_alpha", "en_US") == "en-us"
+    assert kokoro_g2p_lang(english, "bf_emma", "en_US") == "en-gb"
+    assert kokoro_g2p_lang(english, "af_bella", "en_GB") == "en-gb"
+    # The translated Test sample (and any chat line) follows the text's script.
+    assert kokoro_g2p_lang("こんにちは、WriterAgent です。", "af_bella", "en_US") == "ja"
+    assert kokoro_g2p_lang("こんにちは", "jf_alpha", "ja_JP") == "ja"
+    assert kokoro_g2p_lang("非常に強力", "jf_alpha", "ja") == "ja"
+    assert kokoro_g2p_lang("強力", "af_bella", "ja") == "ja"
+    assert kokoro_g2p_lang("強力", "af_bella", "zh_CN") == "zh"
+    assert kokoro_g2p_lang("你好", "zf_xiaobei", "zh_CN") == "zh"
+    assert kokoro_g2p_lang("你好", "af_bella", "de_DE") == "zh"
+    assert kokoro_g2p_lang("नमस्ते", "hf_alpha", "hi_IN") == "hi"
+    # Accented Latin uses the voice's Misaki lang, else the UI locale.
+    assert kokoro_g2p_lang("Café au lait", "ff_siwis", "en_US") == "fr-fr"
+    assert kokoro_g2p_lang("niño", "ef_dora", "en_US") == "es"
+    assert kokoro_g2p_lang("cão", "pf_dora", "en_US") == "pt-br"
+    assert kokoro_g2p_lang("città", "af_bella", "it_IT") == "it"
+    # ASCII French is not distinguished from English without langdetect.
+    assert kokoro_g2p_lang("Bonjour, je suis WriterAgent.", "ff_siwis", "fr_FR") == "en-us"
 
 
 def test_tts_test_sample_uses_gettext():
@@ -319,10 +328,9 @@ def test_speak_text_async_uses_dialog_overrides_when_config_disabled():
             voice="jf_alpha (Kokoro JP Female - Alpha)",
             speed=1.25,
             enabled=True,
-            lang="ja",
         )
         mock_kokoro.assert_called_once_with(
-            "Bonjour", voice="jf_alpha", speed=1.25, on_status=None, lang="ja",
+            "Bonjour", voice="jf_alpha", speed=1.25, on_status=None,
         )
 
 
@@ -596,7 +604,7 @@ def test_resolve_kokoro_model_files_honors_env_overrides(tmp_path):
 
 
 def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
-    """ja/fr/es pass the Misaki script and the Kokoro lang code; English does not install Misaki."""
+    """Japanese/accented text passes the Misaki script; ASCII English on those voices does not."""
     import plugin.audio.tts_service as tts
     from plugin.audio.kokoro_g2p import KOKORO_ONNX_SCRIPT
     from plugin.audio.tts_service import _speak_kokoro_local
@@ -611,7 +619,7 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
     py = tmp_path / "python"
     py.write_text("")
 
-    def _launch(voice: str) -> tuple[list[str], object]:
+    def _launch(text: str, voice: str) -> tuple[list[str], object]:
         launched: list[list[str]] = []
 
         def fake_popen(cmd, **kwargs):
@@ -637,12 +645,12 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
              patch("plugin.audio.tts_service.ensure_kokoro_misaki", ensure), \
              patch("plugin.audio.tts_service.subprocess.Popen", side_effect=fake_popen), \
              patch("plugin.audio.tts_service._play_audio_file") as play:
-            _speak_kokoro_local("hello", voice=voice, speed=1.0)
+            _speak_kokoro_local(text, voice=voice, speed=1.0)
         assert play.called
         assert len(launched) == 1
         return launched[0], ensure
 
-    ja_cmd, ja_ensure = _launch("jf_alpha")
+    ja_cmd, ja_ensure = _launch("こんにちは", "jf_alpha")
     assert ja_cmd[1] == "-c"
     assert ja_cmd[2] == KOKORO_ONNX_SCRIPT
     assert ja_cmd[4] == "jf_alpha"
@@ -652,17 +660,25 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
     ja_ensure.assert_called_once()
     assert ja_ensure.call_args.args[1] == "ja"
 
-    fr_cmd, fr_ensure = _launch("ff_siwis")
+    # English on a Japanese voice keeps jf_alpha and uses English espeak, not JAG2P.
+    en_on_ja_cmd, en_on_ja_ensure = _launch("hello", "jf_alpha")
+    assert en_on_ja_cmd[4] == "jf_alpha"
+    assert en_on_ja_cmd[9] == "en-us"
+    en_on_ja_ensure.assert_not_called()
+
+    fr_cmd, fr_ensure = _launch("Café", "ff_siwis")
+    assert fr_cmd[4] == "ff_siwis"
     assert fr_cmd[9] == "fr-fr"
     assert "EspeakG2P(language='fr-fr')" in fr_cmd[2]
     assert fr_ensure.call_args.args[1] == "fr-fr"
 
-    es_cmd, es_ensure = _launch("ef_dora")
+    es_cmd, es_ensure = _launch("niño", "ef_dora")
+    assert es_cmd[4] == "ef_dora"
     assert es_cmd[9] == "es"
     assert "EspeakG2P(language='es')" in es_cmd[2]
     assert es_ensure.call_args.args[1] == "es"
 
-    en_cmd, en_ensure = _launch("af_bella")
+    en_cmd, en_ensure = _launch("hello", "af_bella")
     assert en_cmd[9] == "en-us"
     assert en_cmd[2] == KOKORO_ONNX_SCRIPT
     en_ensure.assert_not_called()

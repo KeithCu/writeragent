@@ -994,12 +994,10 @@ class TtsTestVoiceListener(BaseActionListener):
         from plugin.audio.tts_service import (
             clean_provider_name,
             clean_voice_name,
-            kokoro_lang_for_ui_locale,
             parse_tts_speed,
             speak_text_async,
             tts_test_sample,
         )
-        from plugin.framework.i18n import get_active_locale
 
         enabled_ctrl = get_optional(self._dlg, "audio__tts_enabled")
         if enabled_ctrl is not None and is_checkbox_control(enabled_ctrl):
@@ -1017,19 +1015,13 @@ class TtsTestVoiceListener(BaseActionListener):
         raw_voice = self._control_text("audio__tts_voice")
         raw_speed = self._control_text("audio__tts_speed")
         sample = tts_test_sample()
-        try:
-            locale = get_active_locale()
-        except Exception:
-            log.debug("TTS test: UI locale unavailable", exc_info=True)
-            locale = None
-        lang = kokoro_lang_for_ui_locale(locale, sample)
         voice = clean_voice_name(raw_voice) if raw_voice.strip() else ""
+        # Kokoro's Misaki-vs-espeak choice runs inside speak on this sample.
         log.info(
-            "TTS test: provider=%s model=%s voice=%s lang=%s",
+            "TTS test: provider=%s model=%s voice=%s",
             clean_provider_name(raw_prov) if raw_prov else "",
             raw_model,
             voice,
-            lang,
         )
 
         def _on_status(message: str) -> None:
@@ -1044,7 +1036,6 @@ class TtsTestVoiceListener(BaseActionListener):
             voice=voice or None,
             speed=parse_tts_speed(raw_speed) if raw_speed.strip() else None,
             enabled=True,
-            lang=lang,
         )
 
 

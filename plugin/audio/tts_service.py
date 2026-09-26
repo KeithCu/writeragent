@@ -140,7 +140,7 @@ def _kokoro_lang_for_voice(voice: str) -> str:
 
 
 # UI language stem → Kokoro ``create(lang=)`` code. Kokoro has no German,
-# Korean, and similar frontends; those locales stay on English espeak.
+# Korean, and similar frontends.
 _UI_LOCALE_TO_KOKORO_LANG = {
     "en": "en-us",
     "es": "es",
@@ -152,6 +152,9 @@ _UI_LOCALE_TO_KOKORO_LANG = {
     "pt": "pt-br",
 }
 
+# es/fr/it/pt-br are Misaki EspeakG2P langs. en-us / en-gb stay on kokoro-onnx espeak.
+_LATIN_MISAKI_LANGS = frozenset({"es", "fr-fr", "it", "pt-br"})
+
 # English source for Settings → Speech → Test voice. ``_()`` speaks the UI locale.
 TTS_TEST_SAMPLE = "Hello, I'm your LibreOffice WriterAgent."
 
@@ -161,36 +164,8 @@ def tts_test_sample() -> str:
     return _(TTS_TEST_SAMPLE)
 
 
-def _kokoro_lang_for_script(text: str) -> str | None:
-    """``ja`` when *text* has kana; ``zh`` when it has CJK ideographs and no kana."""
-    has_kana = False
-    has_han = False
-    for ch in text:
-        code = ord(ch)
-        if 0x3040 <= code <= 0x30FF:
-            has_kana = True
-        elif 0x4E00 <= code <= 0x9FFF:
-            has_han = True
-    if has_kana:
-        return "ja"
-    if has_han:
-        return "zh"
-    return None
-
-
-def kokoro_lang_for_ui_locale(locale: str | None = None, text: str = "") -> str:
-    """Kokoro G2P code for the Settings Test sample.
-
-    The sample is gettext'd to the LibreOffice UI locale, so that locale is
-    the primary signal. Chat speech still uses :func:`_kokoro_lang_for_voice`.
-    When the locale has no Kokoro language, a CJK script in *text* selects
-    ``ja`` or ``zh`` so kanji is not handed to English espeak.
-
-    TODO: real chat TTS should use langdetect (already installed in the dev
-    venv) on the assistant text. English text on a non-English voice should
-    then take the en-us G2P path. Keith will revisit that separately; do not
-    call langdetect here.
-    """
+def _locale_stem_region(locale: str | None) -> tuple[str, str]:
+    """``('ja', 'jp')`` from ``ja_JP`` / ``ja-JP``. Missing locale uses the UI catalog."""
     if locale is None:
         try:
             from plugin.framework.i18n import get_active_locale
@@ -202,12 +177,73 @@ def kokoro_lang_for_ui_locale(locale: str | None = None, text: str = "") -> str:
     parts = [part for part in tag.split("_") if part]
     stem = parts[0].lower() if parts else ""
     region = parts[1].lower() if len(parts) > 1 else ""
+    return stem, region
+
+
+def _locale_kokoro_lang(stem: str, region: str) -> str | None:
     if stem == "en" and region == "gb":
         return "en-gb"
-    mapped = _UI_LOCALE_TO_KOKORO_LANG.get(stem)
-    if mapped:
-        return mapped
-    return _kokoro_lang_for_script(text) or "en-us"
+    return _UI_LOCALE_TO_KOKORO_LANG.get(stem)
+
+
+def _english_kokoro_lang(voice: str, stem: str, region: str) -> str:
+    """en-gb for a British voice or en_GB UI; otherwise en-us. Both skip Misaki."""
+    if _kokoro_lang_for_voice(voice) == "en-gb" or (stem == "en" and region == "gb"):
+        return "en-gb"
+    return "en-us"
+
+
+def kokoro_g2p_lang(text: str, voice: str = "", locale: str | None = None) -> str:
+    """Choose Misaki vs English espeak, and which Misaki language, for one utterance.
+
+    This is the Kokoro phonemizer code (``create(..., lang=)``). The selected
+    voice id is left alone, so ``jf_alpha`` can still speak an English line.
+
+    Kana is Japanese. Han without kana is Chinese, unless the UI locale is
+    Japanese (a kanji-only line). Devanagari is Hindi.
+
+    Latin text that uses only ASCII letters is treated as English. A ``jf_*``,
+    ``ff_*``, or ``ef_*`` voice is then not asked to run JAG2P or
+    ``EspeakG2P(fr-fr/es)`` on that sentence. Accented Latin uses the voice's
+    Misaki language when the voice is es/fr/it/pt, otherwise the UI locale if
+    that is one of those, otherwise English espeak.
+
+    TODO: langdetect (already installed in the dev venv) may replace or
+    augment this. ASCII French such as "Bonjour, je suis..." is classified as
+    English here. Do not import langdetect in this module.
+    """
+    stem, region = _locale_stem_region(locale)
+    has_kana = False
+    has_han = False
+    has_devanagari = False
+    has_accented_letter = False
+    for ch in text:
+        code = ord(ch)
+        if 0x3040 <= code <= 0x30FF or 0x31F0 <= code <= 0x31FF:
+            has_kana = True
+        elif 0x4E00 <= code <= 0x9FFF:
+            has_han = True
+        elif 0x0900 <= code <= 0x097F:
+            has_devanagari = True
+        elif ch.isalpha() and code > 127:
+            has_accented_letter = True
+    if has_kana:
+        return "ja"
+    if has_han:
+        if stem == "ja":
+            return "ja"
+        return "zh"
+    if has_devanagari:
+        return "hi"
+    if has_accented_letter:
+        voice_lang = _kokoro_lang_for_voice(voice) if voice else "en-us"
+        if voice_lang in _LATIN_MISAKI_LANGS:
+            return voice_lang
+        locale_lang = _locale_kokoro_lang(stem, region)
+        if locale_lang in _LATIN_MISAKI_LANGS:
+            return locale_lang
+        return _english_kokoro_lang(voice, stem, region)
+    return _english_kokoro_lang(voice, stem, region)
 
 
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
@@ -755,7 +791,6 @@ def _speak_kokoro_local(
     voice: str = _KOKORO_FALLBACK_VOICE,
     speed: float = 1.0,
     on_status: Callable[[str], None] | None = None,
-    lang: str | None = None,
 ) -> None:
     """Synthesize text using local Kokoro ONNX model in configured venv and play audio."""
     global _active_speech_proc
@@ -810,13 +845,10 @@ def _speak_kokoro_local(
         _speak_system(text, speed=speed)
         return
 
-    # Chat leaves lang empty and follows the voice id. The Settings Test
-    # button passes the UI-locale code so the translated sample uses Misaki
-    # (ja/zh/fr/…) instead of English espeak.
-    if not lang or not str(lang).strip():
-        lang = _kokoro_lang_for_voice(voice)
-    else:
-        lang = str(lang).strip().lower()
+    # Misaki vs English espeak is chosen from the utterance, not from the
+    # voice id. The voice argument above is still the speaker the user picked.
+    lang = kokoro_g2p_lang(text, voice)
+    log.info("Kokoro G2P lang=%s for voice=%s", lang, voice)
     # Non-English voices were phonemized with espeak-ng inside kokoro-onnx, so
     # ja read kanji as "chinese letter" and fr/es missed Kokoro's phone map.
     # Misaki runs in the venv script (is_phonemes=True). Install failure does
@@ -978,7 +1010,6 @@ def speak_text_async(
     voice: str | None = None,
     speed: float | None = None,
     enabled: bool | None = None,
-    lang: str | None = None,
 ) -> None:
     """Synthesize and speak text in a background thread.
 
@@ -987,8 +1018,8 @@ def speak_text_async(
 
     Keyword overrides are for Settings → Speech → Test voice, which speaks the
     controls on screen before OK writes them. Chat leaves them unset and reads
-    ``audio.tts_*``. ``lang`` is a Kokoro G2P code; chat still derives that
-    from the voice id inside :func:`_speak_kokoro_local`.
+    ``audio.tts_*``. Local Kokoro picks Misaki vs English espeak inside
+    :func:`_speak_kokoro_local` via :func:`kokoro_g2p_lang`.
     """
     global _speech_active
     tts_on = bool(get_config("audio.tts_enabled")) if enabled is None else bool(enabled)
@@ -1010,7 +1041,6 @@ def speak_text_async(
     chosen_model = model
     chosen_voice = voice
     chosen_speed = speed
-    chosen_lang = lang
 
     def _worker() -> None:
         global _speech_active
@@ -1036,23 +1066,17 @@ def speak_text_async(
                 voice_name = get_scoped_tts_voice(provider_code, model_name)
 
             log.info(
-                "TTS worker executing: provider=%s, speed=%.2f, voice=%s, model=%s, lang=%s",
+                "TTS worker executing: provider=%s, speed=%.2f, voice=%s, model=%s",
                 provider_code,
                 speed_val,
                 voice_name,
                 model_name,
-                chosen_lang or "",
             )
 
             if provider_code == "system":
                 _speak_system(clean, speed=speed_val)
             elif provider_code == "kokoro":
-                if chosen_lang:
-                    _speak_kokoro_local(
-                        clean, voice=voice_name, speed=speed_val, on_status=on_status, lang=chosen_lang,
-                    )
-                else:
-                    _speak_kokoro_local(clean, voice=voice_name, speed=speed_val, on_status=on_status)
+                _speak_kokoro_local(clean, voice=voice_name, speed=speed_val, on_status=on_status)
             elif provider_code == "piper":
                 _speak_piper_local(clean, voice=voice_name, speed=speed_val, on_status=on_status)
             elif provider_code == "endpoint":

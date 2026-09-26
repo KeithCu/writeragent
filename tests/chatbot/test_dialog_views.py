@@ -868,7 +868,6 @@ def test_tts_test_voice_listener_speaks_localized_sample():
          patch("plugin.chatbot.dialog_views.get_checkbox_state", return_value=1), \
          patch("plugin.audio.tts_service.tts_test_sample", return_value="こんにちは、WriterAgent です。"), \
          patch("plugin.audio.tts_service.speak_text_async") as mock_speak, \
-         patch("plugin.framework.i18n.get_active_locale", return_value="ja_JP"), \
          patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
         listener.on_action_performed(None)
 
@@ -881,7 +880,7 @@ def test_tts_test_voice_listener_speaks_localized_sample():
     assert kwargs["voice"] == "jf_alpha"
     assert kwargs["speed"] == 1.25
     assert kwargs["enabled"] is True
-    assert kwargs["lang"] == "ja"
+    assert "lang" not in kwargs
     assert kwargs["on_status"] is not None
 
 
@@ -909,7 +908,6 @@ def test_tts_test_voice_listener_speak_error_stays_in_dialog():
          patch("plugin.chatbot.dialog_views.is_checkbox_control", return_value=True), \
          patch("plugin.chatbot.dialog_views.get_checkbox_state", return_value=1), \
          patch("plugin.audio.tts_service.tts_test_sample", return_value="Hello"), \
-         patch("plugin.framework.i18n.get_active_locale", return_value="en_US"), \
          patch("plugin.audio.tts_service.speak_text_async", side_effect=RuntimeError("no audio")), \
          patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
         listener.on_action_performed(None)
