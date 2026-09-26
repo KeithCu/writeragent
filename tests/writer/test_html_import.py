@@ -164,3 +164,62 @@ def test_replace_xtext_with_html_leaves_cleared_text_when_import_succeeds():
         replace_xtext_with_html(text, "<p>New</p>")
     insert.assert_called_once()
     assert [call.args for call in cursor.setString.call_args_list] == [("",)]
+
+
+def test_insert_inline_at_cursor_plain_text_does_not_wrap_in_p():
+    """Plain text wrapped in <p> split the host paragraph when inserted mid-paragraph."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    with patch.object(html_import, "insert_html_fragment_at_cursor") as frag:
+        html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "bem ")
+    cursor.getText.return_value.insertString.assert_called_once_with(cursor, "bem ", False)
+    frag.assert_not_called()
+
+
+def test_insert_inline_at_cursor_keeps_edge_whitespace_of_markup():
+    """The HTML import drops a fragment's edge whitespace: "<b>muito</b> " fused with the next word."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    text = cursor.getText.return_value
+    with patch.object(html_import, "insert_html_fragment_at_cursor") as frag:
+        html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>muito</b> ")
+    text.insertString.assert_called_once_with(cursor, " ", False)
+    cursor.goLeft.assert_called_once_with(1, False)
+    frag.assert_called_once()
+    assert frag.call_args.args[1] == "<b>muito</b>"
+    assert frag.call_args.kwargs["wrap"] is False
+
+
+
+def test_insert_inline_at_cursor_does_not_unescape_plain_text_again():
+    """content.py decodes only complete references; a second html.unescape turned "&sect 2o"
+    into "§ 2o"."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    with patch.object(html_import, "insert_html_fragment_at_cursor"):
+        html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "&sect 2o ")
+    cursor.getText.return_value.insertString.assert_called_once_with(cursor, "&sect 2o ", False)
+
+
+def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    with patch.object(html_import, "insert_html_fragment_at_cursor") as frag, \
+         patch.object(html_import, "_prefix_char_count", return_value=7), \
+         patch.object(html_import, "_apply_ruby_spans") as paint:
+        html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<ruby>漢字<rt>かんじ</rt></ruby>")
+    assert frag.call_args.args[1] == "漢字"
+    assert paint.call_args.args[1] == [("漢字", "かんじ", True, 0)]
+    assert paint.call_args.kwargs["skip_chars"] == 7

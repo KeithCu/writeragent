@@ -769,6 +769,43 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
     return cursor
 
 
+def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, config_svc: Any = None) -> None:
+    """Insert inline *content* at a collapsed *cursor* without splitting its paragraph.
+
+    ``insert_html_at_cursor`` routes plain text through ``_ensure_html_linebreaks``, which
+    wraps it in ``<p>``: imported mid-paragraph, that ``<p>`` splits the host paragraph in
+    two, so inserting "bem " before a word left "... bem" / "inteiro." as two paragraphs.
+    Plain text goes in with ``insertString``; inline markup is imported RAW (no ``<p>``),
+    the same way ``replace_single_range_with_content`` handles inline replacements.
+    """
+    # No html.unescape here: content.py already decoded complete character references on the
+    # plain path (_ENTITY_RE), and a full unescape turns "&sect 2o" into "§ 2o"; the HTML import
+    # decodes entities in markup itself.
+    if not format_mod.content_has_markup(content):
+        cursor.getText().insertString(cursor, content, False)
+        return
+    inline_html = content.replace("\\n", "\n").replace("\\t", "\t")
+    # Same <rt> handling as the other import paths: StarWriter would glue the reading onto the base.
+    inline_html, ruby_spans = extract_and_strip_ruby(inline_html)
+    # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " lost
+    # its trailing space and fused with the next word. Put edge whitespace in as text.
+    core = inline_html.strip()
+    lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
+    trail = inline_html[len(inline_html.rstrip()):]
+    text = cursor.getText()
+    ruby_skip = _prefix_char_count(text, cursor)
+    if lead:
+        text.insertString(cursor, lead, False)
+    if trail:
+        # The fragment import does not leave the cursor after the imported text, so the
+        # trailing whitespace goes in first and the fragment is imported just before it.
+        text.insertString(cursor, trail, False)
+        cursor.goLeft(len(trail), False)
+    if core:
+        insert_html_fragment_at_cursor(cursor, core, wrap=False, config_svc=config_svc, model=None)
+    _apply_ruby_spans(text, ruby_spans, skip_chars=ruby_skip)
+
+
 def insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.

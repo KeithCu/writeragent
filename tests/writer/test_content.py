@@ -148,6 +148,116 @@ def test_position_before_inserts_at_match_start():
     found.getStart.assert_called()
 
 
+def _next_to_match_found(*, at_paragraph_edge: bool, leftover: str = ""):
+    """A match whose cursors all share one mock: not in a table cell, edges configurable."""
+    found = MagicMock()
+    cursor = found.getText.return_value.createTextCursorByRange.return_value
+    cursor.getPropertyValue.return_value = None
+    cursor.isStartOfParagraph.return_value = at_paragraph_edge
+    cursor.isEndOfParagraph.return_value = at_paragraph_edge
+    cursor.getString.return_value = leftover
+    return found, cursor
+
+
+def test_position_after_block_opens_a_paragraph_after_the_matched_one():
+    """#59: a block imported at the match end split "... EM DOBRO" mid-paragraph and glued the
+    first block onto it. It must go into a fresh paragraph after the matched one, and the empty
+    paragraph the import leaves behind must be removed."""
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=False)
+    ctx = _edit_ctx()
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_inline_at_cursor") as inline, \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        res = ApplyDocumentContent().execute(
+            ctx, content=["<p>NOVO A</p><p>NOVO B</p>"], target="search", old_content="EM", position="after")
+
+    assert res["status"] == "ok" and res["snapped_to_paragraph"] is True
+    assert "paragraph that contains the match" in res["message"]
+    cursor.gotoEndOfParagraph.assert_any_call(False)
+    found.getText.return_value.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+    ins.assert_called_once()
+    inline.assert_not_called()
+    # Leftover empty paragraph: select the break before it and delete it.
+    cursor.goLeft.assert_called_once_with(1, True)
+    cursor.setString.assert_called_once_with("")
+
+
+def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=True, leftover="texto do usuario")
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_html_at_cursor"):
+        res = ApplyDocumentContent().execute(
+            _edit_ctx(), content=["<p>novo</p>"], target="search", old_content="fim.", position="after")
+    assert res["status"] == "ok" and "snapped_to_paragraph" not in res
+    cursor.setString.assert_not_called()
+
+
+def test_position_before_block_goes_to_paragraph_start_without_a_break():
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=False)
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        res = ApplyDocumentContent().execute(
+            _edit_ctx(), content=["<h2>Nova</h2>"], target="search", old_content="meio", position="before")
+    assert res["status"] == "ok" and res["snapped_to_paragraph"] is True
+    cursor.gotoStartOfParagraph.assert_called_once_with(False)
+    found.getText.return_value.insertControlCharacter.assert_not_called()
+    ins.assert_called_once()
+
+
+def test_position_before_inline_stays_at_the_exact_match_edge():
+    """#59: plain text went through <p> wrapping and split the paragraph around the word."""
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=False)
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_inline_at_cursor") as inline, \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        res = ApplyDocumentContent().execute(
+            _edit_ctx(), content=["bem "], target="search", old_content="inteiro.", position="before")
+    assert res["status"] == "ok" and "snapped_to_paragraph" not in res
+    inline.assert_called_once()
+    ins.assert_not_called()
+    cursor.gotoStartOfParagraph.assert_not_called()
+
+
+@pytest.mark.parametrize("content", ["Novo A\n\nNovo B", "Novo A\\n\\nNovo B"])
+def test_position_after_plain_text_with_line_breaks_is_block(content):
+    """Plain text with line breaks on the inline path went in as manual line breaks glued onto
+    the matched paragraph ("inteiro.Novo A\\n\\nNovo B")."""
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, _cursor = _next_to_match_found(at_paragraph_edge=True)
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_inline_at_cursor") as inline, \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        res = ApplyDocumentContent().execute(
+            _edit_ctx(), content=[content], target="search", old_content="inteiro.", position="after")
+    assert res["status"] == "ok"
+    ins.assert_called_once()
+    inline.assert_not_called()
+
+
 def test_position_after_rejects_math_and_table_cells():
     from unittest.mock import patch
 

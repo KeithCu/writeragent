@@ -62,6 +62,28 @@ from plugin.writer.hyperlink_fixup import (
 
 log = logging.getLogger("writeragent.writer")
 
+
+# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
+_PARAGRAPH_BREAK = 0
+
+
+def _paragraph_boundary_cursor(text_obj: Any, found: Any, position: str) -> tuple[Any, bool]:
+    """Collapsed cursor at the paragraph boundary nearest the match, for block content.
+
+    ``before`` -> start of the paragraph holding the match start; ``after`` -> end of the
+    paragraph holding the match end. The flag says whether the match edge was not already
+    on that boundary (the insert moved away from the exact edge).
+    """
+    if position == "before":
+        cursor = text_obj.createTextCursorByRange(found.getStart())
+        moved = not cursor.isStartOfParagraph()
+        cursor.gotoStartOfParagraph(False)
+        return cursor, moved
+    cursor = text_obj.createTextCursorByRange(found.getEnd())
+    moved = not cursor.isEndOfParagraph()
+    cursor.gotoEndOfParagraph(False)
+    return cursor, moved
+
 # Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references.
 # Guards the plain-text unescape so a bare "&" is never touched.
 _ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
@@ -305,7 +327,7 @@ class ApplyDocumentContent(ToolBase):
             "old_content": {"type": "string", "description": ("Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.")},
             "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace'."},
             "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index into replaceable Writer text matches (body/table/frame), not dry_run shape/comment rows. Omit for the existing first-match behavior. Cannot be combined with all_matches=true.")},
-            "position": {"type": "string", "enum": ["replace", "before", "after"], "description": ("For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count).")},
+            "position": {"type": "string", "enum": ["replace", "before", "after"], "description": ("For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it).")},
             "dry_run": {"type": "boolean", "description": "For target='search': do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing."},
             "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining)."},
             "case_sensitive": {"type": "boolean", "description": "For target='search': force case-sensitive (true) or case-insensitive (false) matching. Omit for the default lenient match."},
@@ -1199,14 +1221,13 @@ class ApplyDocumentContent(ToolBase):
             # HTML-import insert there; only the genuinely new text enters the review record.
             #
             # Two guarded gaps (clear error beats an opaque failure; the atomic wrapper would
-            # roll back either way): the mixed-math importer appends later segments at the
-            # DOCUMENT END (format.py per-segment goto-end), and the HTML import path is not
-            # cell-safe (same nested-XText hazard the replace path detects).
+            # roll back either way): math segments are not wired into the next-to-match insert
+            # below, and the HTML import path is not cell-safe (same nested-XText hazard the
+            # replace path detects).
             if format_support.html_fragment_contains_mixed_math(str(content)):
                 return self._tool_error(
-                    "position='before'/'after' does not support content with math segments yet "
-                    "(later segments would land at the document end); use position='replace' "
-                    "including the math, or target='end'."), session
+                    "position='before'/'after' does not support content with math segments yet; "
+                    "use position='replace' including the math, or target='end'."), session
             try:
                 in_cell = found.getText().createTextCursorByRange(
                     found.getStart()).getPropertyValue("TextTable") is not None
@@ -1217,23 +1238,66 @@ class ApplyDocumentContent(ToolBase):
                     "position='before'/'after' next to a match inside a table cell is not "
                     "supported yet; use position='replace' with plain text, or rewrite the "
                     "cell content."), session
+            # What was wrong: the content was imported at the exact match edge whatever it was.
+            # A block (<p>, headings, tables) imported mid-paragraph splits the host paragraph,
+            # and LibreOffice merges the first imported block into the text before the cursor:
+            # anchoring on the end of "4. CABIMENTO ... EM DOBRO" left "4. CABIMENTO NOVA SECAO A"
+            # / "NOVA SECAO B" / "EM DOBRO", and even position='after' on the last words of a
+            # paragraph glued the new paragraph onto it. Plain text was wrapped in <p> first, so
+            # inserting one word split the paragraph too. Why this fixes it: inline content goes
+            # in at the exact edge without a <p>; block content goes between paragraphs -- before
+            # the anchor's paragraph, or into a fresh paragraph opened right after it.
+            # A line break is a paragraph too: plain "Novo A\n\nNovo B" on the inline path went in
+            # as manual line breaks glued onto the matched paragraph (review finding).
+            is_block = (format_support.content_has_block_markup(str(content))
+                        or "\n" in str(content) or "\\n" in str(content))
+            text_obj = found.getText()
             try:
-                edge = found.getStart() if position == "before" else found.getEnd()
-                insert_cursor = found.getText().createTextCursorByRange(edge)
+                if is_block:
+                    insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)
+                else:
+                    edge = found.getStart() if position == "before" else found.getEnd()
+                    insert_cursor, snapped = text_obj.createTextCursorByRange(edge), False
             except Exception as e:
                 return self._tool_error("Could not anchor the %s-match insert: %s" % (position, e)), session
+
+            def _insert_next_to_match() -> None:
+                if not is_block:
+                    format_support.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content), config_svc=config_svc)
+                    return
+                if position != "after":
+                    format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False)
+                    return
+                # Importing at a paragraph END merges the first block into that paragraph; at a
+                # paragraph START it does not. Open an empty paragraph and import at its start.
+                text_obj.insertControlCharacter(insert_cursor, _PARAGRAPH_BREAK, False)
+                # The import puts every block (each with its own break) BEFORE that paragraph,
+                # which is then left over empty. This cursor stays at its start through the
+                # import (checked live, also with a table next and at the end of the text).
+                leftover = text_obj.createTextCursorByRange(insert_cursor.getStart())
+                format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False)
+                leftover.gotoEndOfParagraph(True)
+                if leftover.getString() == "":
+                    # Delete the last imported block's break; a tracked insertion swallows it.
+                    leftover.collapseToStart()
+                    leftover.goLeft(1, True)
+                    leftover.setString("")
+
             anchor = collapsed_anchor(found)
             with session:
                 record_html_atomically(
-                    session, doc,
-                    lambda: format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False),
+                    session, doc, _insert_next_to_match,
                     track_reviewable, proposed_preview=_plain_preview(content))
+            where = ("%s the paragraph that contains the match (block content cannot go mid-paragraph "
+                     "without splitting it)" % position) if snapped else "%s the old_content match" % position
             insert_resp: dict[str, object] = {
                 "status": "ok",
-                "message": "Inserted content %s the old_content match (matched text left untouched)." % position,
+                "message": "Inserted content %s (matched text left untouched)." % where,
                 "inserted": True,
                 "position": position,
             }
+            if snapped:
+                insert_resp["snapped_to_paragraph"] = True
             if occurrence is not None:
                 insert_resp["occurrence"] = occurrence
             return attach_edited_context(insert_resp, anchor), session
