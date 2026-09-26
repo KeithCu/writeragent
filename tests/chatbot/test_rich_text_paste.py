@@ -50,6 +50,12 @@ class TestBuildMessageHtml:
         assert "<strong>Assistant:</strong>" in html
         assert body in html
 
+    def test_assistant_prefix_uses_gettext(self):
+        with patch("plugin.chatbot.rich_text_paste._", side_effect=lambda message: "Asistente:" if message == "Assistant:" else message):
+            html = build_message_html("hola", role="assistant")
+        assert "<strong>Asistente:</strong>" in html
+        assert "Assistant:" not in html
+
     def test_empty_returns_empty(self):
         assert build_message_html("", role="assistant") == ""
         assert build_message_html("   ", role="assistant") == ""
@@ -62,6 +68,8 @@ class TestPastePortionColor:
         assistant = 0x1E293B
         assert _resolve_portion_char_color(portion, "You: hi", user, assistant, "user") == user
         assert _resolve_portion_char_color(portion, "Assistant: hi", user, assistant, "assistant") == assistant
+        with patch("plugin.chatbot.rich_text_paste._", side_effect=lambda message: "アシスタント:" if message == "Assistant:" else message):
+            assert _resolve_portion_char_color(portion, "アシスタント: hi", user, assistant, "assistant") == assistant
         assert _resolve_portion_char_color(portion, "body", user, assistant, "user") == user
         portion.CharColor = 0xFF0000
         assert _resolve_portion_char_color(portion, "body", user, assistant, "user") == 0xFF0000

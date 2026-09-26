@@ -67,3 +67,25 @@ def test_run_test_suite_invokes_run_module_suite_on_main_thread() -> None:
 
     assert len(threads_seen) == 1
     assert threads_seen[0] is threading.main_thread()
+
+
+def test_menu_text_translates_vision_ocr_and_debug(monkeypatch) -> None:
+    """Menubar titles come from get_menu_text, not from a po msgstr alone.
+
+    Vision OCR was missing from the static map (None → Addons.xcu en-US).
+    Debug was a raw English literal, so the status event overwrote the catalog.
+    """
+    import plugin.main as main_mod
+
+    monkeypatch.setattr(main_mod, "bootstrap", lambda: None)
+
+    def fake_gettext(message: str) -> str:
+        return {
+            "Vision OCR Settings...": "Vision OCR 設定...",
+            "Debug": "デバッグ",
+        }.get(message, message)
+
+    monkeypatch.setattr("plugin.framework.i18n._", fake_gettext)
+    assert main_mod.get_menu_text("vision.open_settings") == "Vision OCR 設定..."
+    assert main_mod.get_menu_text("main.NoOp") == "デバッグ"
+    assert main_mod.get_menu_text("main.settings") == "Settings"

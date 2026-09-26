@@ -26,6 +26,7 @@ def test_image_default_aspect_has_sidebar_matching_options():
     values = tuple(o["value"] for o in aspect["options"])
     assert labels == IMAGE_ASPECT_RATIO_LABELS
     assert values == IMAGE_ASPECT_RATIO_LABELS
+    assert aspect["value"] == "Square"
     assert IMAGE_ASPECT_RATIO_LABELS == (
         "Square",
         "Landscape (16:9)",
@@ -33,6 +34,52 @@ def test_image_default_aspect_has_sidebar_matching_options():
         "Landscape (3:2)",
         "Portrait (2:3)",
     )
+
+
+def test_image_aspect_display_is_translated_value_stays_english():
+    """Combo shows gettext labels; Apply still stores the English aspect string."""
+    from plugin.chatbot.settings_dialog import apply_settings_result, get_settings_field_specs
+
+    def fake_gettext(message: str) -> str:
+        if message == "Square":
+            return "正方形"
+        return message
+
+    with (
+        patch("plugin.chatbot.settings_dialog._", side_effect=fake_gettext),
+        patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api/v1"),
+        patch("plugin.chatbot.settings_dialog.get_config_str", return_value="Square"),
+        patch("plugin.chatbot.settings_dialog.get_config_int", return_value=512),
+        patch("plugin.chatbot.settings_dialog.get_config_float", return_value=0.7),
+        patch("plugin.chatbot.settings_dialog.get_config_bool", return_value=True),
+        patch("plugin.chatbot.settings_dialog.get_config", return_value=""),
+        patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
+        patch("plugin.chatbot.settings_dialog.get_text_model", return_value="m"),
+        patch("plugin.chatbot.settings_dialog.get_image_model", return_value="img"),
+        patch("plugin.chatbot.settings_dialog._get_module_field_specs", return_value=[]),
+        patch("plugin.chatbot.settings_dialog.set_config") as set_config,
+        patch("plugin.chatbot.settings_dialog.set_text_model"),
+        patch("plugin.chatbot.settings_dialog.set_image_model"),
+        patch("plugin.chatbot.settings_dialog.global_event_bus"),
+    ):
+        specs = get_settings_field_specs(MagicMock())
+        aspect = next(s for s in specs if s["name"] == "image_default_aspect")
+        assert aspect["value"] == "正方形"
+        assert aspect["options"][0] == {"label": "正方形", "value": "Square"}
+        apply_settings_result(MagicMock(), {"image_default_aspect": "正方形"})
+
+    saved = {call.args[0]: call.args[1] for call in set_config.call_args_list}
+    assert saved["image_default_aspect"] == "Square"
+
+
+def test_canonical_aspect_label_maps_translated_and_english():
+    from plugin.chatbot.settings_dialog import canonical_aspect_label
+
+    with patch("plugin.chatbot.settings_dialog._", side_effect=lambda message: "正方形" if message == "Square" else message):
+        assert canonical_aspect_label("正方形") == "Square"
+        assert canonical_aspect_label("Square") == "Square"
+        assert canonical_aspect_label("Landscape (16:9)") == "Landscape (16:9)"
+        assert canonical_aspect_label("") == "Square"
 
 
 def test_core_field_specs_omit_stt_model():

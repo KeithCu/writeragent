@@ -1267,7 +1267,7 @@ msgstr "Webリサーチ"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid "Deep Research"
-msgstr "Deep Research"
+msgstr "詳細リサーチ"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid "Brainstorming"
@@ -3369,7 +3369,7 @@ msgid "Stats + outline only"
 msgstr "統計情報 + アウトラインのみ"
 
 msgid "Web Research Cache"
-msgstr "Web Research Cache"
+msgstr "ウェブリサーチキャッシュ"
 
 msgid ""
 "Cache completed web research reports by normalized query (uses web cache "
@@ -3383,7 +3383,7 @@ msgid "Ask for confirmation before sending a web search query"
 msgstr "ウェブ検索クエリを送信する前に確認を求める"
 
 msgid "Web Research Browser"
-msgstr "Web Research Browser"
+msgstr "ウェブリサーチブラウザ"
 
 msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
@@ -3763,7 +3763,7 @@ msgid "Isolated (default)"
 msgstr "分離モード (デフォルト)"
 
 msgid "Geometric Recalc Order (Experimental)"
-msgstr "Geometric Recalc Order (Experimental)"
+msgstr "幾何学的再計算順序 (実験的)"
 
 msgid ""
 "Ensures PY cells evaluate in sheet order. Most useful with Shared kernel."
@@ -3884,3 +3884,15 @@ msgstr "Doclingドキュメントのタイムアウト（秒）"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling内での変換ごとのタイムアウト。0は制限なし。"
+
+msgid "Assistant:"
+msgstr "アシスタント:"
+
+msgid "Recheck"
+msgstr "再チェック"
+
+msgid "Copy Config"
+msgstr "設定をコピー"
+
+msgid "Download"
+msgstr "ダウンロード"

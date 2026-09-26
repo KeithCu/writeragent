@@ -3726,3 +3726,27 @@ msgstr ""
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr ""
+
+msgid "Assistant:"
+msgstr ""
+
+msgid "Recheck"
+msgstr ""
+
+msgid "Copy Config"
+msgstr ""
+
+msgid "Download"
+msgstr ""
+
+msgid "Landscape (16:9)"
+msgstr ""
+
+msgid "Portrait (9:16)"
+msgstr ""
+
+msgid "Landscape (3:2)"
+msgstr ""
+
+msgid "Portrait (2:3)"
+msgstr ""

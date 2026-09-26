@@ -17,9 +17,11 @@ There is **no separate “UI language” override in `writeragent.json`** today:
 
 2. **XDL dialogs**: English strings in `.xdl` files are not read by `xgettext` directly. [`scripts/extract_xdl_strings.py`](../scripts/extract_xdl_strings.py) generates a temporary `plugin/xdl_strings.py` containing `_()` calls so those strings are picked up; that stub is removed after extraction.
 
-3. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/**/module.yaml` (titles, labels, options) into the same POT, deduplicated by `msgid`. Requires `polib` and PyYAML.
+3. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/**/module.yaml` (titles, labels, helpers, `button_text`, options) into the same POT, deduplicated by `msgid`. `button_text` is the button caption (`dlg:value` → `Label`); `translate_dialog` already calls `_()` on it, so a missing catalog entry stays English. Requires `polib` and PyYAML.
 
 4. **Dialogs at runtime**: [`translate_dialog` in `plugin/chatbot/dialogs.py`](../plugin/chatbot/dialogs.py) walks controls and applies translated text. **Do not** pass raw saved config values through `_()`: empty strings can pick up gettext header garbage. Config validation strips bogus gettext headers; see [`tests/framework/test_i18n.py`](../tests/framework/test_i18n.py).
+
+   Combos rebuilt in Python after `translate_dialog` (sidebar image aspect) must pass display strings through `_("Square")`-style literals. Stored `image_default_aspect` stays the English label; [`canonical_aspect_label`](../../plugin/chatbot/settings_dialog.py) maps the visible text back before the image-tool enum. The chat role prefix is `_("Assistant:")` in [`append_rich_text`](../../plugin/chatbot/rich_text.py), not a bare literal.
 
 5. **Monaco editor (pywebview)**: User-visible strings live in Python only — [`plugin/scripting/editor_ui_strings.py`](../plugin/scripting/editor_ui_strings.py). [`launch_monaco_editor()`](../plugin/scripting/editor_host.py) enriches every IPC `load` message with a pre-translated `ui` dict; [`editor.js`](../plugin/contrib/scripting/assets/editor/editor.js) applies it in `applyLoadMessage()`. Add new shell strings in Python `_()`, run `make extract-strings`, then read the key from `load.ui` in JS. See [scripting/monaco-editor-dev-plan.md § Localization](scripting/monaco-editor-dev-plan.md#localization).
 
@@ -65,7 +67,9 @@ This is a productivity aid, not a substitute for human review of tone and termin
 
 ## Extension menus and registry (`.xcu`)
 
-LibreOffice supports localized properties with `<value xml:lang="...">`. The project’s `.xcu` files use this shape but **mostly only define `en-US` / `en` today**. Adding more languages is a matter of supplying parallel `<value xml:lang="de">` (etc.) entries for the same properties—no Python change required for those labels.
+LibreOffice supports localized properties with `<value xml:lang="...">`. The project’s `.xcu` files use this shape but **mostly only define `en-US` / `en` today**.
+
+WriterAgent menubar titles are not left to that `en-US` string. [`get_menu_text`](../../plugin/main.py) returns a `_("…")` literal and [`addStatusListener`](../../plugin/main.py) pushes it with `FeatureStateEvent.State`. A command missing from that map (or returned as a raw English literal) keeps the Addons.xcu English title even when the `.po` has a msgstr. Hamburger items call `_()` at popup build time and do not use this map.
 
 ## LLM prompts vs UI language
 

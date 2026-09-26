@@ -107,6 +107,13 @@ class TestAppendRichText:
         assert ("Assistant: ") in (content)
         assert ("World") in (content)
 
+    def test_assistant_role_prefix_uses_gettext(self):
+        with patch("plugin.chatbot.rich_text._", side_effect=lambda message: "アシスタント:" if message == "Assistant:" else message):
+            doc = self._call("World", role="assistant")
+        content = doc.getText().getString()
+        assert "アシスタント: World" in content
+        assert "Assistant:" not in content
+
     def test_plain_text_inserted_for_non_html(self):
         """Non-HTML text is inserted via insertString (no HTML import)."""
         doc = self._call("Just some text", role="assistant")

@@ -27,6 +27,7 @@ from plugin.framework.config import (
 )
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
 from plugin.framework.event_bus import global_event_bus
+from plugin.framework.i18n import _
 
 from typing import Any, cast
 
@@ -34,8 +35,8 @@ import logging
 
 log = logging.getLogger(__name__)
 
-# English display labels for Settings + sidebar Image-mode aspect comboboxes.
-# Stored as-is in image_default_aspect; send_handlers maps them to tool enums.
+# English labels stored in image_default_aspect and mapped to image-tool enums.
+# Display strings are aspect_label_gettext(); do not pass the tuple through _().
 IMAGE_ASPECT_RATIO_LABELS: tuple[str, ...] = (
     "Square",
     "Landscape (16:9)",
@@ -43,6 +44,37 @@ IMAGE_ASPECT_RATIO_LABELS: tuple[str, ...] = (
     "Landscape (3:2)",
     "Portrait (2:3)",
 )
+
+
+def aspect_label_gettext(canonical: str) -> str:
+    """Translated combo label for one English aspect string.
+
+    Literals stay inside _() so xgettext extracts them. _(IMAGE_ASPECT_RATIO_LABELS item)
+    is invisible to extract, which is why Square stayed English in the UI
+    while the catalog already had 正方形 / Cuadrado.
+    """
+    if canonical == "Square":
+        return _("Square")
+    if canonical == "Landscape (16:9)":
+        return _("Landscape (16:9)")
+    if canonical == "Portrait (9:16)":
+        return _("Portrait (9:16)")
+    if canonical == "Landscape (3:2)":
+        return _("Landscape (3:2)")
+    if canonical == "Portrait (2:3)":
+        return _("Portrait (2:3)")
+    return canonical
+
+
+def canonical_aspect_label(displayed: str) -> str:
+    """Map combo text back to the English label stored in config and tool maps."""
+    shown = (displayed or "").strip()
+    if not shown:
+        return "Square"
+    for canonical in IMAGE_ASPECT_RATIO_LABELS:
+        if shown == canonical or shown == aspect_label_gettext(canonical):
+            return canonical
+    return shown
 
 
 def get_settings_field_specs(ctx: Any) -> list[dict[str, Any]]:
@@ -74,14 +106,24 @@ def _get_core_field_specs(ctx: Any, current_endpoint: str) -> list[dict[str, Any
 
 
 def _get_image_field_specs(ctx: Any) -> list[dict[str, Any]]:
+    stored_aspect = canonical_aspect_label(get_config_str("image_default_aspect") or "Square")
+    aspect_options = [
+        {"label": aspect_label_gettext(label), "value": label} for label in IMAGE_ASPECT_RATIO_LABELS
+    ]
+    # value is what the combo shows. Options keep English values so Apply
+    # maps the translated label back to the stored string (apply_settings_result).
+    display_aspect = stored_aspect
+    for opt in aspect_options:
+        if opt["value"] == stored_aspect:
+            display_aspect = str(opt["label"])
+            break
     return [
         {"name": "image_model", "value": str(get_image_model())},
         {"name": "image_base_size", "value": str(get_config_int("image_base_size")), "type": "int"},
         {
             "name": "image_default_aspect",
-            "value": get_config_str("image_default_aspect"),
-            # label==value: config stores English UI strings (not tool enums).
-            "options": [{"label": label, "value": label} for label in IMAGE_ASPECT_RATIO_LABELS],
+            "value": display_aspect,
+            "options": aspect_options,
         },
         {"name": "image_steps", "value": str(get_config_int("image_steps")), "type": "int"},
         {"name": "image_auto_gallery", "value": "true" if get_config_bool("image_auto_gallery") else "false", "type": "bool"},
