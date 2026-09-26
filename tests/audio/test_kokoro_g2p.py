@@ -151,6 +151,20 @@ def _run(lang: str, voice: str, text: str, voices: dict[str, int] | None = None)
     return g2p_calls, create_calls[0]
 
 
+def test_misaki_phonemes_helper_uses_the_same_snippets(monkeypatch):
+    """The warm worker calls this helper; it must match the one-shot script."""
+    from plugin.audio.kokoro_g2p import misaki_phonemes
+
+    g2p_calls: list = []
+    modules = _fake_stack(g2p_calls, [], {"jf_alpha": 1})
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    assert misaki_phonemes("非常に強力", "ja") == "JA:非常に強力"
+    assert misaki_phonemes("Hello", "en-us") == ""
+    assert g2p_calls == [("ja", "非常に強力")]
+
+
 def test_script_japanese_french_spanish_use_misaki_phonemes():
     g2p, created = _run("ja", "jf_alpha", "非常に強力")
     assert g2p == [("ja", "非常に強力")]

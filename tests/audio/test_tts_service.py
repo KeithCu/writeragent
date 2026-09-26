@@ -63,7 +63,10 @@ def test_speak_text_async_enabled_system():
                     completed = True
 
                 speak_text_async("Testing system speech", on_complete=_done)
-                mock_sys.assert_called_once_with("Testing system speech", speed=1.0)
+                mock_sys.assert_called_once()
+                assert mock_sys.call_args.args == ("Testing system speech",)
+                assert mock_sys.call_args.kwargs["speed"] == 1.0
+                assert isinstance(mock_sys.call_args.kwargs["generation"], int)
                 assert completed is True
 
 
@@ -71,7 +74,7 @@ def test_stop_speech_terminates_proc():
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
 
-    with patch("plugin.audio.tts_service._active_speech_proc", mock_proc):
+    with patch("plugin.audio.tts_service._play_proc", mock_proc):
         assert is_speaking() is True
         stop_speech()
         mock_proc.terminate.assert_called_once()
@@ -222,13 +225,20 @@ def test_speak_text_async_routing_local():
          patch("plugin.audio.tts_service._speak_kokoro_local") as mock_kokoro, \
          patch("plugin.audio.tts_service._speak_piper_local") as mock_piper:
         speak_text_async("Hello Kokoro")
-        mock_kokoro.assert_called_once_with("Hello Kokoro", voice="af_bella", speed=1.1, on_status=None)
+        assert mock_kokoro.call_args.args == ("Hello Kokoro",)
+        assert mock_kokoro.call_args.kwargs["voice"] == "af_bella"
+        assert mock_kokoro.call_args.kwargs["speed"] == 1.1
+        assert mock_kokoro.call_args.kwargs["on_status"] is None
+        assert isinstance(mock_kokoro.call_args.kwargs["generation"], int)
         mock_piper.assert_not_called()
 
         cfg["audio.tts_provider"] = "piper"
         cfg["audio.tts_voice_piper"] = "en_US-lessac-medium"
         speak_text_async("Hello Piper")
-        mock_piper.assert_called_once_with("Hello Piper", voice="en_US-lessac-medium", speed=1.1, on_status=None)
+        assert mock_piper.call_args.args == ("Hello Piper",)
+        assert mock_piper.call_args.kwargs["voice"] == "en_US-lessac-medium"
+        assert mock_piper.call_args.kwargs["speed"] == 1.1
+        assert mock_piper.call_args.kwargs["on_status"] is None
 
 
 def test_parse_tts_speed():
@@ -353,9 +363,12 @@ def test_speak_text_async_uses_dialog_overrides_when_config_disabled():
             speed=1.25,
             enabled=True,
         )
-        mock_kokoro.assert_called_once_with(
-            "Bonjour", voice="jf_alpha", speed=1.25, on_status=None,
-        )
+        mock_kokoro.assert_called_once()
+        assert mock_kokoro.call_args.args == ("Bonjour",)
+        assert mock_kokoro.call_args.kwargs["voice"] == "jf_alpha"
+        assert mock_kokoro.call_args.kwargs["speed"] == 1.25
+        assert mock_kokoro.call_args.kwargs["on_status"] is None
+        assert isinstance(mock_kokoro.call_args.kwargs["generation"], int)
 
 
 def test_kokoro_lang_for_voice():
@@ -733,6 +746,77 @@ def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tm
     system.assert_not_called()
 
 
+def test_sentence_pipeline_installs_misaki_once_per_reply(tmp_path):
+    """Prefetch must not probe or pip-install Misaki once per sentence."""
+    import plugin.audio.tts_service as tts
+
+    ensure = MagicMock(return_value=True)
+    synthesized: list[str] = []
+
+    def synth(sentence, provider, voice, speed, model, endpoint_url, api_key, on_status, generation):
+        del provider, voice, speed, model, endpoint_url, api_key, on_status, generation
+        synthesized.append(sentence)
+        path = tmp_path / f"{len(synthesized)}.wav"
+        path.write_bytes(b"RIFF")
+        return tts._ReadyClip(str(path), sentence, 4, False)
+
+    generation = tts._begin_utterance()
+    try:
+        with patch.object(tts, "ensure_kokoro_misaki", ensure), \
+             patch.object(tts, "get_config_str", return_value="/venv"), \
+             patch.object(tts, "resolve_venv_python", return_value="/venv/bin/python"), \
+             patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), \
+             patch.object(tts, "_play_audio_file"), \
+             patch.object(tts, "_speak_system") as system:
+            tts._run_sentence_pipeline(
+                ["一。", "二。", "三。"],
+                "kokoro",
+                "jf_alpha",
+                1.0,
+                "",
+                "",
+                "",
+                None,
+                generation,
+            )
+    finally:
+        tts.stop_speech()
+
+    assert synthesized == ["一。", "二。", "三。"]
+    ensure.assert_called_once()
+    assert ensure.call_args.args[0] == "/venv/bin/python"
+    assert ensure.call_args.args[1] == "ja"
+    system.assert_not_called()
+
+
+def test_sentence_pipeline_stop_during_misaki_install_skips_os_speech():
+    import plugin.audio.tts_service as tts
+
+    generation = tts._begin_utterance()
+    try:
+        with patch.object(tts, "ensure_kokoro_misaki", return_value=None), \
+             patch.object(tts, "get_config_str", return_value="/venv"), \
+             patch.object(tts, "resolve_venv_python", return_value="/venv/bin/python"), \
+             patch.object(tts, "_synthesize_sentence_clip") as synth, \
+             patch.object(tts, "_speak_system") as system:
+            tts._run_sentence_pipeline(
+                ["こんにちは。", "次の文。"],
+                "kokoro",
+                "jf_alpha",
+                1.0,
+                "",
+                "",
+                "",
+                None,
+                generation,
+            )
+    finally:
+        tts.stop_speech()
+
+    synth.assert_not_called()
+    system.assert_not_called()
+
+
 def test_all_writeragent_locales_have_piper_model_mapping():
     from plugin.audio.tts_service import get_default_voice_for_locale, _PIPER_VOICE_MODELS
     import os
@@ -743,4 +827,255 @@ def test_all_writeragent_locales_have_piper_model_mapping():
     for loc in locale_dirs:
         voice = get_default_voice_for_locale("piper", loc)
         assert voice in _PIPER_VOICE_MODELS, f"Locale {loc} resolved to unmapped voice {voice}"
+
+
+class _FakeSentenceBI:
+    """Same period/question/exclamation boundaries the grammar unit tests use."""
+
+    def endOfSentence(self, text, pos, locale):
+        import re
+
+        match = re.search(r"[.!?]", text[pos:])
+        if match:
+            return pos + match.end()
+        return len(text)
+
+
+def test_sentences_for_speech_uses_grammar_splitter_and_keeps_short_fragments():
+    """TTS must not drop the short tail that grammar threshold filtering removes."""
+    from plugin.audio.tts_service import sentences_for_speech
+
+    with patch(
+        "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",
+        return_value=(_FakeSentenceBI(), "en-US"),
+    ), patch(
+        "plugin.writer.locale.grammar_proofread_text.filter_sentence_spans_for_thresholds",
+        side_effect=AssertionError("TTS must not apply the grammar churn filter"),
+    ):
+        spoken = sentences_for_speech("Hi. No", object())
+
+    assert spoken == ["Hi.", "No"]
+
+
+def test_sentences_for_speech_merges_dialogue():
+    from plugin.audio.tts_service import sentences_for_speech
+
+    with patch(
+        "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",
+        return_value=(_FakeSentenceBI(), "en-US"),
+    ):
+        spoken = sentences_for_speech('"Fire! Fire!" he yelled.', object())
+
+    assert spoken == ['"Fire! Fire!" he yelled.']
+
+
+def test_module_yaml_sentence_mode_defaults_on():
+    import os
+
+    import yaml
+
+    with open(os.path.join(os.path.dirname(__file__), "..", "..", "plugin", "audio", "module.yaml"), encoding="utf-8") as handle:
+        manifest = yaml.safe_load(handle)
+    field = manifest["config"]["tts_sentence_mode"]
+    assert field["type"] == "boolean"
+    assert field["widget"] == "checkbox"
+    assert field["default"] is True
+
+
+def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
+    import threading
+
+    from plugin.audio import tts_service as tts
+
+    short = "Hi."
+    longer = "This sentence is much longer and should already be synthesizing."
+    long_started = threading.Event()
+    paths = []
+
+    def synth(sentence, provider, voice, speed, model, endpoint_url, api_key, on_status, generation):
+        del provider, voice, speed, model, endpoint_url, api_key, on_status, generation
+        if sentence == longer:
+            long_started.set()
+        path = tmp_path / f"{len(paths)}.wav"
+        path.write_bytes(b"RIFF")
+        paths.append(str(path))
+        return tts._ReadyClip(str(path), sentence, 4, False)
+
+    def play(path, generation=None):
+        del path
+        if generation is not None and not long_started.is_set():
+            assert long_started.wait(2), "next sentence was not synthesizing while the short one played"
+
+    generation = tts._begin_utterance()
+    try:
+        with patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(
+            tts, "_play_audio_file", side_effect=play
+        ):
+            tts._run_sentence_pipeline(
+                [short, longer],
+                "kokoro",
+                "af_bella",
+                1.0,
+                "",
+                "",
+                "",
+                None,
+                generation,
+            )
+    finally:
+        tts.stop_speech()
+    assert long_started.is_set()
+
+
+def test_ready_queue_backpressure_stops_past_the_cap():
+    import threading
+    import time
+
+    from plugin.audio import tts_service as tts
+
+    # Cap 2 counts clips waiting, not the one already taken for playback.
+    # Synth-then-put means one more clip can be built while put blocks, so a
+    # held first sentence allows A (playing) + B,C (queued) + D (in hand).
+    # E must not start until playback frees a slot.
+    sentences = ["A.", "B.", "C.", "D.", "E."]
+    started: list[str] = []
+    release_play = threading.Event()
+
+    def synth(sentence, provider, voice, speed, model, endpoint_url, api_key, on_status, generation):
+        del provider, voice, speed, model, endpoint_url, api_key, on_status, generation
+        started.append(sentence)
+        return tts._ReadyClip(None, sentence, 0, True)
+
+    def play(path, generation=None):
+        del path, generation
+
+    def speak_system(text, speed=1.0, generation=None):
+        del text, speed, generation
+        release_play.wait(30)
+
+    generation = tts._begin_utterance()
+    finished = threading.Event()
+
+    def run() -> None:
+        try:
+            with patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(
+                tts, "_play_audio_file", side_effect=play
+            ), patch.object(tts, "_speak_system", side_effect=speak_system):
+                tts._run_sentence_pipeline(
+                    sentences,
+                    "system",
+                    "default",
+                    1.0,
+                    "",
+                    "",
+                    "",
+                    None,
+                    generation,
+                    max_clips=2,
+                    max_bytes=10**9,
+                )
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and len(started) < 4:
+            time.sleep(0.02)
+        time.sleep(0.2)
+        assert started == sentences[:4]
+        release_play.set()
+        assert finished.wait(2)
+    finally:
+        release_play.set()
+        tts.stop_speech()
+        worker.join(2)
+    assert started == sentences
+
+
+def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
+    import threading
+
+    from plugin.audio import tts_service as tts
+
+    played: list[str] = []
+    hold_second = threading.Event()
+    first_playing = threading.Event()
+    late_path = tmp_path / "S.wav"
+
+    def synth(sentence, provider, voice, speed, model, endpoint_url, api_key, on_status, generation):
+        del provider, voice, speed, model, endpoint_url, api_key, on_status, generation
+        if sentence.startswith("Second"):
+            hold_second.wait(2)
+        path = tmp_path / f"{sentence[:1]}.wav"
+        path.write_bytes(b"wav")
+        return tts._ReadyClip(str(path), sentence, 3, False)
+
+    def play(path, generation=None):
+        played.append(path)
+        first_playing.set()
+        while generation is not None and not tts._playback_blocked(generation):
+            threading.Event().wait(0.01)
+
+    generation = tts._begin_utterance()
+    finished = threading.Event()
+
+    def run() -> None:
+        try:
+            with patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(
+                tts, "_play_audio_file", side_effect=play
+            ):
+                tts._run_sentence_pipeline(
+                    ["First sentence.", "Second sentence."],
+                    "kokoro",
+                    "af_bella",
+                    1.0,
+                    "",
+                    "",
+                    "",
+                    None,
+                    generation,
+                )
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        assert first_playing.wait(2)
+        tts.stop_speech()
+        hold_second.set()
+        assert finished.wait(2)
+    finally:
+        hold_second.set()
+        tts.stop_speech()
+        worker.join(2)
+    assert len(played) == 1
+    assert not late_path.exists()
+
+
+def test_speak_text_async_passes_split_sentences_when_ctx_present():
+    from plugin.audio.tts_service import speak_text_async
+
+    captured: dict[str, list[str]] = {}
+
+    def fake_pipeline(sentences, provider, voice, speed, model, endpoint_url, api_key, on_status, generation, **kwargs):
+        del provider, voice, speed, model, endpoint_url, api_key, on_status, generation, kwargs
+        captured["sentences"] = list(sentences)
+
+    cfg = {
+        "audio.tts_enabled": True,
+        "audio.tts_provider": "system",
+        "audio.tts_speed": 1.0,
+    }
+    with patch("plugin.audio.tts_service.get_config", side_effect=lambda key, default=None: cfg.get(key, default)), patch(
+        "plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kwargs: fn()
+    ), patch(
+        "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",
+        return_value=(_FakeSentenceBI(), "en-US"),
+    ), patch("plugin.audio.tts_service._run_sentence_pipeline", side_effect=fake_pipeline):
+        speak_text_async("Hi. Not done yet", ctx=object())
+
+    assert captured["sentences"] == ["Hi.", "Not done yet"]
 
