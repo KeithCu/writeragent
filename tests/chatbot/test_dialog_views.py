@@ -934,8 +934,8 @@ def test_tts_settings_listener_sync():
         mock_set_enabled.assert_called_once_with(model_ctrl, False)
         # Voice list is updated with Kokoro voices
         assert any("af_bella" in label for label in voice_ctrl_model.StringItemList)
-        # Voice text is set to Bella
-        assert any("af_bella" in arg for arg in voice_ctrl.setText.call_args[0])
+        # Voice text is set to the Kokoro default (Sky)
+        assert any("af_sky" in arg for arg in voice_ctrl.setText.call_args[0])
 
 
 def test_tts_settings_listener_promotes_raw_voice_id_to_catalog_label():
