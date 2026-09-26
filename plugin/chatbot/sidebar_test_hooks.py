@@ -159,6 +159,48 @@ def _inflate_session_history(session: Any) -> int:
     return added
 
 
+
+def _tts_snapshot_fields() -> dict[str, Any]:
+    """Sidebar Voice checkbox vs config (Settings → Speech audio.tts_enabled)."""
+    from plugin.framework.config import get_config_bool_safe
+
+    enabled = bool(get_config_bool_safe("audio.tts_enabled"))
+    chk_state: int | None = None
+    panels = list(iter_live_chat_panels())
+    # Also walk doc.live_panels (always registered; debug WeakSet may be empty).
+    try:
+        from plugin.doc.live_panels import iter_live_panel_uids, get_live_panel
+
+        for uid in iter_live_panel_uids():
+            panel = get_live_panel(uid)
+            if panel is not None and panel not in panels:
+                panels.append(panel)
+    except Exception:
+        log.debug("tts snapshot: doc.live_panels unavailable", exc_info=True)
+    for panel in panels:
+        root = getattr(panel, "m_panelRootWindow", None)
+        if root is None or not hasattr(root, "getControl"):
+            continue
+        try:
+            chk = root.getControl("chk_voice")
+        except Exception:
+            chk = None
+        if chk is None:
+            continue
+        try:
+            if hasattr(chk, "getState"):
+                chk_state = int(chk.getState())
+                break
+        except Exception:
+            log.debug("tts snapshot: chk_voice getState failed", exc_info=True)
+    return {
+        "tts_enabled": enabled,
+        "chk_voice_state": chk_state,
+        "tts_sidebar_in_sync": (chk_state is None) or (bool(chk_state) == enabled),
+        "tts_live_panels": len(panels),
+    }
+
+
 def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
     send = sl.sidebar_state.send if sl is not None else None
     audio = sl.sidebar_state.audio if sl is not None else None
@@ -178,6 +220,7 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
         "approval_active": bool(getattr(sl, "_approval_event", None)) if sl is not None else False,
         **_slash_snapshot_fields(sl),
         **_session_snapshot_fields(sl),
+        **_tts_snapshot_fields(),
         "slash_lru": _slash_lru_names(),
     }
     with open(debug_sidebar_snapshot_path(), "w", encoding="utf-8") as handle:
@@ -274,6 +317,49 @@ def handle_debug_sidebar_command(command: str) -> None:
         from plugin.doc.peer_message import kick_pending_peer_starts
 
         kick_pending_peer_starts()
+        _write_debug_snapshot(sl)
+        return
+    # Settings→Speech writes audio.tts_enabled then emits config:changed; these
+    # ops exercise the same path so headed tests can prove sidebar chk_voice sync.
+    if op in ("SET_TTS_ON", "SET_TTS_OFF"):
+        from plugin.framework.config import set_config
+
+        set_config("audio.tts_enabled", op == "SET_TTS_ON")
+        _write_debug_snapshot(sl)
+        return
+    if op == "TOGGLE_SIDEBAR_TTS":
+        # Drive the sidebar Voice checkbox (reverse of Settings→sidebar).
+        from plugin.framework.config import set_config
+
+        panels = list(iter_live_chat_panels())
+        try:
+            from plugin.doc.live_panels import get_live_panel, iter_live_panel_uids
+
+            for uid in iter_live_panel_uids():
+                panel = get_live_panel(uid)
+                if panel is not None and panel not in panels:
+                    panels.append(panel)
+        except Exception:
+            pass
+        for panel in panels:
+            root = getattr(panel, "m_panelRootWindow", None)
+            if root is None or not hasattr(root, "getControl"):
+                continue
+            try:
+                chk = root.getControl("chk_voice")
+            except Exception:
+                chk = None
+            if chk is None or not hasattr(chk, "getState") or not hasattr(chk, "setState"):
+                continue
+            try:
+                cur = int(chk.getState())
+                want = 0 if cur else 1
+                chk.setState(want)
+                # Ensure config matches even if ItemEvent.Selected was missing.
+                set_config("audio.tts_enabled", bool(want))
+            except Exception:
+                log.exception("TOGGLE_SIDEBAR_TTS setState failed")
+            break
         _write_debug_snapshot(sl)
         return
     # Slash ops only touch the Ask ListBox. Run inline like SNAPSHOT —

@@ -289,3 +289,79 @@ def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
     ):
         el._refresh_controls_from_config()
     el._update_backend_indicator.assert_called_once_with(root)
+
+
+def test_refresh_controls_syncs_chk_voice_from_tts_enabled():
+    """Settings → Speech TTS toggle must refresh the sidebar Voice checkbox."""
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = False
+    root = MagicMock()
+    el.m_panelRootWindow = root
+    el._update_backend_indicator = MagicMock()
+
+    chk = MagicMock()
+    chk.getState.return_value = 0  # sidebar stale (off)
+    chk.setState = MagicMock()
+
+    def get_optional(_root, name):
+        if name == "chk_voice":
+            return chk
+        return None
+
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
+        "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
+    ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), patch(
+        "plugin.chatbot.panel_factory.get_config", return_value=""
+    ), patch(
+        "plugin.chatbot.panel_factory.get_current_endpoint", return_value=""
+    ), patch(
+        "plugin.chatbot.panel_factory.get_optional_control",
+        side_effect=get_optional,
+    ), patch(
+        "plugin.framework.config.get_config_bool_safe",
+        side_effect=lambda key: True if key == "audio.tts_enabled" else False,
+    ):
+        el._refresh_controls_from_config()
+
+    chk.setState.assert_called_once_with(1)
+    el._update_backend_indicator.assert_called_once_with(root)
+
+
+def test_refresh_controls_skips_chk_voice_setstate_when_already_matched():
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = False
+    root = MagicMock()
+    el.m_panelRootWindow = root
+    el._update_backend_indicator = MagicMock()
+
+    chk = MagicMock()
+    chk.getState.return_value = 1
+    chk.setState = MagicMock()
+
+    def get_optional(_root, name):
+        if name == "chk_voice":
+            return chk
+        return None
+
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
+        "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
+    ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), patch(
+        "plugin.chatbot.panel_factory.get_config", return_value=""
+    ), patch(
+        "plugin.chatbot.panel_factory.get_current_endpoint", return_value=""
+    ), patch(
+        "plugin.chatbot.panel_factory.get_optional_control",
+        side_effect=get_optional,
+    ), patch(
+        "plugin.framework.config.get_config_bool_safe",
+        side_effect=lambda key: True if key == "audio.tts_enabled" else False,
+    ):
+        el._refresh_controls_from_config()
+
+    chk.setState.assert_not_called()
