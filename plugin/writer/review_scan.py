@@ -95,35 +95,89 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
     return reliable, seen, total
 
 
+def _redline_key(rl: Any) -> tuple[Any, ...]:
+    """``(RedlineIdentifier, type, author, date, comment)`` of one redline.
+
+    Only the identifier must be readable (a failure raises, so the caller marks the scan
+    unreliable); the other fields read as None when they fail.
+    """
+    rid = rl.getPropertyValue("RedlineIdentifier")
+
+    def prop(name: str) -> Any:
+        try:
+            return rl.getPropertyValue(name)
+        except Exception:
+            return None
+
+    dt = prop("RedlineDateTime")
+    when = None if dt is None else tuple(
+        getattr(dt, f, None) for f in ("Year", "Month", "Day", "Hours", "Minutes", "Seconds", "NanoSeconds"))
+    return (rid, prop("RedlineType"), prop("RedlineAuthor"), when, prop("RedlineComment"))
+
+
+def _stacked_on_someone_else(rl: Any) -> bool:
+    """True when *rl* sits on top of another author's pending change (``RedlineSuccessorData``
+    is the layer underneath) that is not an agent change.
+
+    Tagging such a stack marks the user's layer as the agent's too: the comment reads the top
+    layer only, so "Reject all agent changes" popped the agent's Delete and then rejected the
+    user's own Insert under it -- the user's text was gone (checked live).
+    """
+    try:
+        below = rl.getPropertyValue("RedlineSuccessorData")
+    except Exception:
+        return False
+    if not isinstance(below, (tuple, list)) or not below:
+        return False
+    comment = next((p.Value for p in below if getattr(p, "Name", "") == "RedlineComment"), "")
+    return not is_agent_token(comment)
+
+
 def snapshot_redline_ids(doc: Any) -> tuple[set[Any], bool]:
-    """``(set of current RedlineIdentifiers, reliable)`` — snapshot BEFORE an edit.
+    """``(set of current redline keys, reliable)`` — snapshot BEFORE an edit, for ``new_redlines_since``.
 
     ``reliable`` is False when the snapshot is incomplete. Callers must refuse to tag on an
     unreliable snapshot so a user redline is never stamped as an agent change.
     """
-    ids: set[Any] = set()
+    keys: set[Any] = set()
 
     def on_item(rl: Any) -> bool:
         try:
-            ids.add(rl.getPropertyValue("RedlineIdentifier"))
+            keys.add(_redline_key(rl))
         except Exception:
             return False
         return True
 
     reliable = scan_redlines(doc, on_item)[0]
-    return ids, reliable
+    return keys, reliable
 
 
-def new_redlines_since(doc: Any, before_ids: set[Any]) -> tuple[list[Any], bool]:
-    """Redlines whose ``RedlineIdentifier`` is not in *before_ids*, plus scan reliability."""
+def new_redlines_since(doc: Any, before: set[Any]) -> tuple[list[Any], bool]:
+    """Redlines the edit made since the *before* snapshot (``snapshot_redline_ids``), plus scan reliability.
+
+    What was wrong: "new" meant "RedlineIdentifier not seen before", and the identifier is not a
+    stable id. Deleting text that is another author's tracked insertion stacks our Delete on
+    that SAME redline (same identifier), so the deletion was never tagged and never showed up
+    as an agent change (relato #34). Deleting inside the middle of someone else's insertion
+    splits it, and the tail piece gets a NEW identifier, so the user's own text was tagged as
+    an agent change (Accept/Reject would then resolve it). Why this fixes it: a redline counts
+    as old only if its whole key (identifier, type, author, date, comment) is unchanged, and a
+    new-identifier redline with the same type, author, date and comment as an old one is a
+    piece split off it, not ours (checked live: the piece keeps all four). An agent change
+    stacked on another author's pending change is left untagged (``_stacked_on_someone_else``):
+    fail closed, it reads as the user's and is never resolved in bulk.
+    """
+    before_sigs = {key[1:] for key in before}
     out: list[Any] = []
 
     def on_item(rl: Any) -> bool:
         try:
-            rid = rl.getPropertyValue("RedlineIdentifier")
+            key = _redline_key(rl)
         except Exception:
             return False
-        if rid not in before_ids:
+        # Without a date the split-piece test cannot tell a piece from a new redline.
+        split_piece = key[3] is not None and key[1:] in before_sigs
+        if key not in before and not split_piece and not _stacked_on_someone_else(rl):
             out.append(rl)
         return True
 
