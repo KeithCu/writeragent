@@ -315,10 +315,9 @@ class DelegateToSpecializedBase(ToolBase):
             if domain == "footnotes":
                 footnotes_hint = " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), pass that exact string as insert_after so the note is placed after that text; the task executor cannot move the view cursor."
             shapes_canvas = ""
-            # Shapes places objects in HMM. The outer python agent computes those
-            # coordinates before delegate_tool_domains, so it needs the same page
-            # bounds as the shapes loop — not only the inner agent.
-            if domain in ("shapes", "python"):
+            # Page size stays on the shapes loop (and the inner domain agent when
+            # shapes is requested). The outer python agent passes layout in task.
+            if domain == "shapes":
                 try:
                     canvas = queue_executor.execute_on_main_thread(lambda: format_shapes_canvas_context(getattr(ctx, "doc", None)))
                 except Exception as e:

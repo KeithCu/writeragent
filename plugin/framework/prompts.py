@@ -285,8 +285,8 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
 
     The outer python agent does venv / symbolic work itself. Domain tools go through
     ``delegate_tool_domains`` (``domains`` + ``task``), which starts the inner agent.
-    Page HMM bounds are not in this string: ``DelegateToSpecializedBase`` appends
-    ``format_shapes_canvas_context`` on the main thread when ``domain=="python"``.
+    Page size is not injected here. When the task includes shapes, the inner agent
+    gets ``format_shapes_canvas_context`` and applies the layout from ``task``.
     """
     if agent_label == "Calc":
         data_hint = (
@@ -321,7 +321,7 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         " BEFORE specialized_workflow_finished."
         " When placing shapes, that task must use page-scale absolute positions in HMM (1/100 mm)"
         " from the top-left of the page, not a tiny origin-centered cluster around (0,0)."
-        " When these instructions include a document canvas line, compute positions from that page size."
+        " The inner shapes agent applies that layout using the page canvas; this loop does not receive page size."
         " Do not finish and expect the main chat agent to call delegate_to_specialized_*(domain=\"shapes\") for you."
         " The inner agent receives the full tool schemas; do not call those domain tools on this loop."
     )
