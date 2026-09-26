@@ -11,7 +11,7 @@ _SCRIPTS = _REPO / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from manifest_registry import generate_settings_dialog_tabs  # noqa: E402
+from manifest_registry import _settings_hover_text, generate_settings_dialog_tabs  # noqa: E402
 
 _DLG_NS = "http://openoffice.org/2000/dialog"
 
@@ -309,5 +309,144 @@ def test_starter_buttons_share_row_and_include_nvidia(tmp_path: Path) -> None:
         assert img_id not in attrs
     assert "dlg:image-src=" not in xdl
     assert attrs["btn_ok"]["left"] == "170"
+
+
+def _help_text_by_id(xdl_path: Path) -> dict[str, str | None]:
+    """Map control dlg:id -> dlg:help-text (None when the attribute is absent)."""
+    root = ET.parse(xdl_path).getroot()
+    tips: dict[str, str | None] = {}
+    for el in root.iter():
+        ctrl_id = el.get(f"{{{_DLG_NS}}}id")
+        if not ctrl_id or ctrl_id in tips:
+            continue
+        tips[ctrl_id] = el.get(f"{{{_DLG_NS}}}help-text")
+    return tips
+
+
+def _settings_keeps_caption_label(schema: dict) -> bool:
+    """True when the generator leaves a FixedText caption next to the control."""
+    if schema.get("inline_no_label"):
+        return False
+    widget = schema.get("widget", "text")
+    if widget == "checkbox":
+        return False
+    if widget == "button" and not schema.get("show_button_label"):
+        return False
+    return True
+
+
+def _iter_settings_field_modules(modules: list[dict]) -> list[dict]:
+    """Tab modules plus config_inline children that land on those pages."""
+    from plugin.chatbot.settings_tab_order import iter_settings_tab_modules
+
+    tabs = list(iter_settings_tab_modules(modules))
+    tab_names = {m["name"] for m in tabs}
+    owners = list(tabs)
+    seen = set(tab_names)
+    for module in modules:
+        target = module.get("config_inline")
+        name = module.get("name")
+        if isinstance(target, str) and target in tab_names and name not in seen:
+            owners.append(module)
+            seen.add(name)
+    return owners
+
+
+def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
+    """YAML helper (and tooltip: true) is dlg:help-text, not an hlp_* FixedText row."""
+    from plugin._manifest import MODULES
+
+    xdl_path, xdl = _generate_settings_xdl(tmp_path)
+    tips = _help_text_by_id(xdl_path)
+
+    assert "dlg:id=\"hlp_" not in xdl
+    # Proven opt-in still works, and a helper without tooltip: true does too.
+    assert tips["audio__tts_short_answers"] == (
+        "Aim for about one paragraph unless the user asks for more. "
+        "Only applies while speech output (TTS) is on."
+    )
+    assert tips["audio__tts_enabled"] == "Speak assistant responses aloud using text-to-speech."
+    assert "label_audio__tts_enabled" not in tips
+    assert tips["label_audio__stt_model"] == tips["audio__stt_model"]
+    assert tips["audio__stt_model"] == "Speech-to-text model when the chat model cannot take audio input."
+    assert tips["doc__grammar_proofreader_recheck"] == tips["label_doc__grammar_proofreader_recheck"]
+    assert tips["doc__grammar_proofreader_recheck"].startswith("Clears cached grammar results")
+    assert not tips.get("chatbot__max_tool_rounds")
+    assert not tips.get("audio__test_voice")
+
+    wired = 0
+    for module in _iter_settings_field_modules(MODULES):
+        prefix = str(module["name"]).replace(".", "_")
+        config = module.get("config") or {}
+        for field_name, schema in config.items():
+            if not isinstance(schema, dict):
+                continue
+            if schema.get("internal") or schema.get("widget") in ("list_detail", "separator"):
+                continue
+            ctrl_id = f"{prefix}__{field_name}"
+            expected = _settings_hover_text(schema)
+            assert tips.get(ctrl_id) == (expected or None), ctrl_id
+            label_id = f"label_{ctrl_id}"
+            if _settings_keeps_caption_label(schema):
+                assert label_id in tips, label_id
+                assert tips.get(label_id) == (expected or None), label_id
+            if expected:
+                wired += 1
+                assert f"hlp_{ctrl_id}" not in tips
+    assert wired >= 30
+
+
+def test_settings_explicit_tooltip_overrides_helper(tmp_path: Path) -> None:
+    """A tooltip string wins; internal fields and hlp_* lines are not emitted."""
+    modules = [
+        {
+            "name": "sample",
+            "title": "Sample",
+            "config": {
+                "plain": {"widget": "text", "label": "Plain", "helper": "Helper tip"},
+                "opt_in": {
+                    "widget": "checkbox",
+                    "label": "Opt",
+                    "helper": "From helper",
+                    "tooltip": True,
+                },
+                "override": {
+                    "widget": "number",
+                    "label": "Override",
+                    "helper": "Helper not used",
+                    "tooltip": "Explicit tip",
+                },
+                "markup": {
+                    "widget": "password",
+                    "label": "Markup",
+                    "helper": 'Use A & B, say "hi" <there>',
+                },
+                "silent": {"widget": "button", "label": "Go", "button_text": "Go"},
+                "hidden": {
+                    "widget": "text",
+                    "label": "Hidden",
+                    "helper": "Should not appear",
+                    "internal": True,
+                },
+            },
+        }
+    ]
+    tpl = _REPO / "extension" / "Dialogs" / "SettingsDialog.xdl.tpl"
+    out = tmp_path / "SettingsDialog-tips.xdl"
+    generate_settings_dialog_tabs(modules, str(tpl), str(out))
+    tips = _help_text_by_id(out)
+    raw = out.read_text(encoding="utf-8")
+
+    assert tips["sample__plain"] == "Helper tip"
+    assert tips["label_sample__plain"] == "Helper tip"
+    assert tips["sample__opt_in"] == "From helper"
+    assert "label_sample__opt_in" not in tips
+    assert tips["sample__override"] == "Explicit tip"
+    assert tips["label_sample__override"] == "Explicit tip"
+    assert tips["sample__markup"] == 'Use A & B, say "hi" <there>'
+    assert "&amp;" in raw and "&lt;there&gt;" in raw
+    assert not tips.get("sample__silent")
+    assert "sample__hidden" not in tips
+    assert "hlp_sample__plain" not in tips
 
 

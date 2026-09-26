@@ -693,12 +693,34 @@ def _dialog_model_element_names(dlg: Any) -> tuple[str, ...]:
     return ()
 
 
+def _translate_model_help_text(model: Any, name: str) -> None:
+    """Translate UNO ``HelpText`` the same way labels are translated.
+
+    What was wrong: ``translate_dialog`` only walked type-specific captions
+    (Label, Text, Title, StringItemList). ``HelpText`` never reached ``_()``,
+    so Settings ``dlg:help-text`` stayed English even though those YAML helpers
+    are already in the pot.
+
+    Edit and NumericField are not in ``control_types`` at all, so listing
+    HelpText only on that map would still miss text and number fields.
+    """
+    try:
+        if model is None:
+            return
+        current = getattr(model, "HelpText", None)
+        if isinstance(current, str) and current:
+            model.HelpText = _(current)
+    except Exception as e:
+        log.debug("Failed to translate %s.HelpText: %s", name, e)
+
+
 def translate_dialog(dlg: Any) -> None:
     """Translate all controls in a dialog at runtime.
 
     Walks the full control tree. XDL dialogs typically wrap fields in a
     bulletinboard child; only iterating top-level ``getControls()`` misses
-    every label inside the container.
+    every label inside the container. ``HelpText`` is translated on every
+    control model, not only types that have a caption property.
     """
 
     # Map control types to their translatable properties
@@ -752,6 +774,9 @@ def translate_dialog(dlg: Any) -> None:
                                 setattr(model, prop, _(current))
                 except Exception as e:
                     log.debug("Failed to translate %s.%s: %s", name, prop, e)
+
+            help_model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
+            _translate_model_help_text(help_model, name)
 
             xcc = _xcc(ctrl)
             if xcc:
