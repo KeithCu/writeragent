@@ -433,12 +433,117 @@ def test_resolve_kokoro_model_files_reports_download_failure(tmp_path):
          patch("urllib.request.urlretrieve", side_effect=urllib.error.URLError("offline")):
         model_path, voices_path = _resolve_kokoro_model_files(on_status=messages.append)
 
-    assert model_path.endswith("kokoro-v0_19.onnx")
-    assert voices_path.endswith("voices.bin")
+    assert model_path.endswith("kokoro-v1.0.onnx")
+    assert voices_path.endswith("voices-v1.0.bin")
     assert messages == [
         "Downloading Kokoro voice model…",
         "Couldn't download Kokoro; using OS speech",
     ]
+
+
+def test_resolve_kokoro_model_files_downloads_multilingual_release(tmp_path):
+    """Auto-download must fetch the v1.0 pack, not the English-only model-files release."""
+    from plugin.audio.tts_service import (
+        _KOKORO_MODEL_FILENAME,
+        _KOKORO_RELEASE_BASE,
+        _KOKORO_VOICES_FILENAME,
+        _resolve_kokoro_model_files,
+    )
+
+    cache_dir = tmp_path / "kokoro_cache"
+    downloaded: list[tuple[str, str]] = []
+
+    def _fake_retrieve(url: str, dest: str) -> None:
+        downloaded.append((url, dest))
+        with open(dest, "wb") as handle:
+            handle.write(b"asset")
+
+    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)), \
+         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
+         patch("urllib.request.urlretrieve", side_effect=_fake_retrieve):
+        model_path, voices_path = _resolve_kokoro_model_files()
+
+    urls = [url for url, _dest in downloaded]
+    assert urls == [
+        f"{_KOKORO_RELEASE_BASE}/{_KOKORO_VOICES_FILENAME}",
+        f"{_KOKORO_RELEASE_BASE}/{_KOKORO_MODEL_FILENAME}",
+    ]
+    assert _KOKORO_RELEASE_BASE.endswith("/model-files-v1.1")
+    assert "/model-files/" not in _KOKORO_RELEASE_BASE
+    assert "v0_19" not in _KOKORO_MODEL_FILENAME
+    assert _KOKORO_VOICES_FILENAME != "voices.bin"
+    assert model_path == str(cache_dir / "kokoro-v1.0.onnx")
+    assert voices_path == str(cache_dir / "voices-v1.0.bin")
+    assert all("v0_19" not in url and not url.endswith("/voices.bin") for url in urls)
+
+
+def test_resolve_kokoro_model_files_supersedes_english_only_cache(tmp_path):
+    """An existing v0_19 / voices.bin cache must not block the v1.0 download."""
+    from plugin.audio.tts_service import _resolve_kokoro_model_files
+
+    cache_dir = tmp_path / "kokoro_cache"
+    cache_dir.mkdir()
+    (cache_dir / "kokoro-v0_19.onnx").write_bytes(b"old-model")
+    (cache_dir / "voices.bin").write_bytes(b"old-voices")
+    downloaded: list[str] = []
+
+    def _fake_retrieve(url: str, dest: str) -> None:
+        downloaded.append(url)
+        with open(dest, "wb") as handle:
+            handle.write(b"new")
+
+    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)), \
+         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
+         patch("urllib.request.urlretrieve", side_effect=_fake_retrieve):
+        model_path, voices_path = _resolve_kokoro_model_files()
+
+    assert model_path == str(cache_dir / "kokoro-v1.0.onnx")
+    assert voices_path == str(cache_dir / "voices-v1.0.bin")
+    assert downloaded == [
+        "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin",
+        "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.onnx",
+    ]
+    assert (cache_dir / "kokoro-v0_19.onnx").read_bytes() == b"old-model"
+    assert (cache_dir / "voices.bin").read_bytes() == b"old-voices"
+
+
+def test_resolve_kokoro_model_files_reuses_v1_cache(tmp_path):
+    from plugin.audio.tts_service import _resolve_kokoro_model_files
+
+    cache_dir = tmp_path / "kokoro_cache"
+    cache_dir.mkdir()
+    (cache_dir / "kokoro-v0_19.onnx").write_bytes(b"old-model")
+    (cache_dir / "voices.bin").write_bytes(b"old-voices")
+    (cache_dir / "kokoro-v1.0.onnx").write_bytes(b"model")
+    (cache_dir / "voices-v1.0.bin").write_bytes(b"voices")
+
+    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)), \
+         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
+         patch("urllib.request.urlretrieve") as retrieve:
+        model_path, voices_path = _resolve_kokoro_model_files()
+
+    retrieve.assert_not_called()
+    assert model_path == str(cache_dir / "kokoro-v1.0.onnx")
+    assert voices_path == str(cache_dir / "voices-v1.0.bin")
+
+
+def test_resolve_kokoro_model_files_honors_env_overrides(tmp_path):
+    from plugin.audio.tts_service import _resolve_kokoro_model_files
+
+    model = tmp_path / "custom-model.onnx"
+    voices = tmp_path / "custom-voices.bin"
+    model.write_bytes(b"m")
+    voices.write_bytes(b"v")
+
+    with patch.dict(
+        "os.environ",
+        {"KOKORO_MODEL_PATH": str(model), "KOKORO_VOICES_PATH": str(voices)},
+    ), patch("urllib.request.urlretrieve") as retrieve:
+        model_path, voices_path = _resolve_kokoro_model_files()
+
+    retrieve.assert_not_called()
+    assert model_path == str(model)
+    assert voices_path == str(voices)
 
 
 def test_all_writeragent_locales_have_piper_model_mapping():
