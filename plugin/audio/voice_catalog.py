@@ -80,6 +80,7 @@ PIPER_VOICE_MODELS: dict[str, PiperModel] = {
     for item in _PIPER_ROWS
 }
 
+# Labels omit a leading "Kokoro ": the Voice combo is already that provider.
 KOKORO_CATALOG_ITEMS: list[dict[str, str]] = [
     {"value": item["id"], "label": item["label"], "lang": item.get("lang", "en")}
     for item in _KOKORO_ROWS

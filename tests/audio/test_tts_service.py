@@ -589,7 +589,7 @@ def test_together_voice_options_use_cached_voices_and_fetch_on_miss():
             local = voice_options_for_provider("kokoro", "hexgrad/Kokoro-82M")
             mock_sync.assert_not_called()
         assert any(opt["value"] == "af_bella" for opt in local)
-        assert any("Kokoro" in opt["label"] for opt in local)
+        assert any(opt["label"] == "af_bella (US Female - Bella)" for opt in local)
     finally:
         cfg._tts_supported_voices.clear()
         cfg._together_voices_fetch_cache.clear()
@@ -795,6 +795,31 @@ def test_get_voice_catalog_locale_prioritized():
     # English locale puts Lessac first
     en_catalog = get_voice_catalog("piper", "en_US")
     assert en_catalog[0]["value"] == "en_US-lessac-medium"
+
+
+def test_kokoro_voice_labels_omit_redundant_engine_name():
+    """Voice list already sits under Kokoro, so the parenthetical drops a leading 'Kokoro '."""
+    import json
+
+    from plugin.audio.tts_service import get_voice_catalog
+    from plugin.audio.voice_catalog import CATALOG_PATH
+
+    with open(CATALOG_PATH, encoding="utf-8") as handle:
+        raw = json.load(handle)
+
+    shown = {row["value"]: row["label"] for row in get_voice_catalog("kokoro", "en_US")}
+    assert shown["af_heart"] == "af_heart (US Female - Heart)"
+    for row in raw["kokoro"]["voices"]:
+        label = shown[row["id"]]
+        assert label == row["label"]
+        assert label.startswith(row["id"] + " (")
+        human = label.split(" (", 1)[1]
+        assert not human.startswith("Kokoro ")
+
+    # Other providers keep the catalog string, even if it ever mentions Kokoro.
+    piper_shown = {row["value"]: row["label"] for row in get_voice_catalog("piper", "en_US")}
+    for row in raw["piper"]["voices"]:
+        assert piper_shown[row["id"]] == row["label"]
 
 
 def test_kokoro_g2p_lang_english_on_non_english_voice():
