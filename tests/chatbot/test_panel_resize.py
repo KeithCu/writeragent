@@ -44,7 +44,7 @@ def _xdl_snapshot():
         "send": (4, 186, 50, 15),
         "stop": (56, 186, 50, 15),
         "clear": (108, 186, 50, 15),
-        "chk_voice": (154, 186, 22, 15),
+        "chk_voice": (154, 138, 22, 14),
         "chat_mode_selector": (4, 203, 142, 14),
         "model_label": (4, 217, 142, 10),
         "model_selector": (4, 229, 142, 14),
@@ -60,12 +60,19 @@ class TestComputeChatPanelLayout:
         layouts = compute_chat_panel_layout(900, 500, _xdl_snapshot())
         response = layouts["response"]
         status = layouts["status"]
+        label = layouts["query_label"]
         chk_voice = layouts["chk_voice"]
 
         assert response.y == 16
         assert status.y > response.y + response.height
         assert status.y > 300
-        assert chk_voice.y == layouts["clear"].y
+        # Label stays at its left edge. Checkbox keeps its row and is centered.
+        # Label width is the space before the checkbox, not a fixed string width.
+        assert label.x == 4
+        assert chk_voice.y == label.y - 2
+        assert chk_voice.height == 14
+        assert chk_voice.x == (900 - chk_voice.width) // 2
+        assert label.x + label.width + chk_voice.height // 2 <= chk_voice.x
         assert response.height > 200
 
     def test_inflated_response_snapshot_height_is_ignored(self):

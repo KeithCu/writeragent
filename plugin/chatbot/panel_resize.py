@@ -116,7 +116,49 @@ def compute_chat_panel_layout(
         layouts[name] = ControlRect(ox, new_y, new_w, oh)
 
     layouts["response"] = ControlRect(response_x, response_y, response_w, response_h)
+    # The Ask label stays at its XDL X. Only the TTS checkbox is recentered;
+    # a fixed X would stay on the left when the sidebar is wider than the dialog.
+    _center_voice_checkbox(layouts, snapshot, width, right_margin)
     return layouts
+
+
+def _center_voice_checkbox(
+    layouts: dict[str, ControlRect],
+    snapshot: dict[str, tuple[int, int, int, int]],
+    width: int,
+    right_margin: int,
+) -> None:
+    """Center the TTS checkbox horizontally. Leave its Y and the label's X alone.
+
+    The label keeps the left edge from the snapshot and is cut off just before
+    the checkbox. A fixed text width clips translations, and a column-width
+    label paints over the checkbox. The gap follows the checkbox height, which
+    is already in device pixels after AppFont mapping.
+    """
+    voice = layouts.get("chk_voice")
+    voice_snap = snapshot.get("chk_voice")
+    if voice is None or voice_snap is None:
+        return
+
+    _vx, _vy, vw, _vh = voice_snap
+    max_right = width - right_margin
+    if max_right <= 0:
+        return
+
+    voice_w = min(vw, max_right)
+    x = max(0, (width - voice_w) // 2)
+    if x + voice_w > max_right:
+        x = max(0, max_right - voice_w)
+    gap = max(1, voice.height // 2)
+    label = layouts.get("query_label")
+    if label is not None:
+        room = x - gap - label.x
+        if room < 1:
+            room = 1
+            x = min(max_right - voice_w, label.x + room + gap)
+            x = max(0, x)
+        layouts["query_label"] = ControlRect(label.x, label.y, room, label.height)
+    layouts["chk_voice"] = ControlRect(x, voice.y, voice_w, voice.height)
 
 
 def _clamp_to_column(x: int, w: int, width: int, right_margin: int) -> tuple[int, int]:

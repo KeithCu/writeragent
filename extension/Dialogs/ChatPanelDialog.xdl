@@ -20,7 +20,7 @@
   <dlg:button dlg:id="send" dlg:left="4" dlg:top="186" dlg:width="50" dlg:height="15" dlg:value="Send" dlg:tabstop="true"/>
   <dlg:button dlg:id="stop" dlg:left="56" dlg:top="186" dlg:width="50" dlg:height="15" dlg:value="Stop" dlg:tabstop="true"/>
   <dlg:button dlg:id="clear" dlg:left="108" dlg:top="186" dlg:width="44" dlg:height="15" dlg:value="Clear" dlg:tabstop="true"/>
-  <dlg:checkbox dlg:id="chk_voice" dlg:left="154" dlg:top="186" dlg:width="22" dlg:height="15" dlg:value="🔊" dlg:tabstop="true" dlg:checked="false"/>
+  <dlg:checkbox dlg:id="chk_voice" dlg:left="154" dlg:top="138" dlg:width="22" dlg:height="14" dlg:value="🔊" dlg:tabstop="true" dlg:checked="false"/>
 
   <dlg:combobox dlg:id="chat_mode_selector" dlg:left="4" dlg:top="203" dlg:width="142" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="Chat" dlg:border="1"/>
 
