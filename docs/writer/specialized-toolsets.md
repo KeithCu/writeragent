@@ -256,6 +256,16 @@ Some Writer tools intentionally use the default main-chat tier (**`tier = "core"
 
 **Style discovery** (`style_list`, `style_get_info`) remains under `ToolWriterStyleBase` (specialized) so the main list does not duplicate large style catalog traffic; the prompt steers toward delegation or other discovery when needed. `style_get_info(family=PageStyles)` dispatches in-process to the same `get_page_style_properties` reader as `page_get_style_properties` (both entry points stay).
 
+### 3.5 Python specialized agent (two levels)
+
+`delegate_to_specialized_*_toolset(domain="python")` is itself two levels, the same shape as document research (`delegate_read_document` → `run_inner_read_agent`).
+
+1. The **outer python agent** does the work itself when venv scripts, `symbolic_math`, and the other python-domain helpers are enough. `python_specialized_sub_agent_hint` and the `*:python` smol examples say so.
+2. When the task needs other specialized domains (shapes, footnotes, tables, sheets, …), that agent must call **`delegate_tool_domains`** with `domains` (one or more domain names for this app) and `task` (what the inner agent should do).
+3. **`run_inner_domain_tool_agent`** in [`plugin/doc/python_domain_specialized.py`](../../plugin/doc/python_domain_specialized.py) loads those domains' registered `ToolBase` instances — full schemas via `SmolToolAdapter(..., inputs_style="specialized")`, plus `specialized_workflow_finished` — and runs a short smol loop. Tool lookup is marshalled with `queue_executor.execute_on_main_thread`, same as other specialized UNO reads.
+
+The gateway parameter `python_tool_domain` stays commented out. That name is the venv → LibreOffice RPC allowlist (`host_rpc.resolve_allowed_tools`), including `""` so `=PY()` cannot call document tools. It is not this inner agent. `delegate_tool_domains` and `specialized_workflow_finished` stay off the script proxy (`writeragent_api`). Calc chat still hides `domain="python"` from its delegate enum (`=PY()` on the sheet); the tool is still on the python domain if that loop runs. Draw uses the same cross-cutting tool.
+
 **Naming:** Specialized Writer tools use `domain_verb` names (`image_list`, `bookmark_create`, `nav_goto_page`, `shape_delete`, …), matching `fields_*` / `footnotes_*` / `indexes_*`. Core tools keep stable `verb_noun` names (`get_document_content`, `apply_style`, `add_comment`, `get_image`, …). Shared Draw/Calc/Writer tools use one name (Writer does not invent a second). No tool-name aliases. Graphic listing is `image_list` (`domain=images`); there is no `shape_list_images`. Comment workflow is four skinny tools (`comment_scan_tasks`, `comment_workflow_get`, `comment_workflow_set`, `comment_check_stop`), not a fat `comment_workflow`.
 
 ## 4. Testing and operations

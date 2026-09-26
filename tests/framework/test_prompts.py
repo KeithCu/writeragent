@@ -575,6 +575,11 @@ def test_python_specialized_sub_agent_hint_writer():
     assert "DO NOT import numpy" in hint
     assert "does not inject spreadsheet" in hint
     assert "data_range or data into run_venv_python_script" not in hint
+    assert "delegate_tool_domains" in hint
+    assert "domains" in hint
+    assert "task" in hint
+    assert "footnotes" in hint
+    assert "yourself" in hint
 
 
 def test_python_specialized_sub_agent_hint_calc():
@@ -582,6 +587,10 @@ def test_python_specialized_sub_agent_hint_calc():
     assert "sandbox" in hint.lower()
     assert "DO NOT import numpy" in hint
     assert "data_range" in hint
+    assert "delegate_tool_domains" in hint
+    assert "domains" in hint
+    assert "task" in hint
+    assert "ranges" in hint
 
 
 def test_document_research_multi_file_delegation_in_prompts():

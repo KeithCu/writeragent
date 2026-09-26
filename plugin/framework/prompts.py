@@ -266,7 +266,11 @@ def images_specialized_sub_agent_hint() -> str:
 
 
 def python_specialized_sub_agent_hint(agent_label: str) -> str:
-    """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"python\")."""
+    """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"python\").
+
+    The outer python agent does venv / symbolic work itself. Domain tools go through
+    ``delegate_tool_domains`` (``domains`` + ``task``), which starts the inner agent.
+    """
     if agent_label == "Calc":
         data_hint = (
             " For bulk data use data_range with run_venv_python_script "
@@ -283,10 +287,25 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
     plot_hint = format_matplotlib_plot_hint(agent_label=agent_label)
     plot_suffix = f" {plot_hint}" if plot_hint else ""
     units_hint = format_units_helper_hint()
+    if agent_label == "Calc":
+        domain_examples = "sheets, ranges, charts"
+    elif agent_label == "Draw":
+        domain_examples = "shapes, tables, speaker_notes"
+    else:
+        domain_examples = "shapes, footnotes, tables"
+    domain_rule = (
+        " Do Python, venv scripts, symbolic math, and helpers already on this domain yourself"
+        " when the task does not need other WriterAgent specialized tools."
+        " When you need those domain tools"
+        f" ({domain_examples}, and the other specialized domains for this document),"
+        " call delegate_tool_domains with domains (a list of domain names) and task"
+        " (what that inner agent should accomplish)."
+        " The inner agent receives the full tool schemas; do not call those domain tools on this loop."
+    )
     return (
         f" PYTHON (venv): {policy}{data_hint}{plot_suffix}"
         " Prefer symbolic_math for solve/simplify/integrate/differentiate over raw sp/run_venv_python_script."
-        f" {units_hint}"
+        f" {units_hint}{domain_rule}"
     )
 
 

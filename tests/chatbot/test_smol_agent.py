@@ -190,6 +190,9 @@ class TestToolcallingPromptExamples:
         assert ("DO NOT import numpy") in (block)
         assert ('"code": "import') not in (block)
         assert ("specialized_workflow_finished") in (block)
+        assert ("delegate_tool_domains") in (block)
+        assert ('"domains": ["footnotes"]') in (block)
+        assert ('"task":') in (block)
 
     def test_specialized_agent_prompt_examples_use_finish_tool_name(self):
         from plugin.contrib.smolagents.agents import ToolCallingAgent

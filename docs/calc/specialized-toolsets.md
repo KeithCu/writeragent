@@ -65,6 +65,12 @@ Calc chat uses `DEFAULT_CALC_CHAT_SYSTEM_PROMPT` (defined in [`plugin/framework/
 
 ---
 
+## 1.4 Python specialized agent (two levels)
+
+The python specialized loop is shared with Writer and Draw (`specialized_cross_cutting`). Calc chat does not list `domain="python"` on `delegate_to_specialized_calc_toolset` (sheet compute stays `=PY()` / `write_formula_range`). If that loop does run, the outer agent still does venv and symbolic work itself, and calls `delegate_tool_domains(domains, task)` for Calc domains such as sheets, ranges, and charts. The inner agent gets the real tool schemas. See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels). `=PY()` keeps `python_tool_domain=""` so formula recalc cannot call document tools.
+
+---
+
 ## 2. Calc domains and feature coverage
 
 WriterAgent organizes Calc tools into specialized domains to keep the main chat toolset focused. Below is the current implementation status and roadmap.

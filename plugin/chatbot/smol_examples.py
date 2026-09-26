@@ -11,7 +11,7 @@
 - **brainstorming** — design exploration (`reply_to_user`, `save_design_spec`; leave with ``brainstorming_finished=true``).
 - **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
 - **web_research** — web sub-agent (`final_answer`).
-- **``*:python``** — venv demo (`run_venv_python_script` + ``sp.prime``; no numpy imports).
+- **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``) and ``delegate_tool_domains`` (``domains`` + ``task``) when domain tools are required.
 - **``*:images``** — edit selected image via ``image_generate(source_image='selection')``.
 - **All other keys** — shared delegate demo (`specialized_workflow_finished`).
 
@@ -189,6 +189,21 @@ Action:
 {
   "name": "specialized_workflow_finished",
   "arguments": {"answer": "I have successfully calculated the prime numbers and stored them in the `result` variable as a NumPy array. The values are: [8017, 8039, 8053, 8059, 8069, 8081, 8087, 8089, 8093, 8101, 8111]."}
+}
+
+Task: "Add a footnote after the sentence about revenue."
+
+Action:
+{
+  "name": "delegate_tool_domains",
+  "arguments": {"domains": ["footnotes"], "task": "Insert a footnote after the sentence about revenue with the source citation."}
+}
+Observation: {"status": "ok", "domains": ["footnotes"], "result": "Inserted the footnote."}
+
+Action:
+{
+  "name": "specialized_workflow_finished",
+  "arguments": {"answer": "Added the footnote via the footnotes domain."}
 }
 """
 )
