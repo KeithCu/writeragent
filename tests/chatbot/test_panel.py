@@ -146,6 +146,41 @@ class TestSendDispose:
             while not listener.queue_executor._work_queue.empty():
                 listener.queue_executor.process_queue()
 
+    def test_do_send_errors_when_stop_rec_has_no_wav(self) -> None:
+        """Stop Rec promises audio. A missing WAV must not return with an empty status."""
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener.audio_wav_path = None
+        listener.query_control = None
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, False, True, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener._append_response = MagicMock()
+        with patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()):
+            listener._do_send()
+        assert listener._terminal_status == "Error"
+        text = listener._append_response.call_args[0][0]
+        assert "Audio error" in text
+        assert "sound file" in text
+
+    def test_do_send_empty_query_without_audio_stays_quiet(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener.audio_wav_path = None
+        listener.query_control = None
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener._append_response = MagicMock()
+        with patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()):
+            listener._do_send()
+        assert listener._terminal_status == ""
+        listener._append_response.assert_not_called()
+
     def test_record_start_failure_does_not_leave_stop_rec(self) -> None:
         """Nested ERROR during RECORD_CLICKED used to restore Stop Rec after resetting is_recording."""
         listener = _make_send_listener()

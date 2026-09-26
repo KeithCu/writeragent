@@ -74,6 +74,49 @@ def test_resolve_recording_python_requires_venv():
         assert "Settings" in err
 
 
+def test_stop_gets_ok_path_already_consumed_by_stdout_monitor():
+    """Manual Stop Rec must still get the WAV while the silence monitor is running.
+
+    The monitor is the only stdout reader. It used to ignore ``{"status":"ok"}``,
+    so a second reader in ``stop_recording_process`` lost the path and timed out.
+    Stop now waits on the handoff after that line has already been consumed.
+    """
+    import time
+
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff, monitor_recording_stdout
+
+    wav_path = "/tmp/manual-stop.wav"
+    stdout = StringIO(
+        json.dumps({"status": "silence_progress", "ms": 250}) + "\n"
+        + json.dumps({"status": "ok", "path": wav_path}) + "\n"
+    )
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = StringIO()
+    proc.stdout = stdout
+    proc.wait.return_value = 0
+
+    handoff = RecordingStopHandoff()
+    progress: list[int] = []
+    handle = monitor_recording_stdout(
+        proc,
+        on_auto_stopped=lambda _path: None,
+        on_silence_progress=progress.append,
+        handoff=handoff,
+    )
+    deadline = time.monotonic() + 2
+    while handoff.snapshot_path() is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    handle.join(timeout=2)
+
+    # The ok line is gone from stdout. A competing read would see EOF.
+    assert stdout.read() == ""
+    assert progress == [250]
+    assert handoff.snapshot_path() == wav_path
+    assert stop_recording_process(proc, handoff=handoff, timeout_sec=1) == wav_path
+    assert json.loads(proc.stdin.getvalue()) == {"command": "stop"}
+
+
 def test_audio_record_main_accepts_json_and_legacy_stop_commands():
     from plugin.scripting.venv.audio_record_main import _is_stop_command
 

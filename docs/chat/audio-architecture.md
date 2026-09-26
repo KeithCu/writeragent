@@ -82,7 +82,7 @@ Implementation:
 | `{"status":"silence_progress","ms":750}` | Optional UI status while silence accumulates |
 | `{"status":"auto_stopped","path":"/tmp/….wav"}` | VAD triggered stop; host dispatches the same FSM path as **Stop Rec** |
 
-The host runs a stdout monitor thread ([`monitor_recording_stdout`](../../plugin/scripting/audio_recorder_service.py)) and posts `STOP_REC_CLICKED` on the LibreOffice main thread via [`execute_on_main_thread`](../../plugin/framework/queue_executor.py). Manual **Stop Rec** still works. That same stop is the pause in hands-free mode (see [Hands-free (sticky) Record](#hands-free-sticky-record)); it does not clear the sticky flag.
+The host runs one stdout monitor thread ([`monitor_recording_stdout`](../../plugin/scripting/audio_recorder_service.py)). After `ready`, that thread is the only reader of the child stdout. It forwards `silence_progress` and `auto_stopped`, and it stashes the final `{"status":"ok","path":…}` on a `RecordingStopHandoff`. Manual **Stop Rec** writes `{"command":"stop"}` and waits on that handoff. It does not read stdout itself: a second reader used to take the `ok` line, the monitor ignored it, and the send never started. If that wait fails but the temp WAV already has bytes, Stop Rec sends that file. If there is still no file, the sidebar shows an audio error instead of returning from send with an empty status. Silence auto-stop posts `STOP_REC_CLICKED` on the LibreOffice main thread via [`execute_on_main_thread`](../../plugin/framework/queue_executor.py). That same stop is the pause in hands-free mode (see [Hands-free (sticky) Record](#hands-free-sticky-record)); it does not clear the sticky flag.
 
 ## Implementation Details
 
