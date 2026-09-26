@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Yerel OCR seçili resim(ler) üzerinde çalıştırılıyor..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Belge araştırması okumaları özel görev delegasyonu (USE_SUB_AGENT) "
 "gerektirir. Bunu yapılandırmadan etkinleştirin."
@@ -40,12 +40,12 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam "
-"API setini geri yüklemek için işiniz bittiğinde "
+"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam"
+" API setini geri yüklemek için işiniz bittiğinde "
 "'specialized_workflow_finished' komutunu çağırmalısınız."
 
 #: plugin/notebook/notebook_runner.py
@@ -58,11 +58,11 @@ msgstr "Not defteri çalıştırma yalnızca LibreOffice Writer'da desteklenir."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
-"Bu belgenin içe aktarılmış bir not defteri yok. Önce Dosya → Bir Jupyter not "
-"defteri (.ipynb) açın."
+"Bu belgenin içe aktarılmış bir not defteri yok. Önce Dosya → Bir Jupyter not"
+" defteri (.ipynb) açın."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -263,10 +263,11 @@ msgstr ""
 "artırmayı deneyin."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Bağlantı Reddedildi. Yerel yapay zeka sunucunuz (Ollama/LM Studio) çalışıyor "
-"mu?"
+"Bağlantı Reddedildi. Yerel yapay zeka sunucunuz (Ollama/LM Studio) çalışıyor"
+" mu?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -316,8 +317,8 @@ msgid ""
 "The local Ollama/llama.cpp process crashed because the prompt overflowed a "
 "too-small context window."
 msgstr ""
-"Yerel Ollama/llama.cpp süreci, istem çok küçük bir bağlam penceresini aştığı "
-"için çöktü."
+"Yerel Ollama/llama.cpp süreci, istem çok küçük bir bağlam penceresini aştığı"
+" için çöktü."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -327,8 +328,8 @@ msgstr "Yapay Zeka Sağlayıcısından HTTP Hatası {0}: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " API anahtarınız bir GLM Coding Plan aboneliğinden geliyorsa, uç noktayı "
 "(genel /api/paas URL'si yerine) {0} olarak ayarlayın."
@@ -382,6 +383,68 @@ msgstr "Lütfen Ayarlar'dan Modeli ayarlayın."
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Lütfen Ayarlar'dan geçerli bir model seçin (yer tutucu değil)."
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Konuşma isteği başarısız oldu ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Konuşma isteği başarısız oldu: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Konuşma isteği başarısız oldu ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Konuşma isteği başarısız oldu."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Kokoro ses modeli indiriliyor…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "Kokoro indirilemedi; işletim sistemi konuşma özelliği kullanılıyor"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Piper sesi {0} indiriliyor…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "{0} indirilemedi; Lessac kullanılıyor"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "{0} indirilemedi; işletim sistemi konuşma özelliği kullanılıyor"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr "Kokoro fonemleyici başarısız oldu; bu dil yanlış okunabilir."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Kokoro fonemleyici kuruluyor…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Kokoro fonemleyici kurulamadı; bu dil yanlış okunabilir. Şununla kurun: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Japonca fonemleyici sözlüğü indiriliyor…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -401,8 +464,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Monaco düzenleyici, writeragent.json içindeki \"scripting."
-"force_internal_script_editor\" tarafından devre dışı bırakıldı."
+"Monaco düzenleyici, writeragent.json içindeki "
+"\"scripting.force_internal_script_editor\" tarafından devre dışı bırakıldı."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -436,7 +499,8 @@ msgstr "A1:C1 veya A1:C1, C1:C5"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Data ranges apply only when saving as a =PY() formula."
-msgstr "Veri aralıkları yalnızca =PY() formülü olarak kaydedilirken uygulanır."
+msgstr ""
+"Veri aralıkları yalnızca =PY() formülü olarak kaydedilirken uygulanır."
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
@@ -462,8 +526,9 @@ msgstr "PythonCellEditorDialog eklentiden yüklenemedi."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Bu hücrenin PY formül bağımsız değişkenleri (örneğin veri aralıkları) "
 "korunamadı. Formülü Calc içinde düzenleyin veya =PY(\"kod\"; A1:B10) gibi "
@@ -482,8 +547,7 @@ msgid ""
 msgstr ""
 "{0} içindeki değişiklikler kaydedilsin mi?\n"
 "\n"
-"Evet, kaydeder. Hayır, değişiklikleri atar ve yeni hücreyi açar. İptal, {0} "
-"üzerinde düzenlemeye devam eder."
+"Evet, kaydeder. Hayır, değişiklikleri atar ve yeni hücreyi açar. İptal, {0} üzerinde düzenlemeye devam eder."
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -526,8 +590,8 @@ msgid ""
 "quoted code."
 msgstr ""
 "Bu PY formülü, düzenleyicinin güvenli bir şekilde yeniden yazamayacağı bir "
-"biçim kullanıyor (örneğin başka bir hücredeki kod). Formülü formül çubuğunda "
-"düzenleyin veya tırnak içinde kod ile =PY(\"kod\"; aralık) kullanın."
+"biçim kullanıyor (örneğin başka bir hücredeki kod). Formülü formül çubuğunda"
+" düzenleyin veya tırnak içinde kod ile =PY(\"kod\"; aralık) kullanın."
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -571,8 +635,8 @@ msgstr "Görseller eklendi"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Geometrik Yeniden Hesaplama Sırası '%(sheet)s' sayfasını atladı: %(cap)s "
 "veya daha fazla Python hücresi bulundu (keşif sınırı). Kısmi bir listenin "
@@ -584,16 +648,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Şunun için Microsoft Excel Python paketi parçaları yazılamadı:\n"
 "{0}\n"
 "\n"
-"Dosya, LibreOffice =PY formülleriyle kaydedildi. Dışa aktarma başarılı olana "
-"kadar Excel, pythonScripts.xml / _xlws.PY dosyalarını görmeyecektir.\n"
+"Dosya, LibreOffice =PY formülleriyle kaydedildi. Dışa aktarma başarılı olana kadar Excel, pythonScripts.xml / _xlws.PY dosyalarını görmeyecektir.\n"
 "\n"
 "{1}"
 
@@ -810,8 +872,8 @@ msgid ""
 "Could not identify the selected formula. Click in the text, then insert a "
 "new formula."
 msgstr ""
-"Seçili formül tanımlanamadı. Metnin içine tıklayın, ardından yeni bir formül "
-"ekleyin."
+"Seçili formül tanımlanamadı. Metnin içine tıklayın, ardından yeni bir formül"
+" ekleyin."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Unknown conversion error"
@@ -1404,8 +1466,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Düzenleyici bulunamadı (Kate veya Gedit kurun ya da EDITOR değişkenini "
-"ayarlayın). Yol:\n"
+"Düzenleyici bulunamadı (Kate veya Gedit kurun ya da EDITOR değişkenini ayarlayın). Yol:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1434,7 +1495,8 @@ msgstr "['{0}' aracı arka ucu bulunamadı.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "['{0}' aracı arka ucu kullanılamıyor. Ayarları kontrol edin (yol, kurulum).]"
 
@@ -1511,7 +1573,8 @@ msgstr "[Araştırma hatası: {0}]"
 #: plugin/chatbot/web_research_deep.py
 #, python-brace-format
 msgid "Research notes (automatic synthesis failed) for: {query}"
-msgstr "Şunun için araştırma notları (otomatik sentez başarısız oldu): {query}"
+msgstr ""
+"Şunun için araştırma notları (otomatik sentez başarısız oldu): {query}"
 
 #: plugin/chatbot/web_research_deep.py
 msgid "Sources consulted:"
@@ -1556,8 +1619,8 @@ msgid ""
 "A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
 "to check for updates and install the latest extension."
 msgstr ""
-"Daha yeni bir %(name)s (%(version)s) mevcut. Güncellemeleri kontrol etmek ve "
-"en son eklentiyi yüklemek için Araçlar → Eklenti Yöneticisi'ni kullanın."
+"Daha yeni bir %(name)s (%(version)s) mevcut. Güncellemeleri kontrol etmek ve"
+" en son eklentiyi yüklemek için Araçlar → Eklenti Yöneticisi'ni kullanın."
 
 #: plugin/chatbot/dialog_views.py
 msgid "Invalid Setting"
@@ -1571,6 +1634,21 @@ msgstr "Ayarlar açılamadı: {0}"
 #: plugin/chatbot/dialog_views.py
 msgid "Testing connection..."
 msgstr "Bağlantı test ediliyor..."
+
+#: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Konuşma"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Ses örneği çalınamadı."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Konuşma çıktısı kapalı. Bu sesi duymak için Konuşma Çıktısını Etkinleştir "
+"(TTS) seçeneğini açın."
 
 #: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
@@ -1599,6 +1677,10 @@ msgstr "Yükseklik:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Genişlik:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Yanıtları sesli oku (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1696,8 +1778,8 @@ msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
 msgstr ""
-"Belge değişti — belge betiklerini düzenlemek için Python Betiğini Çalıştır'ı "
-"kapatıp yeniden açın."
+"Belge değişti — belge betiklerini düzenlemek için Python Betiğini Çalıştır'ı"
+" kapatıp yeniden açın."
 
 #: plugin/scripting/editor_ui_strings.py
 #, python-brace-format
@@ -1927,8 +2009,8 @@ msgstr "Başarısız"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
 "Python venv yolunu Ayarlar → Python içinde ayarlayın ('uv pip install "
 "pywebview rocher' komutunu çalıştırdığınız venv ile aynı olmalıdır). "
@@ -1988,7 +2070,8 @@ msgstr ""
 "Metin/NLP denetimi başarısız oldu (writeragent_debug.log dosyasına bakın)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Görüntüleme probu zaman aşımına uğradı (Docling içe aktarımı ilk kontrolde "
 "10–30 saniye sürebilir)."
@@ -2009,11 +2092,12 @@ msgstr ""
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr ""
-"Vektör Arama denemesi başarısız oldu (writeragent_debug.log dosyasına bakın)."
+"Vektör Arama denemesi başarısız oldu (writeragent_debug.log dosyasına "
+"bakın)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Ses Kaydı"
+msgid "Audio Recording & Speech"
+msgstr "Ses Kaydı ve Konuşma"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2056,12 +2140,20 @@ msgid "Vector Search Libraries"
 msgstr "Vektör Arama Kütüphaneleri"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Ses Kaydı"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Kalan paketleri yüklemek için:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Mikrofon giriş aygıtı algılanamadı."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Yerel TTS motorları (isteğe bağlı):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2072,13 +2164,14 @@ msgid "Reading Python version..."
 msgstr "Python sürümü okunuyor..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Ses Kaydı: sounddevice kontrol ediliyor..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Ses ve Konuşma: sounddevice ve TTS motorları kontrol ediliyor..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
 msgstr ""
-"Metin / NLP Kitaplıkları: yükleniyor (ilk çalıştırma biraz zaman alabilir)..."
+"Metin / NLP Kitaplıkları: yükleniyor (ilk çalıştırma biraz zaman "
+"alabilir)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
@@ -2120,8 +2213,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2129,25 +2221,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Metin Analizi çalışanından hata:\n"
 "{err}\n"
 "\n"
-"Bu iletişim kutusundaki özellikler, kullanılan Python içinde şu paketleri "
-"gerektirir:\n"
-"  • spacy + bir model          (varlıklar, anahtar ifadeler, temel "
-"istatistikler)\n"
+"Bu iletişim kutusundaki özellikler, kullanılan Python içinde şu paketleri gerektirir:\n"
+"  • spacy + bir model          (varlıklar, anahtar ifadeler, temel istatistikler)\n"
 "  • textdescriptives         (gerçek Okunabilirlik puanları)\n"
 "  • transformers + torch     (çok dilli model kullanılarak Duygu Analizi)\n"
 "\n"
 "Bunları şu komutla yükleyin:\n"
 "  {install}\n"
 "\n"
-"Çalışan, modülün eksik olduğunu bildirdi. Paketlerin, yapılandırılmış sanal "
-"ortamınız (venv) için çözümlenen tam Python yürütülebilir dosyasında yüklü "
-"olduğunu doğrulayın."
+"Çalışan, modülün eksik olduğunu bildirdi. Paketlerin, yapılandırılmış sanal ortamınız (venv) için çözümlenen tam Python yürütülebilir dosyasında yüklü olduğunu doğrulayın."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2166,16 +2253,11 @@ msgstr "Analiz ediliyor..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Hata: %s\n"
 "\n"
-"Yapılandırılmış sanal ortamınızda (Ayarlar → Python) gerekli paketler eksik "
-"olabilir. Bu iletişim kutusundaki Sanal Ortamı Denetle düğmesine tıklayın "
-"veya spacy, textdescriptives, transformers, torch vb. hakkında ayrıntılar "
-"için Ayarlar → Python bölümündeki tam Test özelliğini kullanın."
+"Yapılandırılmış sanal ortamınızda (Ayarlar → Python) gerekli paketler eksik olabilir. Bu iletişim kutusundaki Sanal Ortamı Denetle düğmesine tıklayın veya spacy, textdescriptives, transformers, torch vb. hakkında ayrıntılar için Ayarlar → Python bölümündeki tam Test özelliğini kullanın."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2262,8 +2344,8 @@ msgid ""
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
 "Not defterleri için Python Oturumunu Sıfırla işlemi LibreOffice Writer için "
-"geçerlidir. İçe aktarılmış bir Jupyter not defteri içeren bir Writer belgesi "
-"açın ve tekrar deneyin."
+"geçerlidir. İçe aktarılmış bir Jupyter not defteri içeren bir Writer belgesi"
+" açın ve tekrar deneyin."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2392,8 +2474,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Betik başarıyla çalıştırıldı, ancak sonuç döndürmedi ve çıktı üretmedi. "
 "({time} sürdü)"
@@ -2556,8 +2638,8 @@ msgstr "{0} üzerinden genel tünel"
 #, python-brace-format
 msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
 msgstr ""
-"{0} üzerinden genel tünel başlatılıyor… hazır olduğunda MCP Sunucu Durumu'nu "
-"kullanın."
+"{0} üzerinden genel tünel başlatılıyor… hazır olduğunda MCP Sunucu Durumu'nu"
+" kullanın."
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -2716,8 +2798,7 @@ msgstr ""
 "{0} ikili dosyası '{1}' yüklendi ve doğrulandı ({2}).\n"
 "\n"
 "MCP sunucusu yerel olarak {3} numaralı bağlantı noktasında çalışıyor.\n"
-"Genel yönlendirmeyi etkinleştirmek için 'Genel tünel üzerinden aç' "
-"seçeneğini işaretleyin ve Tamam'a tıklayın."
+"Genel yönlendirmeyi etkinleştirmek için 'Genel tünel üzerinden aç' seçeneğini işaretleyin ve Tamam'a tıklayın."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2779,10 +2860,6 @@ msgstr "Sor / talimat ver:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "En-Boy Oranı:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Ses Modeli:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3136,6 +3213,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3163,6 +3244,124 @@ msgstr "Grok Derlemesi (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "Ses Modeli:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Sohbet modeli sesli girdi alamadığında kullanılacak konuşmadan metne modeli."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Konuşma Çıktısını Etkinleştir (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr "Asistan yanıtlarını metin okuma (TTS) kullanarak sesli olarak oku."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Cümle cümle oku (Yerel)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Mevcut cümle çalınırken sonrakileri sentezleyerek kısa cümlelerden sonra "
+"boşluk oluşmasını engelle. Durdurma işlemi, henüz çalınmayan klipleri atar. "
+"Yanıtın tamamını tek bir klip olarak okumak için kapatın."
+
+msgid "Keep replies brief"
+msgstr "Yanıtları kısa tut"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Kullanıcı daha fazlasını istemedikçe yaklaşık bir paragraf hedefle. Yalnızca"
+" konuşma çıktısı (TTS) açıkken geçerlidir."
+
+msgid "TTS Provider"
+msgstr "TTS Sağlayıcısı"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Yerleşik işletim sistemi konuşma motorunu, yerel bir sinir ağını veya kendi "
+"API uç noktanızı kullanmayı seçin."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Yerel (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (Yerel Sinir Ağı, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (Yerel Hızlı Sinir Ağı, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "LLM Uç Noktası"
+
+msgid "TTS Model"
+msgstr "TTS Modeli"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Konuşma sentezi için model (TTS Sağlayıcısı LLM Uç Noktası olduğunda "
+"kullanılır)."
+
+msgid "Voice"
+msgstr "Ses"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Seçili sağlayıcı için ses. Liste, yerel ayarınız için Piper veya Kokoro "
+"kataloğu ile eşleşir."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI Nötr)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro ABD Kadın - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (ABD İngilizcesi Kadın - Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (Sistem Varsayılanı)"
+
+msgid "Test voice"
+msgstr "Ses testi"
+
+msgid "Speech Speed"
+msgstr "Konuşma Hızı"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Oynatma hızı çarpanı (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x veya 0.25x'e "
+"kadar özel)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Calc hesap tablosu araçları"
 
@@ -3181,8 +3380,8 @@ msgstr ""
 "Tekrarlanan DuckDB SQL sorgularının ODS'yi yeniden kullanabilmesi için "
 "kardeş .xlsx/.xls dosyalarını klasörün yanındaki writeragent_ods_cache/ "
 "dizinine dönüştürün. Yerel .ods dosyaları ve canlı çalışma kitabı asla "
-"önbelleğe alınmaz. Devre dışı bırakmak için writeragent.json dosyasında calc."
-"ods_cache_enabled değerini false olarak ayarlayın."
+"önbelleğe alınmaz. Devre dışı bırakmak için writeragent.json dosyasında "
+"calc.ods_cache_enabled değerini false olarak ayarlayın."
 
 msgid "Sidebar"
 msgstr "Kenar Çubuğu"
@@ -3267,8 +3466,8 @@ msgstr "Zengin Metin Denetimi Kenar Çubuğu"
 
 msgid "Formatted chat via RichTextControl. Requires restart."
 msgstr ""
-"Zengin metin denetimi (RichTextControl) ile biçimlendirilmiş sohbet. Yeniden "
-"başlatma gerektirir."
+"Zengin metin denetimi (RichTextControl) ile biçimlendirilmiş sohbet. Yeniden"
+" başlatma gerektirir."
 
 msgid "Humanizer skill (natural prose)"
 msgstr "İnsanileştirme yeteneği (doğal düzyazı)"
@@ -3276,9 +3475,9 @@ msgstr "İnsanileştirme yeteneği (doğal düzyazı)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Etkinleştirildiğinde, modelin oluşturulan veya gözden geçirilen belge "
 "metnini daha doğal ve insansı kılması için sistem istemine rehberlik ekler "
@@ -3304,9 +3503,9 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Dil bilgisi denetleyicisini etkinleştir (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Kapalı = devre dışı. AI (LLM) = yapılandırılmış metin modelinizi/API'nizi "
 "kullanın. LanguageTool / Vale = Ayarlar → Python venv aracılığıyla yerel "
@@ -3390,10 +3589,11 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"Her tam cümlenin dilini belge yerel ayarına göre doğrulayın. AI, dilbilgisi/"
-"sohbet API'nizi kullanır; Yerel (Local), Python sanal ortamınızdaki (venv) "
-"langdetect'i kullanır (Ayarlar → Python; API çağrısı yapılmaz). "
-"Uyumsuzluklar CharLocale'i günceller ve dilbilgisini yeniden kontrol eder."
+"Her tam cümlenin dilini belge yerel ayarına göre doğrulayın. AI, "
+"dilbilgisi/sohbet API'nizi kullanır; Yerel (Local), Python sanal "
+"ortamınızdaki (venv) langdetect'i kullanır (Ayarlar → Python; API çağrısı "
+"yapılmaz). Uyumsuzluklar CharLocale'i günceller ve dilbilgisini yeniden "
+"kontrol eder."
 
 msgid "Local (langdetect)"
 msgstr "Yerel (langdetect)"
@@ -3417,8 +3617,8 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Kapalı = doğrudan düzenlemeler. Kayıt = kendinizin kabul edeceği/reddedeceği "
-"izlenen değişiklikler. Bekle = inceleyene kadar apply_document_content'i "
+"Kapalı = doğrudan düzenlemeler. Kayıt = kendinizin kabul edeceği/reddedeceği"
+" izlenen değişiklikler. Bekle = inceleyene kadar apply_document_content'i "
 "(sohbet/MCP işçi iş parçacığında) engeller."
 
 msgid "Record (track changes)"
@@ -3477,8 +3677,8 @@ msgid "Rerank model"
 msgstr "Yeniden sıralama modeli"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Yalnızca yeniden sıralama etkinleştirildiğinde kullanılır. İngilizce MiniLM "
 "hızlıdır; bge-reranker-v2-m3 çok dillidir ve yaklaşık 2,3 GB indirir."
@@ -3499,11 +3699,11 @@ msgid "Enable MCP Server"
 msgstr "MCP Sunucusunu Etkinleştir"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Yalnızca localhost, kimlik doğrulaması yok. İstemciler http://localhost:"
-"<port>/mcp (akış destekli HTTP) adresini kullanır."
+"Yalnızca localhost, kimlik doğrulaması yok. İstemciler "
+"http://localhost:<port>/mcp (akış destekli HTTP) adresini kullanır."
 
 msgid "MCP Port"
 msgstr "MCP Bağlantı Noktası"
@@ -3544,8 +3744,8 @@ msgstr "Genel tünel üzerinden aç"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "PATH üzerinde seçili sağlayıcı ikili dosyasını (cloudflared, bore, ngrok "
 "veya tailscale) gerektirir. MCP'nin kimlik doğrulaması yoktur; genel URL'ye "
@@ -3595,10 +3795,10 @@ msgid "Python venv path"
 msgstr "Python venv yolu"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
 "Ayarlanırsa, =PY() ve Python Betiğini Çalıştır komutlarını o venv içinde "
@@ -3617,14 +3817,15 @@ msgid "Python script timeout (seconds)"
 msgstr "Python betiği zaman aşımı (saniye)"
 
 msgid "Wall-clock limit for Run Python Script and =PYTHON() / =PY()."
-msgstr "Python Betiğini Çalıştır ve =PYTHON() / =PY() için duvar saati sınırı."
+msgstr ""
+"Python Betiğini Çalıştır ve =PYTHON() / =PY() için duvar saati sınırı."
 
 msgid "Max Calc data cells"
 msgstr "Maksimum Calc veri hücresi"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "=PYTHON() verisindeki veya Python Betiği Çalıştır verisi/veri_aralığındaki "
 "maksimum hücre sayısı. Daha büyük değerler daha fazla bellek ve zaman "
@@ -3666,12 +3867,12 @@ msgid "Rewrite xl() ranges"
 msgstr "xl() aralıklarını yeniden yaz"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Hücrede Python düzenlemesi kaydedildiğinde, statik xl(\"A1:…\") ifadelerini "
-"=PY veri bağımsız değişkenlerine taşı ve bunları data / data[i] / ."
-"to_pandas() şeklinde yeniden yaz."
+"=PY veri bağımsız değişkenlerine taşı ve bunları data / data[i] / "
+".to_pandas() şeklinde yeniden yaz."
 
 msgid "Vision / OCR"
 msgstr "Vizyon / OCR"
@@ -3773,91 +3974,3 @@ msgstr "Docling belge zaman aşımı (sn)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling içinde dönüştürme başına zaman aşımı. 0 = sınır yok."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Sağlayıcı"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "AI Modeli:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "seçenekler"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

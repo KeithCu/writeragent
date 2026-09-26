@@ -21,7 +21,9 @@ config:
     type: boolean
     default: true
     widget: checkbox
-    label: Speak sentence by sentence
+    label: Speak sentence by sentence (Local)
+    # Default checkbox width is 120 and clips "(Local)".
+    width: 168
     helper: "Synthesize the next sentences while the current one plays, so a short sentence is not followed by a gap. Stop discards clips that are not playing yet. Turn off to speak the whole reply as one clip."
 
   # Visible even when speech output is off. Chat injects the brevity text

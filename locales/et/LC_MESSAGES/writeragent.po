@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Käivitan kohalikku OCR-i valitud piltidel..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumendi uurimine nõuab spetsiaalset ülesannete delegeerimist "
 "(USE_SUB_AGENT). Lubage see seadistustes."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Tööriista väljakutse lülitus režiimile '{0}'. Olete spetsiaalses "
@@ -58,8 +58,8 @@ msgstr "Märkmiku käivitamine on toetatud ainult LibreOffice Writeris."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "Selles dokumendis pole imporditud märkmikku. Ava esmalt Jupyteri märkmik "
 "(failitüüp .ipynb) menüüst Fail → Ava."
@@ -258,7 +258,8 @@ msgstr ""
 "Päringu aegumine. Proovige sätetes „Request Timeout“ väärtust suurendada."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Ühendusest keelduti. Kas teie kohalik AI-server (Ollama/LM Studio) töötab?"
 
@@ -321,8 +322,8 @@ msgstr "HTTP-tõrge {0} AI-teenuse pakkujalt: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Kui teie API-võti pärineb GLM Coding Plani tellimusest, määrake lõpp-"
 "punktiks {0} (mitte üldine /api/paas URL)."
@@ -376,6 +377,70 @@ msgstr "Palun määrake mudel (Model) seadetes."
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Palun valige seadetes kehtiv mudel (mitte kohatäide)."
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Kõnepäring ebaõnnestus ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Kõnepäring ebaõnnestus: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Kõnepäring ebaõnnestus ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Kõnepäring ebaõnnestus."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Laadin alla Kokoro häälemudelit…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "Kokoro allalaadimine ebaõnnestus; kasutan operatsioonisüsteemi kõnet"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Laadin alla Piperi häält {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Faili {0} allalaadimine ebaõnnestus; kasutan Lessaci"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr ""
+"Faili {0} allalaadimine ebaõnnestus; kasutan operatsioonisüsteemi kõnet"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr "Kokoro foneemija ebaõnnestus; seda keelt võidakse valesti lugeda."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Installitakse Kokoro foneemimootorit…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Kokoro foneemimootorit ei õnnestunud installida; seda keelt võidakse valesti"
+" lugeda. Installige käsuga: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Laaditakse alla jaapani keele foneemimootori sõnastikku…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -404,7 +469,8 @@ msgstr "Konfigureeri Pythoni venv-i tee menüüs Sätted → Python."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
-msgstr "Konfigureeritud venv-is ei saa importida moodulit webview (pywebview)."
+msgstr ""
+"Konfigureeritud venv-is ei saa importida moodulit webview (pywebview)."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Initialization script saved."
@@ -455,8 +521,9 @@ msgstr "PythonCellEditorDialogi ei saanud laiendusest laadida."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Selle lahtri PY-valemi argumente (nt andmevahemikke) ei saanud säilitada. "
 "Redigeerige valemit Calcis või kasutage jutumärkides koodistringi, näiteks "
@@ -475,8 +542,7 @@ msgid ""
 msgstr ""
 "Kas salvestada muudatused faili {0}?\n"
 "\n"
-"Jah salvestab. Ei tühistab ja avab uue lahtri. Loobu jätab {0} redigeerimise "
-"pooleli."
+"Jah salvestab. Ei tühistab ja avab uue lahtri. Loobu jätab {0} redigeerimise pooleli."
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -517,8 +583,8 @@ msgid ""
 "another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
 "quoted code."
 msgstr ""
-"See PY-valem kasutab vormi, mida redaktor ei saa turvaliselt ümber kirjutada "
-"(nt kood teises lahtris). Redigeerige seda valemiribal või kasutage "
+"See PY-valem kasutab vormi, mida redaktor ei saa turvaliselt ümber kirjutada"
+" (nt kood teises lahtris). Redigeerige seda valemiribal või kasutage "
 "=PY(\"kood\"; vahemik) koos jutumärkides koodiga."
 
 #: plugin/calc/python/editor.py
@@ -563,8 +629,8 @@ msgstr "Pildid lisatud"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Geomeetriline ümberarvutamise järjekord jättis lehe '%(sheet)s' vahele: "
 "leiti %(cap)s või rohkem Pythoni lahtrit (tuvastamise piirang). Leht jäeti "
@@ -576,16 +642,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Microsoft Exceli Pythoni paketi osade kirjutamine ebaõnnestus:\n"
 "{0}\n"
 "\n"
-"Fail salvestati LibreOffice'i =PY valemitega. Excel ei näe faile "
-"pythonScripts.xml / _xlws.PY enne, kui eksportimine õnnestub.\n"
+"Fail salvestati LibreOffice'i =PY valemitega. Excel ei näe faile pythonScripts.xml / _xlws.PY enne, kui eksportimine õnnestub.\n"
 "\n"
 "{1}"
 
@@ -1312,8 +1376,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Aktiivses aknas ei leitud ühtegi ühilduvat LibreOffice'i dokumenti (Writer, "
-"Calc või Draw).]"
+"[Aktiivses aknas ei leitud ühtegi ühilduvat LibreOffice'i dokumenti (Writer,"
+" Calc või Draw).]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1321,8 +1385,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Sisemine viga: dokumendi tüüpi {0} ei õnnestunud tuvastada. Palun teavitage "
-"sellest!]"
+"[Sisemine viga: dokumendi tüüpi {0} ei õnnestunud tuvastada. Palun teavitage"
+" sellest!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1426,7 +1490,8 @@ msgstr "[Agendi taustaprogrammi '{0}' ei leitud.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agendi taustaprogramm '{0}' pole saadaval. Kontrollige sätteid (asukoht, "
 "install).]"
@@ -1566,6 +1631,21 @@ msgid "Testing connection..."
 msgstr "Ühenduse testimine..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Kõne"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Häälnäidist ei saanud esitada."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Kõneväljund on väljas. Hääle kuulamiseks lülitage sisse \"Luba kõneväljund "
+"(TTS)\"."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Audioteegi allalaadimine"
 
@@ -1592,6 +1672,10 @@ msgstr "Kõrgus:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Laius:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Loe vastused ette (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1742,7 +1826,8 @@ msgstr "Kopeeri minu skriptidesse nimega:"
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
-msgstr "Skript nimega '{0}' on juba minu skriptides olemas. Kas kirjutada üle?"
+msgstr ""
+"Skript nimega '{0}' on juba minu skriptides olemas. Kas kirjutada üle?"
 
 #: plugin/scripting/editor_ui_strings.py
 #, python-brace-format
@@ -1772,8 +1857,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Dokument on kirjutuskaitsega või omadusi ei saa kirjutada. Skript salvestati "
-"hoopis teie isiklikku teeki."
+"Dokument on kirjutuskaitsega või omadusi ei saa kirjutada. Skript salvestati"
+" hoopis teie isiklikku teeki."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1922,8 +2007,8 @@ msgstr "Nurjus"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
 "Määra Pythoni venv rada jaotises Sätted → Python (sama venv, kus käivitasid "
 "'uv pip install pywebview rocher'). LibreOffice'i sisseehitatud Python ei "
@@ -1980,10 +2065,11 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Teksti/NLP kontrollimine ebaõnnestus (vt writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
-"Visuaalse kontrolli ajalõpp (Doclingi importimine võib esimesel korral võtta "
-"10–30 sekundit)."
+"Visuaalse kontrolli ajalõpp (Doclingi importimine võib esimesel korral võtta"
+" 10–30 sekundit)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
@@ -2002,8 +2088,8 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Vektorotsingu päring ebaõnnestus (vaata writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Heli salvestamine"
+msgid "Audio Recording & Speech"
+msgstr "Helisalvestus ja kõne"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2046,12 +2132,20 @@ msgid "Vector Search Libraries"
 msgstr "Vektorotsingu teegid"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Heli salvestamine"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Ülejäänud pakettide installimiseks:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Ühtegi mikrofoni sisendseadet ei tuvastatud."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Kohalikud TTS-mootorid (valikuline):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2062,8 +2156,8 @@ msgid "Reading Python version..."
 msgstr "Pythoni versiooni lugemine..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Heli salvestamine: kontrollin sounddevice'i..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Heli ja kõne: kontrollitakse heliseadet ja TTS-mootoreid..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2109,8 +2203,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2118,8 +2211,7 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Viga tekstianalüüsi tööprotsessist:\n"
 "{err}\n"
@@ -2132,9 +2224,7 @@ msgstr ""
 "Installi need käsuga:\n"
 "  {install}\n"
 "\n"
-"Tööprotsess teatas, et moodul puudub. Veendu, et paketid on installitud "
-"täpselt sellesse Pythoni käivitatavasse faili, mille tööprotsess sinu "
-"konfigureeritud virtuaalkeskkonna jaoks tuvastas."
+"Tööprotsess teatas, et moodul puudub. Veendu, et paketid on installitud täpselt sellesse Pythoni käivitatavasse faili, mille tööprotsess sinu konfigureeritud virtuaalkeskkonna jaoks tuvastas."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2153,16 +2243,11 @@ msgstr "Analüüsimine..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Viga: %s\n"
 "\n"
-"Teie konfigureeritud virtuaalkeskkonnas (Sätted → Python) võivad vajalikud "
-"paketid puududa. Klõpsake selles dialoogis nupul „Kontrolli "
-"virtuaalkeskkonda“ või kasutage üksikasjade saamiseks sätete jaotises "
-"„Python“ täielikku testi (spacy, textdescriptives, transformers, torch jne)."
+"Teie konfigureeritud virtuaalkeskkonnas (Sätted → Python) võivad vajalikud paketid puududa. Klõpsake selles dialoogis nupul „Kontrolli virtuaalkeskkonda“ või kasutage üksikasjade saamiseks sätete jaotises „Python“ täielikku testi (spacy, textdescriptives, transformers, torch jne)."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2249,8 +2334,8 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"Pythoni seansi lähtestamine märkmike jaoks kehtib LibreOffice Writeri kohta. "
-"Avage Writeri dokument imporditud Jupyteri märkmikuga ja proovige uuesti."
+"Pythoni seansi lähtestamine märkmike jaoks kehtib LibreOffice Writeri kohta."
+" Avage Writeri dokument imporditud Jupyteri märkmikuga ja proovige uuesti."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2289,8 +2374,8 @@ msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
-"Selle töövihiku lähtestusskript ja kogu mälusisene lähtestusolek lähtestati. "
-"Lahtrimuutujad olid juba lahtripõhiselt eraldatud."
+"Selle töövihiku lähtestusskript ja kogu mälusisene lähtestusolek lähtestati."
+" Lahtrimuutujad olid juba lahtripõhiselt eraldatud."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2377,8 +2462,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skript käivitati edukalt, kuid see ei tagastanud tulemust ega väljundit. "
 "(kulus {time})"
@@ -2482,8 +2567,8 @@ msgstr "MCP-serveri käivitamine ebaõnnestus"
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
-"Kontrolli writeragent_debug.log faili oma LibreOffice'i kasutaja seadistuste "
-"kaustas"
+"Kontrolli writeragent_debug.log faili oma LibreOffice'i kasutaja seadistuste"
+" kaustas"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2700,8 +2785,7 @@ msgstr ""
 "{0} binaarfail '{1}' on installitud ja kontrollitud ({2}).\n"
 "\n"
 "MCP-server töötab kohalikult pordis {3}.\n"
-"Valige 'Avalikusta avaliku tunneli kaudu' ja klõpsake OK, et aktiveerida "
-"avalik marsruutimine."
+"Valige 'Avalikusta avaliku tunneli kaudu' ja klõpsake OK, et aktiveerida avalik marsruutimine."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2763,10 +2847,6 @@ msgstr "Küsi / juhenda:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Kuvasuhe:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Audiomudel:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3117,6 +3197,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3144,6 +3228,122 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "Audiomudel:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr "Kõnetuvastusmudel, kui vestlusmudel ei saa helisisendit vastu võtta."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Luba kõneväljund (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr "Loe assistendi vastused ette teksti kõneks muutmise (TTS) abil."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Loe lausehaaval (kohalik)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Sünteesi järgmised laused samal ajal, kui praegust esitatakse, et lühikesele"
+" lausele ei järgneks pausi. Peatamine tühistab klipid, mida veel ei esitata."
+" Lülita välja, et lugeda kogu vastus ühe klipina."
+
+msgid "Keep replies brief"
+msgstr "Hoia vastused lühikesed"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Püüa piirduda umbes ühe lõiguga, kui kasutaja ei palu enamat. Kehtib ainult "
+"siis, kui kõneväljund (TTS) on sisse lülitatud."
+
+msgid "TTS Provider"
+msgstr "TTS-i pakkuja"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Vali, kas kasutada operatsioonisüsteemi sisseehitatud kõnet, kohalikku "
+"närvimootorit või oma API lõpp-punkti."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Native (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (kohalik närvivõrk, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (kohalik kiire närvivõrk, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "LLM-i lõpp-punkt"
+
+msgid "TTS Model"
+msgstr "TTS-i mudel"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Kõnesünteesi mudel (kasutatakse, kui TTS-i pakkujaks on LLM-i lõpp-punkt)."
+
+msgid "Voice"
+msgstr "Hääl"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Valitud pakkuja hääl. Loend vastab teie keelepiirkonna Piperi või Kokoro "
+"kataloogile."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI neutraalne)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro USA naishääl – Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (USA inglise naishääl – Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (süsteemi vaikeväärtus)"
+
+msgid "Test voice"
+msgstr "Testi häält"
+
+msgid "Speech Speed"
+msgstr "Kõne kiirus"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Taasesituse kiiruse kordaja (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x või "
+"kohandatud kuni 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Calc-i arvutustabeli tööriistad"
 
@@ -3159,8 +3359,8 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"Teisenda õed-failid .xlsx/.xls kausta kõrval asuvasse writeragent_ods_cache/ "
-"kataloogi, et korduv DuckDB SQL saaks ODS-i taaskasutada. Natiivseid .ods-"
+"Teisenda õed-failid .xlsx/.xls kausta kõrval asuvasse writeragent_ods_cache/"
+" kataloogi, et korduv DuckDB SQL saaks ODS-i taaskasutada. Natiivseid .ods-"
 "faile ja aktiivset töövihikut ei puhverdata kunagi. Keelamiseks määra "
 "writeragent.json failis calc.ods_cache_enabled väärtuseks false."
 
@@ -3253,9 +3453,9 @@ msgstr "Humaniseerimisoskus (loomulik proosa)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Kui see on lubatud, lisatakse süsteemiviibale juhised, et mudel muudaks "
 "loodud või muudetud dokumenditeksti loomulikumaks ja inimlikumaks (eemaldab "
@@ -3281,9 +3481,9 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Luba grammatikakontroll (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Väljas = keelatud. AI (LLM) = kasuta seadistatud tekstimudelit/API-t. "
 "LanguageTool / Vale = kohalikud mootorid sätete → Python venv kaudu. Harper "
@@ -3318,8 +3518,9 @@ msgid ""
 "Clears cached grammar results for this document and asks Writer to check "
 "again. Use after changing checker or model."
 msgstr ""
-"Tühjendab selle dokumendi vahemällu salvestatud grammatikatulemused ja palub "
-"Writeril uuesti kontrollida. Kasutage pärast kontrollija või mudeli muutmist."
+"Tühjendab selle dokumendi vahemällu salvestatud grammatikatulemused ja palub"
+" Writeril uuesti kontrollida. Kasutage pärast kontrollija või mudeli "
+"muutmist."
 
 msgid "Pause grammar while chat/agent runs"
 msgstr "Peata grammatikakontroll vestluse/agendi töötamise ajal"
@@ -3416,8 +3617,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Indekseeritud semantiline ja märksõnaotsing dokumendi uurimiseks (corpus."
-"db). Nõuab manustatud venv-i – vaata Pythoni testi."
+"Indekseeritud semantiline ja märksõnaotsing dokumendi uurimiseks "
+"(corpus.db). Nõuab manustatud venv-i – vaata Pythoni testi."
 
 msgid "Embeddings + FTS"
 msgstr "Manused + FTS"
@@ -3453,8 +3654,8 @@ msgid "Rerank model"
 msgstr "Ümberjärjestamise mudel"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Kasutatakse ainult siis, kui ümberjärjestamine on lubatud. Ingliskeelne "
 "MiniLM on kiire; bge-reranker-v2-m3 on mitmekeelne ja laadib alla u 2,3 GB."
@@ -3475,11 +3676,11 @@ msgid "Enable MCP Server"
 msgstr "Luba MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Ainult localhost, autentimine puudub. Kliendid kasutavad aadressi http://"
-"localhost:<port>/mcp (voogedastatav HTTP)."
+"Ainult localhost, autentimine puudub. Kliendid kasutavad aadressi "
+"http://localhost:<port>/mcp (voogedastatav HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -3519,13 +3720,13 @@ msgstr "Avalikusta avaliku tunneli kaudu"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Nõuab valitud teenusepakkuja binaarfaili PATH-is (cloudflared, bore, ngrok "
 "või tailscale). MCP-l puudub autentimine – igaüks, kellel on avalik URL, "
-"saab tööriistu kutsuda. Vaadake MCP-serveri olekut avaliku /mcp URL-i jaoks, "
-"kui see on valmis."
+"saab tööriistu kutsuda. Vaadake MCP-serveri olekut avaliku /mcp URL-i jaoks,"
+" kui see on valmis."
 
 msgid "Provider"
 msgstr "Teenusepakkuja"
@@ -3570,17 +3771,17 @@ msgid "Python venv path"
 msgstr "Pythoni venv-rada"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
 "Kui on määratud, käivitab =PY() ja käsu Run Python Script selles venv-is "
 "(bin/python, Scripts/python.exe või conda/pyenv-win env-root python.exe). "
-"Kleebi rada ilma jutumärkideta. Kui on tühi, kasutab see protsessi sys."
-"executable'i (põhiline stdlib); kasuta venv-i numpy/pandas ja Vision Helpers "
-"(paddleocr, paddlepaddle) jaoks."
+"Kleebi rada ilma jutumärkideta. Kui on tühi, kasutab see protsessi "
+"sys.executable'i (põhiline stdlib); kasuta venv-i numpy/pandas ja Vision "
+"Helpers (paddleocr, paddlepaddle) jaoks."
 
 msgid "Test"
 msgstr "Test"
@@ -3592,14 +3793,15 @@ msgid "Python script timeout (seconds)"
 msgstr "Pythoni skripti ajalõpp (sekundites)"
 
 msgid "Wall-clock limit for Run Python Script and =PYTHON() / =PY()."
-msgstr "Kellaajaline piirang käskudele Run Python Script ja =PYTHON() / =PY()."
+msgstr ""
+"Kellaajaline piirang käskudele Run Python Script ja =PYTHON() / =PY()."
 
 msgid "Max Calc data cells"
 msgstr "Maksimaalne Calc-i andmeelementide arv"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maksimaalne elementide arv =PYTHON() andmetes või käsu „Run Python Script“ "
 "andmevahemikus. Suuremad väärtused nõuavad rohkem muutmälu ja aega; UNO "
@@ -3641,11 +3843,12 @@ msgid "Rewrite xl() ranges"
 msgstr "Kirjuta xl()-vahemikud ümber"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Pythoni lahtris redigeerimise salvestamisel tõsta staatiline xl(\"A1:…\") "
-"=PY andmeargumentidele ja kirjuta ümber kujule data / data[i] / .to_pandas()."
+"=PY andmeargumentidele ja kirjuta ümber kujule data / data[i] / "
+".to_pandas()."
 
 msgid "Vision / OCR"
 msgstr "Visioon / OCR"
@@ -3749,91 +3952,3 @@ msgstr "Doclingi dokumendi ajalõpp (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Doclingi-sisene teisenduse ajalõpp. 0 = piiranguta."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Teenusepakkuja"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "AI-mudel:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "valikud"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

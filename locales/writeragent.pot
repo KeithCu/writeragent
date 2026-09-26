@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -347,6 +347,67 @@ msgstr ""
 
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr ""
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr ""
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr ""
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr ""
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr ""
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr ""
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr ""
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr ""
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr ""
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr ""
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr ""
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr ""
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
 msgstr ""
 
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
@@ -1483,6 +1544,19 @@ msgid "Testing connection..."
 msgstr ""
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr ""
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr ""
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr ""
 
@@ -1508,6 +1582,10 @@ msgstr ""
 
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
 msgstr ""
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
@@ -1899,7 +1977,7 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr ""
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
+msgid "Audio Recording & Speech"
 msgstr ""
 
 #: plugin/scripting/venv_diagnostics.py
@@ -1943,11 +2021,19 @@ msgid "Vector Search Libraries"
 msgstr ""
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr ""
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
 msgstr ""
 
 #: plugin/scripting/venv_diagnostics.py
@@ -1959,7 +2045,7 @@ msgid "Reading Python version..."
 msgstr ""
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
 msgstr ""
 
 #: plugin/scripting/venv_diagnostics.py
@@ -2582,10 +2668,6 @@ msgid "Aspect Ratio:"
 msgstr ""
 
 #: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr ""
-
-#: plugin/xdl_strings.py
 msgid "Auto Gallery"
 msgstr ""
 
@@ -2932,6 +3014,10 @@ msgid "⚙"
 msgstr ""
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr ""
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr ""
 
@@ -2957,6 +3043,110 @@ msgid "Grok Build (ACP)"
 msgstr ""
 
 msgid "OpenCode (ACP)"
+msgstr ""
+
+msgid "Audio Model:"
+msgstr ""
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+
+msgid "Enable Speech Output (TTS)"
+msgstr ""
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+
+msgid "Speak sentence by sentence (Local)"
+msgstr ""
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+
+msgid "Keep replies brief"
+msgstr ""
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+
+msgid "TTS Provider"
+msgstr ""
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr ""
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr ""
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr ""
+
+msgid "LLM Endpoint"
+msgstr ""
+
+msgid "TTS Model"
+msgstr ""
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+
+msgid "Voice"
+msgstr ""
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+
+msgid "alloy (OpenAI Neutral)"
+msgstr ""
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr ""
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr ""
+
+msgid "default (System Default)"
+msgstr ""
+
+msgid "Test voice"
+msgstr ""
+
+msgid "Speech Speed"
+msgstr ""
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+
+msgid "1.0x"
+msgstr ""
+
+msgid "1.1x"
+msgstr ""
+
+msgid "1.25x"
+msgstr ""
+
+msgid "1.5x"
+msgstr ""
+
+msgid "1.75x"
+msgstr ""
+
+msgid "2.0x"
 msgstr ""
 
 msgid "Calc spreadsheet tools"
@@ -3472,90 +3662,4 @@ msgid "Docling document timeout (s)"
 msgstr ""
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr ""
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-msgid "TTS Provider"
-msgstr ""
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API"
-" endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-msgid "TTS Model"
-msgstr ""
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat "
-"Endpoint)."
-msgstr ""
-
-msgid "Voice"
-msgstr ""
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
 msgstr ""

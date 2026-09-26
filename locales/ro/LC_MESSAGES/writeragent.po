@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Se rulează OCR local pe imaginea/imaginile selectată/e..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Citirile pentru cercetarea documentelor necesită delegarea sarcinilor "
 "specializate (USE_SUB_AGENT). Activați acest lucru în configurație."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Apelul instrumentului a comutat la „{0}”. Sunteți într-un mod de set de "
@@ -58,8 +58,8 @@ msgstr "Executarea notebook-ului este suportată doar în LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "Acest document nu are niciun notebook importat. Deschideți mai întâi un "
 "notebook Jupyter (.ipynb) din Fișier → Deschidere."
@@ -150,8 +150,8 @@ msgid ""
 "Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
 "Embeddings."
 msgstr ""
-"Căutarea între fișiere este dezactivată. Activați Embeddings + FTS în Setări "
-"→ Embeddings."
+"Căutarea între fișiere este dezactivată. Activați Embeddings + FTS în Setări"
+" → Embeddings."
 
 #: plugin/embeddings/search_ui.py
 msgid "Error: "
@@ -264,7 +264,8 @@ msgstr ""
 "pentru cerere” în Setări."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Conexiune refuzată. Serverul local AI (Ollama/LM Studio) rulează?"
 
 #: plugin/framework/errors.py
@@ -326,8 +327,8 @@ msgstr "Eroare HTTP {0} de la furnizorul AI: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Dacă cheia API provine dintr-un abonament GLM Coding Plan, setați punctul "
 "final la {0} (nu URL-ul general /api/paas)."
@@ -380,6 +381,75 @@ msgstr "Vă rugăm să setați Modelul în Setări."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Vă rugăm să selectați un model valid în Setări (nu un substituent)."
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Cererea vocală a eșuat ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Cererea vocală a eșuat: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Cererea vocală a eșuat ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Cererea vocală a eșuat."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Se descarcă modelul vocal Kokoro…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr ""
+"Nu s-a putut descărca Kokoro; se utilizează funcția vocală a sistemului de "
+"operare"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Se descarcă vocea Piper {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Nu s-a putut descărca {0}; se utilizează Lessac"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr ""
+"Nu s-a putut descărca {0}; se utilizează funcția vocală a sistemului de "
+"operare"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr ""
+"Fonemizatorul Kokoro a eșuat; este posibil ca această limbă să fie citită "
+"incorect."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Se instalează fonemizatorul Kokoro…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Nu s-a putut instala fonemizatorul Kokoro; este posibil ca această limbă să "
+"fie citită greșit. Instalați cu: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Se descarcă dicționarul pentru fonemizatorul japonez…"
 
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
@@ -462,8 +532,9 @@ msgstr "PythonCellEditorDialog nu a putut fi încărcat din extensie."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Nu s-au putut păstra argumentele formulei PY ale acestei celule (de ex. "
 "intervale de date). Editați formula în Calc sau utilizați un șir de cod "
@@ -482,14 +553,14 @@ msgid ""
 msgstr ""
 "Salvați modificările în {0}?\n"
 "\n"
-"Da salvează. Nu renunță și deschide noua celulă. Anulare păstrează editarea "
-"{0}."
+"Da salvează. Nu renunță și deschide noua celulă. Anulare păstrează editarea {0}."
 
 #: plugin/calc/python/editor.py
 #, python-format
 msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
 msgstr ""
-"Nu s-au putut rescrie literalii de interval xl() în argumente de date =PY: %s"
+"Nu s-au putut rescrie literalii de interval xl() în argumente de date =PY: "
+"%s"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -511,7 +582,8 @@ msgstr "Editorul Python a eșuat în mod neașteptat."
 
 #: plugin/calc/python/editor.py
 msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Selectați o celulă dintr-o foaie de calcul Calc pentru a edita Python."
+msgstr ""
+"Selectați o celulă dintr-o foaie de calcul Calc pentru a edita Python."
 
 #: plugin/calc/python/editor.py
 #, python-brace-format
@@ -524,9 +596,9 @@ msgid ""
 "another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
 "quoted code."
 msgstr ""
-"Această formulă PY utilizează o formă pe care editorul nu o poate rescrie în "
-"siguranță (de ex. cod într-o altă celulă). Editați-o în bara de formule sau "
-"utilizați =PY(\"cod\"; interval) cu cod între ghilimele."
+"Această formulă PY utilizează o formă pe care editorul nu o poate rescrie în"
+" siguranță (de ex. cod într-o altă celulă). Editați-o în bara de formule sau"
+" utilizați =PY(\"cod\"; interval) cu cod între ghilimele."
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -570,8 +642,8 @@ msgstr "Imagini inserate"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Ordinea de recalculare geometrică a omis foaia „%(sheet)s”: s-au găsit "
 "%(cap)s sau mai multe celule Python (limită de descoperire). Foaia a fost "
@@ -584,17 +656,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
-"Nu s-au putut scrie părțile pachetului Python pentru Microsoft Excel "
-"pentru:\n"
+"Nu s-au putut scrie părțile pachetului Python pentru Microsoft Excel pentru:\n"
 "{0}\n"
 "\n"
-"Fișierul a fost salvat cu formule =PY din LibreOffice. Excel nu va vedea "
-"pythonScripts.xml / _xlws.PY până când exportul nu reușește.\n"
+"Fișierul a fost salvat cu formule =PY din LibreOffice. Excel nu va vedea pythonScripts.xml / _xlws.PY până când exportul nu reușește.\n"
 "\n"
 "{1}"
 
@@ -1346,12 +1415,14 @@ msgstr ""
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
-msgstr "[Trimiterea între egali necesită modul Chat în această bară laterală.]"
+msgstr ""
+"[Trimiterea între egali necesită modul Chat în această bară laterală.]"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Această interogare de căutare „%s” va fi trimisă motorului de căutare."
+msgstr ""
+"Această interogare de căutare „%s” va fi trimisă motorului de căutare."
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1439,7 +1510,8 @@ msgstr "[Backend-ul agentului „{0}” nu a fost găsit.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend-ul agentului „{0}” nu este disponibil. Verificați Setările (cale, "
 "instalare).]"
@@ -1580,6 +1652,21 @@ msgid "Testing connection..."
 msgstr "Se testează conexiunea..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Vorbire"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Nu s-a putut reda eșantionul vocal."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Ieșirea vocală este oprită. Activați „Activare ieșire vocală (TTS)” pentru a"
+" auzi această voce."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Descărcare bibliotecă audio"
 
@@ -1606,6 +1693,10 @@ msgstr "Înălțime:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Lățime:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Rostește răspunsurile cu voce tare (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1755,7 +1846,8 @@ msgstr "Copiază în „Scripturile mele” ca:"
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
-msgstr "Un script numit „{0}” există deja în „Scripturile mele”. Suprascrieți?"
+msgstr ""
+"Un script numit „{0}” există deja în „Scripturile mele”. Suprascrieți?"
 
 #: plugin/scripting/editor_ui_strings.py
 #, python-brace-format
@@ -1776,8 +1868,8 @@ msgstr ""
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
-"Scripturile documentului sunt prea mari pentru a fi stocate în document ({0} "
-"octeți)."
+"Scripturile documentului sunt prea mari pentru a fi stocate în document ({0}"
+" octeți)."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 msgid "No document is open to save scripts."
@@ -1938,11 +2030,11 @@ msgstr "Eșuat"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
-"Setați calea venv Python în Setări → Python (același venv unde ați rulat 'uv "
-"pip install pywebview rocher'). Python-ul integrat în LibreOffice nu poate "
+"Setați calea venv Python în Setări → Python (același venv unde ați rulat 'uv"
+" pip install pywebview rocher'). Python-ul integrat în LibreOffice nu poate "
 "rula editorul Monaco."
 
 #: plugin/scripting/editor_host.py
@@ -1995,7 +2087,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Sondarea Text/NLP a eșuat (consultați writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Sonda de vizualizare a expirat (importul Docling poate dura 10–30s la prima "
 "verificare)."
@@ -2018,8 +2111,8 @@ msgstr ""
 "Sonda de căutare vectorială a eșuat (consultați writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Înregistrare audio"
+msgid "Audio Recording & Speech"
+msgstr "Înregistrare audio și vorbire"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2062,12 +2155,20 @@ msgid "Vector Search Libraries"
 msgstr "Biblioteci de căutare vectorială"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Înregistrare audio"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Pentru a instala pachetele rămase:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Nu a fost detectat niciun dispozitiv de intrare microfon."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Motoare TTS locale (opțional):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2078,8 +2179,8 @@ msgid "Reading Python version..."
 msgstr "Se citește versiunea Python..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Înregistrare audio: se verifică sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Audio și vorbire: se verifică sounddevice și motoarele TTS..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2126,8 +2227,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2135,14 +2235,12 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Eroare de la worker-ul de analiză text:\n"
 "{err}\n"
 "\n"
-"Funcționalitățile din acest dialog necesită aceste pachete în mediul Python "
-"utilizat:\n"
+"Funcționalitățile din acest dialog necesită aceste pachete în mediul Python utilizat:\n"
 "  • spacy + un model          (entități, fraze cheie, statistici de bază)\n"
 "  • textdescriptives         (scoruri reale de lizibilitate)\n"
 "  • transformers + torch     (sentiment folosind modelul multilingv)\n"
@@ -2150,9 +2248,7 @@ msgstr ""
 "Instalați-le cu:\n"
 "  {install}\n"
 "\n"
-"Worker-ul a raportat modulul ca fiind lipsă. Verificați dacă pachetele sunt "
-"instalate în executabilul Python exact pe care worker-ul l-a identificat "
-"pentru venv-ul configurat."
+"Worker-ul a raportat modulul ca fiind lipsă. Verificați dacă pachetele sunt instalate în executabilul Python exact pe care worker-ul l-a identificat pentru venv-ul configurat."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2171,16 +2267,11 @@ msgstr "Se analizează..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Eroare: %s\n"
 "\n"
-"Este posibil să lipsească pachete necesare din mediul virtual (venv) "
-"configurat (Setări → Python). Faceți clic pe Verificare Venv în acest dialog "
-"sau utilizați Testul complet din Setări → Python pentru detalii despre "
-"spacy, textdescriptives, transformers, torch etc."
+"Este posibil să lipsească pachete necesare din mediul virtual (venv) configurat (Setări → Python). Faceți clic pe Verificare Venv în acest dialog sau utilizați Testul complet din Setări → Python pentru detalii despre spacy, textdescriptives, transformers, torch etc."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2284,7 +2375,8 @@ msgstr "Nu s-a putut rezolva sesiunea Python a notebook-ului."
 
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
-msgstr "Sesiunea Python a notebook-ului a fost resetată pentru acest document."
+msgstr ""
+"Sesiunea Python a notebook-ului a fost resetată pentru acest document."
 
 #: plugin/scripting/session_manager.py
 msgid "Could not reset Python session."
@@ -2375,8 +2467,8 @@ msgstr "Informații"
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
-"Inserarea rezultatului în Draw/Impress nu este încă suportată. Contribuțiile "
-"sunt binevenite!"
+"Inserarea rezultatului în Draw/Impress nu este încă suportată. Contribuțiile"
+" sunt binevenite!"
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
@@ -2398,8 +2490,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Scriptul a fost executat cu succes, dar nu a returnat niciun rezultat și nu "
 "a produs nicio ieșire. (a durat {time})"
@@ -2724,8 +2816,7 @@ msgstr ""
 "Binarul {0} „{1}” este instalat și verificat ({2}).\n"
 "\n"
 "Serverul MCP rulează local pe portul {3}.\n"
-"Bifați „Expuneți prin tunel public” și faceți clic pe OK pentru a activa "
-"rutarea publică."
+"Bifați „Expuneți prin tunel public” și faceți clic pe OK pentru a activa rutarea publică."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2787,10 +2878,6 @@ msgstr "Întreabă / instruiește:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Raport de aspect:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Model audio:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3145,6 +3232,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3172,6 +3263,130 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "Model audio:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Modelul de vorbire-în-text când modelul de chat nu poate prelua intrare "
+"audio."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Activare ieșire vocală (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+"Rostește răspunsurile asistentului cu voce tare folosind sinteza vocală "
+"(TTS)."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Rostește propoziție cu propoziție (Local)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Sintetizează următoarele propoziții în timp ce cea curentă este redată, "
+"astfel încât o propoziție scurtă să nu fie urmată de o pauză. Oprirea "
+"elimină fragmentele care nu sunt încă redate. Dezactivați pentru a rosti "
+"întregul răspuns ca un singur fragment."
+
+msgid "Keep replies brief"
+msgstr "Păstrează răspunsurile scurte"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Țintește spre aproximativ un paragraf, cu excepția cazului în care "
+"utilizatorul cere mai mult. Se aplică doar când ieșirea vocală (TTS) este "
+"activată."
+
+msgid "TTS Provider"
+msgstr "Furnizor TTS"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Alegeți dacă doriți să utilizați funcția vocală încorporată a sistemului de "
+"operare, un motor neuronal local sau punctul final al API-ului "
+"dumneavoastră."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Native (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (Neural local, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (Neural rapid local, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "Endpoint LLM"
+
+msgid "TTS Model"
+msgstr "Model TTS"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Model pentru sinteza vocală (utilizat când furnizorul TTS este Endpoint "
+"LLM)."
+
+msgid "Voice"
+msgstr "Voce"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Voce pentru furnizorul selectat. Lista corespunde catalogului Piper sau "
+"Kokoro pentru localizarea dvs."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI Neutru)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro US Feminin - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (Engleză SUA Feminin - Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (Implicit sistem)"
+
+msgid "Test voice"
+msgstr "Testare voce"
+
+msgid "Speech Speed"
+msgstr "Viteză vorbire"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Multiplicator viteză redare (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, sau "
+"personalizat până la 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Instrumente pentru foaia de calcul Calc"
 
@@ -3188,8 +3403,8 @@ msgid ""
 "disable."
 msgstr ""
 "Convertește fișierele .xlsx/.xls înrudite în writeragent_ods_cache/ lângă "
-"folder, astfel încât SQL-ul DuckDB repetat să reutilizeze ODS-ul. Fișierele ."
-"ods native și registrul de lucru activ nu sunt niciodată stocate în cache. "
+"folder, astfel încât SQL-ul DuckDB repetat să reutilizeze ODS-ul. Fișierele "
+".ods native și registrul de lucru activ nu sunt niciodată stocate în cache. "
 "Setați calc.ods_cache_enabled false în writeragent.json pentru a dezactiva."
 
 msgid "Sidebar"
@@ -3283,9 +3498,9 @@ msgstr "Abilitate de umanizare (proză naturală)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Când este activată, introduce instrucțiuni în promptul de sistem astfel "
 "încât modelul să facă textul generat sau revizuit să sune mai natural și "
@@ -3311,13 +3526,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Activare corector gramatical (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
-"Oprit = dezactivat. AI (LLM) = utilizează modelul/API-ul de text configurat. "
-"LanguageTool / Vale = motoare locale prin Setări → Python venv. Harper = "
-"binar Rust offline descărcat automat în profilul dvs. (nu este necesar venv)."
+"Oprit = dezactivat. AI (LLM) = utilizează modelul/API-ul de text configurat."
+" LanguageTool / Vale = motoare locale prin Setări → Python venv. Harper = "
+"binar Rust offline descărcat automat în profilul dvs. (nu este necesar "
+"venv)."
 
 msgid "Off"
 msgstr "Oprit"
@@ -3447,8 +3663,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Căutare semantică + cuvinte cheie indexată pentru document_research (corpus."
-"db). Necesită venv pentru embeddings — vezi Test Python."
+"Căutare semantică + cuvinte cheie indexată pentru document_research "
+"(corpus.db). Necesită venv pentru embeddings — vezi Test Python."
 
 msgid "Embeddings + FTS"
 msgstr "Embeddings + FTS"
@@ -3484,8 +3700,8 @@ msgid "Rerank model"
 msgstr "Model de rerank"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Utilizat doar când rerank este activat. English MiniLM este rapid; bge-"
 "reranker-v2-m3 este multilingv și descarcă ~2,3 GB."
@@ -3506,11 +3722,11 @@ msgid "Enable MCP Server"
 msgstr "Activare server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Doar localhost, fără autentificare. Clienții utilizează http://localhost:"
-"<port>/mcp (HTTP cu flux)."
+"Doar localhost, fără autentificare. Clienții utilizează "
+"http://localhost:<port>/mcp (HTTP cu flux)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -3530,9 +3746,9 @@ msgstr ""
 "delegate=accesate prin gateway-ul delegat (comportamentul actual); "
 "direct_flat=toate instrumentele specializate accesibile prin MCP sunt "
 "listate direct, excluzând fluxurile doar din bara laterală (optim pentru "
-"clienții cu propriul sistem de căutare a instrumentelor); direct_discovery=o "
-"listă de bază restrânsă plus find_tools (catalog de domenii, apoi scheme de "
-"instrumente per domeniu; optim pentru orice client)."
+"clienții cu propriul sistem de căutare a instrumentelor); direct_discovery=o"
+" listă de bază restrânsă plus find_tools (catalog de domenii, apoi scheme de"
+" instrumente per domeniu; optim pentru orice client)."
 
 msgid "Delegate (default)"
 msgstr "Delegat (implicit)"
@@ -3551,13 +3767,13 @@ msgstr "Expune printr-un tunel public"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
-"Necesită binarul furnizorului selectat în PATH (cloudflared, bore, ngrok sau "
-"tailscale). MCP nu are autentificare — oricine are URL-ul public poate apela "
-"instrumentele. Consultați Starea serverului MCP pentru URL-ul public /mcp "
-"când este gata."
+"Necesită binarul furnizorului selectat în PATH (cloudflared, bore, ngrok sau"
+" tailscale). MCP nu are autentificare — oricine are URL-ul public poate "
+"apela instrumentele. Consultați Starea serverului MCP pentru URL-ul public "
+"/mcp când este gata."
 
 msgid "Provider"
 msgstr "Furnizor"
@@ -3566,8 +3782,8 @@ msgid ""
 "Cloudflare quick tunnel (default), Bore, Ngrok, or Tailscale Funnel (must "
 "already be logged in)."
 msgstr ""
-"Tunel rapid Cloudflare (implicit), Bore, Ngrok sau Tailscale Funnel (trebuie "
-"să fiți deja autentificat)."
+"Tunel rapid Cloudflare (implicit), Bore, Ngrok sau Tailscale Funnel (trebuie"
+" să fiți deja autentificat)."
 
 msgid "Cloudflare"
 msgstr "Cloudflare"
@@ -3602,17 +3818,17 @@ msgid "Python venv path"
 msgstr "Cale venv Python"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Dacă este setat, rulează =PY() și Run Python Script în acel venv (bin/"
-"python, Scripts/python.exe sau conda/pyenv-win env-root python.exe). Lipiți "
-"calea fără ghilimele. Dacă este gol, utilizează sys.executable al acestui "
-"proces (stdlib de bază); folosiți un venv pentru numpy/pandas și Vision "
-"Helpers (paddleocr, paddlepaddle)."
+"Dacă este setat, rulează =PY() și Run Python Script în acel venv "
+"(bin/python, Scripts/python.exe sau conda/pyenv-win env-root python.exe). "
+"Lipiți calea fără ghilimele. Dacă este gol, utilizează sys.executable al "
+"acestui proces (stdlib de bază); folosiți un venv pentru numpy/pandas și "
+"Vision Helpers (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Test"
@@ -3630,8 +3846,8 @@ msgid "Max Calc data cells"
 msgstr "Număr maxim de celule de date Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Numărul maxim de celule în datele =PYTHON() sau datele/zona de date Run "
 "Python Script. Valorile mai mari utilizează mai multă memorie RAM și timp; "
@@ -3674,8 +3890,8 @@ msgid "Rewrite xl() ranges"
 msgstr "Rescrie intervalele xl()"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "La salvarea Edit Python in Cell, ridică xl(\"A1:…\") static în argumentele "
 "de date =PY și rescrie în data / data[i] / .to_pandas()."
@@ -3770,7 +3986,8 @@ msgid "Extract formulas (LaTeX)"
 msgstr "Extrage formule (LaTeX)"
 
 msgid "Opt-in. Downloads extra VLM models on first use; slower."
-msgstr "Opt-in. Descarcă modele VLM suplimentare la prima utilizare; mai lent."
+msgstr ""
+"Opt-in. Descarcă modele VLM suplimentare la prima utilizare; mai lent."
 
 msgid "Code block enrichment"
 msgstr "Îmbogățire bloc de cod"
@@ -3783,91 +4000,3 @@ msgstr "Timp limită document Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Timp limită per conversie în Docling. 0 = fără limită."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Furnizor"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "Model AI:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "alegeri"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

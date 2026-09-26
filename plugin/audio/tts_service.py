@@ -416,6 +416,17 @@ def sentence_speak_enabled() -> bool:
     return as_bool(val)
 
 
+def uses_sentence_by_sentence(provider: str) -> bool:
+    """True only for local Kokoro and Piper.
+
+    LLM ``/audio/speech`` and OS speech ignore ``audio.tts_sentence_mode``
+    and speak the whole reply as one clip. The Speech checkbox stays visible;
+    those providers do not split. A UI label that names Kokoro or Piper counts
+    the same as the stored id (``clean_provider_name``).
+    """
+    return clean_provider_name(provider) in ("kokoro", "piper")
+
+
 def _speech_locale_key() -> str:
     """BCP-47 tag for the grammar sentence splitter (``en_US`` → ``en-US``)."""
     try:
@@ -2207,11 +2218,13 @@ def speak_text_async(
     ``audio.tts_*``. Local Kokoro picks Misaki vs English espeak inside
     :func:`_speak_kokoro_local` via :func:`kokoro_g2p_lang`.
 
-    When sentence mode is on and *ctx* is the sidebar's component context,
-    sentences are split here — on the caller thread — before the worker
-    starts. BreakIterator is a UNO service and must not be used from the
-    audio thread. Without *ctx* the whole reply is one clip (unit tests and
-    any caller that is not on the UNO thread). Test voice does not pass *ctx*.
+    When sentence mode is on, the active provider is local Kokoro or Piper,
+    and *ctx* is the sidebar's component context, sentences are split here —
+    on the caller thread — before the worker starts. BreakIterator is a UNO
+    service and must not be used from the audio thread. LLM endpoints and OS
+    speech skip that split and speak the whole reply as one clip. Without
+    *ctx* the whole reply is one clip (unit tests and any caller that is not
+    on the UNO thread). Test voice does not pass *ctx*.
     """
     tts_on = bool(get_config("audio.tts_enabled")) if enabled is None else bool(enabled)
     if not tts_on:
@@ -2223,8 +2236,20 @@ def speak_text_async(
         log.debug("speak_text_async: No speakable text after cleaning")
         return
 
+    chosen_provider = provider
+    chosen_model = model
+    chosen_voice = voice
+    chosen_speed = speed
+    # Sentence prefetch is one synth per sentence. Only local Kokoro and Piper
+    # do that. Remote /audio/speech must not fan out, and OS speech is one
+    # utterance. A saved false stays off; a missing key stays on (schema default).
+    active_provider = chosen_provider if chosen_provider else str(get_config("audio.tts_provider") or "system")
     sentences: list[str] | None = None
-    if sentence_speak_enabled() and ctx is not None:
+    if (
+        sentence_speak_enabled()
+        and ctx is not None
+        and uses_sentence_by_sentence(active_provider)
+    ):
         sentences = sentences_for_speech(clean, ctx)
         if not sentences:
             log.debug("speak_text_async: sentence split produced nothing to say")
@@ -2236,10 +2261,6 @@ def speak_text_async(
         len(clean),
         f"{len(sentences)} sentences" if sentences is not None else "one clip",
     )
-    chosen_provider = provider
-    chosen_model = model
-    chosen_voice = voice
-    chosen_speed = speed
 
     def _worker() -> None:
         try:
@@ -2272,7 +2293,9 @@ def speak_text_async(
                 generation,
             )
 
-            if sentences is not None:
+            # Re-check the engine we will actually call. Config can change
+            # between the UI-thread split and this worker.
+            if sentences is not None and uses_sentence_by_sentence(provider_code):
                 endpoint_url = ""
                 api_key = ""
                 if provider_code == "endpoint":

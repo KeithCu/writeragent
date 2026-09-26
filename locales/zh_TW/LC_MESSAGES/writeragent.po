@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -22,8 +22,8 @@ msgid ""
 "Local OCR requires Settings → Python venv with Docling or PaddleOCR "
 "(Settings → Python → Test for install hints)."
 msgstr ""
-"本機 OCR 需要「設定」→「Python venv (搭配 Docling 或 PaddleOCR)」（請參閱「設"
-"定」→「Python」→「測試」以取得安裝提示）。"
+"本機 OCR 需要「設定」→「Python venv (搭配 Docling 或 "
+"PaddleOCR)」（請參閱「設定」→「Python」→「測試」以取得安裝提示）。"
 
 #: plugin/doc/specialized_base.py
 msgid "Running local OCR on selected image(s)..."
@@ -31,19 +31,19 @@ msgstr "正在對選取的影像執行本機 OCR..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr "文件研究讀取需要專門的任務委派 (USE_SUB_AGENT)。請在設定中啟用此功能。"
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"工具呼叫已切換至 '{0}'。您現在處於專用工具集模式。完成後，您必須呼叫 "
-"'specialized_workflow_finished' 以恢復完整的 API 集。"
+"工具呼叫已切換至 '{0}'。您現在處於專用工具集模式。完成後，您必須呼叫 'specialized_workflow_finished' 以恢復完整的"
+" API 集。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -55,10 +55,9 @@ msgstr "Notebook 執行僅支援於 LibreOffice Writer。"
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
-msgstr ""
-"本文件未匯入任何筆記本。請先執行「檔案」→「開啟 Jupyter 筆記本 (.ipynb)」。"
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
+msgstr "本文件未匯入任何筆記本。請先執行「檔案」→「開啟 Jupyter 筆記本 (.ipynb)」。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -223,8 +222,7 @@ msgstr "未設定 API 金鑰。請開啟「設定」並新增金鑰。"
 #: plugin/framework/errors.py
 msgid ""
 "Python venv not found. Open Settings → Python, set the venv path, then Test."
-msgstr ""
-"找不到 Python venv。請開啟「設定」→「Python」，設定 venv 路徑，然後進行測試。"
+msgstr "找不到 Python venv。請開啟「設定」→「Python」，設定 venv 路徑，然後進行測試。"
 
 #: plugin/framework/errors.py
 msgid ""
@@ -245,7 +243,8 @@ msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr "請求逾時。請嘗試在設定中增加「請求逾時」。"
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "連線被拒絕。您的本地 AI 伺服器 (Ollama/LM Studio) 是否正在執行？"
 
 #: plugin/framework/errors.py
@@ -303,11 +302,9 @@ msgstr "來自 AI 提供者的 HTTP 錯誤 {0}：{1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
-msgstr ""
-" 若您的 API 金鑰來自 GLM Coding Plan 訂閱，請將端點設定為 {0}（而非一般的 /"
-"api/paas URL）。"
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
+msgstr " 若您的 API 金鑰來自 GLM Coding Plan 訂閱，請將端點設定為 {0}（而非一般的 /api/paas URL）。"
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -356,6 +353,67 @@ msgstr "請在「設定」中設定模型。"
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "請在「設定」中選擇有效的模型（而非預留位置）。"
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "語音請求失敗 ({0})：{1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "語音請求失敗：{0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "語音請求失敗 ({0})。"
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "語音請求失敗。"
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "正在下載 Kokoro 語音模型…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "無法下載 Kokoro；改用作業系統語音"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "正在下載 Piper 語音 {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "無法下載 {0}；改用 Lessac"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "無法下載 {0}；改用作業系統語音"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr "Kokoro 音素轉換失敗；此語言的讀音可能不正確。"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "正在安裝 Kokoro 音素轉換器…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr "無法安裝 Kokoro 音素轉換器；此語言可能無法正確讀取。請使用下列指令安裝：{0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "正在下載日語音素轉換器字典…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -375,8 +433,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Monaco 編輯器已由 writeragent.json 中的 \"scripting."
-"force_internal_script_editor\" 停用。"
+"Monaco 編輯器已由 writeragent.json 中的 \"scripting.force_internal_script_editor\" "
+"停用。"
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -435,11 +493,12 @@ msgstr "無法從擴充功能載入 PythonCellEditorDialog。"
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"無法保留此儲存格的 PY 公式引數（例如資料範圍）。請在 Calc 中編輯公式，或使用"
-"引號括住的程式碼字串，例如 =PY(\"code\"; A1:B10)。"
+"無法保留此儲存格的 PY 公式引數（例如資料範圍）。請在 Calc 中編輯公式，或使用引號括住的程式碼字串，例如 =PY(\"code\"; "
+"A1:B10)。"
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -494,8 +553,8 @@ msgid ""
 "another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
 "quoted code."
 msgstr ""
-"此 PY 公式使用的格式無法由編輯器安全地重寫（例如位於其他儲存格中的程式碼）。"
-"請在公式列中編輯它，或使用 =PY(\"code\"; range) 並搭配引號括住的程式碼。"
+"此 PY 公式使用的格式無法由編輯器安全地重寫（例如位於其他儲存格中的程式碼）。請在公式列中編輯它，或使用 =PY(\"code\"; range) "
+"並搭配引號括住的程式碼。"
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -515,17 +574,13 @@ msgstr "未知錯誤"
 msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
-msgstr ""
-"錯誤：找不到 Python venv。請開啟「設定」→「Python」，設定 venv 路徑，然後進行"
-"測試。"
+msgstr "錯誤：找不到 Python venv。請開啟「設定」→「Python」，設定 venv 路徑，然後進行測試。"
 
 #: plugin/calc/python/function.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
-msgstr ""
-"錯誤：Python 執行逾時。請開啟「設定」→「Python」以增加逾時時間，或測試該 "
-"venv。"
+msgstr "錯誤：Python 執行逾時。請開啟「設定」→「Python」以增加逾時時間，或測試該 venv。"
 
 #: plugin/calc/python/function.py
 msgid "Image inserted"
@@ -539,11 +594,11 @@ msgstr "已插入影像"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
-"幾何重新計算順序已跳過工作表「%(sheet)s」：發現 %(cap)s 個或更多 Python 儲存"
-"格（探索上限）。該工作表未被鏈結，因此部分清單不會被視為完整。"
+"幾何重新計算順序已跳過工作表「%(sheet)s」：發現 %(cap)s 個或更多 Python "
+"儲存格（探索上限）。該工作表未被鏈結，因此部分清單不會被視為完整。"
 
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
@@ -551,16 +606,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "無法為以下項目寫入 Microsoft Excel Python 套件組件：\n"
 "{0}\n"
 "\n"
-"該檔案已使用 LibreOffice =PY 公式儲存。在匯出成功前，Excel 將無法讀取 "
-"pythonScripts.xml / _xlws.PY。\n"
+"該檔案已使用 LibreOffice =PY 公式儲存。在匯出成功前，Excel 將無法讀取 pythonScripts.xml / _xlws.PY。\n"
 "\n"
 "{1}"
 
@@ -1311,16 +1364,14 @@ msgstr "此搜尋查詢 '%s' 將會傳送至搜尋引擎。"
 msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
-msgstr ""
-"研究快取命中 (模糊，%(pct)s%% 符合：%(lang_bit)s%(cache_key)s → %(matched)s)"
+msgstr "研究快取命中 (模糊，%(pct)s%% 符合：%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid ""
 "Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
-msgstr ""
-"研究快取命中 (嵌入，%(pct)s%% 符合：%(lang_bit)s%(cache_key)s → %(matched)s)"
+msgstr "研究快取命中 (嵌入，%(pct)s%% 符合：%(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1386,7 +1437,8 @@ msgstr "[找不到代理後端 '{0}'。]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr "[代理後端 '{0}' 不可用。請檢查設定（路徑、安裝）。]"
 
 #: plugin/chatbot/send_handlers.py
@@ -1506,9 +1558,7 @@ msgstr "有可用更新"
 msgid ""
 "A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
 "to check for updates and install the latest extension."
-msgstr ""
-"已有更新版本的 %(name)s (%(version)s) 可供使用。請使用「工具」→「擴充功能管理"
-"員」檢查更新並安裝最新版本。"
+msgstr "已有更新版本的 %(name)s (%(version)s) 可供使用。請使用「工具」→「擴充功能管理員」檢查更新並安裝最新版本。"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Invalid Setting"
@@ -1522,6 +1572,19 @@ msgstr "無法開啟設定：{0}"
 #: plugin/chatbot/dialog_views.py
 msgid "Testing connection..."
 msgstr "正在測試連線…"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "語音"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "無法播放語音範例。"
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr "語音輸出已關閉。請開啟「啟用語音輸出 (TTS)」以聆聽此語音。"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
@@ -1550,6 +1613,10 @@ msgstr "高度："
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "寬度："
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "朗讀回應 (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1871,12 +1938,11 @@ msgstr "失敗"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
-"請在「設定」→「Python」中設定 Python venv 路徑（即您執行 'uv pip install "
-"pywebview rocher' 的同一個 venv）。LibreOffice 內建的 Python 無法執行 Monaco "
-"編輯器。"
+"請在「設定」→「Python」中設定 Python venv 路徑（即您執行 'uv pip install pywebview rocher' "
+"的同一個 venv）。LibreOffice 內建的 Python 無法執行 Monaco 編輯器。"
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1884,8 +1950,8 @@ msgid ""
 "No python executable found under configured venv: {0} (expected bin/python, "
 "Scripts/python.exe, or env-root python.exe)."
 msgstr ""
-"在設定的 venv 下找不到 python 執行檔：{0}（預期為 bin/python、Scripts/python."
-"exe 或 env-root python.exe）。"
+"在設定的 venv 下找不到 python 執行檔：{0}（預期為 bin/python、Scripts/python.exe 或 env-root "
+"python.exe）。"
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -1919,16 +1985,15 @@ msgstr "音訊探測失敗（請參閱 writeragent_debug.log）。"
 msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
-msgstr ""
-"文字/NLP 探測逾時（spaCy 或 transformers 的冷啟動匯入在首次檢查時可能需要 10–"
-"30 秒）。"
+msgstr "文字/NLP 探測逾時（spaCy 或 transformers 的冷啟動匯入在首次檢查時可能需要 10–30 秒）。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "文字/NLP 探測失敗（請參閱 writeragent_debug.log）。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr "視覺探測逾時（首次檢查時，Docling 匯入可能需要 10–30 秒）。"
 
 #: plugin/scripting/venv_diagnostics.py
@@ -1939,16 +2004,15 @@ msgstr "視覺探測失敗（請參閱 writeragent_debug.log）。"
 msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
-msgstr ""
-"向量搜尋探測逾時 (首次檢查時，匯入 sentence-transformers 可能需要 10–30 秒)。"
+msgstr "向量搜尋探測逾時 (首次檢查時，匯入 sentence-transformers 可能需要 10–30 秒)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "向量搜尋探測失敗 (請參閱 writeragent_debug.log)。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "錄音"
+msgid "Audio Recording & Speech"
+msgstr "錄音與語音"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -1991,12 +2055,20 @@ msgid "Vector Search Libraries"
 msgstr "向量搜尋程式庫"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "錄音"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "若要安裝剩餘的套件："
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "未偵測到麥克風輸入裝置。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "本機 TTS 引擎 (選用)："
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2007,8 +2079,8 @@ msgid "Reading Python version..."
 msgstr "正在讀取 Python 版本..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "錄音：正在檢查 sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "音訊與語音：正在檢查 sounddevice 與 TTS 引擎..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2052,8 +2124,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2061,8 +2132,7 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "來自文字分析工作程序的錯誤：\n"
 "{err}\n"
@@ -2075,8 +2145,7 @@ msgstr ""
 "請使用以下指令安裝：\n"
 "  {install}\n"
 "\n"
-"工作程序回報模組遺失。請確認套件已安裝在工作程序為您設定的虛擬環境 (venv) 所"
-"解析的確切 Python 執行檔中。"
+"工作程序回報模組遺失。請確認套件已安裝在工作程序為您設定的虛擬環境 (venv) 所解析的確切 Python 執行檔中。"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2095,15 +2164,11 @@ msgstr "分析中..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "錯誤：%s\n"
 "\n"
-"您設定的虛擬環境（設定 → Python）中可能缺少必要的套件。請點擊此對話框中的「檢"
-"查虛擬環境 (Check Venv)」，或使用「設定 → Python」中的完整測試功能，以取得關"
-"於 spacy、textdescriptives、transformers、torch 等套件的詳細資訊。"
+"您設定的虛擬環境（設定 → Python）中可能缺少必要的套件。請點擊此對話框中的「檢查虛擬環境 (Check Venv)」，或使用「設定 → Python」中的完整測試功能，以取得關於 spacy、textdescriptives、transformers、torch 等套件的詳細資訊。"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2164,9 +2229,7 @@ msgstr "視覺化輔助工具未回傳影像內容。"
 msgid ""
 "Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
 "tables). (took {time})"
-msgstr ""
-"Vision '{helper}' 已完成。已插入 HTML（{blocks} 個區塊，{tables} 個表格）。"
-"（耗時 {time}）"
+msgstr "Vision '{helper}' 已完成。已插入 HTML（{blocks} 個區塊，{tables} 個表格）。（耗時 {time}）"
 
 #: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2188,16 +2251,14 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"「重設筆記本的 Python 工作階段」適用於 LibreOffice Writer。請開啟一個已匯入 "
-"Jupyter 筆記本的 Writer 文件後再試一次。"
+"「重設筆記本的 Python 工作階段」適用於 LibreOffice Writer。請開啟一個已匯入 Jupyter 筆記本的 Writer "
+"文件後再試一次。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
-msgstr ""
-"本 Writer 文件未匯入筆記本登錄檔。請先執行「檔案」→「開啟 Jupyter 筆記本 (."
-"ipynb)」。"
+msgstr "本 Writer 文件未匯入筆記本登錄檔。請先執行「檔案」→「開啟 Jupyter 筆記本 (.ipynb)」。"
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -2215,9 +2276,7 @@ msgstr "無法重設 Python 工作階段。"
 msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
-msgstr ""
-"「重設 Python 工作階段」適用於 Calc 試算表。請開啟一個 Calc 活頁簿後再試一"
-"次。"
+msgstr "「重設 Python 工作階段」適用於 Calc 試算表。請開啟一個 Calc 活頁簿後再試一次。"
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -2227,9 +2286,7 @@ msgstr "已為此活頁簿重設 Python 工作階段。"
 msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
-msgstr ""
-"此活頁簿的初始化指令碼與任何記憶體中的初始化狀態皆已重設。儲存格變數已針對每"
-"個儲存格進行隔離。"
+msgstr "此活頁簿的初始化指令碼與任何記憶體中的初始化狀態皆已重設。儲存格變數已針對每個儲存格進行隔離。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2237,8 +2294,8 @@ msgid ""
 "There is no shared cell session to reset. Add an initialization script if "
 "you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python 工作階段模式為「隔離」（每個 =PY() 儲存格使用各自的變數）。沒有可重設"
-"的共用儲存格工作階段。若需要清除昂貴的一次性活頁簿設定，請新增初始化指令碼。"
+"Python 工作階段模式為「隔離」（每個 =PY() "
+"儲存格使用各自的變數）。沒有可重設的共用儲存格工作階段。若需要清除昂貴的一次性活頁簿設定，請新增初始化指令碼。"
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this document."
@@ -2307,15 +2364,13 @@ msgstr "視覺輔助工具失敗。"
 msgid ""
 "Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
 "(took {time})"
-msgstr ""
-"視覺輔助工具「{helper}」已完成。已為 {count} 張影像插入格式化 HTML。（耗時 "
-"{time}）"
+msgstr "視覺輔助工具「{helper}」已完成。已為 {count} 張影像插入格式化 HTML。（耗時 {time}）"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr "指令碼執行成功，但未傳回結果且未產生任何輸出。（耗時 {time}）"
 
 #: plugin/scripting/python_runner.py
@@ -2362,8 +2417,7 @@ msgstr "請選取一張嵌入的影像（或包含影像的範圍），然後再
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
 "select the graphic."
-msgstr ""
-"找不到影像 '{name}'。請使用 image_list，或將 image_name 留空並選取該圖形。"
+msgstr "找不到影像 '{name}'。請使用 image_list，或將 image_name 留空並選取該圖形。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2690,10 +2744,6 @@ msgstr "詢問 / 指示："
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "寬高比："
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "音訊模型："
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3044,6 +3094,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3071,6 +3125,110 @@ msgstr "Grok 建置 (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "音訊模型："
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr "當聊天模型無法接收音訊輸入時使用的語音轉文字模型。"
+
+msgid "Enable Speech Output (TTS)"
+msgstr "啟用語音輸出 (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr "使用文字轉語音功能朗讀助理的回應。"
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "逐句朗讀 (本機)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr "在播放當前句子的同時合成下一句，以避免短句後出現停頓。停止播放時會捨棄尚未播放的片段。關閉此選項則會將整個回應視為單一片段朗讀。"
+
+msgid "Keep replies brief"
+msgstr "保持回應簡潔"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr "除非使用者要求更多內容，否則目標為約一個段落。僅在啟用語音輸出 (TTS) 時適用。"
+
+msgid "TTS Provider"
+msgstr "TTS 提供者"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr "選擇使用作業系統內建語音、本機神經引擎或您的 API 端點。"
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Native (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (本機神經網路, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (本機快速神經網路, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "LLM 端點"
+
+msgid "TTS Model"
+msgstr "TTS 模型"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr "語音合成模型（當 TTS 提供者為 LLM 端點時使用）。"
+
+msgid "Voice"
+msgstr "語音"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr "所選提供者的語音。此清單符合您地區的 Piper 或 Kokoro 目錄。"
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI 中性)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro 美式女性 - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (美式英語女性 - Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (系統預設)"
+
+msgid "Test voice"
+msgstr "測試語音"
+
+msgid "Speech Speed"
+msgstr "語音速度"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr "播放速度倍率（1.0x、1.1x、1.25x、1.5x、1.75x、2.0x，或自訂最低至 0.25x）。"
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Calc 試算表工具"
 
@@ -3086,9 +3244,9 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"將同層的 .xlsx/.xls 轉換至資料夾旁的 writeragent_ods_cache/，以便重複的 "
-"DuckDB SQL 可以重複使用 ODS。原生 .ods 與即時活頁簿永遠不會被快取。若要停用，"
-"請在 writeragent.json 中將 calc.ods_cache_enabled 設為 false。"
+"將同層的 .xlsx/.xls 轉換至資料夾旁的 writeragent_ods_cache/，以便重複的 DuckDB SQL 可以重複使用 "
+"ODS。原生 .ods 與即時活頁簿永遠不會被快取。若要停用，請在 writeragent.json 中將 calc.ods_cache_enabled"
+" 設為 false。"
 
 msgid "Sidebar"
 msgstr "側邊欄"
@@ -3175,14 +3333,12 @@ msgstr "擬人化技能（自然散文）"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
-"啟用後，將引導指令注入系統提示詞，使模型生成或修訂的文件內容聽起來更自然、更"
-"像人類（移除 AI 冗贅模式）。請在您的 LibreOffice 設定檔中的 writeragent/"
-"skills/humanizer/SKILL.md 編輯規則（該檔案會在首次使用時自動建立）。未來可新"
-"增專屬的「技能」頁籤。"
+"啟用後，將引導指令注入系統提示詞，使模型生成或修訂的文件內容聽起來更自然、更像人類（移除 AI 冗贅模式）。請在您的 LibreOffice 設定檔中的"
+" writeragent/skills/humanizer/SKILL.md 編輯規則（該檔案會在首次使用時自動建立）。未來可新增專屬的「技能」頁籤。"
 
 msgid "Silence before send (ms)"
 msgstr "傳送前的靜音時間 (毫秒)"
@@ -3190,8 +3346,7 @@ msgstr "傳送前的靜音時間 (毫秒)"
 msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
-msgstr ""
-"停止說話後暫停，然後自動停止並傳送 (錄製)。0 = 等待直到您點擊「停止錄製」。"
+msgstr "停止說話後暫停，然後自動停止並傳送 (錄製)。0 = 等待直到您點擊「停止錄製」。"
 
 msgid "Doc"
 msgstr "文件"
@@ -3200,13 +3355,12 @@ msgid "Enable grammar checker (Writer)"
 msgstr "啟用語法檢查器 (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
-"關閉 = 已停用。AI (LLM) = 使用您設定的文字模型/API。LanguageTool / Vale = 透"
-"過「設定」→「Python venv」使用的本機引擎。Harper = 自動下載至您設定檔的離線 "
-"Rust 二進位檔案（無需 venv）。"
+"關閉 = 已停用。AI (LLM) = 使用您設定的文字模型/API。LanguageTool / Vale = 透過「設定」→「Python "
+"venv」使用的本機引擎。Harper = 自動下載至您設定檔的離線 Rust 二進位檔案（無需 venv）。"
 
 msgid "Off"
 msgstr "關閉"
@@ -3235,9 +3389,7 @@ msgstr "重新檢查此文件"
 msgid ""
 "Clears cached grammar results for this document and asks Writer to check "
 "again. Use after changing checker or model."
-msgstr ""
-"清除此文件已快取的語法檢查結果，並要求 Writer 重新檢查。請在變更檢查器或模型"
-"後使用。"
+msgstr "清除此文件已快取的語法檢查結果，並要求 Writer 重新檢查。請在變更檢查器或模型後使用。"
 
 msgid "Pause grammar while chat/agent runs"
 msgstr "聊天/代理運行時暫停語法檢查"
@@ -3245,9 +3397,7 @@ msgstr "聊天/代理運行時暫停語法檢查"
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
-msgstr ""
-"啟用時，AI 語法檢查會在側邊欄聊天或代理運行期間跳過背景請求，以避免並發 API "
-"呼叫。"
+msgstr "啟用時，AI 語法檢查會在側邊欄聊天或代理運行期間跳過背景請求，以避免並發 API 呼叫。"
 
 msgid "Batch sentences"
 msgstr "批次句子"
@@ -3257,8 +3407,7 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"每次 LLM 請求發送的語句數量 (1-8)。1 (預設值) 最為穩定；較高的數值速度較快且"
-"成本較低，但可能會達到 Token 上限或導致模型錯誤。"
+"每次 LLM 請求發送的語句數量 (1-8)。1 (預設值) 最為穩定；較高的數值速度較快且成本較低，但可能會達到 Token 上限或導致模型錯誤。"
 
 msgid "Concurrent requests"
 msgstr "並行請求"
@@ -3268,8 +3417,8 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"背景語法 API 的最大同時呼叫數 (1-8)。1 為先前行為。若使用 OpenRouter 或其他允"
-"許平行請求的提供者可調高此數值；與側邊欄聊天功能同時使用時請謹慎調整。"
+"背景語法 API 的最大同時呼叫數 (1-8)。1 為先前行為。若使用 OpenRouter "
+"或其他允許平行請求的提供者可調高此數值；與側邊欄聊天功能同時使用時請謹慎調整。"
 
 msgid "Sentence language detection"
 msgstr "句子語言偵測"
@@ -3280,9 +3429,8 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"根據文件語言環境驗證每個完整句子的語言。AI 使用您的語法/聊天 API；Local 使用"
-"您 Python 虛擬環境中的 langdetect（設定 → Python；無 API 呼叫）。不匹配時會更"
-"新 CharLocale 並重新檢查語法。"
+"根據文件語言環境驗證每個完整句子的語言。AI 使用您的語法/聊天 API；Local 使用您 Python 虛擬環境中的 langdetect（設定 →"
+" Python；無 API 呼叫）。不匹配時會更新 CharLocale 並重新檢查語法。"
 
 msgid "Local (langdetect)"
 msgstr "本機 (langdetect)"
@@ -3294,8 +3442,7 @@ msgid ""
 "When on, Enter in the sidebar query runs the same action as Send; "
 "Shift+Enter inserts a newline. When off, Enter inserts a newline."
 msgstr ""
-"開啟時，在側邊欄查詢中按下 Enter 鍵會執行與「發送」相同的動作；Shift+Enter 則"
-"會插入換行符號。關閉時，Enter 鍵僅插入換行符號。"
+"開啟時，在側邊欄查詢中按下 Enter 鍵會執行與「發送」相同的動作；Shift+Enter 則會插入換行符號。關閉時，Enter 鍵僅插入換行符號。"
 
 msgid "Agent edit review"
 msgstr "Agent 編輯審閱"
@@ -3305,8 +3452,8 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"關閉 = 直接編輯。記錄 = 您自行接受/拒絕的追蹤修訂。等待 = "
-"apply_document_content 會封鎖（在聊天/MCP 工作執行緒上），直到您審閱為止。"
+"關閉 = 直接編輯。記錄 = 您自行接受/拒絕的追蹤修訂。等待 = apply_document_content 會封鎖（在聊天/MCP "
+"工作執行緒上），直到您審閱為止。"
 
 msgid "Record (track changes)"
 msgstr "記錄（追蹤修訂）"
@@ -3327,8 +3474,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"用於 document_research (corpus.db) 的索引語意 + 關鍵字搜尋。需要 embeddings "
-"venv — 請參閱 Python 測試。"
+"用於 document_research (corpus.db) 的索引語意 + 關鍵字搜尋。需要 embeddings venv — 請參閱 "
+"Python 測試。"
 
 msgid "Embeddings + FTS"
 msgstr "嵌入 + FTS"
@@ -3354,18 +3501,15 @@ msgstr "啟用跨檔案重新排序 (rerank)"
 msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
-msgstr ""
-"在混合檢索（嵌入 + FTS 與 LlamaIndex）後的第二階段交叉編碼器。預設為關閉。"
+msgstr "在混合檢索（嵌入 + FTS 與 LlamaIndex）後的第二階段交叉編碼器。預設為關閉。"
 
 msgid "Rerank model"
 msgstr "重新排序模型"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
-msgstr ""
-"僅在啟用重新排序時使用。英文 MiniLM 速度較快；bge-reranker-v2-m3 支援多語言，"
-"下載大小約 2.3 GB。"
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
+msgstr "僅在啟用重新排序時使用。英文 MiniLM 速度較快；bge-reranker-v2-m3 支援多語言，下載大小約 2.3 GB。"
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -3383,10 +3527,9 @@ msgid "Enable MCP Server"
 msgstr "啟用 MCP 伺服器"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
-msgstr ""
-"僅限本機，無需驗證。用戶端使用 http://localhost:<port>/mcp (可串流 HTTP)。"
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
+msgstr "僅限本機，無需驗證。用戶端使用 http://localhost:<port>/mcp (可串流 HTTP)。"
 
 msgid "MCP Port"
 msgstr "MCP 連接埠"
@@ -3402,9 +3545,8 @@ msgid ""
 "find_tools (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"專用工具如何呈現給 MCP 客戶端。delegate=透過委派閘道存取（目前行為）；"
-"direct_flat=所有可透過 MCP 存取的專用工具直接列出，排除僅限側邊欄的流程（最適"
-"合擁有自身工具搜尋功能的客戶端）；direct_discovery=小型核心列表加上 "
+"專用工具如何呈現給 MCP 客戶端。delegate=透過委派閘道存取（目前行為）；direct_flat=所有可透過 MCP "
+"存取的專用工具直接列出，排除僅限側邊欄的流程（最適合擁有自身工具搜尋功能的客戶端）；direct_discovery=小型核心列表加上 "
 "find_tools（領域目錄，然後是各領域的工具架構；最適合任何客戶端）。"
 
 msgid "Delegate (default)"
@@ -3424,12 +3566,11 @@ msgstr "透過公開通道公開"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
-"需要 PATH 中已安裝選定的提供者二進位檔（cloudflared、bore、ngrok 或 "
-"tailscale）。MCP 沒有驗證機制 — 任何擁有公開 URL 的人都可以呼叫工具。準備就緒"
-"後，請參閱 MCP 伺服器狀態以取得公開的 /mcp URL。"
+"需要 PATH 中已安裝選定的提供者二進位檔（cloudflared、bore、ngrok 或 tailscale）。MCP 沒有驗證機制 — "
+"任何擁有公開 URL 的人都可以呼叫工具。準備就緒後，請參閱 MCP 伺服器狀態以取得公開的 /mcp URL。"
 
 msgid "Provider"
 msgstr "提供者"
@@ -3437,8 +3578,7 @@ msgstr "提供者"
 msgid ""
 "Cloudflare quick tunnel (default), Bore, Ngrok, or Tailscale Funnel (must "
 "already be logged in)."
-msgstr ""
-"Cloudflare 快速通道（預設）、Bore、Ngrok 或 Tailscale Funnel（必須已登入）。"
+msgstr "Cloudflare 快速通道（預設）、Bore、Ngrok 或 Tailscale Funnel（必須已登入）。"
 
 msgid "Cloudflare"
 msgstr "Cloudflare"
@@ -3459,8 +3599,8 @@ msgid ""
 "Ngrok authtoken; Cloudflare tunnel token; Bore server or 'server secret'. "
 "Empty = provider default / CLI config. Unused for Tailscale."
 msgstr ""
-"Ngrok 驗證權杖；Cloudflare 通道權杖；Bore 伺服器或「伺服器密鑰」。留空則使用"
-"提供者預設值或 CLI 設定。Tailscale 不使用此項。"
+"Ngrok 驗證權杖；Cloudflare 通道權杖；Bore 伺服器或「伺服器密鑰」。留空則使用提供者預設值或 CLI 設定。Tailscale "
+"不使用此項。"
 
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "用戶端設定（複製到 Claude / Hermes-Agent）："
@@ -3472,17 +3612,16 @@ msgid "Python venv path"
 msgstr "Python venv 路徑"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"若已設定，則會在該 venv（bin/python、Scripts/python.exe 或 conda/pyenv-win "
-"env-root python.exe）中執行 =PY() 與「執行 Python 指令碼」。請貼上路徑，且不"
-"要包含引號。若留空，則使用此處理程序的 sys.executable（基礎標準函式庫）；若需"
-"使用 numpy/pandas 與視覺輔助工具（paddleocr, paddlepaddle），請務必使用 "
-"venv。"
+"若已設定，則會在該 venv（bin/python、Scripts/python.exe 或 conda/pyenv-win env-root "
+"python.exe）中執行 =PY() 與「執行 Python 指令碼」。請貼上路徑，且不要包含引號。若留空，則使用此處理程序的 "
+"sys.executable（基礎標準函式庫）；若需使用 numpy/pandas 與視覺輔助工具（paddleocr, "
+"paddlepaddle），請務必使用 venv。"
 
 msgid "Test"
 msgstr "測試"
@@ -3500,11 +3639,11 @@ msgid "Max Calc data cells"
 msgstr "Calc 資料儲存格上限"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"=PYTHON() 資料或執行 Python 指令碼資料/資料範圍 (data/data_range) 的最大儲存"
-"格數。較大的數值會消耗更多記憶體與時間；UNO 範圍讀取仍是主要的效能瓶頸。"
+"=PYTHON() 資料或執行 Python 指令碼資料/資料範圍 (data/data_range) "
+"的最大儲存格數。較大的數值會消耗更多記憶體與時間；UNO 範圍讀取仍是主要的效能瓶頸。"
 
 msgid "Python session mode"
 msgstr "Python 工作階段模式"
@@ -3512,9 +3651,7 @@ msgstr "Python 工作階段模式"
 msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
-msgstr ""
-"隔離模式：每個 =PYTHON() 儲存格皆擁有獨立的命名空間。共用模式：每個活頁簿共用"
-"一個命名空間（變數可在儲存格間傳遞）。"
+msgstr "隔離模式：每個 =PYTHON() 儲存格皆擁有獨立的命名空間。共用模式：每個活頁簿共用一個命名空間（變數可在儲存格間傳遞）。"
 
 msgid "Isolated (default)"
 msgstr "隔離模式（預設）"
@@ -3538,11 +3675,11 @@ msgid "Rewrite xl() ranges"
 msgstr "重寫 xl() 範圍"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
-"在儲存格編輯 Python 儲存時，將靜態 xl(\"A1:…\") 提升至 =PY 資料引數，並重寫"
-"為 data / data[i] / .to_pandas()。"
+"在儲存格編輯 Python 儲存時，將靜態 xl(\"A1:…\") 提升至 =PY 資料引數，並重寫為 data / data[i] / "
+".to_pandas()。"
 
 msgid "Vision / OCR"
 msgstr "視覺 / OCR"
@@ -3605,8 +3742,8 @@ msgid ""
 "html = Docling HTML import (default). structured = bbox column layout in "
 "Writer; native Calc cells for extract_structure tables."
 msgstr ""
-"html = Docling HTML 匯入（預設）。structured = Writer 中的 bbox 欄位配置；用"
-"於 extract_structure 表格的原生 Calc 儲存格。"
+"html = Docling HTML 匯入（預設）。structured = Writer 中的 bbox 欄位配置；用於 "
+"extract_structure 表格的原生 Calc 儲存格。"
 
 msgid "Standard HTML"
 msgstr "標準 HTML"
@@ -3640,91 +3777,3 @@ msgstr "Docling 文件逾時時間 (秒)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling 內部每次轉換的逾時時間。0 = 無限制。"
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "提供者"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "AI 模型："
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "選擇"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

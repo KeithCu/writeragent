@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Lithuanian <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Vykdomas vietinis OCR pasirinktam(-iems) paveikslėliui(-iams)..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentų tyrimo užklausoms reikalingas specializuotas užduočių delegavimas "
 "(USE_SUB_AGENT). Įgalinkite tai konfigūracijoje."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Įrankio iškvietimas perjungtas į „{0}“. Veikiate specializuoto įrankių "
@@ -58,8 +58,8 @@ msgstr "Užrašinės vykdymas palaikomas tik „LibreOffice Writer“ programoje
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "Šiame dokumente nėra importuoto užrašų knygelės failo. Pirmiausia "
 "pasirinkite Failas → Atverti „Jupyter“ užrašų knygelę (.ipynb)."
@@ -232,8 +232,8 @@ msgstr "Nenustatytas API raktas. Atverkite nuostatas ir pridėkite raktą."
 msgid ""
 "Python venv not found. Open Settings → Python, set the venv path, then Test."
 msgstr ""
-"Nerastas Python venv. Atverkite Nustatymai → Python, nustatykite venv kelią, "
-"tada atlikite testą."
+"Nerastas Python venv. Atverkite Nustatymai → Python, nustatykite venv kelią,"
+" tada atlikite testą."
 
 #: plugin/framework/errors.py
 msgid ""
@@ -259,9 +259,11 @@ msgstr ""
 "Timeout) nuostatose."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Ryšys atmestas. Ar jūsų vietinis DI serveris („Ollama“ / „LM Studio“) veikia?"
+"Ryšys atmestas. Ar jūsų vietinis DI serveris („Ollama“ / „LM Studio“) "
+"veikia?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -322,8 +324,8 @@ msgstr "HTTP klaida {0} iš DI teikėjo: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Jei jūsų API raktas yra iš „GLM Coding Plan“ prenumeratos, nustatykite "
 "galinį punktą į {0} (ne bendrąjį /api/paas URL)."
@@ -377,6 +379,72 @@ msgstr "Nustatymuose nurodykite modelį (Model)."
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Nustatymuose pasirinkite tinkamą modelį (ne vietos žymeklį)."
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Nepavyko įvykdyti kalbos užklausos ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Nepavyko įvykdyti kalbos užklausos: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Nepavyko įvykdyti kalbos užklausos ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Nepavyko įvykdyti kalbos užklausos."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Atsisiunčiamas „Kokoro“ balso modelis…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr ""
+"Nepavyko atsisiųsti „Kokoro“; naudojama operacinės sistemos kalbos funkcija"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Atsisiunčiamas „Piper“ balsas {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Nepavyko atsisiųsti {0}; naudojamas „Lessac“"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr ""
+"Nepavyko atsisiųsti {0}; naudojama operacinės sistemos kalbos funkcija"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr ""
+"„Kokoro“ fonemizatoriaus klaida; ši kalba gali būti perskaityta neteisingai."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Įdiegiamas „Kokoro“ fonemizuotojas…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Nepavyko įdiegti „Kokoro“ fonemizuotojo; ši kalba gali būti neteisingai "
+"perskaityta. Įdiekite naudodami: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Atsisiunčiamas japonų kalbos fonemizuotojo žodynas…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -396,8 +464,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"„Monaco“ redaktorius išjungtas naudojant „scripting."
-"force_internal_script_editor“ faile writeragent.json."
+"„Monaco“ redaktorius išjungtas naudojant "
+"„scripting.force_internal_script_editor“ faile writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -457,12 +525,13 @@ msgstr "Nepavyko įkelti „PythonCellEditorDialog“ iš plėtinio."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Nepavyko išsaugoti šio langelio PY formulės argumentų (pvz., duomenų "
-"sričių). Redaguokite formulę programoje „Calc“ arba naudokite cituojamą kodo "
-"eilutę, pvz., =PY(\"kodas\"; A1:B10)."
+"sričių). Redaguokite formulę programoje „Calc“ arba naudokite cituojamą kodo"
+" eilutę, pvz., =PY(\"kodas\"; A1:B10)."
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -477,8 +546,7 @@ msgid ""
 msgstr ""
 "Įrašyti pakeitimus į {0}?\n"
 "\n"
-"„Taip“ įrašo. „Ne“ atmeta pakeitimus ir atveria naują langelį. „Atsisakyti“ "
-"palieka redaguoti {0}."
+"„Taip“ įrašo. „Ne“ atmeta pakeitimus ir atveria naują langelį. „Atsisakyti“ palieka redaguoti {0}."
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -543,8 +611,8 @@ msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
 msgstr ""
-"Klaida: Python venv nerasta. Atverkite Nustatymai → Python, nustatykite venv "
-"kelią ir tada atlikite testą."
+"Klaida: Python venv nerasta. Atverkite Nustatymai → Python, nustatykite venv"
+" kelią ir tada atlikite testą."
 
 #: plugin/calc/python/function.py
 msgid ""
@@ -566,8 +634,8 @@ msgstr "Įterpti paveikslėliai"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Geometrinė perskaičiavimo tvarka praleido lapą „%(sheet)s“: rasta %(cap)s "
 "arba daugiau „Python“ langelių (aptikimo riba). Lapas paliktas nepakeistas, "
@@ -579,16 +647,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Nepavyko įrašyti „Microsoft Excel“ „Python“ paketo dalių:\n"
 "{0}\n"
 "\n"
-"Failas įrašytas naudojant „LibreOffice“ =PY formules. „Excel“ nematys "
-"pythonScripts.xml / _xlws.PY, kol eksportavimas nebus sėkmingas.\n"
+"Failas įrašytas naudojant „LibreOffice“ =PY formules. „Excel“ nematys pythonScripts.xml / _xlws.PY, kol eksportavimas nebus sėkmingas.\n"
 "\n"
 "{1}"
 
@@ -808,8 +874,8 @@ msgid ""
 "Could not identify the selected formula. Click in the text, then insert a "
 "new formula."
 msgstr ""
-"Nepavyko atpažinti pasirinktos formulės. Spustelėkite tekste, tada įterpkite "
-"naują formulę."
+"Nepavyko atpažinti pasirinktos formulės. Spustelėkite tekste, tada įterpkite"
+" naują formulę."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Unknown conversion error"
@@ -1432,7 +1498,8 @@ msgstr "[Agento posistemė „{0}“ nerasta.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agento posistemė „{0}“ nepasiekiama. Patikrinkite nuostatas (kelią, "
 "diegimą).]"
@@ -1572,6 +1639,21 @@ msgid "Testing connection..."
 msgstr "Tikrinamas ryšys..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Kalba"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Nepavyko atkurti balso pavyzdžio."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Kalbos išvestis išjungta. Įjunkite „Įgalinti kalbos išvestį (TTS)“, kad "
+"išgirstumėte šį balsą."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Garso bibliotekos atsisiuntimas"
 
@@ -1598,6 +1680,10 @@ msgstr "Aukštis:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Plotis:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Skaityti atsakymus garsiai (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1779,8 +1865,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Dokumentas yra tik skaitymo režimu arba savybių įrašyti negalima. Scenarijus "
-"įrašytas į jūsų asmeninę biblioteką."
+"Dokumentas yra tik skaitymo režimu arba savybių įrašyti negalima. Scenarijus"
+" įrašytas į jūsų asmeninę biblioteką."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1929,8 +2015,8 @@ msgstr "Nepavyko"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
 "Nustatykite Python venv kelią skiltyje Nustatymai → Python (tą patį venv, "
 "kuriame vykdėte „uv pip install pywebview rocher“). Integruotas "
@@ -1942,8 +2028,8 @@ msgid ""
 "No python executable found under configured venv: {0} (expected bin/python, "
 "Scripts/python.exe, or env-root python.exe)."
 msgstr ""
-"Konfigūruotame venv nerastas Python vykdomasis failas: {0} (tikėtasi bin/"
-"python, Scripts/python.exe arba env-root python.exe)."
+"Konfigūruotame venv nerastas Python vykdomasis failas: {0} (tikėtasi "
+"bin/python, Scripts/python.exe arba env-root python.exe)."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -1989,7 +2075,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Teksto / NLP patikra nepavyko (žr. writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vizijos zondo skirtasis laikas (pirmą kartą importuojant „Docling“ gali "
 "užtrukti 10–30 s)."
@@ -2011,8 +2098,8 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Vektorinės paieškos užklausa nepavyko (žr. writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Garso įrašymas"
+msgid "Audio Recording & Speech"
+msgstr "Garso įrašymas ir kalba"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2055,12 +2142,20 @@ msgid "Vector Search Libraries"
 msgstr "Vektorinės paieškos bibliotekos"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Garso įrašymas"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Norint įdiegti likusius paketus:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Neaptikta jokių mikrofono įvesties įrenginių."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Vietiniai TTS varikliai (nebūtina):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2071,8 +2166,8 @@ msgid "Reading Python version..."
 msgstr "Skaitoma „Python“ versija..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Garso įrašymas: tikrinamas „sounddevice“..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Garsas ir kalba: tikrinamas „sounddevice“ ir TTS varikliai..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2120,8 +2215,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2129,25 +2223,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Klaida iš teksto analizės darbinės srities:\n"
 "{err}\n"
 "\n"
 "Šio dialogo lango funkcijoms reikalingi šie paketai naudojamame „python“:\n"
-"  • spacy + modelis          (objektai, pagrindinės frazės, pagrindinė "
-"statistika)\n"
+"  • spacy + modelis          (objektai, pagrindinės frazės, pagrindinė statistika)\n"
 "  • textdescriptives         (tikslūs skaitomumo įverčiai)\n"
-"  • transformers + torch     (nuotaikų analizė naudojant daugiakalbį "
-"modelį)\n"
+"  • transformers + torch     (nuotaikų analizė naudojant daugiakalbį modelį)\n"
 "\n"
 "Įdiekite juos naudodami:\n"
 "  {install}\n"
 "\n"
-"Darbinė sritis pranešė, kad trūksta modulio. Patikrinkite, ar paketai "
-"įdiegti būtent tame „python“ vykdomajame faile, kurį darbinė sritis nustatė "
-"jūsų sukonfigūruotai virtualiai aplinkai (venv)."
+"Darbinė sritis pranešė, kad trūksta modulio. Patikrinkite, ar paketai įdiegti būtent tame „python“ vykdomajame faile, kurį darbinė sritis nustatė jūsų sukonfigūruotai virtualiai aplinkai (venv)."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2166,16 +2255,11 @@ msgstr "Analizuojama..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Klaida: %s\n"
 "\n"
-"Konfigūruotoje virtualioje aplinkoje (venv) gali trūkti reikiamų paketų "
-"(Nustatymai → Python). Šiame dialogo lange spustelėkite „Check Venv“ arba "
-"naudokite išsamų testą skiltyje Nustatymai → Python, kad gautumėte "
-"informacijos apie spacy, textdescriptives, transformers, torch ir kt."
+"Konfigūruotoje virtualioje aplinkoje (venv) gali trūkti reikiamų paketų (Nustatymai → Python). Šiame dialogo lange spustelėkite „Check Venv“ arba naudokite išsamų testą skiltyje Nustatymai → Python, kad gautumėte informacijos apie spacy, textdescriptives, transformers, torch ir kt."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2237,8 +2321,8 @@ msgid ""
 "Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
 "tables). (took {time})"
 msgstr ""
-"Vision „{helper}“ baigta. Įterptas HTML ({blocks} blokų, {tables} lentelių). "
-"(truko {time})"
+"Vision „{helper}“ baigta. Įterptas HTML ({blocks} blokų, {tables} lentelių)."
+" (truko {time})"
 
 #: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2262,8 +2346,8 @@ msgid ""
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
 "Python seanso nustatymas iš naujo užrašų knygelėms taikomas „LibreOffice "
-"Writer“. Atverkite „Writer“ dokumentą su importuota „Jupyter“ užrašų knygele "
-"ir bandykite dar kartą."
+"Writer“. Atverkite „Writer“ dokumentą su importuota „Jupyter“ užrašų knygele"
+" ir bandykite dar kartą."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2302,8 +2386,8 @@ msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
-"Inicijavimo scenarijus ir bet kokia atmintyje buvusi inicijavimo būsena šiai "
-"skaičiuoklės knygai buvo nustatyti iš naujo. Ląstelių kintamieji jau buvo "
+"Inicijavimo scenarijus ir bet kokia atmintyje buvusi inicijavimo būsena šiai"
+" skaičiuoklės knygai buvo nustatyti iš naujo. Ląstelių kintamieji jau buvo "
 "izoliuoti kiekvienai ląstelei."
 
 #: plugin/scripting/session_manager.py
@@ -2312,8 +2396,8 @@ msgid ""
 "There is no shared cell session to reset. Add an initialization script if "
 "you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python seanso režimas yra izoliuotas (kiekvienas =PY() langelis naudoja savo "
-"kintamuosius). Nėra bendro langelių seanso, kurį būtų galima nustatyti iš "
+"Python seanso režimas yra izoliuotas (kiekvienas =PY() langelis naudoja savo"
+" kintamuosius). Nėra bendro langelių seanso, kurį būtų galima nustatyti iš "
 "naujo. Pridėkite inicijavimo scenarijų, jei reikia išvalyti daug išteklių "
 "reikalaujančią vienkartinę darbaknygės sąranką."
 
@@ -2393,11 +2477,11 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
-"Scenarijus sėkmingai įvykdytas, tačiau negauta jokių rezultatų ar išvesties. "
-"(truko {time})"
+"Scenarijus sėkmingai įvykdytas, tačiau negauta jokių rezultatų ar išvesties."
+" (truko {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2437,8 +2521,8 @@ msgstr "Siuntimo klaida"
 msgid ""
 "Select an embedded image (or a range containing images), then Run again."
 msgstr ""
-"Pasirinkite įterptą paveikslėlį (arba sritį, kurioje yra paveikslėlių), tada "
-"paleiskite dar kartą."
+"Pasirinkite įterptą paveikslėlį (arba sritį, kurioje yra paveikslėlių), tada"
+" paleiskite dar kartą."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2717,8 +2801,7 @@ msgstr ""
 "{0} dvejetainis failas „{1}“ įdiegtas ir patvirtintas ({2}).\n"
 "\n"
 "MCP serveris veikia vietoje, prievade {3}.\n"
-"Pažymėkite „Viešinti per viešą tunelį“ ir spustelėkite OK, kad "
-"suaktyvintumėte viešąjį maršrutizavimą."
+"Pažymėkite „Viešinti per viešą tunelį“ ir spustelėkite OK, kad suaktyvintumėte viešąjį maršrutizavimą."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2780,10 +2863,6 @@ msgstr "Klausti / nurodyti:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Kraštinių santykis:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Garso modelis:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -2870,8 +2949,7 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Įveskite „Python“ kodą, kurį norite vykdyti naudotojo virtualiojoje "
-"aplinkoje.\n"
+"Įveskite „Python“ kodą, kurį norite vykdyti naudotojo virtualiojoje aplinkoje.\n"
 "Rezultatą priskirkite kintamajam „result“."
 
 #: plugin/xdl_strings.py
@@ -3137,6 +3215,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3163,6 +3245,125 @@ msgstr "Grok kūrimas (ACP)"
 
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
+
+msgid "Audio Model:"
+msgstr "Garso modelis:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Kalbos į tekstą modelis, kai pokalbių modelis negali priimti garso įvesties."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Įjungti kalbos išvestį (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+"Garsiai skaityti asistento atsakymus naudojant teksto į kalbą funkciją."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Skaityti sakinį po sakinio (vietinis)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Sintezuoti kitus sakinius, kol grojamas esamas, kad po trumpo sakinio nebūtų"
+" pauzės. Sustabdymas atmeta dar negrojamus įrašus. Išjunkite, jei norite "
+"skaityti visą atsakymą kaip vieną įrašą."
+
+msgid "Keep replies brief"
+msgstr "Pateikti trumpus atsakymus"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Siekti maždaug vienos pastraipos ilgio, nebent vartotojas prašo daugiau. "
+"Taikoma tik tada, kai įjungta kalbos išvestis (TTS)."
+
+msgid "TTS Provider"
+msgstr "TTS teikėjas"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Pasirinkite, ar naudoti integruotą OS kalbos funkciją, vietinį neuroninį "
+"variklį, ar savo API galinį punktą."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Native (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (vietinis neuroninis, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (vietinis greitas neuroninis, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "LLM galinis punktas"
+
+msgid "TTS Model"
+msgstr "TTS modelis"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Kalbos sintezės modelis (naudojamas, kai TTS teikėjas yra LLM galinis "
+"punktas)."
+
+msgid "Voice"
+msgstr "Balsas"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Pasirinkto teikėjo balsas. Sąrašas atitinka jūsų lokalės „Piper“ arba "
+"„Kokoro“ katalogą."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy („OpenAI“ neutralus)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky („Kokoro“ JAV moteriškas – Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (JAV anglų k. moteriškas – Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (Sistemos numatytasis)"
+
+msgid "Test voice"
+msgstr "Išbandyti balsą"
+
+msgid "Speech Speed"
+msgstr "Kalbos greitis"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Atkūrimo greičio daugiklis (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x arba "
+"pasirinktinis iki 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc skaičiuoklės įrankiai"
@@ -3267,7 +3468,8 @@ msgstr "Raiškiojo teksto valdiklio šoninė juosta"
 
 msgid "Formatted chat via RichTextControl. Requires restart."
 msgstr ""
-"Suformatuotas pokalbis naudojant „RichTextControl“. Reikia iš naujo paleisti."
+"Suformatuotas pokalbis naudojant „RichTextControl“. Reikia iš naujo "
+"paleisti."
 
 msgid "Humanizer skill (natural prose)"
 msgstr "Humanizavimo įgūdis (natūralus tekstas)"
@@ -3275,16 +3477,17 @@ msgstr "Humanizavimo įgūdis (natūralus tekstas)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
-"Kai įjungta, į sistemos užklausą įtraukiami nurodymai, kad modelis generuotų "
-"arba taisytų dokumento tekstą taip, kad jis skambėtų natūraliau ir "
+"Kai įjungta, į sistemos užklausą įtraukiami nurodymai, kad modelis generuotų"
+" arba taisytų dokumento tekstą taip, kad jis skambėtų natūraliau ir "
 "žmogiškiau (pašalinami dirbtinio intelekto būdingi stiliaus trūkumai). "
-"Taisykles galite redaguoti savo „LibreOffice“ profilyje, aplanke writeragent/"
-"skills/humanizer/SKILL.md (failas automatiškai sukuriamas pirmojo naudojimo "
-"metu). Specialus įgūdžių skirtukas gali būti pridėtas vėliau."
+"Taisykles galite redaguoti savo „LibreOffice“ profilyje, aplanke "
+"writeragent/skills/humanizer/SKILL.md (failas automatiškai sukuriamas "
+"pirmojo naudojimo metu). Specialus įgūdžių skirtukas gali būti pridėtas "
+"vėliau."
 
 msgid "Silence before send (ms)"
 msgstr "Tyla prieš siunčiant (ms)"
@@ -3293,8 +3496,8 @@ msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
 msgstr ""
-"Pauzė nustojus kalbėti, tada automatinis sustabdymas ir siuntimas (Įrašyti). "
-"0 = laukti, kol paspausite „Stabdyti įrašymą“."
+"Pauzė nustojus kalbėti, tada automatinis sustabdymas ir siuntimas (Įrašyti)."
+" 0 = laukti, kol paspausite „Stabdyti įrašymą“."
 
 msgid "Doc"
 msgstr "Dokumentas"
@@ -3303,13 +3506,13 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Įgalinti gramatikos tikrintuvą („Writer“)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Išjungta = neaktyvuota. AI (LLM) = naudoti sukonfigūruotą teksto modelį / "
-"API. „LanguageTool“ / „Vale“ = vietiniai varikliai per Nustatymai → „Python“ "
-"venv. „Harper“ = neprisijungus veikiantis „Rust“ dvejetainis failas, "
+"API. „LanguageTool“ / „Vale“ = vietiniai varikliai per Nustatymai → „Python“"
+" venv. „Harper“ = neprisijungus veikiantis „Rust“ dvejetainis failas, "
 "automatiškai atsisiunčiamas į jūsų profilį (venv nereikalingas)."
 
 msgid "Off"
@@ -3366,8 +3569,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Vienu LLM užklausa siunčiamų sakinių skaičius (1–8). 1 (numatytoji reikšmė) "
-"yra patikimiausia; didesnės reikšmės yra greitesnės ir pigesnės, tačiau gali "
-"viršyti žetonų limitus arba sukelti modelio klaidų."
+"yra patikimiausia; didesnės reikšmės yra greitesnės ir pigesnės, tačiau gali"
+" viršyti žetonų limitus arba sukelti modelio klaidų."
 
 msgid "Concurrent requests"
 msgstr "Lygiagrečios užklausos"
@@ -3377,10 +3580,10 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"Maksimalus vienu metu vykdomų gramatikos API užklausų skaičius fone (1–8). 1 "
-"atitinka ankstesnę elgseną. Padidinkite, jei naudojate „OpenRouter“ ar kitus "
-"teikėjus, leidžiančius lygiagrečias užklausas; naudokite atsargiai kartu su "
-"šoninės juostos pokalbių funkcija."
+"Maksimalus vienu metu vykdomų gramatikos API užklausų skaičius fone (1–8). 1"
+" atitinka ankstesnę elgseną. Padidinkite, jei naudojate „OpenRouter“ ar "
+"kitus teikėjus, leidžiančius lygiagrečias užklausas; naudokite atsargiai "
+"kartu su šoninės juostos pokalbių funkcija."
 
 msgid "Sentence language detection"
 msgstr "Sakinio kalbos aptikimas"
@@ -3391,8 +3594,8 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"Patikrinkite kiekvieno sakinio kalbą pagal dokumento lokalę. AI naudoja jūsų "
-"gramatikos / pokalbių API; „Local“ naudoja „langdetect“ jūsų „Python“ "
+"Patikrinkite kiekvieno sakinio kalbą pagal dokumento lokalę. AI naudoja jūsų"
+" gramatikos / pokalbių API; „Local“ naudoja „langdetect“ jūsų „Python“ "
 "virtualioje aplinkoje (Nustatymai → Python; API užklausos nenaudojamos). "
 "Neatitikimai atnaujina „CharLocale“ ir pakartotinai tikrina gramatiką."
 
@@ -3461,8 +3664,8 @@ msgstr "Įterpiamasis modelis"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"„HuggingFace“ modelio ID vietiniam teikėjui arba konkrečiam galiniam punktui "
-"skirtas modelio ID"
+"„HuggingFace“ modelio ID vietiniam teikėjui arba konkrečiam galiniam punktui"
+" skirtas modelio ID"
 
 msgid "Enable cross-file rerank"
 msgstr "Įgalinti kryžminį failų perrikiavimą"
@@ -3471,15 +3674,15 @@ msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
 msgstr ""
-"Antrojo etapo kryžminis kodavimo įrenginys po hibridinio paieškos (įdėtiniai "
-"+ FTS ir LlamaIndex). Pagal numatytuosius nustatymus išjungta."
+"Antrojo etapo kryžminis kodavimo įrenginys po hibridinio paieškos (įdėtiniai"
+" + FTS ir LlamaIndex). Pagal numatytuosius nustatymus išjungta."
 
 msgid "Rerank model"
 msgstr "Perrikiavimo modelis"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Naudojama tik tada, kai įgalintas perrikiavimas. Angliškas „MiniLM“ yra "
 "greitas; „bge-reranker-v2-m3“ yra daugiakalbis ir atsisiunčia ~2,3 GB."
@@ -3500,11 +3703,11 @@ msgid "Enable MCP Server"
 msgstr "Įgalinti MCP serverį"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Tik vietinis kompiuteris, be autentifikacijos. Klientai naudoja http://"
-"localhost:<port>/mcp (srautinis HTTP)."
+"Tik vietinis kompiuteris, be autentifikacijos. Klientai naudoja "
+"http://localhost:<port>/mcp (srautinis HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP prievadas"
@@ -3544,13 +3747,13 @@ msgstr "Viešinti per viešą tunelį"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Reikalauja, kad pasirinkto teikėjo dvejetainis failas būtų PATH "
 "(cloudflared, bore, ngrok arba tailscale). MCP neturi autentifikavimo — bet "
-"kas, turintis viešą URL, gali iškviesti įrankius. Kai bus paruošta, viešą /"
-"mcp URL rasite MCP serverio būsenoje."
+"kas, turintis viešą URL, gali iškviesti įrankius. Kai bus paruošta, viešą "
+"/mcp URL rasite MCP serverio būsenoje."
 
 msgid "Provider"
 msgstr "Teikėjas"
@@ -3595,17 +3798,17 @@ msgid "Python venv path"
 msgstr "„Python“ virtualiosios aplinkos (venv) kelias"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
 "Jei nustatyta, vykdo =PY() ir „Run Python Script“ tame venv (bin/python, "
 "Scripts/python.exe arba conda/pyenv-win env-root python.exe). Įklijuokite "
-"kelią be kabučių. Jei tuščia, naudoja šio proceso sys.executable (pagrindinė "
-"stdlib); naudokite venv, jei reikia numpy/pandas ir „Vision "
-"Helpers“ (paddleocr, paddlepaddle)."
+"kelią be kabučių. Jei tuščia, naudoja šio proceso sys.executable (pagrindinė"
+" stdlib); naudokite venv, jei reikia numpy/pandas ir „Vision Helpers“ "
+"(paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Tikrinti"
@@ -3625,12 +3828,12 @@ msgid "Max Calc data cells"
 msgstr "Didžiausias „Calc“ duomenų langelių skaičius"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Didžiausias langelių skaičius „=PYTHON()“ duomenyse arba „Run Python Script“ "
-"duomenų srityje. Didesnės reikšmės naudoja daugiau operatyviosios atminties "
-"ir laiko; UNO srities skaitymas vis tiek išlieka pagrindiniu veiksniu."
+"Didžiausias langelių skaičius „=PYTHON()“ duomenyse arba „Run Python Script“"
+" duomenų srityje. Didesnės reikšmės naudoja daugiau operatyviosios atminties"
+" ir laiko; UNO srities skaitymas vis tiek išlieka pagrindiniu veiksniu."
 
 msgid "Python session mode"
 msgstr "„Python“ seanso veiksena"
@@ -3662,15 +3865,15 @@ msgid ""
 "Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
 "adjacent cells."
 msgstr ""
-"Automatiškai išskleisti =PYTHON() funkcijos grąžinamus kelių langelių "
-"masyvų / „DataFrame“ rezultatus į gretimus langelius."
+"Automatiškai išskleisti =PYTHON() funkcijos grąžinamus kelių langelių masyvų"
+" / „DataFrame“ rezultatus į gretimus langelius."
 
 msgid "Rewrite xl() ranges"
 msgstr "Perrašyti xl() rėžius"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Įrašant „Python in Cell“, perkelti statinius xl(\"A1:…\") į =PY duomenų "
 "argumentus ir perrašyti į data / data[i] / .to_pandas()."
@@ -3728,7 +3931,8 @@ msgid "Table cell matching"
 msgstr "Lentelės langelių atitikimas"
 
 msgid "Align detected table cells with content (extract_structure)."
-msgstr "Sulygiuoti aptiktus lentelės langelius su turiniu (extract_structure)."
+msgstr ""
+"Sulygiuoti aptiktus lentelės langelius su turiniu (extract_structure)."
 
 msgid "Keep orphan text clusters"
 msgstr "Palikti našlaičių teksto grupes"
@@ -3782,91 +3986,3 @@ msgstr "„Docling“ dokumento skirtasis laikas (s)"
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr ""
 "Vienos konversijos skirtasis laikas „Docling“ programoje. 0 = be apribojimų."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Teikėjas"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "AI modelis:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "pasirinkimai"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

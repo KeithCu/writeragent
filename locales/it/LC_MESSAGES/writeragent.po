@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Italian <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Esecuzione OCR locale sulle immagini selezionate in corso..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Le letture di ricerca documentale richiedono una delega specifica delle "
 "attività (USE_SUB_AGENT). Abilitarla nella configurazione."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Chiamata allo strumento passata a '{0}'. Sei in una modalità set di "
@@ -58,8 +58,8 @@ msgstr "L'esecuzione del notebook è supportata solo in LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "Questo documento non ha alcun notebook importato. File → Apri prima un "
 "notebook Jupyter (.ipynb)."
@@ -214,7 +214,8 @@ msgstr "Limite di richieste raggiunto (429). Attendi un momento e riprova."
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
-msgstr "Errore del server ({0}). Il provider AI sta riscontrando dei problemi."
+msgstr ""
+"Errore del server ({0}). Il provider AI sta riscontrando dei problemi."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -237,8 +238,8 @@ msgstr ""
 msgid ""
 "Python venv not found. Open Settings → Python, set the venv path, then Test."
 msgstr ""
-"Venv Python non trovato. Apri Impostazioni → Python, imposta il percorso del "
-"venv, quindi esegui il Test."
+"Venv Python non trovato. Apri Impostazioni → Python, imposta il percorso del"
+" venv, quindi esegui il Test."
 
 #: plugin/framework/errors.py
 msgid ""
@@ -265,7 +266,8 @@ msgstr ""
 "Impostazioni."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connessione rifiutata. Il tuo server IA locale (Ollama/LM Studio) è in "
 "esecuzione?"
@@ -310,16 +312,16 @@ msgid ""
 "The local Ollama/llama.cpp process crashed because the prompt overflowed a "
 "{0} context window."
 msgstr ""
-"Il processo locale Ollama/llama.cpp si è arrestato in modo anomalo perché il "
-"prompt ha superato una finestra di contesto di {0}."
+"Il processo locale Ollama/llama.cpp si è arrestato in modo anomalo perché il"
+" prompt ha superato una finestra di contesto di {0}."
 
 #: plugin/framework/client/errors.py
 msgid ""
 "The local Ollama/llama.cpp process crashed because the prompt overflowed a "
 "too-small context window."
 msgstr ""
-"Il processo locale Ollama/llama.cpp si è arrestato in modo anomalo perché il "
-"prompt ha superato una finestra di contesto troppo piccola."
+"Il processo locale Ollama/llama.cpp si è arrestato in modo anomalo perché il"
+" prompt ha superato una finestra di contesto troppo piccola."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -329,8 +331,8 @@ msgstr "Errore HTTP {0} dal provider IA: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Se la tua chiave API proviene da un abbonamento GLM Coding Plan, imposta "
 "l'endpoint su {0} (non l'URL generale /api/paas)."
@@ -355,8 +357,8 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Il modello sta ripetendo lo stesso blocco (ciclo infinito). Riprova o usa un "
-"modello diverso."
+"Il modello sta ripetendo lo stesso blocco (ciclo infinito). Riprova o usa un"
+" modello diverso."
 
 #: plugin/framework/client/request_controls.py
 #, python-brace-format
@@ -384,6 +386,75 @@ msgstr "Imposta il Modello nelle Impostazioni."
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Seleziona un modello valido nelle Impostazioni (non un segnaposto)."
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Richiesta vocale non riuscita ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Richiesta vocale non riuscita: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Richiesta vocale non riuscita ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Richiesta vocale non riuscita."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Download del modello vocale Kokoro in corso…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr ""
+"Impossibile scaricare Kokoro; utilizzo della sintesi vocale del sistema "
+"operativo"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Download della voce Piper {0} in corso…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Impossibile scaricare {0}; utilizzo di Lessac"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr ""
+"Impossibile scaricare {0}; utilizzo della sintesi vocale del sistema "
+"operativo"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr ""
+"Phonemizer Kokoro non riuscito; questa lingua potrebbe essere letta in modo "
+"errato."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Installazione di Kokoro phonemizer in corso..."
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Impossibile installare Kokoro phonemizer; questa lingua potrebbe essere "
+"letta in modo errato. Installare con: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Download del dizionario del fonetizzatore giapponese in corso..."
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -403,8 +474,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"L'editor Monaco è disabilitato da \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
+"L'editor Monaco è disabilitato da \"scripting.force_internal_script_editor\""
+" in writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -465,8 +536,9 @@ msgstr "Impossibile caricare PythonCellEditorDialog dall'estensione."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Impossibile preservare gli argomenti della formula PY di questa cella (es. "
 "intervalli di dati). Modifica la formula in Calc o utilizza una stringa di "
@@ -485,15 +557,14 @@ msgid ""
 msgstr ""
 "Salvare le modifiche a {0}?\n"
 "\n"
-"Sì per salvare. No per annullare e aprire la nuova cella. Annulla per "
-"continuare a modificare {0}."
+"Sì per salvare. No per annullare e aprire la nuova cella. Annulla per continuare a modificare {0}."
 
 #: plugin/calc/python/editor.py
 #, python-format
 msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
 msgstr ""
-"Impossibile riscrivere i letterali di intervallo xl() in argomenti dati =PY: "
-"%s"
+"Impossibile riscrivere i letterali di intervallo xl() in argomenti dati =PY:"
+" %s"
 
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
@@ -529,9 +600,9 @@ msgid ""
 "another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
 "quoted code."
 msgstr ""
-"Questa formula PY utilizza una forma che l'editor non può riscrivere in modo "
-"sicuro (es. codice in un'altra cella). Modificala nella barra della formula "
-"o utilizza =PY(\"codice\"; intervallo) con codice tra virgolette."
+"Questa formula PY utilizza una forma che l'editor non può riscrivere in modo"
+" sicuro (es. codice in un'altra cella). Modificala nella barra della formula"
+" o utilizza =PY(\"codice\"; intervallo) con codice tra virgolette."
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -575,8 +646,8 @@ msgstr "Immagini inserite"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Ordine di ricalcolo geometrico saltato per il foglio '%(sheet)s': trovate "
 "%(cap)s o più celle Python (limite di rilevamento). Il foglio è stato "
@@ -589,16 +660,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Impossibile scrivere le parti del pacchetto Python di Microsoft Excel per:\n"
 "{0}\n"
 "\n"
-"Il file è stato salvato con formule =PY di LibreOffice. Excel non vedrà "
-"pythonScripts.xml / _xlws.PY finché l'esportazione non avrà successo.\n"
+"Il file è stato salvato con formule =PY di LibreOffice. Excel non vedrà pythonScripts.xml / _xlws.PY finché l'esportazione non avrà successo.\n"
 "\n"
 "{1}"
 
@@ -819,8 +888,8 @@ msgid ""
 "Could not identify the selected formula. Click in the text, then insert a "
 "new formula."
 msgstr ""
-"Impossibile identificare la formula selezionata. Fare clic nel testo, quindi "
-"inserire una nuova formula."
+"Impossibile identificare la formula selezionata. Fare clic nel testo, quindi"
+" inserire una nuova formula."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Unknown conversion error"
@@ -1350,7 +1419,8 @@ msgstr ""
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
-msgstr "[L'invio tra pari richiede la modalità Chat in questa barra laterale.]"
+msgstr ""
+"[L'invio tra pari richiede la modalità Chat in questa barra laterale.]"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1414,8 +1484,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nessun editor trovato (installare Kate o Gedit, oppure impostare EDITOR). "
-"Percorso:\n"
+"Nessun editor trovato (installare Kate o Gedit, oppure impostare EDITOR). Percorso:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1444,7 +1513,8 @@ msgstr "[Backend agente '{0}' non trovato.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agente '{0}' non disponibile. Controllare le impostazioni "
 "(percorso, installazione).]"
@@ -1567,8 +1637,8 @@ msgid ""
 "A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
 "to check for updates and install the latest extension."
 msgstr ""
-"È disponibile una versione più recente di %(name)s (%(version)s). Utilizzare "
-"Strumenti → Gestione estensioni per verificare la disponibilità di "
+"È disponibile una versione più recente di %(name)s (%(version)s). Utilizzare"
+" Strumenti → Gestione estensioni per verificare la disponibilità di "
 "aggiornamenti e installare l'ultima versione dell'estensione."
 
 #: plugin/chatbot/dialog_views.py
@@ -1583,6 +1653,21 @@ msgstr "Impossibile aprire le Impostazioni: {0}"
 #: plugin/chatbot/dialog_views.py
 msgid "Testing connection..."
 msgstr "Test connessione in corso..."
+
+#: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Sintesi vocale"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Impossibile riprodurre il campione vocale."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"L'output vocale è disattivato. Attivare \"Abilita output vocale (TTS)\" per "
+"ascoltare questa voce."
 
 #: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
@@ -1611,6 +1696,10 @@ msgstr "Altezza:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Larghezza:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Leggi le risposte ad alta voce (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1784,8 +1873,8 @@ msgstr ""
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
-"Gli script del documento sono troppo grandi per essere salvati nel documento "
-"({0} byte)."
+"Gli script del documento sono troppo grandi per essere salvati nel documento"
+" ({0} byte)."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 msgid "No document is open to save scripts."
@@ -1796,8 +1885,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Il documento è in sola lettura o le proprietà non possono essere scritte. Lo "
-"script è stato salvato nella tua libreria personale."
+"Il documento è in sola lettura o le proprietà non possono essere scritte. Lo"
+" script è stato salvato nella tua libreria personale."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1946,12 +2035,12 @@ msgstr "Non riuscito"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
-"Imposta il percorso del venv Python in Impostazioni → Python (lo stesso venv "
-"dove hai eseguito 'uv pip install pywebview rocher'). Il Python integrato di "
-"LibreOffice non può eseguire l'editor Monaco."
+"Imposta il percorso del venv Python in Impostazioni → Python (lo stesso venv"
+" dove hai eseguito 'uv pip install pywebview rocher'). Il Python integrato "
+"di LibreOffice non può eseguire l'editor Monaco."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1959,8 +2048,8 @@ msgid ""
 "No python executable found under configured venv: {0} (expected bin/python, "
 "Scripts/python.exe, or env-root python.exe)."
 msgstr ""
-"Nessun eseguibile Python trovato nel venv configurato: {0} (previsti bin/"
-"python, Scripts/python.exe o python.exe nella root dell'ambiente)."
+"Nessun eseguibile Python trovato nel venv configurato: {0} (previsti "
+"bin/python, Scripts/python.exe o python.exe nella root dell'ambiente)."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -1986,7 +2075,8 @@ msgstr ""
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe timed out (sounddevice import failed or hung)."
 msgstr ""
-"Timeout del sondaggio audio (importazione di sounddevice fallita o bloccata)."
+"Timeout del sondaggio audio (importazione di sounddevice fallita o "
+"bloccata)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe failed (see writeragent_debug.log)."
@@ -2005,7 +2095,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Probe Text/NLP non riuscito (vedere writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Timeout della sonda di visione (l'importazione di Docling può richiedere "
 "10-30 secondi al primo controllo)."
@@ -2028,8 +2119,8 @@ msgstr ""
 "Sonda di ricerca vettoriale non riuscita (vedere writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Registrazione audio"
+msgid "Audio Recording & Speech"
+msgstr "Registrazione audio e sintesi vocale"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2072,12 +2163,20 @@ msgid "Vector Search Libraries"
 msgstr "Librerie di ricerca vettoriale"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Registrazione audio"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Per installare i pacchetti rimanenti:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Nessun dispositivo di ingresso microfono rilevato."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Motori TTS locali (opzionali):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2088,8 +2187,8 @@ msgid "Reading Python version..."
 msgstr "Lettura della versione di Python in corso..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Registrazione audio: controllo di sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Audio e sintesi vocale: controllo di sounddevice e motori TTS..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2141,8 +2240,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2150,14 +2248,12 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Errore dal worker di Analisi del testo:\n"
 "{err}\n"
 "\n"
-"Le funzionalità in questa finestra di dialogo richiedono questi pacchetti "
-"nel Python in uso:\n"
+"Le funzionalità in questa finestra di dialogo richiedono questi pacchetti nel Python in uso:\n"
 "  • spacy + un modello          (entità, frasi chiave, statistiche di base)\n"
 "  • textdescriptives         (punteggi di leggibilità reali)\n"
 "  • transformers + torch     (Sentiment utilizzando il modello multilingue)\n"
@@ -2165,9 +2261,7 @@ msgstr ""
 "Installali con:\n"
 "  {install}\n"
 "\n"
-"Il worker ha segnalato il modulo come mancante. Verifica che i pacchetti "
-"siano installati nell'eseguibile Python esatto che il worker ha risolto per "
-"il venv configurato."
+"Il worker ha segnalato il modulo come mancante. Verifica che i pacchetti siano installati nell'eseguibile Python esatto che il worker ha risolto per il venv configurato."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2186,16 +2280,11 @@ msgstr "Analisi in corso..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Errore: %s\n"
 "\n"
-"Potrebbero mancare dei pacchetti necessari nel venv configurato "
-"(Impostazioni → Python). Fare clic su Verifica Venv in questa finestra di "
-"dialogo o utilizzare il Test completo in Impostazioni → Python per i "
-"dettagli su spacy, textdescriptives, transformers, torch ecc."
+"Potrebbero mancare dei pacchetti necessari nel venv configurato (Impostazioni → Python). Fare clic su Verifica Venv in questa finestra di dialogo o utilizzare il Test completo in Impostazioni → Python per i dettagli su spacy, textdescriptives, transformers, torch ecc."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2249,7 +2338,8 @@ msgstr "Assistente visualizzazione non riuscito."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
-msgstr "L'assistente visualizzazione non ha restituito alcun payload immagine."
+msgstr ""
+"L'assistente visualizzazione non ha restituito alcun payload immagine."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -2334,8 +2424,8 @@ msgid ""
 msgstr ""
 "La modalità di sessione Python è Isolata (ogni cella =PY() utilizza le "
 "proprie variabili). Non esiste una sessione di cella condivisa da "
-"ripristinare. Aggiungi uno script di inizializzazione se devi cancellare una "
-"configurazione della cartella di lavoro eseguita una sola volta."
+"ripristinare. Aggiungi uno script di inizializzazione se devi cancellare una"
+" configurazione della cartella di lavoro eseguita una sola volta."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this document."
@@ -2408,14 +2498,14 @@ msgid ""
 "Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
 "(took {time})"
 msgstr ""
-"Vision '{helper}' completato. Inserito HTML formattato per {count} immagini. "
-"(durata {time})"
+"Vision '{helper}' completato. Inserito HTML formattato per {count} immagini."
+" (durata {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Script eseguito correttamente, ma non ha restituito alcun risultato né "
 "prodotto alcun output. (durata: {time})"
@@ -2526,8 +2616,8 @@ msgstr "Avvio del server MCP non riuscito"
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
-"Controllare writeragent_debug.log nella cartella di configurazione utente di "
-"LibreOffice"
+"Controllare writeragent_debug.log nella cartella di configurazione utente di"
+" LibreOffice"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2745,8 +2835,7 @@ msgstr ""
 "Il binario {0} '{1}' è installato e verificato ({2}).\n"
 "\n"
 "Il server MCP è in esecuzione localmente sulla porta {3}.\n"
-"Seleziona 'Esponi tramite tunnel pubblico' e fai clic su OK per attivare il "
-"routing pubblico."
+"Seleziona 'Esponi tramite tunnel pubblico' e fai clic su OK per attivare il routing pubblico."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2808,10 +2897,6 @@ msgstr "Chiedi / istruisci:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Rapporto d'aspetto:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Modello audio:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3164,6 +3249,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3190,6 +3279,127 @@ msgstr "Grok Build (ACP)"
 
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
+
+msgid "Audio Model:"
+msgstr "Modello audio:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Modello di sintesi vocale quando il modello di chat non può ricevere input "
+"audio."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Abilita output vocale (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+"Leggi le risposte dell'assistente ad alta voce usando la sintesi vocale."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Leggi frase per frase (Locale)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Sintetizza le frasi successive mentre quella corrente è in riproduzione, in "
+"modo che una frase breve non sia seguita da una pausa. L'interruzione scarta"
+" i clip non ancora riprodotti. Disattiva per leggere l'intera risposta come "
+"un unico clip."
+
+msgid "Keep replies brief"
+msgstr "Mantieni le risposte brevi"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Punta a circa un paragrafo a meno che l'utente non chieda di più. Si applica"
+" solo quando l'output vocale (TTS) è attivo."
+
+msgid "TTS Provider"
+msgstr "Fornitore TTS"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Scegli se utilizzare la sintesi vocale integrata nel sistema operativo, un "
+"motore neurale locale o il tuo endpoint API."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS nativo (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (neurale locale, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (neurale locale veloce, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "Endpoint LLM"
+
+msgid "TTS Model"
+msgstr "Modello TTS"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Modello per la sintesi vocale (utilizzato quando il provider TTS è un "
+"endpoint LLM)."
+
+msgid "Voice"
+msgstr "Voce"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Voce per il provider selezionato. L'elenco corrisponde al catalogo Piper o "
+"Kokoro per la tua lingua."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI neutra)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro US femminile - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (Inglese USA femminile - Lessac)"
+
+msgid "default (System Default)"
+msgstr "predefinito (Predefinito di sistema)"
+
+msgid "Test voice"
+msgstr "Prova voce"
+
+msgid "Speech Speed"
+msgstr "Velocità parlato"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Moltiplicatore velocità di riproduzione (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, "
+"2.0x, o personalizzato fino a 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
 
 msgid "Calc spreadsheet tools"
 msgstr "Strumenti foglio di calcolo Calc"
@@ -3262,8 +3472,8 @@ msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
 msgstr ""
-"Seleziona il backend del browser da utilizzare per le visite alle pagine web "
-"durante la ricerca (Disattivato utilizza richieste HTTP statiche)."
+"Seleziona il backend del browser da utilizzare per le visite alle pagine web"
+" durante la ricerca (Disattivato utilizza richieste HTTP statiche)."
 
 msgid "Off (Static HTTP)"
 msgstr "Disattivato (HTTP statico)"
@@ -3304,15 +3514,15 @@ msgstr "Abilità Humanizer (prosa naturale)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Quando abilitata, inserisce istruzioni nel prompt di sistema affinché il "
-"modello faccia suonare il testo del documento generato o revisionato in modo "
-"più naturale e umano (rimuove i pattern tipici dell'IA). Modifica le regole "
-"nel tuo profilo LibreOffice sotto writeragent/skills/humanizer/SKILL.md (il "
-"file viene creato automaticamente al primo utilizzo). Una scheda dedicata "
+"modello faccia suonare il testo del documento generato o revisionato in modo"
+" più naturale e umano (rimuove i pattern tipici dell'IA). Modifica le regole"
+" nel tuo profilo LibreOffice sotto writeragent/skills/humanizer/SKILL.md (il"
+" file viene creato automaticamente al primo utilizzo). Una scheda dedicata "
 "alle Abilità potrà essere aggiunta in seguito."
 
 msgid "Silence before send (ms)"
@@ -3332,14 +3542,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Abilita correttore grammaticale (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Off = disattivato. AI (LLM) = utilizza il modello di testo/API configurato. "
 "LanguageTool / Vale = motori locali tramite Impostazioni → venv Python. "
-"Harper = binario Rust offline scaricato automaticamente nel tuo profilo (non "
-"è richiesto alcun venv)."
+"Harper = binario Rust offline scaricato automaticamente nel tuo profilo (non"
+" è richiesto alcun venv)."
 
 msgid "Off"
 msgstr "Disattivato"
@@ -3381,8 +3591,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Se attivo, la grammatica AI salta le richieste in background mentre la chat "
-"nella barra laterale o l'agente sono in esecuzione, per evitare chiamate API "
-"simultanee."
+"nella barra laterale o l'agente sono in esecuzione, per evitare chiamate API"
+" simultanee."
 
 msgid "Batch sentences"
 msgstr "Elaborazione batch frasi"
@@ -3392,8 +3602,8 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"Numero di frasi da inviare per richiesta LLM (1-8). 1 (predefinito) è il più "
-"affidabile; valori più alti sono più veloci ed economici ma potrebbero "
+"Numero di frasi da inviare per richiesta LLM (1-8). 1 (predefinito) è il più"
+" affidabile; valori più alti sono più veloci ed economici ma potrebbero "
 "raggiungere i limiti di token o causare errori del modello."
 
 msgid "Concurrent requests"
@@ -3405,8 +3615,8 @@ msgid ""
 "requests; use with care alongside sidebar chat."
 msgstr ""
 "Numero massimo di chiamate API simultanee in background per la grammatica "
-"(1-8). 1 corrisponde al comportamento precedente. Aumentare per OpenRouter o "
-"altri provider che consentono richieste parallele; utilizzare con cautela "
+"(1-8). 1 corrisponde al comportamento precedente. Aumentare per OpenRouter o"
+" altri provider che consentono richieste parallele; utilizzare con cautela "
 "insieme alla chat nella barra laterale."
 
 msgid "Sentence language detection"
@@ -3445,9 +3655,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Disattivato = modifiche dirette. Registra = modifiche tracciate che accetti/"
-"rifiuti tu stesso. Attendi = apply_document_content blocca (sul thread di "
-"chat/MCP worker) finché non revisioni."
+"Disattivato = modifiche dirette. Registra = modifiche tracciate che "
+"accetti/rifiuti tu stesso. Attendi = apply_document_content blocca (sul "
+"thread di chat/MCP worker) finché non revisioni."
 
 msgid "Record (track changes)"
 msgstr "Registra (traccia modifiche)"
@@ -3488,8 +3698,8 @@ msgstr "Modello di embedding"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"ID del modello HuggingFace per il provider locale o ID del modello specifico "
-"per l'endpoint"
+"ID del modello HuggingFace per il provider locale o ID del modello specifico"
+" per l'endpoint"
 
 msgid "Enable cross-file rerank"
 msgstr "Abilita il rerank tra file"
@@ -3505,8 +3715,8 @@ msgid "Rerank model"
 msgstr "Modello di riordinamento"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Utilizzato solo quando il riordinamento è abilitato. English MiniLM è "
 "veloce; bge-reranker-v2-m3 è multilingue e scarica circa 2,3 GB."
@@ -3527,11 +3737,11 @@ msgid "Enable MCP Server"
 msgstr "Abilita server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Solo localhost, nessuna autenticazione. I client utilizzano http://localhost:"
-"<port>/mcp (HTTP trasmissibile)."
+"Solo localhost, nessuna autenticazione. I client utilizzano "
+"http://localhost:<port>/mcp (HTTP trasmissibile)."
 
 msgid "MCP Port"
 msgstr "Porta MCP"
@@ -3549,11 +3759,11 @@ msgid ""
 msgstr ""
 "Come gli strumenti specializzati vengono presentati ai client MCP. "
 "delegate=raggiunti tramite il gateway delegato (comportamento attuale); "
-"direct_flat=tutti gli strumenti specializzati raggiungibili via MCP elencati "
-"direttamente, escludendo i flussi solo barra laterale (ideale per client con "
-"ricerca strumenti propria); direct_discovery=piccolo elenco principale più "
-"find_tools (catalogo di dominio, poi schemi strumenti per dominio; ideale "
-"per qualsiasi client)."
+"direct_flat=tutti gli strumenti specializzati raggiungibili via MCP elencati"
+" direttamente, escludendo i flussi solo barra laterale (ideale per client "
+"con ricerca strumenti propria); direct_discovery=piccolo elenco principale "
+"più find_tools (catalogo di dominio, poi schemi strumenti per dominio; "
+"ideale per qualsiasi client)."
 
 msgid "Delegate (default)"
 msgstr "Delegato (predefinito)"
@@ -3572,8 +3782,8 @@ msgstr "Esponi tramite tunnel pubblico"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Richiede il binario del provider selezionato nel PATH (cloudflared, bore, "
 "ngrok o tailscale). MCP non dispone di autenticazione: chiunque abbia l'URL "
@@ -3610,8 +3820,8 @@ msgid ""
 "Empty = provider default / CLI config. Unused for Tailscale."
 msgstr ""
 "Token di autenticazione Ngrok; token tunnel Cloudflare; server Bore o "
-"'segreto del server'. Vuoto = predefinito del provider / configurazione CLI. "
-"Non utilizzato per Tailscale."
+"'segreto del server'. Vuoto = predefinito del provider / configurazione CLI."
+" Non utilizzato per Tailscale."
 
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Configurazione client (copia in Claude / Hermes-Agent):"
@@ -3623,10 +3833,10 @@ msgid "Python venv path"
 msgstr "Percorso venv Python"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
 "Se impostato, esegue =PY() e Esegui script Python in quel venv (bin/python, "
@@ -3653,11 +3863,11 @@ msgid "Max Calc data cells"
 msgstr "Numero massimo di celle dati Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Numero massimo di celle in =PYTHON() data o Run Python Script data/"
-"data_range. Valori più grandi utilizzano più RAM e tempo; la lettura "
+"Numero massimo di celle in =PYTHON() data o Run Python Script "
+"data/data_range. Valori più grandi utilizzano più RAM e tempo; la lettura "
 "dell'intervallo UNO rimane predominante."
 
 msgid "Python session mode"
@@ -3697,8 +3907,8 @@ msgid "Rewrite xl() ranges"
 msgstr "Riscrivi intervalli xl()"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Al salvataggio di Python in cella, sposta gli xl(\"A1:…\") statici negli "
 "argomenti dati =PY e riscrivili in data / data[i] / .to_pandas()."
@@ -3754,7 +3964,8 @@ msgstr "Corrispondenza celle tabella"
 
 msgid "Align detected table cells with content (extract_structure)."
 msgstr ""
-"Allinea le celle della tabella rilevate con il contenuto (extract_structure)."
+"Allinea le celle della tabella rilevate con il contenuto "
+"(extract_structure)."
 
 msgid "Keep orphan text clusters"
 msgstr "Mantieni cluster di testo orfani"
@@ -3804,91 +4015,3 @@ msgstr "Timeout documento Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Timeout per conversione all'interno di Docling. 0 = nessun limite."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Provider"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "Modello AI:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "scelte"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

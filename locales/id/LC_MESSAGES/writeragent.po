@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Menjalankan OCR lokal pada gambar yang dipilih..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Pembacaan riset dokumen memerlukan pendelegasian tugas khusus "
 "(USE_SUB_AGENT). Aktifkan ini di konfigurasi."
@@ -40,13 +40,13 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Panggilan alat beralih ke '{0}'. Anda berada dalam mode perangkat alat "
-"khusus. Anda harus memanggil 'specialized_workflow_finished' setelah selesai "
-"untuk memulihkan rangkaian API lengkap."
+"khusus. Anda harus memanggil 'specialized_workflow_finished' setelah selesai"
+" untuk memulihkan rangkaian API lengkap."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -58,8 +58,8 @@ msgstr "Menjalankan notebook hanya didukung di LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "Dokumen ini tidak memiliki notebook yang diimpor. Buka Berkas → Buka "
 "notebook Jupyter (.ipynb) terlebih dahulu."
@@ -150,8 +150,8 @@ msgid ""
 "Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
 "Embeddings."
 msgstr ""
-"Pencarian lintas file dinonaktifkan. Aktifkan Embeddings + FTS di Pengaturan "
-"→ Embeddings."
+"Pencarian lintas file dinonaktifkan. Aktifkan Embeddings + FTS di Pengaturan"
+" → Embeddings."
 
 #: plugin/embeddings/search_ui.py
 msgid "Error: "
@@ -236,8 +236,8 @@ msgstr ""
 msgid ""
 "Python venv not found. Open Settings → Python, set the venv path, then Test."
 msgstr ""
-"Python venv tidak ditemukan. Buka Pengaturan → Python, atur jalur venv, lalu "
-"Uji."
+"Python venv tidak ditemukan. Buka Pengaturan → Python, atur jalur venv, lalu"
+" Uji."
 
 #: plugin/framework/errors.py
 msgid ""
@@ -262,7 +262,8 @@ msgstr ""
 "Pengaturan."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Koneksi Ditolak. Apakah server AI lokal Anda (Ollama/LM Studio) sedang "
 "berjalan?"
@@ -326,8 +327,8 @@ msgstr "Kesalahan HTTP {0} dari Penyedia AI: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Jika kunci API Anda berasal dari langganan Paket Coding GLM, atur titik "
 "akhir ke {0} (bukan URL /api/paas umum)."
@@ -352,8 +353,8 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau "
-"gunakan model yang berbeda."
+"Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau"
+" gunakan model yang berbeda."
 
 #: plugin/framework/client/request_controls.py
 #, python-brace-format
@@ -380,6 +381,69 @@ msgstr "Harap atur Model di Pengaturan."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Harap pilih model yang valid di Pengaturan (bukan placeholder)."
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Permintaan ucapan gagal ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Permintaan ucapan gagal: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Permintaan ucapan gagal ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Permintaan ucapan gagal."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Mengunduh model suara Kokoro…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "Tidak dapat mengunduh Kokoro; menggunakan ucapan OS"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Mengunduh suara Piper {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Tidak dapat mengunduh {0}; menggunakan Lessac"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "Tidak dapat mengunduh {0}; menggunakan ucapan OS"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr "Fonemizer Kokoro gagal; bahasa ini mungkin salah dibaca."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Memasang phonemizer Kokoro…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Tidak dapat memasang phonemizer Kokoro; bahasa ini mungkin salah dibaca. "
+"Pasang dengan: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Mengunduh kamus phonemizer bahasa Jepang…"
 
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
@@ -460,11 +524,12 @@ msgstr "PythonCellEditorDialog tidak dapat dimuat dari ekstensi."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Tidak dapat mempertahankan argumen rumus PY sel ini (misalnya rentang data). "
-"Edit rumus di Calc, atau gunakan string kode dalam tanda kutip seperti "
+"Tidak dapat mempertahankan argumen rumus PY sel ini (misalnya rentang data)."
+" Edit rumus di Calc, atau gunakan string kode dalam tanda kutip seperti "
 "=PY(\"kode\"; A1:B10)."
 
 #: plugin/calc/python/editor.py
@@ -480,8 +545,7 @@ msgid ""
 msgstr ""
 "Simpan perubahan ke {0}?\n"
 "\n"
-"Ya untuk menyimpan. Tidak untuk membuang dan membuka sel baru. Batal untuk "
-"tetap menyunting {0}."
+"Ya untuk menyimpan. Tidak untuk membuang dan membuka sel baru. Batal untuk tetap menyunting {0}."
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -545,8 +609,8 @@ msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
 msgstr ""
-"Kesalahan: venv Python tidak ditemukan. Buka Pengaturan → Python, atur jalur "
-"venv, lalu Uji."
+"Kesalahan: venv Python tidak ditemukan. Buka Pengaturan → Python, atur jalur"
+" venv, lalu Uji."
 
 #: plugin/calc/python/function.py
 msgid ""
@@ -568,11 +632,11 @@ msgstr "Gambar disisipkan"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
-"Urutan Hitung Ulang Geometris melewati lembar '%(sheet)s': ditemukan %(cap)s "
-"sel Python atau lebih (batas penemuan). Lembar dibiarkan tidak berantai "
+"Urutan Hitung Ulang Geometris melewati lembar '%(sheet)s': ditemukan %(cap)s"
+" sel Python atau lebih (batas penemuan). Lembar dibiarkan tidak berantai "
 "sehingga daftar parsial tidak dianggap lengkap."
 
 #: plugin/calc/excel_py_convert/auto_open.py
@@ -581,16 +645,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Tidak dapat menulis bagian paket Python Microsoft Excel untuk:\n"
 "{0}\n"
 "\n"
-"File disimpan dengan rumus =PY LibreOffice. Excel tidak akan melihat "
-"pythonScripts.xml / _xlws.PY sampai ekspor berhasil.\n"
+"File disimpan dengan rumus =PY LibreOffice. Excel tidak akan melihat pythonScripts.xml / _xlws.PY sampai ekspor berhasil.\n"
 "\n"
 "{1}"
 
@@ -1351,8 +1413,8 @@ msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr ""
-"Cache riset ditemukan (fuzzy, kecocokan %(pct)s%%: %(lang_bit)s%(cache_key)s "
-"→ %(matched)s)"
+"Cache riset ditemukan (fuzzy, kecocokan %(pct)s%%: %(lang_bit)s%(cache_key)s"
+" → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1360,8 +1422,8 @@ msgid ""
 "Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr ""
-"Cache riset ditemukan (embedding, %(pct)s%% cocok: %(lang_bit)s%(cache_key)s "
-"→ %(matched)s)"
+"Cache riset ditemukan (embedding, %(pct)s%% cocok: %(lang_bit)s%(cache_key)s"
+" → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1402,7 +1464,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Editor tidak ditemukan (instal Kate atau Gedit, atau atur EDITOR). Jalur: {0}"
+"Editor tidak ditemukan (instal Kate atau Gedit, atau atur EDITOR). Jalur: "
+"{0}"
 
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
@@ -1430,7 +1493,8 @@ msgstr "[Backend agen '{0}' tidak ditemukan.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agen '{0}' tidak tersedia. Periksa Pengaturan (jalur, instalasi).]"
 
@@ -1569,6 +1633,21 @@ msgid "Testing connection..."
 msgstr "Menguji koneksi..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Ucapan"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Tidak dapat memutar sampel suara."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Output ucapan nonaktif. Aktifkan Aktifkan Output Ucapan (TTS) untuk "
+"mendengar suara ini."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Unduh Pustaka Audio"
 
@@ -1595,6 +1674,10 @@ msgstr "Tinggi:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Lebar:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Ucapkan respons dengan lantang (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1774,8 +1857,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Dokumen bersifat baca-saja atau properti tidak dapat ditulis. Skrip disimpan "
-"ke pustaka pribadi Anda sebagai gantinya."
+"Dokumen bersifat baca-saja atau properti tidak dapat ditulis. Skrip disimpan"
+" ke pustaka pribadi Anda sebagai gantinya."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1924,8 +2007,8 @@ msgstr "Gagal"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
 "Atur jalur venv Python di Pengaturan → Python (venv yang sama tempat Anda "
 "menjalankan 'uv pip install pywebview rocher'). Python bawaan LibreOffice "
@@ -1981,7 +2064,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Probe Teks/NLP gagal (lihat writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Probe visi kehabisan waktu (impor Docling bisa memakan waktu 10–30 detik "
 "pada pemeriksaan pertama)."
@@ -1995,16 +2079,16 @@ msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
 msgstr ""
-"Probe Pencarian Vektor habis waktu (impor sentence-transformers bisa memakan "
-"waktu 10–30 detik pada pemeriksaan pertama)."
+"Probe Pencarian Vektor habis waktu (impor sentence-transformers bisa memakan"
+" waktu 10–30 detik pada pemeriksaan pertama)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Probe Pencarian Vektor gagal (lihat writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Perekaman Audio"
+msgid "Audio Recording & Speech"
+msgstr "Rekaman Audio & Ucapan"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2047,12 +2131,20 @@ msgid "Vector Search Libraries"
 msgstr "Pustaka Pencarian Vektor"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Perekaman Audio"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Untuk menginstal paket yang tersisa:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Tidak ada perangkat input mikrofon yang terdeteksi."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Mesin TTS lokal (opsional):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2063,8 +2155,8 @@ msgid "Reading Python version..."
 msgstr "Membaca versi Python..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Perekaman Audio: memeriksa sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Audio & Ucapan: memeriksa sounddevice dan mesin TTS..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2111,8 +2203,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2120,14 +2211,12 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Kesalahan dari pekerja Analisis Teks:\n"
 "{err}\n"
 "\n"
-"Fitur-fitur dalam dialog ini memerlukan paket-paket berikut dalam python "
-"yang digunakannya:\n"
+"Fitur-fitur dalam dialog ini memerlukan paket-paket berikut dalam python yang digunakannya:\n"
 "  • spacy + model          (entitas, frasa kunci, statistik dasar)\n"
 "  • textdescriptives         (skor Keterbacaan nyata)\n"
 "  • transformers + torch     (Sentimen menggunakan model multibahasa)\n"
@@ -2135,9 +2224,7 @@ msgstr ""
 "Instal paket tersebut dengan:\n"
 "  {install}\n"
 "\n"
-"Pekerja melaporkan modul tersebut hilang. Pastikan paket terinstal di "
-"eksekusi python yang tepat yang diselesaikan oleh pekerja untuk venv yang "
-"Anda konfigurasi."
+"Pekerja melaporkan modul tersebut hilang. Pastikan paket terinstal di eksekusi python yang tepat yang diselesaikan oleh pekerja untuk venv yang Anda konfigurasi."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2156,16 +2243,11 @@ msgstr "Menganalisis..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Kesalahan: %s\n"
 "\n"
-"Paket yang diperlukan mungkin hilang dalam venv yang Anda konfigurasi "
-"(Pengaturan → Python). Klik Periksa Venv di dialog ini atau gunakan Tes "
-"lengkap di Pengaturan → Python untuk detail mengenai spacy, "
-"textdescriptives, transformers, torch, dll."
+"Paket yang diperlukan mungkin hilang dalam venv yang Anda konfigurasi (Pengaturan → Python). Klik Periksa Venv di dialog ini atau gunakan Tes lengkap di Pengaturan → Python untuk detail mengenai spacy, textdescriptives, transformers, torch, dll."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2280,8 +2362,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Atur Ulang Sesi Python berlaku untuk lembar kerja Calc. Buka buku kerja Calc "
-"dan coba lagi."
+"Atur Ulang Sesi Python berlaku untuk lembar kerja Calc. Buka buku kerja Calc"
+" dan coba lagi."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -2301,8 +2383,8 @@ msgid ""
 "There is no shared cell session to reset. Add an initialization script if "
 "you need to clear expensive one-time workbook setup."
 msgstr ""
-"Mode sesi Python adalah Terisolasi (setiap sel =PY() menggunakan variabelnya "
-"sendiri). Tidak ada sesi sel bersama untuk diatur ulang. Tambahkan skrip "
+"Mode sesi Python adalah Terisolasi (setiap sel =PY() menggunakan variabelnya"
+" sendiri). Tidak ada sesi sel bersama untuk diatur ulang. Tambahkan skrip "
 "inisialisasi jika Anda perlu menghapus pengaturan buku kerja satu kali yang "
 "memakan sumber daya."
 
@@ -2380,8 +2462,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skrip berhasil dijalankan, tetapi tidak mengembalikan hasil dan tidak "
 "menghasilkan keluaran. (memakan waktu {time})"
@@ -2488,7 +2570,8 @@ msgstr "Server MCP gagal dijalankan"
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
-"Periksa writeragent_debug.log di folder konfigurasi pengguna LibreOffice Anda"
+"Periksa writeragent_debug.log di folder konfigurasi pengguna LibreOffice "
+"Anda"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2546,8 +2629,8 @@ msgstr "Terowongan publik melalui {0}"
 #, python-brace-format
 msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
 msgstr ""
-"Terowongan publik melalui {0} sedang dimulai… gunakan Status Server MCP saat "
-"siap."
+"Terowongan publik melalui {0} sedang dimulai… gunakan Status Server MCP saat"
+" siap."
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -2706,8 +2789,7 @@ msgstr ""
 "Binary {0} '{1}' telah diinstal dan diverifikasi ({2}).\n"
 "\n"
 "Server MCP sedang berjalan secara lokal pada port {3}.\n"
-"Centang 'Expose via public tunnel' dan klik OK untuk mengaktifkan perutean "
-"publik."
+"Centang 'Expose via public tunnel' dan klik OK untuk mengaktifkan perutean publik."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2769,10 +2851,6 @@ msgstr "Tanya / instruksikan:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Rasio Aspek:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Model Audio:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -2853,7 +2931,8 @@ msgstr "URL Titik Akhir:"
 #: plugin/xdl_strings.py
 msgid "Enter LaTeX math code to convert and insert as formula:"
 msgstr ""
-"Masukkan kode matematika LaTeX untuk dikonversi dan disisipkan sebagai rumus:"
+"Masukkan kode matematika LaTeX untuk dikonversi dan disisipkan sebagai "
+"rumus:"
 
 #: plugin/xdl_strings.py
 msgid ""
@@ -3125,6 +3204,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3152,6 +3235,124 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "Model Audio:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Model ucapan-ke-teks saat model obrolan tidak dapat menerima input audio."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Aktifkan Output Ucapan (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr "Ucapkan respons asisten dengan lantang menggunakan text-to-speech."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Ucapkan kalimat demi kalimat (Lokal)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Sintesis kalimat berikutnya saat kalimat saat ini diputar, sehingga kalimat "
+"pendek tidak diikuti oleh jeda. Berhenti akan membuang klip yang belum "
+"diputar. Matikan untuk mengucapkan seluruh balasan sebagai satu klip."
+
+msgid "Keep replies brief"
+msgstr "Buat balasan singkat"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Targetkan sekitar satu paragraf kecuali pengguna meminta lebih. Hanya "
+"berlaku saat output ucapan (TTS) aktif."
+
+msgid "TTS Provider"
+msgstr "Penyedia TTS"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Pilih apakah akan menggunakan ucapan bawaan OS, mesin saraf lokal, atau "
+"titik akhir API Anda."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Native (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (Neural Lokal, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (Neural Cepat Lokal, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "Endpoint LLM"
+
+msgid "TTS Model"
+msgstr "Model TTS"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Model untuk sintesis ucapan (digunakan saat Penyedia TTS adalah Endpoint "
+"LLM)."
+
+msgid "Voice"
+msgstr "Suara"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Suara untuk penyedia yang dipilih. Daftar ini cocok dengan katalog Piper "
+"atau Kokoro untuk lokal Anda."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (Netral OpenAI)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro AS Wanita - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (Bahasa Inggris AS Wanita - Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (Bawaan Sistem)"
+
+msgid "Test voice"
+msgstr "Uji suara"
+
+msgid "Speech Speed"
+msgstr "Kecepatan Bicara"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Pengali kecepatan pemutaran (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, atau "
+"kustom hingga 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Alat lembar kerja Calc"
 
@@ -3167,8 +3368,8 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"Konversi .xlsx/.xls saudara ke writeragent_ods_cache/ di samping folder agar "
-"SQL DuckDB berulang menggunakan kembali ODS tersebut. .ods asli dan buku "
+"Konversi .xlsx/.xls saudara ke writeragent_ods_cache/ di samping folder agar"
+" SQL DuckDB berulang menggunakan kembali ODS tersebut. .ods asli dan buku "
 "kerja langsung tidak pernah disinggah. Atur calc.ods_cache_enabled false di "
 "writeragent.json untuk menonaktifkan."
 
@@ -3241,7 +3442,8 @@ msgid "Cache max (MB)"
 msgstr "Cache maksimal (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
-msgstr "Ukuran disk maksimum untuk cache pencarian web (0 untuk menonaktifkan)"
+msgstr ""
+"Ukuran disk maksimum untuk cache pencarian web (0 untuk menonaktifkan)"
 
 msgid "Cache validity (days)"
 msgstr "Masa berlaku cache (hari)"
@@ -3261,13 +3463,13 @@ msgstr "Keahlian Humanizer (prosa alami)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Saat diaktifkan, menyuntikkan panduan ke dalam prompt sistem agar model "
-"membuat teks dokumen yang dihasilkan atau direvisi terdengar lebih alami dan "
-"manusiawi (menghapus pola AI yang kaku). Edit aturan di profil LibreOffice "
+"membuat teks dokumen yang dihasilkan atau direvisi terdengar lebih alami dan"
+" manusiawi (menghapus pola AI yang kaku). Edit aturan di profil LibreOffice "
 "Anda di bawah writeragent/skills/humanizer/SKILL.md (file dibuat otomatis "
 "saat penggunaan pertama). Tab Keahlian khusus dapat ditambahkan nanti."
 
@@ -3278,8 +3480,8 @@ msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
 msgstr ""
-"Jeda setelah Anda berhenti bicara, lalu berhenti otomatis dan kirim (Rekam). "
-"0 = tunggu sampai Anda mengeklik Berhenti Rekam."
+"Jeda setelah Anda berhenti bicara, lalu berhenti otomatis dan kirim (Rekam)."
+" 0 = tunggu sampai Anda mengeklik Berhenti Rekam."
 
 msgid "Doc"
 msgstr "Dok"
@@ -3288,14 +3490,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Aktifkan pemeriksa tata bahasa (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Mati = dinonaktifkan. AI (LLM) = gunakan model/API teks yang telah Anda "
 "konfigurasi. LanguageTool / Vale = mesin lokal melalui Pengaturan → Python "
-"venv. Harper = biner Rust luring yang diunduh otomatis ke profil Anda (tidak "
-"memerlukan venv)."
+"venv. Harper = biner Rust luring yang diunduh otomatis ke profil Anda (tidak"
+" memerlukan venv)."
 
 msgid "Off"
 msgstr "Mati"
@@ -3360,8 +3562,8 @@ msgid ""
 "requests; use with care alongside sidebar chat."
 msgstr ""
 "Maksimum panggilan API tata bahasa latar belakang secara simultan (1-8). 1 "
-"sesuai dengan perilaku sebelumnya. Tingkatkan untuk OpenRouter atau penyedia "
-"lain yang mengizinkan permintaan paralel; gunakan dengan hati-hati bersama "
+"sesuai dengan perilaku sebelumnya. Tingkatkan untuk OpenRouter atau penyedia"
+" lain yang mengizinkan permintaan paralel; gunakan dengan hati-hati bersama "
 "obrolan bilah samping."
 
 msgid "Sentence language detection"
@@ -3400,9 +3602,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Mati = suntingan langsung. Rekam = perubahan terlacak yang Anda terima/tolak "
-"sendiri. Tunggu = apply_document_content memblokir (pada utas pekerja chat/"
-"MCP) sampai Anda meninjau."
+"Mati = suntingan langsung. Rekam = perubahan terlacak yang Anda terima/tolak"
+" sendiri. Tunggu = apply_document_content memblokir (pada utas pekerja "
+"chat/MCP) sampai Anda meninjau."
 
 msgid "Record (track changes)"
 msgstr "Rekam (lacak perubahan)"
@@ -3423,8 +3625,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Pencarian semantik + kata kunci terindeks untuk document_research (corpus."
-"db). Memerlukan venv embeddings — lihat Uji Python."
+"Pencarian semantik + kata kunci terindeks untuk document_research "
+"(corpus.db). Memerlukan venv embeddings — lihat Uji Python."
 
 msgid "Embeddings + FTS"
 msgstr "Embeddings + FTS"
@@ -3443,7 +3645,8 @@ msgstr "Model Penyematan"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"ID model HuggingFace untuk penyedia lokal, atau ID model spesifik titik akhir"
+"ID model HuggingFace untuk penyedia lokal, atau ID model spesifik titik "
+"akhir"
 
 msgid "Enable cross-file rerank"
 msgstr "Aktifkan rerank lintas berkas"
@@ -3459,8 +3662,8 @@ msgid "Rerank model"
 msgstr "Model rerank"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Hanya digunakan saat rerank diaktifkan. MiniLM bahasa Inggris cepat; bge-"
 "reranker-v2-m3 bersifat multibahasa dan mengunduh ~2,3 GB."
@@ -3481,11 +3684,11 @@ msgid "Enable MCP Server"
 msgstr "Aktifkan Server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Hanya localhost, tanpa autentikasi. Klien menggunakan http://localhost:"
-"<port>/mcp (HTTP yang dapat dialirkan)."
+"Hanya localhost, tanpa autentikasi. Klien menggunakan "
+"http://localhost:<port>/mcp (HTTP yang dapat dialirkan)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -3505,8 +3708,8 @@ msgstr ""
 "gateway delegasi (perilaku saat ini); direct_flat=semua alat khusus yang "
 "dapat dijangkau MCP dicantumkan secara langsung, tidak termasuk alur khusus "
 "bilah sisi (terbaik untuk klien dengan pencarian alat sendiri); "
-"direct_discovery=daftar inti kecil ditambah find_tools (katalog domain, lalu "
-"skema alat per domain; terbaik untuk klien mana pun)."
+"direct_discovery=daftar inti kecil ditambah find_tools (katalog domain, lalu"
+" skema alat per domain; terbaik untuk klien mana pun)."
 
 msgid "Delegate (default)"
 msgstr "Delegasi (default)"
@@ -3525,8 +3728,8 @@ msgstr "Paparkan melalui terowong publik"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Memerlukan biner penyedia yang dipilih pada PATH (cloudflared, bore, ngrok, "
 "atau tailscale). MCP tidak memiliki autentikasi — siapa pun dengan URL "
@@ -3576,10 +3779,10 @@ msgid "Python venv path"
 msgstr "Jalur venv Python"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
 "Jika diatur, menjalankan =PY() dan Jalankan Skrip Python di venv tersebut "
@@ -3598,17 +3801,18 @@ msgid "Python script timeout (seconds)"
 msgstr "Batas waktu skrip Python (detik)"
 
 msgid "Wall-clock limit for Run Python Script and =PYTHON() / =PY()."
-msgstr "Batas waktu dinding untuk Jalankan Skrip Python dan =PYTHON() / =PY()."
+msgstr ""
+"Batas waktu dinding untuk Jalankan Skrip Python dan =PYTHON() / =PY()."
 
 msgid "Max Calc data cells"
 msgstr "Jumlah sel data Calc maksimum"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Jumlah sel maksimum dalam data =PYTHON() atau data/data_range Jalankan Skrip "
-"Python. Nilai yang lebih besar menggunakan lebih banyak RAM dan waktu; "
+"Jumlah sel maksimum dalam data =PYTHON() atau data/data_range Jalankan Skrip"
+" Python. Nilai yang lebih besar menggunakan lebih banyak RAM dan waktu; "
 "pembacaan rentang UNO tetap yang paling dominan."
 
 msgid "Python session mode"
@@ -3647,8 +3851,8 @@ msgid "Rewrite xl() ranges"
 msgstr "Tulis ulang rentang xl()"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Saat menyimpan Edit Python di Sel, angkat xl(\"A1:…\") statis ke argumen "
 "data =PY dan tulis ulang menjadi data / data[i] / .to_pandas()."
@@ -3668,7 +3872,8 @@ msgid "Worker timeout (seconds)"
 msgstr "Batas waktu pekerja (detik)"
 
 msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr "Batas subproses host untuk Vision Helpers (pengunduhan model pertama)."
+msgstr ""
+"Batas subproses host untuk Vision Helpers (pengunduhan model pertama)."
 
 msgid "Docling artifacts path"
 msgstr "Jalur artefak Docling"
@@ -3686,7 +3891,8 @@ msgid "OCR entire image"
 msgstr "OCR seluruh gambar"
 
 msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr "Direkomendasikan untuk grafik tertanam yang diekspor dari LibreOffice."
+msgstr ""
+"Direkomendasikan untuk grafik tertanam yang diekspor dari LibreOffice."
 
 msgid "Table extraction mode"
 msgstr "Mode ekstraksi tabel"
@@ -3756,91 +3962,3 @@ msgstr "Batas waktu dokumen Docling (detik)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Batas waktu per konversi di dalam Docling. 0 = tanpa batas."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Penyedia"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "Model AI:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "pilihan"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

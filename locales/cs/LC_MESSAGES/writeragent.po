@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Spouštím místní OCR na vybraném obrázku (obrázcích)..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Čtení dokumentů pro výzkum vyžaduje specializovanou delegaci úkolů "
 "(USE_SUB_AGENT). Povolte toto v konfiguraci."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Volání nástroje přepnuto na '{0}'. Jste ve speciálním režimu sady nástrojů. "
@@ -54,12 +54,13 @@ msgstr "Spuštění buňky selhalo."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
-msgstr "Spuštění poznámkového bloku je podporováno pouze v LibreOffice Writer."
+msgstr ""
+"Spuštění poznámkového bloku je podporováno pouze v LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "Tento dokument neobsahuje žádný importovaný poznámkový blok. Nejprve zvolte "
 "Soubor → Otevřít poznámkový blok Jupyter (.ipynb)."
@@ -261,9 +262,11 @@ msgstr ""
 "Nastavení."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Připojení bylo odmítnuto. Je váš místní AI server (Ollama/LM Studio) spuštěn?"
+"Připojení bylo odmítnuto. Je váš místní AI server (Ollama/LM Studio) "
+"spuštěn?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -305,8 +308,8 @@ msgid ""
 "The local Ollama/llama.cpp process crashed because the prompt overflowed a "
 "{0} context window."
 msgstr ""
-"Místní proces Ollama/llama.cpp havaroval, protože dotaz překročil kontextové "
-"okno o velikosti {0}."
+"Místní proces Ollama/llama.cpp havaroval, protože dotaz překročil kontextové"
+" okno o velikosti {0}."
 
 #: plugin/framework/client/errors.py
 msgid ""
@@ -324,8 +327,8 @@ msgstr "Chyba HTTP {0} od poskytovatele AI: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Pokud je váš klíč API z předplatného GLM Coding Plan, nastavte koncový bod "
 "na {0} (nikoliv obecnou adresu URL /api/paas)."
@@ -379,6 +382,69 @@ msgstr "Nastavte prosím model v Nastavení."
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Vyberte prosím platný model v Nastavení (nikoliv zástupný symbol)."
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Požadavek na řeč selhal ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Požadavek na řeč selhal: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Požadavek na řeč selhal ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Požadavek na řeč selhal."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Stahuji hlasový model Kokoro…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "Nelze stáhnout Kokoro; používám systémovou řeč"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Stahuji hlas Piper {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Nelze stáhnout {0}; používám Lessac"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "Nelze stáhnout {0}; používám systémovou řeč"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr "Fonemizér Kokoro selhal; tento jazyk může být přečten chybně."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Instaluje se fonemizátor Kokoro…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Nepodařilo se nainstalovat fonemizátor Kokoro; tento jazyk může být chybně "
+"přečten. Nainstalujte jej pomocí: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Stahuje se japonský slovník pro fonemizátor…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -398,8 +464,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Editor Monaco je zakázán nastavením „scripting.force_internal_script_editor“ "
-"v souboru writeragent.json."
+"Editor Monaco je zakázán nastavením „scripting.force_internal_script_editor“"
+" v souboru writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -408,7 +474,8 @@ msgstr "Nastavte cestu k virtuálnímu prostředí Pythonu v Nastavení → Pyth
 #: plugin/calc/python/init_script_editor.py
 msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr ""
-"V nakonfigurovaném virtuálním prostředí nelze importovat webview (pywebview)."
+"V nakonfigurovaném virtuálním prostředí nelze importovat webview "
+"(pywebview)."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Initialization script saved."
@@ -459,8 +526,9 @@ msgstr "Dialog PythonCellEditorDialog nebylo možné z rozšíření načíst."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Nepodařilo se zachovat argumenty vzorce PY této buňky (např. datové "
 "oblasti). Upravte vzorec v aplikaci Calc nebo použijte řetězec s kódem v "
@@ -479,8 +547,7 @@ msgid ""
 msgstr ""
 "Uložit změny v {0}?\n"
 "\n"
-"Ano uloží změny. Ne je zahodí a otevře novou buňku. Zrušit ponechá úpravy "
-"{0}."
+"Ano uloží změny. Ne je zahodí a otevře novou buňku. Zrušit ponechá úpravy {0}."
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -552,8 +619,8 @@ msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
-"Chyba: Vypršel časový limit Pythonu. Otevřete Nastavení → Python pro zvýšení "
-"časového limitu nebo otestujte venv."
+"Chyba: Vypršel časový limit Pythonu. Otevřete Nastavení → Python pro zvýšení"
+" časového limitu nebo otestujte venv."
 
 #: plugin/calc/python/function.py
 msgid "Image inserted"
@@ -567,8 +634,8 @@ msgstr "Vložené obrázky"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Pořadí geometrického přepočtu přeskočilo list „%(sheet)s“: nalezeno %(cap)s "
 "nebo více buněk Pythonu (limit zjišťování). List byl ponechán bez změn, aby "
@@ -580,16 +647,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Nepodařilo se zapsat části balíčku Python pro Microsoft Excel pro:\n"
 "{0}\n"
 "\n"
-"Soubor byl uložen s vzorci =PY aplikace LibreOffice. Excel neuvidí soubory "
-"pythonScripts.xml / _xlws.PY, dokud export neproběhne úspěšně.\n"
+"Soubor byl uložen s vzorci =PY aplikace LibreOffice. Excel neuvidí soubory pythonScripts.xml / _xlws.PY, dokud export neproběhne úspěšně.\n"
 "\n"
 "{1}"
 
@@ -1400,8 +1465,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Editor nebyl nalezen (nainstalujte Kate nebo Gedit, případně nastavte "
-"proměnnou EDITOR). Cesta:\n"
+"Editor nebyl nalezen (nainstalujte Kate nebo Gedit, případně nastavte proměnnou EDITOR). Cesta:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1430,7 +1494,8 @@ msgstr "[Backend agenta „{0}“ nebyl nalezen.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agenta „{0}“ není dostupný. Zkontrolujte nastavení (cesta, "
 "instalace).]"
@@ -1571,6 +1636,21 @@ msgid "Testing connection..."
 msgstr "Testování připojení..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Řeč"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Nelze přehrát ukázku hlasu."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Výstup řeči je vypnutý. Zapněte možnost Povolit výstup řeči (TTS), abyste "
+"tento hlas slyšeli."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Stažení zvukové knihovny"
 
@@ -1597,6 +1677,10 @@ msgstr "Výška:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Šířka:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Předčítat odpovědi nahlas (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1929,12 +2013,12 @@ msgstr "Selhalo"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
 "Nastavte cestu k virtuálnímu prostředí Pythonu v Nastavení → Python (stejné "
-"venv, kde jste spustili 'uv pip install pywebview rocher'). Vestavěný Python "
-"v LibreOffice nemůže spustit editor Monaco."
+"venv, kde jste spustili 'uv pip install pywebview rocher'). Vestavěný Python"
+" v LibreOffice nemůže spustit editor Monaco."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1989,7 +2073,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Sonda Text/NLP selhala (viz writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Časový limit vizuální sondy vypršel (import Docling může při první kontrole "
 "trvat 10–30 s)."
@@ -2011,8 +2096,8 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Sonda vektorového vyhledávání selhala (viz writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Záznam zvuku"
+msgid "Audio Recording & Speech"
+msgstr "Záznam zvuku a řeč"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2055,12 +2140,20 @@ msgid "Vector Search Libraries"
 msgstr "Knihovny vektorového vyhledávání"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Záznam zvuku"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Pro instalaci zbývajících balíčků:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Nebyla detekována žádná vstupní zařízení mikrofonu."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Místní moduly TTS (volitelné):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2071,8 +2164,8 @@ msgid "Reading Python version..."
 msgstr "Čte se verze Pythonu..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Záznam zvuku: kontrola sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Zvuk a řeč: kontroluje se sounddevice a moduly TTS..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2118,8 +2211,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2127,8 +2219,7 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Chyba z procesu analýzy textu:\n"
 "{err}\n"
@@ -2136,15 +2227,12 @@ msgstr ""
 "Funkce v tomto dialogu vyžadují tyto balíčky v používaném Pythonu:\n"
 "  • spacy + model          (entity, klíčové fráze, základní statistiky)\n"
 "  • textdescriptives         (skutečné skóre čitelnosti)\n"
-"  • transformers + torch     (analýza sentimentu pomocí vícejazyčného "
-"modelu)\n"
+"  • transformers + torch     (analýza sentimentu pomocí vícejazyčného modelu)\n"
 "\n"
 "Nainstalujte je pomocí:\n"
 "  {install}\n"
 "\n"
-"Proces nahlásil chybějící modul. Ověřte, zda jsou balíčky nainstalovány v "
-"přesném spustitelném souboru Pythonu, který byl vyřešen pro vaše "
-"nakonfigurované virtuální prostředí (venv)."
+"Proces nahlásil chybějící modul. Ověřte, zda jsou balíčky nainstalovány v přesném spustitelném souboru Pythonu, který byl vyřešen pro vaše nakonfigurované virtuální prostředí (venv)."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2163,16 +2251,11 @@ msgstr "Analyzuji..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Chyba: %s\n"
 "\n"
-"Ve vašem nakonfigurovaném virtuálním prostředí (Nastavení → Python) mohou "
-"chybět požadované balíčky. Klikněte na „Zkontrolovat venv“ v tomto dialogu "
-"nebo použijte úplný test v Nastavení → Python pro podrobnosti o spacy, "
-"textdescriptives, transformers, torch atd."
+"Ve vašem nakonfigurovaném virtuálním prostředí (Nastavení → Python) mohou chybět požadované balíčky. Klikněte na „Zkontrolovat venv“ v tomto dialogu nebo použijte úplný test v Nastavení → Python pro podrobnosti o spacy, textdescriptives, transformers, torch atd."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2240,7 +2323,8 @@ msgstr ""
 #: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' dokončeno. Vloženo formátované HTML. (trvalo {time})"
+msgstr ""
+"Vision '{helper}' dokončeno. Vloženo formátované HTML. (trvalo {time})"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -2257,9 +2341,9 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"Reset relace Pythonu pro poznámkové bloky se vztahuje na LibreOffice Writer. "
-"Otevřete dokument Writeru s importovaným poznámkovým blokem Jupyter a zkuste "
-"to znovu."
+"Reset relace Pythonu pro poznámkové bloky se vztahuje na LibreOffice Writer."
+" Otevřete dokument Writeru s importovaným poznámkovým blokem Jupyter a "
+"zkuste to znovu."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2366,8 +2450,8 @@ msgstr "Informace"
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
-"Vkládání výsledků do aplikací Draw/Impress zatím není podporováno. Příspěvky "
-"(PR) jsou vítány!"
+"Vkládání výsledků do aplikací Draw/Impress zatím není podporováno. Příspěvky"
+" (PR) jsou vítány!"
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
@@ -2389,11 +2473,11 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
-"Skript byl úspěšně proveden, ale nevrátil žádný výsledek ani výstup. (trvalo "
-"{time})"
+"Skript byl úspěšně proveden, ale nevrátil žádný výsledek ani výstup. (trvalo"
+" {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2442,8 +2526,8 @@ msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"Obrázek '{name}' nebyl nalezen. Použijte image_list nebo ponechte image_name "
-"prázdné a vyberte grafiku."
+"Obrázek '{name}' nebyl nalezen. Použijte image_list nebo ponechte image_name"
+" prázdné a vyberte grafiku."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2534,7 +2618,8 @@ msgstr "Spouští se veřejný tunel přes {0}…"
 #, python-brace-format
 msgid "Public tunnel via {0} not running (is the provider binary installed?)"
 msgstr ""
-"Veřejný tunel přes {0} neběží (je nainstalován binární soubor poskytovatele?)"
+"Veřejný tunel přes {0} neběží (je nainstalován binární soubor "
+"poskytovatele?)"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server stopped"
@@ -2713,8 +2798,7 @@ msgstr ""
 "Binární soubor {0} „{1}“ je nainstalován a ověřen ({2}).\n"
 "\n"
 "Server MCP běží lokálně na portu {3}.\n"
-"Zaškrtněte „Zpřístupnit přes veřejný tunel“ a klikněte na OK pro aktivaci "
-"veřejného směrování."
+"Zaškrtněte „Zpřístupnit přes veřejný tunel“ a klikněte na OK pro aktivaci veřejného směrování."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2776,10 +2860,6 @@ msgstr "Zeptejte se / instruujte:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Poměr stran:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Zvukový model:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -2866,8 +2946,7 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Zadejte kód v Pythonu, který se má spustit v uživatelském virtuálním "
-"prostředí.\n"
+"Zadejte kód v Pythonu, který se má spustit v uživatelském virtuálním prostředí.\n"
 "Výsledek přiřaďte do proměnné 'result'."
 
 #: plugin/xdl_strings.py
@@ -3133,6 +3212,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3160,6 +3243,125 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "Zvukový model:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Model převodu řeči na text, pokud chatovací model neumí zpracovat zvukový "
+"vstup."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Povolit hlasový výstup (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr "Předčítat odpovědi asistenta nahlas pomocí převodu textu na řeč."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Předčítat větu po větě (místní)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Syntetizovat další věty během přehrávání aktuální, aby po krátké větě "
+"nenásledovala pauza. Zastavení zahodí klipy, které se ještě nepřehrávají. "
+"Vypnutím se celá odpověď předčítá jako jeden klip."
+
+msgid "Keep replies brief"
+msgstr "Stručné odpovědi"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Cílit přibližně na jeden odstavec, pokud uživatel nepožádá o více. Platí "
+"pouze při zapnutém hlasovém výstupu (TTS)."
+
+msgid "TTS Provider"
+msgstr "Poskytovatel TTS"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Zvolte, zda chcete použít vestavěnou řeč operačního systému, místní "
+"neuronový modul nebo vlastní koncový bod API."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Native (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (místní neuronový, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (místní rychlý neuronový, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "Koncový bod LLM"
+
+msgid "TTS Model"
+msgstr "Model TTS"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Model pro syntézu řeči (použije se, pokud je poskytovatelem TTS koncový bod "
+"LLM)."
+
+msgid "Voice"
+msgstr "Hlas"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Hlas pro vybraného poskytovatele. Seznam odpovídá katalogu Piper nebo Kokoro"
+" pro vaše národní prostředí."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI neutrální)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro US ženský – Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (americká angličtina, žena – Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (výchozí systémové)"
+
+msgid "Test voice"
+msgstr "Test hlasu"
+
+msgid "Speech Speed"
+msgstr "Rychlost řeči"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Násobitel rychlosti přehrávání (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x nebo "
+"vlastní až do 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Nástroje tabulkového procesoru Calc"
 
@@ -3178,7 +3380,8 @@ msgstr ""
 "Převést sourozenecké soubory .xlsx/.xls do writeragent_ods_cache/ vedle "
 "složky, aby opakované SQL dotazy DuckDB mohly znovu použít ODS. Nativní "
 "soubory .ods a aktivní sešit nejsou nikdy ukládány do mezipaměti. Pro "
-"zakázání nastavte calc.ods_cache_enabled na false v souboru writeragent.json."
+"zakázání nastavte calc.ods_cache_enabled na false v souboru "
+"writeragent.json."
 
 msgid "Sidebar"
 msgstr "Postranní panel"
@@ -3214,8 +3417,8 @@ msgid ""
 "Cache completed web research reports by normalized query (uses web cache "
 "database)."
 msgstr ""
-"Ukládat dokončené zprávy z průzkumu webu do mezipaměti podle normalizovaného "
-"dotazu (používá databázi webové mezipaměti)."
+"Ukládat dokončené zprávy z průzkumu webu do mezipaměti podle normalizovaného"
+" dotazu (používá databázi webové mezipaměti)."
 
 msgid "Prompt for Web Research"
 msgstr "Dotázat se na vyhledávání na webu"
@@ -3230,8 +3433,8 @@ msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
 msgstr ""
-"Vyberte backend prohlížeče, který se má použít pro návštěvy webových stránek "
-"během průzkumu (Vypnuto používá statické požadavky HTTP)."
+"Vyberte backend prohlížeče, který se má použít pro návštěvy webových stránek"
+" během průzkumu (Vypnuto používá statické požadavky HTTP)."
 
 msgid "Off (Static HTTP)"
 msgstr "Vypnuto (statické HTTP)"
@@ -3271,9 +3474,9 @@ msgstr "Dovednost polidštění (přirozený text)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Je-li povoleno, vloží do systémového promptu pokyny, aby model generoval "
 "nebo upravoval text dokumentu tak, aby zněl přirozeněji a lidštěji "
@@ -3289,8 +3492,8 @@ msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
 msgstr ""
-"Pauza po skončení mluvení, poté automatické zastavení a odeslání (Nahrát). 0 "
-"= čekat, dokud nekliknete na Zastavit nahrávání."
+"Pauza po skončení mluvení, poté automatické zastavení a odeslání (Nahrát). 0"
+" = čekat, dokud nekliknete na Zastavit nahrávání."
 
 msgid "Doc"
 msgstr "Dokument"
@@ -3299,9 +3502,9 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Povolit kontrolu gramatiky (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Vypnuto = zakázáno. AI (LLM) = použít nakonfigurovaný textový model/API. "
 "LanguageTool / Vale = lokální enginy přes Nastavení → Python venv. Harper = "
@@ -3346,9 +3549,9 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Je-li zapnuto, kontrola gramatiky AI přeskakuje požadavky na pozadí, zatímco "
-"běží chat v postranním panelu nebo agent, aby se předešlo souběžným voláním "
-"API."
+"Je-li zapnuto, kontrola gramatiky AI přeskakuje požadavky na pozadí, zatímco"
+" běží chat v postranním panelu nebo agent, aby se předešlo souběžným voláním"
+" API."
 
 msgid "Batch sentences"
 msgstr "Dávkové věty"
@@ -3359,8 +3562,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Počet vět odesílaných v jednom požadavku na LLM (1–8). 1 (výchozí) je "
-"nejspolehlivější; vyšší hodnoty jsou rychlejší a levnější, ale mohou narazit "
-"na limity tokenů nebo způsobit chyby modelu."
+"nejspolehlivější; vyšší hodnoty jsou rychlejší a levnější, ale mohou narazit"
+" na limity tokenů nebo způsobit chyby modelu."
 
 msgid "Concurrent requests"
 msgstr "Souběžné požadavky"
@@ -3370,10 +3573,10 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"Maximální počet souběžných volání API pro kontrolu gramatiky na pozadí (1–"
-"8). Hodnota 1 odpovídá předchozímu chování. Zvyšte pro OpenRouter nebo jiné "
-"poskytovatele, kteří umožňují paralelní požadavky; používejte opatrně při "
-"současném využívání chatu v postranním panelu."
+"Maximální počet souběžných volání API pro kontrolu gramatiky na pozadí "
+"(1–8). Hodnota 1 odpovídá předchozímu chování. Zvyšte pro OpenRouter nebo "
+"jiné poskytovatele, kteří umožňují paralelní požadavky; používejte opatrně "
+"při současném využívání chatu v postranním panelu."
 
 msgid "Sentence language detection"
 msgstr "Detekce jazyka věty"
@@ -3384,8 +3587,8 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"Ověřte jazyk každé celé věty podle národního prostředí dokumentu. AI používá "
-"vaše API pro gramatiku/chat; Místní (Local) používá langdetect ve vašem "
+"Ověřte jazyk každé celé věty podle národního prostředí dokumentu. AI používá"
+" vaše API pro gramatiku/chat; Místní (Local) používá langdetect ve vašem "
 "Python venv (Nastavení → Python; žádné volání API). Neshody aktualizují "
 "CharLocale a znovu zkontrolují gramatiku."
 
@@ -3411,9 +3614,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Vypnuto = přímé úpravy. Záznam = sledované změny, které sami přijmete/"
-"odmítnete. Čekat = apply_document_content blokuje (ve vlákně chatu/MCP), "
-"dokud neprovedete revizi."
+"Vypnuto = přímé úpravy. Záznam = sledované změny, které sami "
+"přijmete/odmítnete. Čekat = apply_document_content blokuje (ve vlákně "
+"chatu/MCP), dokud neprovedete revizi."
 
 msgid "Record (track changes)"
 msgstr "Záznam (sledovat změny)"
@@ -3434,8 +3637,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Indexované sémantické a klíčové vyhledávání pro document_research (corpus."
-"db). Vyžaduje venv s embeddingy — viz Python Test."
+"Indexované sémantické a klíčové vyhledávání pro document_research "
+"(corpus.db). Vyžaduje venv s embeddingy — viz Python Test."
 
 msgid "Embeddings + FTS"
 msgstr "Embeddingy + FTS"
@@ -3471,11 +3674,11 @@ msgid "Rerank model"
 msgstr "Model pro rerank"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
-"Použito pouze při povoleném reranku. Anglický MiniLM je rychlý; bge-reranker-"
-"v2-m3 je vícejazyčný a stahuje přibližně 2,3 GB."
+"Použito pouze při povoleném reranku. Anglický MiniLM je rychlý; bge-"
+"reranker-v2-m3 je vícejazyčný a stahuje přibližně 2,3 GB."
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -3493,11 +3696,11 @@ msgid "Enable MCP Server"
 msgstr "Povolit server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Pouze localhost, bez ověřování. Klienti používají http://localhost:<port>/"
-"mcp (streamovatelné HTTP)."
+"Pouze localhost, bez ověřování. Klienti používají "
+"http://localhost:<port>/mcp (streamovatelné HTTP)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -3538,8 +3741,8 @@ msgstr "Zpřístupnit přes veřejný tunel"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Vyžaduje binární soubor vybraného poskytovatele v cestě PATH (cloudflared, "
 "bore, ngrok nebo tailscale). MCP nemá žádné ověřování – kdokoli s veřejnou "
@@ -3553,8 +3756,8 @@ msgid ""
 "Cloudflare quick tunnel (default), Bore, Ngrok, or Tailscale Funnel (must "
 "already be logged in)."
 msgstr ""
-"Rychlý tunel Cloudflare (výchozí), Bore, Ngrok nebo Tailscale Funnel (musíte "
-"být již přihlášeni)."
+"Rychlý tunel Cloudflare (výchozí), Bore, Ngrok nebo Tailscale Funnel (musíte"
+" být již přihlášeni)."
 
 msgid "Cloudflare"
 msgstr "Cloudflare"
@@ -3589,17 +3792,17 @@ msgid "Python venv path"
 msgstr "Cesta k venv Pythonu"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Pokud je nastaveno, spustí =PY() a Spustit skript Pythonu v tomto venv (bin/"
-"python, Scripts/python.exe nebo conda/pyenv-win env-root python.exe). Vložte "
-"cestu bez uvozovek. Pokud je prázdné, použije se sys.executable tohoto "
-"procesu (základní stdlib); pro numpy/pandas a Vision Helpers (paddleocr, "
-"paddlepaddle) použijte venv."
+"Pokud je nastaveno, spustí =PY() a Spustit skript Pythonu v tomto venv "
+"(bin/python, Scripts/python.exe nebo conda/pyenv-win env-root python.exe). "
+"Vložte cestu bez uvozovek. Pokud je prázdné, použije se sys.executable "
+"tohoto procesu (základní stdlib); pro numpy/pandas a Vision Helpers "
+"(paddleocr, paddlepaddle) použijte venv."
 
 msgid "Test"
 msgstr "Test"
@@ -3619,8 +3822,8 @@ msgid "Max Calc data cells"
 msgstr "Maximální počet datových buněk v Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maximální počet buněk v datech =PYTHON() nebo v datech/oblasti dat skriptu "
 "Run Python Script. Vyšší hodnoty spotřebovávají více paměti RAM a času; "
@@ -3662,8 +3865,8 @@ msgid "Rewrite xl() ranges"
 msgstr "Přepsat rozsahy xl()"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Při uložení Pythonu v buňce přesune statické xl(\"A1:…\") do argumentů dat "
 "=PY a přepíše na data / data[i] / .to_pandas()."
@@ -3767,91 +3970,3 @@ msgstr "Časový limit dokumentu Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Časový limit na konverzi v rámci Docling. 0 = bez omezení."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Poskytovatel"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "Model AI:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "možnosti"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

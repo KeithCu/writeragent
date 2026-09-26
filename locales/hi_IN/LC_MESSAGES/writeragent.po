@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hindi <LL@li.org>\n"
@@ -31,22 +31,22 @@ msgstr "चुने गए चित्र(त्रों) पर स्था
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"दस्तावेज़ अनुसंधान रीड्स के लिए विशेष कार्य प्रतिनिधिमंडल (USE_SUB_AGENT) की आवश्यकता "
-"होती है। इसे कॉन्फ़िगरेशन में सक्षम करें।"
+"दस्तावेज़ अनुसंधान रीड्स के लिए विशेष कार्य प्रतिनिधिमंडल (USE_SUB_AGENT) की"
+" आवश्यकता होती है। इसे कॉन्फ़िगरेशन में सक्षम करें।"
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"टूल कॉल '{0}' पर स्विच हो गया है। आप एक विशेष टूलसेट मोड में हैं। पूर्ण API सेट को "
-"पुनर्स्थापित करने के लिए आपको कार्य पूरा होने पर 'specialized_workflow_finished' कॉल "
-"करना होगा।"
+"टूल कॉल '{0}' पर स्विच हो गया है। आप एक विशेष टूलसेट मोड में हैं। पूर्ण API "
+"सेट को पुनर्स्थापित करने के लिए आपको कार्य पूरा होने पर "
+"'specialized_workflow_finished' कॉल करना होगा।"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -58,10 +58,11 @@ msgstr "नोटबुक रन केवल LibreOffice Writer में स�
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
-"इस दस्तावेज़ में कोई आयातित नोटबुक नहीं है। पहले फ़ाइल → एक जुपिटर नोटबुक (.ipynb) खोलें।"
+"इस दस्तावेज़ में कोई आयातित नोटबुक नहीं है। पहले फ़ाइल → एक जुपिटर नोटबुक "
+"(.ipynb) खोलें।"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -148,7 +149,9 @@ msgstr "कोई सक्रिय दस्तावेज़ नहीं �
 msgid ""
 "Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
 "Embeddings."
-msgstr "क्रॉस-फ़ाइल खोज अक्षम है। सेटिंग्स → एम्बेडिंग में एम्बेडिंग + FTS सक्षम करें।"
+msgstr ""
+"क्रॉस-फ़ाइल खोज अक्षम है। सेटिंग्स → एम्बेडिंग में एम्बेडिंग + FTS सक्षम "
+"करें।"
 
 #: plugin/embeddings/search_ui.py
 msgid "Error: "
@@ -157,7 +160,8 @@ msgstr "त्रुटि: "
 #: plugin/embeddings/search_ui.py
 msgid ""
 "Folder index is building in the background. Please retry search shortly."
-msgstr "फ़ोल्डर इंडेक्स बैकग्राउंड में बन रहा है। कृपया थोड़ी देर बाद पुनः खोजें।"
+msgstr ""
+"फ़ोल्डर इंडेक्स बैकग्राउंड में बन रहा है। कृपया थोड़ी देर बाद पुनः खोजें।"
 
 #: plugin/embeddings/search_ui.py
 msgid "No matches found."
@@ -195,7 +199,8 @@ msgstr "अमान्य API कुंजी। कृपया अपनी �
 #: plugin/framework/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
-"API एक्सेस वर्जित है। हो सकता है कि आपकी कुंजी में इस मॉडल के लिए अनुमतियों की कमी हो।"
+"API एक्सेस वर्जित है। हो सकता है कि आपकी कुंजी में इस मॉडल के लिए अनुमतियों "
+"की कमी हो।"
 
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
@@ -218,7 +223,9 @@ msgstr "HTTP त्रुटि {0}: {1}"
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "No API key configured for {0}. Open Settings and add a key."
-msgstr "{0} के लिए कोई API कुंजी कॉन्फ़िगर नहीं है। सेटिंग्स खोलें और एक कुंजी जोड़ें।"
+msgstr ""
+"{0} के लिए कोई API कुंजी कॉन्फ़िगर नहीं है। सेटिंग्स खोलें और एक कुंजी "
+"जोड़ें।"
 
 #: plugin/framework/errors.py
 msgid "No API key configured. Open Settings and add a key."
@@ -228,13 +235,15 @@ msgstr "कोई API कुंजी कॉन्फ़िगर नहीं �
 msgid ""
 "Python venv not found. Open Settings → Python, set the venv path, then Test."
 msgstr ""
-"Python venv नहीं मिला। Settings → Python खोलें, venv पथ सेट करें, फिर Test करें।"
+"Python venv नहीं मिला। Settings → Python खोलें, venv पथ सेट करें, फिर Test "
+"करें।"
 
 #: plugin/framework/errors.py
 msgid ""
 "Python execution timed out. Open Settings → Python to raise the timeout."
 msgstr ""
-"Python निष्पादन का समय समाप्त हो गया। टाइमआउट बढ़ाने के लिए Settings → Python खोलें।"
+"Python निष्पादन का समय समाप्त हो गया। टाइमआउट बढ़ाने के लिए Settings → "
+"Python खोलें।"
 
 #: plugin/framework/errors.py
 msgid "Formula spill collision: destination range contains non-empty cells."
@@ -247,13 +256,16 @@ msgstr "सैंडबॉक्स नीति द्वारा स्क्
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr "अनुरोध का समय समाप्त हो गया। सेटिंग्स में 'Request Timeout' बढ़ाने का प्रयास करें।"
+msgstr ""
+"अनुरोध का समय समाप्त हो गया। सेटिंग्स में 'Request Timeout' बढ़ाने का प्रयास"
+" करें।"
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"कनेक्शन अस्वीकार कर दिया गया। क्या आपका स्थानीय AI सर्वर (Ollama/LM Studio) चल रहा "
-"है?"
+"कनेक्शन अस्वीकार कर दिया गया। क्या आपका स्थानीय AI सर्वर (Ollama/LM Studio) "
+"चल रहा है?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -295,16 +307,16 @@ msgid ""
 "The local Ollama/llama.cpp process crashed because the prompt overflowed a "
 "{0} context window."
 msgstr ""
-"स्थानीय Ollama/llama.cpp प्रक्रिया क्रैश हो गई क्योंकि प्रॉम्प्ट {0} संदर्भ विंडो से बाहर "
-"हो गया।"
+"स्थानीय Ollama/llama.cpp प्रक्रिया क्रैश हो गई क्योंकि प्रॉम्प्ट {0} संदर्भ "
+"विंडो से बाहर हो गया।"
 
 #: plugin/framework/client/errors.py
 msgid ""
 "The local Ollama/llama.cpp process crashed because the prompt overflowed a "
 "too-small context window."
 msgstr ""
-"स्थानीय Ollama/llama.cpp प्रक्रिया क्रैश हो गई क्योंकि प्रॉम्प्ट बहुत छोटी संदर्भ विंडो से "
-"बाहर हो गया।"
+"स्थानीय Ollama/llama.cpp प्रक्रिया क्रैश हो गई क्योंकि प्रॉम्प्ट बहुत छोटी "
+"संदर्भ विंडो से बाहर हो गया।"
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -314,11 +326,11 @@ msgstr "AI प्रदाता से HTTP त्रुटि {0}: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
-" यदि आपकी API कुंजी GLM कोडिंग प्लान सदस्यता से है, तो एंडपॉइंट को {0} पर सेट करें "
-"(सामान्य /api/paas URL पर नहीं)।"
+" यदि आपकी API कुंजी GLM कोडिंग प्लान सदस्यता से है, तो एंडपॉइंट को {0} पर "
+"सेट करें (सामान्य /api/paas URL पर नहीं)।"
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -340,8 +352,8 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"मॉडल एक ही हिस्से को दोहरा रहा है (अनंत लूप)। पुनः प्रयास करें या किसी अन्य मॉडल का "
-"उपयोग करें।"
+"मॉडल एक ही हिस्से को दोहरा रहा है (अनंत लूप)। पुनः प्रयास करें या किसी अन्य "
+"मॉडल का उपयोग करें।"
 
 #: plugin/framework/client/request_controls.py
 #, python-brace-format
@@ -369,6 +381,69 @@ msgstr "कृपया सेटिंग्स में मॉडल से�
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "कृपया सेटिंग्स में एक मान्य मॉडल चुनें (प्लेसहोल्डर नहीं)।"
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "स्पीच अनुरोध विफल ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "स्पीच अनुरोध विफल: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "स्पीच अनुरोध विफल ({0})।"
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "स्पीच अनुरोध विफल।"
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Kokoro वॉयस मॉडल डाउनलोड हो रहा है…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "Kokoro डाउनलोड नहीं हो सका; OS स्पीच का उपयोग किया जा रहा है"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Piper वॉयस {0} डाउनलोड हो रहा है…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "{0} डाउनलोड नहीं हो सका; Lessac का उपयोग किया जा रहा है"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "{0} डाउनलोड नहीं हो सका; OS स्पीच का उपयोग किया जा रहा है"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr "Kokoro फोनेमाइज़र विफल; यह भाषा गलत पढ़ी जा सकती है।"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Kokoro फोनेमाइज़र इंस्टॉल किया जा रहा है…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Kokoro फोनेमाइज़र इंस्टॉल नहीं हो सका; यह भाषा गलत पढ़ी जा सकती है। इसके साथ"
+" इंस्टॉल करें: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "जापानी फोनेमाइज़र डिक्शनरी डाउनलोड की जा रही है…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -388,8 +463,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Monaco संपादक writeragent.json में \"scripting.force_internal_script_editor\" "
-"द्वारा अक्षम है।"
+"Monaco संपादक writeragent.json में "
+"\"scripting.force_internal_script_editor\" द्वारा अक्षम है।"
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -448,11 +523,13 @@ msgstr "PythonCellEditorDialog को एक्सटेंशन से लो�
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"इस सेल के PY फ़ॉर्मूला तर्कों (जैसे डेटा रेंज) को सुरक्षित नहीं रखा जा सका। फ़ॉर्मूला को Calc "
-"में संपादित करें, या =PY(\"code\"; A1:B10) जैसे उद्धृत कोड स्ट्रिंग का उपयोग करें।"
+"इस सेल के PY फ़ॉर्मूला तर्कों (जैसे डेटा रेंज) को सुरक्षित नहीं रखा जा सका। "
+"फ़ॉर्मूला को Calc में संपादित करें, या =PY(\"code\"; A1:B10) जैसे उद्धृत कोड"
+" स्ट्रिंग का उपयोग करें।"
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -467,8 +544,7 @@ msgid ""
 msgstr ""
 "{0} में परिवर्तनों को सहेजें?\n"
 "\n"
-"हाँ सहेजता है। नहीं त्याग देता है और नया सेल खोलता है। रद्द करें {0} को संपादित करना जारी "
-"रखता है।"
+"हाँ सहेजता है। नहीं त्याग देता है और नया सेल खोलता है। रद्द करें {0} को संपादित करना जारी रखता है।"
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -508,9 +584,9 @@ msgid ""
 "another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
 "quoted code."
 msgstr ""
-"यह PY फ़ॉर्मूला ऐसे रूप का उपयोग करता है जिसे एडिटर सुरक्षित रूप से फिर से नहीं लिख सकता "
-"(जैसे किसी अन्य सेल में कोड)। इसे फ़ॉर्मूला बार में संपादित करें, या उद्धृत कोड के साथ "
-"=PY(\"code\"; range) का उपयोग करें।"
+"यह PY फ़ॉर्मूला ऐसे रूप का उपयोग करता है जिसे एडिटर सुरक्षित रूप से फिर से "
+"नहीं लिख सकता (जैसे किसी अन्य सेल में कोड)। इसे फ़ॉर्मूला बार में संपादित "
+"करें, या उद्धृत कोड के साथ =PY(\"code\"; range) का उपयोग करें।"
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -531,16 +607,16 @@ msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
 msgstr ""
-"त्रुटि: Python venv नहीं मिला। Settings → Python खोलें, venv पथ सेट करें, फिर Test "
-"करें।"
+"त्रुटि: Python venv नहीं मिला। Settings → Python खोलें, venv पथ सेट करें, "
+"फिर Test करें।"
 
 #: plugin/calc/python/function.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
-"त्रुटि: Python का समय समाप्त हो गया। टाइमआउट बढ़ाने के लिए Settings → Python खोलें, "
-"या venv को Test करें।"
+"त्रुटि: Python का समय समाप्त हो गया। टाइमआउट बढ़ाने के लिए Settings → Python"
+" खोलें, या venv को Test करें।"
 
 #: plugin/calc/python/function.py
 msgid "Image inserted"
@@ -554,12 +630,12 @@ msgstr "छवियाँ सम्मिलित की गईं"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
-"ज्यामितीय पुनर्गणना क्रम ने शीट '%(sheet)s' को छोड़ दिया: %(cap)s या अधिक पायथन सेल "
-"मिले (डिस्कवरी कैप)। शीट को अपरिवर्तित छोड़ दिया गया ताकि आंशिक सूची को पूर्ण न माना "
-"जाए।"
+"ज्यामितीय पुनर्गणना क्रम ने शीट '%(sheet)s' को छोड़ दिया: %(cap)s या अधिक "
+"पायथन सेल मिले (डिस्कवरी कैप)। शीट को अपरिवर्तित छोड़ दिया गया ताकि आंशिक "
+"सूची को पूर्ण न माना जाए।"
 
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
@@ -567,16 +643,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "इनके लिए Microsoft Excel Python पैकेज भागों को नहीं लिखा जा सका:\n"
 "{0}\n"
 "\n"
-"फ़ाइल को LibreOffice =PY फ़ार्मुलों के साथ सहेजा गया था। जब तक निर्यात सफल नहीं हो "
-"जाता, Excel को pythonScripts.xml / _xlws.PY दिखाई नहीं देगा।\n"
+"फ़ाइल को LibreOffice =PY फ़ार्मुलों के साथ सहेजा गया था। जब तक निर्यात सफल नहीं हो जाता, Excel को pythonScripts.xml / _xlws.PY दिखाई नहीं देगा।\n"
 "\n"
 "{1}"
 
@@ -757,11 +831,13 @@ msgstr "कोई स्वचालित प्रतिस्थापन उ
 msgid ""
 "Suggested fix: delete the highlighted text (the blank replacement below)."
 msgstr ""
-"सुझाया गया सुधार: हाइलाइट किए गए टेक्स्ट को हटाएं (नीचे दिया गया रिक्त प्रतिस्थापन)।"
+"सुझाया गया सुधार: हाइलाइट किए गए टेक्स्ट को हटाएं (नीचे दिया गया रिक्त "
+"प्रतिस्थापन)।"
 
 #: plugin/writer/locale/grammar_proofread_text.py
 msgid "Suggested fix: replace with one space (the blank replacement below)."
-msgstr "सुझाया गया सुधार: एक स्पेस से बदलें (नीचे दिया गया रिक्त प्रतिस्थापन)।"
+msgstr ""
+"सुझाया गया सुधार: एक स्पेस से बदलें (नीचे दिया गया रिक्त प्रतिस्थापन)।"
 
 #: plugin/writer/locale/grammar_proofread_text.py
 msgid "Choose a replacement below."
@@ -792,7 +868,9 @@ msgstr "अपडेट करने के लिए एक एकल सूत
 msgid ""
 "Could not identify the selected formula. Click in the text, then insert a "
 "new formula."
-msgstr "चयनित सूत्र की पहचान नहीं की जा सकी। टेक्स्ट में क्लिक करें, फिर एक नया सूत्र डालें।"
+msgstr ""
+"चयनित सूत्र की पहचान नहीं की जा सकी। टेक्स्ट में क्लिक करें, फिर एक नया "
+"सूत्र डालें।"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Unknown conversion error"
@@ -1299,7 +1377,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[सक्रिय विंडो में कोई संगत लिब्रे ऑफिस दस्तावेज़ (Writer, Calc, या Draw) नहीं मिला।]"
+"[सक्रिय विंडो में कोई संगत लिब्रे ऑफिस दस्तावेज़ (Writer, Calc, या Draw) "
+"नहीं मिला।]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1307,8 +1386,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[आंतरिक त्रुटि: {0} के लिए दस्तावेज़ के प्रकार की पहचान नहीं हो सकी। कृपया इसकी रिपोर्ट "
-"करें!]"
+"[आंतरिक त्रुटि: {0} के लिए दस्तावेज़ के प्रकार की पहचान नहीं हो सकी। कृपया "
+"इसकी रिपोर्ट करें!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1316,7 +1395,8 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[मॉडल {0} नेटिव ऑडियो का समर्थन नहीं करता है। कृपया सेटिंग्स में एक STT मॉडल चुनें।]"
+"[मॉडल {0} नेटिव ऑडियो का समर्थन नहीं करता है। कृपया सेटिंग्स में एक STT मॉडल"
+" चुनें।]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -1333,7 +1413,8 @@ msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr ""
-"अनुसंधान कैश हिट (फजी, %(pct)s%% मिलान: %(lang_bit)s%(cache_key)s → %(matched)s)"
+"अनुसंधान कैश हिट (फजी, %(pct)s%% मिलान: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1382,7 +1463,9 @@ msgstr ""
 msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
-msgstr "कोई एडिटर नहीं मिला (Kate या Gedit इंस्टॉल करें, या EDITOR सेट करें)। पथ: {0}"
+msgstr ""
+"कोई एडिटर नहीं मिला (Kate या Gedit इंस्टॉल करें, या EDITOR सेट करें)। पथ: "
+"{0}"
 
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
@@ -1410,8 +1493,10 @@ msgstr "[एजेंट बैकएंड '{0}' नहीं मिला।]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr "[एजेंट बैकएंड '{0}' उपलब्ध नहीं है। सेटिंग्स (पथ, इंस्टॉल) की जाँच करें।]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+"[एजेंट बैकएंड '{0}' उपलब्ध नहीं है। सेटिंग्स (पथ, इंस्टॉल) की जाँच करें।]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1531,8 +1616,8 @@ msgid ""
 "A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
 "to check for updates and install the latest extension."
 msgstr ""
-"एक नया %(name)s (%(version)s) उपलब्ध है। अपडेट की जाँच करने और नवीनतम एक्सटेंशन "
-"इंस्टॉल करने के लिए उपकरण → एक्सटेंशन मैनेजर का उपयोग करें।"
+"एक नया %(name)s (%(version)s) उपलब्ध है। अपडेट की जाँच करने और नवीनतम "
+"एक्सटेंशन इंस्टॉल करने के लिए उपकरण → एक्सटेंशन मैनेजर का उपयोग करें।"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Invalid Setting"
@@ -1546,6 +1631,21 @@ msgstr "सेटिंग्स खोलने में विफल: {0}"
 #: plugin/chatbot/dialog_views.py
 msgid "Testing connection..."
 msgstr "कनेक्शन की जाँच की जा रही है..."
+
+#: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "स्पीच"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "वॉयस सैंपल नहीं चलाया जा सका।"
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"स्पीच आउटपुट बंद है। इस आवाज़ को सुनने के लिए 'स्पीच आउटपुट सक्षम करें "
+"(TTS)' चालू करें।"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
@@ -1574,6 +1674,10 @@ msgstr "ऊँचाई:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "चौड़ाई:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "प्रतिक्रियाएं बोलकर सुनाएं (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1663,16 +1767,16 @@ msgstr "मेरी स्क्रिप्ट्स"
 #: plugin/scripting/editor_ui_strings.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
 msgstr ""
-"इन-बिल्ट हेल्पर्स केवल-पठनीय हैं। अनुकूलित करने के लिए 'मेरी स्क्रिप्ट्स में कॉपी करें' का उपयोग "
-"करें।"
+"इन-बिल्ट हेल्पर्स केवल-पठनीय हैं। अनुकूलित करने के लिए 'मेरी स्क्रिप्ट्स में"
+" कॉपी करें' का उपयोग करें।"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
 msgstr ""
-"दस्तावेज़ बदल गया है — दस्तावेज़ स्क्रिप्ट्स को संपादित करने के लिए 'पायथन स्क्रिप्ट चलाएँ' को "
-"बंद करके पुनः खोलें।"
+"दस्तावेज़ बदल गया है — दस्तावेज़ स्क्रिप्ट्स को संपादित करने के लिए 'पायथन "
+"स्क्रिप्ट चलाएँ' को बंद करके पुनः खोलें।"
 
 #: plugin/scripting/editor_ui_strings.py
 #, python-brace-format
@@ -1715,8 +1819,8 @@ msgstr "स्क्रिप्ट का नाम दर्ज करें:"
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
 msgstr ""
-"इस दस्तावेज़ में '{0}' नाम की एक स्क्रिप्ट पहले से मौजूद है। क्या आप इसे अधिलेखित "
-"(overwrite) करना चाहते हैं?"
+"इस दस्तावेज़ में '{0}' नाम की एक स्क्रिप्ट पहले से मौजूद है। क्या आप इसे "
+"अधिलेखित (overwrite) करना चाहते हैं?"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Copy to My Scripts as:"
@@ -1725,7 +1829,9 @@ msgstr "My Scripts में इस रूप में कॉपी करे�
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
-msgstr "My Scripts में '{0}' नाम की एक स्क्रिप्ट पहले से मौजूद है। क्या इसे ओवरराइट करें?"
+msgstr ""
+"My Scripts में '{0}' नाम की एक स्क्रिप्ट पहले से मौजूद है। क्या इसे ओवरराइट "
+"करें?"
 
 #: plugin/scripting/editor_ui_strings.py
 #, python-brace-format
@@ -1739,12 +1845,15 @@ msgstr "क्या आप वाकई स्क्रिप्ट '{0}' क�
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
-msgstr "डेटा रेंज चुनें या A1 पता दर्ज करें (डेटा के रूप में इंजेक्ट किया गया)।"
+msgstr ""
+"डेटा रेंज चुनें या A1 पता दर्ज करें (डेटा के रूप में इंजेक्ट किया गया)।"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
-msgstr "दस्तावेज़ स्क्रिप्ट दस्तावेज़ में संग्रहीत करने के लिए बहुत बड़ी हैं ({0} बाइट्स)।"
+msgstr ""
+"दस्तावेज़ स्क्रिप्ट दस्तावेज़ में संग्रहीत करने के लिए बहुत बड़ी हैं ({0} "
+"बाइट्स)।"
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 msgid "No document is open to save scripts."
@@ -1755,8 +1864,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"दस्तावेज़ 'रीड-ओनली' है या गुणों को लिखा नहीं जा सकता। इसके बजाय स्क्रिप्ट को आपकी "
-"व्यक्तिगत लाइब्रेरी में सहेजा गया।"
+"दस्तावेज़ 'रीड-ओनली' है या गुणों को लिखा नहीं जा सकता। इसके बजाय स्क्रिप्ट "
+"को आपकी व्यक्तिगत लाइब्रेरी में सहेजा गया।"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1875,8 +1984,8 @@ msgstr "स्क्रिप्ट सफलतापूर्वक निष�
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
 msgstr ""
-"स्क्रिप्ट सफलतापूर्वक निष्पादित हुई, लेकिन कोई परिणाम नहीं मिला और कोई आउटपुट उत्पन्न "
-"नहीं हुआ।"
+"स्क्रिप्ट सफलतापूर्वक निष्पादित हुई, लेकिन कोई परिणाम नहीं मिला और कोई "
+"आउटपुट उत्पन्न नहीं हुआ।"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Success"
@@ -1905,12 +2014,12 @@ msgstr "विफल"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
-"Settings → Python में Python venv पथ सेट करें (वही venv जहाँ आपने 'uv pip install "
-"pywebview rocher' चलाया था)। LibreOffice का इन-बिल्ट Python, Monaco एडिटर को "
-"नहीं चला सकता।"
+"Settings → Python में Python venv पथ सेट करें (वही venv जहाँ आपने 'uv pip "
+"install pywebview rocher' चलाया था)। LibreOffice का इन-बिल्ट Python, Monaco "
+"एडिटर को नहीं चला सकता।"
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1918,8 +2027,9 @@ msgid ""
 "No python executable found under configured venv: {0} (expected bin/python, "
 "Scripts/python.exe, or env-root python.exe)."
 msgstr ""
-"कॉन्फ़िगर किए गए venv के अंतर्गत कोई python निष्पादन योग्य (executable) नहीं मिला: "
-"{0} (bin/python, Scripts/python.exe, या env-root python.exe अपेक्षित है)।"
+"कॉन्फ़िगर किए गए venv के अंतर्गत कोई python निष्पादन योग्य (executable) नहीं"
+" मिला: {0} (bin/python, Scripts/python.exe, या env-root python.exe अपेक्षित "
+"है)।"
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -1955,18 +2065,19 @@ msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
-"Text/NLP जांच का समय समाप्त हो गया (spaCy या transformers का कोल्ड इम्पोर्ट पहली "
-"बार जांचने पर 10–30 सेकंड ले सकता है)।"
+"Text/NLP जांच का समय समाप्त हो गया (spaCy या transformers का कोल्ड इम्पोर्ट "
+"पहली बार जांचने पर 10–30 सेकंड ले सकता है)।"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Text/NLP जांच विफल रही (writeragent_debug.log देखें)।"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
-"विज़न प्रोब का समय समाप्त हो गया (पहली बार जांचने पर डॉकलिंग इम्पोर्ट में 10-30 सेकंड लग "
-"सकते हैं)।"
+"विज़न प्रोब का समय समाप्त हो गया (पहली बार जांचने पर डॉकलिंग इम्पोर्ट में "
+"10-30 सेकंड लग सकते हैं)।"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
@@ -1977,16 +2088,16 @@ msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
 msgstr ""
-"वेक्टर सर्च जांच का समय समाप्त हो गया (पहली बार जांचने पर sentence-transformers "
-"इम्पोर्ट में 10-30 सेकंड लग सकते हैं)।"
+"वेक्टर सर्च जांच का समय समाप्त हो गया (पहली बार जांचने पर sentence-"
+"transformers इम्पोर्ट में 10-30 सेकंड लग सकते हैं)।"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "वेक्टर सर्च जांच विफल रही (writeragent_debug.log देखें)।"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "ऑडियो रिकॉर्डिंग"
+msgid "Audio Recording & Speech"
+msgstr "ऑडियो रिकॉर्डिंग और स्पीच"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2029,12 +2140,20 @@ msgid "Vector Search Libraries"
 msgstr "वेक्टर सर्च लाइब्रेरी"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "ऑडियो रिकॉर्डिंग"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "शेष पैकेज इंस्टॉल करने के लिए:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "कोई माइक्रोफ़ोन इनपुट डिवाइस नहीं मिला।"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "स्थानीय TTS इंजन (वैकल्पिक):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2045,20 +2164,24 @@ msgid "Reading Python version..."
 msgstr "पायथन संस्करण पढ़ा जा रहा है..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "ऑडियो रिकॉर्डिंग: sounddevice की जांच की जा रही है..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "ऑडियो और स्पीच: sounddevice और TTS इंजन की जाँच की जा रही है..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
-msgstr "Text / NLP लाइब्रेरी: लोड हो रही है (पहली बार चलने में कुछ समय लग सकता है)..."
+msgstr ""
+"Text / NLP लाइब्रेरी: लोड हो रही है (पहली बार चलने में कुछ समय लग सकता "
+"है)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr "Vision Libraries: लोड हो रही हैं (पहली बार में थोड़ा समय लग सकता है)..."
+msgstr ""
+"Vision Libraries: लोड हो रही हैं (पहली बार में थोड़ा समय लग सकता है)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
-msgstr "वेक्टर सर्च लाइब्रेरी: लोड हो रही है (पहली बार में कुछ समय लग सकता है)..."
+msgstr ""
+"वेक्टर सर्च लाइब्रेरी: लोड हो रही है (पहली बार में कुछ समय लग सकता है)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2082,7 +2205,8 @@ msgstr "एनालिटिक्स संवाद लोड नहीं �
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr "spaCy / textdescriptives / transformers इंस्टॉलेशन की जाँच की जा रही है..."
+msgstr ""
+"spaCy / textdescriptives / transformers इंस्टॉलेशन की जाँच की जा रही है..."
 
 #: plugin/scripting/text_analytics_ui.py
 #, python-brace-format
@@ -2090,8 +2214,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2099,8 +2222,7 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "टेक्स्ट एनालिटिक्स वर्कर से त्रुटि:\n"
 "{err}\n"
@@ -2113,8 +2235,7 @@ msgstr ""
 "इन्हें इस कमांड से इंस्टॉल करें:\n"
 "  {install}\n"
 "\n"
-"वर्कर ने मॉड्यूल के गायब होने की सूचना दी है। सत्यापित करें कि पैकेज आपके कॉन्फ़िगर किए गए "
-"venv के लिए रिज़ॉल्व किए गए सटीक पायथन निष्पादन योग्य (executable) में इंस्टॉल हैं।"
+"वर्कर ने मॉड्यूल के गायब होने की सूचना दी है। सत्यापित करें कि पैकेज आपके कॉन्फ़िगर किए गए venv के लिए रिज़ॉल्व किए गए सटीक पायथन निष्पादन योग्य (executable) में इंस्टॉल हैं।"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2133,15 +2254,11 @@ msgstr "विश्लेषण किया जा रहा है..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "त्रुटि: %s\n"
 "\n"
-"आपके कॉन्फ़िगर किए गए venv (सेटिंग्स → Python) में आवश्यक पैकेज गायब हो सकते हैं। इस संवाद "
-"में 'Check Venv' पर क्लिक करें या spacy, textdescriptives, transformers, torch "
-"आदि के विवरण के लिए सेटिंग्स → Python में पूर्ण 'Test' का उपयोग करें।"
+"आपके कॉन्फ़िगर किए गए venv (सेटिंग्स → Python) में आवश्यक पैकेज गायब हो सकते हैं। इस संवाद में 'Check Venv' पर क्लिक करें या spacy, textdescriptives, transformers, torch आदि के विवरण के लिए सेटिंग्स → Python में पूर्ण 'Test' का उपयोग करें।"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2203,18 +2320,20 @@ msgid ""
 "Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
 "tables). (took {time})"
 msgstr ""
-"Vision '{helper}' पूर्ण हुआ। HTML सम्मिलित किया गया ({blocks} ब्लॉक, {tables} "
-"तालिकाएं)। ({time} लगा)"
+"Vision '{helper}' पूर्ण हुआ। HTML सम्मिलित किया गया ({blocks} ब्लॉक, "
+"{tables} तालिकाएं)। ({time} लगा)"
 
 #: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' पूर्ण हुआ। स्वरूपित HTML सम्मिलित किया गया। ({time} लगा)"
+msgstr ""
+"Vision '{helper}' पूर्ण हुआ। स्वरूपित HTML सम्मिलित किया गया। ({time} लगा)"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "{domain} '{helper}' पूर्ण हुआ। {rows} पंक्तियाँ लिखी गईं। ({time} लगा)"
+msgstr ""
+"{domain} '{helper}' पूर्ण हुआ। {rows} पंक्तियाँ लिखी गईं। ({time} लगा)"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -2226,16 +2345,17 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"नोटबुक्स के लिए Python सत्र रीसेट करना LibreOffice Writer पर लागू होता है। एक "
-"आयातित Jupyter नोटबुक के साथ एक Writer दस्तावेज़ खोलें और पुनः प्रयास करें।"
+"नोटबुक्स के लिए Python सत्र रीसेट करना LibreOffice Writer पर लागू होता है। "
+"एक आयातित Jupyter नोटबुक के साथ एक Writer दस्तावेज़ खोलें और पुनः प्रयास "
+"करें।"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
-"इस राइटर दस्तावेज़ में कोई आयातित नोटबुक रजिस्ट्री नहीं है। पहले फ़ाइल → एक जुपिटर नोटबुक "
-"(.ipynb) खोलें।"
+"इस राइटर दस्तावेज़ में कोई आयातित नोटबुक रजिस्ट्री नहीं है। पहले फ़ाइल → एक "
+"जुपिटर नोटबुक (.ipynb) खोलें।"
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -2254,8 +2374,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Python सत्र रीसेट करना Calc स्प्रेडशीट पर लागू होता है। एक Calc वर्कबुक खोलें और पुनः "
-"प्रयास करें।"
+"Python सत्र रीसेट करना Calc स्प्रेडशीट पर लागू होता है। एक Calc वर्कबुक "
+"खोलें और पुनः प्रयास करें।"
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -2266,8 +2386,8 @@ msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
-"इस वर्कबुक के लिए आरंभीकरण स्क्रिप्ट और किसी भी इन-मेमोरी इनिट स्थिति को रीसेट कर दिया "
-"गया था। सेल वेरिएबल पहले से ही प्रति सेल अलग-थलग थे।"
+"इस वर्कबुक के लिए आरंभीकरण स्क्रिप्ट और किसी भी इन-मेमोरी इनिट स्थिति को "
+"रीसेट कर दिया गया था। सेल वेरिएबल पहले से ही प्रति सेल अलग-थलग थे।"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2275,9 +2395,10 @@ msgid ""
 "There is no shared cell session to reset. Add an initialization script if "
 "you need to clear expensive one-time workbook setup."
 msgstr ""
-"पायथन सत्र मोड आइसोलेटेड (Isolated) है (प्रत्येक =PY() सेल अपने स्वयं के वेरिएबल्स का "
-"उपयोग करता है)। रीसेट करने के लिए कोई साझा सेल सत्र नहीं है। यदि आपको महंगे वन-टाइम "
-"वर्कबुक सेटअप को साफ़ करने की आवश्यकता है, तो एक इनिशियलाइज़ेशन स्क्रिप्ट जोड़ें।"
+"पायथन सत्र मोड आइसोलेटेड (Isolated) है (प्रत्येक =PY() सेल अपने स्वयं के "
+"वेरिएबल्स का उपयोग करता है)। रीसेट करने के लिए कोई साझा सेल सत्र नहीं है। "
+"यदि आपको महंगे वन-टाइम वर्कबुक सेटअप को साफ़ करने की आवश्यकता है, तो एक "
+"इनिशियलाइज़ेशन स्क्रिप्ट जोड़ें।"
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this document."
@@ -2347,17 +2468,17 @@ msgid ""
 "Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
 "(took {time})"
 msgstr ""
-"Vision '{helper}' पूर्ण हुआ। {count} चित्रों के लिए स्वरूपित HTML डाला गया। ({time} "
-"लगा)"
+"Vision '{helper}' पूर्ण हुआ। {count} चित्रों के लिए स्वरूपित HTML डाला गया। "
+"({time} लगा)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
-"स्क्रिप्ट सफलतापूर्वक निष्पादित हुई, लेकिन कोई परिणाम नहीं मिला और कोई आउटपुट उत्पन्न "
-"नहीं हुआ। ({time} लगा)"
+"स्क्रिप्ट सफलतापूर्वक निष्पादित हुई, लेकिन कोई परिणाम नहीं मिला और कोई "
+"आउटपुट उत्पन्न नहीं हुआ। ({time} लगा)"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2404,8 +2525,8 @@ msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"छवि '{name}' नहीं मिली। image_list का उपयोग करें या image_name को खाली छोड़ें और "
-"ग्राफ़िक का चयन करें।"
+"छवि '{name}' नहीं मिली। image_list का उपयोग करें या image_name को खाली "
+"छोड़ें और ग्राफ़िक का चयन करें।"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2457,7 +2578,8 @@ msgstr "MCP सर्वर प्रारंभ होने में वि�
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
-"अपने LibreOffice उपयोगकर्ता कॉन्फ़िगरेशन फ़ोल्डर में writeragent_debug.log की जाँच करें"
+"अपने LibreOffice उपयोगकर्ता कॉन्फ़िगरेशन फ़ोल्डर में writeragent_debug.log "
+"की जाँच करें"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2494,7 +2616,9 @@ msgstr "{0} के माध्यम से सार्वजनिक टन�
 #: plugin/mcp/__init__.py
 #, python-brace-format
 msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr "{0} के माध्यम से सार्वजनिक टनल नहीं चल रही है (क्या प्रदाता बाइनरी इंस्टॉल है?)"
+msgstr ""
+"{0} के माध्यम से सार्वजनिक टनल नहीं चल रही है (क्या प्रदाता बाइनरी इंस्टॉल "
+"है?)"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server stopped"
@@ -2513,8 +2637,8 @@ msgstr "{0} के माध्यम से सार्वजनिक टन�
 #, python-brace-format
 msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
 msgstr ""
-"{0} के माध्यम से सार्वजनिक टनल शुरू हो रही है… तैयार होने पर MCP सर्वर स्थिति का उपयोग "
-"करें।"
+"{0} के माध्यम से सार्वजनिक टनल शुरू हो रही है… तैयार होने पर MCP सर्वर "
+"स्थिति का उपयोग करें।"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -2673,8 +2797,7 @@ msgstr ""
 "{0} बाइनरी '{1}' इंस्टॉल और सत्यापित है ({2})।\n"
 "\n"
 "MCP सर्वर स्थानीय रूप से पोर्ट {3} पर चल रहा है।\n"
-"सार्वजनिक रूटिंग सक्रिय करने के लिए 'सार्वजनिक टनल के माध्यम से एक्सपोज़ करें' चुनें और ठीक "
-"(OK) पर क्लिक करें।"
+"सार्वजनिक रूटिंग सक्रिय करने के लिए 'सार्वजनिक टनल के माध्यम से एक्सपोज़ करें' चुनें और ठीक (OK) पर क्लिक करें।"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2736,10 +2859,6 @@ msgstr "पूछें / निर्देश दें:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "आस्पेक्ट रेशियो:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "ऑडियो मॉडल:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -2819,7 +2938,8 @@ msgstr "एंडपॉइंट URL:"
 
 #: plugin/xdl_strings.py
 msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr "कन्वर्ट करने और फ़ॉर्मूला के रूप में डालने के लिए LaTeX गणित कोड दर्ज करें:"
+msgstr ""
+"कन्वर्ट करने और फ़ॉर्मूला के रूप में डालने के लिए LaTeX गणित कोड दर्ज करें:"
 
 #: plugin/xdl_strings.py
 msgid ""
@@ -3090,6 +3210,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3117,6 +3241,123 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "ऑडियो मॉडल:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr "स्पीच-टू-टेक्स्ट मॉडल जब चैट मॉडल ऑडियो इनपुट न ले सके।"
+
+msgid "Enable Speech Output (TTS)"
+msgstr "स्पीच आउटपुट (TTS) सक्षम करें"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+"टेक्स्ट-टू-स्पीच का उपयोग करके सहायक की प्रतिक्रियाओं को बोलकर सुनाएं।"
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "वाक्य-दर-वाक्य बोलें (स्थानीय)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"अगले वाक्यों को तब सिंथेसाइज़ करें जब वर्तमान वाक्य चल रहा हो, ताकि छोटे "
+"वाक्य के बाद अंतराल न आए। 'रोकें' उन क्लिप्स को हटा देता है जो अभी नहीं चल "
+"रहे हैं। पूरी प्रतिक्रिया को एक क्लिप के रूप में बोलने के लिए इसे बंद करें।"
+
+msgid "Keep replies brief"
+msgstr "प्रतिक्रियाओं को संक्षिप्त रखें"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"लगभग एक पैराग्राफ का लक्ष्य रखें जब तक कि उपयोगकर्ता अधिक न पूछे। यह केवल "
+"तभी लागू होता है जब स्पीच आउटपुट (TTS) चालू हो।"
+
+msgid "TTS Provider"
+msgstr "TTS प्रदाता"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"चुनें कि क्या अंतर्निहित OS स्पीच, स्थानीय न्यूरल इंजन, या अपने API एंडपॉइंट"
+" का उपयोग करना है।"
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Native (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (Local Neural, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (Local Fast Neural, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "LLM एंडपॉइंट"
+
+msgid "TTS Model"
+msgstr "TTS मॉडल"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"स्पीच सिंथेसिस के लिए मॉडल (तब उपयोग किया जाता है जब TTS प्रदाता LLM "
+"एंडपॉइंट हो)।"
+
+msgid "Voice"
+msgstr "आवाज़"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"चयनित प्रदाता के लिए आवाज़। सूची आपके लोकेल के लिए Piper या Kokoro कैटलॉग से"
+" मेल खाती है।"
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI न्यूट्रल)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro US महिला - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (US English Female - Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (सिस्टम डिफ़ॉल्ट)"
+
+msgid "Test voice"
+msgstr "आवाज़ का परीक्षण करें"
+
+msgid "Speech Speed"
+msgstr "वाक् गति"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"प्लेबैक गति गुणक (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, या 0.25x तक कस्टम)।"
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Calc स्प्रेडशीट उपकरण"
 
@@ -3132,10 +3373,10 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"सहोदर .xlsx/.xls को फ़ोल्डर के बगल में writeragent_ods_cache/ में बदलें ताकि बार-बार "
-"DuckDB SQL, ODS का पुन: उपयोग कर सके। नेटिव .ods और लाइव वर्कबुक कभी कैश नहीं किए "
-"जाते हैं। इसे अक्षम करने के लिए writeragent.json में calc.ods_cache_enabled को false "
-"पर सेट करें।"
+"सहोदर .xlsx/.xls को फ़ोल्डर के बगल में writeragent_ods_cache/ में बदलें ताकि"
+" बार-बार DuckDB SQL, ODS का पुन: उपयोग कर सके। नेटिव .ods और लाइव वर्कबुक "
+"कभी कैश नहीं किए जाते हैं। इसे अक्षम करने के लिए writeragent.json में "
+"calc.ods_cache_enabled को false पर सेट करें।"
 
 msgid "Sidebar"
 msgstr "साइडबार"
@@ -3171,8 +3412,8 @@ msgid ""
 "Cache completed web research reports by normalized query (uses web cache "
 "database)."
 msgstr ""
-"पूर्ण किए गए वेब शोध रिपोर्टों को सामान्यीकृत क्वेरी द्वारा कैश करें (वेब कैश डेटाबेस का "
-"उपयोग करता है)।"
+"पूर्ण किए गए वेब शोध रिपोर्टों को सामान्यीकृत क्वेरी द्वारा कैश करें (वेब "
+"कैश डेटाबेस का उपयोग करता है)।"
 
 msgid "Prompt for Web Research"
 msgstr "वेब अनुसंधान के लिए प्रॉम्प्ट"
@@ -3187,8 +3428,8 @@ msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
 msgstr ""
-"अनुसंधान के दौरान वेबपेज विज़िट के लिए उपयोग करने हेतु ब्राउज़र बैकएंड चुनें (Off स्थिर HTTP "
-"अनुरोधों का उपयोग करता है)।"
+"अनुसंधान के दौरान वेबपेज विज़िट के लिए उपयोग करने हेतु ब्राउज़र बैकएंड चुनें"
+" (Off स्थिर HTTP अनुरोधों का उपयोग करता है)।"
 
 msgid "Off (Static HTTP)"
 msgstr "Off (स्थिर HTTP)"
@@ -3218,7 +3459,9 @@ msgid "Rich Text Control Sidebar"
 msgstr "रिच टेक्स्ट कंट्रोल साइडबार"
 
 msgid "Formatted chat via RichTextControl. Requires restart."
-msgstr "RichTextControl के माध्यम से फ़ॉर्मैट की गई चैट। पुनरारंभ (restart) आवश्यक है।"
+msgstr ""
+"RichTextControl के माध्यम से फ़ॉर्मैट की गई चैट। पुनरारंभ (restart) आवश्यक "
+"है।"
 
 msgid "Humanizer skill (natural prose)"
 msgstr "ह्यूमेनाइज़र कौशल (प्राकृतिक गद्य)"
@@ -3226,15 +3469,16 @@ msgstr "ह्यूमेनाइज़र कौशल (प्राकृत
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
-"जब सक्षम किया जाता है, तो यह सिस्टम प्रॉम्प्ट में मार्गदर्शन इंजेक्ट करता है ताकि मॉडल "
-"द्वारा उत्पन्न या संशोधित दस्तावेज़ पाठ अधिक प्राकृतिक और मानवीय लगे (AI स्लोप पैटर्न को "
-"हटाता है)। अपने LibreOffice प्रोफ़ाइल में writeragent/skills/humanizer/SKILL.md के "
-"अंतर्गत नियमों को संपादित करें (यह फ़ाइल पहली बार उपयोग करने पर स्वतः बन जाती है)। एक "
-"समर्पित कौशल टैब बाद में जोड़ा जा सकता है।"
+"जब सक्षम किया जाता है, तो यह सिस्टम प्रॉम्प्ट में मार्गदर्शन इंजेक्ट करता है"
+" ताकि मॉडल द्वारा उत्पन्न या संशोधित दस्तावेज़ पाठ अधिक प्राकृतिक और मानवीय "
+"लगे (AI स्लोप पैटर्न को हटाता है)। अपने LibreOffice प्रोफ़ाइल में "
+"writeragent/skills/humanizer/SKILL.md के अंतर्गत नियमों को संपादित करें (यह "
+"फ़ाइल पहली बार उपयोग करने पर स्वतः बन जाती है)। एक समर्पित कौशल टैब बाद में "
+"जोड़ा जा सकता है।"
 
 msgid "Silence before send (ms)"
 msgstr "भेजने से पहले मौन (ms)"
@@ -3243,8 +3487,8 @@ msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
 msgstr ""
-"बोलना बंद करने के बाद रुकें, फिर स्वतः-बंद करें और भेजें (रिकॉर्ड)। 0 = जब तक आप 'रिकॉर्ड "
-"रोकें' पर क्लिक न करें तब तक प्रतीक्षा करें।"
+"बोलना बंद करने के बाद रुकें, फिर स्वतः-बंद करें और भेजें (रिकॉर्ड)। 0 = जब "
+"तक आप 'रिकॉर्ड रोकें' पर क्लिक न करें तब तक प्रतीक्षा करें।"
 
 msgid "Doc"
 msgstr "दस्तावेज़"
@@ -3253,14 +3497,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "व्याकरण जाँचक सक्षम करें (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
-"बंद = अक्षम। AI (LLM) = अपने कॉन्फ़िगर किए गए टेक्स्ट मॉडल/API का उपयोग करें। "
-"LanguageTool / Vale = सेटिंग्स → Python venv के माध्यम से स्थानीय इंजन। Harper = आपके "
-"प्रोफ़ाइल में स्वचालित रूप से डाउनलोड की गई ऑफ़लाइन Rust बाइनरी (किसी venv की "
-"आवश्यकता नहीं)।"
+"बंद = अक्षम। AI (LLM) = अपने कॉन्फ़िगर किए गए टेक्स्ट मॉडल/API का उपयोग "
+"करें। LanguageTool / Vale = सेटिंग्स → Python venv के माध्यम से स्थानीय "
+"इंजन। Harper = आपके प्रोफ़ाइल में स्वचालित रूप से डाउनलोड की गई ऑफ़लाइन Rust"
+" बाइनरी (किसी venv की आवश्यकता नहीं)।"
 
 msgid "Off"
 msgstr "बंद"
@@ -3290,8 +3534,9 @@ msgid ""
 "Clears cached grammar results for this document and asks Writer to check "
 "again. Use after changing checker or model."
 msgstr ""
-"इस दस्तावेज़ के लिए कैश किए गए व्याकरण परिणामों को साफ़ करता है और राइटर (Writer) को "
-"फिर से जाँचने के लिए कहता है। चेकर या मॉडल बदलने के बाद इसका उपयोग करें।"
+"इस दस्तावेज़ के लिए कैश किए गए व्याकरण परिणामों को साफ़ करता है और राइटर "
+"(Writer) को फिर से जाँचने के लिए कहता है। चेकर या मॉडल बदलने के बाद इसका "
+"उपयोग करें।"
 
 msgid "Pause grammar while chat/agent runs"
 msgstr "चैट/एजेंट चलने के दौरान व्याकरण जाँच रोकें"
@@ -3300,8 +3545,8 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"सक्रिय होने पर, AI व्याकरण बैकग्राउंड अनुरोधों को छोड़ देता है यदि साइडबार चैट या एजेंट चल "
-"रहा हो, ताकि एक साथ कई API कॉल से बचा जा सके।"
+"सक्रिय होने पर, AI व्याकरण बैकग्राउंड अनुरोधों को छोड़ देता है यदि साइडबार "
+"चैट या एजेंट चल रहा हो, ताकि एक साथ कई API कॉल से बचा जा सके।"
 
 msgid "Batch sentences"
 msgstr "बैच वाक्य"
@@ -3311,9 +3556,9 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"प्रति LLM अनुरोध भेजे जाने वाले वाक्यों की संख्या (1-8)। 1 (डिफ़ॉल्ट) सबसे विश्वसनीय है; "
-"उच्च मान तेज़ और सस्ते हैं लेकिन टोकन सीमा तक पहुँच सकते हैं या मॉडल त्रुटियों का कारण बन "
-"सकते हैं।"
+"प्रति LLM अनुरोध भेजे जाने वाले वाक्यों की संख्या (1-8)। 1 (डिफ़ॉल्ट) सबसे "
+"विश्वसनीय है; उच्च मान तेज़ और सस्ते हैं लेकिन टोकन सीमा तक पहुँच सकते हैं "
+"या मॉडल त्रुटियों का कारण बन सकते हैं।"
 
 msgid "Concurrent requests"
 msgstr "समवर्ती अनुरोध"
@@ -3323,9 +3568,9 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"अधिकतम समवर्ती बैकग्राउंड व्याकरण API कॉल (1-8)। 1 पूर्व व्यवहार से मेल खाता है। "
-"OpenRouter या अन्य प्रदाताओं के लिए बढ़ाएं जो समानांतर अनुरोधों की अनुमति देते हैं; "
-"साइडबार चैट के साथ सावधानी से उपयोग करें।"
+"अधिकतम समवर्ती बैकग्राउंड व्याकरण API कॉल (1-8)। 1 पूर्व व्यवहार से मेल खाता"
+" है। OpenRouter या अन्य प्रदाताओं के लिए बढ़ाएं जो समानांतर अनुरोधों की "
+"अनुमति देते हैं; साइडबार चैट के साथ सावधानी से उपयोग करें।"
 
 msgid "Sentence language detection"
 msgstr "वाक्य भाषा पहचान"
@@ -3336,10 +3581,10 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"प्रत्येक पूर्ण वाक्य की भाषा को दस्तावेज़ लोकेल के विरुद्ध सत्यापित करें। AI आपके व्याकरण/चैट "
-"API का उपयोग करता है; Local आपके Python venv में langdetect का उपयोग करता है "
-"(Settings → Python; कोई API कॉल नहीं)। बेमेल होने पर CharLocale अपडेट करें और "
-"व्याकरण की पुनः जांच करें।"
+"प्रत्येक पूर्ण वाक्य की भाषा को दस्तावेज़ लोकेल के विरुद्ध सत्यापित करें। AI"
+" आपके व्याकरण/चैट API का उपयोग करता है; Local आपके Python venv में "
+"langdetect का उपयोग करता है (Settings → Python; कोई API कॉल नहीं)। बेमेल "
+"होने पर CharLocale अपडेट करें और व्याकरण की पुनः जांच करें।"
 
 msgid "Local (langdetect)"
 msgstr "Local (langdetect)"
@@ -3351,9 +3596,9 @@ msgid ""
 "When on, Enter in the sidebar query runs the same action as Send; "
 "Shift+Enter inserts a newline. When off, Enter inserts a newline."
 msgstr ""
-"जब चालू हो, तो साइडबार क्वेरी में Enter दबाने पर वही क्रिया होती है जो 'भेजें' (Send) "
-"बटन की होती है; Shift+Enter एक नई पंक्ति सम्मिलित करता है। जब बंद हो, तो Enter एक "
-"नई पंक्ति सम्मिलित करता है।"
+"जब चालू हो, तो साइडबार क्वेरी में Enter दबाने पर वही क्रिया होती है जो "
+"'भेजें' (Send) बटन की होती है; Shift+Enter एक नई पंक्ति सम्मिलित करता है। जब"
+" बंद हो, तो Enter एक नई पंक्ति सम्मिलित करता है।"
 
 msgid "Agent edit review"
 msgstr "एजेंट संपादन समीक्षा"
@@ -3363,9 +3608,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"बंद = सीधे संपादन। रिकॉर्ड = ट्रैक किए गए परिवर्तन जिन्हें आप स्वयं स्वीकार/अस्वीकार करते "
-"हैं। प्रतीक्षा करें = apply_document_content समीक्षा तक ब्लॉक करता है (चैट/MCP वर्कर "
-"थ्रेड पर)।"
+"बंद = सीधे संपादन। रिकॉर्ड = ट्रैक किए गए परिवर्तन जिन्हें आप स्वयं "
+"स्वीकार/अस्वीकार करते हैं। प्रतीक्षा करें = apply_document_content समीक्षा "
+"तक ब्लॉक करता है (चैट/MCP वर्कर थ्रेड पर)।"
 
 msgid "Record (track changes)"
 msgstr "रिकॉर्ड (ट्रैक किए गए परिवर्तन)"
@@ -3386,8 +3631,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"document_research (corpus.db) के लिए अनुक्रमित शब्दार्थ + कीवर्ड खोज। एम्बेडिंग venv "
-"की आवश्यकता है — पायथन टेस्ट देखें।"
+"document_research (corpus.db) के लिए अनुक्रमित शब्दार्थ + कीवर्ड खोज। "
+"एम्बेडिंग venv की आवश्यकता है — पायथन टेस्ट देखें।"
 
 msgid "Embeddings + FTS"
 msgstr "एम्बेडिंग + FTS"
@@ -3405,7 +3650,8 @@ msgid "Embedding Model"
 msgstr "एम्बेडिंग मॉडल"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
-msgstr "स्थानीय प्रदाता के लिए HuggingFace मॉडल ID, या एंडपॉइंट-विशिष्ट मॉडल ID"
+msgstr ""
+"स्थानीय प्रदाता के लिए HuggingFace मॉडल ID, या एंडपॉइंट-विशिष्ट मॉडल ID"
 
 msgid "Enable cross-file rerank"
 msgstr "क्रॉस-फ़ाइल रीरैंक सक्षम करें"
@@ -3414,18 +3660,18 @@ msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
 msgstr ""
-"हाइब्रिड रिट्रीव (एम्बेडिंग्स + FTS और LlamaIndex) के बाद सेकंड-स्टेज क्रॉस-एनकोडर। "
-"डिफ़ॉल्ट रूप से बंद।"
+"हाइब्रिड रिट्रीव (एम्बेडिंग्स + FTS और LlamaIndex) के बाद सेकंड-स्टेज "
+"क्रॉस-एनकोडर। डिफ़ॉल्ट रूप से बंद।"
 
 msgid "Rerank model"
 msgstr "रीरैंक मॉडल"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
-"केवल तभी उपयोग किया जाता है जब रीरैंक सक्षम हो। इंग्लिश MiniLM तेज़ है; bge-reranker-"
-"v2-m3 बहुभाषी है और ~2.3 GB डाउनलोड करता है।"
+"केवल तभी उपयोग किया जाता है जब रीरैंक सक्षम हो। इंग्लिश MiniLM तेज़ है; bge-"
+"reranker-v2-m3 बहुभाषी है और ~2.3 GB डाउनलोड करता है।"
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -3443,11 +3689,11 @@ msgid "Enable MCP Server"
 msgstr "MCP सर्वर सक्षम करें"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"केवल लोकलहोस्ट, कोई प्रमाणीकरण नहीं। क्लाइंट http://localhost:<port>/mcp (स्ट्रीम "
-"करने योग्य HTTP) का उपयोग करते हैं।"
+"केवल लोकलहोस्ट, कोई प्रमाणीकरण नहीं। क्लाइंट http://localhost:<port>/mcp "
+"(स्ट्रीम करने योग्य HTTP) का उपयोग करते हैं।"
 
 msgid "MCP Port"
 msgstr "MCP पोर्ट"
@@ -3463,11 +3709,12 @@ msgid ""
 "find_tools (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"विशिष्ट टूल MCP क्लाइंट्स के लिए कैसे प्रस्तुत किए जाते हैं। delegate=डेलिगेट गेटवे के माध्यम से "
-"(आज का व्यवहार); direct_flat=सभी MCP-सुलभ विशिष्ट टूल सीधे सूचीबद्ध, साइडबार-ओनली "
-"फ्लो को छोड़कर (अपने स्वयं के टूल-सर्च वाले क्लाइंट्स के लिए सर्वोत्तम); "
-"direct_discovery=छोटा कोर लिस्ट और find_tools (डोमेन कैटलॉग, फिर प्रति-डोमेन टूल "
-"स्कीमा; किसी भी क्लाइंट के लिए सर्वोत्तम)।"
+"विशिष्ट टूल MCP क्लाइंट्स के लिए कैसे प्रस्तुत किए जाते हैं। "
+"delegate=डेलिगेट गेटवे के माध्यम से (आज का व्यवहार); direct_flat=सभी "
+"MCP-सुलभ विशिष्ट टूल सीधे सूचीबद्ध, साइडबार-ओनली फ्लो को छोड़कर (अपने स्वयं "
+"के टूल-सर्च वाले क्लाइंट्स के लिए सर्वोत्तम); direct_discovery=छोटा कोर "
+"लिस्ट और find_tools (डोमेन कैटलॉग, फिर प्रति-डोमेन टूल स्कीमा; किसी भी "
+"क्लाइंट के लिए सर्वोत्तम)।"
 
 msgid "Delegate (default)"
 msgstr "डेलिगेट (डिफ़ॉल्ट)"
@@ -3486,12 +3733,13 @@ msgstr "पब्लिक टनल के माध्यम से एक्�
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
-"इसके लिए PATH पर चयनित प्रदाता बाइनरी (cloudflared, bore, ngrok, या tailscale) "
-"की आवश्यकता होती है। MCP में कोई प्रमाणीकरण नहीं है — पब्लिक URL वाला कोई भी व्यक्ति "
-"टूल को कॉल कर सकता है। तैयार होने पर पब्लिक /mcp URL के लिए MCP सर्वर स्थिति देखें।"
+"इसके लिए PATH पर चयनित प्रदाता बाइनरी (cloudflared, bore, ngrok, या "
+"tailscale) की आवश्यकता होती है। MCP में कोई प्रमाणीकरण नहीं है — पब्लिक URL "
+"वाला कोई भी व्यक्ति टूल को कॉल कर सकता है। तैयार होने पर पब्लिक /mcp URL के "
+"लिए MCP सर्वर स्थिति देखें।"
 
 msgid "Provider"
 msgstr "प्रदाता"
@@ -3500,8 +3748,8 @@ msgid ""
 "Cloudflare quick tunnel (default), Bore, Ngrok, or Tailscale Funnel (must "
 "already be logged in)."
 msgstr ""
-"Cloudflare क्विक टनल (डिफ़ॉल्ट), Bore, Ngrok, या Tailscale फनल (पहले से लॉग इन "
-"होना आवश्यक है)।"
+"Cloudflare क्विक टनल (डिफ़ॉल्ट), Bore, Ngrok, या Tailscale फनल (पहले से लॉग "
+"इन होना आवश्यक है)।"
 
 msgid "Cloudflare"
 msgstr "Cloudflare"
@@ -3522,8 +3770,8 @@ msgid ""
 "Ngrok authtoken; Cloudflare tunnel token; Bore server or 'server secret'. "
 "Empty = provider default / CLI config. Unused for Tailscale."
 msgstr ""
-"Ngrok ऑथटोकन; Cloudflare टनल टोकन; Bore सर्वर या 'सर्वर सीक्रेट'। खाली = प्रदाता "
-"डिफ़ॉल्ट / CLI कॉन्फ़िगरेशन। Tailscale के लिए उपयोग नहीं किया जाता।"
+"Ngrok ऑथटोकन; Cloudflare टनल टोकन; Bore सर्वर या 'सर्वर सीक्रेट'। खाली = "
+"प्रदाता डिफ़ॉल्ट / CLI कॉन्फ़िगरेशन। Tailscale के लिए उपयोग नहीं किया जाता।"
 
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "क्लाइंट कॉन्फ़िगरेशन (Claude / Hermes-Agent में कॉपी करें):"
@@ -3535,17 +3783,17 @@ msgid "Python venv path"
 msgstr "पायथन venv पथ"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"यदि सेट है, तो =PY() और Run Python Script उस venv में चलते हैं (bin/python, Scripts/"
-"python.exe, या conda/pyenv-win env-root python.exe)। पथ को बिना कोट्स के पेस्ट "
-"करें। यदि खाली है, तो यह इस प्रक्रिया के sys.executable (basic stdlib) का उपयोग "
-"करता है; numpy/pandas और Vision Helpers (paddleocr, paddlepaddle) के लिए venv "
-"का उपयोग करें।"
+"यदि सेट है, तो =PY() और Run Python Script उस venv में चलते हैं (bin/python, "
+"Scripts/python.exe, या conda/pyenv-win env-root python.exe)। पथ को बिना "
+"कोट्स के पेस्ट करें। यदि खाली है, तो यह इस प्रक्रिया के sys.executable "
+"(basic stdlib) का उपयोग करता है; numpy/pandas और Vision Helpers (paddleocr, "
+"paddlepaddle) के लिए venv का उपयोग करें।"
 
 msgid "Test"
 msgstr "परीक्षण"
@@ -3563,11 +3811,11 @@ msgid "Max Calc data cells"
 msgstr "अधिकतम Calc डेटा सेल"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"=PYTHON() डेटा या रन पायथन स्क्रिप्ट डेटा/डेटा_रेंज में अधिकतम सेल। बड़े मान अधिक RAM और "
-"समय का उपयोग करते हैं; UNO रेंज रीड अभी भी प्रभावी है।"
+"=PYTHON() डेटा या रन पायथन स्क्रिप्ट डेटा/डेटा_रेंज में अधिकतम सेल। बड़े मान"
+" अधिक RAM और समय का उपयोग करते हैं; UNO रेंज रीड अभी भी प्रभावी है।"
 
 msgid "Python session mode"
 msgstr "पायथन सत्र मोड"
@@ -3576,8 +3824,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"पृथक: प्रत्येक =PYTHON() सेल को एक नया नेमस्पेस मिलता है। साझा: प्रति वर्कबुक एक नेमस्पेस "
-"(वेरिएबल सेल के बीच बने रहते हैं)।"
+"पृथक: प्रत्येक =PYTHON() सेल को एक नया नेमस्पेस मिलता है। साझा: प्रति "
+"वर्कबुक एक नेमस्पेस (वेरिएबल सेल के बीच बने रहते हैं)।"
 
 msgid "Isolated (default)"
 msgstr "पृथक (डिफ़ॉल्ट)"
@@ -3588,8 +3836,8 @@ msgstr "ज्यामितीय पुनर्गणना क्रम (�
 msgid ""
 "Ensures PY cells evaluate in sheet order. Most useful with Shared kernel."
 msgstr ""
-"यह सुनिश्चित करता है कि PY सेल शीट क्रम में मूल्यांकित हों। साझा कर्नेल के साथ सबसे अधिक "
-"उपयोगी।"
+"यह सुनिश्चित करता है कि PY सेल शीट क्रम में मूल्यांकित हों। साझा कर्नेल के "
+"साथ सबसे अधिक उपयोगी।"
 
 msgid "Python auto spill in Calc"
 msgstr "Calc में Python ऑटो स्पिल"
@@ -3598,17 +3846,18 @@ msgid ""
 "Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
 "adjacent cells."
 msgstr ""
-"=PYTHON() से मल्टी-सेल ऐरे/डेटाफ़्रेम परिणामों को आसन्न सेल में स्वचालित रूप से स्पिल करें।"
+"=PYTHON() से मल्टी-सेल ऐरे/डेटाफ़्रेम परिणामों को आसन्न सेल में स्वचालित रूप"
+" से स्पिल करें।"
 
 msgid "Rewrite xl() ranges"
 msgstr "xl() रेंज को फिर से लिखें"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
-"सेल में Python संपादन सहेजने पर, स्थिर xl(\"A1:…\") को =PY डेटा आर्ग्युमेंट्स पर ले जाएं और "
-"डेटा / डेटा[i] / .to_pandas() में फिर से लिखें।"
+"सेल में Python संपादन सहेजने पर, स्थिर xl(\"A1:…\") को =PY डेटा "
+"आर्ग्युमेंट्स पर ले जाएं और डेटा / डेटा[i] / .to_pandas() में फिर से लिखें।"
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"
@@ -3635,7 +3884,8 @@ msgid "OCR confidence threshold"
 msgstr "OCR कॉन्फिडेंस थ्रेशोल्ड"
 
 msgid "RapidOCR minimum text score. Raise to reduce garbage text."
-msgstr "RapidOCR न्यूनतम टेक्स्ट स्कोर। कचरा टेक्स्ट कम करने के लिए इसे बढ़ाएं।"
+msgstr ""
+"RapidOCR न्यूनतम टेक्स्ट स्कोर। कचरा टेक्स्ट कम करने के लिए इसे बढ़ाएं।"
 
 msgid "OCR entire image"
 msgstr "संपूर्ण छवि का OCR करें"
@@ -3656,13 +3906,16 @@ msgid "Table cell matching"
 msgstr "तालिका सेल मिलान"
 
 msgid "Align detected table cells with content (extract_structure)."
-msgstr "पता लगाए गए तालिका सेल को सामग्री के साथ संरेखित करें (extract_structure)।"
+msgstr ""
+"पता लगाए गए तालिका सेल को सामग्री के साथ संरेखित करें (extract_structure)।"
 
 msgid "Keep orphan text clusters"
 msgstr "अनाथ टेक्स्ट क्लस्टर रखें"
 
 msgid "Group unassigned text into clusters for messy layouts."
-msgstr "अव्यवस्थित लेआउट के लिए बिना असाइन किए गए टेक्स्ट को क्लस्टर में समूहित करें।"
+msgstr ""
+"अव्यवस्थित लेआउट के लिए बिना असाइन किए गए टेक्स्ट को क्लस्टर में समूहित "
+"करें।"
 
 msgid "Document insert mode"
 msgstr "दस्तावेज़ सम्मिलित मोड"
@@ -3671,8 +3924,8 @@ msgid ""
 "html = Docling HTML import (default). structured = bbox column layout in "
 "Writer; native Calc cells for extract_structure tables."
 msgstr ""
-"html = Docling HTML आयात (डिफ़ॉल्ट)। structured = Writer में bbox कॉलम लेआउट; "
-"extract_structure तालिकाओं के लिए नेटिव Calc सेल।"
+"html = Docling HTML आयात (डिफ़ॉल्ट)। structured = Writer में bbox कॉलम "
+"लेआउट; extract_structure तालिकाओं के लिए नेटिव Calc सेल।"
 
 msgid "Standard HTML"
 msgstr "मानक HTML"
@@ -3693,7 +3946,8 @@ msgid "Extract formulas (LaTeX)"
 msgstr "सूत्र निकालें (LaTeX)"
 
 msgid "Opt-in. Downloads extra VLM models on first use; slower."
-msgstr "ऑप्ट-इन। पहली बार उपयोग करने पर अतिरिक्त VLM मॉडल डाउनलोड करता है; धीमा।"
+msgstr ""
+"ऑप्ट-इन। पहली बार उपयोग करने पर अतिरिक्त VLM मॉडल डाउनलोड करता है; धीमा।"
 
 msgid "Code block enrichment"
 msgstr "कोड ब्लॉक संवर्धन"
@@ -3706,91 +3960,3 @@ msgstr "Docling दस्तावेज़ समय-सीमा (सेकं
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling के भीतर प्रति-रूपांतरण समय-सीमा। 0 = कोई सीमा नहीं।"
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "प्रदाता"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "AI मॉडल:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "विकल्प"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

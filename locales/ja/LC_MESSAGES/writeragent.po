@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -21,8 +21,8 @@ msgid ""
 "Local OCR requires Settings → Python venv with Docling or PaddleOCR "
 "(Settings → Python → Test for install hints)."
 msgstr ""
-"ローカルOCRには「設定」→「Python venv（DoclingまたはPaddleOCR）」が必要です"
-"（「設定」→「Python」→「テスト」でインストールヒントを確認してください）。"
+"ローカルOCRには「設定」→「Python "
+"venv（DoclingまたはPaddleOCR）」が必要です（「設定」→「Python」→「テスト」でインストールヒントを確認してください）。"
 
 #: plugin/doc/specialized_base.py
 msgid "Running local OCR on selected image(s)..."
@@ -30,22 +30,19 @@ msgstr "選択した画像に対してローカルOCRを実行中..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
-msgstr ""
-"ドキュメントのリサーチ読み取りには専門的なタスク委任（USE_SUB_AGENT）が必要で"
-"す。設定でこれを有効にしてください。"
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
+msgstr "ドキュメントのリサーチ読み取りには専門的なタスク委任（USE_SUB_AGENT）が必要です。設定でこれを有効にしてください。"
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っていま"
-"す。完了したら 'specialized_workflow_finished' を呼び出して、APIのフルセット"
-"を復元してください。"
+"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っています。完了したら "
+"'specialized_workflow_finished' を呼び出して、APIのフルセットを復元してください。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -57,11 +54,11 @@ msgstr "ノートブックの実行はLibreOffice Writerでのみサポートさ
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
-"このドキュメントにはインポートされたノートブックがありません。「ファイル」→"
-"「Jupyterノートブック (.ipynb) を開く」を先に実行してください。"
+"このドキュメントにはインポートされたノートブックがありません。「ファイル」→「Jupyterノートブック (.ipynb) "
+"を開く」を先に実行してください。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -148,9 +145,7 @@ msgstr "アクティブなドキュメントが見つかりません。"
 msgid ""
 "Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
 "Embeddings."
-msgstr ""
-"ファイル横断検索は無効です。「設定」→「埋め込み」で「埋め込み + FTS」を有効に"
-"してください。"
+msgstr "ファイル横断検索は無効です。「設定」→「埋め込み」で「埋め込み + FTS」を有効にしてください。"
 
 #: plugin/embeddings/search_ui.py
 msgid "Error: "
@@ -159,9 +154,7 @@ msgstr "エラー: "
 #: plugin/embeddings/search_ui.py
 msgid ""
 "Folder index is building in the background. Please retry search shortly."
-msgstr ""
-"フォルダーのインデックスをバックグラウンドで構築中です。しばらくしてから再度"
-"検索してください。"
+msgstr "フォルダーのインデックスをバックグラウンドで構築中です。しばらくしてから再度検索してください。"
 
 #: plugin/embeddings/search_ui.py
 msgid "No matches found."
@@ -198,14 +191,11 @@ msgstr "API キーが無効です。設定を確認してください。"
 
 #: plugin/framework/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
-msgstr ""
-"API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可"
-"能性があります。"
+msgstr "API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可能性があります。"
 
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr ""
-"エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
+msgstr "エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
 
 #: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Rate limited (429). Wait a moment and try again."
@@ -224,8 +214,7 @@ msgstr "HTTP エラー {0}: {1}"
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "No API key configured for {0}. Open Settings and add a key."
-msgstr ""
-"{0} のAPIキーが設定されていません。設定を開いてキーを追加してください。"
+msgstr "{0} のAPIキーが設定されていません。設定を開いてキーを追加してください。"
 
 #: plugin/framework/errors.py
 msgid "No API key configured. Open Settings and add a key."
@@ -234,16 +223,12 @@ msgstr "APIキーが設定されていません。設定を開いてキーを追
 #: plugin/framework/errors.py
 msgid ""
 "Python venv not found. Open Settings → Python, set the venv path, then Test."
-msgstr ""
-"Python venv が見つかりません。設定 → Python を開き、venv パスを設定してからテ"
-"ストしてください。"
+msgstr "Python venv が見つかりません。設定 → Python を開き、venv パスを設定してからテストしてください。"
 
 #: plugin/framework/errors.py
 msgid ""
 "Python execution timed out. Open Settings → Python to raise the timeout."
-msgstr ""
-"Python の実行がタイムアウトしました。設定 → Python を開き、タイムアウト時間を"
-"延長してください。"
+msgstr "Python の実行がタイムアウトしました。設定 → Python を開き、タイムアウト時間を延長してください。"
 
 #: plugin/framework/errors.py
 msgid "Formula spill collision: destination range contains non-empty cells."
@@ -256,14 +241,12 @@ msgstr "サンドボックスポリシーによりスクリプトの実行がブ
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr ""
-"リクエストがタイムアウトしました。設定で「リクエストタイムアウト」を増やして"
-"みてください。"
+msgstr "リクエストがタイムアウトしました。設定で「リクエストタイムアウト」を増やしてみてください。"
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr ""
-"接続拒否。ローカル AI サーバー (Ollama/LM Studio) は実行されていますか?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr "接続拒否。ローカル AI サーバー (Ollama/LM Studio) は実行されていますか?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -304,17 +287,13 @@ msgstr "UNO スレッド違反"
 msgid ""
 "The local Ollama/llama.cpp process crashed because the prompt overflowed a "
 "{0} context window."
-msgstr ""
-"ローカルのOllama/llama.cppプロセスが、{0}のコンテキストウィンドウを超過したた"
-"めクラッシュしました。"
+msgstr "ローカルのOllama/llama.cppプロセスが、{0}のコンテキストウィンドウを超過したためクラッシュしました。"
 
 #: plugin/framework/client/errors.py
 msgid ""
 "The local Ollama/llama.cpp process crashed because the prompt overflowed a "
 "too-small context window."
-msgstr ""
-"ローカルのOllama/llama.cppプロセスが、コンテキストウィンドウが小さすぎたため"
-"クラッシュしました。"
+msgstr "ローカルのOllama/llama.cppプロセスが、コンテキストウィンドウが小さすぎたためクラッシュしました。"
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -324,11 +303,11 @@ msgstr "AIプロバイダーからの HTTP エラー {0}: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
-" APIキーがGLM Coding Planサブスクリプションのものである場合は、エンドポイント"
-"を（一般的な /api/paas URLではなく）{0} に設定してください。"
+" APIキーがGLM Coding Planサブスクリプションのものである場合は、エンドポイントを（一般的な /api/paas URLではなく）{0}"
+" に設定してください。"
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -349,9 +328,7 @@ msgstr "ストリームが finish_reason=error で終了しました"
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
-msgstr ""
-"モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただく"
-"か、別のモデルをご使用ください。"
+msgstr "モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただくか、別のモデルをご使用ください。"
 
 #: plugin/framework/client/request_controls.py
 #, python-brace-format
@@ -379,6 +356,69 @@ msgstr "設定でモデルを設定してください。"
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "設定で有効なモデルを選択してください（プレースホルダーは不可）。"
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "音声リクエストが失敗しました ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "音声リクエストが失敗しました: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "音声リクエストが失敗しました ({0})。"
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "音声リクエストが失敗しました。"
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Kokoro音声モデルをダウンロード中…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "Kokoroをダウンロードできませんでした。OSの音声機能を使用します"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Piper音声 {0} をダウンロード中…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "{0} をダウンロードできませんでした。Lessacを使用します"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "{0} をダウンロードできませんでした。OSの音声機能を使用します"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr "Kokoro音素変換に失敗しました。この言語は正しく読み上げられない可能性があります。"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Kokoro phonemizer をインストール中…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Kokoro phonemizer "
+"をインストールできませんでした。この言語は正しく読み上げられない可能性があります。次のコマンドでインストールしてください: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "日本語用 phonemizer 辞書をダウンロード中…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -398,8 +438,7 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"writeragent.jsonの「scripting.force_internal_script_editor」設定により、"
-"Monacoエディターは無効になっています。"
+"writeragent.jsonの「scripting.force_internal_script_editor」設定により、Monacoエディターは無効になっています。"
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -458,12 +497,12 @@ msgstr "拡張機能から PythonCellEditorDialog を読み込めませんでし
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"このセルのPY数式の引数（データ範囲など）を保持できませんでした。Calcで数式を"
-"編集するか、=PY(\"code\"; A1:B10) のように引用符で囲まれたコード文字列を使用"
-"してください。"
+"このセルのPY数式の引数（データ範囲など）を保持できませんでした。Calcで数式を編集するか、=PY(\"code\"; A1:B10) "
+"のように引用符で囲まれたコード文字列を使用してください。"
 
 #: plugin/calc/python/editor.py
 msgid "this cell"
@@ -478,8 +517,7 @@ msgid ""
 msgstr ""
 "{0} への変更を保存しますか？\n"
 "\n"
-"「はい」で保存します。「いいえ」で破棄して新しいセルを開きます。「キャンセ"
-"ル」で {0} の編集を続けます。"
+"「はい」で保存します。「いいえ」で破棄して新しいセルを開きます。「キャンセル」で {0} の編集を続けます。"
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -519,9 +557,8 @@ msgid ""
 "another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
 "quoted code."
 msgstr ""
-"このPY数式は、エディタで安全に書き換えられない形式（別のセルにあるコードな"
-"ど）を使用しています。数式バーで編集するか、引用符で囲まれたコードを使用して "
-"=PY(\"code\"; range) を使用してください。"
+"このPY数式は、エディタで安全に書き換えられない形式（別のセルにあるコードなど）を使用しています。数式バーで編集するか、引用符で囲まれたコードを使用して"
+" =PY(\"code\"; range) を使用してください。"
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -542,16 +579,14 @@ msgid ""
 "Error: Python venv not found. Open Settings → Python, set the venv path, "
 "then Test."
 msgstr ""
-"エラー: Python venvが見つかりません。「設定」→「Python」を開き、venvパスを設"
-"定してから「テスト」を実行してください。"
+"エラー: Python venvが見つかりません。「設定」→「Python」を開き、venvパスを設定してから「テスト」を実行してください。"
 
 #: plugin/calc/python/function.py
 msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
-"エラー: Pythonがタイムアウトしました。「設定」→「Python」を開いてタイムアウト"
-"時間を増やすか、venvのテストを実行してください。"
+"エラー: Pythonがタイムアウトしました。「設定」→「Python」を開いてタイムアウト時間を増やすか、venvのテストを実行してください。"
 
 #: plugin/calc/python/function.py
 msgid "Image inserted"
@@ -565,12 +600,11 @@ msgstr "挿入された画像"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
-"幾何学的再計算順序はシート '%(sheet)s' をスキップしました: %(cap)s 個以上の "
-"Python セルが見つかりました（検出上限）。部分的なリストが完全なものとして扱わ"
-"れないよう、シートは変更されませんでした。"
+"幾何学的再計算順序はシート '%(sheet)s' をスキップしました: %(cap)s 個以上の Python "
+"セルが見つかりました（検出上限）。部分的なリストが完全なものとして扱われないよう、シートは変更されませんでした。"
 
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
@@ -578,16 +612,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "以下のMicrosoft Excel Pythonパッケージパーツを書き込めませんでした:\n"
 "{0}\n"
 "\n"
-"ファイルはLibreOfficeの=PY数式として保存されました。エクスポートが成功するま"
-"で、ExcelはpythonScripts.xml / _xlws.PYを認識しません。\n"
+"ファイルはLibreOfficeの=PY数式として保存されました。エクスポートが成功するまで、ExcelはpythonScripts.xml / _xlws.PYを認識しません。\n"
 "\n"
 "{1}"
 
@@ -767,8 +799,7 @@ msgstr "自動置換は利用できません。"
 #: plugin/writer/locale/grammar_proofread_text.py
 msgid ""
 "Suggested fix: delete the highlighted text (the blank replacement below)."
-msgstr ""
-"推奨される修正: ハイライトされたテキストを削除します（以下の空の置換）。"
+msgstr "推奨される修正: ハイライトされたテキストを削除します（以下の空の置換）。"
 
 #: plugin/writer/locale/grammar_proofread_text.py
 msgid "Suggested fix: replace with one space (the blank replacement below)."
@@ -803,9 +834,7 @@ msgstr "更新する数式を1つだけ選択してください。複数の数�
 msgid ""
 "Could not identify the selected formula. Click in the text, then insert a "
 "new formula."
-msgstr ""
-"選択された数式を特定できませんでした。テキスト内をクリックしてから、新しい数"
-"式を挿入してください。"
+msgstr "選択された数式を特定できませんでした。テキスト内をクリックしてから、新しい数式を挿入してください。"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Unknown conversion error"
@@ -1312,26 +1341,21 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、"
-"または Draw) が見つかりません。]"
+"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、または Draw) が見つかりません。]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
-msgstr ""
-"[内部エラー: {0} のドキュメント タイプを識別できませんでした。ご報告くださ"
-"い。]"
+msgstr "[内部エラー: {0} のドキュメント タイプを識別できませんでした。ご報告ください。]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
-msgstr ""
-"[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデル"
-"を選択してください。]"
+msgstr "[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデルを選択してください。]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -1348,8 +1372,7 @@ msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr ""
-"リサーチキャッシュヒット (あいまい一致、%(pct)s%% 一致: "
-"%(lang_bit)s%(cache_key)s → %(matched)s)"
+"リサーチキャッシュヒット (あいまい一致、%(pct)s%% 一致: %(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1357,8 +1380,7 @@ msgid ""
 "Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr ""
-"リサーチキャッシュヒット (埋め込み, %(pct)s%% 一致: "
-"%(lang_bit)s%(cache_key)s → %(matched)s)"
+"リサーチキャッシュヒット (埋め込み, %(pct)s%% 一致: %(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1399,8 +1421,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"エディタが見つかりません (Kate または Gedit をインストールするか、EDITOR を設"
-"定してください)。パス:\n"
+"エディタが見つかりません (Kate または Gedit をインストールするか、EDITOR を設定してください)。パス:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1429,10 +1450,9 @@ msgstr "[エージェントバックエンド '{0}' が見つかりません。]
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr ""
-"[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）"
-"を確認してください。]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr "[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）を確認してください。]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1552,8 +1572,8 @@ msgid ""
 "A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
 "to check for updates and install the latest extension."
 msgstr ""
-"新しい %(name)s (%(version)s) が利用可能です。「ツール」→「拡張機能マネー"
-"ジャー」を使用して更新を確認し、最新の拡張機能をインストールしてください。"
+"新しい %(name)s (%(version)s) "
+"が利用可能です。「ツール」→「拡張機能マネージャー」を使用して更新を確認し、最新の拡張機能をインストールしてください。"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Invalid Setting"
@@ -1567,6 +1587,19 @@ msgstr "設定を開くのに失敗しました: {0}"
 #: plugin/chatbot/dialog_views.py
 msgid "Testing connection..."
 msgstr "接続をテスト中..."
+
+#: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "音声"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "音声サンプルを再生できませんでした。"
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr "音声出力はオフになっています。「音声出力 (TTS) を有効にする」をオンにすると、この音声を聴くことができます。"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
@@ -1595,6 +1628,10 @@ msgstr "高さ:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "幅:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "回答を読み上げる (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1683,17 +1720,13 @@ msgstr "マイ スクリプト"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
-msgstr ""
-"組み込みヘルパーは読み取り専用です。「マイ スクリプトにコピー」を使用してカス"
-"タマイズしてください。"
+msgstr "組み込みヘルパーは読み取り専用です。「マイ スクリプトにコピー」を使用してカスタマイズしてください。"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid ""
 "Document changed — close and reopen Run Python Script to edit document "
 "scripts."
-msgstr ""
-"ドキュメントが変更されました。ドキュメントのスクリプトを編集するには、"
-"「Python スクリプトの実行」を閉じてから再度開いてください。"
+msgstr "ドキュメントが変更されました。ドキュメントのスクリプトを編集するには、「Python スクリプトの実行」を閉じてから再度開いてください。"
 
 #: plugin/scripting/editor_ui_strings.py
 #, python-brace-format
@@ -1735,9 +1768,7 @@ msgstr "スクリプト名を入力してください:"
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"'{0}' という名前のスクリプトは既にこのドキュメントに存在します。上書きします"
-"か？"
+msgstr "'{0}' という名前のスクリプトは既にこのドキュメントに存在します。上書きしますか？"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Copy to My Scripts as:"
@@ -1746,9 +1777,7 @@ msgstr "マイ スクリプトへコピー (名前):"
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
-msgstr ""
-"'{0}' という名前のスクリプトは既にマイ スクリプトに存在します。上書きします"
-"か？"
+msgstr "'{0}' という名前のスクリプトは既にマイ スクリプトに存在します。上書きしますか？"
 
 #: plugin/scripting/editor_ui_strings.py
 #, python-brace-format
@@ -1762,15 +1791,12 @@ msgstr "スクリプト '{0}' を削除してもよろしいですか？"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
-msgstr ""
-"データ範囲を選択するか、A1アドレスを入力してください（データとして挿入されま"
-"す）。"
+msgstr "データ範囲を選択するか、A1アドレスを入力してください（データとして挿入されます）。"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
-msgstr ""
-"ドキュメントスクリプトが大きすぎてドキュメントに保存できません ({0} バイト)。"
+msgstr "ドキュメントスクリプトが大きすぎてドキュメントに保存できません ({0} バイト)。"
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 msgid "No document is open to save scripts."
@@ -1780,9 +1806,7 @@ msgstr "スクリプトを保存するためのドキュメントが開かれて
 msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
-msgstr ""
-"ドキュメントが読み取り専用か、プロパティを書き込めません。代わりに個人用ライ"
-"ブラリにスクリプトを保存しました。"
+msgstr "ドキュメントが読み取り専用か、プロパティを書き込めません。代わりに個人用ライブラリにスクリプトを保存しました。"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1900,8 +1924,7 @@ msgstr "スクリプトは正常に実行されました。"
 #: plugin/scripting/python_runner_ui.py
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"スクリプトは正常に実行されましたが、結果が返されず、出力もありませんでした。"
+msgstr "スクリプトは正常に実行されましたが、結果が返されず、出力もありませんでした。"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Success"
@@ -1930,12 +1953,11 @@ msgstr "失敗"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
-"「設定」→「Python」でPython venvパスを設定してください（'uv pip install "
-"pywebview rocher'を実行したvenvと同じもの）。LibreOffice組み込みのPythonでは"
-"Monacoエディタを実行できません。"
+"「設定」→「Python」でPython venvパスを設定してください（'uv pip install pywebview "
+"rocher'を実行したvenvと同じもの）。LibreOffice組み込みのPythonではMonacoエディタを実行できません。"
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1943,8 +1965,8 @@ msgid ""
 "No python executable found under configured venv: {0} (expected bin/python, "
 "Scripts/python.exe, or env-root python.exe)."
 msgstr ""
-"設定されたvenv内にPython実行ファイルが見つかりません: {0} (bin/python、"
-"Scripts/python.exe、またはenv-rootのpython.exeが必要です)。"
+"設定されたvenv内にPython実行ファイルが見つかりません: {0} (bin/python、Scripts/python.exe、またはenv-"
+"rootのpython.exeが必要です)。"
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -1964,63 +1986,51 @@ msgstr "Pythonエディターと通信できませんでした。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr ""
-"Linuxではシステム用PortAudioもインストールしてください: sudo pacman -S "
-"portaudio"
+msgstr "Linuxではシステム用PortAudioもインストールしてください: sudo pacman -S portaudio"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe timed out (sounddevice import failed or hung)."
-msgstr ""
-"オーディオプローブがタイムアウトしました (sounddeviceのインポート失敗またはハ"
-"ング)。"
+msgstr "オーディオプローブがタイムアウトしました (sounddeviceのインポート失敗またはハング)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe failed (see writeragent_debug.log)."
-msgstr ""
-"オーディオプローブが失敗しました (writeragent_debug.logを参照してください)。"
+msgstr "オーディオプローブが失敗しました (writeragent_debug.logを参照してください)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
-"テキスト/NLPプローブがタイムアウトしました (spaCyまたはtransformersの初回イン"
-"ポートには10〜30秒かかる場合があります)。"
+"テキスト/NLPプローブがタイムアウトしました (spaCyまたはtransformersの初回インポートには10〜30秒かかる場合があります)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text/NLP probe failed (see writeragent_debug.log)."
-msgstr ""
-"テキスト/NLPプローブが失敗しました (writeragent_debug.logを参照してくださ"
-"い)。"
+msgstr "テキスト/NLPプローブが失敗しました (writeragent_debug.logを参照してください)。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
-msgstr ""
-"ビジョン・プローブがタイムアウトしました (初回チェック時は Docling のインポー"
-"トに 10～30 秒かかる場合があります)。"
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgstr "ビジョン・プローブがタイムアウトしました (初回チェック時は Docling のインポートに 10～30 秒かかる場合があります)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
-msgstr ""
-"ビジョン・プローブが失敗しました (writeragent_debug.log を参照してください)。"
+msgstr "ビジョン・プローブが失敗しました (writeragent_debug.log を参照してください)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
 msgstr ""
-"ベクトル検索プローブがタイムアウトしました (sentence-transformers のインポー"
-"トは初回チェック時に 10～30 秒かかることがあります)。"
+"ベクトル検索プローブがタイムアウトしました (sentence-transformers のインポートは初回チェック時に 10～30 "
+"秒かかることがあります)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
-msgstr ""
-"ベクトル検索プローブが失敗しました (writeragent_debug.log を参照してくださ"
-"い)。"
+msgstr "ベクトル検索プローブが失敗しました (writeragent_debug.log を参照してください)。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "音声録音"
+msgid "Audio Recording & Speech"
+msgstr "録音と音声"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2063,12 +2073,20 @@ msgid "Vector Search Libraries"
 msgstr "ベクトル検索ライブラリ"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "音声録音"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "残りのパッケージをインストールするには:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "マイク入力デバイスが検出されませんでした。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "ローカル TTS エンジン (オプション):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2079,25 +2097,20 @@ msgid "Reading Python version..."
 msgstr "Python バージョンを読み込み中..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "音声録音: sounddeviceを確認中..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "音声と録音: sounddevice と TTS エンジンを確認中..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
-msgstr ""
-"テキスト / NLPライブラリ: 読み込み中 (初回実行時は時間がかかることがありま"
-"す)..."
+msgstr "テキスト / NLPライブラリ: 読み込み中 (初回実行時は時間がかかることがあります)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr ""
-"Vision Libraries: 読み込み中 (初回実行時は時間がかかる場合があります)..."
+msgstr "Vision Libraries: 読み込み中 (初回実行時は時間がかかる場合があります)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
-msgstr ""
-"ベクトル検索ライブラリ: 読み込み中 (初回実行時は時間がかかることがありま"
-"す)..."
+msgstr "ベクトル検索ライブラリ: 読み込み中 (初回実行時は時間がかかることがあります)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2129,8 +2142,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2138,14 +2150,12 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "テキスト分析ワーカーからのエラー:\n"
 "{err}\n"
 "\n"
-"このダイアログの機能を使用するには、使用中のPython環境に以下のパッケージが必"
-"要です:\n"
+"このダイアログの機能を使用するには、使用中のPython環境に以下のパッケージが必要です:\n"
 "  • spacy + モデル          (エンティティ、キーフレーズ、基本統計)\n"
 "  • textdescriptives         (読みやすさスコア)\n"
 "  • transformers + torch     (多言語モデルを使用した感情分析)\n"
@@ -2153,9 +2163,7 @@ msgstr ""
 "以下のコマンドでインストールしてください:\n"
 "  {install}\n"
 "\n"
-"ワーカーがモジュールが見つからないと報告しました。設定した仮想環境に対して"
-"ワーカーが解決したPython実行ファイルに、パッケージが正しくインストールされて"
-"いるか確認してください。"
+"ワーカーがモジュールが見つからないと報告しました。設定した仮想環境に対してワーカーが解決したPython実行ファイルに、パッケージが正しくインストールされているか確認してください。"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2174,16 +2182,11 @@ msgstr "分析中..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "エラー: %s\n"
 "\n"
-"設定された仮想環境（設定 → Python）に必要なパッケージが不足している可能性があ"
-"ります。このダイアログの「仮想環境を確認」をクリックするか、設定 → Pythonの"
-"「テスト」機能を使用して、spacy、textdescriptives、transformers、torchなどの"
-"詳細を確認してください。"
+"設定された仮想環境（設定 → Python）に必要なパッケージが不足している可能性があります。このダイアログの「仮想環境を確認」をクリックするか、設定 → Pythonの「テスト」機能を使用して、spacy、textdescriptives、transformers、torchなどの詳細を確認してください。"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2245,22 +2248,18 @@ msgid ""
 "Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
 "tables). (took {time})"
 msgstr ""
-"Vision '{helper}' が完了しました。 HTMLを挿入しました ({blocks} ブロック、"
-"{tables} テーブル)。 (所要時間: {time})"
+"Vision '{helper}' が完了しました。 HTMLを挿入しました ({blocks} ブロック、{tables} テーブル)。 (所要時間:"
+" {time})"
 
 #: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr ""
-"Vision '{helper}' が完了しました。 書式設定されたHTMLを挿入しました。 (所要時"
-"間: {time})"
+msgstr "Vision '{helper}' が完了しました。 書式設定されたHTMLを挿入しました。 (所要時間: {time})"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"{domain} '{helper}' が完了しました。{rows} 行を書き込みました。(所要時間: "
-"{time})"
+msgstr "{domain} '{helper}' が完了しました。{rows} 行を書き込みました。(所要時間: {time})"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -2272,18 +2271,16 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"「ノートブックのPythonセッションをリセット」はLibreOffice Writerに適用されま"
-"す。JupyterノートブックをインポートしたWriterドキュメントを開いて、もう一度試"
-"してください。"
+"「ノートブックのPythonセッションをリセット」はLibreOffice "
+"Writerに適用されます。JupyterノートブックをインポートしたWriterドキュメントを開いて、もう一度試してください。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. File → Open a "
 "Jupyter notebook (.ipynb) first."
 msgstr ""
-"このWriterドキュメントにはインポートされたノートブックレジストリがありませ"
-"ん。「ファイル」→「Jupyterノートブック (.ipynb) を開く」を先に実行してくださ"
-"い。"
+"このWriterドキュメントにはインポートされたノートブックレジストリがありません。「ファイル」→「Jupyterノートブック (.ipynb) "
+"を開く」を先に実行してください。"
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -2301,9 +2298,7 @@ msgstr "Pythonセッションをリセットできませんでした。"
 msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
-msgstr ""
-"「Pythonセッションをリセット」はCalcスプレッドシートに適用されます。Calcワー"
-"クブックを開いて、もう一度試してください。"
+msgstr "「Pythonセッションをリセット」はCalcスプレッドシートに適用されます。Calcワークブックを開いて、もう一度試してください。"
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -2313,9 +2308,7 @@ msgstr "このワークブックのPythonセッションをリセットしまし
 msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
-msgstr ""
-"このブックの初期化スクリプトおよびメモリ内の初期化状態はリセットされました。"
-"セル変数はすでにセルごとに分離されています。"
+msgstr "このブックの初期化スクリプトおよびメモリ内の初期化状態はリセットされました。セル変数はすでにセルごとに分離されています。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2323,10 +2316,8 @@ msgid ""
 "There is no shared cell session to reset. Add an initialization script if "
 "you need to clear expensive one-time workbook setup."
 msgstr ""
-"Pythonセッションモードは「分離」です（各 =PY() セルは独自の変数を使用しま"
-"す）。リセットする共有セルセッションはありません。高コストなワークブックの初"
-"期化を一度だけ実行してクリアする必要がある場合は、初期化スクリプトを追加して"
-"ください。"
+"Pythonセッションモードは「分離」です（各 =PY() "
+"セルは独自の変数を使用します）。リセットする共有セルセッションはありません。高コストなワークブックの初期化を一度だけ実行してクリアする必要がある場合は、初期化スクリプトを追加してください。"
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this document."
@@ -2362,14 +2353,12 @@ msgstr "Viz '{helper}' が完了しました。 {msg}"
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
 msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-"Math '{helper}' が完了しました。 挿入済み: {preview} (所要時間: {time})"
+msgstr "Math '{helper}' が完了しました。 挿入済み: {preview} (所要時間: {time})"
 
 #: plugin/scripting/helper_domain.py
 #, python-brace-format
 msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-"Units '{helper}' が完了しました。挿入内容: {preview} (所要時間: {time})"
+msgstr "Units '{helper}' が完了しました。挿入内容: {preview} (所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -2382,9 +2371,7 @@ msgstr "情報"
 
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr ""
-"Draw/Impressへの結果挿入はまだサポートされていません。プルリクエストを歓迎し"
-"ます！"
+msgstr "Draw/Impressへの結果挿入はまだサポートされていません。プルリクエストを歓迎します！"
 
 #: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
@@ -2400,17 +2387,14 @@ msgid ""
 "Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
 "(took {time})"
 msgstr ""
-"Vision '{helper}' が完了しました。{count} 個の画像の書式設定済みHTMLを挿入し"
-"ました。(所要時間: {time})"
+"Vision '{helper}' が完了しました。{count} 個の画像の書式設定済みHTMLを挿入しました。(所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
-msgstr ""
-"スクリプトは正常に実行されましたが、結果や出力は得られませんでした。(所要時"
-"間: {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
+msgstr "スクリプトは正常に実行されましたが、結果や出力は得られませんでした。(所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2449,17 +2433,14 @@ msgstr "ディスパッチエラー"
 #: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
 "Select an embedded image (or a range containing images), then Run again."
-msgstr ""
-"埋め込み画像（または画像を含む範囲）を選択してから、再度実行してください。"
+msgstr "埋め込み画像（または画像を含む範囲）を選択してから、再度実行してください。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
 "select the graphic."
-msgstr ""
-"画像 '{name}' が見つかりません。image_listを使用するか、image_nameを空にして"
-"画像を選択してください。"
+msgstr "画像 '{name}' が見つかりません。image_listを使用するか、image_nameを空にして画像を選択してください。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2510,8 +2491,7 @@ msgstr "MCPサーバーの起動に失敗しました"
 
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"LibreOfficeユーザー設定フォルダー内のwriteragent_debug.logを確認してください"
+msgstr "LibreOfficeユーザー設定フォルダー内のwriteragent_debug.logを確認してください"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2548,9 +2528,7 @@ msgstr "{0} 経由のパブリックトンネルを開始しています…"
 #: plugin/mcp/__init__.py
 #, python-brace-format
 msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"{0} 経由のパブリックトンネルは実行されていません (プロバイダーバイナリはイン"
-"ストールされていますか?)"
+msgstr "{0} 経由のパブリックトンネルは実行されていません (プロバイダーバイナリはインストールされていますか?)"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server stopped"
@@ -2568,9 +2546,7 @@ msgstr "{0} 経由のパブリックトンネル"
 #: plugin/mcp/__init__.py
 #, python-brace-format
 msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"{0} 経由のパブリックトンネルを開始しています… 準備ができたら「MCP サーバーの"
-"状態」を使用してください。"
+msgstr "{0} 経由のパブリックトンネルを開始しています… 準備ができたら「MCP サーバーの状態」を使用してください。"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -2629,8 +2605,7 @@ msgstr "ステータス: 失敗 — {0}"
 #: plugin/mcp/__init__.py
 #, python-brace-format
 msgid "Status: Not running (is {0} binary installed?)"
-msgstr ""
-"ステータス: 実行されていません ({0} バイナリはインストールされていますか?)"
+msgstr "ステータス: 実行されていません ({0} バイナリはインストールされていますか?)"
 
 #: plugin/mcp/mcp_ui.py
 msgid "✓ Copied!"
@@ -2651,8 +2626,7 @@ msgstr "MCP トンネルのテスト"
 #: plugin/mcp/tunnel.py
 #, python-brace-format
 msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr ""
-"トンネルテストモード: {0} プロバイダーのシミュレーションに成功しました。"
+msgstr "トンネルテストモード: {0} プロバイダーのシミュレーションに成功しました。"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2731,8 +2705,7 @@ msgstr ""
 "{0} バイナリ '{1}' はインストールおよび検証済みです ({2})。\n"
 "\n"
 "MCPサーバーはローカルのポート {3} で実行中です。\n"
-"「パブリックトンネル経由で公開」にチェックを入れて「OK」をクリックすると、パ"
-"ブリックルーティングが有効になります。"
+"「パブリックトンネル経由で公開」にチェックを入れて「OK」をクリックすると、パブリックルーティングが有効になります。"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2794,10 +2767,6 @@ msgstr "質問 / 指示:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "アスペクト比:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "オーディオモデル:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3148,6 +3117,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3175,6 +3148,111 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "オーディオモデル:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr "チャットモデルが音声入力を受け付けない場合の音声認識モデル。"
+
+msgid "Enable Speech Output (TTS)"
+msgstr "音声出力 (TTS) を有効にする"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr "アシスタントの回答をテキスト読み上げ (TTS) で読み上げます。"
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "文ごとに読み上げる (ローカル)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"現在の文の再生中に次の文を合成することで、短い文の後に間隔が空くのを防ぎます。「停止」を選択すると、再生されていないクリップは破棄されます。オフにすると、回答全体を1つのクリップとして読み上げます。"
+
+msgid "Keep replies brief"
+msgstr "回答を簡潔にする"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr "ユーザーから特に要望がない限り、1段落程度を目安にします。音声出力 (TTS) がオンの場合のみ適用されます。"
+
+msgid "TTS Provider"
+msgstr "TTSプロバイダー"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr "OS標準の音声機能、ローカルニューラルエンジン、またはAPIエンドポイントのいずれを使用するかを選択します。"
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS ネイティブ (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (ローカルニューラル, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (ローカル高速ニューラル, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "LLM エンドポイント"
+
+msgid "TTS Model"
+msgstr "TTS モデル"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr "音声合成用モデル (TTS プロバイダーが LLM エンドポイントの場合に使用されます)。"
+
+msgid "Voice"
+msgstr "音声"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr "選択したプロバイダーの音声。リストはロケールに応じた Piper または Kokoro のカタログと一致します。"
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI ニュートラル)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro 米国女性 - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (US 英語 女性 - Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (システム標準)"
+
+msgid "Test voice"
+msgstr "音声のテスト"
+
+msgid "Speech Speed"
+msgstr "読み上げ速度"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr "再生速度の倍率 (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x、または 0.25x までのカスタム値)。"
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0倍"
+
 msgid "Calc spreadsheet tools"
 msgstr "Calc 表計算ツール"
 
@@ -3190,9 +3268,8 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"兄弟ファイルの .xlsx/.xls をフォルダー横の writeragent_ods_cache/ に変換し、"
-"繰り返し行われる DuckDB SQL で ODS を再利用できるようにします。ネイティブの ."
-"ods および現在開いているワークブックはキャッシュされません。無効にするには "
+"兄弟ファイルの .xlsx/.xls をフォルダー横の writeragent_ods_cache/ に変換し、繰り返し行われる DuckDB SQL "
+"で ODS を再利用できるようにします。ネイティブの .ods および現在開いているワークブックはキャッシュされません。無効にするには "
 "writeragent.json で calc.ods_cache_enabled を false に設定してください。"
 
 msgid "Sidebar"
@@ -3228,9 +3305,7 @@ msgstr "Web Research Cache"
 msgid ""
 "Cache completed web research reports by normalized query (uses web cache "
 "database)."
-msgstr ""
-"完了したWeb調査レポートを正規化されたクエリでキャッシュします (Webキャッシュ"
-"データベースを使用)。"
+msgstr "完了したWeb調査レポートを正規化されたクエリでキャッシュします (Webキャッシュデータベースを使用)。"
 
 msgid "Prompt for Web Research"
 msgstr "ウェブ調査用プロンプト"
@@ -3244,9 +3319,7 @@ msgstr "Web Research Browser"
 msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
-msgstr ""
-"リサーチ時にウェブページを閲覧するためのブラウザバックエンドを選択します"
-"（「オフ」は静的なHTTPリクエストを使用します）。"
+msgstr "リサーチ時にウェブページを閲覧するためのブラウザバックエンドを選択します（「オフ」は静的なHTTPリクエストを使用します）。"
 
 msgid "Off (Static HTTP)"
 msgstr "オフ (静的HTTP)"
@@ -3284,15 +3357,13 @@ msgstr "ヒューマナイザースキル (自然な文章)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
-"有効にすると、生成または修正された文書のテキストがより自然で人間らしく聞こえ"
-"るように（AI特有の不自然なパターンを除去）、システムプロンプトにガイダンスを"
-"注入します。ルールを編集するには、LibreOfficeプロファイルの writeragent/"
-"skills/humanizer/SKILL.md を開いてください（このファイルは初回使用時に自動作"
-"成されます）。専用の「スキル」タブは後日追加される予定です。"
+"有効にすると、生成または修正された文書のテキストがより自然で人間らしく聞こえるように（AI特有の不自然なパターンを除去）、システムプロンプトにガイダンスを注入します。ルールを編集するには、LibreOfficeプロファイルの"
+" writeragent/skills/humanizer/SKILL.md "
+"を開いてください（このファイルは初回使用時に自動作成されます）。専用の「スキル」タブは後日追加される予定です。"
 
 msgid "Silence before send (ms)"
 msgstr "送信前の無音時間 (ms)"
@@ -3300,9 +3371,7 @@ msgstr "送信前の無音時間 (ms)"
 msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
-msgstr ""
-"話すのをやめた後に一時停止し、自動停止して送信します (録音)。0 = 停止ボタンを"
-"クリックするまで待機"
+msgstr "話すのをやめた後に一時停止し、自動停止して送信します (録音)。0 = 停止ボタンをクリックするまで待機"
 
 msgid "Doc"
 msgstr "文書"
@@ -3311,13 +3380,12 @@ msgid "Enable grammar checker (Writer)"
 msgstr "文法チェッカーを有効にする (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
-"オフ = 無効。AI (LLM) = 設定済みのテキストモデル/APIを使用。LanguageTool / "
-"Vale = 設定 → Python venv 経由のローカルエンジン。Harper = プロファイルに自動"
-"ダウンロードされるオフラインのRustバイナリ (venvは不要)。"
+"オフ = 無効。AI (LLM) = 設定済みのテキストモデル/APIを使用。LanguageTool / Vale = 設定 → Python "
+"venv 経由のローカルエンジン。Harper = プロファイルに自動ダウンロードされるオフラインのRustバイナリ (venvは不要)。"
 
 msgid "Off"
 msgstr "オフ"
@@ -3347,8 +3415,7 @@ msgid ""
 "Clears cached grammar results for this document and asks Writer to check "
 "again. Use after changing checker or model."
 msgstr ""
-"このドキュメントのキャッシュされた文法チェック結果をクリアし、Writerに再"
-"チェックを依頼します。チェッカーやモデルを変更した後に使用してください。"
+"このドキュメントのキャッシュされた文法チェック結果をクリアし、Writerに再チェックを依頼します。チェッカーやモデルを変更した後に使用してください。"
 
 msgid "Pause grammar while chat/agent runs"
 msgstr "チャット/エージェント実行中に文法を一時停止"
@@ -3357,8 +3424,7 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"オンにすると、サイドバーチャットまたはエージェント実行中は同時 API 呼び出しを"
-"避けるため、AI 文法のバックグラウンドリクエストをスキップします。"
+"オンにすると、サイドバーチャットまたはエージェント実行中は同時 API 呼び出しを避けるため、AI 文法のバックグラウンドリクエストをスキップします。"
 
 msgid "Batch sentences"
 msgstr "バッチ文"
@@ -3368,9 +3434,8 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"LLMリクエストごとに送信する文の数 (1～8)。1 (デフォルト) が最も確実です。値を"
-"大きくすると高速かつ低コストになりますが、トークン制限に達したり、モデルエ"
-"ラーが発生したりする可能性があります。"
+"LLMリクエストごとに送信する文の数 (1～8)。1 (デフォルト) "
+"が最も確実です。値を大きくすると高速かつ低コストになりますが、トークン制限に達したり、モデルエラーが発生したりする可能性があります。"
 
 msgid "Concurrent requests"
 msgstr "同時リクエスト数"
@@ -3380,9 +3445,8 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"バックグラウンドでのGrammar API同時呼び出し数（1～8）。1は従来の動作と同じで"
-"す。OpenRouterや並列リクエストを許可する他のプロバイダーを使用する場合は増や"
-"してください。サイドバーチャットと併用する場合は注意してください。"
+"バックグラウンドでのGrammar "
+"API同時呼び出し数（1～8）。1は従来の動作と同じです。OpenRouterや並列リクエストを許可する他のプロバイダーを使用する場合は増やしてください。サイドバーチャットと併用する場合は注意してください。"
 
 msgid "Sentence language detection"
 msgstr "文の言語検出"
@@ -3393,10 +3457,8 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"各完全な文の言語をドキュメントの言語設定と照合します。「AI」は文法/チャット"
-"APIを使用し、「ローカル」はPython仮想環境のlangdetectを使用します（設定 → "
-"Python; API呼び出しなし）。不一致がある場合はCharLocaleを更新し、文法を再"
-"チェックします。"
+"各完全な文の言語をドキュメントの言語設定と照合します。「AI」は文法/チャットAPIを使用し、「ローカル」はPython仮想環境のlangdetectを使用します（設定"
+" → Python; API呼び出しなし）。不一致がある場合はCharLocaleを更新し、文法を再チェックします。"
 
 msgid "Local (langdetect)"
 msgstr "ローカル (langdetect)"
@@ -3408,9 +3470,7 @@ msgid ""
 "When on, Enter in the sidebar query runs the same action as Send; "
 "Shift+Enter inserts a newline. When off, Enter inserts a newline."
 msgstr ""
-"オンにすると、サイドバーのクエリ入力欄でEnterキーを押すと「送信」と同じ動作に"
-"なり、Shift+Enterで改行が挿入されます。オフにすると、Enterキーで改行が挿入さ"
-"れます。"
+"オンにすると、サイドバーのクエリ入力欄でEnterキーを押すと「送信」と同じ動作になり、Shift+Enterで改行が挿入されます。オフにすると、Enterキーで改行が挿入されます。"
 
 msgid "Agent edit review"
 msgstr "エージェント編集レビュー"
@@ -3420,9 +3480,8 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"オフ = 直接編集。記録 = 変更履歴として記録し、自身で承諾/拒否。待機 = レ"
-"ビューするまで apply_document_content をブロック（チャット/MCPワーカー・ス"
-"レッド上）。"
+"オフ = 直接編集。記録 = 変更履歴として記録し、自身で承諾/拒否。待機 = レビューするまで apply_document_content "
+"をブロック（チャット/MCPワーカー・スレッド上）。"
 
 msgid "Record (track changes)"
 msgstr "記録 (変更履歴)"
@@ -3443,8 +3502,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"document_research (corpus.db) 用のインデックス化されたセマンティック + キー"
-"ワード検索。埋め込み用 venv が必要 — Python テストを参照。"
+"document_research (corpus.db) 用のインデックス化されたセマンティック + キーワード検索。埋め込み用 venv が必要 —"
+" Python テストを参照。"
 
 msgid "Embeddings + FTS"
 msgstr "埋め込み + FTS"
@@ -3462,9 +3521,7 @@ msgid "Embedding Model"
 msgstr "埋め込みモデル"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
-msgstr ""
-"ローカルプロバイダー用のHuggingFaceモデルID、またはエンドポイント固有のモデル"
-"ID"
+msgstr "ローカルプロバイダー用のHuggingFaceモデルID、またはエンドポイント固有のモデルID"
 
 msgid "Enable cross-file rerank"
 msgstr "ファイル横断リランクを有効にする"
@@ -3473,15 +3530,14 @@ msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
 msgstr ""
-"ハイブリッド検索（埋め込みベクトル + FTS および LlamaIndex）後のセカンドス"
-"テージ・クロスエンコーダー。デフォルトではオフ。"
+"ハイブリッド検索（埋め込みベクトル + FTS および LlamaIndex）後のセカンドステージ・クロスエンコーダー。デフォルトではオフ。"
 
 msgid "Rerank model"
 msgstr "リランクモデル"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "リランクが有効な場合のみ使用されます。English MiniLMは高速ですが、bge-"
 "reranker-v2-m3は多言語対応で約2.3GBのダウンロードが必要です。"
@@ -3502,11 +3558,10 @@ msgid "Enable MCP Server"
 msgstr "MCP サーバーを有効にする"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"ローカルホストのみ、認証なし。クライアントは http://localhost:<port>/mcp (ス"
-"トリーミング可能なHTTP) を使用します。"
+"ローカルホストのみ、認証なし。クライアントは http://localhost:<port>/mcp (ストリーミング可能なHTTP) を使用します。"
 
 msgid "MCP Port"
 msgstr "MCP ポート"
@@ -3522,11 +3577,10 @@ msgid ""
 "find_tools (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"専門ツールをMCPクライアントにどのように提示するか。delegate=デリゲートゲート"
-"ウェイ経由で到達（現在の動作）; direct_flat=サイドバー専用フローを除き、MCPで"
-"到達可能なすべての専門ツールを直接リスト化（独自のツール検索機能を持つクライ"
-"アントに最適）; direct_discovery=小規模なコアリストとfind_tools（ドメインカタ"
-"ログ、その後にドメインごとのツールスキーマ。あらゆるクライアントに最適）。"
+"専門ツールをMCPクライアントにどのように提示するか。delegate=デリゲートゲートウェイ経由で到達（現在の動作）; "
+"direct_flat=サイドバー専用フローを除き、MCPで到達可能なすべての専門ツールを直接リスト化（独自のツール検索機能を持つクライアントに最適）;"
+" "
+"direct_discovery=小規模なコアリストとfind_tools（ドメインカタログ、その後にドメインごとのツールスキーマ。あらゆるクライアントに最適）。"
 
 msgid "Delegate (default)"
 msgstr "デリゲート (デフォルト)"
@@ -3545,13 +3599,11 @@ msgstr "パブリックトンネル経由で公開"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
-"選択したプロバイダーのバイナリ（cloudflared、bore、ngrok、またはtailscale）が"
-"PATH上にある必要があります。MCPには認証がないため、パブリックURLを知っている"
-"人は誰でもツールを呼び出すことができます。準備ができたら、MCPサーバーのステー"
-"タスでパブリック/mcp URLを確認してください。"
+"選択したプロバイダーのバイナリ（cloudflared、bore、ngrok、またはtailscale）がPATH上にある必要があります。MCPには認証がないため、パブリックURLを知っている人は誰でもツールを呼び出すことができます。準備ができたら、MCPサーバーのステータスでパブリック/mcp"
+" URLを確認してください。"
 
 msgid "Provider"
 msgstr "プロバイダー"
@@ -3560,8 +3612,7 @@ msgid ""
 "Cloudflare quick tunnel (default), Bore, Ngrok, or Tailscale Funnel (must "
 "already be logged in)."
 msgstr ""
-"Cloudflareクイックトンネル（デフォルト）、Bore、Ngrok、またはTailscale Funnel"
-"（ログイン済みである必要があります）。"
+"Cloudflareクイックトンネル（デフォルト）、Bore、Ngrok、またはTailscale Funnel（ログイン済みである必要があります）。"
 
 msgid "Cloudflare"
 msgstr "Cloudflare"
@@ -3583,8 +3634,7 @@ msgid ""
 "Empty = provider default / CLI config. Unused for Tailscale."
 msgstr ""
 "Ngrok authtoken、Cloudflare tunnel token、Bore server または「server "
-"secret」。空の場合はプロバイダーのデフォルト設定または CLI 設定を使用します。"
-"Tailscale では使用されません。"
+"secret」。空の場合はプロバイダーのデフォルト設定または CLI 設定を使用します。Tailscale では使用されません。"
 
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "クライアント設定 (Claude / Hermes-Agent にコピーしてください):"
@@ -3596,43 +3646,39 @@ msgid "Python venv path"
 msgstr "Python仮想環境(venv)のパス"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"設定した場合、=PY()および「Pythonスクリプトの実行」はそのvenv (bin/python、"
-"Scripts/python.exe、またはconda/pyenv-winのenv-root python.exe) で実行されま"
-"す。パスは引用符で囲まずに貼り付けてください。空の場合、このプロセスのsys."
-"executable (基本的な標準ライブラリ) を使用します。numpy/pandasやVision "
-"Helpers (paddleocr, paddlepaddle) を使用する場合はvenvを指定してください。"
+"設定した場合、=PY()および「Pythonスクリプトの実行」はそのvenv "
+"(bin/python、Scripts/python.exe、またはconda/pyenv-winのenv-root python.exe) "
+"で実行されます。パスは引用符で囲まずに貼り付けてください。空の場合、このプロセスのsys.executable (基本的な標準ライブラリ) "
+"を使用します。numpy/pandasやVision Helpers (paddleocr, paddlepaddle) "
+"を使用する場合はvenvを指定してください。"
 
 msgid "Test"
 msgstr "テスト"
 
 msgid "Download platform-specific audio and serialization binaries:"
-msgstr ""
-"プラットフォーム固有のオーディオおよびシリアライズ用バイナリをダウンロード:"
+msgstr "プラットフォーム固有のオーディオおよびシリアライズ用バイナリをダウンロード:"
 
 msgid "Python script timeout (seconds)"
 msgstr "Python スクリプトのタイムアウト（秒）"
 
 msgid "Wall-clock limit for Run Python Script and =PYTHON() / =PY()."
-msgstr ""
-"「Pythonスクリプトの実行」および =PYTHON() / =PY() の実行時間制限（ウォールク"
-"ロック時間）。"
+msgstr "「Pythonスクリプトの実行」および =PYTHON() / =PY() の実行時間制限（ウォールクロック時間）。"
 
 msgid "Max Calc data cells"
 msgstr "Calcの最大データセル数"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"=PYTHON() データまたは「Pythonスクリプトを実行」の data/data_range における最"
-"大セル数。値を大きくするとメモリと時間を消費します。UNO範囲の読み取りが依然と"
-"して支配的です。"
+"=PYTHON() データまたは「Pythonスクリプトを実行」の data/data_range "
+"における最大セル数。値を大きくするとメモリと時間を消費します。UNO範囲の読み取りが依然として支配的です。"
 
 msgid "Python session mode"
 msgstr "Pythonセッションモード"
@@ -3641,8 +3687,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"分離モード: 各 =PYTHON() セルは独立した名前空間を持ちます。共有モード: ブック"
-"ごとに1つの名前空間を共有します（変数がセル間で引き継がれます）。"
+"分離モード: 各 =PYTHON() セルは独立した名前空間を持ちます。共有モード: "
+"ブックごとに1つの名前空間を共有します（変数がセル間で引き継がれます）。"
 
 msgid "Isolated (default)"
 msgstr "分離モード (デフォルト)"
@@ -3661,19 +3707,17 @@ msgstr "Calc での Python 自動スピル"
 msgid ""
 "Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
 "adjacent cells."
-msgstr ""
-"=PYTHON() の複数セル配列/DataFrame の結果を隣接するセルに自動的にスピルしま"
-"す。"
+msgstr "=PYTHON() の複数セル配列/DataFrame の結果を隣接するセルに自動的にスピルします。"
 
 msgid "Rewrite xl() ranges"
 msgstr "xl() 範囲の書き換え"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
-"セル内の Python 編集を保存する際、静的な xl(\"A1:…\") を =PY データ引数に引き"
-"上げ、data / data[i] / .to_pandas() に書き換えます。"
+"セル内の Python 編集を保存する際、静的な xl(\"A1:…\") を =PY データ引数に引き上げ、data / data[i] / "
+".to_pandas() に書き換えます。"
 
 msgid "Vision / OCR"
 msgstr "ビジョン / OCR"
@@ -3682,9 +3726,7 @@ msgid "Image scale"
 msgstr "画像の拡大率"
 
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
-msgstr ""
-"OCR/レイアウト解析前に画像を拡大します。小さなスクリーンショットには2.0を試し"
-"てください。"
+msgstr "OCR/レイアウト解析前に画像を拡大します。小さなスクリーンショットには2.0を試してください。"
 
 msgid "Worker timeout (seconds)"
 msgstr "ワーカーのタイムアウト（秒）"
@@ -3696,8 +3738,7 @@ msgid "Docling artifacts path"
 msgstr "Doclingアーティファクトのパス"
 
 msgid "Optional folder from docling-tools models download (offline use)."
-msgstr ""
-"docling-toolsモデルダウンロード用のオプションフォルダ（オフライン使用）。"
+msgstr "docling-toolsモデルダウンロード用のオプションフォルダ（オフライン使用）。"
 
 msgid "OCR confidence threshold"
 msgstr "OCR信頼度しきい値"
@@ -3739,8 +3780,8 @@ msgid ""
 "html = Docling HTML import (default). structured = bbox column layout in "
 "Writer; native Calc cells for extract_structure tables."
 msgstr ""
-"html = Docling HTML インポート (デフォルト)。structured = Writer での bbox カ"
-"ラムレイアウト。構造抽出テーブルにはネイティブの Calc セルを使用。"
+"html = Docling HTML インポート (デフォルト)。structured = Writer での bbox "
+"カラムレイアウト。構造抽出テーブルにはネイティブの Calc セルを使用。"
 
 msgid "Standard HTML"
 msgstr "標準 HTML"
@@ -3774,91 +3815,3 @@ msgstr "Doclingドキュメントのタイムアウト（秒）"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling内での変換ごとのタイムアウト。0は制限なし。"
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "プロバイダー"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "AIモデル:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "選択肢"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""
