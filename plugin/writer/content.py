@@ -84,6 +84,50 @@ def _paragraph_boundary_cursor(text_obj: Any, found: Any, position: str) -> tupl
     cursor.gotoEndOfParagraph(False)
     return cursor, moved
 
+_EDGE_SPACE = " \t\u00a0"
+
+
+def _match_stripped_edges(old_content: str, content: str) -> tuple[str, int]:
+    """Line *content* up with the search, which drops the spaces at *old_content*'s edges.
+
+    Returns ``(content, separator)``. A replacement loses the same edge spaces the search
+    dropped (separator 0). A deletion -- empty content, or only spaces when old_content had edge
+    spaces -- returns how many edge spaces old_content named, for the match to take along.
+    Replacing a symbol with a space ("_" -> " ") stays a replacement.
+    """
+    lead = len(old_content) - len(old_content.lstrip(_EDGE_SPACE))
+    trail = len(old_content) - len(old_content.rstrip(_EDGE_SPACE))
+    if not content.strip(_EDGE_SPACE) and (not content or lead or trail):
+        return "", max(lead, trail)
+    cut_left = min(lead, len(content) - len(content.lstrip(_EDGE_SPACE)))
+    cut_right = min(trail, len(content) - len(content.rstrip(_EDGE_SPACE)))
+    return content[cut_left:len(content) - cut_right], 0
+
+
+def _grow_over_edge_space(found: Any, separator: int) -> Any:
+    """*found* grown over up to *separator* spaces on its left, or on its right when the left
+    has none (a word at a paragraph start keeps no leading space)."""
+    if not separator:
+        return found
+    text = found.getText()
+    start = text.createTextCursorByRange(found.getStart())
+    grew = 0
+    for _unused in range(separator):
+        probe = text.createTextCursorByRange(start.getStart())
+        if not probe.goLeft(1, True) or not probe.getString() or probe.getString() not in _EDGE_SPACE:
+            break
+        start.goLeft(1, False)
+        grew += 1
+    grown = text.createTextCursorByRange(start.getStart())
+    grown.gotoRange(found.getEnd(), True)
+    for _unused in range(0 if grew else separator):
+        probe = text.createTextCursorByRange(grown.getEnd())
+        if not probe.goRight(1, True) or not probe.getString() or probe.getString() not in _EDGE_SPACE:
+            break
+        grown.goRight(1, True)
+    return grown
+
+
 # Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references.
 # Guards the plain-text unescape so a bare "&" is never touched.
 _ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
@@ -1045,6 +1089,17 @@ class ApplyDocumentContent(ToolBase):
             # Parameter error (like old_content=None), not a search no-op: the search never ran,
             # so there's no replaced_count to report — use the standard tool error shape.
             return self._tool_error("old_content is empty after normalization."), session
+        # What was wrong: the search drops the spaces at old_content's edges but the replacement
+        # kept its own, so old_content=" paragrafo" with content="" deleted only "paragrafo" and
+        # left "Primeiro  inteiro." with a double space (same for " paragrafo inteiro" ->
+        # " inteiro"). Why this fixes it: the replacement drops the edge spaces the search
+        # dropped, and a deletion takes the space on one side along with the word.
+        separator = 0
+        if (position == "replace" and not kwargs.get("regex") and isinstance(content, str)
+                and not format_support.content_has_markup(content)
+                and not format_support.content_has_markup(str(old_content))):
+            content, separator = _match_stripped_edges(str(old_content), content)
+            raw_content = content
         doc = ctx.doc
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
@@ -1106,6 +1161,7 @@ class ApplyDocumentContent(ToolBase):
                     for found in reversed(ranges):
                         if doomed_names and range_table_name(found) in doomed_names:
                             continue
+                        found = _grow_over_edge_space(found, separator)
                         # batch=True: this loop already holds the undo context, so the
                         # outline URL write stays in the same Ctrl+Z as the text.
                         reports, link_err = self._replace_found(
@@ -1302,6 +1358,7 @@ class ApplyDocumentContent(ToolBase):
                 insert_resp["occurrence"] = occurrence
             return attach_edited_context(insert_resp, anchor), session
 
+        found = _grow_over_edge_space(found, separator)
         # Anchor BEFORE the mutation: the found range's content is replaced (HTML path even
         # deletes-then-imports). edited_context uses this collapsed start. A preserve-format
         # replace's per-character setString pushes a cursor saved here forward, so the
