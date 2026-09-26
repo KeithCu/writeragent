@@ -30,7 +30,6 @@ from plugin.audio.voice_catalog import (
     KOKORO_FALLBACK_VOICE as _KOKORO_FALLBACK_VOICE,
     KOKORO_OPENAI_ALIASES as _KOKORO_VOICES,
     LOCALE_TO_KOKORO_DEFAULT as _LOCALE_TO_KOKORO_DEFAULT,
-    LOCALE_TO_PIPER_DEFAULT as _LOCALE_TO_PIPER_DEFAULT,
     PIPER_FALLBACK_VOICE as _PIPER_FALLBACK_VOICE,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
     VOICE_CATALOGS,
@@ -546,8 +545,83 @@ def _normalize_voice_family(family: str) -> str:
     return clean_provider_name(family)
 
 
+def _locale_language_stem(locale: str | None) -> str:
+    """``fr_FR.UTF-8`` → ``fr``. LibreOffice stores ``ooLocale`` with an underscore."""
+    return (locale or "").split(".")[0].split("_")[0].lower()
+
+
+def _voice_lang_matches_ui(ui_stem: str, voice_lang: str) -> bool:
+    """True when a catalog lang is the UI language.
+
+    Norwegian Bokmål/Nynorsk share the ``no`` Piper voices. Croatian has no
+    Piper voice and keeps the existing Slovenian stand-in.
+    """
+    if not ui_stem:
+        return False
+    voice_stem = (voice_lang or "").split("_")[0].lower()
+    if ui_stem == voice_stem:
+        return True
+    if ui_stem in ("nb", "nn") and voice_stem == "no":
+        return True
+    if ui_stem == "hr" and voice_stem == "sl":
+        return True
+    return False
+
+
+def _label_says_female(label: str) -> bool:
+    return "female" in (label or "").casefold()
+
+
+def _kokoro_voice_is_female(voice_id: str, label: str) -> bool:
+    """Kokoro ids encode gender in the second letter (``af_``, ``jf_``, ``ef_``)."""
+    vid = (voice_id or "").lower()
+    if len(vid) >= 3 and vid[1] == "f" and vid[2] == "_":
+        return True
+    return _label_says_female(label)
+
+
+def _piper_default_for_stem(stem: str) -> str:
+    """First female Piper voice for this language, else the first voice, else Lessac.
+
+    Gender is only in the catalog label. German, Spanish, and several other
+    languages have no female row, so they stay on the voice the catalog lists.
+    """
+    any_voice = ""
+    for voice_id, model in _PIPER_VOICE_MODELS.items():
+        if not _voice_lang_matches_ui(stem, model[2]):
+            continue
+        if _label_says_female(model[3]):
+            return voice_id
+        if not any_voice:
+            any_voice = voice_id
+    return any_voice or _PIPER_FALLBACK_VOICE
+
+
+def _kokoro_default_for_stem(stem: str) -> str:
+    """Locale map first (``en`` stays ``af_sky``). A missing entry uses the first female."""
+    explicit = _LOCALE_TO_KOKORO_DEFAULT.get(stem)
+    if explicit:
+        return explicit
+    any_voice = ""
+    for opt in _KOKORO_CATALOG_ITEMS:
+        if opt.get("lang") != stem:
+            continue
+        voice_id = opt["value"]
+        if _kokoro_voice_is_female(voice_id, opt.get("label", "")):
+            return voice_id
+        if not any_voice:
+            any_voice = voice_id
+    return any_voice or _KOKORO_FALLBACK_VOICE
+
+
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
-    """Return the optimal default voice for a voice family and locale."""
+    """Return the default voice for a family and the LibreOffice UI locale.
+
+    A saved scoped voice is applied by ``get_scoped_tts_voice`` before this
+    runs. Piper prefers the first female voice whose language matches.
+    Kokoro keeps ``locale_defaults`` and only invents a voice for a language
+    that has catalog rows but no map entry.
+    """
     fam = _normalize_voice_family(family)
     if locale is None:
         try:
@@ -555,11 +629,11 @@ def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
             locale = get_active_locale()
         except Exception:
             locale = "en_US"
-    stem = (locale or "").split(".")[0].split("_")[0].lower()
+    stem = _locale_language_stem(locale)
     if fam == "piper":
-        return _LOCALE_TO_PIPER_DEFAULT.get(stem, _PIPER_FALLBACK_VOICE)
+        return _piper_default_for_stem(stem)
     if fam == "kokoro":
-        return _LOCALE_TO_KOKORO_DEFAULT.get(stem, _KOKORO_FALLBACK_VOICE)
+        return _kokoro_default_for_stem(stem)
     if fam in ("openai", "endpoint"):
         return DEFAULT_VOICE_FOR_FAMILY["openai"]
     # OpenRouter and Together speech models have no static default; the harvested list supplies one.
@@ -581,7 +655,7 @@ def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, 
         except Exception:
             locale = "en_US"
 
-    stem = (locale or "").split(".")[0].split("_")[0].lower()
+    stem = _locale_language_stem(locale)
 
     if fam == "kokoro":
         locale_voices: list[dict[str, str]] = []
@@ -603,7 +677,7 @@ def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, 
     en_voices = []
     other_voices = []
 
-    preferred_default = _LOCALE_TO_PIPER_DEFAULT.get(stem)
+    preferred_default = _piper_default_for_stem(stem)
 
     for voice_id, model in _PIPER_VOICE_MODELS.items():
         lang_code = model[2]
@@ -846,6 +920,26 @@ def _endpoint_uses_openrouter_voices(model: str) -> bool:
     return openrouter_speech_list_has_model(model)
 
 
+def _preferred_harvested_voice(model: str | None, voices: list[str]) -> str:
+    """Fallback id when the saved voice is missing from a harvested list.
+
+    Gemini prefers Aoede — the closest Gemini voice to Kokoro's ``af_sky`` —
+    when that id is advertised. The match is case-insensitive and the list's
+    own spelling is returned (the first match if the list repeats it). Every
+    other harvested list, and a Gemini list without Aoede, uses the first id
+    after the same case-insensitive sort as the Voice combo
+    (``_sort_voice_rows_by_label``), so speak and Settings agree.
+    Do not pass Kokoro or Piper locale catalogs; those stay in locale order.
+    """
+    if not voices:
+        return ""
+    if model and "gemini" in model.casefold():
+        for voice in voices:
+            if voice.casefold() == "aoede":
+                return voice
+    return sorted(voices, key=str.casefold)[0]
+
+
 def get_scoped_tts_voice(
     provider: str | None = None,
     model: str | None = None,
@@ -881,7 +975,9 @@ def get_scoped_tts_voice(
             return clean_scoped
         if clean_gen in voices:
             return clean_gen
-        return voices[0]
+        # Saved id is missing. Gemini with Aoede advertised uses that id;
+        # otherwise the first label-sorted harvested id (not API order).
+        return _preferred_harvested_voice(model, voices)
 
     if clean_scoped:
         return clean_scoped

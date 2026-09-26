@@ -379,6 +379,8 @@ class TestConfigSyncFileIO:
         assert (get_config_int('extend_selection_max_tokens')) == (1000)
         assert (get_config_bool('chatbot.show_search_thinking')) is False
         assert (get_config_bool('web_research_cache_enabled')) is False
+        # Fresh install: Keep replies brief is on when the key was never saved.
+        assert (get_config_bool('audio.tts_short_answers')) is True
         assert (get_config('embeddings.folder_search_mode')) == ('none')
         assert (get_config('scripting.python_max_data_cells')) == (250000)
         assert (get_config('scripting.python_venv_path')) == ('')
@@ -398,6 +400,19 @@ class TestConfigSyncFileIO:
             get_config('some_new_lru')
         with pytest.raises(ConfigError):
             get_config('custom_by_endpoint')
+
+    def test_saved_tts_short_answers_false_is_not_overwritten(self):
+        """Schema default is on, but a profile that stored False keeps that choice."""
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump({'audio.tts_short_answers': False, 'text_model': 'keep-me'}, f)
+        reset_config_for_tests()
+        assert (get_config_bool('audio.tts_short_answers')) is False
+
+        set_config('text_model', 'still-me')
+        data = self._load_written()
+        assert (data.get('audio.tts_short_answers')) is False
+        assert (data.get('text_model')) == ('still-me')
+        assert (get_config_bool('audio.tts_short_answers')) is False
 
     def test_stale_calc_prompt_max_tokens_upgraded_and_persisted(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:

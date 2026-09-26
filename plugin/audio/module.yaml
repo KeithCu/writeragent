@@ -28,7 +28,7 @@ config:
   # only while this box and Enable Speech Output are both on.
   tts_short_answers:
     type: boolean
-    default: false
+    default: true
     widget: checkbox
     label: Keep replies brief
     helper: "Aim for about one paragraph unless the user asks for more. Only applies while speech output (TTS) is on."
