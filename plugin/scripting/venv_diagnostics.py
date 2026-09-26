@@ -213,7 +213,11 @@ _SYMBOLIC_INSTALL_CMD = "uv pip install sympy"
 _AUDIO_PACKAGE_KEYS = ("sounddevice", "input_device", "kokoro_onnx", "soundfile", "piper")
 _AUDIO_OPTIONAL_KEYS = ("kokoro_onnx", "soundfile", "piper")
 _AUDIO_INSTALL_CMD = "uv pip install sounddevice"
-_TTS_INSTALL_CMD = "uv pip install kokoro-onnx soundfile piper-tts"
+# Kokoro multilingual extras match plugin/audio/kokoro_g2p.py KOKORO_PIP_INSTALL.
+# piper-tts stays in this hint; do not import plugin.audio from LibrePy diagnostics.
+_TTS_INSTALL_CMD = (
+    "uv pip install kokoro-onnx soundfile piper-tts 'misaki[ja,zh]' phonemizer-fork espeakng-loader"
+)
 _AUDIO_LINUX_PORTAUDIO_HINT = _("On Linux also install system PortAudio: sudo pacman -S portaudio")
 # Hardware / non-PyPI probe keys must not appear in the copy-paste install footer.
 _NON_PIP_PROBE_KEYS = frozenset({"input_device"})
