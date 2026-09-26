@@ -1734,13 +1734,16 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
 def _container_has_packable_nested(obj: Any) -> bool:
     """True when *obj* contains ndarray/dict containers that need per-element packing."""
     # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
-    import numpy as np
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
 
-    if isinstance(obj, (dict, np.ndarray)):
+    if isinstance(obj, dict) or (np is not None and isinstance(obj, np.ndarray)):
         return True
     if isinstance(obj, (list, tuple)):
         for item in obj:
-            if isinstance(item, (dict, np.ndarray)):
+            if isinstance(item, dict) or (np is not None and isinstance(item, np.ndarray)):
                 return True
             if isinstance(item, (list, tuple)) and _container_has_packable_nested(item):
                 return True
@@ -1750,14 +1753,17 @@ def _container_has_packable_nested(obj: Any) -> bool:
 def _needs_elementwise_pack(obj: Any) -> bool:
     """True when a list/tuple should be packed element-wise instead of as one grid."""
     # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
-    import numpy as np
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
 
     if isinstance(obj, dict):
         return True
     if not isinstance(obj, (list, tuple)) or not obj:
         return False
     for item in obj:
-        if isinstance(item, (dict, np.ndarray)):
+        if isinstance(item, dict) or (np is not None and isinstance(item, np.ndarray)):
             return True
         if isinstance(item, (list, tuple)) and _container_has_packable_nested(item):
             return True
@@ -1775,10 +1781,13 @@ def child_pack_result(
 ) -> Any:
     """JSON-safe worker result: scalar/list as-is, ndarray as list or split_grid."""
     # crosshair: off
-    import numpy as np
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
 
     try:
-        if isinstance(result, np.ndarray):
+        if np is not None and isinstance(result, np.ndarray):
             shape = tuple(int(x) for x in result.shape)
             if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
                 return child_pack_split_grid(result)
@@ -1787,11 +1796,11 @@ def child_pack_result(
                 shape,
             )
     
-        if isinstance(result, (np.integer,)):
+        if np is not None and isinstance(result, np.integer):
             return int(result)
-        if isinstance(result, (np.floating,)):
+        if np is not None and isinstance(result, np.floating):
             return float(result)
-        if isinstance(result, np.bool_):
+        if np is not None and isinstance(result, np.bool_):
             return bool(result)
         if isinstance(result, dict):
             return {str(k): child_pack_result(v, min_cells=min_cells, force=force) for k, v in result.items()}

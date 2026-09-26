@@ -208,6 +208,21 @@ def test_none_becomes_nan_in_split_grid():
     assert math.isnan(float(arr[0, 1]))
 
 
+def test_child_pack_plain_python_without_numpy() -> None:
+    """Plain Python results serialize when NumPy is unavailable."""
+    result = {"changes": [["می پردازد", "می‌پردازد"]]}
+
+    real_import = __import__
+
+    def import_without_numpy(name, *args, **kwargs):
+        if name == "numpy":
+            raise ModuleNotFoundError("No module named 'numpy'")
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=import_without_numpy):
+        assert child_pack_result(result, force="auto") == result
+
+
 def test_scalar_egress_stays_json():
     wire = child_pack_result(42.5, force="auto")
     assert wire == 42.5
