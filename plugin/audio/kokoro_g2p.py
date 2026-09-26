@@ -180,7 +180,7 @@ def _build_kokoro_onnx_script() -> str:
         "if requested in names:\n"
         "    voice = requested\n"
         "else:\n"
-        "    voice = 'af_bella' if 'af_bella' in names else names[0]\n"
+        "    voice = 'af_sky' if 'af_sky' in names else names[0]\n"
         "    sys.stderr.write(\n"
         "        'Kokoro voice %r is not in %s; using %s\\n'\n"
         "        % (requested, voices_path, voice)\n"

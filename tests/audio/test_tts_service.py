@@ -83,8 +83,8 @@ def test_stop_speech_terminates_proc():
 def test_resolve_tts_voice():
     from plugin.audio.tts_service import _resolve_tts_voice
 
-    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "nova") == "af_bella"
-    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "alloy") == "af_bella"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "nova") == "af_sky"
+    assert _resolve_tts_voice("hexgrad/Kokoro-82M", "alloy") == "af_sky"
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "shimmer") == "af_sarah"
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "echo") == "am_adam"
     assert _resolve_tts_voice("hexgrad/Kokoro-82M", "af_bella") == "af_bella"
@@ -115,7 +115,7 @@ def test_speak_endpoint_payload():
         assert req.headers["Authorization"] == "Bearer test-key"
         payload = json.loads(req.data.decode("utf-8"))
         assert payload["model"] == "hexgrad/Kokoro-82M"
-        assert payload["voice"] == "af_bella"
+        assert payload["voice"] == "af_sky"
         assert payload["response_format"] == "mp3"
 
 
@@ -194,7 +194,7 @@ def test_scoped_tts_voice_persistence():
     with patch("plugin.audio.tts_service.get_config", side_effect=lambda k, d=None: store.get(k, d)), \
          patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: store.__setitem__(k, v)):
         # Default for kokoro
-        assert get_scoped_tts_voice("kokoro") == "af_bella"
+        assert get_scoped_tts_voice("kokoro") == "af_sky"
         # Set kokoro voice
         set_scoped_tts_voice("af_sarah", "kokoro")
         assert get_scoped_tts_voice("kokoro") == "af_sarah"
@@ -293,8 +293,8 @@ def test_get_default_voice_for_locale():
     assert get_default_voice_for_locale("kokoro", "zh_CN") == "zf_xiaobei"
     assert get_default_voice_for_locale("kokoro", "hi_IN") == "hf_alpha"
     assert get_default_voice_for_locale("kokoro", "pt_BR") == "pf_dora"
-    assert get_default_voice_for_locale("kokoro", "en_US") == "af_bella"
-    assert get_default_voice_for_locale("kokoro", "de_DE") == "af_bella"
+    assert get_default_voice_for_locale("kokoro", "en_US") == "af_sky"
+    assert get_default_voice_for_locale("kokoro", "de_DE") == "af_sky"
 
 
 def test_get_voice_catalog_locale_prioritized():
@@ -430,7 +430,12 @@ def test_voice_catalog_asset_drives_runtime_maps():
     piper_ids = [row["id"] for row in raw["piper"]["voices"]]
     assert list(_PIPER_VOICE_MODELS) == piper_ids
     assert [item["value"] for item in VOICE_CATALOGS["piper"]] == piper_ids
-    assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == [row["id"] for row in raw["kokoro"]["voices"]]
+    kokoro_ids = [row["id"] for row in raw["kokoro"]["voices"]]
+    assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == kokoro_ids
+    # Sky is the default; Bella stays a selectable catalog voice.
+    assert "af_sky" in kokoro_ids
+    assert "af_bella" in kokoro_ids
+    assert raw["kokoro"]["fallback_voice"] == "af_sky"
     assert voice_short_name("de_DE-thorsten-medium") == "Thorsten"
     assert voice_short_name("en_US-lessac-medium") == "Lessac"
     # Catalog file is the model path used for on-demand Hugging Face downloads.

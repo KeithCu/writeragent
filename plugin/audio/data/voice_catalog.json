@@ -395,9 +395,9 @@
     ]
   },
   "kokoro": {
-    "fallback_voice": "af_bella",
+    "fallback_voice": "af_sky",
     "locale_defaults": {
-      "en": "af_bella",
+      "en": "af_sky",
       "es": "ef_dora",
       "fr": "ff_siwis",
       "it": "if_sara",
@@ -407,8 +407,8 @@
       "pt": "pf_dora"
     },
     "openai_aliases": {
-      "alloy": "af_bella",
-      "nova": "af_bella",
+      "alloy": "af_sky",
+      "nova": "af_sky",
       "shimmer": "af_sarah",
       "echo": "am_adam",
       "fable": "am_michael",

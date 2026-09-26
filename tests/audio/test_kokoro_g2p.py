@@ -226,9 +226,11 @@ def test_script_misaki_failure_falls_back_to_raw_text():
     assert create_calls[0]["lang"] == "ja"
 
 
-def test_script_missing_voice_uses_af_bella():
-    g2p, created = _run("ja", "jf_alpha", "あ", voices={"af_bella": 1})
-    assert created["voice"] == "af_bella"
+def test_script_missing_voice_uses_af_sky():
+    # Bella is listed first so a names[0] fallback would pick it. Sky is the
+    # preferred substitute when the requested id is missing from the pack.
+    g2p, created = _run("ja", "jf_alpha", "あ", voices={"af_bella": 1, "af_sky": 1})
+    assert created["voice"] == "af_sky"
     assert created["is_phonemes"] is True
     assert g2p == [("ja", "あ")]
 

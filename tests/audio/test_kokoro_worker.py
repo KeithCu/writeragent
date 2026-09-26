@@ -66,8 +66,10 @@ def test_handle_kokoro_job_loads_model_once(tmp_path, monkeypatch):
 
 
 def test_handle_kokoro_job_substitutes_missing_voice(tmp_path, monkeypatch):
-    inits: list[tuple[str, str]] = []
-    _install_fake_kokoro(monkeypatch, inits)
+    # Bella is listed first so a first-voice fallback would pick it. Sky is
+    # the preferred substitute when the requested id is missing from the pack.
+    seen: list[dict] = []
+    _install_voice_kokoro(monkeypatch, ["af_bella", "af_sky", "am_adam"], seen)
     out = tmp_path / "c.wav"
     result = kokoro_worker.handle_kokoro_job(
         {
@@ -82,7 +84,8 @@ def test_handle_kokoro_job_substitutes_missing_voice(tmp_path, monkeypatch):
     )
     assert result["status"] == "ok"
     assert "not_a_voice" in result["warning"]
-    assert "af_bella" in result["warning"]
+    assert "af_sky" in result["warning"]
+    assert seen[0]["voice"] == "af_sky"
 
 
 def test_handle_kokoro_job_rejects_missing_path():

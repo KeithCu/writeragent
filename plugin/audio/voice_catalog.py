@@ -89,7 +89,7 @@ LOCALE_TO_PIPER_DEFAULT: dict[str, str] = _locale_defaults(_PIPER)
 LOCALE_TO_KOKORO_DEFAULT: dict[str, str] = _locale_defaults(_KOKORO)
 
 PIPER_FALLBACK_VOICE = _fallback_voice(_PIPER, "en_US-lessac-medium")
-KOKORO_FALLBACK_VOICE = _fallback_voice(_KOKORO, "af_bella")
+KOKORO_FALLBACK_VOICE = _fallback_voice(_KOKORO, "af_sky")
 
 _aliases = _KOKORO.get("openai_aliases") or {}
 if not isinstance(_aliases, dict):

@@ -85,14 +85,14 @@ def _has_voice(kokoro: Any, name: str) -> bool:
 
 
 def _fallback_voice(kokoro: Any) -> str:
-    if _has_voice(kokoro, "af_bella"):
-        return "af_bella"
+    if _has_voice(kokoro, "af_sky"):
+        return "af_sky"
     voices = _voice_names(kokoro)
     if isinstance(voices, dict) and voices:
         return str(next(iter(voices)))
     if voices:
         return str(voices[0])
-    return "af_bella"
+    return "af_sky"
 
 
 def _get_kokoro(model_path: str, voices_path: str) -> Any:
@@ -155,7 +155,7 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(voices_path, str) or not voices_path:
         return {"status": "error", "error": "voices_path is required"}
 
-    voice = str(req.get("voice") or "af_bella")
+    voice = str(req.get("voice") or "af_sky")
     try:
         speed = float(req.get("speed") or 1.0)
     except (TypeError, ValueError):
