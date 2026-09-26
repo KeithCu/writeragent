@@ -144,8 +144,10 @@ class DelegateToSpecializedBase(ToolBase):
                 # agent is delegate_tool_domains (domains + task → inner agent in
                 # plugin/doc/python_domain_specialized.py). This single-string name is
                 # the venv → LO RPC allowlist (host_rpc.resolve_allowed_tools), including
-                # "" to disable RPC during =PY(). Turning it on here would advertise a
-                # second API beside the list+task tool.
+                # "" to disable RPC during =PY(). The inner agent sets
+                # ToolContext.python_tool_domain from the delegated list (comma-separated
+                # when several). Turning the parameter on here would advertise a second
+                # API beside the list+task tool.
                 # "python_tool_domain": {
                 #     "type": "string",
                 #     "description": "Optional domain for tools to expose to Python, e.g. 'core', or a specialized domain like 'footnotes'. Required when domain='python' to specify tool access for the script.",

@@ -16,6 +16,7 @@ from plugin.doc.python_domain_specialized import (
     gather_domain_tools,
     normalize_domain_list,
     run_inner_domain_tool_agent,
+    script_only_llm_tool_names,
     validate_requested_domains,
 )
 from plugin.doc.specialized_base import DelegateToSpecializedBase
@@ -28,6 +29,39 @@ from plugin.writer.specialized_base import (
     ToolWriterShapeBase,
 )
 from tests.chatbot.test_tool_loop import _mock_get_config_int_for_sub_agent
+
+
+class _ShapeUpsertProbe(ToolWriterShapeBase):
+    name = "shape_upsert"
+    description = "Create or edit one shape."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "description": "create or edit."},
+        },
+        "required": ["action"],
+    }
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok"}
+
+
+class _VenvScriptProbe(ToolBase):
+    """Fetched by name. Not a shapes-domain tool, so gather must not rely on active_domain."""
+
+    name = "run_venv_python_script"
+    description = "Run a Python script in the user venv."
+    tier = "specialized"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "description": "Script body."},
+        },
+        "required": ["code"],
+    }
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok"}
 
 
 class _ShapeProbe(ToolWriterShapeBase):
@@ -91,6 +125,8 @@ def test_python_hint_and_examples_require_delegate_before_finish():
         assert "top-left" in hint
         assert "origin-centered" in hint
         assert "does not receive page size" in hint
+        assert "for-loop" in hint
+        assert "wa.shape.upsert" in hint
     writer = python_specialized_sub_agent_hint("Writer")
     assert "footnotes" in writer
     assert "shapes" in writer
@@ -110,8 +146,10 @@ def test_python_hint_and_examples_require_delegate_before_finish():
     assert "HMM" in ring
     assert "top-left" in ring
     assert "not (0,0)" in ring
-    assert ring.index("run_venv_python_script") < ring.index("delegate_tool_domains")
-    assert ring.index("delegate_tool_domains") < ring.index("specialized_workflow_finished")
+    assert ring.index("delegate_tool_domains") < ring.index("run_venv_python_script")
+    assert ring.index("run_venv_python_script") < ring.index("specialized_workflow_finished")
+    assert "wa.shape.upsert" in ring
+    assert "for-loop" in ring
     assert "via the shapes domain" in ring
     assert 'rather than domain="shapes"' in WRITER_CORE_DIRECTIVES
     assert 'rather than domain="shapes"' in DRAW_CORE_DIRECTIVES
@@ -131,6 +169,19 @@ def test_domain_loop_hints_include_footnotes_and_charts_lines():
     assert "rows" in writer
     assert "insert_after" in writer
     assert "Document canvas" not in writer
+
+
+def test_shapes_mutators_are_script_only_other_domains_keep_tools():
+    """Shapes LLM list drops proxy mutators; footnotes and sheets do not."""
+    hidden = script_only_llm_tool_names("shapes")
+    assert "shape_upsert" in hidden
+    assert "shape_delete" in hidden
+    assert "shape_connect" in hidden
+    assert "shape_group" in hidden
+    assert "align_shapes" in hidden
+    assert "shape_summary" not in hidden
+    assert script_only_llm_tool_names("footnotes") == frozenset()
+    assert script_only_llm_tool_names("sheets") == frozenset()
 
 
 def test_normalize_domain_list_dedupes_and_parses_json_array():
@@ -240,6 +291,8 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     registry = ToolRegistry(services={})
     registry.register(FootnotesInsert())
     registry.register(_ShapeProbe())
+    registry.register(_ShapeUpsertProbe())
+    registry.register(_VenvScriptProbe())
     registry.register(_NestedDelegateProbe())
     registry.register(SpecializedWorkflowFinished())
     parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
@@ -255,6 +308,8 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     by_name = {tool.name: tool for tool in tools_arg}
     assert "footnotes_insert" in by_name
     assert "shape_summary" in by_name
+    assert "shape_upsert" not in by_name
+    assert "run_venv_python_script" in by_name
     assert "delegate_tool_domains" not in by_name
     assert tools_arg[-1].name == "specialized_workflow_finished"
     note = by_name["footnotes_insert"].inputs["note"]
@@ -270,12 +325,26 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert inner_ctx.status_callback is parent.status_callback
     assert inner_ctx.read_only_target is False
     assert inner_ctx.set_active_domain_callback is None
+    assert inner_ctx.python_tool_domain == "footnotes,shapes"
+    from plugin.scripting.host_rpc import resolve_allowed_tools
+
+    allowed = resolve_allowed_tools(inner_ctx.python_tool_domain)
+    assert allowed is not None
+    assert "shape_upsert" in allowed
+    assert "footnotes_insert" in allowed
+    assert "list_open_documents" in allowed
     instructions = mock_build.call_args.kwargs["instructions"]
     assert "footnotes" in instructions
     assert "shapes" in instructions
+    assert "wa.shape.upsert" in instructions
+    assert "for-loop" in instructions
     assert mock_build.call_args.kwargs["final_answer_tool_name"] == "specialized_workflow_finished"
     examples_key_block = mock_build.call_args.kwargs["examples_block"]
-    assert "run_venv_python_script" not in examples_key_block
+    # Inner block is the script loop, not the outer *:python few-shot (that one calls DTD).
+    assert "run_venv_python_script" in examples_key_block
+    assert "wa.shape.upsert" in examples_key_block
+    assert "delegate_tool_domains" not in examples_key_block
+    assert "sp.prime" not in examples_key_block
     assert "specialized_workflow_finished" in examples_key_block
     assert "insert_after" in instructions
 
@@ -309,12 +378,17 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     instructions = mock_build.call_args.kwargs["instructions"]
     assert "Document canvas (Writer)" in instructions
     assert "210.0 x 297.0 mm" in instructions
+    assert "wa.shape.upsert" in instructions
+    shapes_ctx = mock_build.call_args[0][0]
+    assert shapes_ctx.python_tool_domain == "shapes"
 
     mock_canvas.reset_mock()
     run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
     mock_canvas.assert_not_called()
     footnotes_instructions = mock_build.call_args.kwargs["instructions"]
     assert "Document canvas" not in footnotes_instructions
+    assert "wa.shape.upsert" not in footnotes_instructions
+    assert mock_build.call_args[0][0].python_tool_domain == "footnotes"
 
 
 @patch("plugin.doc.python_domain_specialized.build_toolcalling_agent")
@@ -340,6 +414,16 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     by_name = {tool.name: tool for tool in tools_arg}
     assert "labels" in by_name["sort_range"].inputs["has_header"]["description"]
     assert by_name["sort_range"].inputs["range"]["type"] == "array"
+    assert "shape_upsert" not in names
+    inner_ctx = mock_build.call_args[0][0]
+    assert inner_ctx.python_tool_domain == "sheets,ranges"
+    from plugin.scripting.host_rpc import resolve_allowed_tools
+
+    allowed = resolve_allowed_tools(inner_ctx.python_tool_domain)
+    assert allowed is not None
+    assert "list_sheets" in allowed
+    assert "sort_range" in allowed
+    assert "shape_upsert" not in allowed
 
 
 def test_gather_domain_tools_marshals_off_main_thread():

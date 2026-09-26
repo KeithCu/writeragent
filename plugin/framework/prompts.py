@@ -283,10 +283,11 @@ def images_specialized_sub_agent_hint() -> str:
 def python_specialized_sub_agent_hint(agent_label: str) -> str:
     """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"python\").
 
-    The outer python agent does venv / symbolic work itself. Domain tools go through
-    ``delegate_tool_domains`` (``domains`` + ``task``), which starts the inner agent.
-    Page size is not injected here. When the task includes shapes, the inner agent
-    gets ``format_shapes_canvas_context`` and applies the layout from ``task``.
+    The outer python agent does venv / symbolic work itself and has no specialized
+    domain tools. Those go through ``delegate_tool_domains`` (``domains`` + ``task``).
+    The inner agent places many shapes with one ``run_venv_python_script`` for-loop
+    over ``writeragent`` (``wa.shape.upsert``). Page size is not injected here.
+    When the task includes shapes, the inner agent gets ``format_shapes_canvas_context``.
     """
     if agent_label == "Calc":
         data_hint = (
@@ -321,9 +322,12 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         " BEFORE specialized_workflow_finished."
         " When placing shapes, that task must use page-scale absolute positions in HMM (1/100 mm)"
         " from the top-left of the page, not a tiny origin-centered cluster around (0,0)."
-        " The inner shapes agent applies that layout using the page canvas; this loop does not receive page size."
+        " When placing many shapes, tell the inner agent to use one run_venv_python_script"
+        " with a Python for-loop (import writeragent as wa; wa.shape.upsert),"
+        " not one LLM tool call per shape."
+        " The inner shapes agent reads the page canvas and places that layout; this loop does not receive page size."
         " Do not finish and expect the main chat agent to call delegate_to_specialized_*(domain=\"shapes\") for you."
-        " The inner agent receives the full tool schemas; do not call those domain tools on this loop."
+        " Do not call those domain tools on this loop."
     )
     return (
         f" PYTHON (venv): {policy}{data_hint}{plot_suffix}"
