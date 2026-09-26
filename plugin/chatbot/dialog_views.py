@@ -882,6 +882,7 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 get_default_voice_for_locale,
                 get_voice_family,
                 set_scoped_tts_voice,
+                voice_choice_to_id,
                 voice_options_for_provider,
             )
 
@@ -918,7 +919,8 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                     return
 
                 current_text = voice_ctrl.getText() if hasattr(voice_ctrl, "getText") else ""
-                current_id = clean_voice_name(current_text)
+                # Display text is the parenthetical, not the id. Match this list.
+                current_id = voice_choice_to_id(current_text, catalog)
                 # get_scoped_tts_voice substitutes the first id when the saved
                 # voice is not in the list, which would hide the mismatch and
                 # skip the persist. Read the stored id itself.
@@ -984,8 +986,9 @@ class TtsVoiceListener(BaseListener, XItemListener, XTextListener):
         try:
             from plugin.audio.tts_service import (
                 clean_provider_name,
-                clean_voice_name,
                 set_scoped_tts_voice,
+                voice_choice_to_id,
+                voice_options_for_provider,
             )
             prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
             model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
@@ -995,17 +998,22 @@ class TtsVoiceListener(BaseListener, XItemListener, XTextListener):
                 return
 
             raw_voice = voice_ctrl.getText()
-            clean_voice = clean_voice_name(raw_voice)
+            raw_prov = prov_ctrl.getText() if prov_ctrl and hasattr(prov_ctrl, "getText") else ""
+            raw_model = model_ctrl.getText() if model_ctrl and hasattr(model_ctrl, "getText") else ""
+            endpoint = _dialog_endpoint_url(self._dlg)
+            # Visible text has no id. Resolve against this provider's rows.
+            options = voice_options_for_provider(
+                raw_prov, raw_model, endpoint=endpoint, api_key=_dialog_api_key(self._dlg),
+            )
+            clean_voice = voice_choice_to_id(raw_voice, options)
             if not clean_voice:
                 return
 
-            raw_prov = prov_ctrl.getText() if prov_ctrl and hasattr(prov_ctrl, "getText") else ""
-            raw_model = model_ctrl.getText() if model_ctrl and hasattr(model_ctrl, "getText") else ""
             set_scoped_tts_voice(
                 clean_voice,
                 clean_provider_name(raw_prov),
                 raw_model,
-                endpoint=_dialog_endpoint_url(self._dlg),
+                endpoint=endpoint,
             )
         except Exception:
             log.exception("Error saving scoped TTS voice on change")
@@ -1186,10 +1194,11 @@ class TtsTestVoiceListener(BaseActionListener):
     def _speak_sample(self) -> None:
         from plugin.audio.tts_service import (
             clean_provider_name,
-            clean_voice_name,
             parse_tts_speed,
             speak_text_async,
             tts_test_sample,
+            voice_choice_to_id,
+            voice_options_for_provider,
         )
 
         enabled_ctrl = get_optional(self._dlg, "audio__tts_enabled")
@@ -1208,7 +1217,13 @@ class TtsTestVoiceListener(BaseActionListener):
         raw_voice = self._control_text("audio__tts_voice")
         raw_speed = self._control_text("audio__tts_speed")
         sample = tts_test_sample()
-        voice = clean_voice_name(raw_voice) if raw_voice.strip() else ""
+        options = voice_options_for_provider(
+            raw_prov,
+            raw_model,
+            endpoint=_dialog_endpoint_url(self._dlg),
+            api_key=_dialog_api_key(self._dlg),
+        )
+        voice = voice_choice_to_id(raw_voice, options) if raw_voice.strip() else ""
         # Kokoro's Misaki-vs-espeak choice runs inside speak on this sample.
         log.info(
             "TTS test: provider=%s model=%s voice=%s",

@@ -589,7 +589,7 @@ def test_together_voice_options_use_cached_voices_and_fetch_on_miss():
             local = voice_options_for_provider("kokoro", "hexgrad/Kokoro-82M")
             mock_sync.assert_not_called()
         assert any(opt["value"] == "af_bella" for opt in local)
-        assert any(opt["label"] == "af_bella (US Female - Bella)" for opt in local)
+        assert any(opt["label"] == "US Female - Bella" for opt in local)
     finally:
         cfg._tts_supported_voices.clear()
         cfg._together_voices_fetch_cache.clear()
@@ -797,29 +797,55 @@ def test_get_voice_catalog_locale_prioritized():
     assert en_catalog[0]["value"] == "en_US-lessac-medium"
 
 
-def test_kokoro_voice_labels_omit_redundant_engine_name():
-    """Voice list already sits under Kokoro, so the parenthetical drops a leading 'Kokoro '."""
-    import json
+def test_piper_and_kokoro_voice_list_shows_parenthetical_only():
+    """Voice combo shows the parenthetical. The stored value stays the voice id."""
+    from plugin.audio.tts_service import get_voice_catalog, voice_choice_to_id
+    from plugin.audio.voice_catalog import catalog_voice_display_label
 
-    from plugin.audio.tts_service import get_voice_catalog
-    from plugin.audio.voice_catalog import CATALOG_PATH
+    assert catalog_voice_display_label(
+        "en_US-lessac-medium (US English Female - Lessac)"
+    ) == "US English Female - Lessac"
+    assert catalog_voice_display_label(
+        "af_heart (Kokoro US Female - Heart)"
+    ) == "US Female - Heart"
+    assert catalog_voice_display_label("af_heart (US Female - Heart)") == "US Female - Heart"
+    # Harvested ids have no parentheses and must not be rewritten.
+    assert catalog_voice_display_label("Kore") == "Kore"
+    assert catalog_voice_display_label("leah") == "leah"
 
-    with open(CATALOG_PATH, encoding="utf-8") as handle:
-        raw = json.load(handle)
+    kokoro = get_voice_catalog("kokoro", "en_US")
+    kokoro_by = {row["value"]: row["label"] for row in kokoro}
+    assert kokoro_by["af_heart"] == "US Female - Heart"
+    assert "af_heart" not in kokoro_by["af_heart"]
+    assert "(" not in kokoro_by["af_heart"]
+    assert voice_choice_to_id("US Female - Heart", kokoro) == "af_heart"
+    assert voice_choice_to_id("af_heart (Kokoro US Female - Heart)", kokoro) == "af_heart"
+    assert voice_choice_to_id("af_heart", kokoro) == "af_heart"
 
-    shown = {row["value"]: row["label"] for row in get_voice_catalog("kokoro", "en_US")}
-    assert shown["af_heart"] == "af_heart (US Female - Heart)"
-    for row in raw["kokoro"]["voices"]:
-        label = shown[row["id"]]
-        assert label == row["label"]
-        assert label.startswith(row["id"] + " (")
-        human = label.split(" (", 1)[1]
-        assert not human.startswith("Kokoro ")
+    piper = get_voice_catalog("piper", "en_US")
+    piper_by = {row["value"]: row["label"] for row in piper}
+    assert piper_by["en_US-lessac-medium"] == "US English Female - Lessac"
+    assert "en_US-lessac-medium" not in piper_by["en_US-lessac-medium"]
+    assert voice_choice_to_id("US English Female - Lessac", piper) == "en_US-lessac-medium"
+    assert voice_choice_to_id(
+        "en_US-lessac-medium (US English Female - Lessac)", piper,
+    ) == "en_US-lessac-medium"
 
-    # Other providers keep the catalog string, even if it ever mentions Kokoro.
-    piper_shown = {row["value"]: row["label"] for row in get_voice_catalog("piper", "en_US")}
-    for row in raw["piper"]["voices"]:
-        assert piper_shown[row["id"]] == row["label"]
+    # Same words, different engines. Resolution follows the list that is open.
+    shared = "French Female - Siwis"
+    assert voice_choice_to_id(shared, kokoro) == "ff_siwis"
+    assert voice_choice_to_id(shared, piper) == "fr_FR-siwis-medium"
+
+    assert len({row["label"] for row in kokoro}) == len(kokoro)
+    assert len({row["label"] for row in piper}) == len(piper)
+    for row in kokoro + piper:
+        assert row["value"]
+        assert "(" not in row["label"]
+        assert not row["label"].casefold().startswith("kokoro ")
+
+    openai = get_voice_catalog("openai")
+    assert any(row["label"] == "alloy (OpenAI Neutral)" for row in openai)
+    assert any(row["value"] == "alloy" for row in openai)
 
 
 def test_kokoro_g2p_lang_english_on_non_english_voice():

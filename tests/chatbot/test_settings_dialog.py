@@ -120,6 +120,42 @@ def test_apply_settings_result_tts_provider_and_voice():
         assert stored.get("audio.tts_voice") == "af_bella"
 
 
+def test_apply_settings_voice_display_label_stores_id_for_that_provider():
+    """Parenthetical text stores the id for the provider in this result.
+
+    Field specs can still list the other engine's copy of the same words.
+    """
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    stored = {}
+    specs = [
+        {
+            "name": "audio__tts_provider",
+            "options": [
+                {"value": "kokoro", "label": "Kokoro (Local Neural, ONNX CPU)"},
+                {"value": "piper", "label": "Piper (Local Fast Neural, CPU)"},
+            ],
+        },
+        {
+            "name": "audio__tts_voice",
+            "options": [
+                {"value": "ff_siwis", "label": "French Female - Siwis"},
+            ],
+        },
+    ]
+
+    with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
+         patch("plugin.chatbot.settings_dialog.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+         patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)):
+        apply_settings_result(MagicMock(), {
+            "audio__tts_provider": "Piper (Local Fast Neural, CPU)",
+            "audio__tts_voice": "French Female - Siwis",
+        })
+        assert stored.get("audio.tts_voice_piper") == "fr_FR-siwis-medium"
+        assert stored.get("audio.tts_voice") == "fr_FR-siwis-medium"
+
+
 def test_apply_settings_result_tts_speed():
     from plugin.chatbot.settings_dialog import apply_settings_result
 

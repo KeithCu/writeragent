@@ -1020,10 +1020,11 @@ def test_tts_settings_listener_sync():
 
         # Model combobox is disabled for non-endpoint
         mock_set_enabled.assert_called_once_with(model_ctrl, False)
-        # Voice list is updated with Kokoro voices
-        assert any("af_bella" in label for label in voice_ctrl_model.StringItemList)
-        # Voice text is set to the Kokoro default (Sky)
-        assert any("af_sky" in arg for arg in voice_ctrl.setText.call_args[0])
+        # Voice list is the parenthetical only; the id stays the stored value.
+        assert "US Female - Bella" in voice_ctrl_model.StringItemList
+        assert all("af_bella" not in label for label in voice_ctrl_model.StringItemList)
+        # Voice text is the Kokoro default (Sky), without the id prefix.
+        assert voice_ctrl.setText.call_args[0][0] == "US Female - Sky"
 
 
 def test_tts_settings_listener_promotes_raw_voice_id_to_catalog_label():
@@ -1273,7 +1274,7 @@ def test_tts_test_voice_status_shows_http_body():
     assert "response_format must be pcm" in mock_msgbox.call_args[0][2]
 
 
-def _tts_test_controls(*, enabled: int = 1):
+def _tts_test_controls(*, enabled: int = 1, voice: str = "jf_alpha (Kokoro JP Female - Alpha)"):
     enabled_ctrl = MagicMock()
     enabled_ctrl.getState.return_value = enabled
     enabled_ctrl.supportsService.return_value = True
@@ -1282,7 +1283,7 @@ def _tts_test_controls(*, enabled: int = 1):
     model_ctrl = MagicMock()
     model_ctrl.getText.return_value = "hexgrad/Kokoro-82M"
     voice_ctrl = MagicMock()
-    voice_ctrl.getText.return_value = "jf_alpha (Kokoro JP Female - Alpha)"
+    voice_ctrl.getText.return_value = voice
     speed_ctrl = MagicMock()
     speed_ctrl.getText.return_value = "1.25x"
 
@@ -1326,6 +1327,22 @@ def test_tts_test_voice_listener_speaks_localized_sample():
     assert kwargs["enabled"] is True
     assert "lang" not in kwargs
     assert kwargs["on_status"] is not None
+
+
+def test_tts_test_voice_resolves_parenthetical_to_voice_id():
+    from plugin.chatbot.dialog_views import TtsTestVoiceListener
+
+    listener = TtsTestVoiceListener(MagicMock(), MagicMock())
+    controls = _tts_test_controls(voice="Japanese Female - Alpha")
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=controls), \
+         patch("plugin.chatbot.dialog_views.is_checkbox_control", return_value=True), \
+         patch("plugin.chatbot.dialog_views.get_checkbox_state", return_value=1), \
+         patch("plugin.audio.tts_service.tts_test_sample", return_value="Hello"), \
+         patch("plugin.audio.tts_service.speak_text_async") as mock_speak, \
+         patch("plugin.chatbot.dialog_views.msgbox"):
+        listener.on_action_performed(None)
+
+    assert mock_speak.call_args.kwargs["voice"] == "jf_alpha"
 
 
 def test_tts_test_voice_listener_disabled_does_not_speak():
@@ -1391,5 +1408,10 @@ def test_tts_voice_listener_on_change():
         voice_listener._on_change()
         assert stored.get("audio.tts_voice_piper") == "en_US-amy-medium"
         assert stored.get("audio.tts_voice") == "en_US-amy-medium"
+
+        # The list shows the parenthetical. That text still stores the id.
+        voice_ctrl.getText.return_value = "US English Female - Amy"
+        voice_listener._on_change()
+        assert stored.get("audio.tts_voice_piper") == "en_US-amy-medium"
 
 
