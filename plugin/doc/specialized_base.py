@@ -140,7 +140,12 @@ class DelegateToSpecializedBase(ToolBase):
             "type": "object",
             "properties": {
                 "domain": {"type": "string", "enum": domains, "description": "The specialized domain to activate."},
-                # python_tool_domain: enable when domain-scoped writeragent_api proxy (venv → LO RPC) is tested.
+                # Left commented on purpose. Domain access for the python specialized
+                # agent is delegate_tool_domains (domains + task → inner agent in
+                # plugin/doc/python_domain_specialized.py). This single-string name is
+                # the venv → LO RPC allowlist (host_rpc.resolve_allowed_tools), including
+                # "" to disable RPC during =PY(). Turning it on here would advertise a
+                # second API beside the list+task tool.
                 # "python_tool_domain": {
                 #     "type": "string",
                 #     "description": "Optional domain for tools to expose to Python, e.g. 'core', or a specialized domain like 'footnotes'. Required when domain='python' to specify tool access for the script.",
@@ -310,6 +315,8 @@ class DelegateToSpecializedBase(ToolBase):
             if domain == "footnotes":
                 footnotes_hint = " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), pass that exact string as insert_after so the note is placed after that text; the task executor cannot move the view cursor."
             shapes_canvas = ""
+            # Page size stays on the shapes loop (and the inner domain agent when
+            # shapes is requested). The outer python agent passes layout in task.
             if domain == "shapes":
                 try:
                     canvas = queue_executor.execute_on_main_thread(lambda: format_shapes_canvas_context(getattr(ctx, "doc", None)))

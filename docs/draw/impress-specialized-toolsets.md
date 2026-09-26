@@ -86,6 +86,8 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | `insert_math` | `math` | `math_insert.py` | Insert LibreOffice Math (OLE) from LaTeX or MathML | Drawing+Presentation |
 | `WebResearchTool` | `web_research` | `web_research.py` | Web search for context | All |
 
+**Python domain (two-level).** `delegate_to_specialized_draw_toolset(domain="python")` uses the same outer→inner path as Writer: do venv / symbolic work on the python toolset, and call `delegate_tool_domains` with `domains` (for example `shapes`, `tables`, `speaker_notes`) and `task` when those domain tools are required. The inner agent receives full tool schemas. See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels).
+
 ### 2.3 Unit & Coordinate System
 
 - **Slide Dimensions**: `get_presentation_info` reports slide width and height in **millimeters** (e.g. $280\text{mm} \times 157\text{mm}$ for 16:9).

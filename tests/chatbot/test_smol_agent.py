@@ -190,6 +190,21 @@ class TestToolcallingPromptExamples:
         assert ("DO NOT import numpy") in (block)
         assert ('"code": "import') not in (block)
         assert ("specialized_workflow_finished") in (block)
+        assert ("delegate_tool_domains") in (block)
+        assert ('"domains": ["footnotes"]') in (block)
+        assert ('"domains": ["shapes"]') in (block)
+        assert ('"task":') in (block)
+        parts = block.split('Task: "')
+        assert "delegate_tool_domains" not in parts[1]
+        ring = parts[3]
+        assert "ring of 8 blue circles" in ring
+        assert "run_venv_python_script" in ring
+        assert "10500" in ring
+        assert "14000" in ring
+        assert "HMM" in ring
+        assert "top-left" in ring
+        assert ring.index("delegate_tool_domains") < ring.index("specialized_workflow_finished")
+        assert "via the shapes domain" in ring
 
     def test_specialized_agent_prompt_examples_use_finish_tool_name(self):
         from plugin.contrib.smolagents.agents import ToolCallingAgent

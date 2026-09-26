@@ -151,6 +151,21 @@ def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
     )
 
 
+def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
+    """Main-chat line: python-as-orchestrator stays on domain=python.
+
+    A plain shape request still goes to domain=shapes. Only bias when the user
+    asked for the python specialized path (script, via python, python agent,
+    compute-then-place). Calc does not use this: its delegate enum hides python.
+    """
+    return (
+        "When asked to make a script or run Python, or to use the python specialized agent "
+        "(via python / python agent) to compute and place shapes or other domain objects, "
+        f'use {delegate_toolset}(domain="python") rather than domain="shapes". '
+        'A plain shape request (for example draw a rectangle) still uses domain="shapes".'
+    )
+
+
 # Brief hint for gateway tool JSON schemas (see SPECIALIZED_TASK_RULES in system prompt).
 # Parent Nemotron Super rewrote "make it look like a wizard" into a generate-new
 # task; the specialist then omitted source_image. Schema + task rules must
@@ -266,7 +281,13 @@ def images_specialized_sub_agent_hint() -> str:
 
 
 def python_specialized_sub_agent_hint(agent_label: str) -> str:
-    """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"python\")."""
+    """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"python\").
+
+    The outer python agent does venv / symbolic work itself. Domain tools go through
+    ``delegate_tool_domains`` (``domains`` + ``task``), which starts the inner agent.
+    Page size is not injected here. When the task includes shapes, the inner agent
+    gets ``format_shapes_canvas_context`` and applies the layout from ``task``.
+    """
     if agent_label == "Calc":
         data_hint = (
             " For bulk data use data_range with run_venv_python_script "
@@ -283,10 +304,31 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
     plot_hint = format_matplotlib_plot_hint(agent_label=agent_label)
     plot_suffix = f" {plot_hint}" if plot_hint else ""
     units_hint = format_units_helper_hint()
+    if agent_label == "Calc":
+        domain_examples = "sheets, ranges, charts"
+    elif agent_label == "Draw":
+        domain_examples = "shapes, tables, speaker_notes"
+    else:
+        domain_examples = "shapes, footnotes, tables"
+    domain_rule = (
+        " Do Python, venv scripts, symbolic math, and helpers already on this domain yourself"
+        " when the task does not need other WriterAgent specialized tools, then call specialized_workflow_finished."
+        " Computing coordinates, JSON, or a matplotlib figure does not place Writer/Calc/Draw domain objects in the document."
+        " If the user needs those objects in the document"
+        f" ({domain_examples}, and the other specialized domains for this document),"
+        " you MUST call delegate_tool_domains with domains (a list of those domain names) and task"
+        " (what the inner agent should accomplish, including sizes, colors, and positions or the computed layout)"
+        " BEFORE specialized_workflow_finished."
+        " When placing shapes, that task must use page-scale absolute positions in HMM (1/100 mm)"
+        " from the top-left of the page, not a tiny origin-centered cluster around (0,0)."
+        " The inner shapes agent applies that layout using the page canvas; this loop does not receive page size."
+        " Do not finish and expect the main chat agent to call delegate_to_specialized_*(domain=\"shapes\") for you."
+        " The inner agent receives the full tool schemas; do not call those domain tools on this loop."
+    )
     return (
         f" PYTHON (venv): {policy}{data_hint}{plot_suffix}"
         " Prefer symbolic_math for solve/simplify/integrate/differentiate over raw sp/run_venv_python_script."
-        f" {units_hint}"
+        f" {units_hint}{domain_rule}"
     )
 
 
@@ -317,7 +359,7 @@ When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_writer
 For web_research and document_research: describe what to research in `task` (topics, sections, depth).
 
 {delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_writer_toolset")}
-When asked to make a script or run Python, use delegate_to_specialized_writer_toolset(domain="python")."""
+{python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset")}"""
 
 
 WRITER_CHAT_TOOLS_SECTION = """TOOLS:
@@ -593,7 +635,7 @@ DRAW_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} 
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_draw_toolset(domain="web_research").
 
 {delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_draw_toolset")}
-When asked to make a script or run Python, use delegate_to_specialized_draw_toolset(domain="python").
+{python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_draw_toolset")}
 Do delegate_to_specialized_draw_toolset(domain="shapes") then shape_upsert + shape_connect for flowcharts and process diagrams because an empty get_draw_tree means the task failed."""
 
 

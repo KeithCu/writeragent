@@ -331,6 +331,7 @@ def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
         "delegate_to_specialized_writer_toolset",
         "delegate_to_specialized_calc_toolset",
         "delegate_to_specialized_draw_toolset",
+        "delegate_tool_domains",
         "specialized_workflow_finished",
     )
     for name in orchestration:

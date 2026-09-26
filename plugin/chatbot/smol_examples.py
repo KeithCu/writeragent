@@ -11,7 +11,7 @@
 - **brainstorming** — design exploration (`reply_to_user`, `save_design_spec`; leave with ``brainstorming_finished=true``).
 - **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
 - **web_research** — web sub-agent (`final_answer`).
-- **``*:python``** — venv demo (`run_venv_python_script` + ``sp.prime``; no numpy imports).
+- **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``), footnotes via ``delegate_tool_domains``, and a ring of shapes (compute, then ``delegate_tool_domains`` with ``domains`` + ``task``, then finish). Hand-written here, not from ``generate_smol_examples.py``.
 - **``*:images``** — edit selected image via ``image_generate(source_image='selection')``.
 - **All other keys** — shared delegate demo (`specialized_workflow_finished`).
 
@@ -189,6 +189,43 @@ Action:
 {
   "name": "specialized_workflow_finished",
   "arguments": {"answer": "I have successfully calculated the prime numbers and stored them in the `result` variable as a NumPy array. The values are: [8017, 8039, 8053, 8059, 8069, 8081, 8087, 8089, 8093, 8101, 8111]."}
+}
+
+Task: "Add a footnote after the sentence about revenue."
+
+Action:
+{
+  "name": "delegate_tool_domains",
+  "arguments": {"domains": ["footnotes"], "task": "Insert a footnote after the sentence about revenue with the source citation."}
+}
+Observation: {"status": "ok", "domains": ["footnotes"], "result": "Inserted the footnote."}
+
+Action:
+{
+  "name": "specialized_workflow_finished",
+  "arguments": {"answer": "Added the footnote via the footnotes domain."}
+}
+
+Task: "Use python to place a ring of 8 blue circles."
+
+Action:
+{
+  "name": "run_venv_python_script",
+  "arguments": {"code": "cx, cy, r, d = 10500, 14000, 7000, 1600\\nangles = np.linspace(0, 2 * np.pi, 8, endpoint=False)\\nresult = [[float(cx + np.cos(a) * r), float(cy + np.sin(a) * r), d] for a in angles]\\n"}
+}
+Observation: {"status": "ok", "result": [[17500.0, 14000.0, 1600], [15449.7, 18949.7, 1600], [10500.0, 21000.0, 1600], [5550.3, 18949.7, 1600], [3500.0, 14000.0, 1600], [5550.3, 9050.3, 1600], [10500.0, 7000.0, 1600], [15449.7, 9050.3, 1600]], "stdout": "", "stderr": ""}
+
+Action:
+{
+  "name": "delegate_tool_domains",
+  "arguments": {"domains": ["shapes"], "task": "Create a ring of 8 blue circles at these absolute page positions (x, y, diameter), all in HMM (1/100 mm). Origin is the top-left of the page, not (0,0) as a center. Page center used for the layout is about (10500, 14000), radius 7000 HMM, each circle 1600 HMM across, fill blue. Use those absolute positions; do not recenter the ring on the origin."}
+}
+Observation: {"status": "ok", "domains": ["shapes"], "result": "Placed 8 blue circles in a ring."}
+
+Action:
+{
+  "name": "specialized_workflow_finished",
+  "arguments": {"answer": "Placed a ring of 8 blue circles via the shapes domain."}
 }
 """
 )

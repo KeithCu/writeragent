@@ -183,6 +183,9 @@ API_EXCLUDED_TOOLS = frozenset({
     "delegate_to_specialized_writer_toolset",
     "delegate_to_specialized_calc_toolset",
     "delegate_to_specialized_draw_toolset",
+    # Python outer→inner LLM hop. The inner smol agent still calls
+    # specialized_workflow_finished as a registered ToolBase, not via this proxy.
+    "delegate_tool_domains",
     "specialized_workflow_finished",
 })
 
