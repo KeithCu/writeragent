@@ -901,6 +901,83 @@ def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:
     assert cfg.cached_tts_supported_voices("hexgrad/Kokoro-82M") == ["af_bella", "af_heart"]
 
 
+def test_bg_fetch_together_warms_voices() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), MagicMock())
+    listener.fetch_available_models = lambda *args, **kwargs: ["cartesia/sonic"]
+    listener.post_to_main_thread = lambda fn: None
+    listener._debounce_gen = 1
+
+    with patch("plugin.chatbot.dialog_views.get_optional", return_value=None), \
+         patch("plugin.framework.client.model_fetcher.fetch_together_tts_voices") as mock_voices:
+        listener._bg_fetch(1, "https://api.together.xyz")
+        mock_voices.assert_called_once()
+        assert mock_voices.call_args.args[0] == "https://api.together.xyz"
+        mock_voices.reset_mock()
+        listener._bg_fetch(1, "https://openrouter.ai/api")
+        mock_voices.assert_not_called()
+
+
+def test_tts_settings_listener_together_voices_replace_alloy() -> None:
+    """Together endpoint Voice combo uses /v1/voices, and alloy is not kept."""
+    from plugin.chatbot.dialog_views import TtsSettingsListener
+    from plugin.framework.client import model_fetcher as cfg
+
+    dlg = MagicMock()
+    prov_ctrl = MagicMock()
+    prov_ctrl.getText.return_value = "Current Chat Endpoint (/audio/speech)"
+    model_ctrl = MagicMock()
+    model_ctrl.getText.return_value = "cartesia/sonic-2"
+    voice_ctrl = MagicMock()
+    voice_model = MagicMock()
+    voice_model.StringItemList = ()
+    voice_ctrl.getModel.return_value = voice_model
+    voice_ctrl.getText.return_value = "alloy"
+    endpoint_ctrl = MagicMock()
+    endpoint_ctrl.getText.return_value = "Together AI"
+
+    payload = {
+        "model": "cartesia/sonic-2",
+        "voices": [
+            {"name": "Friendly Sidekick", "id": "voice-uuid-1", "language": "en"},
+            {"name": "Narrator", "id": "voice-uuid-2"},
+        ],
+    }
+
+    def get_optional_side_effect(d, name):
+        del d
+        if name == "audio__tts_provider":
+            return prov_ctrl
+        if name in ("audio__tts_model", "tts_model"):
+            return model_ctrl
+        if name == "audio__tts_voice":
+            return voice_ctrl
+        if name == "endpoint":
+            return endpoint_ctrl
+        return None
+
+    stored: dict[str, str] = {}
+    cfg._tts_supported_voices.clear()
+    cfg._together_voices_fetch_cache.clear()
+    try:
+        with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+             patch("plugin.chatbot.dialog_views.set_control_enabled"), \
+             patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync, \
+             patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+             patch("plugin.chatbot.dialog_views.get_config", return_value=""):
+            TtsSettingsListener(dlg, MagicMock()).sync_ui()
+            urls = [call.args[0] for call in mock_sync.call_args_list]
+            assert urls == ["https://api.together.xyz/v1/voices?model=cartesia%2Fsonic-2"]
+        assert list(voice_model.StringItemList) == ["voice-uuid-1", "voice-uuid-2"]
+        assert voice_ctrl.setText.call_args[0][0] == "voice-uuid-1"
+        assert stored.get("audio.tts_voice_together") == "voice-uuid-1"
+        assert cfg.cached_tts_supported_voices("cartesia/sonic-2") == ["voice-uuid-1", "voice-uuid-2"]
+    finally:
+        cfg._tts_supported_voices.clear()
+        cfg._together_voices_fetch_cache.clear()
+
+
 def test_tts_settings_listener_sync():
     from plugin.chatbot.dialog_views import TtsSettingsListener
 
@@ -925,9 +1002,18 @@ def test_tts_settings_listener_sync():
             return voice_ctrl
         return None
 
+    def _cfg(key, default=None):
+        # sync_ui reads tts_service.get_config, not framework.config.get_config.
+        # Return the schema default so a developer profile (af_bella) cannot
+        # change which Kokoro voice this test expects.
+        del default
+        if key == "audio.tts_voice_kokoro":
+            return "af_sky"
+        return ""
+
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_enabled") as mock_set_enabled, \
-         patch("plugin.framework.config.get_config", return_value=""):
+         patch("plugin.audio.tts_service.get_config", side_effect=_cfg):
         listener = TtsSettingsListener(dlg, ctx)
         listener.sync_ui()
 

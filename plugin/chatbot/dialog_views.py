@@ -835,6 +835,28 @@ class PptMasterDataTestListener(BaseActionListener):
         VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(probe)
 
 
+def _dialog_endpoint_url(dlg: Any) -> str | None:
+    """Endpoint URL from the Settings combo, or None when that control is absent.
+
+    None lets voice lookup use the saved endpoint. A present control is what
+    the Speech model list was just filled from, including an unsaved preset.
+    """
+    ctrl = get_optional(dlg, "endpoint")
+    if ctrl is None:
+        return None
+    from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
+
+    return endpoint_from_selector_text(get_control_text(ctrl))
+
+
+def _dialog_api_key(dlg: Any) -> str | None:
+    """API key typed in Settings, or None when the field is not on this dialog."""
+    ctrl = get_optional(dlg, "api_key")
+    if ctrl is None:
+        return None
+    return get_control_text(ctrl)
+
+
 class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
     """Synchronizes TTS voice choices and model enablement when provider/model changes."""
 
@@ -860,6 +882,7 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 set_scoped_tts_voice,
                 voice_options_for_provider,
             )
+
             prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
             model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
             voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
@@ -867,12 +890,16 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
             raw_prov = prov_ctrl.getText() if prov_ctrl and hasattr(prov_ctrl, "getText") else ""
             provider = clean_provider_name(raw_prov)
             raw_model = model_ctrl.getText() if model_ctrl and hasattr(model_ctrl, "getText") else ""
+            endpoint = _dialog_endpoint_url(self._dlg)
+            api_key = _dialog_api_key(self._dlg)
 
             if model_ctrl:
                 set_control_enabled(model_ctrl, provider == "endpoint")
 
             if voice_ctrl and hasattr(voice_ctrl, "getModel"):
-                catalog = voice_options_for_provider(provider, raw_model)
+                catalog = voice_options_for_provider(
+                    provider, raw_model, endpoint=endpoint, api_key=api_key,
+                )
                 labels = tuple(opt["label"] for opt in catalog)
 
                 model = voice_ctrl.getModel()
@@ -883,8 +910,8 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                     if not isinstance(current_items, (tuple, list)) or tuple(current_items) != labels:
                         model.StringItemList = labels
 
-                # Empty catalog: OpenRouter speech model with no voice list yet.
-                # Leave the combo editable. Do not fill it with alloy.
+                # Empty catalog: OpenRouter or Together speech model with no voice
+                # list yet. Leave the combo editable. Do not fill it with alloy.
                 if not catalog:
                     return
 
@@ -893,19 +920,19 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 # get_scoped_tts_voice substitutes the first id when the saved
                 # voice is not in the list, which would hide the mismatch and
                 # skip the persist. Read the stored id itself.
-                family = get_voice_family(provider, raw_model)
+                family = get_voice_family(provider, raw_model, endpoint)
                 stored = clean_voice_name(str(get_config(f"audio.tts_voice_{family}") or ""))
                 by_value = {opt["value"]: opt["label"] for opt in catalog}
                 if current_id in by_value:
                     chosen = current_id
                     if stored != chosen:
-                        set_scoped_tts_voice(chosen, provider, raw_model)
+                        set_scoped_tts_voice(chosen, provider, raw_model, endpoint=endpoint)
                 elif not current_id and stored in by_value:
                     chosen = stored
                 else:
-                    # Visible or saved voice belongs to another model.
+                    # Visible or saved voice belongs to another model (often alloy).
                     chosen = catalog[0]["value"]
-                    set_scoped_tts_voice(chosen, provider, raw_model)
+                    set_scoped_tts_voice(chosen, provider, raw_model, endpoint=endpoint)
 
                 target_label = by_value.get(chosen, "")
                 # Promote a raw voice id (or a previous family's label) to the catalog label.
@@ -962,7 +989,12 @@ class TtsVoiceListener(BaseListener, XItemListener, XTextListener):
 
             raw_prov = prov_ctrl.getText() if prov_ctrl and hasattr(prov_ctrl, "getText") else ""
             raw_model = model_ctrl.getText() if model_ctrl and hasattr(model_ctrl, "getText") else ""
-            set_scoped_tts_voice(clean_voice, clean_provider_name(raw_prov), raw_model)
+            set_scoped_tts_voice(
+                clean_voice,
+                clean_provider_name(raw_prov),
+                raw_model,
+                endpoint=_dialog_endpoint_url(self._dlg),
+            )
         except Exception:
             log.exception("Error saving scoped TTS voice on change")
 
@@ -1226,8 +1258,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 api_key_override=api_key_ov,
                 skip_remote_fetch=skip_remote,
             )
-            # fetch_available_tts_models just filled supported_voices. The model
-            # text may be unchanged, so the voice listener would not run on its own.
+            # Speech-list or Together /v1/voices just filled supported_voices.
+            # The model text may be unchanged, so the voice listener would not run.
             TtsSettingsListener(self._dlg, self._ctx).sync_ui()
 
         image_ctrl = get_optional(self._dlg, "image_model")
@@ -1310,6 +1342,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         models = None
         if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved):
             models = self.fetch_available_models(resolved, api_key_override=key_ov)
+        # List-all fills every Together TTS model's voices before the combo refresh.
+        if resolved and self.get_provider_from_endpoint(resolved) == "together":
+            from plugin.framework.client.model_fetcher import fetch_together_tts_voices
+
+            fetch_together_tts_voices(resolved, api_key_override=key_ov)
 
         def apply_ui() -> None:
             if self._closed or gen != self._debounce_gen: return

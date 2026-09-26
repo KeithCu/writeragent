@@ -127,6 +127,13 @@ config:
     default: ""
     internal: true
 
+  # Cartesia/Orpheus voice for a Together endpoint. Separate from alloy and
+  # from tts_voice_openrouter. Endpoint Kokoro still uses tts_voice_kokoro.
+  tts_voice_together:
+    type: string
+    default: ""
+    internal: true
+
   tts_voice_system:
     type: string
     default: "default"
