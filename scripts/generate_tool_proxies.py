@@ -177,6 +177,15 @@ API_EXCLUDED_DOMAINS = frozenset({
     "ppt_master",
 })
 
+# LLM specialized-toolset orchestration. Chat/MCP still registers these; venv
+# scripts call document tools directly and do not run the delegate/finish loop.
+API_EXCLUDED_TOOLS = frozenset({
+    "delegate_to_specialized_writer_toolset",
+    "delegate_to_specialized_calc_toolset",
+    "delegate_to_specialized_draw_toolset",
+    "specialized_workflow_finished",
+})
+
 
 def _domain_excluded(domain: str | None) -> bool:
     """True for chat-mode domains, including ``ppt-master`` / ``ppt_master`` spellings."""
@@ -278,6 +287,10 @@ def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"
     groups: dict[str, list[tuple[str, "ToolBase"]]] = defaultdict(list)
     for tool in tools:
         name = tool.name or ""
+        # Orchestration names stay on the chat tool list; skip before namespace grouping
+        # so they never become methods or DOMAIN_TOOLS entries.
+        if name in API_EXCLUDED_TOOLS:
+            continue
         # 1. Check specialized_domain
         domain = getattr(tool, "specialized_domain", None)
         if _domain_excluded(domain if isinstance(domain, str) else None):
@@ -489,9 +502,10 @@ def main():
     
     # Get all tools, regardless of doc type or tier
     # filter_doc_type=False ensures we see all tools even without a live document
-    # Get all tools, then filter out specialized_control EXCEPT for specialized_workflow_finished
+    # specialized_control is the inner chat loop (including specialized_workflow_finished).
+    # Venv scripts do not run that loop, so the whole tier stays off the proxy.
     all_tools = registry.get_tools(filter_doc_type=False, exclude_tiers=frozenset())
-    all_tools = [t for t in all_tools if getattr(t, "tier", None) != "specialized_control" or t.name == "specialized_workflow_finished"]
+    all_tools = [t for t in all_tools if getattr(t, "tier", None) != "specialized_control"]
     
     print(generate_module(all_tools))
 
