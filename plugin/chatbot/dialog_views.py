@@ -959,6 +959,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     endpoint_url_suitable_for_v1_models_fetch: Callable[..., Any]
     fetch_available_models: Callable[..., Any]
     fetch_available_image_models: Callable[..., Any]
+    fetch_available_tts_models: Callable[..., Any]
+    fetch_available_stt_models: Callable[..., Any]
     _sanitize_model_combobox_value: Callable[..., Any]
     get_provider_from_endpoint: Callable[..., Any]
     get_image_model: Callable[..., Any]
@@ -975,6 +977,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         from plugin.framework.client.provider_detection import get_provider_from_endpoint
         from plugin.framework.client.model_fetcher import (
             endpoint_url_suitable_for_v1_models_fetch, fetch_available_models, fetch_available_image_models,
+            fetch_available_stt_models, fetch_available_tts_models,
             get_image_model,
         )
 
@@ -994,6 +997,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self.endpoint_url_suitable_for_v1_models_fetch = endpoint_url_suitable_for_v1_models_fetch
         self.fetch_available_models = fetch_available_models
         self.fetch_available_image_models = fetch_available_image_models
+        self.fetch_available_tts_models = fetch_available_tts_models
+        self.fetch_available_stt_models = fetch_available_stt_models
         self._sanitize_model_combobox_value = _sanitize_model_combobox_value
         self.get_provider_from_endpoint = get_provider_from_endpoint
         self.get_image_model = get_image_model
@@ -1063,7 +1068,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 # get_stt_model dual-reads audio.stt_model then legacy stt_model.
                 fallback=str(get_stt_model() or ""),
             )
-            stt_remote = None if resolved_provider in {"openrouter", "together"} else models
+            stt_remote = self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "stt")
             self.populate_combobox_with_lru(
                 self._ctx,
                 stt_ctrl,
@@ -1082,7 +1087,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 same_provider=same_provider,
                 fallback=str(get_config("audio.tts_model") or self.get_tts_model() or ""),
             )
-            tts_remote = None if resolved_provider in {"openrouter", "together"} else models
+            tts_remote = self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "tts")
             self.populate_combobox_with_lru(
                 self._ctx,
                 tts_ctrl,
@@ -1116,6 +1121,40 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 api_key_override=api_key_ov,
                 skip_remote_fetch=skip_remote,
             )
+
+    def _speech_remote_models(
+        self,
+        resolved: str,
+        resolved_provider: str | None,
+        models: Any,
+        api_key_ov: str,
+        kind: str,
+    ) -> Any:
+        """Ids for the Speech-tab STT or TTS combo.
+
+        OpenRouter's unfiltered ``/v1/models`` list is not a speech catalog, and
+        ``output_modalities=audio`` is music (Lyria / gpt-audio), not TTS.
+        Together has no modality filter. The combo is the documented serverless
+        audio catalog (every ``tts`` / ``default_tts`` or ``stt`` / ``default_audio``
+        row), plus remote ids that share those families when ``/v1/models``
+        happens to list them.
+        """
+        if resolved_provider == "together":
+            from plugin.framework.default_models import together_speech_ids
+
+            remote = models if isinstance(models, list) else None
+            # No key and no fetched catalog yet: same placeholder as the text combo.
+            if not api_key_ov and remote is None:
+                return None
+            return together_speech_ids("tts" if kind == "tts" else "stt", remote)
+        if resolved_provider != "openrouter":
+            return models
+        # Text-catalog fetch has not finished; don't block the UI on a second GET.
+        if not isinstance(models, list):
+            return None
+        fetch = self.fetch_available_tts_models if kind == "tts" else self.fetch_available_stt_models
+        found = fetch(resolved, api_key_override=api_key_ov)
+        return found if isinstance(found, list) else None
 
     def close(self) -> None:
         self._closed = True

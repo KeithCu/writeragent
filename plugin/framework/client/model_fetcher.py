@@ -66,6 +66,13 @@ ENDPOINT_PRESETS = [
 _model_fetch_cache: dict[str, list[str] | None] = {}
 _model_fetch_image_cache: dict[str, list[str] | None] = {}
 _model_fetch_vision_cache: dict[str, list[str] | None] = {}
+# OpenRouter GET /v1/models?output_modalities=speech|transcription. Separate from
+# the unfiltered catalog: that list does not mark TTS, and output_modalities=audio
+# is music / gpt-audio, not the Speech-tab TTS combo.
+_model_fetch_tts_cache: dict[str, list[str] | None] = {}
+_model_fetch_stt_cache: dict[str, list[str] | None] = {}
+# Speech-list supported_voices, keyed by the API model id (process lifetime).
+_tts_supported_voices: dict[str, list[str]] = {}
 # Same key as _model_fetch_cache. Per-id context tokens harvested from /v1/models
 # (context_length or context_window only). None after a failed fetch. Lookup
 # never HTTP — compact reads this; Settings/sidebar populate it.
@@ -82,6 +89,7 @@ _OLLAMA_NUM_CTX_LINE = re.compile(r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\s*
 # /v1/models response shapes (GET {endpoint}/v1/models):
 # - Together (api.together.xyz): top-level JSON array [{id, type, ...}, ...]; image rows use type="image".
 # - OpenRouter (openrouter.ai): {data: [...]}; image rows use architecture.output_modalities (not slug names).
+#   TTS is GET /v1/models?output_modalities=speech (not audio). STT is output_modalities=transcription.
 # - OpenAI-compatible (Ollama, LM Studio, most hosted chat APIs): {data: [{id}, ...]}; image models
 #   are not typed — local discovery uses slug keywords in _filter_fetched_models (flux, sdxl, …).
 # Image-output IDs are extracted at fetch time into _model_fetch_image_cache; see
@@ -380,6 +388,163 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
     return _filter_fetched_models(all_models, "image")
 
 
+def _supported_voices_from_row(row: dict[str, Any]) -> list[str]:
+    """Voice ids from an OpenRouter speech-model row, when the API sends them."""
+    raw = row.get("supported_voices")
+    if not isinstance(raw, list):
+        return []
+    voices: list[str] = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            voices.append(item.strip())
+        elif isinstance(item, dict):
+            vid = item.get("id") or item.get("name") or item.get("voice")
+            if isinstance(vid, str) and vid.strip():
+                voices.append(vid.strip())
+    return voices
+
+
+def _modality_ids_from_entries(entries: list[Any], modality: str) -> tuple[list[str], dict[str, list[str]]]:
+    """Ids from a modality-filtered /v1/models body.
+
+    Rows that omit output_modalities are kept: the query string is the filter.
+    Rows that advertise modalities and lack ``modality`` are dropped so a proxy
+    that ignored ``output_modalities=speech`` cannot fill the TTS combo with
+    chat models. ``audio`` is not speech.
+    """
+    ids: list[str] = []
+    voices: dict[str, list[str]] = {}
+    for row in entries:
+        if not isinstance(row, dict):
+            continue
+        mid = row.get("id")
+        if not mid:
+            continue
+        arch = row.get("architecture") if isinstance(row.get("architecture"), dict) else {}
+        mods = row.get("output_modalities")
+        if mods is None:
+            mods = arch.get("output_modalities") if isinstance(arch, dict) else None
+        if isinstance(mods, list) and modality not in mods:
+            continue
+        mid_s = str(mid)
+        ids.append(mid_s)
+        if modality == "speech":
+            parsed = _supported_voices_from_row(row)
+            if parsed:
+                voices[mid_s] = parsed
+    return ids, voices
+
+
+def _fetch_openrouter_modality_models(
+    endpoint: str,
+    modality: str,
+    cache: dict[str, list[str] | None],
+    api_key_override: str | None,
+) -> list[str] | None:
+    """OpenRouter ``GET /v1/models?output_modalities=`` list, memoized like other fetches.
+
+    Together's ``/v1/models`` type enum has no speech or transcription value, so
+    this returns None there and the Speech tab keeps curated catalog rows.
+    """
+    if modality not in ("speech", "transcription"):
+        return None
+    if not endpoint:
+        return None
+    base = normalize_endpoint_url(endpoint)
+    if not base or not endpoint_url_suitable_for_v1_models_fetch(base):
+        return None
+    if get_provider_from_endpoint(base) != "openrouter":
+        return None
+
+    is_owu = get_config_bool_safe("is_openwebui")
+    suffix = get_api_version_suffix(base, is_openwebui=is_owu)
+    query = urllib.parse.urlencode({"output_modalities": modality})
+    url = f"{base}{suffix}/models?{query}"
+    cache_key = _model_fetch_cache_key(url, base, api_key_override)
+    if cache_key in cache:
+        return cache[cache_key]
+
+    from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
+
+    api_key = str(api_key_override if api_key_override is not None else get_api_key_for_endpoint(base) or "").strip()
+    mini = {"endpoint": base, "api_key": api_key, "is_openwebui": is_owu, "is_openrouter": True}
+    try:
+        req_headers = build_auth_headers(resolve_auth_for_config(mini))
+    except AuthError as e:
+        if api_key:
+            log.debug("fetch openrouter %s models skipping %s: %s", modality, url, e)
+            cache[cache_key] = None
+            return None
+        log.debug("fetch openrouter %s models unauthenticated for %s: %s", modality, url, e)
+        req_headers = {}
+
+    try:
+        from plugin.framework.client.requests import sync_request
+
+        data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
+        entries = _v1_models_entries_from_body(data)
+        if entries is not None:
+            model_ids, voices = _modality_ids_from_entries(entries, modality)
+            if modality == "speech" and voices:
+                _tts_supported_voices.update(voices)
+            cache[cache_key] = model_ids
+            return model_ids
+    except Exception as e:
+        log.warning("fetch openrouter %s models failed for %s: %s", modality, url, e)
+    cache[cache_key] = None
+    return None
+
+
+def fetch_available_tts_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
+    """OpenRouter TTS model ids: ``GET /v1/models?output_modalities=speech``.
+
+    Do not use ``output_modalities=audio`` — that is Lyria / gpt-audio, not this combo.
+    """
+    return _fetch_openrouter_modality_models(endpoint, "speech", _model_fetch_tts_cache, api_key_override)
+
+
+def fetch_available_stt_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
+    """OpenRouter STT model ids: ``GET /v1/models?output_modalities=transcription``."""
+    return _fetch_openrouter_modality_models(
+        endpoint, "transcription", _model_fetch_stt_cache, api_key_override
+    )
+
+
+def cached_tts_supported_voices(model_id: str) -> list[str]:
+    """Voices harvested from the last OpenRouter speech-list response, if any."""
+    mid = str(model_id or "").strip()
+    if not mid:
+        return []
+    direct = _tts_supported_voices.get(mid)
+    if direct:
+        return list(direct)
+    folded = mid.casefold()
+    for key, voices in _tts_supported_voices.items():
+        if key.casefold() == folded and voices:
+            return list(voices)
+    return []
+
+
+def preferred_openrouter_tts_model_id(model_id: str) -> str:
+    """Speech-list spelling of ``model_id`` when the cache has one.
+
+    The catalog default is ``hexgrad/Kokoro-82M``; the speech list returns
+    ``hexgrad/kokoro-82m``. When that list is cached, speak sends the API id.
+    With a cold cache the saved id is unchanged, so either casing still speaks.
+    """
+    mid = str(model_id or "").strip()
+    if not mid:
+        return mid
+    folded = mid.casefold()
+    for ids in _model_fetch_tts_cache.values():
+        if not ids:
+            continue
+        for api_id in ids:
+            if api_id.casefold() == folded:
+                return api_id
+    return mid
+
+
 def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
     """Filter raw model IDs from /v1/models based on the requested capability (text/image/audio)."""
     if not models:
@@ -413,7 +578,9 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
             if any(kw in m_lower for kw in include):
                 out.append(m)
     else:
-        # Audio/STT: name heuristics for local /v1/models (hosted catalogs lack modality).
+        # Audio/STT name heuristics for local /v1/models. OpenRouter STT uses
+        # fetch_available_stt_models (output_modalities=transcription). Together's
+        # /v1/models type enum has no transcription value.
         include = {"whisper", "voxtral", "parakeet", "transcribe", "speech", "asr"}
         for m in models:
             m_lower = m.lower()

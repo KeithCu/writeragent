@@ -140,6 +140,11 @@ Settings → **Speech** (the tab was titled Audio / Speech) holds the speech-to-
 
 **Audio Model** is the STT combobox (`widget: combo` in [`plugin/audio/module.yaml`](../../plugin/audio/module.yaml), control id `audio__stt_model`). It used to sit on the General page as `stt_model`. Saves write **`audio.stt_model`** and leave a pre-existing top-level `stt_model` in place. [`get_stt_model()`](../../plugin/framework/client/model_fetcher.py) prefers a non-empty `audio.stt_model`, then legacy `stt_model`, then the provider default. The endpoint-scoped LRU list is still `audio_model_lru`. Changing the endpoint refreshes that list on `audio__stt_model` (the old `stt_model` control id is still recognized).
 
+Hosted model lists on this tab:
+
+- **OpenRouter** fills TTS from `GET /v1/models?output_modalities=speech` and STT from `output_modalities=transcription` (`fetch_available_tts_models` / `fetch_available_stt_models`). `output_modalities=audio` is music and gpt-audio, not the TTS combo. Kokoro stays the default when nothing is selected. The speech list spells that slug `hexgrad/kokoro-82m`; the curated catalog still says `hexgrad/Kokoro-82M`. The combo keeps the API id, and endpoint speak sends the API id when the speech list is cached, otherwise the saved id, so either casing works.
+- **Together** has no `output_modalities` filter. `GET /v1/models` types are chat, language, code, image, embedding, moderation, and rerank, so that call is not how TTS or STT models are discovered. The Speech tab uses the documented serverless audio catalog: TTS is Orpheus 3B (`canopylabs/orpheus-3b-0.1-ft`), Kokoro (`hexgrad/Kokoro-82M`), and Cartesia Sonic, Sonic 2, and Sonic 3; STT is Whisper Large v3, Parakeet TDT 0.6B v3, and the two Nemotron ASR models. Kokoro and Parakeet stay the defaults. A `/v1/models` id in one of those families is included as well.
+
 ## Text-to-speech (speech output)
 
 Assistant replies can be spoken when `audio.tts_enabled` is on. Providers are OS speech, local Kokoro, local Piper, or the current chat endpoint's `/audio/speech`.

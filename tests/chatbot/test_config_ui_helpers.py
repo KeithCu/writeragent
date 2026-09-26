@@ -379,11 +379,12 @@ class TestPopulateComboboxWithLruFetchOptions:
         assert ('google/gemini-2.5-flash-image') in (items)
         assert ('openai/gpt-5-image') in (items)
 
-    def test_openrouter_stt_ignores_remote_catalog(self):
+    def test_openrouter_stt_remote_transcription_ids_not_slug_filtered(self):
+        """Speech-tab STT remote_models are the transcription list, not slug-filtered chat ids."""
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         ep = 'https://openrouter.ai/api'
-        remote = ['inception/mercury-2', 'openai/gpt-oss-120b']
+        remote = ['mistralai/voxtral-mini-transcribe', 'google/gemini-2.5-flash']
         with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
                 self.ctx,
@@ -396,8 +397,10 @@ class TestPopulateComboboxWithLruFetchOptions:
             )
             mock_fetch.assert_not_called()
         items = list(ctrl.addItems.call_args[0][0])
-        assert ('inception/mercury-2') not in (items)
         assert ('mistralai/voxtral-mini-transcribe') in (items)
+        # No whisper/asr/transcribe substring; keyword filter would have dropped it.
+        assert ('google/gemini-2.5-flash') in (items)
+        ctrl.setText.assert_called_with('mistralai/voxtral-mini-transcribe')
 
     def test_openrouter_stt_defaults_voxtral(self):
         ctrl = MagicMock()
@@ -447,6 +450,79 @@ class TestPopulateComboboxWithLruFetchOptions:
         items = list(ctrl.addItems.call_args[0][0])
         assert '(Default for current endpoint)' not in items
         assert 'hexgrad/Kokoro-82M' in items
+
+    def test_openrouter_tts_remote_speech_ids_prefer_api_casing(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = 'https://openrouter.ai/api'
+        self.config_data[f'tts_model_lru@{ep}'] = ['hexgrad/Kokoro-82M']
+        remote = ['hexgrad/kokoro-82m', 'x-ai/grok-voice-tts-1.0', 'microsoft/mai-voice-2']
+        populate_combobox_with_lru(
+            self.ctx,
+            ctrl,
+            '',
+            'tts_model_lru',
+            ep,
+            remote_models=remote,
+            api_key_override='test-key',
+        )
+        items = list(ctrl.addItems.call_args[0][0])
+        assert ('hexgrad/kokoro-82m') in (items)
+        assert ('x-ai/grok-voice-tts-1.0') in (items)
+        assert ('microsoft/mai-voice-2') in (items)
+        assert ('hexgrad/Kokoro-82M') not in (items)
+        ctrl.setText.assert_called_with('hexgrad/kokoro-82m')
+
+    def test_together_tts_keeps_catalog_and_drops_chat_models(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = 'https://api.together.xyz'
+        populate_combobox_with_lru(
+            self.ctx,
+            ctrl,
+            '',
+            'tts_model_lru',
+            ep,
+            remote_models=['openai/gpt-oss-120b', 'cartesia/sonic-4'],
+            api_key_override='test-key',
+        )
+        items = list(ctrl.addItems.call_args[0][0])
+        assert ('openai/gpt-oss-120b') not in (items)
+        for mid in (
+            'hexgrad/Kokoro-82M',
+            'cartesia/sonic',
+            'cartesia/sonic-2',
+            'cartesia/sonic-3',
+            'canopylabs/orpheus-3b-0.1-ft',
+            'cartesia/sonic-4',
+        ):
+            assert mid in items
+        ctrl.setText.assert_called_with('hexgrad/Kokoro-82M')
+
+    def test_together_stt_lists_serverless_asr_models(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = 'https://api.together.xyz'
+        populate_combobox_with_lru(
+            self.ctx,
+            ctrl,
+            '',
+            'audio_model_lru',
+            ep,
+            skip_remote_fetch=True,
+            api_key_override='test-key',
+        )
+        items = list(ctrl.addItems.call_args[0][0])
+        for mid in (
+            'nvidia/parakeet-tdt-0.6b-v3',
+            'openai/whisper-large-v3',
+            'nvidia/nemotron-3-asr-streaming-0.6b',
+            'nvidia/nemotron-3.5-asr-streaming-0.6b',
+        ):
+            assert mid in items
+        assert 'hexgrad/Kokoro-82M' not in items
+        assert 'cartesia/sonic' not in items
+        ctrl.setText.assert_called_with('nvidia/parakeet-tdt-0.6b-v3')
 
     def test_together_tts_models_include_sonic(self):
         ctrl = MagicMock()

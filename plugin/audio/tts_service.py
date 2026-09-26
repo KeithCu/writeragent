@@ -465,6 +465,13 @@ def _speak_endpoint(text: str, endpoint_url: str, api_key: str, model: str, voic
     import urllib.error
     import json
 
+    # Catalog Kokoro is hexgrad/Kokoro-82M; the OpenRouter speech list uses
+    # hexgrad/kokoro-82m. Send the API id when that list is cached.
+    if "openrouter.ai" in str(endpoint_url or "").lower():
+        from plugin.framework.client.model_fetcher import preferred_openrouter_tts_model_id
+
+        model = preferred_openrouter_tts_model_id(model)
+
     # Normalize endpoint URL to /audio/speech
     url = endpoint_url.rstrip("/")
     if not url.endswith("/audio/speech"):

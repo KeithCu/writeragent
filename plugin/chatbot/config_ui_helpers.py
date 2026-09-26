@@ -15,7 +15,7 @@ from plugin.framework.client.model_fetcher import (
     ENDPOINT_PRESETS,
 )
 from plugin.framework.url_utils import normalize_endpoint_url
-from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
+from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, together_speech_ids
 from plugin.framework.constants import ModelCapability
 from plugin.framework.client.model_fetcher import fetch_available_models, _filter_fetched_models
 
@@ -39,6 +39,33 @@ def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
     if req_cap in ("audio", "tts"):
         return bool(cap & ModelCapability.AUDIO)
     return False
+
+
+def _has_openrouter_casefold(models: list[str], model_id: str) -> bool:
+    """True when ``models`` already has ``model_id`` ignoring ASCII case.
+
+    OpenRouter's speech list returns ``hexgrad/kokoro-82m``; the catalog id is
+    ``hexgrad/Kokoro-82M``. Suffix variants (``:nitro``) are not the same id.
+    """
+    folded = model_id.casefold()
+    return any(mid.casefold() == folded for mid in models)
+
+
+def _prefer_openrouter_api_id(to_show: list[str], api_id: str) -> None:
+    """Insert ``api_id``, collapsing case-only duplicates onto that spelling."""
+    folded = api_id.casefold()
+    replaced = False
+    kept: list[str] = []
+    for mid in to_show:
+        if mid.casefold() == folded:
+            if not replaced:
+                kept.append(api_id)
+                replaced = True
+            continue
+        kept.append(mid)
+    if not replaced:
+        kept.append(api_id)
+    to_show[:] = kept
 
 
 def _catalog_mid_matches(model_id: str, catalog_mid: str, provider: str | None) -> bool:
@@ -160,7 +187,11 @@ def _resolve_display_model_for_combobox(
             if provider == "openrouter":
                 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
 
-                if openrouter_model_ids_equivalent(mid, preferred):
+                case_same = mid.casefold() == preferred.casefold()
+                if openrouter_model_ids_equivalent(mid, preferred) or case_same:
+                    # Speech-list spelling wins when the catalog id is not listed.
+                    if case_same and preferred not in to_show:
+                        return mid
                     return preferred if preferred in to_show else mid
             elif mid == preferred:
                 return mid
@@ -206,11 +237,16 @@ def _merge_provider_default_models(to_show: list[str], provider: str, req_cap: s
             is_default = True
         elif req_cap == "image" and m.get("default_image"):
             is_default = True
-        elif req_cap == "audio" and m.get("default_audio"):
+        elif req_cap == "audio" and (m.get("default_audio") or m.get("stt")):
+            # stt marks non-default speech-to-text rows (Together Whisper / Nemotron).
+            # AUDIO|CHAT models such as Gemini are not STT entries.
             is_default = True
         elif req_cap == "tts" and (m.get("default_tts") or m.get("tts")):
             is_default = True
         if not is_default:
+            continue
+        # Keep the API id when the speech list already supplied a case variant.
+        if provider == "openrouter" and _has_openrouter_casefold(to_show, effective_id):
             continue
         if effective_id not in to_show:
             to_show.append(effective_id)
@@ -268,8 +304,15 @@ def populate_combobox_with_lru(
         massive_providers = {"openrouter", "together"}
         fetched_models: list[str] | None = None
         if remote_models is not None:
-            # OpenRouter/Together /v1/models has no audio modality; curated STT/TTS list only.
-            if not (req_cap in ("audio", "tts") and provider in massive_providers):
+            # Together GET /v1/models has no speech type. Keep catalog TTS/STT
+            # ids and any remote id in those families; drop the chat catalog.
+            # OpenRouter callers pass modality-filtered ids (output_modalities=
+            # speech or transcription). output_modalities=audio is not TTS.
+            if provider == "together" and req_cap in ("audio", "tts"):
+                fetch_succeeded = True
+                kind = "tts" if req_cap == "tts" else "stt"
+                fetched_models = together_speech_ids(kind, remote_models)
+            else:
                 fetch_succeeded = True
                 fetched_models = remote_models
         elif skip_remote_fetch:
@@ -282,12 +325,19 @@ def populate_combobox_with_lru(
             # Image remote_models from fetch_available_image_models are already metadata-curated
             # (OpenRouter architecture / Together type=image). Re-running slug keywords strips
             # ids like google/gemini-2.5-flash-image that lack flux/sdxl/imagen substrings.
-            if remote_models is not None and req_cap == "image":
+            # OpenRouter speech/transcription ids are already filtered by the
+            # Models API. Slug keywords drop rows such as microsoft/mai-voice-2.
+            modality_list = provider == "openrouter" and req_cap in ("tts", "audio")
+            # Together speech ids are already the serverless catalog (+ prefixes).
+            together_audio = provider == "together" and req_cap in ("tts", "audio")
+            if remote_models is not None and (req_cap == "image" or modality_list or together_audio):
                 filtered = list(fetched_models)
             else:
                 filtered = _filter_fetched_models(fetched_models, req_cap)
             for mid in _filter_models_for_provider(filtered, provider):
-                if mid not in to_show:
+                if modality_list:
+                    _prefer_openrouter_api_id(to_show, mid)
+                elif mid not in to_show:
                     to_show.append(mid)
 
         if provider:
@@ -331,8 +381,17 @@ def populate_combobox_with_lru(
         curr_val_str = ""
         is_incompatible = True
 
-    if curr_val_str and not is_incompatible and curr_val_str not in to_show:
-        to_show.insert(0, curr_val_str)
+    if curr_val_str and not is_incompatible:
+        if provider == "openrouter" and req_cap in ("tts", "audio"):
+            folded = curr_val_str.casefold()
+            listed = next((mid for mid in to_show if mid.casefold() == folded), None)
+            if listed is None:
+                to_show.insert(0, curr_val_str)
+            else:
+                # Saved catalog casing (hexgrad/Kokoro-82M) vs the speech-list id.
+                curr_val_str = listed
+        elif curr_val_str not in to_show:
+            to_show.insert(0, curr_val_str)
 
     to_show = [m for m in _filter_models_for_provider(to_show, provider) if not _is_model_combobox_placeholder(m)]
 

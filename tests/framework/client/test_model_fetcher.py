@@ -506,3 +506,70 @@ class TestGetTtsModel:
         with patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
             with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api/v1"):
                 assert get_tts_model() == "hexgrad/Kokoro-82M"
+
+
+class TestFetchAvailableSpeechModels:
+    def setup_method(self):
+        self._clear()
+
+    def teardown_method(self):
+        self._clear()
+
+    @staticmethod
+    def _clear():
+        from plugin.framework.client import model_fetcher as cfg
+
+        for cache in (cfg._model_fetch_tts_cache, cfg._model_fetch_stt_cache):
+            for key in list(cache):
+                if "openrouter.ai" in key or "together.xyz" in key:
+                    cache.pop(key, None)
+        cfg._tts_supported_voices.clear()
+
+    def test_openrouter_tts_queries_speech_modality(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = {
+            "data": [
+                {
+                    "id": "hexgrad/kokoro-82m",
+                    "architecture": {"output_modalities": ["speech"]},
+                    "supported_voices": ["af_bella"],
+                },
+                {"id": "microsoft/mai-voice-2", "architecture": {"output_modalities": ["speech"]}},
+                {"id": "google/lyria-3-pro-preview", "architecture": {"output_modalities": ["audio"]}},
+            ]
+        }
+        with patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync:
+            ids = cfg.fetch_available_tts_models("https://openrouter.ai/api", api_key_override="sk-test")
+            ids_again = cfg.fetch_available_tts_models("https://openrouter.ai/api", api_key_override="sk-test")
+            mock_sync.assert_called_once()
+            assert mock_sync.call_args[0][0] == "https://openrouter.ai/api/v1/models?output_modalities=speech"
+            headers = mock_sync.call_args.kwargs.get("headers") or {}
+            assert headers.get("Authorization") == "Bearer sk-test"
+        assert ids == ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
+        assert ids_again == ids
+        assert cfg.cached_tts_supported_voices("hexgrad/kokoro-82m") == ["af_bella"]
+        assert cfg.preferred_openrouter_tts_model_id("hexgrad/Kokoro-82M") == "hexgrad/kokoro-82m"
+
+    def test_openrouter_stt_queries_transcription_modality(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = {
+            "data": [
+                {"id": "mistralai/voxtral-mini-transcribe", "architecture": {"output_modalities": ["transcription"]}},
+                {"id": "openai/whisper-large-v3"},
+                {"id": "google/lyria-3-pro-preview", "architecture": {"output_modalities": ["audio"]}},
+            ]
+        }
+        with patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync:
+            ids = cfg.fetch_available_stt_models("https://openrouter.ai/api")
+            assert mock_sync.call_args[0][0] == "https://openrouter.ai/api/v1/models?output_modalities=transcription"
+        assert ids == ["mistralai/voxtral-mini-transcribe", "openai/whisper-large-v3"]
+
+    def test_together_has_no_speech_list_endpoint(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        with patch("plugin.framework.client.requests.sync_request") as mock_sync:
+            assert cfg.fetch_available_tts_models("https://api.together.xyz") is None
+            assert cfg.fetch_available_stt_models("https://api.together.xyz") is None
+            mock_sync.assert_not_called()

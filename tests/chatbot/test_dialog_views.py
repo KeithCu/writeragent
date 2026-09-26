@@ -224,7 +224,7 @@ class TestEndpointCombinedListener:
         assert (len(apply_calls)) == (1)
         assert not (apply_calls[0][1].get('skip_fetch'))
 
-    def test_apply_dropdowns_openrouter_stt_skips_text_remote_models(self):
+    def test_apply_dropdowns_openrouter_stt_uses_transcription_models(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
 
         dialog = MagicMock()
@@ -251,6 +251,9 @@ class TestEndpointCombinedListener:
             with patch('plugin.framework.config.get_config_str', return_value='endpoint'):
                 with patch('plugin.framework.config.get_config', return_value=''):
                     with patch('plugin.framework.config.get_current_endpoint', return_value='http://localhost:11434'):
+                        speech_ids = ['mistralai/voxtral-mini-transcribe', 'openai/whisper-large-v3']
+                        listener.fetch_available_stt_models = lambda endpoint, api_key_override=None: list(speech_ids)
+                        listener.fetch_available_image_models = lambda endpoint, api_key_override=None: []
                         listener.populate_combobox_with_lru = track_populate
                         listener._apply_dropdowns(
                             'https://openrouter.ai/api',
@@ -261,7 +264,8 @@ class TestEndpointCombinedListener:
         stt_calls = [c for c in populate_calls if c['lru_key'] == 'audio_model_lru']
         text_calls = [c for c in populate_calls if c['lru_key'] == 'model_lru']
         assert (len(stt_calls)) == (1)
-        assert (stt_calls[0]['remote_models']) is None
+        assert (stt_calls[0]['remote_models']) == (speech_ids)
+        assert ('openrouter/fusion') not in (stt_calls[0]['remote_models'])
         assert (len(text_calls)) == (1)
         assert (text_calls[0]['remote_models']) is not None
 
@@ -311,7 +315,7 @@ class TestEndpointCombinedListener:
         text_ctrl = MagicMock()
         text_ctrl.getText.return_value = 'inception/mercury-2.5'
         stt_ctrl = MagicMock()
-        stt_ctrl.getText.return_value = 'openai/whisper-large-v3'
+        stt_ctrl.getText.return_value = 'mistralai/voxtral-mini-transcribe'
         image_ctrl = MagicMock()
         image_ctrl.getText.return_value = 'openai/gpt-5-image'
         api_key_ctrl = MagicMock()
@@ -355,7 +359,9 @@ class TestEndpointCombinedListener:
         text_ctrl.getText.return_value = sticky
         text_ctrl.getItemCount.return_value = 0
         stt_ctrl = MagicMock()
-        stt_ctrl.getText.return_value = 'openai/whisper-large-v3'
+        # Voxtral is OpenRouter's STT default. Whisper Large v3 is a Together catalog id.
+        stt_sticky = 'mistralai/voxtral-mini-transcribe'
+        stt_ctrl.getText.return_value = stt_sticky
         stt_ctrl.getItemCount.return_value = 0
         image_ctrl = MagicMock()
         image_ctrl.getText.return_value = 'openai/gpt-5-image'
@@ -385,7 +391,9 @@ class TestEndpointCombinedListener:
         assert ('MiniMaxAI/MiniMax-M3') in (text_items)
 
         stt_items = list(stt_ctrl.addItems.call_args[0][0])
-        assert ('openai/whisper-large-v3') not in (stt_items)
+        assert (stt_sticky) not in (stt_items)
+        assert ('nvidia/parakeet-tdt-0.6b-v3') in (stt_items)
+        assert ('openai/whisper-large-v3') in (stt_items)
         image_items = list(image_ctrl.addItems.call_args[0][0])
         assert ('openai/gpt-5-image') not in (image_items)
 
@@ -744,6 +752,8 @@ def test_apply_dropdowns_updates_tts_combobox() -> None:
         with patch("plugin.framework.config.get_config_str", return_value="endpoint"):
             with patch("plugin.framework.config.get_config", return_value=""):
                 with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"):
+                    speech_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
+                    listener.fetch_available_tts_models = lambda endpoint, api_key_override=None: list(speech_ids)
                     listener.populate_combobox_with_lru = track_populate
                     listener._apply_dropdowns(
                         "https://openrouter.ai/api",
@@ -753,7 +763,141 @@ def test_apply_dropdowns_updates_tts_combobox() -> None:
 
     tts_calls = [c for c in populate_calls if c["lru_key"] == "tts_model_lru"]
     assert len(tts_calls) == 1
-    assert tts_calls[0]["remote_models"] is None
+    assert tts_calls[0]["remote_models"] == speech_ids
+
+
+def test_apply_dropdowns_together_speech_uses_serverless_catalog() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), MagicMock())
+    tts_ctrl = MagicMock()
+    tts_ctrl.getText.return_value = ""
+    stt_ctrl = MagicMock()
+    stt_ctrl.getText.return_value = ""
+
+    def get_optional_side_effect(d, name):
+        if name == "audio__tts_model":
+            return tts_ctrl
+        if name == "audio__stt_model":
+            return stt_ctrl
+        return None
+
+    populate_calls = []
+
+    def track_populate(c, ctrl, current, lru_key, endpoint, **kwargs):
+        populate_calls.append({"lru_key": lru_key, "remote_models": kwargs.get("remote_models")})
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
+        with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"):
+            listener.populate_combobox_with_lru = track_populate
+            listener.fetch_available_tts_models = lambda *args, **kwargs: ["should-not-be-used"]
+            listener.fetch_available_stt_models = lambda *args, **kwargs: ["should-not-be-used"]
+            listener._apply_dropdowns(
+                "https://api.together.xyz",
+                models=["openai/gpt-oss-120b", "cartesia/sonic", "cartesia/sonic-4"],
+                skip_fetch=False,
+            )
+
+    by_key = {c["lru_key"]: c["remote_models"] for c in populate_calls}
+    tts_ids = by_key["tts_model_lru"]
+    stt_ids = by_key["audio_model_lru"]
+    assert "openai/gpt-oss-120b" not in tts_ids
+    assert "should-not-be-used" not in tts_ids
+    for mid in (
+        "hexgrad/Kokoro-82M",
+        "cartesia/sonic",
+        "cartesia/sonic-2",
+        "cartesia/sonic-3",
+        "canopylabs/orpheus-3b-0.1-ft",
+        "cartesia/sonic-4",
+    ):
+        assert mid in tts_ids
+    for mid in (
+        "nvidia/parakeet-tdt-0.6b-v3",
+        "openai/whisper-large-v3",
+        "nvidia/nemotron-3-asr-streaming-0.6b",
+        "nvidia/nemotron-3.5-asr-streaming-0.6b",
+    ):
+        assert mid in stt_ids
+    assert "hexgrad/Kokoro-82M" not in stt_ids
+
+
+def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:
+    """Settings TTS combo uses the speech-modality fetch, not the curated Kokoro id alone."""
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+    from plugin.framework.client import model_fetcher as cfg
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), MagicMock())
+    tts_ctrl = MagicMock()
+    tts_ctrl.getText.return_value = ""
+    tts_ctrl.getItemCount.return_value = 0
+
+    payload = {
+        "data": [
+            {
+                "id": "hexgrad/kokoro-82m",
+                "architecture": {"output_modalities": ["speech"]},
+                "supported_voices": ["af_bella", {"id": "af_heart"}],
+            },
+            {
+                "id": "x-ai/grok-voice-tts-1.0",
+                "architecture": {"output_modalities": ["speech"]},
+            },
+            {
+                "id": "microsoft/mai-voice-2",
+                "architecture": {"output_modalities": ["speech"]},
+            },
+            {
+                "id": "google/lyria-3-pro-preview",
+                "architecture": {"output_modalities": ["audio"]},
+            },
+        ]
+    }
+
+    for key in list(cfg._model_fetch_tts_cache):
+        if "openrouter.ai" in key:
+            cfg._model_fetch_tts_cache.pop(key, None)
+    cfg._tts_supported_voices.pop("hexgrad/kokoro-82m", None)
+
+    def get_optional_side_effect(d, name):
+        if name in ("audio__tts_model", "tts_model"):
+            return tts_ctrl
+        return None
+
+    def mock_get_config(key):
+        if isinstance(key, str) and "lru" in key:
+            return []
+        return ""
+
+    try:
+        with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+             patch("plugin.chatbot.dialog_views.get_config", side_effect=mock_get_config), \
+             patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+             patch("plugin.chatbot.config_ui_helpers.get_config", side_effect=mock_get_config), \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+             patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync:
+            listener._apply_dropdowns(
+                "https://openrouter.ai/api",
+                models=["openrouter/fusion"],
+                skip_fetch=False,
+            )
+        urls = [call.args[0] for call in mock_sync.call_args_list]
+        assert any("output_modalities=speech" in url for url in urls)
+        assert not any("output_modalities=audio" in url for url in urls)
+    finally:
+        for key in list(cfg._model_fetch_tts_cache):
+            if "openrouter.ai" in key:
+                cfg._model_fetch_tts_cache.pop(key, None)
+
+    items = list(tts_ctrl.addItems.call_args[0][0])
+    assert "hexgrad/kokoro-82m" in items
+    assert "x-ai/grok-voice-tts-1.0" in items
+    assert "microsoft/mai-voice-2" in items
+    assert "hexgrad/Kokoro-82M" not in items
+    assert "google/lyria-3-pro-preview" not in items
+    assert tts_ctrl.setText.call_args[0][0] == "hexgrad/kokoro-82m"
+    assert cfg.cached_tts_supported_voices("hexgrad/Kokoro-82M") == ["af_bella", "af_heart"]
 
 
 def test_tts_settings_listener_sync():

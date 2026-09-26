@@ -83,13 +83,77 @@ def get_provider_defaults(provider: str | None) -> dict[str, str]:
         if (caps & ModelCapability.IMAGE) and "image_model" not in defaults:
             defaults["image_model"] = effective_id
         if (caps & ModelCapability.AUDIO) and "stt_model" not in defaults:
-            if not model.get("default_tts"):
+            # TTS rows (default_tts / tts) are not speech-to-text fallbacks.
+            if not model.get("default_tts") and not model.get("tts"):
                 defaults["stt_model"] = effective_id
         if (caps & ModelCapability.AUDIO) and "tts_model" not in defaults:
-            if not model.get("default_audio"):
+            # STT rows (default_audio / stt) are not text-to-speech fallbacks.
+            if not model.get("default_audio") and not model.get("stt"):
                 defaults["tts_model"] = effective_id
 
     return defaults
+
+
+# Together serverless audio families. GET /v1/models has no audio type, so a row
+# is only picked up when its id starts with one of these (docs catalog is the
+# source of truth; a new sonic-* or nemotron ASR id can still appear).
+_TOGETHER_TTS_PREFIXES: tuple[str, ...] = (
+    "canopylabs/orpheus",
+    "hexgrad/kokoro",
+    "cartesia/sonic",
+)
+_TOGETHER_STT_PREFIXES: tuple[str, ...] = (
+    "openai/whisper",
+    "nvidia/parakeet",
+    "nvidia/nemotron",
+)
+
+
+def _row_is_tts(model: dict[str, Any]) -> bool:
+    return bool(model.get("default_tts") or model.get("tts"))
+
+
+def _row_is_stt(model: dict[str, Any]) -> bool:
+    return bool(model.get("default_audio") or model.get("stt"))
+
+
+def catalog_speech_ids(provider: str, kind: str) -> list[str]:
+    """Every TTS or STT catalog id for ``provider``, not only the default."""
+    want_tts = kind == "tts"
+    out: list[str] = []
+    for model in DEFAULT_MODELS:
+        if want_tts:
+            if not _row_is_tts(model):
+                continue
+        elif not _row_is_stt(model):
+            continue
+        effective_id = resolve_model_id(model, provider)
+        if effective_id and effective_id not in out:
+            out.append(effective_id)
+    return out
+
+
+def together_speech_ids(kind: str, remote_models: list[str] | None = None) -> list[str]:
+    """Together Speech-tab ids: full serverless catalog, plus prefix matches.
+
+    ``remote_models`` may be the raw ``GET /v1/models`` array. Chat rows are
+    dropped. There is no Together ``output_modalities`` query.
+    """
+    curated = catalog_speech_ids("together", kind)
+    prefixes = _TOGETHER_TTS_PREFIXES if kind == "tts" else _TOGETHER_STT_PREFIXES
+    seen = {mid.casefold() for mid in curated}
+    extras: list[str] = []
+    for raw in remote_models or []:
+        mid = str(raw).strip()
+        if not mid:
+            continue
+        folded = mid.casefold()
+        if folded in seen:
+            continue
+        if any(folded.startswith(prefix) for prefix in prefixes):
+            extras.append(mid)
+            seen.add(folded)
+    return curated + extras
 
 
 DEFAULT_MODELS: list[dict[str, Any]] = [
@@ -108,8 +172,14 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
     {"display_name": "Gemini Flash Image 2.5", "capability": ModelCapability.IMAGE, "ids": {"together": "google/flash-image-2.5"}},
     {"display_name": "Gemini 3.1 Flash Lite Image", "capability": ModelCapability.IMAGE, "ids": {"openrouter": "google/gemini-3.1-flash-lite-image"}, "default_image": True},
     {"display_name": "Nvidia Parakeet TDT 0.6B v3", "capability": ModelCapability.AUDIO, "ids": {"together": "nvidia/parakeet-tdt-0.6b-v3"}, "default_audio": True},
+    {"display_name": "Whisper Large v3", "capability": ModelCapability.AUDIO, "ids": {"together": "openai/whisper-large-v3"}, "stt": True},
+    {"display_name": "Nemotron 3 ASR Streaming 0.6B", "capability": ModelCapability.AUDIO, "ids": {"together": "nvidia/nemotron-3-asr-streaming-0.6b"}, "stt": True},
+    {"display_name": "Nemotron 3.5 ASR Streaming 0.6B", "capability": ModelCapability.AUDIO, "ids": {"together": "nvidia/nemotron-3.5-asr-streaming-0.6b"}, "stt": True},
     {"display_name": "Kokoro 82M", "capability": ModelCapability.AUDIO, "ids": {"together": "hexgrad/Kokoro-82M", "openrouter": "hexgrad/Kokoro-82M"}, "default_tts": True},
     {"display_name": "Cartesia Sonic", "capability": ModelCapability.AUDIO, "ids": {"together": "cartesia/sonic"}, "tts": True},
+    {"display_name": "Cartesia Sonic 2", "capability": ModelCapability.AUDIO, "ids": {"together": "cartesia/sonic-2"}, "tts": True},
+    {"display_name": "Cartesia Sonic 3", "capability": ModelCapability.AUDIO, "ids": {"together": "cartesia/sonic-3"}, "tts": True},
+    {"display_name": "Orpheus 3B", "capability": ModelCapability.AUDIO, "ids": {"together": "canopylabs/orpheus-3b-0.1-ft"}, "tts": True},
     {"display_name": "GPT Audio Mini", "capability": ModelCapability.AUDIO | ModelCapability.CHAT, "ids": {"openrouter": "openai/gpt-audio-mini"}},
     {"display_name": "OpenAI TTS-1", "capability": ModelCapability.AUDIO, "ids": {"openai": "tts-1"}, "default_tts": True},
     {"display_name": "GLM 5.2", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 200000, "ids": {"zai": "glm-5.2"}, "default_text": True},
