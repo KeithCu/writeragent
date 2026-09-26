@@ -628,3 +628,97 @@ def test_redline_is_agent_change_false_for_user():
 def test_redline_is_agent_change_unreadable_fails_closed():
     rl = FakeRedline("", 0, 0, raise_on={"RedlineComment"})
     assert redline_is_agent_change(rl) == (False, False)
+
+
+# ------------------------------------------------ overlapping agent changes resolve together (#36)
+
+class _ViewModel(FakeModel):
+    def __init__(self, redlines):
+        super().__init__(redlines)
+        self.controller = MagicMock()
+
+    def getCurrentController(self):
+        return self.controller
+
+
+def _overlap_doc(*extra):
+    t1, t2 = TOKEN_PREFIX + "a:0", TOKEN_PREFIX + "b:0"
+    # T1 inserted [0, 10]; T2 later deleted [4, 6] inside it, splitting T1 in two pieces.
+    items = [FakeRedline(t1, 0, 4), FakeRedline(t2, 4, 6), FakeRedline(t1, 6, 10), *extra]
+    return _ViewModel(FakeRedlines(items)), items, t1, t2
+
+
+def _dispatch_removing(items, *per_pass):
+    """_dispatch_resolve stand-in: pass N removes the redlines whose comment is in per_pass[N]."""
+    passes = list(per_pass)
+
+    def _dispatch(ctx, controller, accept):
+        gone = passes.pop(0) if passes else set()
+        items[:] = [rl for rl in items if rl.getPropertyValue("RedlineComment") not in gone]
+    return _dispatch
+
+
+def test_overlapping_agent_changes_resolve_together():
+    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
+
+    model, items, t1, t2 = _overlap_doc()
+    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=_dispatch_removing(items, {t1, t2})):
+        assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True) == 2
+    assert items == []
+
+
+def test_overlapping_reject_takes_one_layer_per_pass():
+    """Rejecting a Delete stacked on an Insert restores the inserted text first; a second pass
+    over what is left of the group finishes it (the first live run left "palavra sobrando ")."""
+    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
+
+    model, items, t1, t2 = _overlap_doc()
+    fake = _dispatch_removing(items, {t2}, {t1})
+    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=fake) as dispatch:
+        assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, False) == 2
+    assert dispatch.call_count == 2
+
+
+def test_overlapping_group_refuses_a_user_redline_inside():
+    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
+
+    model, items, t1, _t2 = _overlap_doc(FakeRedline("", 7, 8))
+    with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+        assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True) == 0
+    dispatch.assert_not_called()
+
+
+def test_a_lone_change_is_not_a_group():
+    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
+
+    lone = TOKEN_PREFIX + "c:0"
+    model = _ViewModel(FakeRedlines([FakeRedline(lone, 0, 4), FakeRedline(TOKEN_PREFIX + "d:0", 8, 9)]))
+    with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+        assert _resolve_overlapping_agent_changes(model, MagicMock(), lone, True) == 0
+    dispatch.assert_not_called()
+
+
+def test_touching_agent_changes_are_not_grouped():
+    """Only shared text groups changes: an independent change right next to the clicked one
+    (an 'after' insert beside an earlier one) is left alone."""
+    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
+
+    t1, t2 = TOKEN_PREFIX + "a:0", TOKEN_PREFIX + "b:0"
+    model = _ViewModel(FakeRedlines([FakeRedline(t1, 0, 4), FakeRedline(t2, 4, 8)]))
+    with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+        assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True) == 0
+    dispatch.assert_not_called()
+
+
+def test_a_pass_that_uncovers_a_user_change_stops_there():
+    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
+
+    model, items, t1, t2 = _overlap_doc()
+
+    def first_pass(ctx, controller, accept):
+        # Popping T2's layer left a user redline where it was.
+        items[:] = [rl for rl in items if rl.getPropertyValue("RedlineComment") != t2] + [FakeRedline("", 4, 6)]
+
+    with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=first_pass) as dispatch:
+        assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, False) == 0
+    assert dispatch.call_count == 1

@@ -191,6 +191,13 @@ On LibreOffice **≥ 25.04**, selecting a change's **exact** Delete+Insert bound
 agent changes in the same paragraph can be accepted/rejected individually. Pre-dispatch overlap
 checks refuse when a **user** redline or another **agent** change overlaps the exact span.
 
+When the only thing in the way is other **agent** changes (e.g. the agent deleted a word from a
+sentence it had inserted earlier, stacking a Delete on its own Insert), the click resolves that
+whole overlapping group together instead of refusing (`_resolve_overlapping_agent_changes`). A user
+redline in the group still refuses. Reject undoes a stacked Delete one layer per dispatch, so the
+dispatch repeats over what is left of the group while each pass makes progress; success is claimed
+only when exactly the group is gone.
+
 On older builds where exact-bounds dispatch is a no-op, inline resolve falls back to a
 paragraph-wide selection (which resolves every redline in range) and refuses when foreign or
 sibling changes share those paragraphs.

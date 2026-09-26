@@ -74,7 +74,10 @@ def resolve_change_at_cursor(model: Any, ctx: Any, accept: bool) -> tuple[bool, 
             return False, "No agent changes to review in this document."
         return False, "Put the cursor on a highlighted agent change first."
     if not resolve_agent_change(model, ctx, token, accept):
-        return False, _RESOLVE_REFUSED_HINT
+        n = _resolve_overlapping_agent_changes(model, ctx, token, accept)
+        if not n:
+            return False, _RESOLVE_REFUSED_HINT
+        return True, "%d overlapping agent changes %s together." % (n, "accepted" if accept else "rejected")
     return True, "Change accepted." if accept else "Change rejected."
 
 
@@ -332,8 +335,9 @@ def agent_changes(model: Any) -> list[dict[str, Any]]:
     return list(grouped.values())
 
 
-def _change_bounds(model: Any, token: str) -> tuple[Any | None, Any | None]:
-    """Bounding (start, end) text ranges spanning ALL redlines of one change, or (None, None).
+def _change_bounds(model: Any, token: str | frozenset[str]) -> tuple[Any | None, Any | None]:
+    """Bounding (start, end) text ranges spanning ALL redlines of one change (or of a set of
+    change tokens), or (None, None).
 
     Builds the union with ``cursor.gotoRange(..., expand=True)`` rather than ``compareRegionStarts``:
     the latter is unreliable on redline ranges (a tracked DELETE's text is not in the normal flow),
@@ -346,13 +350,14 @@ def _change_bounds(model: Any, token: str) -> tuple[Any | None, Any | None]:
     mismatch (enumeration yields fewer items than getCount() reports), unreadable comment, or a target
     mark with unreadable / None bounds -> (None, None)."""
     ranges: list[tuple[Any, Any]] = []
+    wanted = frozenset([token]) if isinstance(token, str) else token
 
     def on_item(rl: Any) -> bool:
         try:
             comment = str(rl.getPropertyValue("RedlineComment"))
         except Exception:
             raise _review_scan.RedlineScanAbort()
-        if comment != token:
+        if comment not in wanted:
             return True
         try:
             s = rl.getPropertyValue("RedlineStart")
@@ -766,6 +771,87 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool,
                     "verified intact; not claiming success", token)
         return False
     return token not in after.agent_tokens
+
+
+def _resolve_overlapping_agent_changes(model: Any, ctx: Any, token: str, accept: bool) -> int:
+    """Accept/reject *token* together with the agent changes that overlap it; how many, or 0.
+
+    What was wrong (relato #36): an agent edit inside text an earlier agent edit inserted (delete
+    a word from a sentence it had just added) leaves two changes that overlap. The exact-bounds
+    resolve refuses a change another agent change overlaps, so neither could be accepted or
+    rejected from the text and the user was sent to Edit > Track Changes > Manage. Why this
+    fixes it: those overlapping agent changes are one piece of work to the user, so the click
+    resolves the whole group -- still refusing when one of the user's own redlines is in it, and
+    claiming success only when exactly the group was resolved.
+    """
+    before = _agent_and_foreign_redline_snapshot(model)
+    if token not in before.agent_tokens or not (before.tokens_reliable and before.foreign_reliable):
+        return 0
+    group = frozenset([token])
+    text: Any = None
+    span: Any = None
+    try:
+        grew = True
+        while grew:
+            grew = False
+            left, right = _change_bounds(model, group)
+            if left is None:
+                return 0
+            text = left.getText()
+            span = text.createTextCursorByRange(left)
+            span.gotoRange(right, True)
+            for other in sorted(before.agent_tokens - group):
+                o_left, o_right = _change_bounds(model, other)
+                if o_left is None:
+                    continue
+                try:
+                    # Strict overlap (shared text, not just a touching edge): an independent
+                    # agent change right next to this one is not resolved along with it.
+                    # compareRegionStarts(a, b) == 1 means a starts before b.
+                    overlaps = (text.compareRegionStarts(o_left, right) == 1
+                                and text.compareRegionStarts(left, o_right) == 1)
+                except Exception:
+                    continue  # another text object / not comparable -> not part of this group
+                if overlaps:
+                    group = group | {other}
+                    grew = True
+        if len(group) < 2 or span is None or _foreign_redline_in_span(model, text, span):
+            return 0
+        controller = model.getCurrentController()
+        view_cursor = controller.getViewCursor()
+        pending = group
+        # A Delete stacked on an Insert is undone one layer per dispatch: rejecting it first
+        # restores the inserted text, which still carries the other change -- dispatch again
+        # over what is left of the group while each pass makes progress (checked live).
+        for _unused in range(len(group) + 1):
+            left, right = _change_bounds(model, pending)
+            if left is None:
+                break
+            pass_span = text.createTextCursorByRange(left)
+            pass_span.gotoRange(right, True)
+            if _foreign_redline_in_span(model, text, pass_span):
+                break  # a pass uncovered a user change: never dispatch over it
+            view_cursor.gotoRange(left, False)
+            view_cursor.gotoRange(right, True)
+            _dispatch_resolve(ctx, controller, accept)
+            now = _agent_and_foreign_redline_snapshot(model)
+            if not now.tokens_reliable:
+                break
+            left_over = pending & now.agent_tokens
+            if not left_over or left_over == pending:
+                break
+            pending = frozenset(left_over)
+    except Exception:
+        log.exception("inline_review: resolving overlapping agent changes of %s failed", token)
+        return 0
+    after = _agent_and_foreign_redline_snapshot(model)
+    removed = before.agent_tokens - after.agent_tokens
+    if (removed != group or not (after.tokens_reliable and after.foreign_reliable)
+            or (before.foreign_ids - after.foreign_ids)):
+        log.warning("inline_review: overlapping resolve of %s removed %s (expected %s); not claiming "
+                    "success", token, removed, group)
+        return 0
+    return len(group)
 
 
 # Sentinels (negative so they never collide with a real resolved-count):
