@@ -215,6 +215,9 @@
           <node oor:name="M17" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Debug</value>
+              <!-- Submenu parent: LO ignores FeatureStateEvent Label, so ja/es live here (catalog msgstr). -->
+              <value xml:lang="ja">デバッグ</value>
+              <value xml:lang="es">Depurar</value>
             </prop>
             <prop oor:name="URL">
               <value>org.extension.writeragent:main.NoOp</value>

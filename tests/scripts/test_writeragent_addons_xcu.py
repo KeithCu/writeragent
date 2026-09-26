@@ -11,6 +11,7 @@ from pathlib import Path
 
 _OOR_NS = "http://openoffice.org/2001/registry"
 _OOR_NAME = "{%s}name" % _OOR_NS
+_XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ADDONS_XCU = _REPO_ROOT / "extension" / "Addons.xcu"
@@ -37,6 +38,19 @@ def _prop_text(node: ET.Element, prop_name: str) -> str | None:
             if value is not None and value.text:
                 return value.text.strip()
     return None
+
+
+def _prop_lang_values(node: ET.Element, prop_name: str) -> dict[str, str]:
+    for prop in node.findall("prop"):
+        if prop.get(_OOR_NAME) != prop_name:
+            continue
+        titles: dict[str, str] = {}
+        for value in prop.findall("value"):
+            lang = value.get(_XML_LANG) or ""
+            if value.text:
+                titles[lang] = value.text.strip()
+        return titles
+    return {}
 
 
 def _find_menubar(root: ET.Element) -> ET.Element:
@@ -71,6 +85,22 @@ def _ordered_names(menubar: ET.Element) -> list[str]:
 def _debug_submenu(menubar: ET.Element) -> ET.Element:
     debug = _submenu_items(menubar)[_PROTOCOL + "main.NoOp"]
     return next(n for n in debug.findall("node") if n.get(_OOR_NAME) == "Submenu")
+
+
+def test_writeragent_debug_submenu_parent_title_ja_es():
+    """M17 is a Submenu parent; LO keeps the xcu Title and ignores Label events."""
+    root = ET.parse(_ADDONS_XCU).getroot()
+    debug = None
+    for item in _submenu_node(_find_menubar(root)).findall("node"):
+        if item.get(_OOR_NAME) == "M17":
+            debug = item
+            break
+    assert debug is not None
+    assert _prop_text(debug, "URL") == _PROTOCOL + "main.NoOp"
+    titles = _prop_lang_values(debug, "Title")
+    assert titles["en-US"] == "Debug"
+    assert titles["ja"] == "デバッグ"
+    assert titles["es"] == "Depurar"
 
 
 def test_writeragent_menubar_has_full_context():

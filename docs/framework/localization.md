@@ -69,7 +69,9 @@ This is a productivity aid, not a substitute for human review of tone and termin
 
 LibreOffice supports localized properties with `<value xml:lang="...">`. The project’s `.xcu` files use this shape but **mostly only define `en-US` / `en` today**.
 
-WriterAgent menubar titles are not left to that `en-US` string. [`get_menu_text`](../../plugin/main.py) returns a `_("…")` literal and [`addStatusListener`](../../plugin/main.py) pushes it with `FeatureStateEvent.State`. A command missing from that map (or returned as a raw English literal) keeps the Addons.xcu English title even when the `.po` has a msgstr. Hamburger items call `_()` at popup build time and do not use this map.
+Leaf menubar titles are not left to that `en-US` string. [`get_menu_text`](../../plugin/main.py) returns a `_("…")` literal and [`addStatusListener`](../../plugin/main.py) pushes it with `FeatureStateEvent.State`. A leaf command missing from that map (or returned as a raw English literal) keeps the Addons.xcu English title even when the `.po` has a msgstr. Hamburger items call `_()` at popup build time and do not use this map.
+
+Submenu **parents** are different. LibreOffice ignores `FeatureStateEvent` Label updates on a parent that has a nested `Submenu` (Debug, `main.NoOp`, node `M17`). The menubar keeps the `Title` values in the shipped [`extension/Addons.xcu`](../../extension/Addons.xcu). Those `xml:lang` strings must match the catalog `msgstr` (`ja` デバッグ, `es` Depurar). The Python map entry stays so a future LO that applies the Label, and the hamburger menu, still share the same msgid.
 
 ## LLM prompts vs UI language
 

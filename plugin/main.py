@@ -547,14 +547,13 @@ def get_menu_text(command: str) -> str | None:
         "main.report_bug": _("Report bug..."),
         "mcp.toggle_server": _("Toggle MCP Server"),
         "mcp.server_status": _("MCP Server Status"),
-        # What was wrong: JA menus kept the English Addons.xcu titles for
-        # these two items even though the catalogs had msgstrs.
-        # How: addStatusListener pushes get_menu_text() via FeatureStateEvent.
-        # Returning None leaves the en-US xcu string (Vision OCR was absent
-        # from this map). Debug was a raw English literal, so the event
-        # overwrote the catalog with "Debug".
-        # Why this works: the same _("literal") map already translates the
-        # other WriterAgent menu titles.
+        # Leaf items rely on FeatureStateEvent: addStatusListener pushes
+        # get_menu_text() as the Label. Returning None leaves the en-US
+        # Addons.xcu string (Vision OCR was absent from this map).
+        # Submenu parents need Addons.xcu multi-lang Title because LO ignores
+        # Label updates on Submenu parents — _("Debug") never reaches the
+        # menubar for main.NoOp. Keep the map entry (still useful if LO ever
+        # applies it; hamburger already covers the same msgid).
         "vision.open_settings": _("Vision OCR Settings..."),
         "main.NoOp": _("Debug"),
         "main.RunFormatTests": _("Run format tests"),
