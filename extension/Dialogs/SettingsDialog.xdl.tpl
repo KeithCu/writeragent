@@ -9,7 +9,7 @@
   <!-- Tab buttons (always visible, no page attribute) -->
   <!-- Tab buttons (always visible, no page attribute) -->
   <dlg:button dlg:id="btn_tab_chat" dlg:left="5" dlg:top="5" dlg:width="60" dlg:height="14" dlg:value="General"/>
-  <dlg:button dlg:id="btn_tab_image" dlg:left="68" dlg:top="5" dlg:width="60" dlg:height="14" dlg:value="Image Settings"/>
+  <dlg:button dlg:id="btn_tab_image" dlg:left="68" dlg:top="5" dlg:width="60" dlg:height="14" dlg:value="Image"/>
 
   <!-- AUTO_GENERATED_TABS -->
 
@@ -51,7 +51,7 @@
   <dlg:button dlg:id="btn_edit_config_json" dlg:page="1" dlg:left="8" dlg:top="140" dlg:width="125" dlg:height="14" dlg:tabstop="true" dlg:value="Edit config (JSON)…"/>
   <dlg:text dlg:id="lbl_test_status" dlg:page="1" dlg:left="140" dlg:top="141" dlg:width="290" dlg:height="12" dlg:value="" dlg:align="left"/>
 
-  <!-- === Page 2: Image Settings === -->
+  <!-- === Page 2: Image === -->
 
   <dlg:text dlg:id="label_image_base_size" dlg:page="2" dlg:left="8" dlg:top="26" dlg:width="60" dlg:height="10" dlg:value="Base Size:" dlg:align="left"/>
   <dlg:combobox dlg:id="image_base_size" dlg:page="2" dlg:left="70" dlg:top="24" dlg:width="50" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="1024" dlg:border="1"/>

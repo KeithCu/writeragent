@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any, Iterator
 
-# User-facing tab strip after General and Image Settings (pages 1–2).
+# User-facing tab strip after General and Image (pages 1–2).
 # Speech is the first module tab so it sits immediately after Image.
 SETTINGS_TAB_MODULE_ORDER = (
     "audio",

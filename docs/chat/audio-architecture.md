@@ -163,7 +163,7 @@ Release builds may pass `--no-recording` to [`scripts/build_oxt.py`](../../scrip
 
 ## Speech settings
 
-Settings → **Speech** (the tab was titled Audio / Speech) holds the speech-to-text model and speech output. The tab is the first module tab, immediately after Image Settings.
+Settings → **Speech** (the tab was titled Audio / Speech) holds the speech-to-text model and speech output. The tab is the first module tab, immediately after Image.
 
 **STT Provider** (`audio.stt_provider`) sits above Audio Model. **LLM Endpoint** (default) enables **Audio Model** (`audio__stt_model`). **Local Whisper** enables **Local Model** (`audio.stt_local_model`) and disables Audio Model, the same way TTS Model is only enabled for the endpoint TTS provider. The switch uses enable/disable, not `setVisible`. Each Settings open builds a new dialog and used to call `setVisible(True)` on Audio Model after the peer existed and before `execute()`. That paints the Speech-step control on General, on top of API Key, every time — closing and reopening brings it back. Tab buttons only assign dialog Step (Image is 2, General is 1) and do not refresh those controls; leaving General for Image and coming back re-filters and hides the stray label.
 

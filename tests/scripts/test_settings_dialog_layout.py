@@ -147,7 +147,7 @@ def test_settings_tab_buttons_in_user_facing_order(tmp_path: Path) -> None:
     )
     indices = [xdl.index(f'dlg:id="{tab_id}"') for tab_id in tab_ids]
     assert indices == sorted(indices), f"tab order indices {dict(zip(tab_ids, indices, strict=True))}"
-    # Speech is the first module tab, immediately after Image Settings.
+    # Speech is the first module tab, immediately after Image.
     assert xdl.index('dlg:id="btn_tab_image"') < indices[0] < indices[1]
 
 

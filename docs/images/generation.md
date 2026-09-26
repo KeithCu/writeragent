@@ -50,7 +50,7 @@ Default **Base Size** is **1024** (vendor `1K`). Models dislike 512 / `0.5K` —
 
 **General tab** ([`SettingsDialog.xdl.tpl`](../../extension/WriterAgentDialogs/SettingsDialog.xdl.tpl)): endpoint, API key, **Text/Chat Model**, **Image Model**, audio model, temperature, max tokens, additional instructions. Switching the endpoint to a different provider clears leftover model combobox text (Text/Chat, image, STT) so a previous provider's slug is not kept; populate then shows that provider's LRU/defaults. See [`uno-dialogs.md`](../framework/uno-dialogs.md) (`EndpointCombinedListener._apply_dropdowns`).
 
-**Image Settings tab**: base size, aspect ratio (same five labels as the sidebar Image-mode dropdown: Square, Landscape 16:9, Portrait 9:16, Landscape 3:2, Portrait 2:3), steps, seed, auto gallery, insert frame.
+**Image tab**: base size, aspect ratio (same five labels as the sidebar Image-mode dropdown: Square, Landscape 16:9, Portrait 9:16, Landscape 3:2, Portrait 2:3), steps, seed, auto gallery, insert frame.
 
 **Chat sidebar** ([`ChatPanelDialog.xdl`](../../extension/WriterAgentDialogs/ChatPanelDialog.xdl)): text model and image model comboboxes; additional instructions come from config only (Settings).
 
