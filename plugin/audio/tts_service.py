@@ -506,26 +506,25 @@ def _text_is_latin_script(text: str) -> bool:
 def kokoro_g2p_lang(text: str, voice: str = "") -> str:
     """Phonemizer code for one Kokoro utterance. The voice id is not changed.
 
-    Latin-script text uses English G2P so English on a non-English voice is
-    not run through that voice's Misaki frontend. ``en-us`` is kokoro-onnx's
-    espeak path (not ``misaki[en]``, which installs torch). A ``b*`` voice
-    uses ``en-gb``, which is the same espeak path. The selected voice still
-    supplies the timbre (``jf_alpha`` can speak an English line).
+    English voices (``a*``, ``b*``) use kokoro-onnx's built-in espeak path
+    (``en-us`` or ``en-gb``).
 
-    Any non-Latin letter keeps today's voice-prefix Misaki language
-    (:func:`_kokoro_lang_for_voice`): kana on ``jf_*`` stays ``ja``, Han on
-    ``zf_*`` stays ``zh``.
+    Non-Latin frontends (``ja``, ``zh``, ``hi``) cannot process Latin text
+    (e.g. an English UI sample or reply on an Asian voice). When the text is
+    pure Latin script, they fall back to ``en-us`` so the voice can speak
+    English without failing or garbling Misaki.
 
-    TODO: langdetect (already in the dev venv) could tell accented French or
-    Spanish from English later. Do not import it here.
+    Romance voices (``fr-fr``, ``es``, ``it``, ``pt-br``) keep their native
+    Misaki language so native speech is not forced into English G2P.
     """
-    if _text_is_latin_script(text):
-        if voice and _kokoro_lang_for_voice(voice) == "en-gb":
-            return "en-gb"
-        return "en-us"
     if not voice:
         return "en-us"
-    return _kokoro_lang_for_voice(voice)
+    target = _kokoro_lang_for_voice(voice)
+    if target in ("en-us", "en-gb"):
+        return target
+    if target in ("ja", "zh", "hi") and _text_is_latin_script(text):
+        return "en-us"
+    return target
 
 
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:

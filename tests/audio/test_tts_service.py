@@ -319,26 +319,27 @@ def test_get_voice_catalog_locale_prioritized():
 
 
 def test_kokoro_g2p_lang_english_on_non_english_voice():
-    """Latin text uses English espeak; non-Latin text keeps the voice's Misaki lang."""
+    """Latin text falls back to English espeak for Asian voices; Romance voices keep native Misaki lang."""
     from plugin.audio.tts_service import kokoro_g2p_lang
 
     english = "Hello, I'm your LibreOffice WriterAgent."
+    # Asian voices fall back to en-us when text is Latin script:
     assert kokoro_g2p_lang(english, "jf_alpha") == "en-us"
-    assert kokoro_g2p_lang(english, "ff_siwis") == "en-us"
-    assert kokoro_g2p_lang(english, "ef_dora") == "en-us"
     assert kokoro_g2p_lang(english, "zf_xiaobei") == "en-us"
     assert kokoro_g2p_lang(english, "hf_alpha") == "en-us"
+    # English voices use en-us or en-gb:
     assert kokoro_g2p_lang("hello", "af_bella") == "en-us"
     assert kokoro_g2p_lang(english, "bf_emma") == "en-gb"
-    # Accented Latin is still Latin, so it takes English G2P until langdetect.
-    assert kokoro_g2p_lang("Café au lait", "ff_siwis") == "en-us"
-    assert kokoro_g2p_lang("Bonjour, je suis WriterAgent.", "ff_siwis") == "en-us"
-    # Non-Latin keeps the voice prefix (not a separate script→lang map).
+    # Romance voices keep their native Misaki language:
+    assert kokoro_g2p_lang("Café au lait", "ff_siwis") == "fr-fr"
+    assert kokoro_g2p_lang("Bonjour, je suis WriterAgent.", "ff_siwis") == "fr-fr"
+    assert kokoro_g2p_lang("Hola, ¿cómo estás?", "ef_dora") == "es"
+    assert kokoro_g2p_lang("Ciao, come stai?", "if_sara") == "it"
+    assert kokoro_g2p_lang("Olá, tudo bem?", "pf_dora") == "pt-br"
+    # Non-Latin voices use their Misaki language when non-Latin characters are present:
     assert kokoro_g2p_lang("こんにちは、WriterAgent です。", "jf_alpha") == "ja"
-    assert kokoro_g2p_lang("こんにちは", "ff_siwis") == "fr-fr"
     assert kokoro_g2p_lang("你好", "zf_xiaobei") == "zh"
     assert kokoro_g2p_lang("नमस्ते", "hf_alpha") == "hi"
-    assert kokoro_g2p_lang("こんにちは", "af_bella") == "en-us"
 
 
 def test_tts_test_sample_uses_gettext():
@@ -703,14 +704,8 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
     assert en_on_ja_cmd[9] == "en-us"
     en_on_ja_ensure.assert_not_called()
 
-    # Latin on a French voice keeps ff_siwis and uses English espeak, not fr Misaki.
-    en_on_fr_cmd, en_on_fr_ensure = _launch("Hello, I'm your LibreOffice WriterAgent.", "ff_siwis")
-    assert en_on_fr_cmd[4] == "ff_siwis"
-    assert en_on_fr_cmd[9] == "en-us"
-    en_on_fr_ensure.assert_not_called()
-
-    # Non-Latin text still follows the voice prefix into that Misaki lang.
-    fr_cmd, fr_ensure = _launch("こんにちは", "ff_siwis")
+    # French voice keeps ff_siwis and uses fr-fr Misaki.
+    fr_cmd, fr_ensure = _launch("Bonjour, je suis WriterAgent.", "ff_siwis")
     assert fr_cmd[4] == "ff_siwis"
     assert fr_cmd[9] == "fr-fr"
     assert "EspeakG2P(language='fr-fr')" in fr_cmd[2]
