@@ -919,18 +919,34 @@ def test_kokoro_lang_for_voice():
     assert _kokoro_lang_for_voice("pf_dora") == "pt-br"
 
 
-def test_resolve_piper_model_file_ondemand_download(tmp_path):
+def _isolate_home_cache(tmp_path, monkeypatch):
+    """Point ``Path.home() / '.cache'`` at a tmp dir and ignore ``XDG_CACHE_HOME``."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    return home / ".cache"
+
+
+def _kokoro_cache(tmp_path, monkeypatch):
+    return _isolate_home_cache(tmp_path, monkeypatch) / "kokoro"
+
+
+def _piper_cache(tmp_path, monkeypatch):
+    return _isolate_home_cache(tmp_path, monkeypatch) / "piper"
+
+
+def test_resolve_piper_model_file_ondemand_download(tmp_path, monkeypatch):
     from plugin.audio.tts_service import _resolve_piper_model_file
     import io
     import os
 
-    cache_dir = tmp_path / "piper_cache"
-    with patch("os.path.expanduser", return_value=str(cache_dir)):
-        with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: io.BytesIO(b"fake-piper-model-bytes")):
-            resolved = _resolve_piper_model_file("de_DE-thorsten-medium")
-            assert resolved == str(cache_dir / "de_DE-thorsten-medium.onnx")
-            assert os.path.exists(resolved)
-            assert os.path.exists(str(cache_dir / "de_DE-thorsten-medium.onnx.json"))
+    cache_dir = _piper_cache(tmp_path, monkeypatch)
+    with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: io.BytesIO(b"fake-piper-model-bytes")):
+        resolved = _resolve_piper_model_file("de_DE-thorsten-medium")
+        assert resolved == str(cache_dir / "de_DE-thorsten-medium.onnx")
+        assert os.path.exists(resolved)
+        assert os.path.exists(str(cache_dir / "de_DE-thorsten-medium.onnx.json"))
 
 
 def test_module_yaml_voice_options_use_catalog_provider():
@@ -995,35 +1011,33 @@ def test_settings_voice_options_match_catalog_for_provider():
     assert all(opt["value"] != "af_bella" for opt in options)
 
 
-def test_resolve_piper_model_file_reports_download_status(tmp_path):
+def test_resolve_piper_model_file_reports_download_status(tmp_path, monkeypatch):
     from plugin.audio.tts_service import _resolve_piper_model_file
     import io
     import os
 
     messages: list[str] = []
-    cache_dir = tmp_path / "piper_cache"
-    with patch("os.path.expanduser", return_value=str(cache_dir)):
-        with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: io.BytesIO(b"fake-piper-model-bytes")):
-            resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
+    cache_dir = _piper_cache(tmp_path, monkeypatch)
+    with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: io.BytesIO(b"fake-piper-model-bytes")):
+        resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
 
     assert resolved == str(cache_dir / "de_DE-thorsten-medium.onnx")
     assert os.path.exists(resolved)
     assert messages == ["Downloading Piper voice Thorsten…"]
 
 
-def test_resolve_piper_model_file_reports_lessac_fallback(tmp_path):
+def test_resolve_piper_model_file_reports_lessac_fallback(tmp_path, monkeypatch):
     from plugin.audio.tts_service import _resolve_piper_model_file
     import urllib.error
 
     messages: list[str] = []
-    cache_dir = tmp_path / "piper_cache"
-    cache_dir.mkdir()
+    cache_dir = _piper_cache(tmp_path, monkeypatch)
+    cache_dir.mkdir(parents=True)
     (cache_dir / "en_US-lessac-medium.onnx").write_bytes(b"lessac")
     (cache_dir / "en_US-lessac-medium.onnx.json").write_bytes(b"{}")
 
-    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)):
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
-            resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
+    with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
+        resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
 
     assert resolved == str(cache_dir / "en_US-lessac-medium.onnx")
     assert messages == [
@@ -1032,17 +1046,16 @@ def test_resolve_piper_model_file_reports_lessac_fallback(tmp_path):
     ]
 
 
-def test_resolve_piper_model_file_reports_os_speech_fallback(tmp_path):
+def test_resolve_piper_model_file_reports_os_speech_fallback(tmp_path, monkeypatch):
     from plugin.audio.tts_service import _resolve_piper_model_file
     import urllib.error
 
     messages: list[str] = []
-    cache_dir = tmp_path / "piper_cache"
+    _piper_cache(tmp_path, monkeypatch)
 
-    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)):
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
-            with patch("urllib.request.urlretrieve", side_effect=urllib.error.URLError("offline")):
-                resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
+    with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
+        with patch("urllib.request.urlretrieve", side_effect=urllib.error.URLError("offline")):
+            resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
 
     assert resolved == "de_DE-thorsten-medium"
     assert messages[0] == "Downloading Piper voice Thorsten…"
@@ -1050,15 +1063,14 @@ def test_resolve_piper_model_file_reports_os_speech_fallback(tmp_path):
     assert messages[-1] == "Couldn't download Thorsten; using OS speech"
 
 
-def test_resolve_kokoro_model_files_reports_download_failure(tmp_path):
+def test_resolve_kokoro_model_files_reports_download_failure(tmp_path, monkeypatch):
     from plugin.audio.tts_service import _resolve_kokoro_model_files
     import urllib.error
 
     messages: list[str] = []
-    cache_dir = tmp_path / "kokoro_cache"
+    _kokoro_cache(tmp_path, monkeypatch)
 
-    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)), \
-         patch("plugin.audio.tts_service.os.makedirs"), \
+    with patch("plugin.audio.tts_service.os.makedirs"), \
          patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}), \
          patch("urllib.request.urlretrieve", side_effect=urllib.error.URLError("offline")):
         model_path, voices_path = _resolve_kokoro_model_files(on_status=messages.append)
@@ -1071,7 +1083,7 @@ def test_resolve_kokoro_model_files_reports_download_failure(tmp_path):
     ]
 
 
-def test_resolve_kokoro_model_files_downloads_multilingual_release(tmp_path):
+def test_resolve_kokoro_model_files_downloads_multilingual_release(tmp_path, monkeypatch):
     """Auto-download must fetch the v1.0 pack, not the English-only model-files release."""
     from plugin.audio.tts_service import (
         _KOKORO_MODEL_FILENAME,
@@ -1080,7 +1092,7 @@ def test_resolve_kokoro_model_files_downloads_multilingual_release(tmp_path):
         _resolve_kokoro_model_files,
     )
 
-    cache_dir = tmp_path / "kokoro_cache"
+    cache_dir = _kokoro_cache(tmp_path, monkeypatch)
     downloaded: list[tuple[str, str]] = []
 
     def _fake_retrieve(url: str, dest: str) -> None:
@@ -1088,8 +1100,7 @@ def test_resolve_kokoro_model_files_downloads_multilingual_release(tmp_path):
         with open(dest, "wb") as handle:
             handle.write(b"asset")
 
-    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)), \
-         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
+    with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
          patch("urllib.request.urlretrieve", side_effect=_fake_retrieve):
         model_path, voices_path = _resolve_kokoro_model_files()
 
@@ -1107,12 +1118,12 @@ def test_resolve_kokoro_model_files_downloads_multilingual_release(tmp_path):
     assert all("v0_19" not in url and not url.endswith("/voices.bin") for url in urls)
 
 
-def test_resolve_kokoro_model_files_supersedes_english_only_cache(tmp_path):
+def test_resolve_kokoro_model_files_supersedes_english_only_cache(tmp_path, monkeypatch):
     """An existing v0_19 / voices.bin cache must not block the v1.0 download."""
     from plugin.audio.tts_service import _resolve_kokoro_model_files
 
-    cache_dir = tmp_path / "kokoro_cache"
-    cache_dir.mkdir()
+    cache_dir = _kokoro_cache(tmp_path, monkeypatch)
+    cache_dir.mkdir(parents=True)
     (cache_dir / "kokoro-v0_19.onnx").write_bytes(b"old-model")
     (cache_dir / "voices.bin").write_bytes(b"old-voices")
     downloaded: list[str] = []
@@ -1122,8 +1133,7 @@ def test_resolve_kokoro_model_files_supersedes_english_only_cache(tmp_path):
         with open(dest, "wb") as handle:
             handle.write(b"new")
 
-    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)), \
-         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
+    with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
          patch("urllib.request.urlretrieve", side_effect=_fake_retrieve):
         model_path, voices_path = _resolve_kokoro_model_files()
 
@@ -1137,18 +1147,17 @@ def test_resolve_kokoro_model_files_supersedes_english_only_cache(tmp_path):
     assert (cache_dir / "voices.bin").read_bytes() == b"old-voices"
 
 
-def test_resolve_kokoro_model_files_reuses_v1_cache(tmp_path):
+def test_resolve_kokoro_model_files_reuses_v1_cache(tmp_path, monkeypatch):
     from plugin.audio.tts_service import _resolve_kokoro_model_files
 
-    cache_dir = tmp_path / "kokoro_cache"
-    cache_dir.mkdir()
+    cache_dir = _kokoro_cache(tmp_path, monkeypatch)
+    cache_dir.mkdir(parents=True)
     (cache_dir / "kokoro-v0_19.onnx").write_bytes(b"old-model")
     (cache_dir / "voices.bin").write_bytes(b"old-voices")
     (cache_dir / "kokoro-v1.0.onnx").write_bytes(b"model")
     (cache_dir / "voices-v1.0.bin").write_bytes(b"voices")
 
-    with patch("plugin.audio.tts_service.os.path.expanduser", return_value=str(cache_dir)), \
-         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
+    with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
          patch("urllib.request.urlretrieve") as retrieve:
         model_path, voices_path = _resolve_kokoro_model_files()
 
@@ -1174,6 +1183,67 @@ def test_resolve_kokoro_model_files_honors_env_overrides(tmp_path):
     retrieve.assert_not_called()
     assert model_path == str(model)
     assert voices_path == str(voices)
+
+
+def test_resolve_kokoro_model_files_reuses_pipecat_without_download(tmp_path, monkeypatch):
+    """A Pipecat Kokoro tree is used in place; nothing is fetched into ~/.cache/kokoro."""
+    from plugin.audio.tts_service import _resolve_kokoro_model_files
+
+    root = _isolate_home_cache(tmp_path, monkeypatch)
+    pipecat = root / "pipecat" / "kokoro-onnx"
+    pipecat.mkdir(parents=True)
+    (pipecat / "kokoro-v1.0.onnx").write_bytes(b"model")
+    (pipecat / "voices-v1.0.bin").write_bytes(b"voices")
+
+    with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
+         patch("urllib.request.urlretrieve") as retrieve:
+        model_path, voices_path = _resolve_kokoro_model_files()
+
+    retrieve.assert_not_called()
+    assert model_path == str(pipecat / "kokoro-v1.0.onnx")
+    assert voices_path == str(pipecat / "voices-v1.0.bin")
+    assert not (root / "kokoro").exists()
+
+
+def test_resolve_kokoro_model_files_downloads_missing_sibling_beside_probe_hit(tmp_path, monkeypatch):
+    """One file in a writable probe dir: the other is fetched into that same dir."""
+    from plugin.audio.tts_service import _resolve_kokoro_model_files
+
+    root = _isolate_home_cache(tmp_path, monkeypatch)
+    pipecat = root / "pipecat" / "kokoro-onnx"
+    pipecat.mkdir(parents=True)
+    (pipecat / "kokoro-v1.0.onnx").write_bytes(b"model")
+    downloaded: list[str] = []
+
+    def _fake_retrieve(url: str, dest: str) -> None:
+        downloaded.append(dest)
+        with open(dest, "wb") as handle:
+            handle.write(b"voices")
+
+    with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
+         patch("urllib.request.urlretrieve", side_effect=_fake_retrieve):
+        model_path, voices_path = _resolve_kokoro_model_files()
+
+    assert model_path == str(pipecat / "kokoro-v1.0.onnx")
+    assert voices_path == str(pipecat / "voices-v1.0.bin")
+    assert downloaded == [str(pipecat / "voices-v1.0.bin")]
+    assert not (root / "kokoro").exists()
+
+
+def test_resolve_piper_model_file_reuses_pipecat_without_download(tmp_path, monkeypatch):
+    from plugin.audio.tts_service import _resolve_piper_model_file
+
+    voice_dir = _isolate_home_cache(tmp_path, monkeypatch) / "pipecat" / "piper"
+    voice_dir.mkdir(parents=True)
+    onnx = voice_dir / "de_DE-thorsten-medium.onnx"
+    onnx.write_bytes(b"onnx")
+    (voice_dir / "de_DE-thorsten-medium.onnx.json").write_bytes(b"{}")
+
+    with patch("urllib.request.urlopen") as urlopen:
+        resolved = _resolve_piper_model_file("de_DE-thorsten-medium")
+
+    urlopen.assert_not_called()
+    assert resolved == str(onnx)
 
 
 def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):

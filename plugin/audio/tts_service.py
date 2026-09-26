@@ -24,6 +24,13 @@ from plugin.audio.kokoro_g2p import (
     ensure_kokoro_misaki,
     kokoro_lang_uses_misaki,
 )
+from plugin.audio.model_cache_paths import (
+    KOKORO_MODEL_FILENAME as _KOKORO_MODEL_FILENAME,
+    KOKORO_VOICES_FILENAME as _KOKORO_VOICES_FILENAME,
+    kokoro_should_download,
+    resolve_kokoro_model_paths,
+    resolve_piper_voice_paths,
+)
 from plugin.audio.voice_catalog import (
     DEFAULT_VOICE_FOR_FAMILY,
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
@@ -1556,9 +1563,8 @@ def _clear_tts_status(on_status: Callable[[str], None] | None) -> None:
 # the kokoro-onnx examples download). A cache that only has the old filenames
 # misses these paths, so the next speak downloads the multilingual pack and
 # leaves the English-only files in place. KOKORO_MODEL_PATH / KOKORO_VOICES_PATH
-# still override both.
-_KOKORO_MODEL_FILENAME = "kokoro-v1.0.onnx"
-_KOKORO_VOICES_FILENAME = "voices-v1.0.bin"
+# still override both. Which directory is probed or downloaded into is
+# model_cache_paths (shared ~/.cache, not a WriterAgent-only tree).
 _KOKORO_RELEASE_BASE = (
     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1"
 )
@@ -1566,39 +1572,40 @@ _KOKORO_RELEASE_BASE = (
 
 def _resolve_kokoro_model_files(on_status: Callable[[str], None] | None = None) -> tuple[str, str]:
     """Resolve paths to Kokoro ONNX model and voices file, downloading if missing."""
-    cache_dir = os.path.expanduser("~/.cache/kokoro")
-    default_model = os.path.join(cache_dir, _KOKORO_MODEL_FILENAME)
-    default_voices = os.path.join(cache_dir, _KOKORO_VOICES_FILENAME)
+    model_path, voices_path = resolve_kokoro_model_paths(
+        _KOKORO_MODEL_FILENAME, _KOKORO_VOICES_FILENAME,
+    )
+    model_s = os.fspath(model_path)
+    voices_s = os.fspath(voices_path)
 
-    model_path = os.environ.get("KOKORO_MODEL_PATH") or default_model
-    voices_path = os.environ.get("KOKORO_VOICES_PATH") or default_voices
+    if os.path.exists(model_s) and os.path.exists(voices_s):
+        return model_s, voices_s
 
-    if os.path.exists(model_path) and os.path.exists(voices_path):
-        return model_path, voices_path
-
+    # needs_* is false for an env path that is set but missing, unless that
+    # path is the canonical cache file — same as the old ``path == default``
+    # check. A probed sibling directory is a download target.
+    needs_voices = kokoro_should_download(voices_path, "KOKORO_VOICES_PATH")
+    needs_model = kokoro_should_download(model_path, "KOKORO_MODEL_PATH")
     failed = False
-    needs_voices = not os.path.exists(voices_path) and voices_path == default_voices
-    needs_model = not os.path.exists(model_path) and model_path == default_model
-    try:
-        os.makedirs(cache_dir, exist_ok=True)
-        import urllib.request
-        if needs_voices or needs_model:
+    if needs_voices or needs_model:
+        try:
+            import urllib.request
             _notify_tts_status(_("Downloading Kokoro voice model…"), on_status, progress=True)
-        if needs_voices:
-            log.info("Downloading Kokoro voices to %s...", default_voices)
-            urllib.request.urlretrieve(
-                f"{_KOKORO_RELEASE_BASE}/{_KOKORO_VOICES_FILENAME}", default_voices
-            )
-            voices_path = default_voices
-        if needs_model:
-            log.info("Downloading Kokoro ONNX model to %s...", default_model)
-            urllib.request.urlretrieve(
-                f"{_KOKORO_RELEASE_BASE}/{_KOKORO_MODEL_FILENAME}", default_model
-            )
-            model_path = default_model
-    except Exception as e:
-        failed = True
-        log.warning("Could not auto-download Kokoro models: %s", e)
+            if needs_voices:
+                os.makedirs(os.path.dirname(voices_s), exist_ok=True)
+                log.info("Downloading Kokoro voices to %s...", voices_s)
+                urllib.request.urlretrieve(
+                    f"{_KOKORO_RELEASE_BASE}/{_KOKORO_VOICES_FILENAME}", voices_s
+                )
+            if needs_model:
+                os.makedirs(os.path.dirname(model_s), exist_ok=True)
+                log.info("Downloading Kokoro ONNX model to %s...", model_s)
+                urllib.request.urlretrieve(
+                    f"{_KOKORO_RELEASE_BASE}/{_KOKORO_MODEL_FILENAME}", model_s
+                )
+        except Exception as e:
+            failed = True
+            log.warning("Could not auto-download Kokoro models: %s", e)
 
     if failed:
         _notify_tts_status(_("Couldn't download Kokoro; using OS speech"), on_status, progress=True)
@@ -1606,7 +1613,7 @@ def _resolve_kokoro_model_files(on_status: Callable[[str], None] | None = None) 
     elif needs_voices or needs_model:
         _clear_tts_status(on_status)
 
-    return model_path, voices_path
+    return model_s, voices_s
 
 
 def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | None = None) -> str:
@@ -1618,12 +1625,14 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
     if os.path.isabs(clean_v) and os.path.exists(clean_v):
         return clean_v
 
-    cache_dir = os.path.expanduser("~/.cache/piper")
-    voice_file = os.path.join(cache_dir, f"{clean_v}.onnx")
-    json_file = os.path.join(cache_dir, f"{clean_v}.onnx.json")
+    # Probe <cache>/piper then Pipecat. A miss points at <cache>/piper, which
+    # is where the download below writes (not Pipecat's private tree).
+    voice_file, json_file = resolve_piper_voice_paths(clean_v)
+    voice_s = os.fspath(voice_file)
+    json_s = os.fspath(json_file)
 
-    if os.path.exists(voice_file) and os.path.exists(json_file):
-        return voice_file
+    if os.path.exists(voice_s) and os.path.exists(json_s):
+        return voice_s
 
     # If voice is in the curated catalog, download on demand.
     download_failed = False
@@ -1634,45 +1643,47 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
         onnx_url = f"{base_url}/{rel_onnx}"
         json_url = f"{base_url}/{rel_json}"
         try:
-            os.makedirs(cache_dir, exist_ok=True)
+            os.makedirs(os.path.dirname(voice_s), exist_ok=True)
             import urllib.request
             _notify_tts_status(_("Downloading Piper voice {0}…").format(short), on_status, progress=True)
-            log.info("Downloading Piper voice model '%s' to %s...", clean_v, voice_file)
+            log.info("Downloading Piper voice model '%s' to %s...", clean_v, voice_s)
             req_onnx = urllib.request.Request(onnx_url, headers={"User-Agent": "WriterAgent/1.0"})
-            with urllib.request.urlopen(req_onnx, timeout=60) as resp, open(voice_file, "wb") as f_out:
+            with urllib.request.urlopen(req_onnx, timeout=60) as resp, open(voice_s, "wb") as f_out:
                 shutil.copyfileobj(resp, f_out)
             req_json = urllib.request.Request(json_url, headers={"User-Agent": "WriterAgent/1.0"})
-            with urllib.request.urlopen(req_json, timeout=30) as resp, open(json_file, "wb") as f_out:
+            with urllib.request.urlopen(req_json, timeout=30) as resp, open(json_s, "wb") as f_out:
                 shutil.copyfileobj(resp, f_out)
             _clear_tts_status(on_status)
-            return voice_file
+            return voice_s
         except Exception as e:
             download_failed = True
             log.warning("Could not auto-download Piper voice '%s': %s", clean_v, e)
-            if os.path.exists(voice_file):
+            if os.path.exists(voice_s):
                 try:
-                    os.remove(voice_file)
+                    os.remove(voice_s)
                 except Exception:
                     pass
-            if os.path.exists(json_file):
+            if os.path.exists(json_s):
                 try:
-                    os.remove(json_file)
+                    os.remove(json_s)
                 except Exception:
                     pass
 
     # Fallback to the catalog's English default (Lessac) when the requested file is missing.
-    default_voice_file = os.path.join(cache_dir, f"{_PIPER_FALLBACK_VOICE}.onnx")
-    default_json = os.path.join(cache_dir, f"{_PIPER_FALLBACK_VOICE}.onnx.json")
-    lessac_ready = os.path.exists(default_voice_file) and os.path.exists(default_json)
+    # Lessac is probed the same way, so a copy already in Pipecat's tree is reused.
+    default_voice_file, default_json = resolve_piper_voice_paths(_PIPER_FALLBACK_VOICE)
+    default_voice_s = os.fspath(default_voice_file)
+    default_json_s = os.fspath(default_json)
+    lessac_ready = os.path.exists(default_voice_s) and os.path.exists(default_json_s)
     other_voice = clean_v != _PIPER_FALLBACK_VOICE
     if lessac_ready:
         if download_failed and other_voice:
             _notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status, progress=True)
             _clear_tts_status(on_status)
-        return default_voice_file
+        return default_voice_s
 
     try:
-        os.makedirs(cache_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(default_voice_s), exist_ok=True)
         import urllib.request
         rel_onnx, rel_json = _PIPER_VOICE_MODELS[_PIPER_FALLBACK_VOICE][0], _PIPER_VOICE_MODELS[_PIPER_FALLBACK_VOICE][1]
         base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
@@ -1682,11 +1693,11 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
         elif not download_failed:
             fallback_short = _voice_short_name(_PIPER_FALLBACK_VOICE)
             _notify_tts_status(_("Downloading Piper voice {0}…").format(fallback_short), on_status, progress=True)
-        log.info("Downloading Piper default voice model to %s...", default_voice_file)
-        urllib.request.urlretrieve(f"{base_url}/{rel_onnx}", default_voice_file)
-        urllib.request.urlretrieve(f"{base_url}/{rel_json}", default_json)
+        log.info("Downloading Piper default voice model to %s...", default_voice_s)
+        urllib.request.urlretrieve(f"{base_url}/{rel_onnx}", default_voice_s)
+        urllib.request.urlretrieve(f"{base_url}/{rel_json}", default_json_s)
         _clear_tts_status(on_status)
-        return default_voice_file
+        return default_voice_s
     except Exception as e:
         log.warning("Could not auto-download Piper default voice model: %s", e)
         failed_name = short if download_failed else _voice_short_name(_PIPER_FALLBACK_VOICE)

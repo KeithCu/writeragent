@@ -10,8 +10,11 @@ file with the venv interpreter::
 
     python whisper_transcribe.py --wav /tmp/rec.wav --model base
 
-Stdout is one JSON object. ``WhisperModel`` downloads Systran weights into
-the Hugging Face cache on first use (``~/.cache/huggingface``).
+Stdout is one JSON object. ``WhisperModel`` is constructed without
+``download_root``, so Systran weights follow Hugging Face's own cache on
+first use: ``~/.cache/huggingface`` (Windows: ``%USERPROFILE%\\.cache\\huggingface``),
+or ``HF_HOME`` / ``HF_HUB_CACHE`` when those are already set. WriterAgent does
+not invent a private Hugging Face root.
 """
 
 from __future__ import annotations
@@ -37,6 +40,9 @@ def transcribe_wav(wav_path: str, model_name: str) -> str:
     # The package lives in the user venv. LibreOffice's Python never imports it.
     from faster_whisper import WhisperModel  # type: ignore[import-not-found, ty:unresolved-import]
 
+    # download_root stays unset. faster-whisper then uses the Hugging Face
+    # cache (HF_HUB_CACHE, else HF_HOME, else ~/.cache/huggingface). Passing a
+    # path would ignore a user HF_HOME or pin weights to a WriterAgent-only tree.
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
     segments, _info = model.transcribe(wav_path)
     parts: list[str] = []
