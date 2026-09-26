@@ -151,6 +151,21 @@ def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
     )
 
 
+def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
+    """Main-chat line: python-as-orchestrator stays on domain=python.
+
+    A plain shape request still goes to domain=shapes. Only bias when the user
+    asked for the python specialized path (script, via python, python agent,
+    compute-then-place). Calc does not use this: its delegate enum hides python.
+    """
+    return (
+        "When asked to make a script or run Python, or to use the python specialized agent "
+        "(via python / python agent) to compute and place shapes or other domain objects, "
+        f'use {delegate_toolset}(domain="python") rather than domain="shapes". '
+        'A plain shape request (for example draw a rectangle) still uses domain="shapes".'
+    )
+
+
 # Brief hint for gateway tool JSON schemas (see SPECIALIZED_TASK_RULES in system prompt).
 # Parent Nemotron Super rewrote "make it look like a wizard" into a generate-new
 # task; the specialist then omitted source_image. Schema + task rules must
@@ -295,11 +310,14 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         domain_examples = "shapes, footnotes, tables"
     domain_rule = (
         " Do Python, venv scripts, symbolic math, and helpers already on this domain yourself"
-        " when the task does not need other WriterAgent specialized tools."
-        " When you need those domain tools"
+        " when the task does not need other WriterAgent specialized tools, then call specialized_workflow_finished."
+        " Computing coordinates, JSON, or a matplotlib figure does not place Writer/Calc/Draw domain objects in the document."
+        " If the user needs those objects in the document"
         f" ({domain_examples}, and the other specialized domains for this document),"
-        " call delegate_tool_domains with domains (a list of domain names) and task"
-        " (what that inner agent should accomplish)."
+        " you MUST call delegate_tool_domains with domains (a list of those domain names) and task"
+        " (what the inner agent should accomplish, including sizes, colors, and positions or the computed layout)"
+        " BEFORE specialized_workflow_finished."
+        " Do not finish and expect the main chat agent to call delegate_to_specialized_*(domain=\"shapes\") for you."
         " The inner agent receives the full tool schemas; do not call those domain tools on this loop."
     )
     return (
@@ -336,7 +354,7 @@ When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_writer
 For web_research and document_research: describe what to research in `task` (topics, sections, depth).
 
 {delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_writer_toolset")}
-When asked to make a script or run Python, use delegate_to_specialized_writer_toolset(domain="python")."""
+{python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset")}"""
 
 
 WRITER_CHAT_TOOLS_SECTION = """TOOLS:
@@ -612,7 +630,7 @@ DRAW_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} 
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_draw_toolset(domain="web_research").
 
 {delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_draw_toolset")}
-When asked to make a script or run Python, use delegate_to_specialized_draw_toolset(domain="python").
+{python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_draw_toolset")}
 Do delegate_to_specialized_draw_toolset(domain="shapes") then shape_upsert + shape_connect for flowcharts and process diagrams because an empty get_draw_tree means the task failed."""
 
 

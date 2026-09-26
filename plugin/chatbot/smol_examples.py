@@ -11,7 +11,7 @@
 - **brainstorming** — design exploration (`reply_to_user`, `save_design_spec`; leave with ``brainstorming_finished=true``).
 - **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
 - **web_research** — web sub-agent (`final_answer`).
-- **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``) and ``delegate_tool_domains`` (``domains`` + ``task``) when domain tools are required.
+- **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``), footnotes via ``delegate_tool_domains``, and a ring of shapes (compute, then ``delegate_tool_domains`` with ``domains`` + ``task``, then finish). Hand-written here, not from ``generate_smol_examples.py``.
 - **``*:images``** — edit selected image via ``image_generate(source_image='selection')``.
 - **All other keys** — shared delegate demo (`specialized_workflow_finished`).
 
@@ -204,6 +204,28 @@ Action:
 {
   "name": "specialized_workflow_finished",
   "arguments": {"answer": "Added the footnote via the footnotes domain."}
+}
+
+Task: "Use python to place a ring of 8 blue circles."
+
+Action:
+{
+  "name": "run_venv_python_script",
+  "arguments": {"code": "n, r = 8, 4000\\nangles = np.linspace(0, 2 * np.pi, n, endpoint=False)\\nresult = [[float(np.cos(a) * r), float(np.sin(a) * r)] for a in angles]\\n"}
+}
+Observation: {"status": "ok", "result": [[4000.0, 0.0], [2828.4, 2828.4], [0.0, 4000.0], [-2828.4, 2828.4], [-4000.0, 0.0], [-2828.4, -2828.4], [0.0, -4000.0], [2828.4, -2828.4]], "stdout": "", "stderr": ""}
+
+Action:
+{
+  "name": "delegate_tool_domains",
+  "arguments": {"domains": ["shapes"], "task": "Create a ring of 8 blue circles using the computed layout positions. Each circle about 800 units across (1/100 mm), fill blue, centered on those points."}
+}
+Observation: {"status": "ok", "domains": ["shapes"], "result": "Placed 8 blue circles in a ring."}
+
+Action:
+{
+  "name": "specialized_workflow_finished",
+  "arguments": {"answer": "Placed a ring of 8 blue circles via the shapes domain."}
 }
 """
 )

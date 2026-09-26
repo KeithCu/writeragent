@@ -324,6 +324,28 @@ def test_get_core_directives_for_type_is_string_only():
     assert get_core_directives_for_type("") == WRITER_CORE_DIRECTIVES
 
 
+def test_writer_and_draw_python_orchestrator_not_direct_shapes():
+    """Python-as-orchestrator stays on domain=python; a plain rectangle still uses shapes."""
+    from plugin.framework.prompts import python_orchestrator_routing_line
+
+    for text, toolset in (
+        (WRITER_CORE_DIRECTIVES, "delegate_to_specialized_writer_toolset"),
+        (DRAW_CORE_DIRECTIVES, "delegate_to_specialized_draw_toolset"),
+    ):
+        assert python_orchestrator_routing_line(delegate_toolset=toolset) in text
+        assert "via python" in text
+        assert 'rather than domain="shapes"' in text
+        assert "draw a rectangle" in text
+        assert 'still uses domain="shapes"' in text
+    assert 'domain="python"' not in CALC_CORE_DIRECTIVES
+    tip = (
+        'Do delegate_to_specialized_draw_toolset(domain="shapes") then '
+        "shape_upsert + shape_connect for flowcharts and process diagrams "
+        "because an empty get_draw_tree means the task failed."
+    )
+    assert tip in DRAW_CORE_DIRECTIVES
+
+
 def test_get_core_directives_writer():
     model = MagicMock()
     model.supportsService.return_value = False
@@ -580,6 +602,10 @@ def test_python_specialized_sub_agent_hint_writer():
     assert "task" in hint
     assert "footnotes" in hint
     assert "yourself" in hint
+    assert "does not place" in hint
+    assert "matplotlib" in hint
+    assert "BEFORE specialized_workflow_finished" in hint
+    assert 'delegate_to_specialized_*(domain="shapes")' in hint
 
 
 def test_python_specialized_sub_agent_hint_calc():
@@ -591,6 +617,8 @@ def test_python_specialized_sub_agent_hint_calc():
     assert "domains" in hint
     assert "task" in hint
     assert "ranges" in hint
+    assert "BEFORE specialized_workflow_finished" in hint
+    assert "does not place" in hint
 
 
 def test_document_research_multi_file_delegation_in_prompts():
