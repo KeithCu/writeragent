@@ -1215,6 +1215,21 @@ def test_module_yaml_sentence_mode_defaults_on():
     assert field["default"] is True
 
 
+def test_module_yaml_short_answers_defaults_off():
+    import os
+
+    import yaml
+
+    with open(os.path.join(os.path.dirname(__file__), "..", "..", "plugin", "audio", "module.yaml"), encoding="utf-8") as handle:
+        manifest = yaml.safe_load(handle)
+    field = manifest["config"]["tts_short_answers"]
+    assert field["type"] == "boolean"
+    assert field["widget"] == "checkbox"
+    assert field["default"] is False
+    assert field["label"] == "Keep replies brief"
+    assert "speech output (TTS) is on" in field["helper"]
+
+
 def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
     import threading
 
