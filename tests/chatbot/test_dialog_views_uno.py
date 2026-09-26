@@ -1,0 +1,209 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Speech STT controls must stay on their dialog step.
+
+Settings opens on General (step 1). Audio Model lives on the Speech step at
+the same Y as API Key. Each Settings open builds a new dialog and used to
+call setVisible(True) after the peer existed and before execute(); that
+paints Audio Model on General every time. Image then General re-filters.
+Enable/disable must not paint it there.
+"""
+
+from __future__ import annotations
+
+from plugin.testing_runner import native_test
+
+
+def _add_fixed(model, name, step, y, label):
+    ctrl = model.createInstance("com.sun.star.awt.UnoControlFixedTextModel")
+    ctrl.Name = name
+    ctrl.PositionX = 8
+    ctrl.PositionY = y
+    ctrl.Width = 150
+    ctrl.Height = 10
+    ctrl.Label = label
+    ctrl.Step = step
+    model.insertByName(name, ctrl)
+
+
+def _add_combo(model, name, step, y):
+    ctrl = model.createInstance("com.sun.star.awt.UnoControlComboBoxModel")
+    ctrl.Name = name
+    ctrl.PositionX = 110
+    ctrl.PositionY = y
+    ctrl.Width = 144
+    ctrl.Height = 14
+    ctrl.Dropdown = True
+    ctrl.Step = step
+    model.insertByName(name, ctrl)
+
+
+def _build(ctx, *, shown=True):
+    smgr = ctx.getServiceManager()
+    model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
+    model.PositionX = 20
+    model.PositionY = 20
+    model.Width = 400
+    model.Height = 200
+    model.Title = "stt-step-guard"
+    model.Step = 1
+    _add_fixed(model, "label_api_key", 1, 42, "API Key:")
+    _add_fixed(model, "label_audio__stt_model", 3, 44, "Audio Model:")
+    _add_combo(model, "audio__stt_model", 3, 42)
+    _add_fixed(model, "label_audio__stt_local_model", 3, 60, "Local Model")
+    _add_combo(model, "audio__stt_local_model", 3, 58)
+    prov = model.createInstance("com.sun.star.awt.UnoControlComboBoxModel")
+    prov.Name = "audio__stt_provider"
+    prov.PositionX = 110
+    prov.PositionY = 26
+    prov.Width = 144
+    prov.Height = 14
+    prov.Dropdown = True
+    prov.Step = 3
+    prov.Text = "LLM Endpoint"
+    model.insertByName("audio__stt_provider", prov)
+    dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
+    dlg.setModel(model)
+    toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    dlg.createPeer(toolkit, None)
+    # SettingsDialog.show calls sync_ui after createDialog (peer exists) and
+    # before execute(). shown=False is that window.
+    if shown:
+        dlg.setVisible(True)
+    return dlg, model
+
+
+@native_test
+def test_stt_enable_does_not_paint_audio_model_on_general(ctx):
+    """First Settings paint is General. Audio Model must not become visible there."""
+    from plugin.chatbot.dialog_views import SttSettingsListener, _apply_stt_model_visibility
+
+    dlg, model = _build(ctx)
+    try:
+        # Dialog is already showing step 1, which is when the bug paints.
+        _apply_stt_model_visibility(dlg, "LLM Endpoint")
+        audio = dlg.getControl("audio__stt_model")
+        audio_label = dlg.getControl("label_audio__stt_model")
+        assert int(audio.getModel().Step) == 3
+        assert audio.isVisible() is False
+        assert audio_label.isVisible() is False
+        assert dlg.getControl("label_api_key").isVisible() is True
+
+        model.Step = 3
+        assert audio.isVisible() is True
+        assert audio_label.isVisible() is True
+        local = dlg.getControl("audio__stt_local_model")
+        assert local.isVisible() is True
+        assert local.isEnabled() is False
+        assert audio.isEnabled() is True
+
+        listener = SttSettingsListener(dlg)
+        dlg.getControl("audio__stt_provider").setText("Local Whisper (faster-whisper)")
+        listener.sync_ui()
+        assert audio.isVisible() is True
+        assert audio.isEnabled() is False
+        assert local.isEnabled() is True
+        assert int(audio.getModel().Step) == 3
+
+        model.Step = 1
+        assert audio.isVisible() is False
+        assert audio_label.isVisible() is False
+        assert local.isVisible() is False
+        assert dlg.getControl("label_api_key").isVisible() is True
+    finally:
+        dlg.setVisible(False)
+        dlg.dispose()
+
+
+@native_test
+def test_image_then_general_hides_audio_model_leaked_by_setvisible(ctx):
+    """Keith: Image then General clears the first-paint overlap.
+
+    Tab buttons only assign dialog Step (General=1, Image=2). They do not
+    refresh STT visibility. setVisible while General is already showing
+    paints Audio Model there. Assigning Step to 1 again, while already on
+    General, does not re-filter. Leaving for Image and coming back does.
+    """
+    dlg, model = _build(ctx)
+    try:
+        audio = dlg.getControl("audio__stt_model")
+        api_key = dlg.getControl("label_api_key")
+        assert int(model.Step) == 1
+        assert audio.isVisible() is False
+
+        # What the old STT listener did on the first show of General.
+        audio.setVisible(True)
+        assert audio.isVisible() is True
+        assert int(audio.getModel().Step) == 3
+        assert api_key.isVisible() is True
+
+        # Clicking General while already there does not repair the paint.
+        model.Step = 1
+        assert int(model.Step) == 1
+        assert audio.isVisible() is True
+
+        # Image (step 2) then General (step 1): the round trip re-filters.
+        model.Step = 2
+        assert audio.isVisible() is False
+        model.Step = 1
+        assert audio.isVisible() is False
+        assert api_key.isVisible() is True
+        assert int(audio.getModel().Step) == 3
+    finally:
+        dlg.setVisible(False)
+        dlg.dispose()
+
+
+@native_test
+def test_setvisible_before_show_leaks_on_every_new_dialog(ctx):
+    """Each Settings open builds a new dialog and calls setVisible before execute.
+
+    The peer already exists (DialogProvider.createDialog). setVisible(True)
+    then, before the dialog is shown, still paints Audio Model on General.
+    Closing and reopening builds another dialog, so the overlap returns.
+    """
+    dlg, model = _build(ctx, shown=False)
+    try:
+        audio = dlg.getControl("audio__stt_model")
+        label = dlg.getControl("label_audio__stt_model")
+        assert audio.isVisible() is False
+        audio.setVisible(True)
+        label.setVisible(True)
+        dlg.setVisible(True)
+        assert int(model.Step) == 1
+        assert int(audio.getModel().Step) == 3
+        assert audio.isVisible() is True
+        assert label.isVisible() is True
+        assert dlg.getControl("label_api_key").isVisible() is True
+    finally:
+        dlg.setVisible(False)
+        dlg.dispose()
+
+
+@native_test
+def test_enable_before_show_stays_off_general(ctx):
+    """The replacement for that pre-execute sync must not paint Audio Model."""
+    from plugin.chatbot.dialog_views import _apply_stt_model_visibility
+
+    dlg, model = _build(ctx, shown=False)
+    try:
+        _apply_stt_model_visibility(dlg, "LLM Endpoint")
+        dlg.setVisible(True)
+        audio = dlg.getControl("audio__stt_model")
+        label = dlg.getControl("label_audio__stt_model")
+        assert int(model.Step) == 1
+        assert audio.isVisible() is False
+        assert label.isVisible() is False
+        assert audio.isEnabled() is True
+        assert dlg.getControl("label_api_key").isVisible() is True
+        # A second show of a new dialog is the same sequence; do it again.
+        dlg.setVisible(False)
+        _apply_stt_model_visibility(dlg, "LLM Endpoint")
+        dlg.setVisible(True)
+        assert audio.isVisible() is False
+        assert label.isVisible() is False
+    finally:
+        dlg.setVisible(False)
+        dlg.dispose()
