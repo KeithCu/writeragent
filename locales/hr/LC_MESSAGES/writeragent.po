@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -801,6 +801,7 @@ msgid "Settings"
 msgstr "Postavke"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Postavke Vision OCR-a..."
 
@@ -1288,7 +1289,7 @@ msgstr "Pokreni testove za Draw"
 msgid "Evaluation Dashboard"
 msgstr "Nadzorna ploča procjene"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Otklanjanje pogrešaka"
 
@@ -1434,6 +1435,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Slanje kolegama zahtijeva način rada Chat na ovoj bočnoj traci.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Kvadrat"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Položeno (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Uspravno (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Položeno (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Uspravno (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1614,6 +1635,11 @@ msgstr "Korišteni izvori:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Web istraživanje nije prikupilo nikakve iskoristive dokaze."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Pomoćnik:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3235,10 +3261,6 @@ msgid "Sentiment"
 msgstr "Osjećaji"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Kvadrat"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Status"
 
@@ -3638,6 +3660,9 @@ msgstr ""
 "Briše predmemorirane rezultate gramatike za ovaj dokument i traži od Writera"
 " ponovnu provjeru. Koristite nakon promjene provjernika ili modela."
 
+msgid "Recheck"
+msgstr "Ponovna provjera"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Pauziraj gramatiku dok chat/agent radi"
 
@@ -3879,6 +3904,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Konfiguracija klijenta (kopirajte u Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Kopiraj konfiguraciju"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3904,6 +3932,9 @@ msgstr "Test"
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr ""
 "Preuzmite binarne datoteke za zvuk i serijalizaciju specifične za platformu:"
+
+msgid "Download"
+msgstr "Preuzmi"
 
 msgid "Python script timeout (seconds)"
 msgstr "Vremensko ograničenje Python skripte (sekunde)"

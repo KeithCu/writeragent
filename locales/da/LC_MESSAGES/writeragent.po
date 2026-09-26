@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Danish <LL@li.org>\n"
@@ -792,6 +792,7 @@ msgid "Settings"
 msgstr "Indstillinger"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR-indstillinger..."
 
@@ -1280,7 +1281,7 @@ msgstr "Kør Draw-tests"
 msgid "Evaluation Dashboard"
 msgstr "Evalueringspanel"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Fejlfinding"
 
@@ -1426,6 +1427,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Peer-afsendelse kræver Chat-tilstand i dette sidepanel.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Kvadrat"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Liggende (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Stående (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Liggende (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Stående (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1606,6 +1627,11 @@ msgstr "Konsulterede kilder:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Websøgning indsamlede ingen brugbare beviser."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Assistent:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3218,10 +3244,6 @@ msgid "Sentiment"
 msgstr "Sentiment"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Kvadrat"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Status"
 
@@ -3613,6 +3635,9 @@ msgstr ""
 "Rydder cachelagrede grammatikresultater for dette dokument og beder Writer "
 "om at kontrollere igen. Bruges efter ændring af kontrolværktøj eller model."
 
+msgid "Recheck"
+msgstr "Kontrollér igen"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Pause grammatik mens chat/agent kører"
 
@@ -3852,6 +3877,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Klientkonfiguration (kopier til Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Kopiér konfiguration"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3876,6 +3904,9 @@ msgstr "Test"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "Download platformspecifikke lyd- og serialiseringsbinærfiler:"
+
+msgid "Download"
+msgstr "Download"
 
 msgid "Python script timeout (seconds)"
 msgstr "Timeout for Python-script (sekunder)"

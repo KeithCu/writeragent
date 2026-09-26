@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -753,6 +753,7 @@ msgid "Settings"
 msgstr "설정"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR 설정..."
 
@@ -1236,7 +1237,7 @@ msgstr "Draw 테스트 실행"
 msgid "Evaluation Dashboard"
 msgstr "평가 대시보드"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "디버그"
 
@@ -1376,6 +1377,26 @@ msgstr "[모델 {0}은(는) 기본 오디오를 지원하지 않습니다. 설�
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[피어 전송을 사용하려면 이 사이드바에서 채팅 모드가 필요합니다.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "정사각형"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "가로 (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "세로 (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "가로 (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "세로 (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1551,6 +1572,11 @@ msgstr "참조한 출처:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "웹 연구에서 사용할 수 있는 증거를 수집하지 못했습니다."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "어시스턴트:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3110,10 +3136,6 @@ msgid "Sentiment"
 msgstr "감성"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "정사각형"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "상태"
 
@@ -3482,6 +3504,9 @@ msgid ""
 "again. Use after changing checker or model."
 msgstr "이 문서에 대한 캐시된 문법 결과를 지우고 Writer에 다시 확인을 요청합니다. 검사기나 모델을 변경한 후 사용하세요."
 
+msgid "Recheck"
+msgstr "다시 확인"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "채팅/에이전트 실행 중 문법 검사 일시 중지"
 
@@ -3706,6 +3731,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "클라이언트 구성 (Claude / Hermes-Agent에 복사):"
 
+msgid "Copy Config"
+msgstr "설정 복사"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3729,6 +3757,9 @@ msgstr "테스트"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "플랫폼별 오디오 및 직렬화 바이너리 다운로드:"
+
+msgid "Download"
+msgstr "다운로드"
 
 msgid "Python script timeout (seconds)"
 msgstr "Python 스크립트 제한 시간(초)"

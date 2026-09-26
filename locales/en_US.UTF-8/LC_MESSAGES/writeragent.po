@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: English (US) <LL@li.org>\n"
@@ -786,6 +786,7 @@ msgid "Settings"
 msgstr "Settings"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR Settings..."
 
@@ -1272,7 +1273,7 @@ msgstr "Run Draw tests"
 msgid "Evaluation Dashboard"
 msgstr "Evaluation Dashboard"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Debug"
 
@@ -1418,6 +1419,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Peer send requires Chat mode on this sidebar.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Square"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Landscape (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Portrait (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Landscape (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Portrait (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1597,6 +1618,11 @@ msgstr "Sources consulted:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Web research collected no usable evidence."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Assistant:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3185,10 +3211,6 @@ msgid "Sentiment"
 msgstr "Sentiment"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Square"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Status"
 
@@ -3578,6 +3600,9 @@ msgstr ""
 "Clears cached grammar results for this document and asks Writer to check "
 "again. Use after changing checker or model."
 
+msgid "Recheck"
+msgstr "Recheck"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Pause grammar while chat/agent runs"
 
@@ -3814,6 +3839,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Client config (copy into Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Copy Config"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3838,6 +3866,9 @@ msgstr "Test"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "Download platform-specific audio and serialization binaries:"
+
+msgid "Download"
+msgstr "Download"
 
 msgid "Python script timeout (seconds)"
 msgstr "Python script timeout (seconds)"

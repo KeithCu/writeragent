@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -799,6 +799,7 @@ msgid "Settings"
 msgstr "Iestatījumi"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR iestatījumi..."
 
@@ -1287,7 +1288,7 @@ msgstr "Palaist Draw testus"
 msgid "Evaluation Dashboard"
 msgstr "Novērtēšanas informācijas panelis"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Atkļūdot"
 
@@ -1434,6 +1435,26 @@ msgstr ""
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[Vienādranga sūtīšanai šajā sānjoslā ir nepieciešams tērzēšanas režīms.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Kvadrāts"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Ainava (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Portrets (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Ainava (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Portrets (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1615,6 +1636,11 @@ msgstr "Izmantotie avoti:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Tīmekļa izpētē netika atrasti izmantojami pierādījumi."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Asistents:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3231,10 +3257,6 @@ msgid "Sentiment"
 msgstr "Noskaņojums"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Kvadrāts"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Statuss"
 
@@ -3632,6 +3654,9 @@ msgstr ""
 "Writer veikt atkārtotu pārbaudi. Izmantojiet pēc pārbaudītāja vai modeļa "
 "maiņas."
 
+msgid "Recheck"
+msgstr "Pārbaudīt vēlreiz"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Pauzēt gramatikas pārbaudi, kamēr darbojas tērzēšana/aģents"
 
@@ -3873,6 +3898,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Klienta konfigurācija (kopēt uz Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Kopēt konfigurāciju"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3898,6 +3926,9 @@ msgstr "Tests"
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr ""
 "Lejupielādēt platformai specifiskus audio un serializācijas bināros failus:"
+
+msgid "Download"
+msgstr "Lejupielādēt"
 
 msgid "Python script timeout (seconds)"
 msgstr "Python skripta noildze (sekundēs)"

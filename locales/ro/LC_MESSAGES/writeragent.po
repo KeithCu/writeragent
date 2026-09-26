@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -808,6 +808,7 @@ msgid "Settings"
 msgstr "Setări"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Setări Vision OCR..."
 
@@ -1298,7 +1299,7 @@ msgstr "Execută teste Draw"
 msgid "Evaluation Dashboard"
 msgstr "Tablou de bord evaluare"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Depanare"
 
@@ -1445,6 +1446,26 @@ msgstr ""
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[Trimiterea între egali necesită modul Chat în această bară laterală.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Pătrat"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Vedere (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Portret (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Vedere (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Portret (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1626,6 +1647,11 @@ msgstr "Surse consultate:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Cercetarea web nu a colectat nicio dovadă utilizabilă."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Asistent:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3248,10 +3274,6 @@ msgid "Sentiment"
 msgstr "Sentiment"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Pătrat"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Stare"
 
@@ -3655,6 +3677,9 @@ msgstr ""
 "solicită Writer să verifice din nou. Utilizați după schimbarea "
 "verificatorului sau a modelului."
 
+msgid "Recheck"
+msgstr "Reverificare"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Întrerupeți gramatica în timp ce chat-ul/agentul rulează"
 
@@ -3899,6 +3924,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Configurație client (copiați în Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Copiază configurația"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3923,6 +3951,9 @@ msgstr "Test"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "Descărcați binarele audio și de serializare specifice platformei:"
+
+msgid "Download"
+msgstr "Descarcă"
 
 msgid "Python script timeout (seconds)"
 msgstr "Timp limită script Python (secunde)"

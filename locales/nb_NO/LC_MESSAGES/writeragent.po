@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Bokmål <LL@li.org>\n"
@@ -800,6 +800,7 @@ msgid "Settings"
 msgstr "Innstillinger"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR-innstillinger..."
 
@@ -1289,7 +1290,7 @@ msgstr "Kjør Draw-tester"
 msgid "Evaluation Dashboard"
 msgstr "Evalueringsdashbord"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Feilsøking"
 
@@ -1435,6 +1436,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Peer-sending krever chat-modus i dette sidepanelet.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Kvadrat"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Liggende (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Stående (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Liggende (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Stående (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1615,6 +1636,11 @@ msgstr "Konsulterte kilder:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Web-undersøkelsen samlet ingen brukbare bevis."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Assistent:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3224,10 +3250,6 @@ msgid "Sentiment"
 msgstr "Sentiment"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Kvadrat"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Status"
 
@@ -3620,6 +3642,9 @@ msgstr ""
 "Tømmer hurtigbufrede grammatikkresultater for dette dokumentet og ber Writer"
 " om å kontrollere på nytt. Brukes etter endring av kontrollør eller modell."
 
+msgid "Recheck"
+msgstr "Kontroller på nytt"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Sett grammatikkontroll på pause mens chat/agent kjører"
 
@@ -3860,6 +3885,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Klientkonfigurasjon (kopier inn i Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Kopier konfigurasjon"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3884,6 +3912,9 @@ msgstr "Test"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "Last ned plattformspesifikke binærfiler for lyd og serialisering:"
+
+msgid "Download"
+msgstr "Last ned"
 
 msgid "Python script timeout (seconds)"
 msgstr "Tidsavbrudd for Python-skript (sekunder)"

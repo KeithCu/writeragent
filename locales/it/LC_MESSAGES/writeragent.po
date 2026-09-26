@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Italian <LL@li.org>\n"
@@ -812,6 +812,7 @@ msgid "Settings"
 msgstr "Impostazioni"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Impostazioni Vision OCR..."
 
@@ -1302,7 +1303,7 @@ msgstr "Esegui test Draw"
 msgid "Evaluation Dashboard"
 msgstr "Dashboard di valutazione"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Debug"
 
@@ -1449,6 +1450,26 @@ msgstr ""
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[L'invio tra pari richiede la modalità Chat in questa barra laterale.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Quadrato"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Orizzontale (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Verticale (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Orizzontale (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Verticale (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1629,6 +1650,11 @@ msgstr "Fonti consultate:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "La ricerca web non ha raccolto prove utilizzabili."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Assistente:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3265,10 +3291,6 @@ msgid "Sentiment"
 msgstr "Sentiment"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Quadrato"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Stato"
 
@@ -3671,6 +3693,9 @@ msgstr ""
 "documento e richiede a Writer di eseguire un nuovo controllo. Da utilizzare "
 "dopo aver modificato il correttore o il modello."
 
+msgid "Recheck"
+msgstr "Ricontrolla"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Sospendi grammatica durante l'esecuzione di chat/agente"
 
@@ -3914,6 +3939,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Configurazione client (copia in Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Copia configurazione"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3940,6 +3968,9 @@ msgid "Download platform-specific audio and serialization binaries:"
 msgstr ""
 "Scarica i binari per l'audio e la serializzazione specifici per la "
 "piattaforma:"
+
+msgid "Download"
+msgstr "Scarica"
 
 msgid "Python script timeout (seconds)"
 msgstr "Timeout script Python (secondi)"

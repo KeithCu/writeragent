@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Ukrainian <LL@li.org>\n"
@@ -808,6 +808,7 @@ msgid "Settings"
 msgstr "Налаштування"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Налаштування Vision OCR..."
 
@@ -1295,7 +1296,7 @@ msgstr "Запустити тести Draw"
 msgid "Evaluation Dashboard"
 msgstr "Панель оцінювання"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Налагодження"
 
@@ -1442,6 +1443,26 @@ msgstr ""
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[Надсилання одноранговому вузлу потребує режиму чату на цій бічній панелі.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Квадрат"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Альбомна (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Книжкова (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Альбомна (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Книжкова (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1622,6 +1643,11 @@ msgstr "Використані джерела:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Веб-дослідження не зібрало жодних придатних до використання даних."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Помічник:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3243,10 +3269,6 @@ msgid "Sentiment"
 msgstr "Тональність"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Квадрат"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Статус"
 
@@ -3644,6 +3666,9 @@ msgstr ""
 " Writer перевірити його знову. Використовуйте після зміни засобу перевірки "
 "або моделі."
 
+msgid "Recheck"
+msgstr "Перевірити знову"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Призупинити перевірку граматики під час роботи чату/агента"
 
@@ -3888,6 +3913,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Конфігурація клієнта (скопіюйте в Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Копіювати конфігурацію"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3913,6 +3941,9 @@ msgstr "Тест"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "Завантажити платформозалежні бінарні файли аудіо та серіалізації:"
+
+msgid "Download"
+msgstr "Завантажити"
 
 msgid "Python script timeout (seconds)"
 msgstr "Тайм-аут сценарію Python (секунди)"

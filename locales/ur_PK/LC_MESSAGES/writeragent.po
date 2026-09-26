@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Urdu <LL@li.org>\n"
@@ -797,6 +797,7 @@ msgid "Settings"
 msgstr "ترتیبات"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR ترتیبات..."
 
@@ -1283,7 +1284,7 @@ msgstr "Draw ٹیسٹ چلائیں"
 msgid "Evaluation Dashboard"
 msgstr "تشخیصی ڈیش بورڈ"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "ڈیبگ"
 
@@ -1429,6 +1430,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[پیئر سینڈ کے لیے اس سائڈبار پر چیٹ موڈ درکار ہے۔]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "مربع"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "لینڈ اسکیپ (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "پورٹریٹ (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "لینڈ اسکیپ (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "پورٹریٹ (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1608,6 +1629,11 @@ msgstr "مشورہ کردہ ذرائع:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "ویب تحقیق میں کوئی قابل استعمال ثبوت نہیں ملا۔"
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "اسسٹنٹ:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3223,10 +3249,6 @@ msgid "Sentiment"
 msgstr "جذبات"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "مربع"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "حیثیت"
 
@@ -3623,6 +3645,9 @@ msgstr ""
 "اس دستاویز کے لیے کیش شدہ گرامر کے نتائج کو صاف کرتا ہے اور Writer کو دوبارہ"
 " چیک کرنے کا کہتا ہے۔ چیکر یا ماڈل تبدیل کرنے کے بعد استعمال کریں۔"
 
+msgid "Recheck"
+msgstr "دوبارہ چیک کریں"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "چیٹ/ایجنٹ چلنے کے دوران گرامر چیک روکیں"
 
@@ -3863,6 +3888,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "کلائنٹ کنفیگریشن (Claude / Hermes-Agent میں کاپی کریں):"
 
+msgid "Copy Config"
+msgstr "کنفیگریشن کاپی کریں"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3887,6 +3915,9 @@ msgstr "ٹیسٹ"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "پلیٹ فارم کے لیے مخصوص آڈیو اور سیریلائزیشن بائنریز ڈاؤن لوڈ کریں:"
+
+msgid "Download"
+msgstr "ڈاؤن لوڈ"
 
 msgid "Python script timeout (seconds)"
 msgstr "Python اسکرپٹ کا ٹائم آؤٹ (سیکنڈز)"

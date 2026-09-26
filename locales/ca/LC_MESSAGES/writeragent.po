@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -814,6 +814,7 @@ msgid "Settings"
 msgstr "Configuració"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Configuració de l'OCR de visió..."
 
@@ -1305,7 +1306,7 @@ msgstr "Executa les proves de Draw"
 msgid "Evaluation Dashboard"
 msgstr "Tauler d'avaluació"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Depura"
 
@@ -1452,6 +1453,26 @@ msgstr ""
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 "[L'enviament entre iguals requereix el mode Xat en aquesta barra lateral.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Quadrat"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Horitzontal (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Vertical (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Horitzontal (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Vertical (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1632,6 +1653,11 @@ msgstr "Fonts consultades:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "La recerca web no ha recollit cap evidència utilitzable."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Assistent:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3270,10 +3296,6 @@ msgid "Sentiment"
 msgstr "Sentiment"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Quadrat"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Estat"
 
@@ -3675,6 +3697,9 @@ msgstr ""
 "demana al Writer que torni a comprovar-lo. Utilitzeu-ho després de canviar "
 "el corrector o el model."
 
+msgid "Recheck"
+msgstr "Torna a comprovar"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Pausa la gramàtica mentre s'executa el xat/agent"
 
@@ -3921,6 +3946,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Configuració del client (copieu-la al Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Copia la configuració"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3946,6 +3974,9 @@ msgstr "Prova"
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr ""
 "Baixa els binaris d'àudio i de serialització específics de la plataforma:"
+
+msgid "Download"
+msgstr "Baixa"
 
 msgid "Python script timeout (seconds)"
 msgstr "Temps d'espera de l'script de Python (segons)"

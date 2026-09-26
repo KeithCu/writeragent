@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hindi <LL@li.org>\n"
@@ -795,6 +795,7 @@ msgid "Settings"
 msgstr "सेटिंग्स"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR सेटिंग्स..."
 
@@ -1283,7 +1284,7 @@ msgstr "Draw परीक्षण चलाएँ"
 msgid "Evaluation Dashboard"
 msgstr "मूल्यांकन डैशबोर्ड"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "डिबग"
 
@@ -1429,6 +1430,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[पीयर सेंड के लिए इस साइडबार पर चैट मोड की आवश्यकता है।]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "वर्ग"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "लैंडस्केप (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "पोर्ट्रेट (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "लैंडस्केप (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "पोर्ट्रेट (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1608,6 +1629,11 @@ msgstr "परामर्श किए गए स्रोत:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "वेब शोध में कोई उपयोगी साक्ष्य नहीं मिला।"
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "सहायक:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3225,10 +3251,6 @@ msgid "Sentiment"
 msgstr "भावना (Sentiment)"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "वर्ग"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "स्थिति"
 
@@ -3625,6 +3647,9 @@ msgstr ""
 "(Writer) को फिर से जाँचने के लिए कहता है। चेकर या मॉडल बदलने के बाद इसका "
 "उपयोग करें।"
 
+msgid "Recheck"
+msgstr "पुनः जाँचें"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "चैट/एजेंट चलने के दौरान व्याकरण जाँच रोकें"
 
@@ -3863,6 +3888,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "क्लाइंट कॉन्फ़िगरेशन (Claude / Hermes-Agent में कॉपी करें):"
 
+msgid "Copy Config"
+msgstr "कॉन्फ़िगरेशन कॉपी करें"
+
 msgid "Python"
 msgstr "पायथन"
 
@@ -3887,6 +3915,9 @@ msgstr "परीक्षण"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "प्लेटफ़ॉर्म-विशिष्ट ऑडियो और सीरियलाइज़ेशन बाइनरी डाउनलोड करें:"
+
+msgid "Download"
+msgstr "डाउनलोड"
 
 msgid "Python script timeout (seconds)"
 msgstr "पायथन स्क्रिप्ट टाइमआउट (सेकंड)"

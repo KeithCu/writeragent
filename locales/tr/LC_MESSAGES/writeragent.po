@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -800,6 +800,7 @@ msgid "Settings"
 msgstr "Ayarlar"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR Ayarları..."
 
@@ -1286,7 +1287,7 @@ msgstr "Draw testlerini çalıştır"
 msgid "Evaluation Dashboard"
 msgstr "Değerlendirme Panosu"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Hata Ayıklama"
 
@@ -1431,6 +1432,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Eşler arası gönderim, bu kenar çubuğunda Sohbet modunu gerektirir.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Kare"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Yatay (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Dikey (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Yatay (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Dikey (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1611,6 +1632,11 @@ msgstr "Danışılan kaynaklar:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Web araştırması kullanılabilir bir kanıt toplamadı."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Asistan:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3228,10 +3254,6 @@ msgid "Sentiment"
 msgstr "Duygu Analizi"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Kare"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Durum"
 
@@ -3631,6 +3653,9 @@ msgstr ""
 "Writer'dan tekrar denetlemesini ister. Denetleyiciyi veya modeli "
 "değiştirdikten sonra kullanın."
 
+msgid "Recheck"
+msgstr "Yeniden Denetle"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Sohbet/aracı çalışırken dil bilgisini duraklat"
 
@@ -3875,6 +3900,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "İstemci yapılandırması (Claude / Hermes-Agent içine kopyalayın):"
 
+msgid "Copy Config"
+msgstr "Yapılandırmayı Kopyala"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3899,6 +3927,9 @@ msgstr "Sına"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "Platforma özel ses ve serileştirme ikili dosyalarını indirin:"
+
+msgid "Download"
+msgstr "İndir"
 
 msgid "Python script timeout (seconds)"
 msgstr "Python betiği zaman aşımı (saniye)"

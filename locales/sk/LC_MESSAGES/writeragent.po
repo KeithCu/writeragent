@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Slovak <LL@li.org>\n"
@@ -802,6 +802,7 @@ msgid "Settings"
 msgstr "Nastavenia"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Nastavenia Vision OCR..."
 
@@ -1288,7 +1289,7 @@ msgstr "Spustiť testy Draw"
 msgid "Evaluation Dashboard"
 msgstr "Panel hodnotenia"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Ladenie"
 
@@ -1434,6 +1435,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Odosielanie partnerovi vyžaduje režim Četu na tomto bočnom paneli.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Štvorec"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Na šírku (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Na výšku (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Na šírku (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Na výšku (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1614,6 +1635,11 @@ msgstr "Použité zdroje:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Webový prieskum nezhromaždil žiadne použiteľné dôkazy."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Asistent:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3229,10 +3255,6 @@ msgid "Sentiment"
 msgstr "Sentiment"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Štvorec"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Stav"
 
@@ -3633,6 +3655,9 @@ msgstr ""
 "dokument a požiada Writer o opätovnú kontrolu. Použite po zmene kontrolóra "
 "alebo modelu."
 
+msgid "Recheck"
+msgstr "Znova skontrolovať"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Pozastaviť gramatiku počas behu chatu/agenta"
 
@@ -3875,6 +3900,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Konfigurácia klienta (skopírujte do Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Kopírovať konfiguráciu"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3900,6 +3928,9 @@ msgstr "Test"
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr ""
 "Stiahnuť binárne súbory pre zvuk a serializáciu špecifické pre platformu:"
+
+msgid "Download"
+msgstr "Prevziať"
 
 msgid "Python script timeout (seconds)"
 msgstr "Časový limit skriptu Python (sekundy)"

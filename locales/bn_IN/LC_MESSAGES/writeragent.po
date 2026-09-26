@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bengali <LL@li.org>\n"
@@ -800,6 +800,7 @@ msgid "Settings"
 msgstr "সেটিংস"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR সেটিংস..."
 
@@ -1289,7 +1290,7 @@ msgstr "Draw পরীক্ষা চালান"
 msgid "Evaluation Dashboard"
 msgstr "মূল্যায়ন ড্যাশবোর্ড"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "ডিবাগ"
 
@@ -1435,6 +1436,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[পিয়ার সেন্ডের জন্য এই সাইডবারে চ্যাট মোড প্রয়োজন।]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "বর্গক্ষেত্র"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "ল্যান্ডস্কেপ (১৬:৯)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "পোর্ট্রেট (৯:১৬)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "ল্যান্ডস্কেপ (৩:২)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "পোর্ট্রেট (২:৩)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1614,6 +1635,11 @@ msgstr "পরামর্শ করা উৎসসমূহ:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "ওয়েব গবেষণা কোনো ব্যবহারযোগ্য প্রমাণ সংগ্রহ করতে পারেনি।"
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "সহকারী:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3229,10 +3255,6 @@ msgid "Sentiment"
 msgstr "সেন্টিমেন্ট"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "বর্গক্ষেত্র"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "স্থিতি"
 
@@ -3626,6 +3648,9 @@ msgstr ""
 "এই নথির জন্য ক্যাশ করা ব্যাকরণ ফলাফল মুছে ফেলে এবং রাইটারকে পুনরায় পরীক্ষা "
 "করতে বলে। চেকার বা মডেল পরিবর্তন করার পর এটি ব্যবহার করুন।"
 
+msgid "Recheck"
+msgstr "পুনরায় পরীক্ষা করুন"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "চ্যাট/এজেন্ট চলাকালীন ব্যাকরণ পরীক্ষা বিরতি দিন"
 
@@ -3864,6 +3889,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "ক্লায়েন্ট কনফিগ (Claude / Hermes-Agent-এ কপি করুন):"
 
+msgid "Copy Config"
+msgstr "কনফিগারেশন কপি করুন"
+
 msgid "Python"
 msgstr "পাইথন"
 
@@ -3888,6 +3916,9 @@ msgstr "পরীক্ষা"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "প্ল্যাটফর্ম-নির্দিষ্ট অডিও এবং সিরিয়ালাইজেশন বাইনারি ডাউনলোড করুন:"
+
+msgid "Download"
+msgstr "ডাউনলোড"
 
 msgid "Python script timeout (seconds)"
 msgstr "পাইথন স্ক্রিপ্ট টাইমআউট (সেকেন্ড)"

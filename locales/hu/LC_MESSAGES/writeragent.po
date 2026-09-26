@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -814,6 +814,7 @@ msgid "Settings"
 msgstr "Beállítások"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR beállítások..."
 
@@ -1300,7 +1301,7 @@ msgstr "Draw-tesztek futtatása"
 msgid "Evaluation Dashboard"
 msgstr "Értékelési irányítópult"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Hibakeresés"
 
@@ -1446,6 +1447,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[A társnak küldéshez csevegő mód szükséges ezen az oldalsávon.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Négyzet"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Fekvő (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Álló (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Fekvő (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Álló (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1628,6 +1649,11 @@ msgstr "Felhasznált források:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "A webes kutatás nem talált használható bizonyítékot."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Asszisztens:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3258,10 +3284,6 @@ msgid "Sentiment"
 msgstr "Hangulatelemzés"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Négyzet"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Állapot"
 
@@ -3662,6 +3684,9 @@ msgstr ""
 "Törli a dokumentumhoz tárolt nyelvtani eredményeket, és újra ellenőrizteti a"
 " Writerrel. Használja az ellenőrző vagy a modell módosítása után."
 
+msgid "Recheck"
+msgstr "Újraellenőrzés"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Nyelvhelyesség-ellenőrzés szüneteltetése csevegés/ügynök futtatásakor"
 
@@ -3907,6 +3932,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Ügyfélkonfiguráció (másolja be a Claude / Hermes-Agent alkalmazásba):"
 
+msgid "Copy Config"
+msgstr "Konfiguráció másolása"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3931,6 +3959,9 @@ msgstr "Teszt"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "Platformspecifikus hang- és szerializációs binárisok letöltése:"
+
+msgid "Download"
+msgstr "Letöltés"
 
 msgid "Python script timeout (seconds)"
 msgstr "Python-szkript időkorlátja (másodperc)"

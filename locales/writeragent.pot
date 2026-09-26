@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -725,6 +725,7 @@ msgid "Settings"
 msgstr ""
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr ""
 
@@ -1205,7 +1206,7 @@ msgstr ""
 msgid "Evaluation Dashboard"
 msgstr ""
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr ""
 
@@ -1344,6 +1345,26 @@ msgstr ""
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
+msgstr ""
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr ""
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr ""
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr ""
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr ""
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
 msgstr ""
 
 #: plugin/chatbot/web_research_chat.py
@@ -1514,6 +1535,11 @@ msgstr ""
 
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
+msgstr ""
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
 msgstr ""
 
 #: plugin/chatbot/selection.py
@@ -3005,10 +3031,6 @@ msgid "Sentiment"
 msgstr ""
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr ""
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr ""
 
@@ -3367,6 +3389,9 @@ msgid ""
 "again. Use after changing checker or model."
 msgstr ""
 
+msgid "Recheck"
+msgstr ""
+
 msgid "Pause grammar while chat/agent runs"
 msgstr ""
 
@@ -3564,6 +3589,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr ""
 
+msgid "Copy Config"
+msgstr ""
+
 msgid "Python"
 msgstr ""
 
@@ -3582,6 +3610,9 @@ msgid "Test"
 msgstr ""
 
 msgid "Download platform-specific audio and serialization binaries:"
+msgstr ""
+
+msgid "Download"
 msgstr ""
 
 msgid "Python script timeout (seconds)"
@@ -3725,28 +3756,4 @@ msgid "Docling document timeout (s)"
 msgstr ""
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
-msgstr ""
-
-msgid "Assistant:"
-msgstr ""
-
-msgid "Recheck"
-msgstr ""
-
-msgid "Copy Config"
-msgstr ""
-
-msgid "Download"
-msgstr ""
-
-msgid "Landscape (16:9)"
-msgstr ""
-
-msgid "Portrait (9:16)"
-msgstr ""
-
-msgid "Landscape (3:2)"
-msgstr ""
-
-msgid "Portrait (2:3)"
 msgstr ""

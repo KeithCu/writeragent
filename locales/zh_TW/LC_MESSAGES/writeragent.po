@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -752,6 +752,7 @@ msgid "Settings"
 msgstr "設定"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR 設定..."
 
@@ -1235,7 +1236,7 @@ msgstr "執行 Draw 測試"
 msgid "Evaluation Dashboard"
 msgstr "評估儀表板"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "除錯"
 
@@ -1375,6 +1376,26 @@ msgstr "[模型 {0} 不支援原生音訊。請在設定中選擇 STT 模型。]
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[對等傳送需要在此側邊欄開啟聊天模式。]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "正方形"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "橫向 (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "縱向 (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "橫向 (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "縱向 (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1545,6 +1566,11 @@ msgstr "參考來源："
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "網路研究未收集到可用證據。"
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "助理："
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3089,10 +3115,6 @@ msgid "Sentiment"
 msgstr "情感分析"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "正方形"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "狀態"
 
@@ -3458,6 +3480,9 @@ msgid ""
 "again. Use after changing checker or model."
 msgstr "清除此文件已快取的語法檢查結果，並要求 Writer 重新檢查。請在變更檢查器或模型後使用。"
 
+msgid "Recheck"
+msgstr "重新檢查"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "聊天/代理運行時暫停語法檢查"
 
@@ -3672,6 +3697,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "用戶端設定（複製到 Claude / Hermes-Agent）："
 
+msgid "Copy Config"
+msgstr "複製設定"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3695,6 +3723,9 @@ msgstr "測試"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "下載平台專用的音訊與序列化二進位檔案："
+
+msgid "Download"
+msgstr "下載"
 
 msgid "Python script timeout (seconds)"
 msgstr "Python 指令碼逾時（秒）"

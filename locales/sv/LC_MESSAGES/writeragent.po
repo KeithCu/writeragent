@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 13:23-0400\n"
+"POT-Creation-Date: 2026-09-26 14:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -792,6 +792,7 @@ msgid "Settings"
 msgstr "Inställningar"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR-inställningar..."
 
@@ -1281,7 +1282,7 @@ msgstr "Kör rit-tester"
 msgid "Evaluation Dashboard"
 msgstr "Utvärderingspanel"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
 msgid "Debug"
 msgstr "Felsökning"
 
@@ -1427,6 +1428,26 @@ msgstr ""
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Peer-sändning kräver chattläge i detta sidofält.]"
+
+#: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
+msgid "Square"
+msgstr "Kvadrat"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (16:9)"
+msgstr "Liggande (16:9)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (9:16)"
+msgstr "Stående (9:16)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Landscape (3:2)"
+msgstr "Liggande (3:2)"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Portrait (2:3)"
+msgstr "Stående (2:3)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1609,6 +1630,11 @@ msgstr "Konsulterade källor:"
 #: plugin/chatbot/web_research_deep.py
 msgid "Web research collected no usable evidence."
 msgstr "Webbforskningen samlade inte in några användbara bevis."
+
+#: plugin/chatbot/rich_text_paste.py plugin/chatbot/rich_text.py
+#: plugin/chatbot/panel_factory.py
+msgid "Assistant:"
+msgstr "Assistent:"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
@@ -3215,10 +3241,6 @@ msgid "Sentiment"
 msgstr "Sentiment"
 
 #: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Kvadrat"
-
-#: plugin/xdl_strings.py
 msgid "Status"
 msgstr "Status"
 
@@ -3611,6 +3633,9 @@ msgstr ""
 "Rensar cachade grammatikresultat för detta dokument och ber Writer att "
 "kontrollera igen. Används efter byte av kontrollverktyg eller modell."
 
+msgid "Recheck"
+msgstr "Kontrollera igen"
+
 msgid "Pause grammar while chat/agent runs"
 msgstr "Pausa grammatik medan chatt/agent körs"
 
@@ -3852,6 +3877,9 @@ msgstr ""
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Klientkonfiguration (kopiera till Claude / Hermes-Agent):"
 
+msgid "Copy Config"
+msgstr "Kopiera konfiguration"
+
 msgid "Python"
 msgstr "Python"
 
@@ -3876,6 +3904,9 @@ msgstr "Testa"
 
 msgid "Download platform-specific audio and serialization binaries:"
 msgstr "Hämta plattformsspecifika binärfiler för ljud och serialisering:"
+
+msgid "Download"
+msgstr "Hämta"
 
 msgid "Python script timeout (seconds)"
 msgstr "Tidsgräns för Python-skript (sekunder)"
