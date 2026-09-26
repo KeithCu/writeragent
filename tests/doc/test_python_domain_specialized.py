@@ -20,7 +20,7 @@ from plugin.doc.python_domain_specialized import (
     validate_requested_domains,
 )
 from plugin.doc.specialized_base import DelegateToSpecializedBase
-from plugin.framework.tool import ToolContext, ToolRegistry
+from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.writer.specialized.footnotes import FootnotesInsert
 from plugin.writer.specialized_base import (
     DelegateToSpecializedWriter,
