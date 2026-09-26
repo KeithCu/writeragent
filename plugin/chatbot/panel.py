@@ -35,6 +35,20 @@ from plugin.framework.errors import suppress_disposed
 from plugin.framework.logging import update_activity_state
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.chatbot.history_db import get_chat_history
+from plugin.chatbot.record_gesture import (
+    RECORD_HOLD_MS,
+    RECORDING_STATUS,
+    STICKY_TTS_POLL_MS,
+    RecordGesture,
+    StickyRestart,
+    exit_sticky,
+    gesture_action,
+    gesture_hold_elapsed,
+    gesture_press,
+    gesture_release,
+    hands_free_status_text,
+    sticky_restart,
+)
 
 # Recording shipped unless built with --no-recording (see scripts/build_oxt.py).
 from typing import TYPE_CHECKING, Any
@@ -365,6 +379,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     queue_executor: QueueExecutor
     audio_recorder: Any
     sidebar_state: SidebarCompositeState
+    _record_gesture: RecordGesture
+    _record_hold_gen: int
+    _sticky_restart_gen: int
+    _sticky_restart_pending: bool
 
     def __init__(
         self,
@@ -460,6 +478,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         send_initial = SendButtonState(is_busy=False, is_recording=False, has_text=False, has_audio=False, audio_supported=audio_supported)
         self.sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None, audio=AudioRecorderState(status="idle"))
+        # Hands-free Record is a panel flag. The send FSM stays timer-free.
+        self._record_gesture = RecordGesture()
+        self._record_hold_gen = 0
+        self._sticky_restart_gen = 0
+        self._sticky_restart_pending = False
 
         # Subscribe to MCP/tool bus events
         try:
@@ -902,6 +925,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def dispatch(self, event: Any) -> None:
         """Dispatch an event to the state machine, compute new state, and apply effects."""
+        kind = getattr(event, "kind", None)
+        # Stop and aborting errors must drop sticky before SEND_COMPLETED, or
+        # the turn-end hook would arm the mic again.
+        if kind in (SendEventKind.STOP_CLICKED, SendEventKind.ERROR_OCCURRED):
+            self.exit_hands_free_record()
+        was_busy = self.sidebar_state.send.is_busy
         tr = sidebar_next_state(self.sidebar_state, SidebarEvent(kind=SidebarEventKind.SEND, payload=event))
         self.sidebar_state = tr.state
         self._send_busy = self.sidebar_state.send.is_busy
@@ -919,9 +948,125 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._dispatch_reenter = None
         for nested in reenter:
             self.dispatch(nested)
+        # Flag only. The drain flushes after speak_text_async so a voice reply
+        # is already speaking (or known idle) before we touch the mic.
+        if kind == SendEventKind.SEND_COMPLETED and was_busy and not self.sidebar_state.send.is_busy and self._record_gesture.sticky:
+            self._sticky_restart_pending = True
+
+    def exit_hands_free_record(self) -> None:
+        """Drop sticky so the next reply does not arm Record again."""
+        was_sticky = self._record_gesture.sticky
+        self._record_gesture = exit_sticky(self._record_gesture)
+        self._sticky_restart_pending = False
+        self._sticky_restart_gen += 1
+        self._record_hold_gen += 1
+        if was_sticky:
+            log.info("Hands-free record cleared")
+
+    def _apply_record_gesture(self, step: Any) -> None:
+        was_sticky = self._record_gesture.sticky
+        self._record_gesture = step.gesture
+        if step.gesture.sticky and not was_sticky:
+            log.info("Hands-free record armed")
+        if step.cancel_timer:
+            self._record_hold_gen += 1
+        if step.start_timer:
+            self._arm_record_hold_timer()
+        if step.dispatch_record:
+            try:
+                from plugin.audio.tts_service import stop_speech
+
+                stop_speech()
+            except Exception:
+                log.debug("stop_speech before Record failed", exc_info=True)
+            self.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
+
+    def _arm_record_hold_timer(self) -> None:
+        self._record_hold_gen += 1
+        self._spawn_record_hold_wait(self._record_hold_gen)
+
+    def _spawn_record_hold_wait(self, gen: int) -> None:
+        """Sleep off the UI thread, then hop back through QueueExecutor.
+
+        ``dedicated`` so a 2s hold does not pin a shared pool worker. The
+        generation is checked on the UI thread; releasing early just bumps it.
+        """
+        import time
+
+        from plugin.framework.worker_pool import run_in_background
+
+        delay_s = RECORD_HOLD_MS / 1000.0
+
+        def _wait() -> None:
+            time.sleep(delay_s)
+            try:
+                self.queue_executor.post(self._on_record_hold_elapsed, gen)
+            except Exception:
+                log.debug("record hold timer post failed", exc_info=True)
+
+        run_in_background(_wait, name="record-hold", dedicated=True)
+
+    def _on_record_hold_elapsed(self, gen: int) -> None:
+        if gen != self._record_hold_gen:
+            return
+        self._apply_record_gesture(gesture_hold_elapsed(self._record_gesture))
+
+    def _flush_sticky_restart(self) -> None:
+        """Arm Record again if this completed turn left sticky on."""
+        pending = self._sticky_restart_pending
+        self._sticky_restart_pending = False
+        if not pending or not self._record_gesture.sticky:
+            return
+        self._begin_sticky_rerecord()
+
+    def _begin_sticky_rerecord(self) -> None:
+        send = self.sidebar_state.send
+        if send.is_busy or send.is_recording or not send.audio_supported:
+            return
+        speaking = False
+        try:
+            from plugin.audio.tts_service import is_speaking
+
+            speaking = bool(is_speaking())
+        except Exception:
+            log.debug("hands-free re-record: is_speaking failed", exc_info=True)
+        decision = sticky_restart(sticky=True, speaking=speaking)
+        if decision == StickyRestart.RECORD:
+            log.info("Hands-free record restarting")
+            self.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
+        elif decision == StickyRestart.WAIT_FOR_TTS:
+            self._sticky_restart_gen += 1
+            log.debug("Hands-free record waiting for TTS")
+            self._spawn_sticky_tts_wait(self._sticky_restart_gen)
+
+    def _spawn_sticky_tts_wait(self, gen: int) -> None:
+        """Poll ``is_speaking`` later. Do not sleep on the UNO thread."""
+        import time
+
+        from plugin.framework.worker_pool import run_in_background
+
+        delay_s = STICKY_TTS_POLL_MS / 1000.0
+
+        def _wait() -> None:
+            time.sleep(delay_s)
+            try:
+                self.queue_executor.post(self._poll_sticky_rerecord, gen)
+            except Exception:
+                log.debug("hands-free TTS wait post failed", exc_info=True)
+
+        run_in_background(_wait, name="sticky-rerecord", dedicated=True)
+
+    def _poll_sticky_rerecord(self, gen: int) -> None:
+        if gen != self._sticky_restart_gen or not self._record_gesture.sticky:
+            return
+        self._begin_sticky_rerecord()
 
     def _on_audio_auto_stop(self) -> None:
-        """Silence detector ended capture; same FSM path as clicking Stop Rec (stop + send)."""
+        """Silence detector ended capture; same FSM path as clicking Stop Rec (stop + send).
+
+        Hands-free does not replace this. The sticky flag stays set so the
+        reply's ``SEND_COMPLETED`` can arm Record again.
+        """
         if not self.sidebar_state.send.is_recording:
             log.info("audio auto-stop ignored (not recording)")
             return
@@ -955,7 +1100,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                 self.send_control.setPosSize(r.X, r.Y, self._fixed_send_width, r.Height, 15)
 
                 if effect.status_text is not None and effect.status_text != "":
-                    self._set_status(_(effect.status_text))
+                    # Sticky takes share the Record transition; only the status line differs.
+                    if effect.status_text == RECORDING_STATUS and self._record_gesture.sticky:
+                        self._set_status(hands_free_status_text())
+                    else:
+                        self._set_status(_(effect.status_text))
 
             case StartRecordingEffect():
                 try:
@@ -1043,6 +1192,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         btn_model = self.send_control.getModel()
         label = btn_model.Label
 
+        # Mouse press/hold/release owns Record. ActionEvent still runs, and by
+        # then the label may already say Stop Rec — handling it here would send
+        # the take that the long-press just started.
+        action_step = gesture_action(self._record_gesture)
+        self._record_gesture = action_step.gesture
+        if action_step.swallowed_action:
+            return
+
         if label == _("Record"):
             from plugin.audio.tts_service import stop_speech
             stop_speech()
@@ -1113,7 +1270,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                             if self.stop_control and self.stop_control.getModel():
                                                 with suppress_disposed("disable stop after speech", logger=log):
                                                     self.stop_control.getModel().Enabled = False
-                                            self._set_status(_(prior_status))
+                                            # A sticky restart may already be capturing; Ready would hide it.
+                                            if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
+                                                self._set_status(hands_free_status_text())
+                                            else:
+                                                self._set_status(_(prior_status))
                                     self.queue_executor.post(_disable_stop)
 
                                 speak_text_async(
@@ -1130,6 +1291,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                             self.stop_control.getModel().Enabled = True
                 except Exception as e:
                     log.debug("TTS playback trigger: %s", e)
+                self._flush_sticky_restart()
             from plugin.doc.peer_message import kick_pending_peer_starts
 
             kick_pending_peer_starts()
@@ -1372,6 +1534,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # nonempty-string check as a redundant condition.
                 self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
                 self._set_status(_("Ready"))
+                self._flush_sticky_restart()
             kick_pending_peer_starts()
 
     def _do_send_extracted_peer(self, query_text: str, *, already_appended: bool) -> None:
@@ -1446,6 +1609,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if scope is not None:
             scope.cancel()
         self._stop_requested_fallback = True
+        self.exit_hands_free_record()
         try:
             from plugin.doc.peer_message import drop_listener_queue
 
@@ -1498,6 +1662,9 @@ def notify_stop_mouse_pressed(send_listener: Any) -> None:
     if is_speaking():
         stop_speech()
         if not getattr(send_listener, "_send_busy", False):
+            # Playback-only Stop does not dispatch STOP_CLICKED. Still leave
+            # hands-free, or the TTS poll would arm the mic again.
+            send_listener.exit_hands_free_record()
             if send_listener.stop_control and send_listener.stop_control.getModel():
                 with suppress_disposed("disable stop on mousePressed speech stopped", logger=log):
                     send_listener.stop_control.getModel().Enabled = False
@@ -1541,6 +1708,65 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
         log.exception("Stop mouse listener attach failed")
 
 
+def _send_button_label(send_listener: Any) -> str:
+    try:
+        model = send_listener.send_control.getModel()
+    except Exception:
+        return ""
+    if model is None:
+        return ""
+    return str(getattr(model, "Label", "") or "")
+
+
+def notify_record_mouse_pressed(send_listener: Any) -> None:
+    """Record mousePressed: arm the 2s hold timer. Do not start capture yet."""
+    if send_listener is None:
+        return
+    from plugin.framework.i18n import _
+
+    label_is_record = _send_button_label(send_listener) == _("Record")
+    send_listener._apply_record_gesture(gesture_press(send_listener._record_gesture, label_is_record=label_is_record))
+
+
+def notify_record_mouse_released(send_listener: Any) -> None:
+    """Record mouseReleased: short click records once; long press already did."""
+    if send_listener is None:
+        return
+    send_listener._apply_record_gesture(gesture_release(send_listener._record_gesture))
+
+
+def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
+    """Own Record press/hold/release so ActionEvent cannot double-start or instant-send."""
+    if send_control is None or not hasattr(send_control, "addMouseListener"):
+        return
+    try:
+        import unohelper
+        from com.sun.star.awt import XMouseListener
+    except ImportError:
+        return
+
+    class _RecordMouse(unohelper.Base, XMouseListener):  # type: ignore[misc]
+        def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
+            return
+
+        def mousePressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+            notify_record_mouse_pressed(send_listener)
+
+        def mouseReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+            notify_record_mouse_released(send_listener)
+
+        def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+            return
+
+        def mouseExited(self, e: Any) -> None:  # noqa: N802 -- UNO signature
+            return
+
+    try:
+        send_control.addMouseListener(_RecordMouse())
+    except Exception:
+        log.exception("Record mouse listener attach failed")
+
+
 class StopButtonListener(BaseActionListener):
     """Listener for the Stop button - sets a flag in SendButtonListener to halt loops."""
 
@@ -1564,6 +1790,9 @@ class StopButtonListener(BaseActionListener):
             if is_speaking():
                 stop_speech()
                 if not getattr(self.send_listener, "_send_busy", False):
+                    # Playback-only Stop does not dispatch STOP_CLICKED. Still leave
+                    # hands-free, or the TTS poll would arm the mic again.
+                    self.send_listener.exit_hands_free_record()
                     if self.send_listener.stop_control and self.send_listener.stop_control.getModel():
                         with suppress_disposed("disable stop on speech stopped", logger=log):
                             self.send_listener.stop_control.getModel().Enabled = False
@@ -1608,6 +1837,8 @@ class ClearButtonListener(BaseActionListener):
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.audio.tts_service import stop_speech
         stop_speech()
+        if self.send_listener is not None:
+            self.send_listener.exit_hands_free_record()
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             self.send_listener._finish_inline_web_approval(False)
             return
