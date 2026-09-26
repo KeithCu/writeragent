@@ -16,6 +16,12 @@ import tempfile
 import threading
 from typing import Any, Callable
 
+from plugin.audio.kokoro_g2p import (
+    KOKORO_ONNX_SCRIPT,
+    KOKORO_PIP_INSTALL,
+    ensure_kokoro_misaki,
+    kokoro_lang_uses_misaki,
+)
 from plugin.audio.voice_catalog import (
     DEFAULT_VOICE_FOR_FAMILY,
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
@@ -733,45 +739,52 @@ def _speak_kokoro_local(
         return
 
     lang = _kokoro_lang_for_voice(voice)
+    # Non-English voices were phonemized with espeak-ng inside kokoro-onnx, so
+    # ja read kanji as "chinese letter" and fr/es missed Kokoro's phone map.
+    # Misaki runs in the venv script (is_phonemes=True). Install failure does
+    # not refuse the speak: the script falls back to espeak-ng and the status
+    # line carries the install hint. English stays on espeak-ng.
+    misaki_ready: bool | None = True
+    if kokoro_lang_uses_misaki(lang):
+        misaki_ready = ensure_kokoro_misaki(
+            py_exe,
+            lang,
+            on_status=lambda message: _notify_tts_status(message, on_status),
+            cancelled=_speech_cancelled.is_set,
+        )
+        if misaki_ready is None or _speech_cancelled.is_set():
+            return
     tmp_wav = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             tmp_wav = f.name
-        # A voices file that lacks the requested id (for example a custom
-        # KOKORO_VOICES_PATH still pointing at the English-only pack) keeps
-        # speaking via af_bella. Log it; do not fail the speak.
-        script = (
-            "import sys\n"
-            "from kokoro_onnx import Kokoro\n"
-            "import soundfile as sf\n"
-            "kokoro = Kokoro(sys.argv[5], sys.argv[6])\n"
-            "requested = sys.argv[2]\n"
-            "if requested in kokoro.voices:\n"
-            "    voice = requested\n"
-            "else:\n"
-            "    voice = 'af_bella' if 'af_bella' in kokoro.voices else kokoro.voices[0]\n"
-            "    sys.stderr.write(\n"
-            "        'Kokoro voice %r is not in %s; using %s\\n'\n"
-            "        % (requested, sys.argv[6], voice)\n"
-            "    )\n"
-            "samples, rate = kokoro.create(\n"
-            "    sys.argv[1], voice=voice, speed=float(sys.argv[3]), lang=sys.argv[7]\n"
-            ")\n"
-            "sf.write(sys.argv[4], samples, rate)\n"
-        )
-        cmd = [py_exe, "-c", script, text, voice, str(speed), tmp_wav, model_path, voices_path, lang]
+        # KOKORO_ONNX_SCRIPT phonemizes non-English text with Misaki
+        # (is_phonemes=True). A voices file that lacks the requested id still
+        # speaks via af_bella; that substitution is logged and does not fail.
+        cmd = [py_exe, "-c", KOKORO_ONNX_SCRIPT, text, voice, str(speed), tmp_wav, model_path, voices_path, lang]
         with _speech_lock:
             if _speech_active and _speech_cancelled.is_set():
                 return
             _active_speech_proc = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
             )
-        _, stderr = _active_speech_proc.communicate()
+        _stdout, stderr = _active_speech_proc.communicate()
         if _active_speech_proc.returncode != 0:
             log.warning("Venv Kokoro failed (code %d): %s", _active_speech_proc.returncode, stderr)
         else:
-            if stderr and stderr.strip():
-                log.warning("Kokoro: %s", stderr.strip())
+            # A missing voice (custom KOKORO_VOICES_PATH still on the English
+            # pack) and a Misaki import error are written to stderr while the
+            # process still exits 0 and plays the fallback audio.
+            stderr_text = (stderr or "").strip()
+            if stderr_text:
+                log.warning("Kokoro: %s", stderr_text)
+            if misaki_ready and (
+                "Misaki G2P failed" in stderr_text or "fell back to espeak-ng" in stderr_text
+            ):
+                _notify_tts_status(
+                    _("Kokoro phonemizer failed; this language may be misread."),
+                    on_status,
+                )
             if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0:
                 _play_audio_file(tmp_wav)
                 return
@@ -788,7 +801,8 @@ def _speak_kokoro_local(
 
     log.warning(
         "Local Kokoro engine not available in configured venv. "
-        "Install with: uv pip install kokoro-onnx soundfile. Falling back to OS speech."
+        "Install with: %s. Falling back to OS speech.",
+        KOKORO_PIP_INSTALL,
     )
     _speak_system(text, speed=speed)
 

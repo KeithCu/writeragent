@@ -870,5 +870,8 @@ def test_format_self_check_success_audio_tts_optional_missing_shows_hint():
     msg = _format_self_check_success(data)
     assert "Audio Recording & Speech: sounddevice, input_device" in msg
     assert "Optional (not installed): kokoro_onnx, soundfile, piper" in msg
-    assert "Local TTS engines (optional): uv pip install kokoro-onnx soundfile piper-tts" in msg
+    assert (
+        "Local TTS engines (optional): uv pip install kokoro-onnx soundfile piper-tts "
+        "'misaki[ja,zh]' phonemizer-fork espeakng-loader"
+    ) in msg
 

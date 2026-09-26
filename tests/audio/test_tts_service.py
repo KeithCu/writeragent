@@ -546,6 +546,103 @@ def test_resolve_kokoro_model_files_honors_env_overrides(tmp_path):
     assert voices_path == str(voices)
 
 
+def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
+    """ja/fr/es pass the Misaki script and the Kokoro lang code; English does not install Misaki."""
+    import plugin.audio.tts_service as tts
+    from plugin.audio.kokoro_g2p import KOKORO_ONNX_SCRIPT
+    from plugin.audio.tts_service import _speak_kokoro_local
+
+    tts._speech_cancelled.clear()
+    tts._speech_active = False
+
+    model = tmp_path / "kokoro-v1.0.onnx"
+    voices = tmp_path / "voices-v1.0.bin"
+    model.write_bytes(b"m")
+    voices.write_bytes(b"v")
+    py = tmp_path / "python"
+    py.write_text("")
+
+    def _launch(voice: str) -> tuple[list[str], object]:
+        launched: list[list[str]] = []
+
+        def fake_popen(cmd, **kwargs):
+            launched.append(list(cmd))
+            with open(cmd[6], "wb") as handle:
+                handle.write(b"RIFF")
+
+            class _Proc:
+                returncode = 0
+
+                def communicate(self, input=None, timeout=None):
+                    return "", ""
+
+                def poll(self):
+                    return 0
+
+            return _Proc()
+
+        ensure = MagicMock(return_value=True)
+        with patch("plugin.audio.tts_service.get_config_str", return_value=str(tmp_path)), \
+             patch("plugin.audio.tts_service.resolve_venv_python", return_value=str(py)), \
+             patch("plugin.audio.tts_service._resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
+             patch("plugin.audio.tts_service.ensure_kokoro_misaki", ensure), \
+             patch("plugin.audio.tts_service.subprocess.Popen", side_effect=fake_popen), \
+             patch("plugin.audio.tts_service._play_audio_file") as play:
+            _speak_kokoro_local("hello", voice=voice, speed=1.0)
+        assert play.called
+        assert len(launched) == 1
+        return launched[0], ensure
+
+    ja_cmd, ja_ensure = _launch("jf_alpha")
+    assert ja_cmd[1] == "-c"
+    assert ja_cmd[2] == KOKORO_ONNX_SCRIPT
+    assert ja_cmd[4] == "jf_alpha"
+    assert ja_cmd[9] == "ja"
+    assert "is_phonemes=True" in ja_cmd[2]
+    assert "JAG2P" in ja_cmd[2]
+    ja_ensure.assert_called_once()
+    assert ja_ensure.call_args.args[1] == "ja"
+
+    fr_cmd, fr_ensure = _launch("ff_siwis")
+    assert fr_cmd[9] == "fr-fr"
+    assert "EspeakG2P(language='fr-fr')" in fr_cmd[2]
+    assert fr_ensure.call_args.args[1] == "fr-fr"
+
+    es_cmd, es_ensure = _launch("ef_dora")
+    assert es_cmd[9] == "es"
+    assert "EspeakG2P(language='es')" in es_cmd[2]
+    assert es_ensure.call_args.args[1] == "es"
+
+    en_cmd, en_ensure = _launch("af_bella")
+    assert en_cmd[9] == "en-us"
+    assert en_cmd[2] == KOKORO_ONNX_SCRIPT
+    en_ensure.assert_not_called()
+
+
+def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tmp_path):
+    import plugin.audio.tts_service as tts
+    from plugin.audio.tts_service import _speak_kokoro_local
+
+    tts._speech_cancelled.clear()
+    tts._speech_active = False
+
+    model = tmp_path / "model.onnx"
+    voices = tmp_path / "voices.bin"
+    model.write_bytes(b"m")
+    voices.write_bytes(b"v")
+
+    with patch("plugin.audio.tts_service.get_config_str", return_value=str(tmp_path)), \
+         patch("plugin.audio.tts_service.resolve_venv_python", return_value=str(tmp_path / "python")), \
+         patch("plugin.audio.tts_service._resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
+         patch("plugin.audio.tts_service.ensure_kokoro_misaki", return_value=None), \
+         patch("plugin.audio.tts_service.subprocess.Popen") as popen, \
+         patch("plugin.audio.tts_service._speak_system") as system:
+        _speak_kokoro_local("こんにちは", voice="jf_alpha")
+
+    popen.assert_not_called()
+    system.assert_not_called()
+
+
 def test_all_writeragent_locales_have_piper_model_mapping():
     from plugin.audio.tts_service import get_default_voice_for_locale, _PIPER_VOICE_MODELS
     import os
