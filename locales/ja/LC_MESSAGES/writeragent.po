@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 12:42-0400\n"
+"POT-Creation-Date: 2026-09-26 12:49-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -16,169 +16,1378 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: plugin/doc/specialized_base.py
-msgid ""
-"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
-"(Settings → Python → Test for install hints)."
-msgstr ""
-"ローカルOCRには「設定」→「Python "
-"venv（DoclingまたはPaddleOCR）」が必要です（「設定」→「Python」→「テスト」でインストールヒントを確認してください）。"
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "トンネルテストモード: {0} プロバイダーのシミュレーションに成功しました。"
 
-#: plugin/doc/specialized_base.py
-msgid "Running local OCR on selected image(s)..."
-msgstr "選択した画像に対してローカルOCRを実行中..."
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "不明なトンネルプロバイダー: {0}"
 
-#: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr "ドキュメントのリサーチ読み取りには専門的なタスク委任（USE_SUB_AGENT）が必要です。設定でこれを有効にしてください。"
-
-#: plugin/doc/specialized_base.py
+#: plugin/mcp/tunnel.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
 msgstr ""
-"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っています。完了したら "
-"'specialized_workflow_finished' を呼び出して、APIのフルセットを復元してください。"
+"{1} 用のバイナリ '{0}' が PATH 上に見つかりません。\n"
+"\n"
+"インストール先: {2}"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Cell execution failed."
-msgstr "セルの実行に失敗しました。"
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "{0} バイナリの実行に失敗しました ({1}): {2}"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Notebook run is only supported in LibreOffice Writer."
-msgstr "ノートブックの実行はLibreOffice Writerでのみサポートされています。"
-
-#: plugin/notebook/notebook_runner.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
 msgstr ""
-"このドキュメントにはインポートされたノートブックがありません。「ファイル」→「Jupyterノートブック (.ipynb) "
+"{0} トンネルは実行中で応答しています！\n"
+"\n"
+"パブリックエンドポイント:\n"
+"{1}\n"
+"\n"
+"ヘルスチェック: OK (200)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+"{0} トンネルはアクティブです！\n"
+"\n"
+"パブリックエンドポイント:\n"
+"{1}\n"
+"\n"
+"(パブリックURLはアクティブなトンネルセッションから取得されました。)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+"{0} バイナリ '{1}' は検証済みです ({2})。\n"
+"\n"
+"(注: アクティブな {3} トンネルが現在 {4} で実行中です。)"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"{0} バイナリ '{1}' はインストールおよび検証済みです ({2})。\n"
+"\n"
+"MCPサーバーはローカルのポート {3} で実行中です。\n"
+"「パブリックトンネル経由で公開」にチェックを入れて「OK」をクリックすると、パブリックルーティングが有効になります。"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0} バイナリ '{1}' はインストールおよび検証済みです ({2})。\n"
+"\n"
+"注: MCPサーバーは現在ポート {3} で実行されていません。"
+
+#: plugin/mcp/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ コピーしました！"
+
+#: plugin/mcp/mcp_ui.py
+msgid "Testing…"
+msgstr "テスト中…"
+
+#: plugin/mcp/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "トンネルのテスト"
+
+#: plugin/mcp/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP トンネルのテスト"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCPサーバーの起動に失敗しました"
+
+#: plugin/mcp/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr "LibreOfficeユーザー設定フォルダー内のwriteragent_debug.logを確認してください"
+
+#: plugin/mcp/__init__.py
+msgid "Stop MCP Server"
+msgstr "MCPサーバーを停止"
+
+#: plugin/mcp/__init__.py
+msgid "Start MCP Server"
+msgstr "MCPサーバーを起動"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "{0} 経由のパブリックトンネル (認証なし)"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "{0} 経由のパブリックトンネル: {1}"
+
+#: plugin/mcp/__init__.py
+msgid "reconnecting…"
+msgstr "再接続中…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "{0} 経由のパブリックトンネルに失敗しました: {1}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "{0} 経由のパブリックトンネルを開始しています…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr "{0} 経由のパブリックトンネルは実行されていません (プロバイダーバイナリはインストールされていますか?)"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server stopped"
+msgstr "MCPサーバーが停止しました"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server started"
+msgstr "MCPサーバーが起動しました"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0}"
+msgstr "{0} 経由のパブリックトンネル"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
+msgstr "{0} 経由のパブリックトンネルを開始しています… 準備ができたら「MCP サーバーの状態」を使用してください。"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server is not running"
+msgstr "MCPサーバーは実行されていません"
+
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCPサーバー実行中"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "ルート: {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "ローカル URL: {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "公開URL: {0}"
+
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "ローカルエンドポイント:"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "パブリックトンネル ({0}):"
+
+#: plugin/mcp/__init__.py
+msgid "Status: Active (connected)"
+msgstr "ステータス: アクティブ (接続済み)"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "ステータス: 再接続中 — {0}"
+
+#: plugin/mcp/__init__.py
+msgid "retrying…"
+msgstr "再試行中…"
+
+#: plugin/mcp/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "ステータス: トンネルを開始中…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "ステータス: 失敗 — {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "ステータス: 実行されていません ({0} バイナリはインストールされていますか?)"
+
+#: plugin/mcp/__init__.py plugin/chatbot/dialogs.py
+msgid "Copied!"
+msgstr "コピーしました！"
+
+#: plugin/scripting/viz.py
+msgid "Unsupported document type for plot insertion."
+msgstr "プロットの挿入に対応していないドキュメント形式です。"
+
+#: plugin/scripting/viz.py
+msgid "Viz helper failed."
+msgstr "可視化ヘルパーが失敗しました。"
+
+#: plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "可視化ヘルパーから画像データが返されませんでした。"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
+msgstr "PythonScriptDialogを拡張機能から読み込めませんでした。"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/document_scripts.py
+msgid "No document is open to save scripts."
+msgstr "スクリプトを保存するためのドキュメントが開かれていません。"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s 代わりに「マイ スクリプト」に保存されました。"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "スクリプト '%s' をこのドキュメントに保存しました。"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "スクリプト '%s' を正常に保存しました。"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/calc/python/cell_editor_ui.py plugin/framework/main_shared.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/panel.py
+#: plugin/chatbot/dialog_views.py
+msgid "Error"
+msgstr "エラー"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Save Script As"
+msgstr "スクリプトを名前を付けて保存"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "'{0}' という名前のスクリプトは既にこのドキュメントに存在します。上書きしますか？"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr "'{0}' という名前のスクリプトは既にマイ スクリプトに存在します。上書きしますか？"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to My Scripts."
+msgstr "スクリプト '%s' をマイ スクリプトに保存しました。"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "スクリプト '%s' を削除してもよろしいですか？"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "スクリプトを削除"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/document_scripts.py
+msgid "No document is open."
+msgstr "ドキュメントが開かれていません。"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "スクリプト '%s' を削除しました。"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "New Script"
+msgstr "新しいスクリプト"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' created in this document."
+msgstr "スクリプト '%s' をこのドキュメント内に作成しました。"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' created in My Scripts."
+msgstr "スクリプト '%s' をマイ スクリプト内に作成しました。"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "実行エラー"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/calc/python/function.py
+msgid "Unknown error"
+msgstr "不明なエラー"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "スクリプトは正常に実行されました。"
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr "スクリプトは正常に実行されましたが、結果が返されず、出力もありませんでした。"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "成功"
+
+#: plugin/scripting/python_runner_ui.py plugin/librepy/python_sidebar.py
+msgid "Output"
+msgstr "出力"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
+msgstr "Linuxではシステム用PortAudioもインストールしてください: sudo pacman -S portaudio"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr "オーディオプローブがタイムアウトしました (sounddeviceのインポート失敗またはハング)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "オーディオプローブが失敗しました (writeragent_debug.logを参照してください)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"テキスト/NLPプローブがタイムアウトしました (spaCyまたはtransformersの初回インポートには10〜30秒かかる場合があります)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "テキスト/NLPプローブが失敗しました (writeragent_debug.logを参照してください)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgstr "ビジョン・プローブがタイムアウトしました (初回チェック時は Docling のインポートに 10～30 秒かかる場合があります)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision probe failed (see writeragent_debug.log)."
+msgstr "ビジョン・プローブが失敗しました (writeragent_debug.log を参照してください)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
+msgstr ""
+"ベクトル検索プローブがタイムアウトしました (sentence-transformers のインポートは初回チェック時に 10～30 "
+"秒かかることがあります)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr "ベクトル検索プローブが失敗しました (writeragent_debug.log を参照してください)。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording & Speech"
+msgstr "録音と音声"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Scientific Libraries"
+msgstr "科学技術ライブラリ"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Data Analysis / EDA Libraries"
+msgstr "データ分析 / EDAライブラリ"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries"
+msgstr "UI / Monacoライブラリ"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Visualization Libraries"
+msgstr "可視化ライブラリ"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Computer Algebra"
+msgstr "数式処理"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Quantitative Finance Libraries"
+msgstr "金融工学ライブラリ"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Data Engineering Libraries"
+msgstr "データエンジニアリング・ライブラリ"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "テキスト / NLP ライブラリ"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries"
+msgstr "ビジョンライブラリ"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "ベクトル検索ライブラリ"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "音声録音"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "To install remaining packages:"
+msgstr "残りのパッケージをインストールするには:"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "マイク入力デバイスが検出されませんでした。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "ローカル TTS エンジン (オプション):"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Starting Python worker..."
+msgstr "Python ワーカーを起動中..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Reading Python version..."
+msgstr "Python バージョンを読み込み中..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "音声と録音: sounddevice と TTS エンジンを確認中..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr "テキスト / NLPライブラリ: 読み込み中 (初回実行時は時間がかかることがあります)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries: loading (first run may take a while)..."
+msgstr "Vision Libraries: 読み込み中 (初回実行時は時間がかかる場合があります)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
+msgstr "ベクトル検索ライブラリ: 読み込み中 (初回実行時は時間がかかることがあります)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Using LibreOffice process Python..."
+msgstr "LibreOffice プロセスの Python を使用中..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Resolving venv Python..."
+msgstr "venv Python を解決中..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Using"
+msgstr "使用中"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "ドキュメントスクリプトが大きすぎてドキュメントに保存できません ({0} バイト)。"
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr "ドキュメントが読み取り専用か、プロパティを書き込めません。代わりに個人用ライブラリにスクリプトを保存しました。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot be empty."
+msgstr "スクリプト名を空にすることはできません。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "'{0}' という名前のスクリプトは、このドキュメント内に既に存在します。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+msgid "My Scripts"
+msgstr "マイ スクリプト"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "このドキュメント"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "スクリプト '{0}' を「マイ スクリプト」に保存しました。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "スクリプト '{0}' をこのドキュメントに保存しました。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "スクリプト '{0}' を保存しました。"
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+msgid "No document is open to attach scripts."
+msgstr "スクリプトを添付するためのドキュメントが開かれていません。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "このドキュメントにスクリプト '{0}' を添付しました。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "'{0}' という名前のスクリプトはすでに「マイ スクリプト」に存在します。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "スクリプト '{0}' を「マイ スクリプト」にコピーしました。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "ドキュメントスクリプト '{0}' を削除しました。"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "スクリプト '{0}' を削除しました。"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Calcへの結果の挿入に失敗しました: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "情報"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr "Draw/Impressへの結果挿入はまだサポートされていません。プルリクエストを歓迎します！"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "ビジョンヘルパーには Writer または Calc ドキュメントが必要です。"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Visionヘルパーが失敗しました。"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
+"(took {time})"
+msgstr ""
+"Vision '{helper}' が完了しました。{count} 個の画像の書式設定済みHTMLを挿入しました。(所要時間: {time})"
+
+#: plugin/scripting/python_runner.py plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision '{helper}' が完了しました。 書式設定されたHTMLを挿入しました。 (所要時間: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
+msgstr "スクリプトは正常に実行されましたが、結果や出力は得られませんでした。(所要時間: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Unsupported document type for result insertion. (took {time})"
+msgstr "結果を挿入できないドキュメント形式です。(所要時間: {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Script executed successfully. (took {time})"
+msgstr "スクリプトは正常に実行されました。(所要時間: {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "スクリプトが保存されました。"
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr "Pythonスクリプトを実行"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
+msgid "Run"
+msgstr "実行"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/calc/python/editor.py plugin/xdl_strings.py
+msgid "Save"
+msgstr "保存"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Close"
+msgstr "閉じる"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "データ範囲を選択するか、A1アドレスを入力してください（データとして挿入されます）。"
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
+msgstr "「Pythonスクリプトの実行」でMonacoエディターを開けませんでした。"
+
+#: plugin/scripting/python_runner.py
+msgid "Could not open the built-in script dialog."
+msgstr "組み込みのスクリプトダイアログを開けませんでした。"
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
+msgstr "「Pythonスクリプトの実行」を開く際に予期しないエラーが発生しました。"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Status:"
+msgstr "ステータス:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+#: plugin/xdl_strings.py plugin/chatbot/panel_wiring.py
+#: plugin/chatbot/panel.py
+msgid "Ready"
+msgstr "準備完了"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Saving…"
+msgstr "保存中…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "実行中…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
+msgstr "Monacoローダーが見つかりません。"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Install jedi in the Python venv for completions."
+msgstr "補完機能を使用するには、Python venvにjediをインストールしてください。"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "キャンセル"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/editor.py
+#: plugin/xdl_strings.py
+msgid "Save without =PY()"
+msgstr "=PY() を含めずに保存"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Data:"
+msgstr "データ:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "A1:C1  or  A1:C1, C1:C5"
+msgstr "A1:C1 または A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
+msgstr "Calc は実行時にこれらの範囲から `data` および `ranges` を挿入します。"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "データ範囲は、=PY() 数式として保存する場合にのみ適用されます。"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Saved."
+msgstr "保存しました。"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/python/editor.py
+msgid "Saved without =PY()."
+msgstr "=PY() を含めずに保存しました。"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "New"
+msgstr "新規"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "New Python Script"
+msgstr "新しいPythonスクリプト"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "Script name:"
+msgstr "スクリプト名:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "Attach to this document"
+msgstr "このドキュメントに添付"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Create"
+msgstr "作成"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr "スクリプト:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach"
+msgstr "添付"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to Document"
+msgstr "ドキュメントに添付"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "名前を付けて保存..."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr "削除"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr "スクリプト"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr "組み込みヘルパーは読み取り専用です。「マイ スクリプトにコピー」を使用してカスタマイズしてください。"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid ""
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
+msgstr "ドキュメントが変更されました。ドキュメントのスクリプトを編集するには、「Python スクリプトの実行」を閉じてから再度開いてください。"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
+msgstr "スクリプト '{0}' を読み込みました。"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
+msgstr "スクリプト '{0}' をアタッチしています..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr "スクリプト '{0}' をマイ スクリプトにコピーしています..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr "スクリプト '{0}' を保存しています..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr "スクリプト '{0}' を削除しています..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr "組み込みヘルパーは削除できません。"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Enter script name:"
+msgstr "スクリプト名を入力してください:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr "マイ スクリプトへコピー (名前):"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "スクリプト '{0}' をこのドキュメントに保存しますか？"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr "スクリプト '{0}' を削除してもよろしいですか？"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "ディスプレイブロックとして挿入 (中央揃えの段落)"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Insert"
+msgstr "挿入"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+msgid "Formula inserted."
+msgstr "数式を挿入しました。"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+"Vision '{helper}' が完了しました。 HTMLを挿入しました ({blocks} ブロック、{tables} テーブル)。 (所要時間:"
+" {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "{domain} '{helper}' が完了しました。{rows} 行を書き込みました。(所要時間: {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr "{domain} '{helper}' が完了しました。(所要時間: {time})"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"「ノートブックのPythonセッションをリセット」はLibreOffice "
+"Writerに適用されます。JupyterノートブックをインポートしたWriterドキュメントを開いて、もう一度試してください。"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. File → Open a "
+"Jupyter notebook (.ipynb) first."
+msgstr ""
+"このWriterドキュメントにはインポートされたノートブックレジストリがありません。「ファイル」→「Jupyterノートブック (.ipynb) "
 "を開く」を先に実行してください。"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Could not find notebook cell for this control."
-msgstr "このコントロールに対応するノートブックセルが見つかりませんでした。"
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "ノートブックのPythonセッションを解決できませんでした。"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Open a Writer document first."
-msgstr "先にWriterドキュメントを開いてください。"
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "このドキュメントのノートブックPythonセッションをリセットしました。"
 
-#: plugin/notebook/notebook_controls.py
-msgid "Run code cell"
-msgstr "コードセルを実行"
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Pythonセッションをリセットできませんでした。"
 
-#: plugin/embeddings/search_ui.py
-msgid "just now"
-msgstr "たった今"
-
-#: plugin/embeddings/search_ui.py
+#: plugin/scripting/session_manager.py plugin/calc/python/function.py
+#: plugin/framework/client/errors.py
 #, python-brace-format
-msgid "{0}m ago"
-msgstr "{0}分前"
+msgid "Error: {0}"
+msgstr "エラー: {0}"
 
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}h ago"
-msgstr "{0}時間前"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}d ago"
-msgstr "{0}日前"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: No active document"
-msgstr "キャッシュステータス: アクティブなドキュメントなし"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Folder not resolved"
-msgstr "キャッシュステータス: フォルダーが解決されていません"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built (zvec)"
-msgstr "キャッシュステータス: 未構築 (zvec)"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built (lancedb)"
-msgstr "キャッシュステータス: 未構築 (lancedb)"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built"
-msgstr "キャッシュステータス: 未構築"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "Cache Status: Built ({0})"
-msgstr "キャッシュステータス: 構築済み ({0})"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Built"
-msgstr "キャッシュステータス: 構築済み"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "Cache Status: Error ({0})"
-msgstr "キャッシュステータス: エラー ({0})"
-
-#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
-msgid "Search"
-msgstr "検索"
-
-#: plugin/embeddings/search_ui.py
-msgid "Please enter a search query."
-msgstr "検索クエリを入力してください。"
-
-#: plugin/embeddings/search_ui.py
-msgid "Searching..."
-msgstr "検索中..."
-
-#: plugin/embeddings/search_ui.py
-msgid "No active document found."
-msgstr "アクティブなドキュメントが見つかりません。"
-
-#: plugin/embeddings/search_ui.py
+#: plugin/scripting/session_manager.py
 msgid ""
-"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
-"Embeddings."
-msgstr "ファイル横断検索は無効です。「設定」→「埋め込み」で「埋め込み + FTS」を有効にしてください。"
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr "「Pythonセッションをリセット」はCalcスプレッドシートに適用されます。Calcワークブックを開いて、もう一度試してください。"
 
-#: plugin/embeddings/search_ui.py
-msgid "Error: "
-msgstr "エラー: "
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "このワークブックのPythonセッションをリセットしました。"
 
-#: plugin/embeddings/search_ui.py
+#: plugin/scripting/session_manager.py
 msgid ""
-"Folder index is building in the background. Please retry search shortly."
-msgstr "フォルダーのインデックスをバックグラウンドで構築中です。しばらくしてから再度検索してください。"
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr "このブックの初期化スクリプトおよびメモリ内の初期化状態はリセットされました。セル変数はすでにセルごとに分離されています。"
 
-#: plugin/embeddings/search_ui.py
-msgid "No matches found."
-msgstr "一致する項目が見つかりません。"
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
+msgstr ""
+"Pythonセッションモードは「分離」です（各 =PY() "
+"セルは独自の変数を使用します）。リセットする共有セルセッションはありません。高コストなワークブックの初期化を一度だけ実行してクリアする必要がある場合は、初期化スクリプトを追加してください。"
 
-#: plugin/embeddings/search_ui.py
-msgid "Error running search: "
-msgstr "検索実行エラー: "
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this document."
+msgstr "このドキュメントのPythonセッションをリセットしました。"
 
-#: plugin/embeddings/search_ui.py
-msgid "Rebuilding cache..."
-msgstr "キャッシュを再構築中..."
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "テキスト分析"
 
-#: plugin/embeddings/search_ui.py
-msgid "No active folder resolved."
-msgstr "アクティブなフォルダーが解決されませんでした。"
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "分析ダイアログを読み込めませんでした。"
 
-#: plugin/embeddings/search_ui.py
-msgid "Cache rebuild completed successfully."
-msgstr "キャッシュの再構築が正常に完了しました。"
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "spaCy / textdescriptives / transformers のインストールを確認中..."
 
-#: plugin/embeddings/search_ui.py
-msgid "Rebuild failed: "
-msgstr "再構築に失敗しました: "
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"テキスト分析ワーカーからのエラー:\n"
+"{err}\n"
+"\n"
+"このダイアログの機能を使用するには、使用中のPython環境に以下のパッケージが必要です:\n"
+"  • spacy + モデル          (エンティティ、キーフレーズ、基本統計)\n"
+"  • textdescriptives         (読みやすさスコア)\n"
+"  • transformers + torch     (多言語モデルを使用した感情分析)\n"
+"\n"
+"以下のコマンドでインストールしてください:\n"
+"  {install}\n"
+"\n"
+"ワーカーがモジュールが見つからないと報告しました。設定した仮想環境に対してワーカーが解決したPython実行ファイルに、パッケージが正しくインストールされているか確認してください。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "分析する Writer ドキュメントを開いてください。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "選択範囲内のテキストが不足しています。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "分析中..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"エラー: %s\n"
+"\n"
+"設定された仮想環境（設定 → Python）に必要なパッケージが不足している可能性があります。このダイアログの「仮想環境を確認」をクリックするか、設定 → Pythonの「テスト」機能を使用して、spacy、textdescriptives、transformers、torchなどの詳細を確認してください。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "挿入先のWriterドキュメントがありません。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "先に分析を実行してください。"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "前回の結果から挿入できる有効なデータがありません。"
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "挿入に失敗しました: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "選択範囲またはカーソルの後ろに挿入しました。"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv check failed"
+msgstr "仮想環境のチェックに失敗しました"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr "Python 環境をテスト中..."
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Done"
+msgstr "完了"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Failed"
+msgstr "失敗"
+
+#: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Units ヘルパーが失敗しました。"
+
+#: plugin/scripting/units.py
+msgid "Units helper returned no formatted text."
+msgstr "Units ヘルパーが整形されたテキストを返しませんでした。"
+
+#: plugin/scripting/units.py
+msgid "Unsupported document type for units insertion."
+msgstr "単位挿入に対応していないドキュメント形式です。"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "結果の挿入に失敗しました: {error} (所要時間: {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "プロットを挿入しました ({title})。(所要時間: {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' が完了しました。 {msg}"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' が完了しました。 挿入済み: {preview} (所要時間: {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Units '{helper}' が完了しました。挿入内容: {preview} (所要時間: {time})"
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in Settings → Python (same venv where you ran 'uv "
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
+msgstr ""
+"「設定」→「Python」でPython venvパスを設定してください（'uv pip install pywebview "
+"rocher'を実行したvenvと同じもの）。LibreOffice組み込みのPythonではMonacoエディタを実行できません。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"Scripts/python.exe, or env-root python.exe)."
+msgstr ""
+"設定されたvenv内にPython実行ファイルが見つかりません: {0} (bin/python、Scripts/python.exe、またはenv-"
+"rootのpython.exeが必要です)。"
+
+#: plugin/scripting/editor_host.py
+msgid "Could not start the Python editor."
+msgstr "Pythonエディターを起動できませんでした。"
+
+#: plugin/scripting/editor_host.py
+msgid "The Python editor window did not start."
+msgstr "Pythonエディターウィンドウが起動しませんでした。"
+
+#: plugin/scripting/editor_host.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Pythonエディターはコードを読み込む前に終了しました。"
+
+#: plugin/scripting/editor_host.py
+msgid "Could not talk to the Python editor."
+msgstr "Pythonエディターと通信できませんでした。"
+
+#: plugin/scripting/symbolic.py
+msgid "Symbolic helper failed."
+msgstr "数式処理ヘルパーが失敗しました。"
+
+#: plugin/scripting/symbolic.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "数式処理ヘルパーがLaTeXを返しませんでした。"
+
+#: plugin/scripting/symbolic.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "LaTeXからWriter Mathへの変換に失敗しました: {error}"
+
+#: plugin/scripting/symbolic.py
+msgid "No active document view."
+msgstr "アクティブなドキュメントビューがありません。"
+
+#: plugin/scripting/symbolic.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "数式挿入に対応していないドキュメント形式です。"
+
+#: plugin/calc/editselection.py
+msgid "WriterAgent: Edit Selection (Calc)"
+msgstr "WriterAgent: 選択範囲の編集 (Calc)"
+
+#: plugin/calc/editselection.py
+msgid "WriterAgent: Extend Selection (Calc)"
+msgstr "WriterAgent: 選択範囲の拡張 (Calc)"
+
+#: plugin/calc/excel_py_convert/auto_open.py
+#, python-brace-format
+msgid ""
+"Could not write Microsoft Excel Python package parts for:\n"
+"{0}\n"
+"\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"\n"
+"{1}"
+msgstr ""
+"以下のMicrosoft Excel Pythonパッケージパーツを書き込めませんでした:\n"
+"{0}\n"
+"\n"
+"ファイルはLibreOfficeの=PY数式として保存されました。エクスポートが成功するまで、ExcelはpythonScripts.xml / _xlws.PYを認識しません。\n"
+"\n"
+"{1}"
+
+#: plugin/calc/python/function.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "エラー: メインスレッドの実行がタイムアウトしました ({0})"
+
+#: plugin/calc/python/function.py
+msgid ""
+"Error: Python venv not found. Open Settings → Python, set the venv path, "
+"then Test."
+msgstr ""
+"エラー: Python venvが見つかりません。「設定」→「Python」を開き、venvパスを設定してから「テスト」を実行してください。"
+
+#: plugin/calc/python/function.py
+msgid ""
+"Error: Python timed out. Open Settings → Python to raise the timeout, or "
+"Test the venv."
+msgstr ""
+"エラー: Pythonがタイムアウトしました。「設定」→「Python」を開いてタイムアウト時間を増やすか、venvのテストを実行してください。"
+
+#: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "画像が挿入されました"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "挿入された画像"
+
+#: plugin/calc/python/geometric_recalc.py
+#, python-format
+msgid ""
+"Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
+msgstr ""
+"幾何学的再計算順序はシート '%(sheet)s' をスキップしました: %(cap)s 個以上の Python "
+"セルが見つかりました（検出上限）。部分的なリストが完全なものとして扱われないよう、シートは変更されませんでした。"
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Edit Initialization Script"
+msgstr "初期化スクリプトを編集"
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Open a Calc spreadsheet first."
+msgstr "先にCalcスプレッドシートを開いてください。"
+
+#: plugin/calc/python/init_script_editor.py
+msgid ""
+"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
+"in writeragent.json."
+msgstr ""
+"writeragent.jsonの「scripting.force_internal_script_editor」設定により、Monacoエディターは無効になっています。"
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Configure a Python venv path in Settings → Python."
+msgstr "設定 → Python でPython仮想環境（venv）のパスを設定してください。"
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Cannot import webview (pywebview) in the configured venv."
+msgstr "設定された仮想環境でwebview (pywebview) をインポートできません。"
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Initialization script saved."
+msgstr "初期化スクリプトを保存しました。"
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Save initialization script"
+msgstr "初期化スクリプトを保存"
+
+#: plugin/calc/python/cell_editor_ui.py
+msgid "PythonCellEditorDialog could not be loaded from the extension."
+msgstr "拡張機能から PythonCellEditorDialog を読み込めませんでした。"
+
+#: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
+#: plugin/main.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Edit Python in Cell..."
+msgstr "セル内のPythonを編集..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
+msgstr ""
+"このセルのPY数式の引数（データ範囲など）を保持できませんでした。Calcで数式を編集するか、=PY(\"code\"; A1:B10) "
+"のように引用符で囲まれたコード文字列を使用してください。"
+
+#: plugin/calc/python/editor.py
+msgid "this cell"
+msgstr "このセル"
+
+#: plugin/calc/python/editor.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves. No discards and opens the new cell. Cancel keeps editing {0}."
+msgstr ""
+"{0} への変更を保存しますか？\n"
+"\n"
+"「はい」で保存します。「いいえ」で破棄して新しいセルを開きます。「キャンセル」で {0} の編集を続けます。"
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
+msgstr "xl() 範囲リテラルを =PY データ引数に書き換えられませんでした: %s"
+
+#: plugin/calc/python/editor.py plugin/xdl_strings.py
+msgid "Python cell editor"
+msgstr "Python セルエディター"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Pythonエディターが予期せず終了しました。"
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Pythonを編集するには、Calcスプレッドシートのセルを選択してください。"
+
+#: plugin/calc/python/editor.py
+#, python-brace-format
+msgid "Could not open the code cell {0}."
+msgstr "コードセル {0} を開けませんでした。"
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
+msgstr ""
+"このPY数式は、エディタで安全に書き換えられない形式（別のセルにあるコードなど）を使用しています。数式バーで編集するか、引用符で囲まれたコードを使用して"
+" =PY(\"code\"; range) を使用してください。"
+
+#: plugin/calc/python/editor.py
+msgid "Could not open the built-in Python cell editor."
+msgstr "組み込みの Python セルエディターを開けませんでした。"
+
+#: plugin/calc/vision_egress.py
+msgid "Select an embedded image, then Run again."
+msgstr "埋め込み画像を選択してから、もう一度実行してください。"
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "画像をセルにアンカーし、選択してから、もう一度実行してください。"
+
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "挿入可能な構造化テーブルやテキストブロックがありません。"
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
+msgstr "AI: 数式、データ分析、カラフルなグラフをお手伝いできます。お試しください！"
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr "AI: Draw と Impress で、洗練されたカラフルな図形の作成・編集をお手伝いできます。お試しください！"
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr "AI: プロフェッショナルな書式と色で、文書をすぐに編集・翻訳できます。お試しください！"
+
+#: plugin/framework/config_schema.py
+msgid "Chat max tokens must be >= 0"
+msgstr "チャットの最大トークン数は 0 以上である必要があります"
+
+#: plugin/framework/config_schema.py
+msgid "Request timeout must be > 0"
+msgstr "リクエストのタイムアウト時間は 0 より大きい必要があります"
+
+#: plugin/framework/config_schema.py
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatureは1.0以下である必要があります"
+
+#: plugin/framework/client/request_controls.py
+#, python-brace-format
+msgid "Provider busy, retrying in {0}s…"
+msgstr "プロバイダーが混雑しています。{0}秒後に再試行します…"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid ""
+"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
+"{0} context window."
+msgstr "ローカルのOllama/llama.cppプロセスが、{0}のコンテキストウィンドウを超過したためクラッシュしました。"
+
+#: plugin/framework/client/errors.py
+msgid ""
+"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
+"too-small context window."
+msgstr "ローカルのOllama/llama.cppプロセスが、コンテキストウィンドウが小さすぎたためクラッシュしました。"
+
+#: plugin/framework/client/errors.py plugin/framework/errors.py
+msgid "Rate limited (429). Wait a moment and try again."
+msgstr "レート制限（429）に達しました。しばらく待ってから再試行してください。"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr "AIプロバイダーからの HTTP エラー {0}: {1}"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
+msgstr ""
+" APIキーがGLM Coding Planサブスクリプションのものである場合は、エンドポイントを（一般的な /api/paas URLではなく）{0}"
+" に設定してください。"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " リクエストしたモデル: {0}"
+
+#: plugin/framework/client/llm_client.py
+msgid "Stream ended with finish_reason=error"
+msgstr "ストリームが finish_reason=error で終了しました"
+
+#: plugin/framework/client/llm_client.py
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr "モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただくか、別のモデルをご使用ください。"
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -196,10 +1405,6 @@ msgstr "API アクセスは禁止されています。キーにこのモデル�
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
-
-#: plugin/framework/errors.py plugin/framework/client/errors.py
-msgid "Rate limited (429). Wait a moment and try again."
-msgstr "レート制限（429）に達しました。しばらく待ってから再試行してください。"
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -266,84 +1471,6 @@ msgstr "AI プロバイダーがエラーを報告しました。もう一度や
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} が見つかりません: {identifier}"
 
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "チャットの最大トークン数は 0 以上である必要があります"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "リクエストのタイムアウト時間は 0 より大きい必要があります"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatureは1.0以下である必要があります"
-
-#: plugin/framework/thread_guard.py
-msgid "UNO Thread Violation"
-msgstr "UNO スレッド違反"
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid ""
-"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
-"{0} context window."
-msgstr "ローカルのOllama/llama.cppプロセスが、{0}のコンテキストウィンドウを超過したためクラッシュしました。"
-
-#: plugin/framework/client/errors.py
-msgid ""
-"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
-"too-small context window."
-msgstr "ローカルのOllama/llama.cppプロセスが、コンテキストウィンドウが小さすぎたためクラッシュしました。"
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr "AIプロバイダーからの HTTP エラー {0}: {1}"
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
-" (not the general /api/paas URL)."
-msgstr ""
-" APIキーがGLM Coding Planサブスクリプションのものである場合は、エンドポイントを（一般的な /api/paas URLではなく）{0}"
-" に設定してください。"
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid " Request model was: {0}."
-msgstr " リクエストしたモデル: {0}"
-
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "エラー: {0}"
-
-#: plugin/framework/client/llm_client.py
-msgid "Stream ended with finish_reason=error"
-msgstr "ストリームが finish_reason=error で終了しました"
-
-#: plugin/framework/client/llm_client.py
-msgid ""
-"The model is repeating the same chunk (infinite loop). Try again or use a "
-"different model."
-msgstr "モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただくか、別のモデルをご使用ください。"
-
-#: plugin/framework/client/request_controls.py
-#, python-brace-format
-msgid "Provider busy, retrying in {0}s…"
-msgstr "プロバイダーが混雑しています。{0}秒後に再試行します…"
-
-#: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Error"
-msgstr "エラー"
-
 #: plugin/framework/config.py
 msgid "Please set Endpoint in Settings."
 msgstr "設定でエンドポイントを設定してください。"
@@ -355,6 +1482,237 @@ msgstr "設定でモデルを設定してください。"
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "設定で有効なモデルを選択してください（プレースホルダーは不可）。"
+
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "UNO スレッド違反"
+
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
+msgstr "Cythonアクセラレータのダウンロード"
+
+#: plugin/librepy/settings.py
+msgid "Download Cython serialization binary:"
+msgstr "Cythonシリアライズバイナリのダウンロード:"
+
+#: plugin/librepy/settings.py
+msgid "Python Settings"
+msgstr "Python設定"
+
+#: plugin/librepy/settings.py
+msgid "Could not open Settings."
+msgstr "設定を開けませんでした。"
+
+#: plugin/librepy/python_sidebar.py plugin/xdl_strings.py
+msgid "All"
+msgstr "すべて"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Errors"
+msgstr "エラー"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Shared kernel"
+msgstr "共有カーネル"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Isolated"
+msgstr "分離"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: (LibreOffice embedded Python)"
+msgstr ""
+"{mode}\n"
+"Venv: (LibreOffice 組み込み Python)"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: {path}"
+msgstr ""
+"{mode}\n"
+"Venv: {path}"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: missing python at {path}"
+msgstr ""
+"{mode}\n"
+"Venv: {path} に Python が見つかりません"
+
+#: plugin/librepy/python_sidebar.py
+msgid "(no =PY() cells on active sheet)"
+msgstr "(アクティブなシートに =PY() セルがありません)"
+
+#: plugin/librepy/python_sidebar.py
+msgid "(no diagnostics yet)"
+msgstr "(診断結果はまだありません)"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/panel_factory.py plugin/chatbot/hamburger_menu.py
+msgid "Run Python Script..."
+msgstr "Pythonスクリプトを実行..."
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Insert LaTeX Math..."
+msgstr "LaTeX数式を挿入..."
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Text Analytics..."
+msgstr "テキスト分析..."
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/panel_factory.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Settings"
+msgstr "設定"
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+msgid "Vision OCR Settings..."
+msgstr "Vision OCR 設定..."
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Reset Python Session"
+msgstr "Pythonセッションをリセット"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Run All"
+msgstr "すべて実行"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Run From Here"
+msgstr "ここから実行"
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Stop"
+msgstr "停止"
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/dialogs.py plugin/chatbot/hamburger_menu.py
+msgid "Report bug..."
+msgstr "バグを報告..."
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
+msgid "More actions..."
+msgstr "その他の操作..."
+
+#: plugin/writer/editselection.py
+msgid "WriterAgent: Extend Selection"
+msgstr "WriterAgent: 選択範囲の拡張"
+
+#: plugin/writer/editselection.py
+msgid "WriterAgent: Edit Selection"
+msgstr "WriterAgent: 選択範囲の編集"
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr "この変更を承諾"
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr "この変更を拒否"
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr "変更全体を承諾 (エージェント)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr "変更全体を拒否 (エージェント)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Update"
+msgstr "更新"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Edit LaTeX Math"
+msgstr "LaTeX 数式を編集"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Select a single formula to update. Multiple formulas are selected."
+msgstr "更新する数式を1つだけ選択してください。複数の数式が選択されています。"
+
+#: plugin/writer/math/latex_dialog.py
+msgid ""
+"Could not identify the selected formula. Click in the text, then insert a "
+"new formula."
+msgstr "選択された数式を特定できませんでした。テキスト内をクリックしてから、新しい数式を挿入してください。"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "不明な変換エラー"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"LaTeXからStarMathへの変換に失敗しました:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "The selected formula is no longer in the document."
+msgstr "選択された数式はドキュメント内に存在しません。"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Formula updated."
+msgstr "数式を更新しました。"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "このコマンドはWriterドキュメントでのみ使用可能です。"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr "LaTeX 数式エディター"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "LaTeX変換エラー"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "LaTeX挿入中に予期しないエラーが発生しました。"
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "No automatic replacement is available."
+msgstr "自動置換は利用できません。"
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid ""
+"Suggested fix: delete the highlighted text (the blank replacement below)."
+msgstr "推奨される修正: ハイライトされたテキストを削除します（以下の空の置換）。"
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Suggested fix: replace with one space (the blank replacement below)."
+msgstr "推奨される修正: 1つのスペースに置換します（以下の空の置換）。"
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Choose a replacement below."
+msgstr "以下から置換を選択してください。"
+
+#: plugin/writer/locale/ai_grammar_proofreader.py
+msgid "AI Grammar"
+msgstr "AI 文法チェック"
+
+#: plugin/audio/tts_service.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr "こんにちは、LibreOffice の WriterAgent です。"
 
 #: plugin/audio/tts_service.py
 #, python-brace-format
@@ -419,475 +1777,856 @@ msgstr ""
 msgid "Downloading Japanese phonemizer dictionary…"
 msgstr "日本語用 phonemizer 辞書をダウンロード中…"
 
-#: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
-#: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
-#: plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "セル内のPythonを編集..."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Edit Initialization Script"
-msgstr "初期化スクリプトを編集"
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Open a Calc spreadsheet first."
-msgstr "先にCalcスプレッドシートを開いてください。"
-
-#: plugin/calc/python/init_script_editor.py
-msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
-msgstr ""
-"writeragent.jsonの「scripting.force_internal_script_editor」設定により、Monacoエディターは無効になっています。"
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Configure a Python venv path in Settings → Python."
-msgstr "設定 → Python でPython仮想環境（venv）のパスを設定してください。"
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Cannot import webview (pywebview) in the configured venv."
-msgstr "設定された仮想環境でwebview (pywebview) をインポートできません。"
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Initialization script saved."
-msgstr "初期化スクリプトを保存しました。"
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Save initialization script"
-msgstr "初期化スクリプトを保存"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Status:"
-msgstr "ステータス:"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Ready"
-msgstr "準備完了"
+msgid "-1"
+msgstr "-1"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "A1:C1  or  A1:C1, C1:C5"
-msgstr "A1:C1 または A1:C1, C1:C5"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PY() formula."
-msgstr "データ範囲は、=PY() 数式として保存する場合にのみ適用されます。"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
-msgstr "Calc は実行時にこれらの範囲から `data` および `ranges` を挿入します。"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Saving…"
-msgstr "保存中…"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/calc/python/editor.py
-#: plugin/scripting/editor_ui_strings.py
-msgid "Saved without =PY()."
-msgstr "=PY() を含めずに保存しました。"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Saved."
-msgstr "保存しました。"
-
-#: plugin/calc/python/cell_editor_ui.py
-msgid "PythonCellEditorDialog could not be loaded from the extension."
-msgstr "拡張機能から PythonCellEditorDialog を読み込めませんでした。"
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"このセルのPY数式の引数（データ範囲など）を保持できませんでした。Calcで数式を編集するか、=PY(\"code\"; A1:B10) "
-"のように引用符で囲まれたコード文字列を使用してください。"
-
-#: plugin/calc/python/editor.py
-msgid "this cell"
-msgstr "このセル"
-
-#: plugin/calc/python/editor.py
-#, python-brace-format
-msgid ""
-"Save changes to {0}?\n"
-"\n"
-"Yes saves. No discards and opens the new cell. Cancel keeps editing {0}."
-msgstr ""
-"{0} への変更を保存しますか？\n"
-"\n"
-"「はい」で保存します。「いいえ」で破棄して新しいセルを開きます。「キャンセル」で {0} の編集を続けます。"
-
-#: plugin/calc/python/editor.py
-#, python-format
-msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
-msgstr "xl() 範囲リテラルを =PY データ引数に書き換えられませんでした: %s"
-
-#: plugin/calc/python/editor.py plugin/xdl_strings.py
-msgid "Python cell editor"
-msgstr "Python セルエディター"
-
-#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Save without =PY()"
-msgstr "=PY() を含めずに保存"
+msgid "AI Model:"
+msgstr "AIモデル:"
 
-#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Save"
-msgstr "保存"
+#: plugin/xdl_strings.py
+msgid "API Key:"
+msgstr "APIキー:"
 
-#: plugin/calc/python/editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Pythonエディターが予期せず終了しました。"
+#: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr "アクティブなシート"
 
-#: plugin/calc/python/editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Pythonを編集するには、Calcスプレッドシートのセルを選択してください。"
+#: plugin/xdl_strings.py
+msgid "Additional Instructions (History):"
+msgstr "追加指示（履歴）:"
 
-#: plugin/calc/python/editor.py
-#, python-brace-format
-msgid "Could not open the code cell {0}."
-msgstr "コードセル {0} を開けませんでした。"
+#: plugin/xdl_strings.py
+msgid "Additional Instructions:"
+msgstr "追加指示:"
 
-#: plugin/calc/python/editor.py
+#: plugin/xdl_strings.py
+msgid "Ask / instruct:"
+msgstr "質問 / 指示:"
+
+#: plugin/xdl_strings.py
+msgid "Aspect Ratio:"
+msgstr "アスペクト比:"
+
+#: plugin/xdl_strings.py
+msgid "Auto Gallery"
+msgstr "自動ギャラリー"
+
+#: plugin/xdl_strings.py
+msgid "Base Size:"
+msgstr "ベースサイズ:"
+
+#: plugin/xdl_strings.py
+msgid "Base:"
+msgstr "ベース:"
+
+#: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr "キャッシュステータス: 確認中..."
+
+#: plugin/xdl_strings.py
+msgid "Calc"
+msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Categories:"
+msgstr "カテゴリー:"
+
+#: plugin/xdl_strings.py plugin/chatbot/chat_sidebar_mode.py
+msgid "Chat"
+msgstr "チャット"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "仮想環境を確認"
+
+#: plugin/xdl_strings.py
+msgid "Clear"
+msgstr "クリア"
+
+#: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr "シートをPythonに変換"
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr "コピー"
+
+#: plugin/xdl_strings.py plugin/chatbot/dialogs.py
+msgid "Copy URL"
+msgstr "URLをコピー"
+
+#: plugin/xdl_strings.py
+msgid "Diagnostics:"
+msgstr "診断:"
+
+#: plugin/xdl_strings.py
+msgid "Draw"
+msgstr "Draw"
+
+#: plugin/xdl_strings.py
+msgid "Edit Cell"
+msgstr "セルの編集"
+
+#: plugin/xdl_strings.py
+msgid "Edit Init Script"
+msgstr "初期化スクリプトの編集"
+
+#: plugin/xdl_strings.py
+msgid "Edit config (JSON)…"
+msgstr "設定を編集 (JSON)…"
+
+#: plugin/xdl_strings.py
+msgid "Edit extra tokens:"
+msgstr "追加トークンの編集:"
+
+#: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr "検索クエリを編集"
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL (/v1 added):"
+msgstr "エンドポイントURL（/v1追加済）:"
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL:"
+msgstr "エンドポイントURL:"
+
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "変換して数式として挿入するLaTeXコードを入力してください:"
+
+#: plugin/xdl_strings.py
 msgid ""
-"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
-"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
-"quoted code."
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
 msgstr ""
-"このPY数式は、エディタで安全に書き換えられない形式（別のセルにあるコードなど）を使用しています。数式バーで編集するか、引用符で囲まれたコードを使用して"
-" =PY(\"code\"; range) を使用してください。"
+"ユーザー仮想環境で実行するPythonコードを入力してください。\n"
+"結果を 'result' 変数に代入してください。"
 
-#: plugin/calc/python/editor.py
-msgid "Could not open the built-in Python cell editor."
-msgstr "組み込みの Python セルエディターを開けませんでした。"
+#: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "エンティティ"
 
-#: plugin/calc/python/function.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "エラー: メインスレッドの実行がタイムアウトしました ({0})"
+#: plugin/xdl_strings.py
+msgid "Extend max tokens:"
+msgstr "最大トークンの拡張:"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "不明なエラー"
+#: plugin/xdl_strings.py
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr "元のテキスト長に追加するトークン数。0 = 元と同じ長さ。"
 
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python venv not found. Open Settings → Python, set the venv path, "
-"then Test."
-msgstr ""
-"エラー: Python venvが見つかりません。「設定」→「Python」を開き、venvパスを設定してから「テスト」を実行してください。"
+#: plugin/xdl_strings.py
+msgid "Filter:"
+msgstr "フィルター:"
 
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python timed out. Open Settings → Python to raise the timeout, or "
-"Test the venv."
-msgstr ""
-"エラー: Pythonがタイムアウトしました。「設定」→「Python」を開いてタイムアウト時間を増やすか、venvのテストを実行してください。"
+#: plugin/xdl_strings.py
+msgid "General"
+msgstr "一般"
 
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "画像が挿入されました"
+#: plugin/xdl_strings.py
+msgid "Get API Key:"
+msgstr "APIキーを取得:"
 
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "挿入された画像"
+#: plugin/xdl_strings.py
+msgid "Hugging Face"
+msgstr "Hugging Face"
 
-#: plugin/calc/python/geometric_recalc.py
-#, python-format
-msgid ""
-"Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list"
-" is not treated as complete."
-msgstr ""
-"幾何学的再計算順序はシート '%(sheet)s' をスキップしました: %(cap)s 個以上の Python "
-"セルが見つかりました（検出上限）。部分的なリストが完全なものとして扱われないよう、シートは変更されませんでした。"
+#: plugin/xdl_strings.py
+msgid "Image Model:"
+msgstr "画像モデル:"
 
-#: plugin/calc/excel_py_convert/auto_open.py
-#, python-brace-format
-msgid ""
-"Could not write Microsoft Excel Python package parts for:\n"
-"{0}\n"
-"\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
-"\n"
-"{1}"
-msgstr ""
-"以下のMicrosoft Excel Pythonパッケージパーツを書き込めませんでした:\n"
-"{0}\n"
-"\n"
-"ファイルはLibreOfficeの=PY数式として保存されました。エクスポートが成功するまで、ExcelはpythonScripts.xml / _xlws.PYを認識しません。\n"
-"\n"
-"{1}"
+#: plugin/xdl_strings.py
+msgid "Image Settings"
+msgstr "画像設定"
 
-#: plugin/calc/editselection.py
-msgid "WriterAgent: Edit Selection (Calc)"
-msgstr "WriterAgent: 選択範囲の編集 (Calc)"
+#: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr "インプレース置換"
 
-#: plugin/calc/editselection.py
-msgid "WriterAgent: Extend Selection (Calc)"
-msgstr "WriterAgent: 選択範囲の拡張 (Calc)"
+#: plugin/xdl_strings.py plugin/chatbot/selection.py
+msgid "Input"
+msgstr "入力"
 
-#: plugin/calc/vision_egress.py
-msgid "Select an embedded image, then Run again."
-msgstr "埋め込み画像を選択してから、もう一度実行してください。"
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr "入力:"
 
-#: plugin/calc/vision_egress.py
-msgid "Anchor the image to a cell, select it, then Run again."
-msgstr "画像をセルにアンカーし、選択してから、もう一度実行してください。"
+#: plugin/xdl_strings.py
+msgid "Insert Frame"
+msgstr "フレームを挿入"
 
-#: plugin/calc/vision_egress.py
-msgid "No structured tables or text blocks to insert."
-msgstr "挿入可能な構造化テーブルやテキストブロックがありません。"
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr "LaTeX数式を挿入"
 
-#: plugin/librepy/settings.py
-msgid "Cython Accelerator Download"
-msgstr "Cythonアクセラレータのダウンロード"
+#: plugin/xdl_strings.py
+msgid "Insert report here"
+msgstr "ここにレポートを挿入"
 
-#: plugin/librepy/settings.py
-msgid "Download Cython serialization binary:"
-msgstr "Cythonシリアライズバイナリのダウンロード:"
+#: plugin/xdl_strings.py
+msgid "Key Phrases"
+msgstr "キーフレーズ"
 
-#: plugin/librepy/settings.py
-msgid "Python Settings"
-msgstr "Python設定"
+#: plugin/xdl_strings.py plugin/main.py
+msgid "MCP Server Status"
+msgstr "MCP サーバーのステータス"
 
-#: plugin/librepy/settings.py
-msgid "Could not open Settings."
-msgstr "設定を開けませんでした。"
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "最大トークン:"
 
-#: plugin/librepy/python_sidebar.py plugin/xdl_strings.py
-msgid "All"
-msgstr "すべて"
+#: plugin/xdl_strings.py
+msgid "Message"
+msgstr "メッセージ"
 
-#: plugin/librepy/python_sidebar.py
-msgid "Errors"
-msgstr "エラー"
+#: plugin/xdl_strings.py
+msgid "Models to Test:"
+msgstr "テストするモデル:"
 
-#: plugin/librepy/python_sidebar.py plugin/scripting/python_runner_ui.py
-msgid "Output"
-msgstr "出力"
+#: plugin/xdl_strings.py
+msgid "Multimodal"
+msgstr "マルチモーダル"
 
-#: plugin/librepy/python_sidebar.py
-msgid "Shared kernel"
-msgstr "共有カーネル"
+#: plugin/xdl_strings.py
+msgid "NVIDIA NIM"
+msgstr "NVIDIA NIM"
 
-#: plugin/librepy/python_sidebar.py
-msgid "Isolated"
-msgstr "分離"
+#: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr "新しいシート (PythonImport)"
 
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: (LibreOffice embedded Python)"
-msgstr ""
-"{mode}\n"
-"Venv: (LibreOffice 組み込み Python)"
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr "応答数:"
 
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: {path}"
-msgstr ""
-"{mode}\n"
-"Venv: {path}"
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr "OK"
 
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: missing python at {path}"
-msgstr ""
-"{mode}\n"
-"Venv: {path} に Python が見つかりません"
+#: plugin/xdl_strings.py
+msgid "OpenRouter"
+msgstr "OpenRouter"
 
-#: plugin/librepy/python_sidebar.py
-msgid "(no =PY() cells on active sheet)"
-msgstr "(アクティブなシートに =PY() セルがありません)"
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr "オプション"
 
-#: plugin/librepy/python_sidebar.py
-msgid "(no diagnostics yet)"
-msgstr "(診断結果はまだありません)"
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr "出力モード"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py plugin/main.py
-msgid "Run Python Script..."
-msgstr "Pythonスクリプトを実行..."
+#: plugin/xdl_strings.py
+msgid "Please enter edit instructions:"
+msgstr "編集の指示を入力してください:"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
-msgid "Insert LaTeX Math..."
-msgstr "LaTeX数式を挿入..."
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr "数値形式を保持"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Text Analytics..."
-msgstr "テキスト分析..."
+#: plugin/xdl_strings.py
+msgid "Public Tunnel:"
+msgstr "パブリックトンネル:"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/dialog_views.py plugin/chatbot/panel_factory.py
-#: plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "設定"
+#: plugin/xdl_strings.py
+msgid "Python Settings…"
+msgstr "Python 設定…"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-msgid "Vision OCR Settings..."
-msgstr "Vision OCR 設定..."
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python テスト"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Reset Python Session"
-msgstr "Pythonセッションをリセット"
+#: plugin/xdl_strings.py
+msgid "Python cells (active sheet):"
+msgstr "Python セル (アクティブなシート):"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Run All"
-msgstr "すべて実行"
+#: plugin/xdl_strings.py
+msgid "Python:"
+msgstr "Python:"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Run From Here"
-msgstr "ここから実行"
+#: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "読みやすさ"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py plugin/xdl_strings.py
-msgid "Stop"
-msgstr "停止"
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr "再構築"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/dialogs.py
-#: plugin/chatbot/hamburger_menu.py plugin/main.py plugin/xdl_strings.py
-msgid "Report bug..."
-msgstr "バグを報告..."
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
-msgid "More actions..."
-msgstr "その他の操作..."
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept whole change (agent)"
-msgstr "変更全体を承諾 (エージェント)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject whole change (agent)"
-msgstr "変更全体を拒否 (エージェント)"
-
-#: plugin/writer/review_click_popup.py
-msgid "Accept this change"
-msgstr "この変更を承諾"
-
-#: plugin/writer/review_click_popup.py
-msgid "Reject this change"
-msgstr "この変更を拒否"
-
-#: plugin/writer/editselection.py
-msgid "WriterAgent: Extend Selection"
-msgstr "WriterAgent: 選択範囲の拡張"
-
-#: plugin/writer/editselection.py
-msgid "WriterAgent: Edit Selection"
-msgstr "WriterAgent: 選択範囲の編集"
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "No automatic replacement is available."
-msgstr "自動置換は利用できません。"
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid ""
-"Suggested fix: delete the highlighted text (the blank replacement below)."
-msgstr "推奨される修正: ハイライトされたテキストを削除します（以下の空の置換）。"
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "Suggested fix: replace with one space (the blank replacement below)."
-msgstr "推奨される修正: 1つのスペースに置換します（以下の空の置換）。"
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "Choose a replacement below."
-msgstr "以下から置換を選択してください。"
-
-#: plugin/writer/locale/ai_grammar_proofreader.py
-msgid "AI Grammar"
-msgstr "AI 文法チェック"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Update"
+#: plugin/xdl_strings.py
+msgid "Refresh"
 msgstr "更新"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Insert"
-msgstr "挿入"
+msgid "Reset Session"
+msgstr "セッションをリセット"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Edit LaTeX Math"
-msgstr "LaTeX 数式を編集"
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr "結果:"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Select a single formula to update. Multiple formulas are selected."
-msgstr "更新する数式を1つだけ選択してください。複数の数式が選択されています。"
+#: plugin/xdl_strings.py
+msgid "Run Benchmark"
+msgstr "ベンチマークを実行"
 
-#: plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Run Script"
+msgstr "スクリプトを実行"
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr "範囲"
+
+#: plugin/xdl_strings.py plugin/embeddings/search_ui.py
+msgid "Search"
+msgstr "検索"
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr "近くのファイルを検索"
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr "検索クエリ:"
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr "検索クエリ："
+
+#: plugin/xdl_strings.py
+msgid "Seed:"
+msgstr "シード:"
+
+#: plugin/xdl_strings.py
+msgid "Selection"
+msgstr "選択範囲"
+
+#: plugin/xdl_strings.py plugin/chatbot/panel.py
+msgid "Send"
+msgstr "送信"
+
+#: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "感情分析"
+
+#: plugin/xdl_strings.py
+msgid "Square"
+msgstr "正方形"
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr "ステータス"
+
+#: plugin/xdl_strings.py
+msgid "Status: Ready"
+msgstr "ステータス: 準備完了"
+
+#: plugin/xdl_strings.py
+msgid "Steps:"
+msgstr "ステップ:"
+
+#: plugin/xdl_strings.py
+msgid "Temperature:"
+msgstr "温度:"
+
+#: plugin/xdl_strings.py
+msgid "Test Connection"
+msgstr "接続をテスト"
+
+#: plugin/xdl_strings.py
+msgid "Text/Chat Model:"
+msgstr "テキスト/チャットモデル:"
+
+#: plugin/xdl_strings.py
+msgid "Timeout (s):"
+msgstr "タイムアウト(秒):"
+
+#: plugin/xdl_strings.py
+msgid "Together AI"
+msgstr "Together AI"
+
+#: plugin/xdl_strings.py
+msgid "Topics"
+msgstr "トピック"
+
+#: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr "安全な場合に列をベクトル化"
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr "再計算を検証 (oracle diff)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "ドキュメント全体"
+
+#: plugin/xdl_strings.py
+msgid "Writer"
+msgstr "Writer"
+
+#: plugin/xdl_strings.py
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgent 評価ダッシュボード"
+
+#: plugin/xdl_strings.py
+msgid "√x"
+msgstr "√x"
+
+#: plugin/xdl_strings.py
+msgid "☰"
+msgstr "☰"
+
+#: plugin/xdl_strings.py
+msgid "⚙"
+msgstr "⚙"
+
+#: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
+msgid "🔍"
+msgstr "🔍"
+
+#: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
-"Could not identify the selected formula. Click in the text, then insert a "
-"new formula."
-msgstr "選択された数式を特定できませんでした。テキスト内をクリックしてから、新しい数式を挿入してください。"
+"Select an embedded image (or a range containing images), then Run again."
+msgstr "埋め込み画像（または画像を含む範囲）を選択してから、再度実行してください。"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Unknown conversion error"
-msgstr "不明な変換エラー"
-
-#: plugin/writer/math/latex_dialog.py
+#: plugin/vision/vision_runner.py
 #, python-brace-format
 msgid ""
-"Failed to convert LaTeX to StarMath:\n"
-"\n"
-"{0}"
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr "画像 '{name}' が見つかりません。image_listを使用するか、image_nameを空にして画像を選択してください。"
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "画像 '{name}' をエクスポートできませんでした。"
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "OCR complete ({count} images)."
+msgstr "OCRが完了しました ({count} 個の画像)。"
+
+#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
+msgid "OCR complete."
+msgstr "OCRが完了しました。"
+
+#: plugin/vision/vision_runner.py
+msgid "OCR complete (text returned only; not inserted)."
+msgstr "OCRが完了しました（テキストのみ取得。挿入はされません）。"
+
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr "Writer ドキュメントにコントローラーがありません。"
+
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr "挿入用の画像アンカーを解決できませんでした。"
+
+#: plugin/vision/vision_egress.py
+#, python-format
+msgid "Could not position insert after the image: %s"
+msgstr "画像の後に挿入位置を特定できませんでした: %s"
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr "OCR 挿入の準備中に画像が削除されました。"
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
+msgstr "OCR 挿入中に画像が削除されました。"
+
+#: plugin/vision/vision_tools.py
+msgid "Vision OCR requires a Writer or Calc document."
+msgstr "Vision OCRにはWriterまたはCalcのドキュメントが必要です。"
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
+msgstr "ディスパッチエラー"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
+"(Settings → Python → Test for install hints)."
 msgstr ""
-"LaTeXからStarMathへの変換に失敗しました:\n"
-"\n"
-"{0}"
+"ローカルOCRには「設定」→「Python "
+"venv（DoclingまたはPaddleOCR）」が必要です（「設定」→「Python」→「テスト」でインストールヒントを確認してください）。"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "The selected formula is no longer in the document."
-msgstr "選択された数式はドキュメント内に存在しません。"
+#: plugin/doc/specialized_base.py
+msgid "Running local OCR on selected image(s)..."
+msgstr "選択した画像に対してローカルOCRを実行中..."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Formula updated."
-msgstr "数式を更新しました。"
+#: plugin/doc/specialized_base.py
+msgid ""
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
+msgstr "ドキュメントのリサーチ読み取りには専門的なタスク委任（USE_SUB_AGENT）が必要です。設定でこれを有効にしてください。"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-msgid "Formula inserted."
-msgstr "数式を挿入しました。"
+#: plugin/doc/specialized_base.py
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っています。完了したら "
+"'specialized_workflow_finished' を呼び出して、APIのフルセットを復元してください。"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "This command is only available in Writer documents."
-msgstr "このコマンドはWriterドキュメントでのみ使用可能です。"
+#: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} 成功、{2} 失敗。"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "LaTeX Math Editor"
-msgstr "LaTeX 数式エディター"
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "テストの実行に失敗しました: {0}"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Insert as display block (centered paragraph)"
-msgstr "ディスプレイブロックとして挿入 (中央揃えの段落)"
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Extend Selection"
+msgstr "選択範囲を拡張"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "閉じる"
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Edit Selection"
+msgstr "選択範囲を編集"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "LaTeX Conversion Error"
-msgstr "LaTeX変換エラー"
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Toggle MCP Server"
+msgstr "MCPサーバーの切り替え"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "An unexpected error occurred during LaTeX insertion."
-msgstr "LaTeX挿入中に予期しないエラーが発生しました。"
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run format tests"
+msgstr "フォーマットテストを実行する"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run calc tests"
+msgstr "Calc テストを実行する"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run Calc API integration tests"
+msgstr "Calc API 統合テストを実行する"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run draw tests"
+msgstr "Draw テストを実行する"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Evaluation Dashboard"
+msgstr "評価ダッシュボード"
+
+#: plugin/main.py
+msgid "Edit LaTeX Math..."
+msgstr "LaTeX 数式を編集..."
+
+#: plugin/main.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Search Nearby Files..."
+msgstr "近くのファイルを検索..."
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Convert Sheet to Python..."
+msgstr "シートをPythonに変換..."
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr "たった今"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr "{0}分前"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr "{0}時間前"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}d ago"
+msgstr "{0}日前"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr "キャッシュステータス: アクティブなドキュメントなし"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr "キャッシュステータス: フォルダーが解決されていません"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr "キャッシュステータス: 未構築 (zvec)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr "キャッシュステータス: 未構築 (lancedb)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr "キャッシュステータス: 未構築"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr "キャッシュステータス: 構築済み ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr "キャッシュステータス: 構築済み"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr "キャッシュステータス: エラー ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr "検索クエリを入力してください。"
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr "検索中..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr "アクティブなドキュメントが見つかりません。"
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
+msgstr "ファイル横断検索は無効です。「設定」→「埋め込み」で「埋め込み + FTS」を有効にしてください。"
+
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr "エラー: "
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Folder index is building in the background. Please retry search shortly."
+msgstr "フォルダーのインデックスをバックグラウンドで構築中です。しばらくしてから再度検索してください。"
+
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr "一致する項目が見つかりません。"
+
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr "検索実行エラー: "
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr "キャッシュを再構築中..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr "アクティブなフォルダーが解決されませんでした。"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr "キャッシュの再構築が正常に完了しました。"
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr "再構築に失敗しました: "
+
+#: plugin/notebook/notebook_controls.py
+msgid "Run code cell"
+msgstr "コードセルを実行"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "セルの実行に失敗しました。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "ノートブックの実行はLibreOffice Writerでのみサポートされています。"
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
+msgstr ""
+"このドキュメントにはインポートされたノートブックがありません。「ファイル」→「Jupyterノートブック (.ipynb) "
+"を開く」を先に実行してください。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "このコントロールに対応するノートブックセルが見つかりませんでした。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Open a Writer document first."
+msgstr "先にWriterドキュメントを開いてください。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Transcribing audio..."
+msgstr "音声を文字起こし中..."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[文字起こしエラー: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr "[ドキュメントコンテキストエラー: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr "[エージェントバックエンド '{0}' が見つかりません。]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr "[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）を確認してください。]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "完璧！今からメインアシスタントに切り替えます。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown librarian error."
+msgstr "不明なライブラリアンエラー。"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[ライブラリアンエラー：{0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "ブレインストーミング完了。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "不明なブレインストーミングエラーが発生しました。"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Brainstorming error: {0}]"
+msgstr "[ブレインストーミングエラー: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "執筆計画が完了しました。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "不明な執筆計画エラーが発生しました。"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Writing plan error: {0}]"
+msgstr "[執筆計画エラー: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master セッションが完了しました。"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "不明な PPT-Master エラーが発生しました。"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[PPT-Master error: {0}]"
+msgstr "[PPT-Master エラー: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "不明なDeep Researchエラーが発生しました。"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Deep Researchエラー: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "不明な研究エラー。"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr "[研究エラー: {0}]"
+
+#: plugin/chatbot/web_research.py
+msgid "Web research completed."
+msgstr "ウェブリサーチが完了しました。"
+
+#: plugin/chatbot/extension_update_check.py
+msgid "Update available"
+msgstr "更新が利用可能です"
+
+#: plugin/chatbot/extension_update_check.py
+#, python-format
+msgid ""
+"A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
+"to check for updates and install the latest extension."
+msgstr ""
+"新しい %(name)s (%(version)s) "
+"が利用可能です。「ツール」→「拡張機能マネージャー」を使用して更新を確認し、最新の拡張機能をインストールしてください。"
+
+#: plugin/chatbot/dialogs.py
+msgid "Agent requests approval"
+msgstr "エージェントが承認を要求"
+
+#: plugin/chatbot/dialogs.py
+msgid "Proceed with this action?"
+msgstr "このアクションを続行しますか?"
+
+#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Tool: %s"
+msgstr "ツール: %s"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Print the command list"
+msgstr "コマンドリストを印刷"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Start a new chat"
+msgstr "新しいチャットを開始"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Cancel the in-flight send"
+msgstr "送信中の処理をキャンセル"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Mock command (echo only)"
+msgstr "モックコマンド（エコーのみ）"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Apply last draft (mock)"
+msgstr "最後のドラフトを適用（モック）"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Web research (mock)"
+msgstr "Web research (mock)"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Switch model (mock)"
+msgstr "Switch model (mock)"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Slash commands:"
+msgstr "Slash commands:"
+
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[No speech detected.]"
+msgstr "[音声が検出されませんでした。]"
+
+#: plugin/chatbot/tool_loop.py
+msgid "Error: Toolkit unavailable"
+msgstr "エラー: ツールキットが利用できません"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "about"
@@ -1149,218 +2888,6 @@ msgstr "なぜ"
 msgid "you"
 msgstr "あなた"
 
-#: plugin/chatbot/dialogs.py
-msgid "Agent requests approval"
-msgstr "エージェントが承認を要求"
-
-#: plugin/chatbot/dialogs.py
-msgid "Proceed with this action?"
-msgstr "このアクションを続行しますか?"
-
-#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Tool: %s"
-msgstr "ツール: %s"
-
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
-msgid "Copied!"
-msgstr "コピーしました！"
-
-#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
-msgid "Copy URL"
-msgstr "URLをコピー"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Extend Selection"
-msgstr "選択範囲を拡張"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Edit Selection"
-msgstr "選択範囲を編集"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Convert Sheet to Python..."
-msgstr "シートをPythonに変換..."
-
-#: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
-#: plugin/main.py
-msgid "Search Nearby Files..."
-msgstr "近くのファイルを検索..."
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Toggle MCP Server"
-msgstr "MCPサーバーの切り替え"
-
-#: plugin/chatbot/hamburger_menu.py
-msgid "MCP Server (Running)"
-msgstr "MCP サーバー (実行中)"
-
-#: plugin/chatbot/hamburger_menu.py
-msgid "MCP Server (Stopped)"
-msgstr "MCP サーバー (停止中)"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run format tests"
-msgstr "フォーマットテストを実行する"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run calc tests"
-msgstr "Calc テストを実行する"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run Calc API integration tests"
-msgstr "Calc API 統合テストを実行する"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run draw tests"
-msgstr "Draw テストを実行する"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Evaluation Dashboard"
-msgstr "評価ダッシュボード"
-
-#: plugin/chatbot/hamburger_menu.py
-msgid "Debug"
-msgstr "デバッグ"
-
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[音声が検出されませんでした。]"
-
-#: plugin/chatbot/tool_loop.py
-msgid "Error: Toolkit unavailable"
-msgstr "エラー: ツールキットが利用できません"
-
-#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
-msgid "Chat"
-msgstr "チャット"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Image"
-msgstr "画像"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Web Research"
-msgstr "Webリサーチ"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Deep Research"
-msgstr "Deep Research"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Brainstorming"
-msgstr "ブレインストーミング"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Writing Plan"
-msgstr "執筆計画"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "PPT-Master"
-msgstr "PPT-Master"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Librarian"
-msgstr "ライブラリアン"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Print the command list"
-msgstr "コマンドリストを印刷"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Start a new chat"
-msgstr "新しいチャットを開始"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Cancel the in-flight send"
-msgstr "送信中の処理をキャンセル"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Mock command (echo only)"
-msgstr "モックコマンド（エコーのみ）"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Apply last draft (mock)"
-msgstr "最後のドラフトを適用（モック）"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Web research (mock)"
-msgstr "Web research (mock)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Switch model (mock)"
-msgstr "Switch model (mock)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Slash commands:"
-msgstr "Slash commands:"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "承認"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "変更"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "拒否"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "承認を待っています…"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "音声を録音中… (%d ms の無音)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "録音"
-
-#: plugin/chatbot/panel.py
-msgid "Stop Rec"
-msgstr "録音停止"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "送信"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "起動..."
-
-#: plugin/chatbot/panel.py
-msgid "Getting document..."
-msgstr "ドキュメントを取得しています..."
-
-#: plugin/chatbot/panel.py
-msgid ""
-"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
-"active window.]"
-msgstr ""
-"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、または Draw) が見つかりません。]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Internal Error: Could not identify document type for {0}. Please report "
-"this!]"
-msgstr "[内部エラー: {0} のドキュメント タイプを識別できませんでした。ご報告ください。]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr "[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデルを選択してください。]"
-
-#: plugin/chatbot/panel.py
-msgid "[Peer send requires Chat mode on this sidebar.]"
-msgstr "[ピア送信には、このサイドバーでチャットモードが必要です。]"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -1397,10 +2924,6 @@ msgstr "リサーチキャッシュ保存済み (キー: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "'%s' を読み取り専用で開いています。"
 
-#: plugin/chatbot/web_research.py
-msgid "Web research completed."
-msgstr "ウェブリサーチが完了しました。"
-
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -1429,121 +2952,71 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "エディタを開始できませんでした: {0}"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "音声を文字起こし中..."
+#: plugin/chatbot/panel.py
+msgid "Accept"
+msgstr "承認"
 
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[文字起こしエラー: {0}]"
+#: plugin/chatbot/panel.py
+msgid "Change"
+msgstr "変更"
 
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Document context error: {0}]"
-msgstr "[ドキュメントコンテキストエラー: {0}]"
+#: plugin/chatbot/panel.py
+msgid "Reject"
+msgstr "拒否"
 
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Agent backend '{0}' not found.]"
-msgstr "[エージェントバックエンド '{0}' が見つかりません。]"
+#: plugin/chatbot/panel.py
+msgid "Waiting for approval…"
+msgstr "承認を待っています…"
 
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "音声を録音中… (%d ms の無音)"
+
+#: plugin/chatbot/panel.py
+msgid "Record"
+msgstr "録音"
+
+#: plugin/chatbot/panel.py
+msgid "Stop Rec"
+msgstr "録音停止"
+
+#: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "起動..."
+
+#: plugin/chatbot/panel.py
+msgid "Getting document..."
+msgstr "ドキュメントを取得しています..."
+
+#: plugin/chatbot/panel.py
+msgid ""
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
+"active window.]"
+msgstr ""
+"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、または Draw) が見つかりません。]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr "[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）を確認してください。]"
+"[Internal Error: Could not identify document type for {0}. Please report "
+"this!]"
+msgstr "[内部エラー: {0} のドキュメント タイプを識別できませんでした。ご報告ください。]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "完璧！今からメインアシスタントに切り替えます。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "不明なライブラリアンエラー。"
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/panel.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[ライブラリアンエラー：{0}]"
+msgid ""
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
+msgstr "[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデルを選択してください。]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "ブレインストーミング完了。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "不明なブレインストーミングエラーが発生しました。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[ブレインストーミングエラー: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "執筆計画が完了しました。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "不明な執筆計画エラーが発生しました。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[執筆計画エラー: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master セッションが完了しました。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "不明な PPT-Master エラーが発生しました。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[PPT-Master エラー: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "不明なDeep Researchエラーが発生しました。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Deep Researchエラー: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "不明な研究エラー。"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[研究エラー: {0}]"
-
-#: plugin/chatbot/web_research_deep.py
-#, python-brace-format
-msgid "Research notes (automatic synthesis failed) for: {query}"
-msgstr "リサーチノート（自動合成に失敗しました）: {query}"
-
-#: plugin/chatbot/web_research_deep.py
-msgid "Sources consulted:"
-msgstr "参照元:"
-
-#: plugin/chatbot/web_research_deep.py
-msgid "Web research collected no usable evidence."
-msgstr "Webリサーチで利用可能な証拠は見つかりませんでした。"
+#: plugin/chatbot/panel.py
+msgid "[Peer send requires Chat mode on this sidebar.]"
+msgstr "[ピア送信には、このサイドバーでチャットモードが必要です。]"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
 msgstr "編集の指示を入力してください！"
-
-#: plugin/chatbot/selection.py plugin/xdl_strings.py
-msgid "Input"
-msgstr "入力"
 
 #: plugin/chatbot/selection.py
 msgid "Edit"
@@ -1562,18 +3035,121 @@ msgstr "{0} の選択はこのドキュメントタイプではサポートさ�
 msgid "No document open"
 msgstr "ドキュメントが開かれていません"
 
-#: plugin/chatbot/extension_update_check.py
-msgid "Update available"
-msgstr "更新が利用可能です"
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(APIキーを入力してモデルを読み込む)"
 
-#: plugin/chatbot/extension_update_check.py
-#, python-format
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(No image models on this endpoint)"
+msgstr "(このエンドポイントには画像モデルがありません)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(接続に失敗しました)"
+
+#: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Research notes (automatic synthesis failed) for: {query}"
+msgstr "リサーチノート（自動合成に失敗しました）: {query}"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Sources consulted:"
+msgstr "参照元:"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Web research collected no usable evidence."
+msgstr "Webリサーチで利用可能な証拠は見つかりませんでした。"
+
+#: plugin/chatbot/panel_factory.py
 msgid ""
-"A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
-"to check for updates and install the latest extension."
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr "AI: 文書を見たり変更したりせずに、ウェブ調査で質問に答えたりウェブページを要約したりできます。さあ、話しましょう。"
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
 msgstr ""
-"新しい %(name)s (%(version)s) "
-"が利用可能です。「ツール」→「拡張機能マネージャー」を使用して更新を確認し、最新の拡張機能をインストールしてください。"
+"AI: Deep Research "
+"モードは複数ステップのウェブ調査（計画、複数検索、まとめ）を行い、整形したレポートを文書に挿入できます。時間はかかりますが、より徹底した結果になります。"
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
+msgstr "AI: 一緒にアイデアを探り、設計しましょう。質問し、方針を提案し、準備ができたら承認済みの仕様を文書にまとめるお手伝いをします。"
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr "AI: 文書をセクションごとに起草しましょう。執筆プランのアウトライン作成から、承認を得ながら段階的な実装までお手伝いします。"
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+"AI: PPT-Master モード — 設定済みの Python venv で ppt-master ワークフロー（スクリプト + Impress "
+"へのエクスポート）を実行します。トピックを書くか、プロジェクトフォルダを指定してください。"
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
+" colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+"AI: WriterAgent の Librarian です。お名前や好きな色を覚えて短いツアーもできます。文書作業に戻るときはドロップダウンで "
+"Chat を選んでください。"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Size:"
+msgstr "サイズ:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Height:"
+msgstr "高さ:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Width:"
+msgstr "幅:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "回答を読み上げる (TTS)"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Image"
+msgstr "画像"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Web Research"
+msgstr "Webリサーチ"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Deep Research"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming"
+msgstr "ブレインストーミング"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing Plan"
+msgstr "執筆計画"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master"
+msgstr "PPT-Master"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Librarian"
+msgstr "ライブラリアン"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Invalid Setting"
@@ -1605,1524 +3181,17 @@ msgstr "音声出力はオフになっています。「音声出力 (TTS) を�
 msgid "Audio Library Download"
 msgstr "オーディオライブラリのダウンロード"
 
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(Enter API Key to load models)"
-msgstr "(APIキーを入力してモデルを読み込む)"
-
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(No image models on this endpoint)"
-msgstr "(このエンドポイントには画像モデルがありません)"
-
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(Connection failed)"
-msgstr "(接続に失敗しました)"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Size:"
-msgstr "サイズ:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Height:"
-msgstr "高さ:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Width:"
-msgstr "幅:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Speak responses aloud (TTS)"
-msgstr "回答を読み上げる (TTS)"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "New Python Script"
-msgstr "新しいPythonスクリプト"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Script name:"
-msgstr "スクリプト名:"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Attach to this document"
-msgstr "このドキュメントに添付"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/document_scripts.py
-msgid "Script name cannot be empty."
-msgstr "スクリプト名を空にすることはできません。"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "実行中…"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Monaco loader missing."
-msgstr "Monacoローダーが見つかりません。"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Install jedi in the Python venv for completions."
-msgstr "補完機能を使用するには、Python venvにjediをインストールしてください。"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Run"
-msgstr "実行"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Cancel"
-msgstr "キャンセル"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Data:"
-msgstr "データ:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "New"
-msgstr "新規"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Create"
-msgstr "作成"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Script:"
-msgstr "スクリプト:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Attach"
-msgstr "添付"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Attach to Document"
-msgstr "ドキュメントに添付"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Save As..."
-msgstr "名前を付けて保存..."
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-msgid "Save Script As"
-msgstr "スクリプトを名前を付けて保存"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Delete"
-msgstr "削除"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Scripts"
-msgstr "スクリプト"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-msgid "My Scripts"
-msgstr "マイ スクリプト"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
-msgstr "組み込みヘルパーは読み取り専用です。「マイ スクリプトにコピー」を使用してカスタマイズしてください。"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid ""
-"Document changed — close and reopen Run Python Script to edit document "
-"scripts."
-msgstr "ドキュメントが変更されました。ドキュメントのスクリプトを編集するには、「Python スクリプトの実行」を閉じてから再度開いてください。"
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Loaded script '{0}'."
-msgstr "スクリプト '{0}' を読み込みました。"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-msgid "No document is open to attach scripts."
-msgstr "スクリプトを添付するためのドキュメントが開かれていません。"
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Attaching script '{0}'..."
-msgstr "スクリプト '{0}' をアタッチしています..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Copying script '{0}' to My Scripts..."
-msgstr "スクリプト '{0}' をマイ スクリプトにコピーしています..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Saving script '{0}'..."
-msgstr "スクリプト '{0}' を保存しています..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Deleting script '{0}'..."
-msgstr "スクリプト '{0}' を削除しています..."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Built-in helpers cannot be deleted."
-msgstr "組み込みヘルパーは削除できません。"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Enter script name:"
-msgstr "スクリプト名を入力してください:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "'{0}' という名前のスクリプトは既にこのドキュメントに存在します。上書きしますか？"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Copy to My Scripts as:"
-msgstr "マイ スクリプトへコピー (名前):"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
-msgstr "'{0}' という名前のスクリプトは既にマイ スクリプトに存在します。上書きしますか？"
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "スクリプト '{0}' をこのドキュメントに保存しますか？"
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Are you sure you want to delete script '{0}'?"
-msgstr "スクリプト '{0}' を削除してもよろしいですか？"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
-msgid "Select data range or enter A1 address (injected as data)."
-msgstr "データ範囲を選択するか、A1アドレスを入力してください（データとして挿入されます）。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Document scripts are too large to store in the document ({0} bytes)."
-msgstr "ドキュメントスクリプトが大きすぎてドキュメントに保存できません ({0} バイト)。"
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open to save scripts."
-msgstr "スクリプトを保存するためのドキュメントが開かれていません。"
-
-#: plugin/scripting/document_scripts.py
-msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
-msgstr "ドキュメントが読み取り専用か、プロパティを書き込めません。代わりに個人用ライブラリにスクリプトを保存しました。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document."
-msgstr "'{0}' という名前のスクリプトは、このドキュメント内に既に存在します。"
-
-#: plugin/scripting/document_scripts.py
-msgid "This Document"
-msgstr "このドキュメント"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "スクリプト '{0}' を「マイ スクリプト」に保存しました。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "スクリプト '{0}' をこのドキュメントに保存しました。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "スクリプト '{0}' を保存しました。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Attached script '{0}' to this document."
-msgstr "このドキュメントにスクリプト '{0}' を添付しました。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in My Scripts."
-msgstr "'{0}' という名前のスクリプトはすでに「マイ スクリプト」に存在します。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Copied script '{0}' to My Scripts."
-msgstr "スクリプト '{0}' を「マイ スクリプト」にコピーしました。"
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "ドキュメントが開かれていません。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "ドキュメントスクリプト '{0}' を削除しました。"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "スクリプト '{0}' を削除しました。"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "PythonScriptDialog could not be loaded from the extension."
-msgstr "PythonScriptDialogを拡張機能から読み込めませんでした。"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s 代わりに「マイ スクリプト」に保存されました。"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "スクリプト '%s' をこのドキュメントに保存しました。"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "スクリプト '%s' を正常に保存しました。"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to My Scripts."
-msgstr "スクリプト '%s' をマイ スクリプトに保存しました。"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "スクリプト '%s' を削除してもよろしいですか？"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete Script"
-msgstr "スクリプトを削除"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "スクリプト '%s' を削除しました。"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "New Script"
-msgstr "新しいスクリプト"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' created in this document."
-msgstr "スクリプト '%s' をこのドキュメント内に作成しました。"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' created in My Scripts."
-msgstr "スクリプト '%s' をマイ スクリプト内に作成しました。"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "実行エラー"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "スクリプトは正常に実行されました。"
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr "スクリプトは正常に実行されましたが、結果が返されず、出力もありませんでした。"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "成功"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Venv OK"
-msgstr "Venv OK"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Venv check failed"
-msgstr "仮想環境のチェックに失敗しました"
-
-#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr "Python 環境をテスト中..."
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Done"
-msgstr "完了"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Failed"
-msgstr "失敗"
-
-#: plugin/scripting/editor_host.py
-msgid ""
-"Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" Monaco editor."
-msgstr ""
-"「設定」→「Python」でPython venvパスを設定してください（'uv pip install pywebview "
-"rocher'を実行したvenvと同じもの）。LibreOffice組み込みのPythonではMonacoエディタを実行できません。"
-
-#: plugin/scripting/editor_host.py
-#, python-brace-format
-msgid ""
-"No python executable found under configured venv: {0} (expected bin/python, "
-"Scripts/python.exe, or env-root python.exe)."
-msgstr ""
-"設定されたvenv内にPython実行ファイルが見つかりません: {0} (bin/python、Scripts/python.exe、またはenv-"
-"rootのpython.exeが必要です)。"
-
-#: plugin/scripting/editor_host.py
-msgid "Could not start the Python editor."
-msgstr "Pythonエディターを起動できませんでした。"
-
-#: plugin/scripting/editor_host.py
-msgid "The Python editor window did not start."
-msgstr "Pythonエディターウィンドウが起動しませんでした。"
-
-#: plugin/scripting/editor_host.py
-msgid "The Python editor exited before it could load your code."
-msgstr "Pythonエディターはコードを読み込む前に終了しました。"
-
-#: plugin/scripting/editor_host.py
-msgid "Could not talk to the Python editor."
-msgstr "Pythonエディターと通信できませんでした。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr "Linuxではシステム用PortAudioもインストールしてください: sudo pacman -S portaudio"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio probe timed out (sounddevice import failed or hung)."
-msgstr "オーディオプローブがタイムアウトしました (sounddeviceのインポート失敗またはハング)。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio probe failed (see writeragent_debug.log)."
-msgstr "オーディオプローブが失敗しました (writeragent_debug.logを参照してください)。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
-"on first check)."
-msgstr ""
-"テキスト/NLPプローブがタイムアウトしました (spaCyまたはtransformersの初回インポートには10〜30秒かかる場合があります)。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text/NLP probe failed (see writeragent_debug.log)."
-msgstr "テキスト/NLPプローブが失敗しました (writeragent_debug.logを参照してください)。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
-msgstr "ビジョン・プローブがタイムアウトしました (初回チェック時は Docling のインポートに 10～30 秒かかる場合があります)。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe failed (see writeragent_debug.log)."
-msgstr "ビジョン・プローブが失敗しました (writeragent_debug.log を参照してください)。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vector Search probe timed out (sentence-transformers import can take 10–30s "
-"on first check)."
-msgstr ""
-"ベクトル検索プローブがタイムアウトしました (sentence-transformers のインポートは初回チェック時に 10～30 "
-"秒かかることがあります)。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search probe failed (see writeragent_debug.log)."
-msgstr "ベクトル検索プローブが失敗しました (writeragent_debug.log を参照してください)。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording & Speech"
-msgstr "録音と音声"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Scientific Libraries"
-msgstr "科学技術ライブラリ"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Analysis / EDA Libraries"
-msgstr "データ分析 / EDAライブラリ"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries"
-msgstr "UI / Monacoライブラリ"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Visualization Libraries"
-msgstr "可視化ライブラリ"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Computer Algebra"
-msgstr "数式処理"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Quantitative Finance Libraries"
-msgstr "金融工学ライブラリ"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Engineering Libraries"
-msgstr "データエンジニアリング・ライブラリ"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries"
-msgstr "テキスト / NLP ライブラリ"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries"
-msgstr "ビジョンライブラリ"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries"
-msgstr "ベクトル検索ライブラリ"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "音声録音"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "To install remaining packages:"
-msgstr "残りのパッケージをインストールするには:"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "No microphone input devices detected."
-msgstr "マイク入力デバイスが検出されませんでした。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Local TTS engines (optional):"
-msgstr "ローカル TTS エンジン (オプション):"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Starting Python worker..."
-msgstr "Python ワーカーを起動中..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Reading Python version..."
-msgstr "Python バージョンを読み込み中..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "音声と録音: sounddevice と TTS エンジンを確認中..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries: loading (first run may take a while)..."
-msgstr "テキスト / NLPライブラリ: 読み込み中 (初回実行時は時間がかかることがあります)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr "Vision Libraries: 読み込み中 (初回実行時は時間がかかる場合があります)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries: loading (first run may take a while)..."
-msgstr "ベクトル検索ライブラリ: 読み込み中 (初回実行時は時間がかかることがあります)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Using LibreOffice process Python..."
-msgstr "LibreOffice プロセスの Python を使用中..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Resolving venv Python..."
-msgstr "venv Python を解決中..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Using"
-msgstr "使用中"
-
-#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
-msgid "Text Analytics"
-msgstr "テキスト分析"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Could not load the analytics dialog."
-msgstr "分析ダイアログを読み込めませんでした。"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr "spaCy / textdescriptives / transformers のインストールを確認中..."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-brace-format
-msgid ""
-"Error from the Text Analytics worker:\n"
-"{err}\n"
-"\n"
-"The features in this dialog require these packages in the python it is using:\n"
-"  • spacy + a model          (entities, key phrases, basic stats)\n"
-"  • textdescriptives         (real Readability scores)\n"
-"  • transformers + torch     (Sentiment using the multilingual model)\n"
-"\n"
-"Install them with:\n"
-"  {install}\n"
-"\n"
-"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
-msgstr ""
-"テキスト分析ワーカーからのエラー:\n"
-"{err}\n"
-"\n"
-"このダイアログの機能を使用するには、使用中のPython環境に以下のパッケージが必要です:\n"
-"  • spacy + モデル          (エンティティ、キーフレーズ、基本統計)\n"
-"  • textdescriptives         (読みやすさスコア)\n"
-"  • transformers + torch     (多言語モデルを使用した感情分析)\n"
-"\n"
-"以下のコマンドでインストールしてください:\n"
-"  {install}\n"
-"\n"
-"ワーカーがモジュールが見つからないと報告しました。設定した仮想環境に対してワーカーが解決したPython実行ファイルに、パッケージが正しくインストールされているか確認してください。"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Open a Writer document to analyze."
-msgstr "分析する Writer ドキュメントを開いてください。"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Not enough text in the chosen scope."
-msgstr "選択範囲内のテキストが不足しています。"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Analyzing..."
-msgstr "分析中..."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-format
-msgid ""
-"Error: %s\n"
-"\n"
-"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
-msgstr ""
-"エラー: %s\n"
-"\n"
-"設定された仮想環境（設定 → Python）に必要なパッケージが不足している可能性があります。このダイアログの「仮想環境を確認」をクリックするか、設定 → Pythonの「テスト」機能を使用して、spacy、textdescriptives、transformers、torchなどの詳細を確認してください。"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "No Writer document to insert into."
-msgstr "挿入先のWriterドキュメントがありません。"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "先に分析を実行してください。"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Nothing useful to insert from the last result."
-msgstr "前回の結果から挿入できる有効なデータがありません。"
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-format
-msgid "Insert failed: %s"
-msgstr "挿入に失敗しました: %s"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Inserted after selection/caret."
-msgstr "選択範囲またはカーソルの後ろに挿入しました。"
-
-#: plugin/scripting/symbolic.py
-msgid "Symbolic helper failed."
-msgstr "数式処理ヘルパーが失敗しました。"
-
-#: plugin/scripting/symbolic.py
-msgid "Symbolic helper returned no LaTeX."
-msgstr "数式処理ヘルパーがLaTeXを返しませんでした。"
-
-#: plugin/scripting/symbolic.py
-#, python-brace-format
-msgid "Failed to convert LaTeX to Writer Math: {error}"
-msgstr "LaTeXからWriter Mathへの変換に失敗しました: {error}"
-
-#: plugin/scripting/symbolic.py
-msgid "No active document view."
-msgstr "アクティブなドキュメントビューがありません。"
-
-#: plugin/scripting/symbolic.py
-msgid "Unsupported document type for symbolic insertion."
-msgstr "数式挿入に対応していないドキュメント形式です。"
-
-#: plugin/scripting/viz.py
-msgid "Unsupported document type for plot insertion."
-msgstr "プロットの挿入に対応していないドキュメント形式です。"
-
-#: plugin/scripting/viz.py
-msgid "Viz helper failed."
-msgstr "可視化ヘルパーが失敗しました。"
-
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "可視化ヘルパーから画像データが返されませんでした。"
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-"Vision '{helper}' が完了しました。 HTMLを挿入しました ({blocks} ブロック、{tables} テーブル)。 (所要時間:"
-" {time})"
-
-#: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' が完了しました。 書式設定されたHTMLを挿入しました。 (所要時間: {time})"
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "{domain} '{helper}' が完了しました。{rows} 行を書き込みました。(所要時間: {time})"
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "{domain} '{helper}' completed. (took {time})"
-msgstr "{domain} '{helper}' が完了しました。(所要時間: {time})"
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"「ノートブックのPythonセッションをリセット」はLibreOffice "
-"Writerに適用されます。JupyterノートブックをインポートしたWriterドキュメントを開いて、もう一度試してください。"
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"This Writer document has no imported notebook registry. File → Open a "
-"Jupyter notebook (.ipynb) first."
-msgstr ""
-"このWriterドキュメントにはインポートされたノートブックレジストリがありません。「ファイル」→「Jupyterノートブック (.ipynb) "
-"を開く」を先に実行してください。"
-
-#: plugin/scripting/session_manager.py
-msgid "Could not resolve notebook Python session."
-msgstr "ノートブックのPythonセッションを解決できませんでした。"
-
-#: plugin/scripting/session_manager.py
-msgid "Notebook Python session reset for this document."
-msgstr "このドキュメントのノートブックPythonセッションをリセットしました。"
-
-#: plugin/scripting/session_manager.py
-msgid "Could not reset Python session."
-msgstr "Pythonセッションをリセットできませんでした。"
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr "「Pythonセッションをリセット」はCalcスプレッドシートに適用されます。Calcワークブックを開いて、もう一度試してください。"
-
-#: plugin/scripting/session_manager.py
-msgid "Python session reset for this workbook."
-msgstr "このワークブックのPythonセッションをリセットしました。"
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Initialization script and any in-memory init state were reset for this "
-"workbook. Cell variables were already isolated per cell."
-msgstr "このブックの初期化スクリプトおよびメモリ内の初期化状態はリセットされました。セル変数はすでにセルごとに分離されています。"
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Python session mode is Isolated (each =PY() cell uses its own variables). "
-"There is no shared cell session to reset. Add an initialization script if "
-"you need to clear expensive one-time workbook setup."
-msgstr ""
-"Pythonセッションモードは「分離」です（各 =PY() "
-"セルは独自の変数を使用します）。リセットする共有セルセッションはありません。高コストなワークブックの初期化を一度だけ実行してクリアする必要がある場合は、初期化スクリプトを追加してください。"
-
-#: plugin/scripting/session_manager.py
-msgid "Python session reset for this document."
-msgstr "このドキュメントのPythonセッションをリセットしました。"
-
-#: plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Units ヘルパーが失敗しました。"
-
-#: plugin/scripting/units.py
-msgid "Units helper returned no formatted text."
-msgstr "Units ヘルパーが整形されたテキストを返しませんでした。"
-
-#: plugin/scripting/units.py
-msgid "Unsupported document type for units insertion."
-msgstr "単位挿入に対応していないドキュメント形式です。"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "結果の挿入に失敗しました: {error} (所要時間: {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr "プロットを挿入しました ({title})。(所要時間: {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr "Viz '{helper}' が完了しました。 {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' が完了しました。 挿入済み: {preview} (所要時間: {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Units '{helper}' が完了しました。挿入内容: {preview} (所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Calcへの結果の挿入に失敗しました: %s"
-
-#: plugin/scripting/python_runner.py
-msgid "Info"
-msgstr "情報"
-
-#: plugin/scripting/python_runner.py
-msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr "Draw/Impressへの結果挿入はまだサポートされていません。プルリクエストを歓迎します！"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "ビジョンヘルパーには Writer または Calc ドキュメントが必要です。"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr "Visionヘルパーが失敗しました。"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
-"(took {time})"
-msgstr ""
-"Vision '{helper}' が完了しました。{count} 個の画像の書式設定済みHTMLを挿入しました。(所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
-msgstr "スクリプトは正常に実行されましたが、結果や出力は得られませんでした。(所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "結果を挿入できないドキュメント形式です。(所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Script executed successfully. (took {time})"
-msgstr "スクリプトは正常に実行されました。(所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "スクリプトが保存されました。"
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run Python Script"
-msgstr "Pythonスクリプトを実行"
-
-#: plugin/scripting/python_runner.py
-msgid "Run Python Script failed to open the Monaco editor."
-msgstr "「Pythonスクリプトの実行」でMonacoエディターを開けませんでした。"
-
-#: plugin/scripting/python_runner.py
-msgid "Could not open the built-in script dialog."
-msgstr "組み込みのスクリプトダイアログを開けませんでした。"
-
-#: plugin/scripting/python_runner.py
-msgid "An unexpected error occurred while opening Run Python Script."
-msgstr "「Pythonスクリプトの実行」を開く際に予期しないエラーが発生しました。"
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "ディスパッチエラー"
-
-#: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
-msgid ""
-"Select an embedded image (or a range containing images), then Run again."
-msgstr "埋め込み画像（または画像を含む範囲）を選択してから、再度実行してください。"
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr "画像 '{name}' が見つかりません。image_listを使用するか、image_nameを空にして画像を選択してください。"
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "画像 '{name}' をエクスポートできませんでした。"
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid "OCR complete ({count} images)."
-msgstr "OCRが完了しました ({count} 個の画像)。"
-
-#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
-msgid "OCR complete."
-msgstr "OCRが完了しました。"
-
-#: plugin/vision/vision_runner.py
-msgid "OCR complete (text returned only; not inserted)."
-msgstr "OCRが完了しました（テキストのみ取得。挿入はされません）。"
-
-#: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCRにはWriterまたはCalcのドキュメントが必要です。"
-
-#: plugin/vision/vision_egress.py
-msgid "Writer document has no controller."
-msgstr "Writer ドキュメントにコントローラーがありません。"
-
-#: plugin/vision/vision_egress.py
-msgid "Could not resolve the image anchor for insert."
-msgstr "挿入用の画像アンカーを解決できませんでした。"
-
-#: plugin/vision/vision_egress.py
-#, python-format
-msgid "Could not position insert after the image: %s"
-msgstr "画像の後に挿入位置を特定できませんでした: %s"
-
-#: plugin/vision/vision_egress.py
-msgid "The image was removed while preparing OCR insert."
-msgstr "OCR 挿入の準備中に画像が削除されました。"
-
-#: plugin/vision/vision_egress.py
-msgid "The image was removed during OCR insert."
-msgstr "OCR 挿入中に画像が削除されました。"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCPサーバーの起動に失敗しました"
-
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr "LibreOfficeユーザー設定フォルダー内のwriteragent_debug.logを確認してください"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "MCPサーバーを停止"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "MCPサーバーを起動"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "{0} 経由のパブリックトンネル (認証なし)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "{0} 経由のパブリックトンネル: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "再接続中…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "{0} 経由のパブリックトンネルに失敗しました: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "{0} 経由のパブリックトンネルを開始しています…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr "{0} 経由のパブリックトンネルは実行されていません (プロバイダーバイナリはインストールされていますか?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCPサーバーが停止しました"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCPサーバーが起動しました"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "{0} 経由のパブリックトンネル"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr "{0} 経由のパブリックトンネルを開始しています… 準備ができたら「MCP サーバーの状態」を使用してください。"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCPサーバーは実行されていません"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCPサーバー実行中"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "ルート: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "ローカル URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "公開URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "ローカルエンドポイント:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "パブリックトンネル ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "ステータス: アクティブ (接続済み)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "ステータス: 再接続中 — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "再試行中…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "ステータス: トンネルを開始中…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "ステータス: 失敗 — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "ステータス: 実行されていません ({0} バイナリはインストールされていますか?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ コピーしました！"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "テスト中…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "トンネルのテスト"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP トンネルのテスト"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "トンネルテストモード: {0} プロバイダーのシミュレーションに成功しました。"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "不明なトンネルプロバイダー: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"{1} 用のバイナリ '{0}' が PATH 上に見つかりません。\n"
-"\n"
-"インストール先: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "{0} バイナリの実行に失敗しました ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0} トンネルは実行中で応答しています！\n"
-"\n"
-"パブリックエンドポイント:\n"
-"{1}\n"
-"\n"
-"ヘルスチェック: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0} トンネルはアクティブです！\n"
-"\n"
-"パブリックエンドポイント:\n"
-"{1}\n"
-"\n"
-"(パブリックURLはアクティブなトンネルセッションから取得されました。)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0} バイナリ '{1}' は検証済みです ({2})。\n"
-"\n"
-"(注: アクティブな {3} トンネルが現在 {4} で実行中です。)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0} バイナリ '{1}' はインストールおよび検証済みです ({2})。\n"
-"\n"
-"MCPサーバーはローカルのポート {3} で実行中です。\n"
-"「パブリックトンネル経由で公開」にチェックを入れて「OK」をクリックすると、パブリックルーティングが有効になります。"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0} バイナリ '{1}' はインストールおよび検証済みです ({2})。\n"
-"\n"
-"注: MCPサーバーは現在ポート {3} で実行されていません。"
-
-#: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} 成功、{2} 失敗。"
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "テストの実行に失敗しました: {0}"
-
-#: plugin/main.py plugin/xdl_strings.py
-msgid "MCP Server Status"
-msgstr "MCP サーバーのステータス"
-
-#: plugin/main.py
-msgid "Edit LaTeX Math..."
-msgstr "LaTeX 数式を編集..."
-
-#: plugin/xdl_strings.py
-msgid "-1"
-msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "AI Model:"
-msgstr "AIモデル:"
-
-#: plugin/xdl_strings.py
-msgid "API Key:"
-msgstr "APIキー:"
-
-#: plugin/xdl_strings.py
-msgid "Active Sheet"
-msgstr "アクティブなシート"
-
-#: plugin/xdl_strings.py
-msgid "Additional Instructions (History):"
-msgstr "追加指示（履歴）:"
-
-#: plugin/xdl_strings.py
-msgid "Additional Instructions:"
-msgstr "追加指示:"
-
-#: plugin/xdl_strings.py
-msgid "Ask / instruct:"
-msgstr "質問 / 指示:"
-
-#: plugin/xdl_strings.py
-msgid "Aspect Ratio:"
-msgstr "アスペクト比:"
-
-#: plugin/xdl_strings.py
-msgid "Auto Gallery"
-msgstr "自動ギャラリー"
-
-#: plugin/xdl_strings.py
-msgid "Base Size:"
-msgstr "ベースサイズ:"
-
-#: plugin/xdl_strings.py
-msgid "Base:"
-msgstr "ベース:"
-
-#: plugin/xdl_strings.py
-msgid "Cache Status: Checking..."
-msgstr "キャッシュステータス: 確認中..."
-
-#: plugin/xdl_strings.py
-msgid "Calc"
-msgstr "Calc"
-
-#: plugin/xdl_strings.py
-msgid "Categories:"
-msgstr "カテゴリー:"
-
-#: plugin/xdl_strings.py
-msgid "Check Venv"
-msgstr "仮想環境を確認"
-
-#: plugin/xdl_strings.py
-msgid "Clear"
-msgstr "クリア"
-
-#: plugin/xdl_strings.py
-msgid "Convert Sheet to Python"
-msgstr "シートをPythonに変換"
-
-#: plugin/xdl_strings.py
-msgid "Copy"
-msgstr "コピー"
-
-#: plugin/xdl_strings.py
-msgid "Diagnostics:"
-msgstr "診断:"
-
-#: plugin/xdl_strings.py
-msgid "Draw"
-msgstr "Draw"
-
-#: plugin/xdl_strings.py
-msgid "Edit Cell"
-msgstr "セルの編集"
-
-#: plugin/xdl_strings.py
-msgid "Edit Init Script"
-msgstr "初期化スクリプトの編集"
-
-#: plugin/xdl_strings.py
-msgid "Edit config (JSON)…"
-msgstr "設定を編集 (JSON)…"
-
-#: plugin/xdl_strings.py
-msgid "Edit extra tokens:"
-msgstr "追加トークンの編集:"
-
-#: plugin/xdl_strings.py
-msgid "Edit search query"
-msgstr "検索クエリを編集"
-
-#: plugin/xdl_strings.py
-msgid "Endpoint URL (/v1 added):"
-msgstr "エンドポイントURL（/v1追加済）:"
-
-#: plugin/xdl_strings.py
-msgid "Endpoint URL:"
-msgstr "エンドポイントURL:"
-
-#: plugin/xdl_strings.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr "変換して数式として挿入するLaTeXコードを入力してください:"
-
-#: plugin/xdl_strings.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"ユーザー仮想環境で実行するPythonコードを入力してください。\n"
-"結果を 'result' 変数に代入してください。"
-
-#: plugin/xdl_strings.py
-msgid "Entities"
-msgstr "エンティティ"
-
-#: plugin/xdl_strings.py
-msgid "Extend max tokens:"
-msgstr "最大トークンの拡張:"
-
-#: plugin/xdl_strings.py
-msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr "元のテキスト長に追加するトークン数。0 = 元と同じ長さ。"
-
-#: plugin/xdl_strings.py
-msgid "Filter:"
-msgstr "フィルター:"
-
-#: plugin/xdl_strings.py
-msgid "General"
-msgstr "一般"
-
-#: plugin/xdl_strings.py
-msgid "Get API Key:"
-msgstr "APIキーを取得:"
-
-#: plugin/xdl_strings.py
-msgid "Hugging Face"
-msgstr "Hugging Face"
-
-#: plugin/xdl_strings.py
-msgid "Image Model:"
-msgstr "画像モデル:"
-
-#: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "画像設定"
-
-#: plugin/xdl_strings.py
-msgid "In-place replacement"
-msgstr "インプレース置換"
-
-#: plugin/xdl_strings.py
-msgid "Input:"
-msgstr "入力:"
-
-#: plugin/xdl_strings.py
-msgid "Insert Frame"
-msgstr "フレームを挿入"
-
-#: plugin/xdl_strings.py
-msgid "Insert LaTeX Math"
-msgstr "LaTeX数式を挿入"
-
-#: plugin/xdl_strings.py
-msgid "Insert report here"
-msgstr "ここにレポートを挿入"
-
-#: plugin/xdl_strings.py
-msgid "Key Phrases"
-msgstr "キーフレーズ"
-
-#: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "最大トークン:"
-
-#: plugin/xdl_strings.py
-msgid "Message"
-msgstr "メッセージ"
-
-#: plugin/xdl_strings.py
-msgid "Models to Test:"
-msgstr "テストするモデル:"
-
-#: plugin/xdl_strings.py
-msgid "Multimodal"
-msgstr "マルチモーダル"
-
-#: plugin/xdl_strings.py
-msgid "NVIDIA NIM"
-msgstr "NVIDIA NIM"
-
-#: plugin/xdl_strings.py
-msgid "New Sheet (PythonImport)"
-msgstr "新しいシート (PythonImport)"
-
-#: plugin/xdl_strings.py
-msgid "Number of Responses:"
-msgstr "応答数:"
-
-#: plugin/xdl_strings.py
-msgid "OK"
-msgstr "OK"
-
-#: plugin/xdl_strings.py
-msgid "OpenRouter"
-msgstr "OpenRouter"
-
-#: plugin/xdl_strings.py
-msgid "Options"
-msgstr "オプション"
-
-#: plugin/xdl_strings.py
-msgid "Output Mode"
-msgstr "出力モード"
-
-#: plugin/xdl_strings.py
-msgid "Please enter edit instructions:"
-msgstr "編集の指示を入力してください:"
-
-#: plugin/xdl_strings.py
-msgid "Preserve number formats"
-msgstr "数値形式を保持"
-
-#: plugin/xdl_strings.py
-msgid "Public Tunnel:"
-msgstr "パブリックトンネル:"
-
-#: plugin/xdl_strings.py
-msgid "Python Settings…"
-msgstr "Python 設定…"
-
-#: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Python テスト"
-
-#: plugin/xdl_strings.py
-msgid "Python cells (active sheet):"
-msgstr "Python セル (アクティブなシート):"
-
-#: plugin/xdl_strings.py
-msgid "Python:"
-msgstr "Python:"
-
-#: plugin/xdl_strings.py
-msgid "Readability"
-msgstr "読みやすさ"
-
-#: plugin/xdl_strings.py
-msgid "Rebuild"
-msgstr "再構築"
-
-#: plugin/xdl_strings.py
-msgid "Refresh"
-msgstr "更新"
-
-#: plugin/xdl_strings.py
-msgid "Reset Session"
-msgstr "セッションをリセット"
-
-#: plugin/xdl_strings.py
-msgid "Results:"
-msgstr "結果:"
-
-#: plugin/xdl_strings.py
-msgid "Run Benchmark"
-msgstr "ベンチマークを実行"
-
-#: plugin/xdl_strings.py
-msgid "Run Script"
-msgstr "スクリプトを実行"
-
-#: plugin/xdl_strings.py
-msgid "Scope"
-msgstr "範囲"
-
-#: plugin/xdl_strings.py
-msgid "Search Nearby Files"
-msgstr "近くのファイルを検索"
-
-#: plugin/xdl_strings.py
-msgid "Search Query:"
-msgstr "検索クエリ:"
-
-#: plugin/xdl_strings.py
-msgid "Search query:"
-msgstr "検索クエリ："
-
-#: plugin/xdl_strings.py
-msgid "Seed:"
-msgstr "シード:"
-
-#: plugin/xdl_strings.py
-msgid "Selection"
-msgstr "選択範囲"
-
-#: plugin/xdl_strings.py
-msgid "Sentiment"
-msgstr "感情分析"
-
-#: plugin/xdl_strings.py
-msgid "Square"
-msgstr "正方形"
-
-#: plugin/xdl_strings.py
-msgid "Status"
-msgstr "ステータス"
-
-#: plugin/xdl_strings.py
-msgid "Status: Ready"
-msgstr "ステータス: 準備完了"
-
-#: plugin/xdl_strings.py
-msgid "Steps:"
-msgstr "ステップ:"
-
-#: plugin/xdl_strings.py
-msgid "Temperature:"
-msgstr "温度:"
-
-#: plugin/xdl_strings.py
-msgid "Test Connection"
-msgstr "接続をテスト"
-
-#: plugin/xdl_strings.py
-msgid "Text/Chat Model:"
-msgstr "テキスト/チャットモデル:"
-
-#: plugin/xdl_strings.py
-msgid "Timeout (s):"
-msgstr "タイムアウト(秒):"
-
-#: plugin/xdl_strings.py
-msgid "Together AI"
-msgstr "Together AI"
-
-#: plugin/xdl_strings.py
-msgid "Topics"
-msgstr "トピック"
-
-#: plugin/xdl_strings.py
-msgid "Vectorize columns when safe"
-msgstr "安全な場合に列をベクトル化"
-
-#: plugin/xdl_strings.py
-msgid "Verify recalc (oracle diff)"
-msgstr "再計算を検証 (oracle diff)"
-
-#: plugin/xdl_strings.py
-msgid "Whole Document"
-msgstr "ドキュメント全体"
-
-#: plugin/xdl_strings.py
-msgid "Writer"
-msgstr "Writer"
-
-#: plugin/xdl_strings.py
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "WriterAgent 評価ダッシュボード"
-
-#: plugin/xdl_strings.py
-msgid "√x"
-msgstr "√x"
-
-#: plugin/xdl_strings.py
-msgid "☰"
-msgstr "☰"
-
-#: plugin/xdl_strings.py
-msgid "⚙"
-msgstr "⚙"
-
-#: plugin/xdl_strings.py
-msgid "🔊"
-msgstr "🔊"
-
-#: plugin/xdl_strings.py
-msgid "🔍"
-msgstr "🔍"
+#: plugin/chatbot/hamburger_menu.py
+msgid "MCP Server (Running)"
+msgstr "MCP サーバー (実行中)"
+
+#: plugin/chatbot/hamburger_menu.py
+msgid "MCP Server (Stopped)"
+msgstr "MCP サーバー (停止中)"
+
+#: plugin/chatbot/hamburger_menu.py
+msgid "Debug"
+msgstr "デバッグ"
 
 msgid "Agent Communication Protocol"
 msgstr "エージェント通信プロトコル"

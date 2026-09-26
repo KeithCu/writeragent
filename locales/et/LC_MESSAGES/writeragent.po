@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 12:42-0400\n"
+"POT-Creation-Date: 2026-09-26 12:49-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -17,174 +17,1432 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: plugin/doc/specialized_base.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Tunneli testrežiim: {0} pakkuja simuleerimine õnnestus."
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Tundelipakkuja on tundmatu: {0}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
-"(Settings → Python → Test for install hints)."
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
 msgstr ""
-"Kohalik OCR nõuab sätteid → Python venv koos Doclingi või PaddleOCR-iga "
-"(Sätted → Python → Testi installimisjuhiste saamiseks)."
+"Binaarfaili '{0}' rakenduse {1} jaoks ei leitud PATH-ist.\n"
+"\n"
+"Installige asukohast: {2}"
 
-#: plugin/doc/specialized_base.py
-msgid "Running local OCR on selected image(s)..."
-msgstr "Käivitan kohalikku OCR-i valitud piltidel..."
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Binaarfaili {0} käivitamine ebaõnnestus ({1}): {2}"
 
-#: plugin/doc/specialized_base.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
 msgstr ""
-"Dokumendi uurimine nõuab spetsiaalset ülesannete delegeerimist "
-"(USE_SUB_AGENT). Lubage see seadistustes."
+"{0} tunnel töötab ja vastab!\n"
+"\n"
+"Avalik lõpp-punkt:\n"
+"{1}\n"
+"\n"
+"Tervisekontroll: OK (200)"
 
-#: plugin/doc/specialized_base.py
+#: plugin/mcp/tunnel.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
 msgstr ""
-"Tööriista väljakutse lülitus režiimile '{0}'. Olete spetsiaalses "
-"tööriistakomplekti režiimis. Täieliku API-de komplekti taastamiseks peate "
-"töö lõpetamisel kutsuma funktsiooni 'specialized_workflow_finished'."
+"{0} tunnel on aktiivne!\n"
+"\n"
+"Avalik lõpp-punkt:\n"
+"{1}\n"
+"\n"
+"(Avalik URL on saadud aktiivsest tunneli seansist.)"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Cell execution failed."
-msgstr "Lahtri käivitamine ebaõnnestus."
-
-#: plugin/notebook/notebook_runner.py
-msgid "Notebook run is only supported in LibreOffice Writer."
-msgstr "Märkmiku käivitamine on toetatud ainult LibreOffice Writeris."
-
-#: plugin/notebook/notebook_runner.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
 msgstr ""
-"Selles dokumendis pole imporditud märkmikku. Ava esmalt Jupyteri märkmik "
-"(failitüüp .ipynb) menüüst Fail → Ava."
+"{0} binaarfail '{1}' on kontrollitud ({2}).\n"
+"\n"
+"(Märkus: aktiivne {3} tunnel töötab hetkel aadressil {4}.)"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Could not find notebook cell for this control."
-msgstr "Selle juhtelemendi jaoks ei leitud märkmiku lahtrit."
-
-#: plugin/notebook/notebook_runner.py
-msgid "Open a Writer document first."
-msgstr "Ava esmalt Writeri dokument."
-
-#: plugin/notebook/notebook_controls.py
-msgid "Run code cell"
-msgstr "Käivita koodilahter"
-
-#: plugin/embeddings/search_ui.py
-msgid "just now"
-msgstr "just nüüd"
-
-#: plugin/embeddings/search_ui.py
+#: plugin/mcp/tunnel.py
 #, python-brace-format
-msgid "{0}m ago"
-msgstr "{0} min tagasi"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}h ago"
-msgstr "{0} h tagasi"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}d ago"
-msgstr "{0} p tagasi"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: No active document"
-msgstr "Vahemälu olek: Aktiivne dokument puudub"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Folder not resolved"
-msgstr "Vahemälu olek: Kausta ei leitud"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built (zvec)"
-msgstr "Vahemälu olek: Pole koostatud (zvec)"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built (lancedb)"
-msgstr "Vahemälu olek: Pole koostatud (lancedb)"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built"
-msgstr "Vahemälu olek: Pole koostatud"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "Cache Status: Built ({0})"
-msgstr "Vahemälu olek: Koostatud ({0})"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Built"
-msgstr "Vahemälu olek: Koostatud"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "Cache Status: Error ({0})"
-msgstr "Vahemälu olek: Viga ({0})"
-
-#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
-msgid "Search"
-msgstr "Otsi"
-
-#: plugin/embeddings/search_ui.py
-msgid "Please enter a search query."
-msgstr "Palun sisesta otsingupäring."
-
-#: plugin/embeddings/search_ui.py
-msgid "Searching..."
-msgstr "Otsin..."
-
-#: plugin/embeddings/search_ui.py
-msgid "No active document found."
-msgstr "Aktiivset dokumenti ei leitud."
-
-#: plugin/embeddings/search_ui.py
 msgid ""
-"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
-"Embeddings."
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
 msgstr ""
-"Failidevaheline otsing on keelatud. Luba manused + FTS jaotises Seaded → "
-"Manused."
+"{0} binaarfail '{1}' on installitud ja kontrollitud ({2}).\n"
+"\n"
+"MCP-server töötab kohalikult pordis {3}.\n"
+"Valige 'Avalikusta avaliku tunneli kaudu' ja klõpsake OK, et aktiveerida "
+"avalik marsruutimine."
 
-#: plugin/embeddings/search_ui.py
-msgid "Error: "
-msgstr "Viga: "
-
-#: plugin/embeddings/search_ui.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"Folder index is building in the background. Please retry search shortly."
-msgstr "Kausta indeksit luuakse taustal. Palun proovi otsingut varsti uuesti."
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0} binaarfail '{1}' on installitud ja kontrollitud ({2}).\n"
+"\n"
+"Märkus: MCP-server ei tööta hetkel pordis {3}."
 
-#: plugin/embeddings/search_ui.py
-msgid "No matches found."
-msgstr "Vasteid ei leitud."
+#: plugin/mcp/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Kopeeritud!"
 
-#: plugin/embeddings/search_ui.py
-msgid "Error running search: "
-msgstr "Viga otsingu käivitamisel: "
+#: plugin/mcp/mcp_ui.py
+msgid "Testing…"
+msgstr "Testimine…"
 
-#: plugin/embeddings/search_ui.py
-msgid "Rebuilding cache..."
-msgstr "Puhvri taastamine..."
+#: plugin/mcp/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Testi tunnelit"
 
-#: plugin/embeddings/search_ui.py
-msgid "No active folder resolved."
-msgstr "Aktiivset kausta ei tuvastatud."
+#: plugin/mcp/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "MCP tunneli test"
 
-#: plugin/embeddings/search_ui.py
-msgid "Cache rebuild completed successfully."
-msgstr "Puhvri taastamine õnnestus."
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP-serveri käivitamine ebaõnnestus"
 
-#: plugin/embeddings/search_ui.py
-msgid "Rebuild failed: "
-msgstr "Taastamine ebaõnnestus: "
+#: plugin/mcp/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Kontrolli writeragent_debug.log faili oma LibreOffice'i kasutaja seadistuste "
+"kaustas"
+
+#: plugin/mcp/__init__.py
+msgid "Stop MCP Server"
+msgstr "Peata MCP-server"
+
+#: plugin/mcp/__init__.py
+msgid "Start MCP Server"
+msgstr "Käivita MCP-server"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Avalik tunnel {0} kaudu (autentimiseta)"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Avalik tunnel kaudu {0}: {1}"
+
+#: plugin/mcp/__init__.py
+msgid "reconnecting…"
+msgstr "taasühendamine…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Avalik tunnel {0} kaudu ebaõnnestus: {1}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Avalik tunnel {0} kaudu käivitub…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Avalik tunnel {0} kaudu ei tööta (kas pakkuja binaarfail on installitud?)"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server stopped"
+msgstr "MCP-server on peatatud"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server started"
+msgstr "MCP-server on käivitatud"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0}"
+msgstr "Avalik tunnel {0} kaudu"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
+msgstr ""
+"Avalik tunnel {0} kaudu käivitub… kasutage MCP-serveri olekut, kui see on "
+"valmis."
+
+#: plugin/mcp/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP-server ei tööta"
+
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCP-server töötab"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Marsruudid: {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "Kohalik URL: {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "Avalik URL: {0}"
+
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Kohalik lõpp-punkt:"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Avalik tunnel ({0}):"
+
+#: plugin/mcp/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Olek: Aktiivne (ühendatud)"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Olek: Taasühendamine — {0}"
+
+#: plugin/mcp/__init__.py
+msgid "retrying…"
+msgstr "proovin uuesti…"
+
+#: plugin/mcp/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Olek: Tunneli käivitamine…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Olek: Nurjus — {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Olek: Ei tööta (kas {0} binaarfail on installitud?)"
+
+#: plugin/mcp/__init__.py plugin/chatbot/dialogs.py
+msgid "Copied!"
+msgstr "Kopeeritud!"
+
+#: plugin/scripting/viz.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Toetamata dokumenditüüp graafiku lisamiseks."
+
+#: plugin/scripting/viz.py
+msgid "Viz helper failed."
+msgstr "Visualiseerimise abivahend nurjus."
+
+#: plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Visualiseerimise abivahend ei tagastanud pildiandmeid."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
+msgstr "PythonScriptDialogi ei saanud laiendusest laadida."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/document_scripts.py
+msgid "No document is open to save scripts."
+msgstr "Skriptide salvestamiseks pole ühtegi dokumenti avatud."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Salvestatud selle asemel jaotisesse Minu skriptid."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skript '%s' on sellesse dokumenti salvestatud."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skript „%s“ on edukalt salvestatud."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/calc/python/cell_editor_ui.py plugin/framework/main_shared.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/panel.py
+#: plugin/chatbot/dialog_views.py
+msgid "Error"
+msgstr "Viga"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Save Script As"
+msgstr "Salvesta skript nimega"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Skript nimega '{0}' on selles dokumendis juba olemas. Kas kirjutada üle?"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr "Skript nimega '{0}' on juba minu skriptides olemas. Kas kirjutada üle?"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to My Scripts."
+msgstr "Skript '%s' on salvestatud minu skriptide hulka."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Kas oled kindel, et soovid skripti '%s' kustutada?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Kustuta skript"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/document_scripts.py
+msgid "No document is open."
+msgstr "Ükski dokument pole avatud."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skript '%s' on kustutatud."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "New Script"
+msgstr "Uus skript"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' created in this document."
+msgstr "Skript '%s' on loodud sellesse dokumenti."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' created in My Scripts."
+msgstr "Skript '%s' on loodud minu skriptide hulka."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Täitmisviga"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/calc/python/function.py
+msgid "Unknown error"
+msgstr "Tundmatu viga"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skript käivitati edukalt."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skript käivitati edukalt, kuid see ei tagastanud tulemust ega väljastanud "
+"midagi."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Edu"
+
+#: plugin/scripting/python_runner_ui.py plugin/librepy/python_sidebar.py
+msgid "Output"
+msgstr "Väljund"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
+msgstr "Linuxis installige ka süsteemi PortAudio: sudo pacman -S portaudio"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Helituvastuse ajalõpp (sounddevice importimine ebaõnnestus või hangus)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Helituvastus ebaõnnestus (vt writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"Teksti/NLP kontrollimise ajalõpp (spaCy või transformerite esmakordne "
+"importimine võib võtta 10–30 sekundit)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "Teksti/NLP kontrollimine ebaõnnestus (vt writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgstr ""
+"Visuaalse kontrolli ajalõpp (Doclingi importimine võib esimesel korral võtta "
+"10–30 sekundit)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision probe failed (see writeragent_debug.log)."
+msgstr "Visuaalne kontroll nurjus (vaata writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
+msgstr ""
+"Vektorotsingu päring aegus (sentence-transformers importimine võib esimesel "
+"kontrollimisel võtta 10–30 sekundit)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr "Vektorotsingu päring ebaõnnestus (vaata writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording & Speech"
+msgstr "Helisalvestus ja kõne"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Scientific Libraries"
+msgstr "Teadusraamatukogud"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Data Analysis / EDA Libraries"
+msgstr "Andmeanalüüsi / EDA raamatukogud"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries"
+msgstr "Kasutajaliidese / Monaco raamatukogud"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Visualization Libraries"
+msgstr "Visualiseerimisteegid"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Computer Algebra"
+msgstr "Arvutialgebra"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Quantitative Finance Libraries"
+msgstr "Kvantitatiivse rahanduse teegid"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Data Engineering Libraries"
+msgstr "Andmetöötluse teegid"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Teksti / NLP teegid"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries"
+msgstr "Visuaalsed teegid"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Vektorotsingu teegid"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Heli salvestamine"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "To install remaining packages:"
+msgstr "Ülejäänud pakettide installimiseks:"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Ühtegi mikrofoni sisendseadet ei tuvastatud."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Kohalikud TTS-mootorid (valikuline):"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Starting Python worker..."
+msgstr "Pythoni tööprotsessi käivitamine..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Reading Python version..."
+msgstr "Pythoni versiooni lugemine..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Heli ja kõne: kontrollitakse heliseadet ja TTS-mootoreid..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr ""
+"Teksti / NLP teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries: loading (first run may take a while)..."
+msgstr "Vision-teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
+msgstr ""
+"Vektorotsingu teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Using LibreOffice process Python..."
+msgstr "Kasutan LibreOffice'i Pythoni protsessi..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Resolving venv Python..."
+msgstr "Tuvastan venv Pythonit..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Using"
+msgstr "Kasutan"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "Dokumendi skriptid on salvestamiseks liiga suured ({0} baiti)."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Dokument on kirjutuskaitsega või omadusi ei saa kirjutada. Skript salvestati "
+"hoopis teie isiklikku teeki."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot be empty."
+msgstr "Skripti nimi ei tohi olla tühi."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Skript nimega '{0}' on selles dokumendis juba olemas."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+msgid "My Scripts"
+msgstr "Minu skriptid"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "See dokument"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Skript '{0}' salvestati kausta Minu skriptid."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Skript '{0}' salvestati sellesse dokumenti."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Skript '{0}' on salvestatud."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+msgid "No document is open to attach scripts."
+msgstr "Ükski dokument pole skriptide lisamiseks avatud."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Skript '{0}' on sellele dokumendile lisatud."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Skript nimega '{0}' on jaotises Minu skriptid juba olemas."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Skript '{0}' on kopeeritud jaotisesse Minu skriptid."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Dokumendi skript '{0}' on kustutatud."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Skript '{0}' on kustutatud."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Tulemuse sisestamine Calc-i ebaõnnestus: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Teave"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"Tulemuse sisestamine Draw/Impressi pole veel toetatud. PR-id on teretulnud!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Visuaalsed abivahendid nõuavad Writeri või Calci dokumenti."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Nägemisabiline nurjus."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
+"(took {time})"
+msgstr ""
+"Nägemisabiline '{helper}' lõpetas. Lisati vormindatud HTML {count} pildi "
+"jaoks. (kulus {time})"
+
+#: plugin/scripting/python_runner.py plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr ""
+"Vision '{helper}' on lõpetatud. Sisestatud vormindatud HTML. (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script executed successfully, but returned no result and produced no output. "
+"(took {time})"
+msgstr ""
+"Skript käivitati edukalt, kuid see ei tagastanud tulemust ega väljundit. "
+"(kulus {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Unsupported document type for result insertion. (took {time})"
+msgstr "Toetamata dokumenditüüp tulemuse sisestamiseks. (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Script executed successfully. (took {time})"
+msgstr "Skript käivitati edukalt. (kulus {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Skript salvestatud."
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr "Käivita Pythoni skript"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
+msgid "Run"
+msgstr "Käivita"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/calc/python/editor.py plugin/xdl_strings.py
+msgid "Save"
+msgstr "Salvesta"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Close"
+msgstr "Sulge"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "Valige andmevahemik või sisestage A1-aadress (lisatakse andmetena)."
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
+msgstr "Pythoni skripti käivitamine ei suutnud Monaco redaktorit avada."
+
+#: plugin/scripting/python_runner.py
+msgid "Could not open the built-in script dialog."
+msgstr "Sisseehitatud skriptidialoogi ei saanud avada."
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
+msgstr "Pythoni skripti käivitamise avamisel ilmnes ootamatu viga."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Status:"
+msgstr "Olek:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+#: plugin/xdl_strings.py plugin/chatbot/panel_wiring.py plugin/chatbot/panel.py
+msgid "Ready"
+msgstr "Valmis"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Saving…"
+msgstr "Salvestamine…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Töötamine…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
+msgstr "Monaco laadur puudub."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Install jedi in the Python venv for completions."
+msgstr "Automaatse täiendamise jaoks installi jedi Pythoni venv-i."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Loobu"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/editor.py
+#: plugin/xdl_strings.py
+msgid "Save without =PY()"
+msgstr "Salvesta ilma =PY()"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Data:"
+msgstr "Andmed:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "A1:C1  or  A1:C1, C1:C5"
+msgstr "A1:C1 või A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
+msgstr "Calc süstib käitusajal nendest vahemikest `data` ja `ranges`."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Andmevahemikud kehtivad ainult =PY()-valemina salvestamisel."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Saved."
+msgstr "Salvestatud."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/python/editor.py
+msgid "Saved without =PY()."
+msgstr "Salvestatud ilma =PY()."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "New"
+msgstr "Uus"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "New Python Script"
+msgstr "Uus Pythoni skript"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "Script name:"
+msgstr "Skripti nimi:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "Attach to this document"
+msgstr "Lisa sellele dokumendile"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Create"
+msgstr "Loo"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Skript:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach"
+msgstr "Lisa"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to Document"
+msgstr "Lisa dokumendile"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Salvesta nimega..."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Kustuta"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr "Skriptid"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr ""
+"Sisseehitatud abivahendid on kirjutuskaitsega. Kohandamiseks kasuta käsku "
+"„Kopeeri minu skriptidesse“."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid ""
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
+msgstr ""
+"Dokument on muutunud – sulge ja ava uuesti „Käivita Pythoni skript“, et "
+"dokumendi skripte muuta."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
+msgstr "Skript „{0}“ on laaditud."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
+msgstr "Manustan skripti „{0}“..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr "Kopeerin skripti „{0}“ minu skriptidesse..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr "Salvestan skripti „{0}“..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr "Kustutan skripti '{0}'..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr "Sisseehitatud abivahendeid ei saa kustutada."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Enter script name:"
+msgstr "Sisestage skripti nimi:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr "Kopeeri minu skriptidesse nimega:"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Kas salvestada skript '{0}' sellesse dokumenti?"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr "Kas olete kindel, et soovite skripti '{0}' kustutada?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Lisa plokina (keskendatud lõik)"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Insert"
+msgstr "Lisa"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+msgid "Formula inserted."
+msgstr "Valem sisestatud."
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+"Vision '{helper}' on lõpetatud. Sisestatud HTML ({blocks} plokki, {tables} "
+"tabelit). (kulus {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"{domain} '{helper}' on lõpetatud. Kirjutati {rows} rida. (kulus {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr "{domain} '{helper}' on lõpetatud. (kulus {time})"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Pythoni seansi lähtestamine märkmike jaoks kehtib LibreOffice Writeri kohta. "
+"Avage Writeri dokument imporditud Jupyteri märkmikuga ja proovige uuesti."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. File → Open a "
+"Jupyter notebook (.ipynb) first."
+msgstr ""
+"Selles Writeri dokumendis pole imporditud märkmiku registrit. Ava esmalt "
+"Jupyteri märkmik (failitüüp .ipynb) menüüst Fail → Ava."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Märkmiku Pythoni seanssi ei saanud lahendada."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Märkmiku Pythoni seanss on selle dokumendi jaoks lähtestatud."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Pythoni seanssi ei saanud lähtestada."
+
+#: plugin/scripting/session_manager.py plugin/calc/python/function.py
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Tõrge: {0}"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Pythoni seansi lähtestamine kehtib Calci arvutustabelite kohta. Avage Calci "
+"töövihik ja proovige uuesti."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Pythoni seanss on selle töövihiku jaoks lähtestatud."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Selle töövihiku lähtestusskript ja kogu mälusisene lähtestusolek lähtestati. "
+"Lahtrimuutujad olid juba lahtripõhiselt eraldatud."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
+msgstr ""
+"Pythoni seansirežiim on isoleeritud (iga =PY()-lahter kasutab oma "
+"muutujaid). Lähtestatavat jagatud lahtriseanssi pole. Kui peate kuluka "
+"ühekordse töövihiku seadistuse tühjendama, lisage lähtestamisskript."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this document."
+msgstr "Selle dokumendi Pythoni seanss on lähtestatud."
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Tekstianalüüs"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "Analüüsidialoogi ei saanud laadida."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "Kontrollin spaCy / textdescriptives / transformers installatsiooni..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is "
+"using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed "
+"in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Viga tekstianalüüsi tööprotsessist:\n"
+"{err}\n"
+"\n"
+"Selle dialoogi funktsioonid nõuavad kasutatavas Pythonis järgmisi pakette:\n"
+"  • spacy + mudel          (olemid, võtmefraasid, põhistatistika)\n"
+"  • textdescriptives         (loetavuse skoorid)\n"
+"  • transformers + torch     (meeleolu analüüs mitmekeelse mudeliga)\n"
+"\n"
+"Installi need käsuga:\n"
+"  {install}\n"
+"\n"
+"Tööprotsess teatas, et moodul puudub. Veendu, et paketid on installitud "
+"täpselt sellesse Pythoni käivitatavasse faili, mille tööprotsess sinu "
+"konfigureeritud virtuaalkeskkonna jaoks tuvastas."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Analüüsimiseks ava Writeri dokument."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Valitud ulatuses pole piisavalt teksti."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Analüüsimine..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → "
+"Python). Click Check Venv in this dialog or use the full Test in Settings → "
+"Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Viga: %s\n"
+"\n"
+"Teie konfigureeritud virtuaalkeskkonnas (Sätted → Python) võivad vajalikud "
+"paketid puududa. Klõpsake selles dialoogis nupul „Kontrolli "
+"virtuaalkeskkonda“ või kasutage üksikasjade saamiseks sätete jaotises "
+"„Python“ täielikku testi (spacy, textdescriptives, transformers, torch jne)."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "Puudub Writeri dokument, kuhu sisestada."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Käivitage esmalt analüüs."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "Viimasest tulemusest pole midagi kasulikku sisestada."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Sisestamine ebaõnnestus: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Sisestatud pärast valikut/kursorit."
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv OK"
+msgstr "Venv on korras"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv check failed"
+msgstr "Venv-i kontrollimine ebaõnnestus"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr "Pythoni keskkonna testimine..."
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Done"
+msgstr "Valmis"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Failed"
+msgstr "Nurjus"
+
+#: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Ühikute abimees nurjus."
+
+#: plugin/scripting/units.py
+msgid "Units helper returned no formatted text."
+msgstr "Ühikute abimees ei tagastanud vormindatud teksti."
+
+#: plugin/scripting/units.py
+msgid "Unsupported document type for units insertion."
+msgstr "Toetamata dokumenditüüp ühikute sisestamiseks."
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Tulemuse sisestamine ebaõnnestus: {error} (kulus {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Graafik sisestatud ({title}). (kulus {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' on lõpetatud. {msg}"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' on lõpetatud. Sisestatud: {preview} (kulus {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Ühikud '{helper}' lõpetatud. Sisestatud: {preview} (kulus {time})"
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in Settings → Python (same venv where you ran 'uv "
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
+"Monaco editor."
+msgstr ""
+"Määra Pythoni venv rada jaotises Sätted → Python (sama venv, kus käivitasid "
+"'uv pip install pywebview rocher'). LibreOffice'i sisseehitatud Python ei "
+"saa Monaco redaktorit käivitada."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"Scripts/python.exe, or env-root python.exe)."
+msgstr ""
+"Konfigureeritud venv-ist ei leitud ühtegi Pythoni käivitatavat faili: {0} "
+"(oodati bin/python, Scripts/python.exe või env-root python.exe)."
+
+#: plugin/scripting/editor_host.py
+msgid "Could not start the Python editor."
+msgstr "Pythoni redaktorit ei saanud käivitada."
+
+#: plugin/scripting/editor_host.py
+msgid "The Python editor window did not start."
+msgstr "Pythoni redaktori aken ei käivitunud."
+
+#: plugin/scripting/editor_host.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Pythoni redaktor sulgus enne, kui see jõudis koodi laadida."
+
+#: plugin/scripting/editor_host.py
+msgid "Could not talk to the Python editor."
+msgstr "Pythoni redaktoriga ei saanud ühendust."
+
+#: plugin/scripting/symbolic.py
+msgid "Symbolic helper failed."
+msgstr "Sümbolarvutuse abivahend nurjus."
+
+#: plugin/scripting/symbolic.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Sümbolarvutuse abivahend ei tagastanud LaTeX-koodi."
+
+#: plugin/scripting/symbolic.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "LaTeX-i teisendamine Writer Mathi vormingusse nurjus: {error}"
+
+#: plugin/scripting/symbolic.py
+msgid "No active document view."
+msgstr "Aktiivset dokumendivaadet pole."
+
+#: plugin/scripting/symbolic.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Toetamata dokumenditüüp sümbolite sisestamiseks."
+
+#: plugin/calc/editselection.py
+msgid "WriterAgent: Edit Selection (Calc)"
+msgstr "WriterAgent: valiku redigeerimine (Calc)"
+
+#: plugin/calc/editselection.py
+msgid "WriterAgent: Extend Selection (Calc)"
+msgstr "WriterAgent: valiku laiendamine (Calc)"
+
+#: plugin/calc/excel_py_convert/auto_open.py
+#, python-brace-format
+msgid ""
+"Could not write Microsoft Excel Python package parts for:\n"
+"{0}\n"
+"\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see "
+"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"\n"
+"{1}"
+msgstr ""
+"Microsoft Exceli Pythoni paketi osade kirjutamine ebaõnnestus:\n"
+"{0}\n"
+"\n"
+"Fail salvestati LibreOffice'i =PY valemitega. Excel ei näe faile "
+"pythonScripts.xml / _xlws.PY enne, kui eksportimine õnnestub.\n"
+"\n"
+"{1}"
+
+#: plugin/calc/python/function.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Viga: pealõime täitmine aegus ({0})"
+
+#: plugin/calc/python/function.py
+msgid ""
+"Error: Python venv not found. Open Settings → Python, set the venv path, "
+"then Test."
+msgstr ""
+"Viga: Python venv ei leitud. Ava Sätted → Python, määra venv rada ja "
+"seejärel testi."
+
+#: plugin/calc/python/function.py
+msgid ""
+"Error: Python timed out. Open Settings → Python to raise the timeout, or "
+"Test the venv."
+msgstr ""
+"Viga: Pythoni ajapiirang ületati. Ava Sätted → Python, et ajapiirangut "
+"suurendada, või testi venv-i."
+
+#: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Pilt sisestatud"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Pildid lisatud"
+
+#: plugin/calc/python/geometric_recalc.py
+#, python-format
+msgid ""
+"Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
+"Python cells (discovery cap). The sheet was left unchained so a partial list "
+"is not treated as complete."
+msgstr ""
+"Geomeetriline ümberarvutamise järjekord jättis lehe '%(sheet)s' vahele: "
+"leiti %(cap)s või rohkem Pythoni lahtrit (tuvastamise piirang). Leht jäeti "
+"aheldamata, et osalist loendit ei käsitletaks täielikuna."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Edit Initialization Script"
+msgstr "Muuda lähtestusskripti"
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Open a Calc spreadsheet first."
+msgstr "Ava esmalt Calc-i arvutustabel."
+
+#: plugin/calc/python/init_script_editor.py
+msgid ""
+"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
+"in writeragent.json."
+msgstr ""
+"Monaco redaktor on keelatud failis writeragent.json määratud valikuga "
+"\"scripting.force_internal_script_editor\"."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Configure a Python venv path in Settings → Python."
+msgstr "Konfigureeri Pythoni venv-i tee menüüs Sätted → Python."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Cannot import webview (pywebview) in the configured venv."
+msgstr "Konfigureeritud venv-is ei saa importida moodulit webview (pywebview)."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Initialization script saved."
+msgstr "Lähtestusskript on salvestatud."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Save initialization script"
+msgstr "Salvesta lähtestusskript"
+
+#: plugin/calc/python/cell_editor_ui.py
+msgid "PythonCellEditorDialog could not be loaded from the extension."
+msgstr "PythonCellEditorDialogi ei saanud laiendusest laadida."
+
+#: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
+#: plugin/main.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Edit Python in Cell..."
+msgstr "Redigeeri Pythonit lahtris..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
+"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+msgstr ""
+"Selle lahtri PY-valemi argumente (nt andmevahemikke) ei saanud säilitada. "
+"Redigeerige valemit Calcis või kasutage jutumärkides koodistringi, näiteks "
+"=PY(\"kood\"; A1:B10)."
+
+#: plugin/calc/python/editor.py
+msgid "this cell"
+msgstr "see lahter"
+
+#: plugin/calc/python/editor.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves. No discards and opens the new cell. Cancel keeps editing {0}."
+msgstr ""
+"Kas salvestada muudatused faili {0}?\n"
+"\n"
+"Jah salvestab. Ei tühistab ja avab uue lahtri. Loobu jätab {0} redigeerimise "
+"pooleli."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
+msgstr ""
+"Ei saanud xl() vahemiku literaale =PY andmeargumentideks ümber kirjutada: %s"
+
+#: plugin/calc/python/editor.py plugin/xdl_strings.py
+msgid "Python cell editor"
+msgstr "Python-lahtriredaktor"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Pythoni redaktor tõrkus ootamatult."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Pythoni redigeerimiseks vali Calci arvutustabelist lahter."
+
+#: plugin/calc/python/editor.py
+#, python-brace-format
+msgid "Could not open the code cell {0}."
+msgstr "Koodilahtrit {0} ei saanud avada."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
+msgstr ""
+"See PY-valem kasutab vormi, mida redaktor ei saa turvaliselt ümber kirjutada "
+"(nt kood teises lahtris). Redigeerige seda valemiribal või kasutage "
+"=PY(\"kood\"; vahemik) koos jutumärkides koodiga."
+
+#: plugin/calc/python/editor.py
+msgid "Could not open the built-in Python cell editor."
+msgstr "Sisseehitatud Pythoni lahtriredaktorit ei saanud avada."
+
+#: plugin/calc/vision_egress.py
+msgid "Select an embedded image, then Run again."
+msgstr "Valige manustatud pilt ja käivitage uuesti."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Ankurdage pilt lahtrisse, valige see ja käivitage uuesti."
+
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Ühtegi struktureeritud tabelit või tekstiplokki pole võimalik lisada."
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+msgstr ""
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr ""
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr ""
+
+#: plugin/framework/config_schema.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Vestluse maksimaalne märkide arv peab olema >= 0"
+
+#: plugin/framework/config_schema.py
+msgid "Request timeout must be > 0"
+msgstr "Päringu ajalõpp peab olema > 0"
+
+#: plugin/framework/config_schema.py
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatuur peab olema <= 1.0"
+
+#: plugin/framework/client/request_controls.py
+#, python-brace-format
+msgid "Provider busy, retrying in {0}s…"
+msgstr "Teenusepakkuja on hõivatud, uus katse {0} sekundi pärast…"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid ""
+"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
+"{0} context window."
+msgstr ""
+"Kohalik Ollama/llama.cpp protsess kukkus kokku, kuna viip ületas {0} "
+"kontekstiakna."
+
+#: plugin/framework/client/errors.py
+msgid ""
+"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
+"too-small context window."
+msgstr ""
+"Kohalik Ollama/llama.cpp protsess kukkus kokku, kuna viip ületas liiga "
+"väikese kontekstiakna."
+
+#: plugin/framework/client/errors.py plugin/framework/errors.py
+msgid "Rate limited (429). Wait a moment and try again."
+msgstr "Kiirusepiirang (429). Oodake hetk ja proovige uuesti."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr "HTTP-tõrge {0} AI-teenuse pakkujalt: {1}"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
+"(not the general /api/paas URL)."
+msgstr ""
+" Kui teie API-võti pärineb GLM Coding Plani tellimusest, määrake lõpp-"
+"punktiks {0} (mitte üldine /api/paas URL)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " Päringu mudel oli: {0}."
+
+#: plugin/framework/client/llm_client.py
+msgid "Stream ended with finish_reason=error"
+msgstr "Voog lõppes põhjusega finish_reason=error"
+
+#: plugin/framework/client/llm_client.py
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+"Mudel kordab sama osa (lõputu tsükkel). Proovige uuesti või kasutage teist "
+"mudelit."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -204,10 +1462,6 @@ msgstr ""
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "Lõpp-punkti ei leitud (404). Kontrollige oma URL-i ja mudeli nime."
-
-#: plugin/framework/errors.py plugin/framework/client/errors.py
-msgid "Rate limited (429). Wait a moment and try again."
-msgstr "Kiirusepiirang (429). Oodake hetk ja proovige uuesti."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -258,8 +1512,7 @@ msgstr ""
 "Päringu aegumine. Proovige sätetes „Request Timeout“ väärtust suurendada."
 
 #: plugin/framework/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Ühendusest keelduti. Kas teie kohalik AI-server (Ollama/LM Studio) töötab?"
 
@@ -281,90 +1534,6 @@ msgstr "AI-teenuse pakkuja teatas tõrkest. Proovige uuesti."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} ei leitud: {identifier}"
 
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Vestluse maksimaalne märkide arv peab olema >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "Päringu ajalõpp peab olema > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatuur peab olema <= 1.0"
-
-#: plugin/framework/thread_guard.py
-msgid "UNO Thread Violation"
-msgstr "UNO-lõime rikkumine"
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid ""
-"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
-"{0} context window."
-msgstr ""
-"Kohalik Ollama/llama.cpp protsess kukkus kokku, kuna viip ületas {0} "
-"kontekstiakna."
-
-#: plugin/framework/client/errors.py
-msgid ""
-"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
-"too-small context window."
-msgstr ""
-"Kohalik Ollama/llama.cpp protsess kukkus kokku, kuna viip ületas liiga "
-"väikese kontekstiakna."
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr "HTTP-tõrge {0} AI-teenuse pakkujalt: {1}"
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
-" (not the general /api/paas URL)."
-msgstr ""
-" Kui teie API-võti pärineb GLM Coding Plani tellimusest, määrake lõpp-"
-"punktiks {0} (mitte üldine /api/paas URL)."
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid " Request model was: {0}."
-msgstr " Päringu mudel oli: {0}."
-
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Tõrge: {0}"
-
-#: plugin/framework/client/llm_client.py
-msgid "Stream ended with finish_reason=error"
-msgstr "Voog lõppes põhjusega finish_reason=error"
-
-#: plugin/framework/client/llm_client.py
-msgid ""
-"The model is repeating the same chunk (infinite loop). Try again or use a "
-"different model."
-msgstr ""
-"Mudel kordab sama osa (lõputu tsükkel). Proovige uuesti või kasutage teist "
-"mudelit."
-
-#: plugin/framework/client/request_controls.py
-#, python-brace-format
-msgid "Provider busy, retrying in {0}s…"
-msgstr "Teenusepakkuja on hõivatud, uus katse {0} sekundi pärast…"
-
-#: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Error"
-msgstr "Viga"
-
 #: plugin/framework/config.py
 msgid "Please set Endpoint in Settings."
 msgstr "Palun määrake lõpp-punkt (Endpoint) seadetes."
@@ -376,6 +1545,242 @@ msgstr "Palun määrake mudel (Model) seadetes."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Palun valige seadetes kehtiv mudel (mitte kohatäide)."
+
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "UNO-lõime rikkumine"
+
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
+msgstr "Cython-kiirendi allalaadimine"
+
+#: plugin/librepy/settings.py
+msgid "Download Cython serialization binary:"
+msgstr "Laadi alla Cythoni serialiseerimise binaarfail:"
+
+#: plugin/librepy/settings.py
+msgid "Python Settings"
+msgstr "Pythoni sätted"
+
+#: plugin/librepy/settings.py
+msgid "Could not open Settings."
+msgstr "Sätteid ei saanud avada."
+
+#: plugin/librepy/python_sidebar.py plugin/xdl_strings.py
+msgid "All"
+msgstr "Kõik"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Errors"
+msgstr "Vead"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Shared kernel"
+msgstr "Jagatud tuum"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Isolated"
+msgstr "Isoleeritud"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: (LibreOffice embedded Python)"
+msgstr ""
+"{mode}\n"
+"Virtuaalkeskkond: (LibreOffice'i sisseehitatud Python)"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: {path}"
+msgstr ""
+"{mode}\n"
+"Virtuaalkeskkond: {path}"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: missing python at {path}"
+msgstr ""
+"{mode}\n"
+"Virtuaalkeskkond: Python puudub asukohas {path}"
+
+#: plugin/librepy/python_sidebar.py
+msgid "(no =PY() cells on active sheet)"
+msgstr "(aktiivsel lehel pole =PY() lahtreid)"
+
+#: plugin/librepy/python_sidebar.py
+msgid "(no diagnostics yet)"
+msgstr "(diagnoosid puuduvad)"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/panel_factory.py plugin/chatbot/hamburger_menu.py
+msgid "Run Python Script..."
+msgstr "Käivita Pythoni skript..."
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Insert LaTeX Math..."
+msgstr "Lisa LaTeX-valem..."
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Text Analytics..."
+msgstr "Tekstianalüüs..."
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/panel_factory.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Settings"
+msgstr "Sätted"
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+msgid "Vision OCR Settings..."
+msgstr "Vision OCR sätted..."
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Reset Python Session"
+msgstr "Lähtesta Pythoni seanss"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Run All"
+msgstr "Käivita kõik"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Run From Here"
+msgstr "Käivita siit"
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Stop"
+msgstr "Peata"
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/dialogs.py plugin/chatbot/hamburger_menu.py
+msgid "Report bug..."
+msgstr "Teata veast..."
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
+msgid "More actions..."
+msgstr "Rohkem toiminguid..."
+
+#: plugin/writer/editselection.py
+msgid "WriterAgent: Extend Selection"
+msgstr "WriterAgent: valiku laiendamine"
+
+#: plugin/writer/editselection.py
+msgid "WriterAgent: Edit Selection"
+msgstr "WriterAgent: valiku redigeerimine"
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr "Nõustu selle muudatusega"
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr "Lükka see muudatus tagasi"
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr "Nõustu kogu muudatusega (agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr "Lükka kogu muudatus tagasi (agent)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Update"
+msgstr "Värskenda"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Edit LaTeX Math"
+msgstr "Muuda LaTeX-valemit"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Select a single formula to update. Multiple formulas are selected."
+msgstr "Valige värskendamiseks üks valem. Valitud on mitu valemit."
+
+#: plugin/writer/math/latex_dialog.py
+msgid ""
+"Could not identify the selected formula. Click in the text, then insert a "
+"new formula."
+msgstr ""
+"Valitud valemit ei tuvastatud. Klõpsake tekstis ja sisestage seejärel uus "
+"valem."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "Tundmatu teisendusviga"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"LaTeX-i teisendamine StarMath-vormingusse ebaõnnestus:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "The selected formula is no longer in the document."
+msgstr "Valitud valemit pole dokumendis enam olemas."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Formula updated."
+msgstr "Valem on värskendatud."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "See käsk on saadaval ainult Writeri dokumentides."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr "LaTeX-i valemiredaktor"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "LaTeX-i teisendusviga"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "LaTeX-i lisamisel ilmnes ootamatu viga."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "No automatic replacement is available."
+msgstr "Automaatne asendus pole saadaval."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid ""
+"Suggested fix: delete the highlighted text (the blank replacement below)."
+msgstr ""
+"Soovitatud parandus: kustutage esiletõstetud tekst (allpool olev tühi "
+"asendus)."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Suggested fix: replace with one space (the blank replacement below)."
+msgstr ""
+"Soovitatud parandus: asendage ühe tühikuga (allpool olev tühi asendus)."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Choose a replacement below."
+msgstr "Valige allpool asendus."
+
+#: plugin/writer/locale/ai_grammar_proofreader.py
+msgid "AI Grammar"
+msgstr "AI-grammatika"
+
+#: plugin/audio/tts_service.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr ""
 
 #: plugin/audio/tts_service.py
 #, python-brace-format
@@ -434,495 +1839,872 @@ msgid ""
 "Couldn't install the Kokoro phonemizer; this language may be misread. "
 "Install with: {0}"
 msgstr ""
-"Kokoro foneemimootorit ei õnnestunud installida; seda keelt võidakse valesti"
-" lugeda. Installige käsuga: {0}"
+"Kokoro foneemimootorit ei õnnestunud installida; seda keelt võidakse valesti "
+"lugeda. Installige käsuga: {0}"
 
 #: plugin/audio/kokoro_g2p.py
 msgid "Downloading Japanese phonemizer dictionary…"
 msgstr "Laaditakse alla jaapani keele foneemimootori sõnastikku…"
 
-#: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
-#: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
-#: plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "Redigeeri Pythonit lahtris..."
+#: plugin/xdl_strings.py
+msgid "-1"
+msgstr "-1"
 
-#: plugin/calc/python/init_script_editor.py
-msgid "Edit Initialization Script"
+#: plugin/xdl_strings.py
+msgid "AI Model:"
+msgstr "AI-mudel:"
+
+#: plugin/xdl_strings.py
+msgid "API Key:"
+msgstr "API-võti:"
+
+#: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr "Aktiivne leht"
+
+#: plugin/xdl_strings.py
+msgid "Additional Instructions (History):"
+msgstr "Lisajuhised (ajalugu):"
+
+#: plugin/xdl_strings.py
+msgid "Additional Instructions:"
+msgstr "Lisajuhised:"
+
+#: plugin/xdl_strings.py
+msgid "Ask / instruct:"
+msgstr "Küsi / juhenda:"
+
+#: plugin/xdl_strings.py
+msgid "Aspect Ratio:"
+msgstr "Kuvasuhe:"
+
+#: plugin/xdl_strings.py
+msgid "Auto Gallery"
+msgstr "Autogalerii"
+
+#: plugin/xdl_strings.py
+msgid "Base Size:"
+msgstr "Baassuurus:"
+
+#: plugin/xdl_strings.py
+msgid "Base:"
+msgstr "Baas:"
+
+#: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr "Vahemälu olek: kontrollitakse..."
+
+#: plugin/xdl_strings.py
+msgid "Calc"
+msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Categories:"
+msgstr "Kategooriad:"
+
+#: plugin/xdl_strings.py plugin/chatbot/chat_sidebar_mode.py
+msgid "Chat"
+msgstr "Vestlus"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Kontrolli virtuaalkeskkonda"
+
+#: plugin/xdl_strings.py
+msgid "Clear"
+msgstr "Tühjenda"
+
+#: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr "Teisenda tabel Pythoniks"
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr "Kopeeri"
+
+#: plugin/xdl_strings.py plugin/chatbot/dialogs.py
+msgid "Copy URL"
+msgstr "Kopeeri URL"
+
+#: plugin/xdl_strings.py
+msgid "Diagnostics:"
+msgstr "Diagnostika:"
+
+#: plugin/xdl_strings.py
+msgid "Draw"
+msgstr "Draw"
+
+#: plugin/xdl_strings.py
+msgid "Edit Cell"
+msgstr "Muuda lahtrit"
+
+#: plugin/xdl_strings.py
+msgid "Edit Init Script"
 msgstr "Muuda lähtestusskripti"
 
-#: plugin/calc/python/init_script_editor.py
-msgid "Open a Calc spreadsheet first."
-msgstr "Ava esmalt Calc-i arvutustabel."
-
-#: plugin/calc/python/init_script_editor.py
-msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
-msgstr ""
-"Monaco redaktor on keelatud failis writeragent.json määratud valikuga "
-"\"scripting.force_internal_script_editor\"."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Configure a Python venv path in Settings → Python."
-msgstr "Konfigureeri Pythoni venv-i tee menüüs Sätted → Python."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Cannot import webview (pywebview) in the configured venv."
-msgstr ""
-"Konfigureeritud venv-is ei saa importida moodulit webview (pywebview)."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Initialization script saved."
-msgstr "Lähtestusskript on salvestatud."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Save initialization script"
-msgstr "Salvesta lähtestusskript"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Status:"
-msgstr "Olek:"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Ready"
-msgstr "Valmis"
+msgid "Edit config (JSON)…"
+msgstr "Muuda seadistust (JSON)…"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "A1:C1  or  A1:C1, C1:C5"
-msgstr "A1:C1 või A1:C1, C1:C5"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PY() formula."
-msgstr "Andmevahemikud kehtivad ainult =PY()-valemina salvestamisel."
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
-msgstr "Calc süstib käitusajal nendest vahemikest `data` ja `ranges`."
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Saving…"
-msgstr "Salvestamine…"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/calc/python/editor.py
-#: plugin/scripting/editor_ui_strings.py
-msgid "Saved without =PY()."
-msgstr "Salvestatud ilma =PY()."
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Saved."
-msgstr "Salvestatud."
-
-#: plugin/calc/python/cell_editor_ui.py
-msgid "PythonCellEditorDialog could not be loaded from the extension."
-msgstr "PythonCellEditorDialogi ei saanud laiendusest laadida."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Selle lahtri PY-valemi argumente (nt andmevahemikke) ei saanud säilitada. "
-"Redigeerige valemit Calcis või kasutage jutumärkides koodistringi, näiteks "
-"=PY(\"kood\"; A1:B10)."
-
-#: plugin/calc/python/editor.py
-msgid "this cell"
-msgstr "see lahter"
-
-#: plugin/calc/python/editor.py
-#, python-brace-format
-msgid ""
-"Save changes to {0}?\n"
-"\n"
-"Yes saves. No discards and opens the new cell. Cancel keeps editing {0}."
-msgstr ""
-"Kas salvestada muudatused faili {0}?\n"
-"\n"
-"Jah salvestab. Ei tühistab ja avab uue lahtri. Loobu jätab {0} redigeerimise pooleli."
-
-#: plugin/calc/python/editor.py
-#, python-format
-msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
-msgstr ""
-"Ei saanud xl() vahemiku literaale =PY andmeargumentideks ümber kirjutada: %s"
-
-#: plugin/calc/python/editor.py plugin/xdl_strings.py
-msgid "Python cell editor"
-msgstr "Python-lahtriredaktor"
-
-#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Save without =PY()"
-msgstr "Salvesta ilma =PY()"
+msgid "Edit extra tokens:"
+msgstr "Muuda lisamärke:"
 
-#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Save"
-msgstr "Salvesta"
+#: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr "Muuda otsingupäringut"
 
-#: plugin/calc/python/editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Pythoni redaktor tõrkus ootamatult."
+#: plugin/xdl_strings.py
+msgid "Endpoint URL (/v1 added):"
+msgstr "Lõpp-punkti URL (/v1 lisatud):"
 
-#: plugin/calc/python/editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Pythoni redigeerimiseks vali Calci arvutustabelist lahter."
+#: plugin/xdl_strings.py
+msgid "Endpoint URL:"
+msgstr "Lõpp-punkti URL:"
 
-#: plugin/calc/python/editor.py
-#, python-brace-format
-msgid "Could not open the code cell {0}."
-msgstr "Koodilahtrit {0} ei saanud avada."
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "Sisestage LaTeX-i valemi kood teisendamiseks ja lisamiseks:"
 
-#: plugin/calc/python/editor.py
+#: plugin/xdl_strings.py
 msgid ""
-"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
-"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
-"quoted code."
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
 msgstr ""
-"See PY-valem kasutab vormi, mida redaktor ei saa turvaliselt ümber kirjutada"
-" (nt kood teises lahtris). Redigeerige seda valemiribal või kasutage "
-"=PY(\"kood\"; vahemik) koos jutumärkides koodiga."
+"Sisesta Pythoni kood, mida kasutaja virtuaalkeskkonnas käivitada.\n"
+"Omista tulemus muutujale 'result'."
 
-#: plugin/calc/python/editor.py
-msgid "Could not open the built-in Python cell editor."
-msgstr "Sisseehitatud Pythoni lahtriredaktorit ei saanud avada."
+#: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Olemid"
 
-#: plugin/calc/python/function.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Viga: pealõime täitmine aegus ({0})"
+#: plugin/xdl_strings.py
+msgid "Extend max tokens:"
+msgstr "Suurenda märkide maksimumarvu:"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Tundmatu viga"
+#: plugin/xdl_strings.py
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr "Lisamärgid lisaks algteksti pikkusele. 0 = sama pikk kui algtekst."
 
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python venv not found. Open Settings → Python, set the venv path, "
-"then Test."
-msgstr ""
-"Viga: Python venv ei leitud. Ava Sätted → Python, määra venv rada ja "
-"seejärel testi."
+#: plugin/xdl_strings.py
+msgid "Filter:"
+msgstr "Filter:"
 
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python timed out. Open Settings → Python to raise the timeout, or "
-"Test the venv."
-msgstr ""
-"Viga: Pythoni ajapiirang ületati. Ava Sätted → Python, et ajapiirangut "
-"suurendada, või testi venv-i."
+#: plugin/xdl_strings.py
+msgid "General"
+msgstr "Üldine"
 
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Pilt sisestatud"
+#: plugin/xdl_strings.py
+msgid "Get API Key:"
+msgstr "Hangi API-võti:"
 
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Pildid lisatud"
+#: plugin/xdl_strings.py
+msgid "Hugging Face"
+msgstr "Hugging Face"
 
-#: plugin/calc/python/geometric_recalc.py
-#, python-format
-msgid ""
-"Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list"
-" is not treated as complete."
-msgstr ""
-"Geomeetriline ümberarvutamise järjekord jättis lehe '%(sheet)s' vahele: "
-"leiti %(cap)s või rohkem Pythoni lahtrit (tuvastamise piirang). Leht jäeti "
-"aheldamata, et osalist loendit ei käsitletaks täielikuna."
+#: plugin/xdl_strings.py
+msgid "Image Model:"
+msgstr "Pildimudel:"
 
-#: plugin/calc/excel_py_convert/auto_open.py
-#, python-brace-format
-msgid ""
-"Could not write Microsoft Excel Python package parts for:\n"
-"{0}\n"
-"\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
-"\n"
-"{1}"
-msgstr ""
-"Microsoft Exceli Pythoni paketi osade kirjutamine ebaõnnestus:\n"
-"{0}\n"
-"\n"
-"Fail salvestati LibreOffice'i =PY valemitega. Excel ei näe faile pythonScripts.xml / _xlws.PY enne, kui eksportimine õnnestub.\n"
-"\n"
-"{1}"
+#: plugin/xdl_strings.py
+msgid "Image Settings"
+msgstr "Pildi seaded"
 
-#: plugin/calc/editselection.py
-msgid "WriterAgent: Edit Selection (Calc)"
-msgstr "WriterAgent: valiku redigeerimine (Calc)"
+#: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr "Asendamine kohapeal"
 
-#: plugin/calc/editselection.py
-msgid "WriterAgent: Extend Selection (Calc)"
-msgstr "WriterAgent: valiku laiendamine (Calc)"
+#: plugin/xdl_strings.py plugin/chatbot/selection.py
+msgid "Input"
+msgstr "Sisend"
 
-#: plugin/calc/vision_egress.py
-msgid "Select an embedded image, then Run again."
-msgstr "Valige manustatud pilt ja käivitage uuesti."
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr "Sisend:"
 
-#: plugin/calc/vision_egress.py
-msgid "Anchor the image to a cell, select it, then Run again."
-msgstr "Ankurdage pilt lahtrisse, valige see ja käivitage uuesti."
+#: plugin/xdl_strings.py
+msgid "Insert Frame"
+msgstr "Lisa raam"
 
-#: plugin/calc/vision_egress.py
-msgid "No structured tables or text blocks to insert."
-msgstr "Ühtegi struktureeritud tabelit või tekstiplokki pole võimalik lisada."
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr "Lisa LaTeX-valem"
 
-#: plugin/librepy/settings.py
-msgid "Cython Accelerator Download"
-msgstr "Cython-kiirendi allalaadimine"
+#: plugin/xdl_strings.py
+msgid "Insert report here"
+msgstr "Lisa aruanne siia"
 
-#: plugin/librepy/settings.py
-msgid "Download Cython serialization binary:"
-msgstr "Laadi alla Cythoni serialiseerimise binaarfail:"
+#: plugin/xdl_strings.py
+msgid "Key Phrases"
+msgstr "Võtmefraasid"
 
-#: plugin/librepy/settings.py
-msgid "Python Settings"
-msgstr "Pythoni sätted"
+#: plugin/xdl_strings.py plugin/main.py
+msgid "MCP Server Status"
+msgstr "MCP-serveri olek"
 
-#: plugin/librepy/settings.py
-msgid "Could not open Settings."
-msgstr "Sätteid ei saanud avada."
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Maksimaalne märkide arv:"
 
-#: plugin/librepy/python_sidebar.py plugin/xdl_strings.py
-msgid "All"
-msgstr "Kõik"
+#: plugin/xdl_strings.py
+msgid "Message"
+msgstr "Sõnum"
 
-#: plugin/librepy/python_sidebar.py
-msgid "Errors"
-msgstr "Vead"
+#: plugin/xdl_strings.py
+msgid "Models to Test:"
+msgstr "Testitavad mudelid:"
 
-#: plugin/librepy/python_sidebar.py plugin/scripting/python_runner_ui.py
-msgid "Output"
-msgstr "Väljund"
+#: plugin/xdl_strings.py
+msgid "Multimodal"
+msgstr "Multimodaalne"
 
-#: plugin/librepy/python_sidebar.py
-msgid "Shared kernel"
-msgstr "Jagatud tuum"
+#: plugin/xdl_strings.py
+msgid "NVIDIA NIM"
+msgstr "NVIDIA NIM"
 
-#: plugin/librepy/python_sidebar.py
-msgid "Isolated"
-msgstr "Isoleeritud"
+#: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr "Uus leht (PythonImport)"
 
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: (LibreOffice embedded Python)"
-msgstr ""
-"{mode}\n"
-"Virtuaalkeskkond: (LibreOffice'i sisseehitatud Python)"
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr "Vastuste arv:"
 
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: {path}"
-msgstr ""
-"{mode}\n"
-"Virtuaalkeskkond: {path}"
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr "OK"
 
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: missing python at {path}"
-msgstr ""
-"{mode}\n"
-"Virtuaalkeskkond: Python puudub asukohas {path}"
+#: plugin/xdl_strings.py
+msgid "OpenRouter"
+msgstr "OpenRouter"
 
-#: plugin/librepy/python_sidebar.py
-msgid "(no =PY() cells on active sheet)"
-msgstr "(aktiivsel lehel pole =PY() lahtreid)"
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr "Valikud"
 
-#: plugin/librepy/python_sidebar.py
-msgid "(no diagnostics yet)"
-msgstr "(diagnoosid puuduvad)"
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr "Väljundrežiim"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py plugin/main.py
-msgid "Run Python Script..."
-msgstr "Käivita Pythoni skript..."
+#: plugin/xdl_strings.py
+msgid "Please enter edit instructions:"
+msgstr "Palun sisesta redigeerimisjuhised:"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
-msgid "Insert LaTeX Math..."
-msgstr "Lisa LaTeX-valem..."
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr "Säilita arvuvormingud"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Text Analytics..."
-msgstr "Tekstianalüüs..."
+#: plugin/xdl_strings.py
+msgid "Public Tunnel:"
+msgstr "Avalik tunnel:"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/dialog_views.py plugin/chatbot/panel_factory.py
-#: plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "Sätted"
+#: plugin/xdl_strings.py
+msgid "Python Settings…"
+msgstr "Pythoni sätted…"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-msgid "Vision OCR Settings..."
-msgstr "Vision OCR sätted..."
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Pythoni test"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Reset Python Session"
-msgstr "Lähtesta Pythoni seanss"
+#: plugin/xdl_strings.py
+msgid "Python cells (active sheet):"
+msgstr "Pythoni lahtrid (aktiivne leht):"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Run All"
-msgstr "Käivita kõik"
+#: plugin/xdl_strings.py
+msgid "Python:"
+msgstr "Python:"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Run From Here"
-msgstr "Käivita siit"
+#: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Loetavus"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py plugin/xdl_strings.py
-msgid "Stop"
-msgstr "Peata"
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr "Taasehita"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/dialogs.py
-#: plugin/chatbot/hamburger_menu.py plugin/main.py plugin/xdl_strings.py
-msgid "Report bug..."
-msgstr "Teata veast..."
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
-msgid "More actions..."
-msgstr "Rohkem toiminguid..."
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept whole change (agent)"
-msgstr "Nõustu kogu muudatusega (agent)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject whole change (agent)"
-msgstr "Lükka kogu muudatus tagasi (agent)"
-
-#: plugin/writer/review_click_popup.py
-msgid "Accept this change"
-msgstr "Nõustu selle muudatusega"
-
-#: plugin/writer/review_click_popup.py
-msgid "Reject this change"
-msgstr "Lükka see muudatus tagasi"
-
-#: plugin/writer/editselection.py
-msgid "WriterAgent: Extend Selection"
-msgstr "WriterAgent: valiku laiendamine"
-
-#: plugin/writer/editselection.py
-msgid "WriterAgent: Edit Selection"
-msgstr "WriterAgent: valiku redigeerimine"
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "No automatic replacement is available."
-msgstr "Automaatne asendus pole saadaval."
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid ""
-"Suggested fix: delete the highlighted text (the blank replacement below)."
-msgstr ""
-"Soovitatud parandus: kustutage esiletõstetud tekst (allpool olev tühi "
-"asendus)."
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "Suggested fix: replace with one space (the blank replacement below)."
-msgstr ""
-"Soovitatud parandus: asendage ühe tühikuga (allpool olev tühi asendus)."
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "Choose a replacement below."
-msgstr "Valige allpool asendus."
-
-#: plugin/writer/locale/ai_grammar_proofreader.py
-msgid "AI Grammar"
-msgstr "AI-grammatika"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Update"
+#: plugin/xdl_strings.py
+msgid "Refresh"
 msgstr "Värskenda"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Insert"
-msgstr "Lisa"
+msgid "Reset Session"
+msgstr "Lähtesta seanss"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Edit LaTeX Math"
-msgstr "Muuda LaTeX-valemit"
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr "Tulemused:"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Select a single formula to update. Multiple formulas are selected."
-msgstr "Valige värskendamiseks üks valem. Valitud on mitu valemit."
+#: plugin/xdl_strings.py
+msgid "Run Benchmark"
+msgstr "Käivita jõudlustest"
 
-#: plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Run Script"
+msgstr "Käivita skript"
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr "Ulatus"
+
+#: plugin/xdl_strings.py plugin/embeddings/search_ui.py
+msgid "Search"
+msgstr "Otsi"
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr "Otsi lähedalolevatest failidest"
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr "Otsingupäring:"
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr "Otsingupäring:"
+
+#: plugin/xdl_strings.py
+msgid "Seed:"
+msgstr "Algväärtus:"
+
+#: plugin/xdl_strings.py
+msgid "Selection"
+msgstr "Valik"
+
+#: plugin/xdl_strings.py plugin/chatbot/panel.py
+msgid "Send"
+msgstr "Saada"
+
+#: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Sentiment"
+
+#: plugin/xdl_strings.py
+msgid "Square"
+msgstr "Ruut"
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr "Olek"
+
+#: plugin/xdl_strings.py
+msgid "Status: Ready"
+msgstr "Olek: Valmis"
+
+#: plugin/xdl_strings.py
+msgid "Steps:"
+msgstr "Sammud:"
+
+#: plugin/xdl_strings.py
+msgid "Temperature:"
+msgstr "Temperatuur:"
+
+#: plugin/xdl_strings.py
+msgid "Test Connection"
+msgstr "Testi ühendust"
+
+#: plugin/xdl_strings.py
+msgid "Text/Chat Model:"
+msgstr "Teksti-/vestlusmudel:"
+
+#: plugin/xdl_strings.py
+msgid "Timeout (s):"
+msgstr "Ajalõpp (s):"
+
+#: plugin/xdl_strings.py
+msgid "Together AI"
+msgstr "Together AI"
+
+#: plugin/xdl_strings.py
+msgid "Topics"
+msgstr "Teemad"
+
+#: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr "Vektoriseeri veerud, kui see on ohutu"
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr "Kontrolli ümberarvutust (oraakli erinevus)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Kogu dokument"
+
+#: plugin/xdl_strings.py
+msgid "Writer"
+msgstr "Writer"
+
+#: plugin/xdl_strings.py
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgenti hindamise töölaud"
+
+#: plugin/xdl_strings.py
+msgid "√x"
+msgstr "√x"
+
+#: plugin/xdl_strings.py
+msgid "☰"
+msgstr "☰"
+
+#: plugin/xdl_strings.py
+msgid "⚙"
+msgstr "⚙"
+
+#: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
+msgid "🔍"
+msgstr "🔍"
+
+#: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
-"Could not identify the selected formula. Click in the text, then insert a "
-"new formula."
+"Select an embedded image (or a range containing images), then Run again."
 msgstr ""
-"Valitud valemit ei tuvastatud. Klõpsake tekstis ja sisestage seejärel uus "
-"valem."
+"Valige manustatud pilt (või pilte sisaldav vahemik) ja käivitage uuesti."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Unknown conversion error"
-msgstr "Tundmatu teisendusviga"
-
-#: plugin/writer/math/latex_dialog.py
+#: plugin/vision/vision_runner.py
 #, python-brace-format
 msgid ""
-"Failed to convert LaTeX to StarMath:\n"
-"\n"
-"{0}"
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
 msgstr ""
-"LaTeX-i teisendamine StarMath-vormingusse ebaõnnestus:\n"
-"\n"
-"{0}"
+"Pilti '{name}' ei leitud. Kasuta image_listi või jäta image_name tühjaks ja "
+"vali graafika."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "The selected formula is no longer in the document."
-msgstr "Valitud valemit pole dokumendis enam olemas."
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Pilti '{name}' ei saanud eksportida."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Formula updated."
-msgstr "Valem on värskendatud."
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "OCR complete ({count} images)."
+msgstr "OCR lõpetatud ({count} pilti)."
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-msgid "Formula inserted."
-msgstr "Valem sisestatud."
+#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
+msgid "OCR complete."
+msgstr "OCR on lõpetatud."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "This command is only available in Writer documents."
-msgstr "See käsk on saadaval ainult Writeri dokumentides."
+#: plugin/vision/vision_runner.py
+msgid "OCR complete (text returned only; not inserted)."
+msgstr "OCR on lõpetatud (tagastati ainult tekst; ei lisatud)."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "LaTeX Math Editor"
-msgstr "LaTeX-i valemiredaktor"
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr "Writeri dokumendil puudub kontroller."
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Insert as display block (centered paragraph)"
-msgstr "Lisa plokina (keskendatud lõik)"
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr "Pildi ankrut sisestamiseks ei õnnestunud lahendada."
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Sulge"
+#: plugin/vision/vision_egress.py
+#, python-format
+msgid "Could not position insert after the image: %s"
+msgstr "Pärast pilti sisestamist ei õnnestunud positsioneerida: %s"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "LaTeX Conversion Error"
-msgstr "LaTeX-i teisendusviga"
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr "Pilt eemaldati OCR-sisestuse ettevalmistamise ajal."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "An unexpected error occurred during LaTeX insertion."
-msgstr "LaTeX-i lisamisel ilmnes ootamatu viga."
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
+msgstr "Pilt eemaldati OCR-sisestuse ajal."
+
+#: plugin/vision/vision_tools.py
+msgid "Vision OCR requires a Writer or Calc document."
+msgstr "Vision OCR nõuab Writeri või Calci dokumenti."
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
+msgstr "Käsuviga"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
+"(Settings → Python → Test for install hints)."
+msgstr ""
+"Kohalik OCR nõuab sätteid → Python venv koos Doclingi või PaddleOCR-iga "
+"(Sätted → Python → Testi installimisjuhiste saamiseks)."
+
+#: plugin/doc/specialized_base.py
+msgid "Running local OCR on selected image(s)..."
+msgstr "Käivitan kohalikku OCR-i valitud piltidel..."
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Document research reads require specialized task delegation (USE_SUB_AGENT). "
+"Enable this in configuration."
+msgstr ""
+"Dokumendi uurimine nõuab spetsiaalset ülesannete delegeerimist "
+"(USE_SUB_AGENT). Lubage see seadistustes."
+
+#: plugin/doc/specialized_base.py
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"Tööriista väljakutse lülitus režiimile '{0}'. Olete spetsiaalses "
+"tööriistakomplekti režiimis. Täieliku API-de komplekti taastamiseks peate "
+"töö lõpetamisel kutsuma funktsiooni 'specialized_workflow_finished'."
+
+#: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} õnnestus, {2} ebaõnnestus."
+
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Testide käivitamine ebaõnnestus: {0}"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Extend Selection"
+msgstr "Laienda valikut"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Edit Selection"
+msgstr "Muuda valikut"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Toggle MCP Server"
+msgstr "Lülita MCP-server sisse/välja"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run format tests"
+msgstr "Käivita vormindamistestid"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run calc tests"
+msgstr "Käivita Calc-testid"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run Calc API integration tests"
+msgstr "Käivita Calci API integratsioonitestid"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run draw tests"
+msgstr "Käivita Draw-testid"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Evaluation Dashboard"
+msgstr "Hindamise töölaud"
+
+#: plugin/main.py
+msgid "Edit LaTeX Math..."
+msgstr "Muuda LaTeX-valemit..."
+
+#: plugin/main.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Search Nearby Files..."
+msgstr "Otsi lähedalolevaid faile..."
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Convert Sheet to Python..."
+msgstr "Teisenda leht Pythoniks..."
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr "just nüüd"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr "{0} min tagasi"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr "{0} h tagasi"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}d ago"
+msgstr "{0} p tagasi"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr "Vahemälu olek: Aktiivne dokument puudub"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr "Vahemälu olek: Kausta ei leitud"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr "Vahemälu olek: Pole koostatud (zvec)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr "Vahemälu olek: Pole koostatud (lancedb)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr "Vahemälu olek: Pole koostatud"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr "Vahemälu olek: Koostatud ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr "Vahemälu olek: Koostatud"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr "Vahemälu olek: Viga ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr "Palun sisesta otsingupäring."
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr "Otsin..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr "Aktiivset dokumenti ei leitud."
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
+msgstr ""
+"Failidevaheline otsing on keelatud. Luba manused + FTS jaotises Seaded → "
+"Manused."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr "Viga: "
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Folder index is building in the background. Please retry search shortly."
+msgstr "Kausta indeksit luuakse taustal. Palun proovi otsingut varsti uuesti."
+
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr "Vasteid ei leitud."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr "Viga otsingu käivitamisel: "
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr "Puhvri taastamine..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr "Aktiivset kausta ei tuvastatud."
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr "Puhvri taastamine õnnestus."
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr "Taastamine ebaõnnestus: "
+
+#: plugin/notebook/notebook_controls.py
+msgid "Run code cell"
+msgstr "Käivita koodilahter"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Lahtri käivitamine ebaõnnestus."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Märkmiku käivitamine on toetatud ainult LibreOffice Writeris."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
+msgstr ""
+"Selles dokumendis pole imporditud märkmikku. Ava esmalt Jupyteri märkmik "
+"(failitüüp .ipynb) menüüst Fail → Ava."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Selle juhtelemendi jaoks ei leitud märkmiku lahtrit."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Open a Writer document first."
+msgstr "Ava esmalt Writeri dokument."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Transcribing audio..."
+msgstr "Transkribeerin heli..."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Transkriptsiooniviga: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr "[Dokumendi konteksti viga: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr "[Agendi taustaprogrammi '{0}' ei leitud.]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+"[Agendi taustaprogramm '{0}' pole saadaval. Kontrollige sätteid (asukoht, "
+"install).]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Suurepärane! Lülitan teid nüüd peamise assistendi juurde."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown librarian error."
+msgstr "Tundmatu Librarian-i viga."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[Librarian-i viga: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Ajurünnak on lõpetatud."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Tundmatu ajurünnaku viga."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Brainstorming error: {0}]"
+msgstr "[Ajurünnaku viga: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Kirjutamisplaan on valmis."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Tundmatu kirjutamisplaani viga."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Writing plan error: {0}]"
+msgstr "[Kirjutamisplaani viga: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Masteri seanss on lõpetatud."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Tundmatu PPT-Masteri viga."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[PPT-Master error: {0}]"
+msgstr "[PPT-Masteri viga: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Tundmatu Deep Researchi viga."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Deep Researchi viga: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Tundmatu uurimistöö viga."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr "[Uurimistöö viga: {0}]"
+
+#: plugin/chatbot/web_research.py
+msgid "Web research completed."
+msgstr "Veebiuuring lõpetatud."
+
+#: plugin/chatbot/extension_update_check.py
+msgid "Update available"
+msgstr "Värskendus on saadaval"
+
+#: plugin/chatbot/extension_update_check.py
+#, python-format
+msgid ""
+"A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
+"to check for updates and install the latest extension."
+msgstr ""
+"Saadaval on uuem %(name)s (%(version)s). Värskenduste kontrollimiseks ja "
+"uusima laienduse installimiseks kasutage Tööriistad → Laienduste haldur."
+
+#: plugin/chatbot/dialogs.py
+msgid "Agent requests approval"
+msgstr "Agent taotleb kinnitust"
+
+#: plugin/chatbot/dialogs.py
+msgid "Proceed with this action?"
+msgstr "Kas jätkata selle toiminguga?"
+
+#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Tool: %s"
+msgstr "Tööriist: %s"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Print the command list"
+msgstr "Prindi käskude loend"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Start a new chat"
+msgstr "Alusta uut vestlust"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Cancel the in-flight send"
+msgstr "Tühista pooleliolev saatmine"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Mock command (echo only)"
+msgstr "Näidiskäsk (ainult kaja)"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Apply last draft (mock)"
+msgstr "Rakenda viimane mustand (näidis)"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Web research (mock)"
+msgstr "Veebiuuring (mock)"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Switch model (mock)"
+msgstr "Vaheta mudelit (mock)"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Slash commands:"
+msgstr "Kaldkriipsuga käsud:"
+
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[No speech detected.]"
+msgstr "[Kõnet ei tuvastatud.]"
+
+#: plugin/chatbot/tool_loop.py
+msgid "Error: Toolkit unavailable"
+msgstr "Viga: tööriistakomplekt pole saadaval"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "about"
@@ -1184,221 +2966,6 @@ msgstr "miks"
 msgid "you"
 msgstr "sina"
 
-#: plugin/chatbot/dialogs.py
-msgid "Agent requests approval"
-msgstr "Agent taotleb kinnitust"
-
-#: plugin/chatbot/dialogs.py
-msgid "Proceed with this action?"
-msgstr "Kas jätkata selle toiminguga?"
-
-#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Tool: %s"
-msgstr "Tööriist: %s"
-
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
-msgid "Copied!"
-msgstr "Kopeeritud!"
-
-#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
-msgid "Copy URL"
-msgstr "Kopeeri URL"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Extend Selection"
-msgstr "Laienda valikut"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Edit Selection"
-msgstr "Muuda valikut"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Convert Sheet to Python..."
-msgstr "Teisenda leht Pythoniks..."
-
-#: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
-#: plugin/main.py
-msgid "Search Nearby Files..."
-msgstr "Otsi lähedalolevaid faile..."
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Toggle MCP Server"
-msgstr "Lülita MCP-server sisse/välja"
-
-#: plugin/chatbot/hamburger_menu.py
-msgid "MCP Server (Running)"
-msgstr "MCP-server (töötab)"
-
-#: plugin/chatbot/hamburger_menu.py
-msgid "MCP Server (Stopped)"
-msgstr "MCP-server (peatatud)"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run format tests"
-msgstr "Käivita vormindamistestid"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run calc tests"
-msgstr "Käivita Calc-testid"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run Calc API integration tests"
-msgstr "Käivita Calci API integratsioonitestid"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run draw tests"
-msgstr "Käivita Draw-testid"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Evaluation Dashboard"
-msgstr "Hindamise töölaud"
-
-#: plugin/chatbot/hamburger_menu.py
-msgid "Debug"
-msgstr "Silumine"
-
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Kõnet ei tuvastatud.]"
-
-#: plugin/chatbot/tool_loop.py
-msgid "Error: Toolkit unavailable"
-msgstr "Viga: tööriistakomplekt pole saadaval"
-
-#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
-msgid "Chat"
-msgstr "Vestlus"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Image"
-msgstr "Pilt"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Web Research"
-msgstr "Veebiuuring"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Deep Research"
-msgstr "Deep Research"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Brainstorming"
-msgstr "Ajurünnak"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Writing Plan"
-msgstr "Kirjutamisplaan"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "PPT-Master"
-msgstr "PPT-Master"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Librarian"
-msgstr "Librarian"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Print the command list"
-msgstr "Prindi käskude loend"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Start a new chat"
-msgstr "Alusta uut vestlust"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Cancel the in-flight send"
-msgstr "Tühista pooleliolev saatmine"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Mock command (echo only)"
-msgstr "Näidiskäsk (ainult kaja)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Apply last draft (mock)"
-msgstr "Rakenda viimane mustand (näidis)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Web research (mock)"
-msgstr "Veebiuuring (mock)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Switch model (mock)"
-msgstr "Vaheta mudelit (mock)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Slash commands:"
-msgstr "Kaldkriipsuga käsud:"
-
-#: plugin/chatbot/panel.py
-msgid "Accept"
-msgstr "Nõustu"
-
-#: plugin/chatbot/panel.py
-msgid "Change"
-msgstr "Muuda"
-
-#: plugin/chatbot/panel.py
-msgid "Reject"
-msgstr "Keeldu"
-
-#: plugin/chatbot/panel.py
-msgid "Waiting for approval…"
-msgstr "Ootan kinnitust…"
-
-#: plugin/chatbot/panel.py
-#, python-format
-msgid "Recording audio… (%d ms silence)"
-msgstr "Salvestan heli… (%d ms vaikust)"
-
-#: plugin/chatbot/panel.py
-msgid "Record"
-msgstr "Salvesta"
-
-#: plugin/chatbot/panel.py
-msgid "Stop Rec"
-msgstr "Peata salvestamine"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Saada"
-
-#: plugin/chatbot/panel.py
-msgid "Starting..."
-msgstr "Käivitamine..."
-
-#: plugin/chatbot/panel.py
-msgid "Getting document..."
-msgstr "Dokumendi hankimine..."
-
-#: plugin/chatbot/panel.py
-msgid ""
-"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
-"active window.]"
-msgstr ""
-"[Aktiivses aknas ei leitud ühtegi ühilduvat LibreOffice'i dokumenti (Writer,"
-" Calc või Draw).]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Internal Error: Could not identify document type for {0}. Please report "
-"this!]"
-msgstr ""
-"[Sisemine viga: dokumendi tüüpi {0} ei õnnestunud tuvastada. Palun teavitage"
-" sellest!]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Model {0} does not support native audio. Please select an STT Model in "
-"Settings.]"
-msgstr "[Mudel {0} ei toeta kohalikku heli. Palun valige seadetes STT-mudel.]"
-
-#: plugin/chatbot/panel.py
-msgid "[Peer send requires Chat mode on this sidebar.]"
-msgstr "[Vastastikune saatmine nõuab sellel külgribal vestlusrežiimi.]"
-
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
@@ -1437,10 +3004,6 @@ msgstr "Uurimuse vahemälu salvestatud (võti: %s)"
 msgid "Opening '%s' for read-only access."
 msgstr "Avatakse '%s' kirjutuskaitstud režiimis."
 
-#: plugin/chatbot/web_research.py
-msgid "Web research completed."
-msgstr "Veebiuuring lõpetatud."
-
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
@@ -1469,123 +3032,74 @@ msgstr ""
 msgid "Could not start editor: {0}"
 msgstr "Redaktorit ei saanud käivitada: {0}"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Transkribeerin heli..."
+#: plugin/chatbot/panel.py
+msgid "Accept"
+msgstr "Nõustu"
 
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Transkriptsiooniviga: {0}]"
+#: plugin/chatbot/panel.py
+msgid "Change"
+msgstr "Muuda"
 
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Document context error: {0}]"
-msgstr "[Dokumendi konteksti viga: {0}]"
+#: plugin/chatbot/panel.py
+msgid "Reject"
+msgstr "Keeldu"
 
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Agent backend '{0}' not found.]"
-msgstr "[Agendi taustaprogrammi '{0}' ei leitud.]"
+#: plugin/chatbot/panel.py
+msgid "Waiting for approval…"
+msgstr "Ootan kinnitust…"
 
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/panel.py
+#, python-format
+msgid "Recording audio… (%d ms silence)"
+msgstr "Salvestan heli… (%d ms vaikust)"
+
+#: plugin/chatbot/panel.py
+msgid "Record"
+msgstr "Salvesta"
+
+#: plugin/chatbot/panel.py
+msgid "Stop Rec"
+msgstr "Peata salvestamine"
+
+#: plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Käivitamine..."
+
+#: plugin/chatbot/panel.py
+msgid "Getting document..."
+msgstr "Dokumendi hankimine..."
+
+#: plugin/chatbot/panel.py
+msgid ""
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
+"active window.]"
+msgstr ""
+"[Aktiivses aknas ei leitud ühtegi ühilduvat LibreOffice'i dokumenti (Writer, "
+"Calc või Draw).]"
+
+#: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+"[Internal Error: Could not identify document type for {0}. Please report "
+"this!]"
 msgstr ""
-"[Agendi taustaprogramm '{0}' pole saadaval. Kontrollige sätteid (asukoht, "
-"install).]"
+"[Sisemine viga: dokumendi tüüpi {0} ei õnnestunud tuvastada. Palun teavitage "
+"sellest!]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Suurepärane! Lülitan teid nüüd peamise assistendi juurde."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Tundmatu Librarian-i viga."
-
-#: plugin/chatbot/send_handlers.py
+#: plugin/chatbot/panel.py
 #, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Librarian-i viga: {0}]"
+msgid ""
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
+msgstr "[Mudel {0} ei toeta kohalikku heli. Palun valige seadetes STT-mudel.]"
 
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Ajurünnak on lõpetatud."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Tundmatu ajurünnaku viga."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Ajurünnaku viga: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Kirjutamisplaan on valmis."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Tundmatu kirjutamisplaani viga."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Kirjutamisplaani viga: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Masteri seanss on lõpetatud."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Tundmatu PPT-Masteri viga."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[PPT-Masteri viga: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Tundmatu Deep Researchi viga."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Deep Researchi viga: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Tundmatu uurimistöö viga."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Uurimistöö viga: {0}]"
-
-#: plugin/chatbot/web_research_deep.py
-#, python-brace-format
-msgid "Research notes (automatic synthesis failed) for: {query}"
-msgstr "Uurimismärkmed (automaatne süntees ebaõnnestus) päringule: {query}"
-
-#: plugin/chatbot/web_research_deep.py
-msgid "Sources consulted:"
-msgstr "Kasutatud allikad:"
-
-#: plugin/chatbot/web_research_deep.py
-msgid "Web research collected no usable evidence."
-msgstr "Veebiuuring ei kogunud kasutatavaid tõendeid."
+#: plugin/chatbot/panel.py
+msgid "[Peer send requires Chat mode on this sidebar.]"
+msgstr "[Vastastikune saatmine nõuab sellel külgribal vestlusrežiimi.]"
 
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
 msgstr "Palun sisestage redigeerimisjuhised!"
-
-#: plugin/chatbot/selection.py plugin/xdl_strings.py
-msgid "Input"
-msgstr "Sisend"
 
 #: plugin/chatbot/selection.py
 msgid "Edit"
@@ -1604,18 +3118,114 @@ msgstr "{0} valik pole selle dokumenditüübi puhul toetatud"
 msgid "No document open"
 msgstr "Ühtegi dokumenti pole avatud"
 
-#: plugin/chatbot/extension_update_check.py
-msgid "Update available"
-msgstr "Värskendus on saadaval"
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(Sisestage API-võti mudelite laadimiseks)"
 
-#: plugin/chatbot/extension_update_check.py
-#, python-format
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(No image models on this endpoint)"
+msgstr "(Selles lõpp-punktis puuduvad pildimudelid)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(Ühendus nurjus)"
+
+#: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Research notes (automatic synthesis failed) for: {query}"
+msgstr "Uurimismärkmed (automaatne süntees ebaõnnestus) päringule: {query}"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Sources consulted:"
+msgstr "Kasutatud allikad:"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Web research collected no usable evidence."
+msgstr "Veebiuuring ei kogunud kasutatavaid tõendeid."
+
+#: plugin/chatbot/panel_factory.py
 msgid ""
-"A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
-"to check for updates and install the latest extension."
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
 msgstr ""
-"Saadaval on uuem %(name)s (%(version)s). Värskenduste kontrollimiseks ja "
-"uusima laienduse installimiseks kasutage Tööriistad → Laienduste haldur."
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest "
+"approaches, and help you build an approved spec in your document when you're "
+"ready."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your approval."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite "
+"colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid "Size:"
+msgstr "Suurus:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Height:"
+msgstr "Kõrgus:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Width:"
+msgstr "Laius:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Loe vastused ette (TTS)"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Image"
+msgstr "Pilt"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Web Research"
+msgstr "Veebiuuring"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Deep Research"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming"
+msgstr "Ajurünnak"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing Plan"
+msgstr "Kirjutamisplaan"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master"
+msgstr "PPT-Master"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Librarian"
+msgstr "Librarian"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Invalid Setting"
@@ -1649,1560 +3259,17 @@ msgstr ""
 msgid "Audio Library Download"
 msgstr "Audioteegi allalaadimine"
 
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(Enter API Key to load models)"
-msgstr "(Sisestage API-võti mudelite laadimiseks)"
-
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(No image models on this endpoint)"
-msgstr "(Selles lõpp-punktis puuduvad pildimudelid)"
-
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(Connection failed)"
-msgstr "(Ühendus nurjus)"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Size:"
-msgstr "Suurus:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Height:"
-msgstr "Kõrgus:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Width:"
-msgstr "Laius:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Speak responses aloud (TTS)"
-msgstr "Loe vastused ette (TTS)"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "New Python Script"
-msgstr "Uus Pythoni skript"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Script name:"
-msgstr "Skripti nimi:"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Attach to this document"
-msgstr "Lisa sellele dokumendile"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/document_scripts.py
-msgid "Script name cannot be empty."
-msgstr "Skripti nimi ei tohi olla tühi."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Töötamine…"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Monaco loader missing."
-msgstr "Monaco laadur puudub."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Install jedi in the Python venv for completions."
-msgstr "Automaatse täiendamise jaoks installi jedi Pythoni venv-i."
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Run"
-msgstr "Käivita"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Cancel"
-msgstr "Loobu"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Data:"
-msgstr "Andmed:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "New"
-msgstr "Uus"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Create"
-msgstr "Loo"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Script:"
-msgstr "Skript:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Attach"
-msgstr "Lisa"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Attach to Document"
-msgstr "Lisa dokumendile"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Save As..."
-msgstr "Salvesta nimega..."
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-msgid "Save Script As"
-msgstr "Salvesta skript nimega"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Delete"
-msgstr "Kustuta"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Scripts"
-msgstr "Skriptid"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-msgid "My Scripts"
-msgstr "Minu skriptid"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
-msgstr ""
-"Sisseehitatud abivahendid on kirjutuskaitsega. Kohandamiseks kasuta käsku "
-"„Kopeeri minu skriptidesse“."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid ""
-"Document changed — close and reopen Run Python Script to edit document "
-"scripts."
-msgstr ""
-"Dokument on muutunud – sulge ja ava uuesti „Käivita Pythoni skript“, et "
-"dokumendi skripte muuta."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Loaded script '{0}'."
-msgstr "Skript „{0}“ on laaditud."
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-msgid "No document is open to attach scripts."
-msgstr "Ükski dokument pole skriptide lisamiseks avatud."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Attaching script '{0}'..."
-msgstr "Manustan skripti „{0}“..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Copying script '{0}' to My Scripts..."
-msgstr "Kopeerin skripti „{0}“ minu skriptidesse..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Saving script '{0}'..."
-msgstr "Salvestan skripti „{0}“..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Deleting script '{0}'..."
-msgstr "Kustutan skripti '{0}'..."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Built-in helpers cannot be deleted."
-msgstr "Sisseehitatud abivahendeid ei saa kustutada."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Enter script name:"
-msgstr "Sisestage skripti nimi:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"Skript nimega '{0}' on selles dokumendis juba olemas. Kas kirjutada üle?"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Copy to My Scripts as:"
-msgstr "Kopeeri minu skriptidesse nimega:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
-msgstr ""
-"Skript nimega '{0}' on juba minu skriptides olemas. Kas kirjutada üle?"
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Kas salvestada skript '{0}' sellesse dokumenti?"
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Are you sure you want to delete script '{0}'?"
-msgstr "Kas olete kindel, et soovite skripti '{0}' kustutada?"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
-msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Valige andmevahemik või sisestage A1-aadress (lisatakse andmetena)."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Document scripts are too large to store in the document ({0} bytes)."
-msgstr "Dokumendi skriptid on salvestamiseks liiga suured ({0} baiti)."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open to save scripts."
-msgstr "Skriptide salvestamiseks pole ühtegi dokumenti avatud."
-
-#: plugin/scripting/document_scripts.py
-msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
-msgstr ""
-"Dokument on kirjutuskaitsega või omadusi ei saa kirjutada. Skript salvestati"
-" hoopis teie isiklikku teeki."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document."
-msgstr "Skript nimega '{0}' on selles dokumendis juba olemas."
-
-#: plugin/scripting/document_scripts.py
-msgid "This Document"
-msgstr "See dokument"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "Skript '{0}' salvestati kausta Minu skriptid."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Skript '{0}' salvestati sellesse dokumenti."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Skript '{0}' on salvestatud."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Attached script '{0}' to this document."
-msgstr "Skript '{0}' on sellele dokumendile lisatud."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in My Scripts."
-msgstr "Skript nimega '{0}' on jaotises Minu skriptid juba olemas."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Copied script '{0}' to My Scripts."
-msgstr "Skript '{0}' on kopeeritud jaotisesse Minu skriptid."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Ükski dokument pole avatud."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Dokumendi skript '{0}' on kustutatud."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Skript '{0}' on kustutatud."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "PythonScriptDialog could not be loaded from the extension."
-msgstr "PythonScriptDialogi ei saanud laiendusest laadida."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Salvestatud selle asemel jaotisesse Minu skriptid."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skript '%s' on sellesse dokumenti salvestatud."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skript „%s“ on edukalt salvestatud."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to My Scripts."
-msgstr "Skript '%s' on salvestatud minu skriptide hulka."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Kas oled kindel, et soovid skripti '%s' kustutada?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete Script"
-msgstr "Kustuta skript"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skript '%s' on kustutatud."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "New Script"
-msgstr "Uus skript"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' created in this document."
-msgstr "Skript '%s' on loodud sellesse dokumenti."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' created in My Scripts."
-msgstr "Skript '%s' on loodud minu skriptide hulka."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Täitmisviga"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skript käivitati edukalt."
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skript käivitati edukalt, kuid see ei tagastanud tulemust ega väljastanud "
-"midagi."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Edu"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Venv OK"
-msgstr "Venv on korras"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Venv check failed"
-msgstr "Venv-i kontrollimine ebaõnnestus"
-
-#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr "Pythoni keskkonna testimine..."
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Done"
-msgstr "Valmis"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Failed"
-msgstr "Nurjus"
-
-#: plugin/scripting/editor_host.py
-msgid ""
-"Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" Monaco editor."
-msgstr ""
-"Määra Pythoni venv rada jaotises Sätted → Python (sama venv, kus käivitasid "
-"'uv pip install pywebview rocher'). LibreOffice'i sisseehitatud Python ei "
-"saa Monaco redaktorit käivitada."
-
-#: plugin/scripting/editor_host.py
-#, python-brace-format
-msgid ""
-"No python executable found under configured venv: {0} (expected bin/python, "
-"Scripts/python.exe, or env-root python.exe)."
-msgstr ""
-"Konfigureeritud venv-ist ei leitud ühtegi Pythoni käivitatavat faili: {0} "
-"(oodati bin/python, Scripts/python.exe või env-root python.exe)."
-
-#: plugin/scripting/editor_host.py
-msgid "Could not start the Python editor."
-msgstr "Pythoni redaktorit ei saanud käivitada."
-
-#: plugin/scripting/editor_host.py
-msgid "The Python editor window did not start."
-msgstr "Pythoni redaktori aken ei käivitunud."
-
-#: plugin/scripting/editor_host.py
-msgid "The Python editor exited before it could load your code."
-msgstr "Pythoni redaktor sulgus enne, kui see jõudis koodi laadida."
-
-#: plugin/scripting/editor_host.py
-msgid "Could not talk to the Python editor."
-msgstr "Pythoni redaktoriga ei saanud ühendust."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr "Linuxis installige ka süsteemi PortAudio: sudo pacman -S portaudio"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio probe timed out (sounddevice import failed or hung)."
-msgstr ""
-"Helituvastuse ajalõpp (sounddevice importimine ebaõnnestus või hangus)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio probe failed (see writeragent_debug.log)."
-msgstr "Helituvastus ebaõnnestus (vt writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
-"on first check)."
-msgstr ""
-"Teksti/NLP kontrollimise ajalõpp (spaCy või transformerite esmakordne "
-"importimine võib võtta 10–30 sekundit)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text/NLP probe failed (see writeragent_debug.log)."
-msgstr "Teksti/NLP kontrollimine ebaõnnestus (vt writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
-msgstr ""
-"Visuaalse kontrolli ajalõpp (Doclingi importimine võib esimesel korral võtta"
-" 10–30 sekundit)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe failed (see writeragent_debug.log)."
-msgstr "Visuaalne kontroll nurjus (vaata writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vector Search probe timed out (sentence-transformers import can take 10–30s "
-"on first check)."
-msgstr ""
-"Vektorotsingu päring aegus (sentence-transformers importimine võib esimesel "
-"kontrollimisel võtta 10–30 sekundit)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search probe failed (see writeragent_debug.log)."
-msgstr "Vektorotsingu päring ebaõnnestus (vaata writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording & Speech"
-msgstr "Helisalvestus ja kõne"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Scientific Libraries"
-msgstr "Teadusraamatukogud"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Analysis / EDA Libraries"
-msgstr "Andmeanalüüsi / EDA raamatukogud"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries"
-msgstr "Kasutajaliidese / Monaco raamatukogud"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Visualization Libraries"
-msgstr "Visualiseerimisteegid"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Computer Algebra"
-msgstr "Arvutialgebra"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Quantitative Finance Libraries"
-msgstr "Kvantitatiivse rahanduse teegid"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Engineering Libraries"
-msgstr "Andmetöötluse teegid"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries"
-msgstr "Teksti / NLP teegid"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries"
-msgstr "Visuaalsed teegid"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries"
-msgstr "Vektorotsingu teegid"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Heli salvestamine"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "To install remaining packages:"
-msgstr "Ülejäänud pakettide installimiseks:"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "No microphone input devices detected."
-msgstr "Ühtegi mikrofoni sisendseadet ei tuvastatud."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Local TTS engines (optional):"
-msgstr "Kohalikud TTS-mootorid (valikuline):"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Starting Python worker..."
-msgstr "Pythoni tööprotsessi käivitamine..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Reading Python version..."
-msgstr "Pythoni versiooni lugemine..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Heli ja kõne: kontrollitakse heliseadet ja TTS-mootoreid..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries: loading (first run may take a while)..."
-msgstr ""
-"Teksti / NLP teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr "Vision-teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries: loading (first run may take a while)..."
-msgstr ""
-"Vektorotsingu teegid: laadimine (esmakordne käivitamine võib aega võtta)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Using LibreOffice process Python..."
-msgstr "Kasutan LibreOffice'i Pythoni protsessi..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Resolving venv Python..."
-msgstr "Tuvastan venv Pythonit..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Using"
-msgstr "Kasutan"
-
-#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
-msgid "Text Analytics"
-msgstr "Tekstianalüüs"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Could not load the analytics dialog."
-msgstr "Analüüsidialoogi ei saanud laadida."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr "Kontrollin spaCy / textdescriptives / transformers installatsiooni..."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-brace-format
-msgid ""
-"Error from the Text Analytics worker:\n"
-"{err}\n"
-"\n"
-"The features in this dialog require these packages in the python it is using:\n"
-"  • spacy + a model          (entities, key phrases, basic stats)\n"
-"  • textdescriptives         (real Readability scores)\n"
-"  • transformers + torch     (Sentiment using the multilingual model)\n"
-"\n"
-"Install them with:\n"
-"  {install}\n"
-"\n"
-"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
-msgstr ""
-"Viga tekstianalüüsi tööprotsessist:\n"
-"{err}\n"
-"\n"
-"Selle dialoogi funktsioonid nõuavad kasutatavas Pythonis järgmisi pakette:\n"
-"  • spacy + mudel          (olemid, võtmefraasid, põhistatistika)\n"
-"  • textdescriptives         (loetavuse skoorid)\n"
-"  • transformers + torch     (meeleolu analüüs mitmekeelse mudeliga)\n"
-"\n"
-"Installi need käsuga:\n"
-"  {install}\n"
-"\n"
-"Tööprotsess teatas, et moodul puudub. Veendu, et paketid on installitud täpselt sellesse Pythoni käivitatavasse faili, mille tööprotsess sinu konfigureeritud virtuaalkeskkonna jaoks tuvastas."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Open a Writer document to analyze."
-msgstr "Analüüsimiseks ava Writeri dokument."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Not enough text in the chosen scope."
-msgstr "Valitud ulatuses pole piisavalt teksti."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Analyzing..."
-msgstr "Analüüsimine..."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-format
-msgid ""
-"Error: %s\n"
-"\n"
-"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
-msgstr ""
-"Viga: %s\n"
-"\n"
-"Teie konfigureeritud virtuaalkeskkonnas (Sätted → Python) võivad vajalikud paketid puududa. Klõpsake selles dialoogis nupul „Kontrolli virtuaalkeskkonda“ või kasutage üksikasjade saamiseks sätete jaotises „Python“ täielikku testi (spacy, textdescriptives, transformers, torch jne)."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "No Writer document to insert into."
-msgstr "Puudub Writeri dokument, kuhu sisestada."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Käivitage esmalt analüüs."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Nothing useful to insert from the last result."
-msgstr "Viimasest tulemusest pole midagi kasulikku sisestada."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-format
-msgid "Insert failed: %s"
-msgstr "Sisestamine ebaõnnestus: %s"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Inserted after selection/caret."
-msgstr "Sisestatud pärast valikut/kursorit."
-
-#: plugin/scripting/symbolic.py
-msgid "Symbolic helper failed."
-msgstr "Sümbolarvutuse abivahend nurjus."
-
-#: plugin/scripting/symbolic.py
-msgid "Symbolic helper returned no LaTeX."
-msgstr "Sümbolarvutuse abivahend ei tagastanud LaTeX-koodi."
-
-#: plugin/scripting/symbolic.py
-#, python-brace-format
-msgid "Failed to convert LaTeX to Writer Math: {error}"
-msgstr "LaTeX-i teisendamine Writer Mathi vormingusse nurjus: {error}"
-
-#: plugin/scripting/symbolic.py
-msgid "No active document view."
-msgstr "Aktiivset dokumendivaadet pole."
-
-#: plugin/scripting/symbolic.py
-msgid "Unsupported document type for symbolic insertion."
-msgstr "Toetamata dokumenditüüp sümbolite sisestamiseks."
-
-#: plugin/scripting/viz.py
-msgid "Unsupported document type for plot insertion."
-msgstr "Toetamata dokumenditüüp graafiku lisamiseks."
-
-#: plugin/scripting/viz.py
-msgid "Viz helper failed."
-msgstr "Visualiseerimise abivahend nurjus."
-
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Visualiseerimise abivahend ei tagastanud pildiandmeid."
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-"Vision '{helper}' on lõpetatud. Sisestatud HTML ({blocks} plokki, {tables} "
-"tabelit). (kulus {time})"
-
-#: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr ""
-"Vision '{helper}' on lõpetatud. Sisestatud vormindatud HTML. (kulus {time})"
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"{domain} '{helper}' on lõpetatud. Kirjutati {rows} rida. (kulus {time})"
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "{domain} '{helper}' completed. (took {time})"
-msgstr "{domain} '{helper}' on lõpetatud. (kulus {time})"
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Pythoni seansi lähtestamine märkmike jaoks kehtib LibreOffice Writeri kohta."
-" Avage Writeri dokument imporditud Jupyteri märkmikuga ja proovige uuesti."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"This Writer document has no imported notebook registry. File → Open a "
-"Jupyter notebook (.ipynb) first."
-msgstr ""
-"Selles Writeri dokumendis pole imporditud märkmiku registrit. Ava esmalt "
-"Jupyteri märkmik (failitüüp .ipynb) menüüst Fail → Ava."
-
-#: plugin/scripting/session_manager.py
-msgid "Could not resolve notebook Python session."
-msgstr "Märkmiku Pythoni seanssi ei saanud lahendada."
-
-#: plugin/scripting/session_manager.py
-msgid "Notebook Python session reset for this document."
-msgstr "Märkmiku Pythoni seanss on selle dokumendi jaoks lähtestatud."
-
-#: plugin/scripting/session_manager.py
-msgid "Could not reset Python session."
-msgstr "Pythoni seanssi ei saanud lähtestada."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Pythoni seansi lähtestamine kehtib Calci arvutustabelite kohta. Avage Calci "
-"töövihik ja proovige uuesti."
-
-#: plugin/scripting/session_manager.py
-msgid "Python session reset for this workbook."
-msgstr "Pythoni seanss on selle töövihiku jaoks lähtestatud."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Initialization script and any in-memory init state were reset for this "
-"workbook. Cell variables were already isolated per cell."
-msgstr ""
-"Selle töövihiku lähtestusskript ja kogu mälusisene lähtestusolek lähtestati."
-" Lahtrimuutujad olid juba lahtripõhiselt eraldatud."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Python session mode is Isolated (each =PY() cell uses its own variables). "
-"There is no shared cell session to reset. Add an initialization script if "
-"you need to clear expensive one-time workbook setup."
-msgstr ""
-"Pythoni seansirežiim on isoleeritud (iga =PY()-lahter kasutab oma "
-"muutujaid). Lähtestatavat jagatud lahtriseanssi pole. Kui peate kuluka "
-"ühekordse töövihiku seadistuse tühjendama, lisage lähtestamisskript."
-
-#: plugin/scripting/session_manager.py
-msgid "Python session reset for this document."
-msgstr "Selle dokumendi Pythoni seanss on lähtestatud."
-
-#: plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Ühikute abimees nurjus."
-
-#: plugin/scripting/units.py
-msgid "Units helper returned no formatted text."
-msgstr "Ühikute abimees ei tagastanud vormindatud teksti."
-
-#: plugin/scripting/units.py
-msgid "Unsupported document type for units insertion."
-msgstr "Toetamata dokumenditüüp ühikute sisestamiseks."
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Tulemuse sisestamine ebaõnnestus: {error} (kulus {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr "Graafik sisestatud ({title}). (kulus {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr "Viz '{helper}' on lõpetatud. {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' on lõpetatud. Sisestatud: {preview} (kulus {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Ühikud '{helper}' lõpetatud. Sisestatud: {preview} (kulus {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Tulemuse sisestamine Calc-i ebaõnnestus: %s"
-
-#: plugin/scripting/python_runner.py
-msgid "Info"
-msgstr "Teave"
-
-#: plugin/scripting/python_runner.py
-msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr ""
-"Tulemuse sisestamine Draw/Impressi pole veel toetatud. PR-id on teretulnud!"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Visuaalsed abivahendid nõuavad Writeri või Calci dokumenti."
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr "Nägemisabiline nurjus."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
-"(took {time})"
-msgstr ""
-"Nägemisabiline '{helper}' lõpetas. Lisati vormindatud HTML {count} pildi "
-"jaoks. (kulus {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
-msgstr ""
-"Skript käivitati edukalt, kuid see ei tagastanud tulemust ega väljundit. "
-"(kulus {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "Toetamata dokumenditüüp tulemuse sisestamiseks. (kulus {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Script executed successfully. (took {time})"
-msgstr "Skript käivitati edukalt. (kulus {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Skript salvestatud."
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run Python Script"
-msgstr "Käivita Pythoni skript"
-
-#: plugin/scripting/python_runner.py
-msgid "Run Python Script failed to open the Monaco editor."
-msgstr "Pythoni skripti käivitamine ei suutnud Monaco redaktorit avada."
-
-#: plugin/scripting/python_runner.py
-msgid "Could not open the built-in script dialog."
-msgstr "Sisseehitatud skriptidialoogi ei saanud avada."
-
-#: plugin/scripting/python_runner.py
-msgid "An unexpected error occurred while opening Run Python Script."
-msgstr "Pythoni skripti käivitamise avamisel ilmnes ootamatu viga."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Käsuviga"
-
-#: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
-msgid ""
-"Select an embedded image (or a range containing images), then Run again."
-msgstr ""
-"Valige manustatud pilt (või pilte sisaldav vahemik) ja käivitage uuesti."
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Pilti '{name}' ei leitud. Kasuta image_listi või jäta image_name tühjaks ja "
-"vali graafika."
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Pilti '{name}' ei saanud eksportida."
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid "OCR complete ({count} images)."
-msgstr "OCR lõpetatud ({count} pilti)."
-
-#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
-msgid "OCR complete."
-msgstr "OCR on lõpetatud."
-
-#: plugin/vision/vision_runner.py
-msgid "OCR complete (text returned only; not inserted)."
-msgstr "OCR on lõpetatud (tagastati ainult tekst; ei lisatud)."
-
-#: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR nõuab Writeri või Calci dokumenti."
-
-#: plugin/vision/vision_egress.py
-msgid "Writer document has no controller."
-msgstr "Writeri dokumendil puudub kontroller."
-
-#: plugin/vision/vision_egress.py
-msgid "Could not resolve the image anchor for insert."
-msgstr "Pildi ankrut sisestamiseks ei õnnestunud lahendada."
-
-#: plugin/vision/vision_egress.py
-#, python-format
-msgid "Could not position insert after the image: %s"
-msgstr "Pärast pilti sisestamist ei õnnestunud positsioneerida: %s"
-
-#: plugin/vision/vision_egress.py
-msgid "The image was removed while preparing OCR insert."
-msgstr "Pilt eemaldati OCR-sisestuse ettevalmistamise ajal."
-
-#: plugin/vision/vision_egress.py
-msgid "The image was removed during OCR insert."
-msgstr "Pilt eemaldati OCR-sisestuse ajal."
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP-serveri käivitamine ebaõnnestus"
-
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Kontrolli writeragent_debug.log faili oma LibreOffice'i kasutaja seadistuste"
-" kaustas"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Peata MCP-server"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Käivita MCP-server"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Avalik tunnel {0} kaudu (autentimiseta)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Avalik tunnel kaudu {0}: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "taasühendamine…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Avalik tunnel {0} kaudu ebaõnnestus: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Avalik tunnel {0} kaudu käivitub…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Avalik tunnel {0} kaudu ei tööta (kas pakkuja binaarfail on installitud?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCP-server on peatatud"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCP-server on käivitatud"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "Avalik tunnel {0} kaudu"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"Avalik tunnel {0} kaudu käivitub… kasutage MCP-serveri olekut, kui see on "
-"valmis."
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCP-server ei tööta"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCP-server töötab"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Marsruudid: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "Kohalik URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "Avalik URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Kohalik lõpp-punkt:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Avalik tunnel ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Olek: Aktiivne (ühendatud)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Olek: Taasühendamine — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "proovin uuesti…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Olek: Tunneli käivitamine…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Olek: Nurjus — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Olek: Ei tööta (kas {0} binaarfail on installitud?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Kopeeritud!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Testimine…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Testi tunnelit"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "MCP tunneli test"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Tunneli testrežiim: {0} pakkuja simuleerimine õnnestus."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Tundelipakkuja on tundmatu: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binaarfaili '{0}' rakenduse {1} jaoks ei leitud PATH-ist.\n"
-"\n"
-"Installige asukohast: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Binaarfaili {0} käivitamine ebaõnnestus ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0} tunnel töötab ja vastab!\n"
-"\n"
-"Avalik lõpp-punkt:\n"
-"{1}\n"
-"\n"
-"Tervisekontroll: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0} tunnel on aktiivne!\n"
-"\n"
-"Avalik lõpp-punkt:\n"
-"{1}\n"
-"\n"
-"(Avalik URL on saadud aktiivsest tunneli seansist.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0} binaarfail '{1}' on kontrollitud ({2}).\n"
-"\n"
-"(Märkus: aktiivne {3} tunnel töötab hetkel aadressil {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0} binaarfail '{1}' on installitud ja kontrollitud ({2}).\n"
-"\n"
-"MCP-server töötab kohalikult pordis {3}.\n"
-"Valige 'Avalikusta avaliku tunneli kaudu' ja klõpsake OK, et aktiveerida avalik marsruutimine."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0} binaarfail '{1}' on installitud ja kontrollitud ({2}).\n"
-"\n"
-"Märkus: MCP-server ei tööta hetkel pordis {3}."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} õnnestus, {2} ebaõnnestus."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Testide käivitamine ebaõnnestus: {0}"
-
-#: plugin/main.py plugin/xdl_strings.py
-msgid "MCP Server Status"
-msgstr "MCP-serveri olek"
-
-#: plugin/main.py
-msgid "Edit LaTeX Math..."
-msgstr "Muuda LaTeX-valemit..."
-
-#: plugin/xdl_strings.py
-msgid "-1"
-msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "AI Model:"
-msgstr "AI-mudel:"
-
-#: plugin/xdl_strings.py
-msgid "API Key:"
-msgstr "API-võti:"
-
-#: plugin/xdl_strings.py
-msgid "Active Sheet"
-msgstr "Aktiivne leht"
-
-#: plugin/xdl_strings.py
-msgid "Additional Instructions (History):"
-msgstr "Lisajuhised (ajalugu):"
-
-#: plugin/xdl_strings.py
-msgid "Additional Instructions:"
-msgstr "Lisajuhised:"
-
-#: plugin/xdl_strings.py
-msgid "Ask / instruct:"
-msgstr "Küsi / juhenda:"
-
-#: plugin/xdl_strings.py
-msgid "Aspect Ratio:"
-msgstr "Kuvasuhe:"
-
-#: plugin/xdl_strings.py
-msgid "Auto Gallery"
-msgstr "Autogalerii"
-
-#: plugin/xdl_strings.py
-msgid "Base Size:"
-msgstr "Baassuurus:"
-
-#: plugin/xdl_strings.py
-msgid "Base:"
-msgstr "Baas:"
-
-#: plugin/xdl_strings.py
-msgid "Cache Status: Checking..."
-msgstr "Vahemälu olek: kontrollitakse..."
-
-#: plugin/xdl_strings.py
-msgid "Calc"
-msgstr "Calc"
-
-#: plugin/xdl_strings.py
-msgid "Categories:"
-msgstr "Kategooriad:"
-
-#: plugin/xdl_strings.py
-msgid "Check Venv"
-msgstr "Kontrolli virtuaalkeskkonda"
-
-#: plugin/xdl_strings.py
-msgid "Clear"
-msgstr "Tühjenda"
-
-#: plugin/xdl_strings.py
-msgid "Convert Sheet to Python"
-msgstr "Teisenda tabel Pythoniks"
-
-#: plugin/xdl_strings.py
-msgid "Copy"
-msgstr "Kopeeri"
-
-#: plugin/xdl_strings.py
-msgid "Diagnostics:"
-msgstr "Diagnostika:"
-
-#: plugin/xdl_strings.py
-msgid "Draw"
-msgstr "Draw"
-
-#: plugin/xdl_strings.py
-msgid "Edit Cell"
-msgstr "Muuda lahtrit"
-
-#: plugin/xdl_strings.py
-msgid "Edit Init Script"
-msgstr "Muuda lähtestusskripti"
-
-#: plugin/xdl_strings.py
-msgid "Edit config (JSON)…"
-msgstr "Muuda seadistust (JSON)…"
-
-#: plugin/xdl_strings.py
-msgid "Edit extra tokens:"
-msgstr "Muuda lisamärke:"
-
-#: plugin/xdl_strings.py
-msgid "Edit search query"
-msgstr "Muuda otsingupäringut"
-
-#: plugin/xdl_strings.py
-msgid "Endpoint URL (/v1 added):"
-msgstr "Lõpp-punkti URL (/v1 lisatud):"
-
-#: plugin/xdl_strings.py
-msgid "Endpoint URL:"
-msgstr "Lõpp-punkti URL:"
-
-#: plugin/xdl_strings.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr "Sisestage LaTeX-i valemi kood teisendamiseks ja lisamiseks:"
-
-#: plugin/xdl_strings.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Sisesta Pythoni kood, mida kasutaja virtuaalkeskkonnas käivitada.\n"
-"Omista tulemus muutujale 'result'."
-
-#: plugin/xdl_strings.py
-msgid "Entities"
-msgstr "Olemid"
-
-#: plugin/xdl_strings.py
-msgid "Extend max tokens:"
-msgstr "Suurenda märkide maksimumarvu:"
-
-#: plugin/xdl_strings.py
-msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr "Lisamärgid lisaks algteksti pikkusele. 0 = sama pikk kui algtekst."
-
-#: plugin/xdl_strings.py
-msgid "Filter:"
-msgstr "Filter:"
-
-#: plugin/xdl_strings.py
-msgid "General"
-msgstr "Üldine"
-
-#: plugin/xdl_strings.py
-msgid "Get API Key:"
-msgstr "Hangi API-võti:"
-
-#: plugin/xdl_strings.py
-msgid "Hugging Face"
-msgstr "Hugging Face"
-
-#: plugin/xdl_strings.py
-msgid "Image Model:"
-msgstr "Pildimudel:"
-
-#: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Pildi seaded"
-
-#: plugin/xdl_strings.py
-msgid "In-place replacement"
-msgstr "Asendamine kohapeal"
-
-#: plugin/xdl_strings.py
-msgid "Input:"
-msgstr "Sisend:"
-
-#: plugin/xdl_strings.py
-msgid "Insert Frame"
-msgstr "Lisa raam"
-
-#: plugin/xdl_strings.py
-msgid "Insert LaTeX Math"
-msgstr "Lisa LaTeX-valem"
-
-#: plugin/xdl_strings.py
-msgid "Insert report here"
-msgstr "Lisa aruanne siia"
-
-#: plugin/xdl_strings.py
-msgid "Key Phrases"
-msgstr "Võtmefraasid"
-
-#: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Maksimaalne märkide arv:"
-
-#: plugin/xdl_strings.py
-msgid "Message"
-msgstr "Sõnum"
-
-#: plugin/xdl_strings.py
-msgid "Models to Test:"
-msgstr "Testitavad mudelid:"
-
-#: plugin/xdl_strings.py
-msgid "Multimodal"
-msgstr "Multimodaalne"
-
-#: plugin/xdl_strings.py
-msgid "NVIDIA NIM"
-msgstr "NVIDIA NIM"
-
-#: plugin/xdl_strings.py
-msgid "New Sheet (PythonImport)"
-msgstr "Uus leht (PythonImport)"
-
-#: plugin/xdl_strings.py
-msgid "Number of Responses:"
-msgstr "Vastuste arv:"
-
-#: plugin/xdl_strings.py
-msgid "OK"
-msgstr "OK"
-
-#: plugin/xdl_strings.py
-msgid "OpenRouter"
-msgstr "OpenRouter"
-
-#: plugin/xdl_strings.py
-msgid "Options"
-msgstr "Valikud"
-
-#: plugin/xdl_strings.py
-msgid "Output Mode"
-msgstr "Väljundrežiim"
-
-#: plugin/xdl_strings.py
-msgid "Please enter edit instructions:"
-msgstr "Palun sisesta redigeerimisjuhised:"
-
-#: plugin/xdl_strings.py
-msgid "Preserve number formats"
-msgstr "Säilita arvuvormingud"
-
-#: plugin/xdl_strings.py
-msgid "Public Tunnel:"
-msgstr "Avalik tunnel:"
-
-#: plugin/xdl_strings.py
-msgid "Python Settings…"
-msgstr "Pythoni sätted…"
-
-#: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Pythoni test"
-
-#: plugin/xdl_strings.py
-msgid "Python cells (active sheet):"
-msgstr "Pythoni lahtrid (aktiivne leht):"
-
-#: plugin/xdl_strings.py
-msgid "Python:"
-msgstr "Python:"
-
-#: plugin/xdl_strings.py
-msgid "Readability"
-msgstr "Loetavus"
-
-#: plugin/xdl_strings.py
-msgid "Rebuild"
-msgstr "Taasehita"
-
-#: plugin/xdl_strings.py
-msgid "Refresh"
-msgstr "Värskenda"
-
-#: plugin/xdl_strings.py
-msgid "Reset Session"
-msgstr "Lähtesta seanss"
-
-#: plugin/xdl_strings.py
-msgid "Results:"
-msgstr "Tulemused:"
-
-#: plugin/xdl_strings.py
-msgid "Run Benchmark"
-msgstr "Käivita jõudlustest"
-
-#: plugin/xdl_strings.py
-msgid "Run Script"
-msgstr "Käivita skript"
-
-#: plugin/xdl_strings.py
-msgid "Scope"
-msgstr "Ulatus"
-
-#: plugin/xdl_strings.py
-msgid "Search Nearby Files"
-msgstr "Otsi lähedalolevatest failidest"
-
-#: plugin/xdl_strings.py
-msgid "Search Query:"
-msgstr "Otsingupäring:"
-
-#: plugin/xdl_strings.py
-msgid "Search query:"
-msgstr "Otsingupäring:"
-
-#: plugin/xdl_strings.py
-msgid "Seed:"
-msgstr "Algväärtus:"
-
-#: plugin/xdl_strings.py
-msgid "Selection"
-msgstr "Valik"
-
-#: plugin/xdl_strings.py
-msgid "Sentiment"
-msgstr "Sentiment"
-
-#: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Ruut"
-
-#: plugin/xdl_strings.py
-msgid "Status"
-msgstr "Olek"
-
-#: plugin/xdl_strings.py
-msgid "Status: Ready"
-msgstr "Olek: Valmis"
-
-#: plugin/xdl_strings.py
-msgid "Steps:"
-msgstr "Sammud:"
-
-#: plugin/xdl_strings.py
-msgid "Temperature:"
-msgstr "Temperatuur:"
-
-#: plugin/xdl_strings.py
-msgid "Test Connection"
-msgstr "Testi ühendust"
-
-#: plugin/xdl_strings.py
-msgid "Text/Chat Model:"
-msgstr "Teksti-/vestlusmudel:"
-
-#: plugin/xdl_strings.py
-msgid "Timeout (s):"
-msgstr "Ajalõpp (s):"
-
-#: plugin/xdl_strings.py
-msgid "Together AI"
-msgstr "Together AI"
-
-#: plugin/xdl_strings.py
-msgid "Topics"
-msgstr "Teemad"
-
-#: plugin/xdl_strings.py
-msgid "Vectorize columns when safe"
-msgstr "Vektoriseeri veerud, kui see on ohutu"
-
-#: plugin/xdl_strings.py
-msgid "Verify recalc (oracle diff)"
-msgstr "Kontrolli ümberarvutust (oraakli erinevus)"
-
-#: plugin/xdl_strings.py
-msgid "Whole Document"
-msgstr "Kogu dokument"
-
-#: plugin/xdl_strings.py
-msgid "Writer"
-msgstr "Writer"
-
-#: plugin/xdl_strings.py
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "WriterAgenti hindamise töölaud"
-
-#: plugin/xdl_strings.py
-msgid "√x"
-msgstr "√x"
-
-#: plugin/xdl_strings.py
-msgid "☰"
-msgstr "☰"
-
-#: plugin/xdl_strings.py
-msgid "⚙"
-msgstr "⚙"
-
-#: plugin/xdl_strings.py
-msgid "🔊"
-msgstr "🔊"
-
-#: plugin/xdl_strings.py
-msgid "🔍"
-msgstr "🔍"
+#: plugin/chatbot/hamburger_menu.py
+msgid "MCP Server (Running)"
+msgstr "MCP-server (töötab)"
+
+#: plugin/chatbot/hamburger_menu.py
+msgid "MCP Server (Stopped)"
+msgstr "MCP-server (peatatud)"
+
+#: plugin/chatbot/hamburger_menu.py
+msgid "Debug"
+msgstr "Silumine"
 
 msgid "Agent Communication Protocol"
 msgstr "Agendi suhtlusprotokoll"
@@ -3248,9 +3315,9 @@ msgid ""
 "sentence is not followed by a gap. Stop discards clips that are not playing "
 "yet. Turn off to speak the whole reply as one clip."
 msgstr ""
-"Sünteesi järgmised laused samal ajal, kui praegust esitatakse, et lühikesele"
-" lausele ei järgneks pausi. Peatamine tühistab klipid, mida veel ei esitata."
-" Lülita välja, et lugeda kogu vastus ühe klipina."
+"Sünteesi järgmised laused samal ajal, kui praegust esitatakse, et lühikesele "
+"lausele ei järgneks pausi. Peatamine tühistab klipid, mida veel ei esitata. "
+"Lülita välja, et lugeda kogu vastus ühe klipina."
 
 msgid "Keep replies brief"
 msgstr "Hoia vastused lühikesed"
@@ -3266,8 +3333,8 @@ msgid "TTS Provider"
 msgstr "TTS-i pakkuja"
 
 msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API"
-" endpoint."
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
 msgstr ""
 "Vali, kas kasutada operatsioonisüsteemi sisseehitatud kõnet, kohalikku "
 "närvimootorit või oma API lõpp-punkti."
@@ -3359,8 +3426,8 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"Teisenda õed-failid .xlsx/.xls kausta kõrval asuvasse writeragent_ods_cache/"
-" kataloogi, et korduv DuckDB SQL saaks ODS-i taaskasutada. Natiivseid .ods-"
+"Teisenda õed-failid .xlsx/.xls kausta kõrval asuvasse writeragent_ods_cache/ "
+"kataloogi, et korduv DuckDB SQL saaks ODS-i taaskasutada. Natiivseid .ods-"
 "faile ja aktiivset töövihikut ei puhverdata kunagi. Keelamiseks määra "
 "writeragent.json failis calc.ods_cache_enabled väärtuseks false."
 
@@ -3453,9 +3520,9 @@ msgstr "Humaniseerimisoskus (loomulik proosa)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
+"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
+"dedicated Skills tab can be added later."
 msgstr ""
 "Kui see on lubatud, lisatakse süsteemiviibale juhised, et mudel muudaks "
 "loodud või muudetud dokumenditeksti loomulikumaks ja inimlikumaks (eemaldab "
@@ -3481,9 +3548,9 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Luba grammatikakontroll (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
-"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
-"binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. "
+"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
+"offline Rust binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Väljas = keelatud. AI (LLM) = kasuta seadistatud tekstimudelit/API-t. "
 "LanguageTool / Vale = kohalikud mootorid sätete → Python venv kaudu. Harper "
@@ -3518,9 +3585,8 @@ msgid ""
 "Clears cached grammar results for this document and asks Writer to check "
 "again. Use after changing checker or model."
 msgstr ""
-"Tühjendab selle dokumendi vahemällu salvestatud grammatikatulemused ja palub"
-" Writeril uuesti kontrollida. Kasutage pärast kontrollija või mudeli "
-"muutmist."
+"Tühjendab selle dokumendi vahemällu salvestatud grammatikatulemused ja palub "
+"Writeril uuesti kontrollida. Kasutage pärast kontrollija või mudeli muutmist."
 
 msgid "Pause grammar while chat/agent runs"
 msgstr "Peata grammatikakontroll vestluse/agendi töötamise ajal"
@@ -3654,8 +3720,8 @@ msgid "Rerank model"
 msgstr "Ümberjärjestamise mudel"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
-" is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
+"is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Kasutatakse ainult siis, kui ümberjärjestamine on lubatud. Ingliskeelne "
 "MiniLM on kiire; bge-reranker-v2-m3 on mitmekeelne ja laadib alla u 2,3 GB."
@@ -3676,11 +3742,11 @@ msgid "Enable MCP Server"
 msgstr "Luba MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Ainult localhost, autentimine puudub. Kliendid kasutavad aadressi "
-"http://localhost:<port>/mcp (voogedastatav HTTP)."
+"Ainult localhost, autentimine puudub. Kliendid kasutavad aadressi http://"
+"localhost:<port>/mcp (voogedastatav HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -3720,13 +3786,13 @@ msgstr "Avalikusta avaliku tunneli kaudu"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
-" MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
+"MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Nõuab valitud teenusepakkuja binaarfaili PATH-is (cloudflared, bore, ngrok "
 "või tailscale). MCP-l puudub autentimine – igaüks, kellel on avalik URL, "
-"saab tööriistu kutsuda. Vaadake MCP-serveri olekut avaliku /mcp URL-i jaoks,"
-" kui see on valmis."
+"saab tööriistu kutsuda. Vaadake MCP-serveri olekut avaliku /mcp URL-i jaoks, "
+"kui see on valmis."
 
 msgid "Provider"
 msgstr "Teenusepakkuja"
@@ -3771,10 +3837,10 @@ msgid "Python venv path"
 msgstr "Pythoni venv-rada"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, "
-"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
-"without surrounding quotes. If empty, uses this process's sys.executable "
-"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
+"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
+"surrounding quotes. If empty, uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
 "Kui on määratud, käivitab =PY() ja käsu Run Python Script selles venv-is "
@@ -3793,15 +3859,14 @@ msgid "Python script timeout (seconds)"
 msgstr "Pythoni skripti ajalõpp (sekundites)"
 
 msgid "Wall-clock limit for Run Python Script and =PYTHON() / =PY()."
-msgstr ""
-"Kellaajaline piirang käskudele Run Python Script ja =PYTHON() / =PY()."
+msgstr "Kellaajaline piirang käskudele Run Python Script ja =PYTHON() / =PY()."
 
 msgid "Max Calc data cells"
 msgstr "Maksimaalne Calc-i andmeelementide arv"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maksimaalne elementide arv =PYTHON() andmetes või käsu „Run Python Script“ "
 "andmevahemikus. Suuremad väärtused nõuavad rohkem muutmälu ja aega; UNO "
@@ -3843,12 +3908,11 @@ msgid "Rewrite xl() ranges"
 msgstr "Kirjuta xl()-vahemikud ümber"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
-" rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
+"rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Pythoni lahtris redigeerimise salvestamisel tõsta staatiline xl(\"A1:…\") "
-"=PY andmeargumentidele ja kirjuta ümber kujule data / data[i] / "
-".to_pandas()."
+"=PY andmeargumentidele ja kirjuta ümber kujule data / data[i] / .to_pandas()."
 
 msgid "Vision / OCR"
 msgstr "Visioon / OCR"
