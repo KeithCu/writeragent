@@ -79,9 +79,9 @@ config:
       - value: "alloy"
         label: "alloy (OpenAI Neutral)"
       - value: "af_sky"
-        label: "af_sky (Kokoro US Female - Sky)"
+        label: "US Female - Sky"
       - value: "en_US-lessac-medium"
-        label: "en_US-lessac-medium (US English Female - Lessac)"
+        label: "US English Female - Lessac"
       - value: "default"
         label: "default (System Default)"
 

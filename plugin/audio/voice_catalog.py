@@ -80,6 +80,8 @@ PIPER_VOICE_MODELS: dict[str, PiperModel] = {
     for item in _PIPER_ROWS
 }
 
+# Catalog strings keep the id prefix. The Voice combo shows only the
+# parenthetical; see catalog_voice_display_label.
 KOKORO_CATALOG_ITEMS: list[dict[str, str]] = [
     {"value": item["id"], "label": item["label"], "lang": item.get("lang", "en")}
     for item in _KOKORO_ROWS
@@ -124,3 +126,24 @@ def voice_short_name(voice_id: str) -> str:
     if named:
         return named
     return clean or voice_id
+
+
+def catalog_voice_display_label(label: str) -> str:
+    """Listbox text for one Piper or Kokoro catalog label.
+
+    The provider control already names the engine, so the Voice combo shows
+    only the words inside the parentheses. A leading ``Kokoro `` on that
+    phrase is dropped too. ``en_US-lessac-medium (US English Female - Lessac)``
+    becomes ``US English Female - Lessac``. ``af_heart (Kokoro US Female - Heart)``
+    becomes ``US Female - Heart``. A string with no parentheses is an id
+    (harvested voices) and is returned unchanged. The stored selection stays
+    the voice id; this does not rewrite it.
+    """
+    text = (label or "").strip()
+    open_at = text.rfind(" (")
+    if open_at < 0 or not text.endswith(")"):
+        return text
+    human = text[open_at + 2:-1].strip()
+    if human.casefold().startswith("kokoro "):
+        human = human[len("kokoro "):].strip()
+    return human or text

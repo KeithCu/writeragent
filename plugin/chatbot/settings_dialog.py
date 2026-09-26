@@ -154,10 +154,14 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
             from plugin.audio.tts_service import clean_provider_name
             val = clean_provider_name(str(val))
         elif key in ("audio__tts_voice", "audio.tts_voice"):
-            from plugin.audio.tts_service import clean_voice_name, set_scoped_tts_voice
-            val = clean_voice_name(str(val))
+            from plugin.audio.tts_service import set_scoped_tts_voice, voice_choice_to_id, voice_options_for_provider
+            # The generic label match above can bind a shared parenthetical
+            # (French Female - Siwis) to the provider that was current when
+            # the dialog opened. Read the combo text and this result's provider.
             prov = result.get("audio__tts_provider") or result.get("audio.tts_provider") or ""
             model = result.get("audio__tts_model") or result.get("tts_model") or ""
+            options = voice_options_for_provider(str(prov), str(model))
+            val = voice_choice_to_id(str(result.get(key) or ""), options)
             set_scoped_tts_voice(val, provider=str(prov), model=str(model))
         elif key in ("audio__tts_speed", "audio.tts_speed"):
             from plugin.audio.tts_service import parse_tts_speed

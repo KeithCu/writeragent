@@ -417,157 +417,157 @@
     "voices": [
       {
         "id": "af_bella",
-        "label": "af_bella (Kokoro US Female - Bella)",
+        "label": "af_bella (US Female - Bella)",
         "lang": "en",
         "short_name": "Bella"
       },
       {
         "id": "af_heart",
-        "label": "af_heart (Kokoro US Female - Heart)",
+        "label": "af_heart (US Female - Heart)",
         "lang": "en",
         "short_name": "Heart"
       },
       {
         "id": "af_sarah",
-        "label": "af_sarah (Kokoro US Female - Sarah)",
+        "label": "af_sarah (US Female - Sarah)",
         "lang": "en",
         "short_name": "Sarah"
       },
       {
         "id": "af_sky",
-        "label": "af_sky (Kokoro US Female - Sky)",
+        "label": "af_sky (US Female - Sky)",
         "lang": "en",
         "short_name": "Sky"
       },
       {
         "id": "am_adam",
-        "label": "am_adam (Kokoro US Male - Adam)",
+        "label": "am_adam (US Male - Adam)",
         "lang": "en",
         "short_name": "Adam"
       },
       {
         "id": "am_michael",
-        "label": "am_michael (Kokoro US Male - Michael)",
+        "label": "am_michael (US Male - Michael)",
         "lang": "en",
         "short_name": "Michael"
       },
       {
         "id": "bf_emma",
-        "label": "bf_emma (Kokoro UK Female - Emma)",
+        "label": "bf_emma (UK Female - Emma)",
         "lang": "en",
         "short_name": "Emma"
       },
       {
         "id": "bf_isabella",
-        "label": "bf_isabella (Kokoro UK Female - Isabella)",
+        "label": "bf_isabella (UK Female - Isabella)",
         "lang": "en",
         "short_name": "Isabella"
       },
       {
         "id": "bm_george",
-        "label": "bm_george (Kokoro UK Male - George)",
+        "label": "bm_george (UK Male - George)",
         "lang": "en",
         "short_name": "George"
       },
       {
         "id": "bm_lewis",
-        "label": "bm_lewis (Kokoro UK Male - Lewis)",
+        "label": "bm_lewis (UK Male - Lewis)",
         "lang": "en",
         "short_name": "Lewis"
       },
       {
         "id": "ef_dora",
-        "label": "ef_dora (Kokoro Spanish Female - Dora)",
+        "label": "ef_dora (Spanish Female - Dora)",
         "lang": "es",
         "short_name": "Dora"
       },
       {
         "id": "em_alex",
-        "label": "em_alex (Kokoro Spanish Male - Alex)",
+        "label": "em_alex (Spanish Male - Alex)",
         "lang": "es",
         "short_name": "Alex"
       },
       {
         "id": "em_santa",
-        "label": "em_santa (Kokoro Spanish Male - Santa)",
+        "label": "em_santa (Spanish Male - Santa)",
         "lang": "es",
         "short_name": "Santa"
       },
       {
         "id": "ff_siwis",
-        "label": "ff_siwis (Kokoro French Female - Siwis)",
+        "label": "ff_siwis (French Female - Siwis)",
         "lang": "fr",
         "short_name": "Siwis"
       },
       {
         "id": "if_sara",
-        "label": "if_sara (Kokoro Italian Female - Sara)",
+        "label": "if_sara (Italian Female - Sara)",
         "lang": "it",
         "short_name": "Sara"
       },
       {
         "id": "im_nicola",
-        "label": "im_nicola (Kokoro Italian Male - Nicola)",
+        "label": "im_nicola (Italian Male - Nicola)",
         "lang": "it",
         "short_name": "Nicola"
       },
       {
         "id": "jf_alpha",
-        "label": "jf_alpha (Kokoro Japanese Female - Alpha)",
+        "label": "jf_alpha (Japanese Female - Alpha)",
         "lang": "ja",
         "short_name": "Alpha"
       },
       {
         "id": "jf_gongitsune",
-        "label": "jf_gongitsune (Kokoro Japanese Female - Gongitsune)",
+        "label": "jf_gongitsune (Japanese Female - Gongitsune)",
         "lang": "ja",
         "short_name": "Gongitsune"
       },
       {
         "id": "jm_kumo",
-        "label": "jm_kumo (Kokoro Japanese Male - Kumo)",
+        "label": "jm_kumo (Japanese Male - Kumo)",
         "lang": "ja",
         "short_name": "Kumo"
       },
       {
         "id": "zf_xiaobei",
-        "label": "zf_xiaobei (Kokoro Chinese Female - Xiaobei)",
+        "label": "zf_xiaobei (Chinese Female - Xiaobei)",
         "lang": "zh",
         "short_name": "Xiaobei"
       },
       {
         "id": "zm_yunjian",
-        "label": "zm_yunjian (Kokoro Chinese Male - Yunjian)",
+        "label": "zm_yunjian (Chinese Male - Yunjian)",
         "lang": "zh",
         "short_name": "Yunjian"
       },
       {
         "id": "pf_dora",
-        "label": "pf_dora (Kokoro Portuguese Female - Dora)",
+        "label": "pf_dora (Portuguese Female - Dora)",
         "lang": "pt",
         "short_name": "Dora"
       },
       {
         "id": "hf_alpha",
-        "label": "hf_alpha (Kokoro Hindi Female - Alpha)",
+        "label": "hf_alpha (Hindi Female - Alpha)",
         "lang": "hi",
         "short_name": "Alpha"
       },
       {
         "id": "hf_beta",
-        "label": "hf_beta (Kokoro Hindi Female - Beta)",
+        "label": "hf_beta (Hindi Female - Beta)",
         "lang": "hi",
         "short_name": "Beta"
       },
       {
         "id": "hm_omega",
-        "label": "hm_omega (Kokoro Hindi Male - Omega)",
+        "label": "hm_omega (Hindi Male - Omega)",
         "lang": "hi",
         "short_name": "Omega"
       },
       {
         "id": "hm_psi",
-        "label": "hm_psi (Kokoro Hindi Male - Psi)",
+        "label": "hm_psi (Hindi Male - Psi)",
         "lang": "hi",
         "short_name": "Psi"
       }

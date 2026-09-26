@@ -33,6 +33,7 @@ from plugin.audio.voice_catalog import (
     PIPER_FALLBACK_VOICE as _PIPER_FALLBACK_VOICE,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
     VOICE_CATALOGS,
+    catalog_voice_display_label as _catalog_voice_display_label,
     voice_short_name as _voice_short_name,
 )
 from plugin.framework.config import (
@@ -654,7 +655,11 @@ def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
 
 
 def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, str]]:
-    """Return ordered voice options for the family, prioritizing the active locale."""
+    """Return ordered voice options for the family, prioritizing the active locale.
+
+    Piper and Kokoro ``label`` values are the parenthetical only. ``value``
+    stays the voice id. Other families keep their catalog or harvested text.
+    """
     fam = _normalize_voice_family(family)
     if fam not in ("piper", "kokoro"):
         return VOICE_CATALOGS.get(fam, [])
@@ -674,7 +679,7 @@ def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, 
         other_voices: list[dict[str, str]] = []
         for opt in _KOKORO_CATALOG_ITEMS:
             v_lang = opt.get("lang", "en")
-            item = {"value": opt["value"], "label": opt["label"]}
+            item = {"value": opt["value"], "label": _catalog_voice_display_label(opt["label"])}
             if stem != "en" and v_lang == stem:
                 locale_voices.append(item)
             elif v_lang == "en":
@@ -694,7 +699,7 @@ def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, 
         lang_code = model[2]
         label = model[3]
         v_stem = lang_code.split("_")[0].lower()
-        item = {"value": voice_id, "label": label}
+        item = {"value": voice_id, "label": _catalog_voice_display_label(label)}
         is_loc = stem != "en" and (
             voice_id == preferred_default
             or v_stem == stem
@@ -888,10 +893,38 @@ def clean_provider_name(provider_or_label: str) -> str:
 
 
 def clean_voice_name(voice_or_label: str) -> str:
-    """Extract canonical voice code from a voice string or UI label."""
+    """Extract canonical voice code from a voice string or legacy UI label.
+
+    ``af_bella (Kokoro US Female - Bella)`` and a bare id both yield the id.
+    A Voice combo that shows only the parenthetical (``US Female - Bella``)
+    has no id in the text; resolve that with ``voice_choice_to_id``.
+    """
     if not voice_or_label:
         return ""
     return voice_or_label.split(" (")[0].strip()
+
+
+def voice_choice_to_id(choice: str, options: list[dict[str, str]] | None = None) -> str:
+    """Map a Voice combo string to the stored voice id.
+
+    Piper and Kokoro list rows display the parenthetical only, so the visible
+    text is not the id. Match this provider's rows by value, then by label.
+    The same words can name a different id on another engine (Piper and Kokoro
+    both have ``French Female - Siwis``), so the options must be that combo's
+    list. Legacy ``id (human)`` text and harvested ids (no parentheses) still
+    fall through to ``clean_voice_name``.
+    """
+    text = (choice or "").strip()
+    if not text:
+        return ""
+    rows = options or []
+    for opt in rows:
+        if text == str(opt.get("value") or ""):
+            return text
+    for opt in rows:
+        if text == str(opt.get("label") or ""):
+            return str(opt.get("value") or "")
+    return clean_voice_name(text)
 
 
 def get_voice_family(provider: str | None, model: str | None = None, endpoint: str | None = None) -> str:
