@@ -167,7 +167,7 @@ def schema_to_signature(tool: "ToolBase") -> tuple[list[str], list[str]]:
     return positional, keyword
 
 
-# Sidebar-only / chat-mode domains: not part of the Python proxy surface.
+# Sidebar-only / chat-mode domains: not part of the Python proxy surface. web_research stays.
 API_EXCLUDED_DOMAINS = frozenset({
     "writing_plan",
     "deep_research",

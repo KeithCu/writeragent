@@ -222,6 +222,7 @@ def test_group_tools_drops_sidebar_chat_domains():
     assert "'shape':" in code
     assert "class _FootnoteProxy:" in code
     assert "class _ShapeProxy:" in code
+    assert "web_research" not in API_EXCLUDED_DOMAINS
 
 
 def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
@@ -267,6 +268,9 @@ def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
         assert domain not in source
     assert "'shape':" in source
     assert "'footnote':" in source
+    # Scripts keep web_research (core proxy). It is not a sidebar chat-mode domain.
+    assert "def web_research(self, query: str" in source
+    assert "'web_research'" in source
 
 
 def test_range_schema_becomes_range_name_python_param():
