@@ -79,6 +79,26 @@ def kokoro_lang_uses_misaki(lang: str) -> bool:
     return lang in _MISAKI_G2P_SNIPPETS
 
 
+def misaki_phonemes(text: str, lang: str) -> str:
+    """Phonemes for ``lang``. Empty when this voice stays on espeak-ng.
+
+    Runs the same snippets as ``KOKORO_ONNX_SCRIPT``. Only the venv Kokoro
+    worker may call this: the import of misaki happens here, and LibreOffice's
+    Python must not take that dependency. The host installs via
+    ``ensure_kokoro_misaki`` and otherwise uses the generated ``python -c``
+    script.
+    """
+    snippet = _MISAKI_G2P_SNIPPETS.get(lang)
+    if not snippet:
+        return ""
+    namespace: dict[str, object] = {"text": text}
+    exec(snippet, namespace, namespace)  # noqa: S102 - fixed G2P snippets, not user code
+    phonemes = namespace.get("phonemes", "")
+    if not isinstance(phonemes, str):
+        return ""
+    return phonemes
+
+
 def kokoro_misaki_packages(lang: str) -> tuple[str, ...]:
     """Pip requirements for ``lang``, or empty when English keeps espeak-ng."""
     if lang == "ja":

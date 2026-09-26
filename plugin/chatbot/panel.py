@@ -1120,6 +1120,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                     last_msg["content"],
                                     on_complete=_on_speech_complete,
                                     on_status=_on_tts_status,
+                                    # Sentence breaks use BreakIterator on this UI
+                                    # thread. The audio worker only receives the list.
+                                    ctx=self.ctx,
                                 )
                                 if is_speaking():
                                     if self.stop_control and self.stop_control.getModel():

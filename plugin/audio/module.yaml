@@ -17,6 +17,13 @@ config:
     label: Enable Speech Output (TTS)
     helper: Speak assistant responses aloud using text-to-speech.
 
+  tts_sentence_mode:
+    type: boolean
+    default: true
+    widget: checkbox
+    label: Speak sentence by sentence
+    helper: "Synthesize the next sentences while the current one plays, so a short sentence is not followed by a gap. Stop discards clips that are not playing yet. Turn off to speak the whole reply as one clip."
+
   tts_provider:
     type: string
     default: system

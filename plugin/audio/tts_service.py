@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from collections import deque
 from typing import Any, Callable
 
 from plugin.audio.kokoro_g2p import (
@@ -41,16 +42,163 @@ from plugin.scripting.sandbox import resolve_venv_python
 
 log = logging.getLogger(__name__)
 
-_active_speech_proc: subprocess.Popen[Any] | None = None
+# Playback and one-shot synthesis overlap during sentence prefetch, so they
+# cannot share one Popen slot. Stop kills both.
+_play_proc: subprocess.Popen[Any] | None = None
+_synth_procs: list[subprocess.Popen[Any]] = []
 _speech_active: bool = False
 _speech_cancelled = threading.Event()
 _speech_lock = threading.Lock()
+# Bumped on every stop and every new speak. In-flight work captured the old
+# id and must not play or enqueue after that.
+_speech_generation: int = 0
+_tracked_temps: set[str] = set()
+_ready_queue: "_ReadyQueue | None" = None
+# generation -> {g2p lang: install succeeded}. One probe per language per
+# reply, not once per sentence. A cancelled install is not stored.
+_reply_misaki_ready: dict[int, dict[str, bool]] = {}
+
+# Six clips is enough that a one-word sentence can be playing while the next
+# long sentence (and a few after it) are already synthesized. A queue of one
+# would wait to start sentence N+1 until N finishes playing — the gap this
+# pipeline exists to avoid. The byte cap stops Stop mid-essay from leaving a
+# large wav backlog; the second clip is always accepted so a short→long pair
+# cannot stall on disk.
+SPEECH_READY_MAX_CLIPS = 6
+SPEECH_READY_MAX_BYTES = 32 * 1024 * 1024
+
+
+class _ReadyClip:
+    """One synthesized sentence waiting to play, in utterance order."""
+
+    __slots__ = ("path", "text", "nbytes", "speak_system")
+
+    def __init__(self, path: str | None, text: str, nbytes: int, speak_system: bool) -> None:
+        self.path = path
+        self.text = text
+        self.nbytes = nbytes
+        self.speak_system = speak_system
+
+
+class _ReadyQueue:
+    """Bounded FIFO of clips. The producer blocks when the soft cap is hit."""
+
+    def __init__(self, max_clips: int, max_bytes: int) -> None:
+        self._max_clips = max(2, max_clips)
+        self._max_bytes = max_bytes
+        self._items: deque[_ReadyClip] = deque()
+        self._bytes = 0
+        self._cv = threading.Condition()
+        self._closed = False
+        self._drained = False
+
+    def _full_locked(self) -> bool:
+        count = len(self._items)
+        if count == 0:
+            return False
+        if count >= self._max_clips:
+            return True
+        # Always allow a second clip so "Hi." followed by a long sentence is
+        # already synthesized before playback of "Hi." ends.
+        if count >= 2 and self._bytes >= self._max_bytes:
+            return True
+        return False
+
+    def put(self, clip: _ReadyClip, generation: int) -> bool:
+        """Enqueue *clip*. False when this utterance was stopped."""
+        with self._cv:
+            while not self._drained and self._full_locked():
+                if _playback_blocked(generation):
+                    return False
+                self._cv.wait(timeout=0.1)
+            if self._drained or _playback_blocked(generation):
+                return False
+            self._items.append(clip)
+            self._bytes += clip.nbytes
+            self._cv.notify_all()
+            return True
+
+    def get(self, generation: int) -> _ReadyClip | None:
+        """Next clip in order, or None when the utterance ended or was stopped."""
+        with self._cv:
+            while not self._items and not self._closed and not self._drained:
+                if _playback_blocked(generation):
+                    return None
+                self._cv.wait(timeout=0.1)
+            if self._drained or _playback_blocked(generation) or not self._items:
+                return None
+            clip = self._items.popleft()
+            self._bytes -= clip.nbytes
+            self._cv.notify_all()
+            return clip
+
+    def close(self) -> None:
+        """Producer finished. The consumer drains what is already queued."""
+        with self._cv:
+            self._closed = True
+            self._cv.notify_all()
+
+    def drain(self) -> list[str]:
+        """Drop every queued clip and return paths the caller must delete."""
+        with self._cv:
+            self._drained = True
+            paths = [clip.path for clip in self._items if clip.path]
+            self._items.clear()
+            self._bytes = 0
+            self._cv.notify_all()
+            return paths
+
+
+def _playback_blocked_locked(generation: int | None) -> bool:
+    """True when *generation* must not start playback or another synth step.
+
+    ``generation is None`` keeps the old direct-call behavior: helpers invoked
+    outside ``speak_text_async`` still run after a previous Stop cleared
+    ``_speech_active``. An in-flight utterance passes the id it captured.
+    """
+    if generation is None:
+        return bool(_speech_active and _speech_cancelled.is_set())
+    if generation != _speech_generation:
+        return True
+    return _speech_cancelled.is_set()
+
+
+def _playback_blocked(generation: int | None) -> bool:
+    with _speech_lock:
+        return _playback_blocked_locked(generation)
+
+
+def _proc_running(proc: subprocess.Popen[Any] | None) -> bool:
+    return proc is not None and proc.poll() is None
+
+
+def _terminate_proc(proc: subprocess.Popen[Any] | None) -> None:
+    if proc is None:
+        return
+    try:
+        log.info("Terminating speech process (PID %s)", proc.pid)
+        proc.terminate()
+        proc.poll()
+    except Exception as exc:
+        log.debug("speech terminate error: %s", exc)
+
+
+def _unlink_quiet(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        log.debug("Could not delete TTS temp %s", path, exc_info=True)
 
 
 def is_speaking() -> bool:
     """Return True if TTS speech synthesis or playback is actively occurring."""
     with _speech_lock:
-        return _speech_active or (_active_speech_proc is not None and _active_speech_proc.poll() is None)
+        if _speech_active or _proc_running(_play_proc):
+            return True
+        return any(_proc_running(proc) for proc in _synth_procs)
 
 
 def clean_text_for_speech(text: str) -> str:
@@ -93,28 +241,212 @@ def clean_text_for_speech(text: str) -> str:
 
 
 def stop_speech() -> None:
-    """Immediately stop and cancel any active speech synthesis or playback."""
-    global _active_speech_proc, _speech_active
+    """Stop playback, cancel in-flight synthesis, and delete clips not yet played.
+
+    The generation id moves forward so a synth that finishes after Stop cannot
+    enqueue or play. An idle warm Kokoro process is left running — Send calls
+    this before the reply exists, and reloading ONNX on every turn would undo
+    the keep-alive worker. A job that is actually inside ``Kokoro.create`` is
+    killed, because that call cannot be interrupted any other way.
+    """
+    global _play_proc, _speech_active, _speech_generation, _ready_queue
     with _speech_lock:
-        was_active = _speech_active or _active_speech_proc is not None
+        _speech_generation += 1
+        was_active = _speech_active or _proc_running(_play_proc) or any(_proc_running(proc) for proc in _synth_procs)
         _speech_active = False
         if was_active:
             _speech_cancelled.set()
         else:
             _speech_cancelled.clear()
-        if _active_speech_proc is not None:
+        play = _play_proc
+        _play_proc = None
+        synths = list(_synth_procs)
+        _synth_procs.clear()
+        queue_ref = _ready_queue
+        _ready_queue = None
+        temps = list(_tracked_temps)
+        _tracked_temps.clear()
+        _reply_misaki_ready.clear()
+    _terminate_proc(play)
+    for proc in synths:
+        _terminate_proc(proc)
+    try:
+        from plugin.audio.kokoro_pool import cancel_kokoro_inflight
+
+        cancel_kokoro_inflight()
+    except Exception:
+        log.debug("Kokoro cancel failed", exc_info=True)
+    paths: list[str] = []
+    if queue_ref is not None:
+        paths.extend(queue_ref.drain())
+    paths.extend(temps)
+    for path in paths:
+        _unlink_quiet(path)
+
+
+def _begin_utterance() -> int:
+    """Cancel whatever is speaking and return the generation id for the new one."""
+    global _speech_active
+    stop_speech()
+    with _speech_lock:
+        _speech_active = True
+        _speech_cancelled.clear()
+        return _speech_generation
+
+
+def _end_utterance(generation: int) -> bool:
+    """Drop the active flag when this utterance is still current.
+
+    Returns True when the completion callback should run. Stop bumps the
+    generation and clears ``_speech_active``, so the callback still runs and
+    the sidebar can disable Stop. A newer ``speak_text_async`` sets active
+    again; the older callback must not disable Stop out from under it.
+    """
+    global _speech_active
+    with _speech_lock:
+        if _speech_generation == generation:
+            _speech_active = False
+            _speech_cancelled.clear()
+            _reply_misaki_ready.pop(generation, None)
+            return True
+        return not _speech_active
+
+
+def _new_speech_temp(suffix: str, generation: int | None) -> str | None:
+    """Create a temp file tracked so Stop can delete it if playback never starts."""
+    if _playback_blocked(generation):
+        return None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            path = handle.name
+    except Exception:
+        log.warning("Could not create TTS temp file", exc_info=True)
+        return None
+    with _speech_lock:
+        if _playback_blocked_locked(generation):
+            _unlink_quiet(path)
+            return None
+        _tracked_temps.add(path)
+    return path
+
+
+def _release_temp(path: str | None) -> None:
+    if not path:
+        return
+    with _speech_lock:
+        _tracked_temps.discard(path)
+    _unlink_quiet(path)
+
+
+def _popen_for_speech(
+    cmd: list[str],
+    generation: int | None,
+    *,
+    slot: str,
+    stdin: Any = None,
+    stderr: Any = subprocess.DEVNULL,
+    text: bool = False,
+) -> subprocess.Popen[Any] | None:
+    """Spawn a play or synth process and register it so ``stop_speech`` can kill it."""
+    global _play_proc
+    with _speech_lock:
+        if _playback_blocked_locked(generation):
+            log.info("Speech cancelled before process spawn")
+            return None
+        proc = subprocess.Popen(
+            cmd,
+            stdin=stdin,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr,
+            text=text,
+        )
+        if slot == "play":
+            _play_proc = proc
+        else:
+            _synth_procs.append(proc)
+        return proc
+
+
+def _clear_speech_proc(proc: subprocess.Popen[Any] | None, slot: str) -> None:
+    global _play_proc
+    if proc is None:
+        return
+    with _speech_lock:
+        if slot == "play":
+            if _play_proc is proc:
+                _play_proc = None
+        else:
             try:
-                log.info("Terminating active speech playback process (PID %s)", _active_speech_proc.pid)
-                _active_speech_proc.terminate()
-                _active_speech_proc.poll()
-            except Exception as e:
-                log.debug("stop_speech terminate error: %s", e)
-            finally:
-                _active_speech_proc = None
+                _synth_procs.remove(proc)
+            except ValueError:
+                pass
 
 
-# Voice lists, locale defaults, and OpenAI→Kokoro aliases load once from
-# plugin/audio/data/voice_catalog.json (see voice_catalog.py).
+def sentence_speak_enabled() -> bool:
+    """True when assistant replies are spoken one sentence at a time.
+
+    The schema default is on. A missing key (tests that stub ``get_config``,
+    or a manifest generated before this setting existed) stays on so the
+    prefetch path is what Speech uses unless the checkbox is cleared.
+    """
+    try:
+        val = get_config("audio.tts_sentence_mode")
+    except Exception:
+        return True
+    if val is None:
+        return True
+    from plugin.framework.config_schema import as_bool
+
+    return as_bool(val)
+
+
+def _speech_locale_key() -> str:
+    """BCP-47 tag for the grammar sentence splitter (``en_US`` → ``en-US``)."""
+    try:
+        from plugin.framework.i18n import get_active_locale
+        from plugin.writer.locale.grammar_proofread_locale import normalize_detected_bcp47
+
+        raw = get_active_locale() or "en_US"
+        return normalize_detected_bcp47(raw) or str(raw).replace("_", "-")
+    except Exception:
+        return "en-US"
+
+
+def sentences_for_speech(text: str, ctx: Any) -> list[str]:
+    """Split *text* with the grammar checker’s sentence splitter.
+
+    Must run on the thread that owns *ctx* (the sidebar drain after
+    SEND_COMPLETED). ``split_into_sentences`` calls LibreOffice’s
+    BreakIterator (``com.sun.star.i18n.BreakIterator``); that service is not
+    safe on the audio worker. The worker receives this list and does not
+    touch UNO.
+
+    ``filter_sentence_spans_for_thresholds`` is not applied. That helper drops
+    short incomplete sentences to limit grammar churn; those fragments are
+    still part of the reply and have to be spoken. ``looks_complete_sentence``
+    is the same kind of gate and is left for a later mid-stream mode.
+    """
+    locale_key = _speech_locale_key()
+    try:
+        from plugin.writer.locale.grammar_proofread_text import (
+            merge_dialogue_sentences,
+            split_into_sentences,
+        )
+
+        pairs = merge_dialogue_sentences(split_into_sentences(ctx, locale_key, text))
+    except Exception:
+        log.exception("TTS sentence split failed; speaking the reply as one clip")
+        stripped = text.strip()
+        return [stripped] if stripped else []
+    spoken: list[str] = []
+    for _offset, chunk in pairs:
+        piece = chunk.strip()
+        if piece:
+            spoken.append(piece)
+    if spoken:
+        return spoken
+    stripped = text.strip()
+    return [stripped] if stripped else []
 
 
 def _kokoro_lang_for_voice(voice: str) -> str:
@@ -396,9 +728,8 @@ def _resolve_tts_voice(model: str, voice: str) -> str:
 
 
 
-def _play_audio_file(file_path: str) -> None:
+def _play_audio_file(file_path: str, generation: int | None = None) -> None:
     """Play an audio file using available OS command-line utilities."""
-    global _active_speech_proc
     cmd: list[str] | None = None
 
     if sys.platform == "darwin":
@@ -429,29 +760,22 @@ def _play_audio_file(file_path: str) -> None:
         log.warning("No audio player found on system to play: %s", file_path)
         return
 
+    proc: subprocess.Popen[Any] | None = None
     try:
         log.info("Playing audio with command: %s", " ".join(cmd))
-        with _speech_lock:
-            if _speech_active and _speech_cancelled.is_set():
-                log.info("Audio playback cancelled before process spawn")
-                return
-            _active_speech_proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        _active_speech_proc.wait()
+        proc = _popen_for_speech(cmd, generation, slot="play")
+        if proc is None:
+            return
+        proc.wait()
         log.info("Audio playback completed successfully")
     except Exception as e:
         log.warning("_play_audio_file playback error: %s", e)
     finally:
-        with _speech_lock:
-            _active_speech_proc = None
+        _clear_speech_proc(proc, "play")
 
 
-def _speak_system(text: str, speed: float = 1.0) -> None:
+def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) -> None:
     """Speak text using built-in OS speech synthesis utilities."""
-    global _active_speech_proc
     cmd: list[str] | None = None
 
     if sys.platform == "darwin":
@@ -485,31 +809,40 @@ def _speak_system(text: str, speed: float = 1.0) -> None:
         log.warning("No OS native text-to-speech utility (say/spd-say/espeak) found on system.")
         return
 
+    proc: subprocess.Popen[Any] | None = None
     try:
         log.info("Speaking via system command: %s", " ".join(cmd[:3]))
-        with _speech_lock:
-            if _speech_active and _speech_cancelled.is_set():
-                log.info("System speech cancelled before process spawn")
-                return
-            _active_speech_proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        _active_speech_proc.wait()
+        proc = _popen_for_speech(cmd, generation, slot="play")
+        if proc is None:
+            return
+        proc.wait()
         log.info("System speech playback completed")
     except Exception as e:
         log.debug("_speak_system error: %s", e)
     finally:
-        with _speech_lock:
-            _active_speech_proc = None
+        _clear_speech_proc(proc, "play")
 
 
-def _speak_endpoint(text: str, endpoint_url: str, api_key: str, model: str, voice: str, speed: float = 1.0) -> None:
-    """Request speech audio from an OpenAI-compatible /audio/speech endpoint."""
-    import urllib.request
-    import urllib.error
+def _download_endpoint_speech(
+    text: str,
+    endpoint_url: str,
+    api_key: str,
+    model: str,
+    voice: str,
+    speed: float = 1.0,
+    generation: int | None = None,
+) -> str | None:
+    """Download one ``/audio/speech`` clip to a tracked temp file.
+
+    Remote TTS does not use the warm Kokoro worker. The caller plays the file
+    and then ``_release_temp``. Returns None on failure or cancel.
+    """
     import json
+    import urllib.error
+    import urllib.request
+
+    if _playback_blocked(generation):
+        return None
 
     # Catalog Kokoro is hexgrad/Kokoro-82M; the OpenRouter speech list uses
     # hexgrad/kokoro-82m. Send the API id when that list is cached.
@@ -518,7 +851,6 @@ def _speak_endpoint(text: str, endpoint_url: str, api_key: str, model: str, voic
 
         model = preferred_openrouter_tts_model_id(model)
 
-    # Normalize endpoint URL to /audio/speech
     url = endpoint_url.rstrip("/")
     if not url.endswith("/audio/speech"):
         if url.endswith("/v1"):
@@ -546,34 +878,54 @@ def _speak_endpoint(text: str, endpoint_url: str, api_key: str, model: str, voic
         headers["Authorization"] = f"Bearer {api_key}"
 
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-
-    tmp_file = None
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             audio_bytes = resp.read()
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
+        log.error("TTS HTTP error %d from %s: %s | Response: %s", getattr(exc, "code", 0), url, exc, err_body)
+        return None
+    except Exception as exc:
+        log.exception("TTS error from %s: %s", url, exc)
+        return None
 
-        log.info("TTS audio received from %s (%d bytes)", url, len(audio_bytes))
+    log.info("TTS audio received from %s (%d bytes)", url, len(audio_bytes))
+    if _playback_blocked(generation):
+        log.info("TTS playback cancelled after download")
+        return None
 
-        if _speech_active and _speech_cancelled.is_set():
-            log.info("TTS playback cancelled after download")
-            return
+    tmp_file = _new_speech_temp(".mp3", generation)
+    if tmp_file is None:
+        return None
+    try:
+        with open(tmp_file, "wb") as handle:
+            handle.write(audio_bytes)
+    except Exception:
+        log.exception("Could not write TTS audio to %s", tmp_file)
+        _release_temp(tmp_file)
+        return None
+    return tmp_file
 
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-            f.write(audio_bytes)
-            tmp_file = f.name
 
-        _play_audio_file(tmp_file)
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else ""
-        log.error("TTS HTTP error %d from %s: %s | Response: %s", getattr(e, "code", 0), url, e, err_body)
-    except Exception as e:
-        log.exception("TTS error from %s: %s", url, e)
+def _speak_endpoint(
+    text: str,
+    endpoint_url: str,
+    api_key: str,
+    model: str,
+    voice: str,
+    speed: float = 1.0,
+    generation: int | None = None,
+) -> None:
+    """Request speech audio from an OpenAI-compatible /audio/speech endpoint."""
+    tmp_file = _download_endpoint_speech(
+        text, endpoint_url, api_key, model, voice, speed=speed, generation=generation,
+    )
+    if not tmp_file:
+        return
+    try:
+        _play_audio_file(tmp_file, generation=generation)
     finally:
-        if tmp_file and os.path.exists(tmp_file):
-            try:
-                os.remove(tmp_file)
-            except Exception:
-                pass
+        _release_temp(tmp_file)
 
 
 def _notify_tts_status(message: str, on_status: Callable[[str], None] | None) -> None:
@@ -732,18 +1084,291 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
     return voice
 
 
+def _notify_kokoro_g2p_fallback(
+    detail: str,
+    misaki_ready: bool | None,
+    on_status: Callable[[str], None] | None,
+) -> None:
+    """Status line when Misaki was installed but this clip still used espeak-ng.
+
+    ``misaki_ready`` is False when the install already failed: that path has
+    its own message and must not add a second one. None means Stop.
+    """
+    if not misaki_ready:
+        return
+    if "Misaki G2P failed" not in detail and "fell back to espeak-ng" not in detail:
+        return
+    _notify_tts_status(
+        _("Kokoro phonemizer failed; this language may be misread."),
+        on_status,
+    )
+
+
+def _remember_misaki_ready(generation: int | None, lang: str, ready: bool) -> None:
+    if generation is None:
+        return
+    with _speech_lock:
+        _reply_misaki_ready.setdefault(generation, {})[lang] = ready
+
+
+def _cached_misaki_ready(generation: int | None, lang: str) -> bool | None:
+    """Ready flag already computed for this reply and lang, or None if new."""
+    if generation is None:
+        return None
+    with _speech_lock:
+        cached = _reply_misaki_ready.get(generation)
+    if not cached or lang not in cached:
+        return None
+    return cached[lang]
+
+
+def _prepare_kokoro_misaki(
+    text: str,
+    voice: str,
+    on_status: Callable[[str], None] | None,
+    generation: int | None,
+    py_exe: str | None = None,
+) -> bool | None:
+    """Install Misaki at most once per G2P language for this reply.
+
+    The language comes from :func:`kokoro_g2p_lang`: Latin text stays on
+    English espeak even when the voice is ``jf_alpha``. True means the probe
+    passed or this utterance does not use Misaki. False means install failed;
+    synthesis still runs and may fall back to espeak-ng. None means Stop
+    during install: the caller must not synthesize and must not fall through
+    to OS speech.
+    """
+    lang = kokoro_g2p_lang(text, voice)
+    cached = _cached_misaki_ready(generation, lang)
+    if cached is not None:
+        return cached
+    if not kokoro_lang_uses_misaki(lang):
+        _remember_misaki_ready(generation, lang, True)
+        return True
+    if py_exe is None:
+        venv_dir = get_config_str("scripting.python_venv_path").strip()
+        py_exe = resolve_venv_python(venv_dir) if venv_dir else None
+    if not py_exe:
+        _remember_misaki_ready(generation, lang, False)
+        return False
+
+    def _cancelled() -> bool:
+        return _speech_cancelled.is_set() or _playback_blocked(generation)
+
+    ready = ensure_kokoro_misaki(
+        py_exe,
+        lang,
+        on_status=lambda message: _notify_tts_status(message, on_status),
+        cancelled=_cancelled,
+    )
+    # None is "do not speak", including when Stop lands after a successful
+    # probe. Do not cache that: the next reply has a new generation.
+    if ready is None or _cancelled():
+        return None
+    _remember_misaki_ready(generation, lang, bool(ready))
+    return bool(ready)
+
+
+def _kokoro_warm_to_file(
+    text: str,
+    voice: str,
+    speed: float,
+    model_path: str,
+    voices_path: str,
+    generation: int | None,
+    on_status: Callable[[str], None] | None = None,
+    misaki_ready: bool | None = True,
+) -> tuple[str | None, bool]:
+    """Synthesize with the keep-alive worker.
+
+    Returns ``(wav_path, allow_fallback)``. ``allow_fallback`` is False when
+    the utterance was cancelled: starting the cold one-shot after Stop would
+    speak text the user already dismissed. A spawn or import failure leaves
+    ``allow_fallback`` True so the existing ``python -c`` path still runs.
+    """
+    if _playback_blocked(generation):
+        return None, False
+    try:
+        from plugin.audio.kokoro_pool import get_kokoro_pool
+
+        pool = get_kokoro_pool()
+    except Exception:
+        log.exception("Kokoro warm worker unavailable")
+        return None, True
+    if pool is None:
+        return None, True
+    tmp_wav = _new_speech_temp(".wav", generation)
+    if tmp_wav is None:
+        return None, False
+    result = pool.execute(
+        {
+            "text": text,
+            "voice": voice,
+            "speed": speed,
+            "lang": kokoro_g2p_lang(text, voice),
+            "model_path": model_path,
+            "voices_path": voices_path,
+            "out_path": tmp_wav,
+        }
+    )
+    if _playback_blocked(generation) or (isinstance(result, dict) and result.get("code") == "WORKER_CANCELLED"):
+        _release_temp(tmp_wav)
+        return None, False
+    if (
+        isinstance(result, dict)
+        and result.get("status") == "ok"
+        and os.path.isfile(tmp_wav)
+        and os.path.getsize(tmp_wav) > 0
+    ):
+        warning = result.get("warning") if isinstance(result, dict) else ""
+        if isinstance(warning, str) and warning.strip():
+            _notify_kokoro_g2p_fallback(warning, misaki_ready, on_status)
+        return tmp_wav, False
+    err = result.get("error") if isinstance(result, dict) else result
+    log.warning("Warm Kokoro worker failed (%s); falling back to one-shot synthesis", err)
+    _release_temp(tmp_wav)
+    return None, True
+
+
+def _kokoro_oneshot_to_file(
+    py_exe: str,
+    text: str,
+    voice: str,
+    speed: float,
+    model_path: str,
+    voices_path: str,
+    generation: int | None,
+    on_status: Callable[[str], None] | None = None,
+    misaki_ready: bool | None = True,
+) -> str | None:
+    """Cold ``python -c`` Kokoro load. Used when the warm worker cannot start.
+
+    ``KOKORO_ONNX_SCRIPT`` phonemizes non-English text with Misaki
+    (``is_phonemes=True``). A voices file that lacks the requested id still
+    speaks via ``af_bella``; that substitution is logged and does not fail.
+    """
+    if _playback_blocked(generation):
+        return None
+    tmp_wav = _new_speech_temp(".wav", generation)
+    if tmp_wav is None:
+        return None
+    lang = kokoro_g2p_lang(text, voice)
+    cmd = [py_exe, "-c", KOKORO_ONNX_SCRIPT, text, voice, str(speed), tmp_wav, model_path, voices_path, lang]
+    proc: subprocess.Popen[Any] | None = None
+    try:
+        proc = _popen_for_speech(cmd, generation, slot="synth", stderr=subprocess.PIPE, text=True)
+        if proc is None:
+            _release_temp(tmp_wav)
+            return None
+        _unused_stdout, stderr = proc.communicate()
+        if proc.returncode != 0:
+            log.warning("Venv Kokoro failed (code %d): %s", proc.returncode, stderr)
+            _release_temp(tmp_wav)
+            return None
+        stderr_text = str(stderr or "").strip()
+        if stderr_text:
+            log.warning("Kokoro: %s", stderr_text)
+            _notify_kokoro_g2p_fallback(stderr_text, misaki_ready, on_status)
+        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
+            return tmp_wav
+    except Exception as exc:
+        log.warning("Venv Kokoro execution error: %s", exc)
+    finally:
+        _clear_speech_proc(proc, "synth")
+    _release_temp(tmp_wav)
+    return None
+
+
+def _kokoro_cli_to_file(
+    kokoro_cli: str,
+    text: str,
+    voice: str,
+    speed: float,
+    generation: int | None,
+) -> str | None:
+    """Cold Kokoro CLI. Only used when the warm ONNX worker did not produce audio."""
+    if _playback_blocked(generation):
+        return None
+    tmp_wav = _new_speech_temp(".wav", generation)
+    if tmp_wav is None:
+        return None
+    cmd = [kokoro_cli, "--voice", voice, "--speed", str(speed), "--output", tmp_wav, text]
+    proc: subprocess.Popen[Any] | None = None
+    try:
+        proc = _popen_for_speech(cmd, generation, slot="synth")
+        if proc is None:
+            _release_temp(tmp_wav)
+            return None
+        proc.wait()
+        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
+            return tmp_wav
+    except Exception as exc:
+        log.warning("Kokoro CLI execution error: %s", exc)
+    finally:
+        _clear_speech_proc(proc, "synth")
+    _release_temp(tmp_wav)
+    return None
+
+
+def _kokoro_audio_file(
+    text: str,
+    voice: str,
+    speed: float,
+    on_status: Callable[[str], None] | None,
+    generation: int | None,
+    misaki_ready: bool | None = None,
+) -> str | None:
+    """Write one Kokoro wav. Warm worker first, then CLI, then one-shot.
+
+    ``misaki_ready`` is the once-per-reply install result. Sentence clips omit
+    it and read the cache ``_prepare_kokoro_misaki`` filled for this generation.
+    """
+    if _playback_blocked(generation):
+        return None
+    if misaki_ready is None:
+        misaki_ready = _cached_misaki_ready(generation, kokoro_g2p_lang(text, voice))
+        if misaki_ready is None:
+            misaki_ready = True
+    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    py_exe = resolve_venv_python(venv_dir) if venv_dir else None
+    model_path, voices_path = _resolve_kokoro_model_files(on_status=on_status)
+    if os.path.isfile(model_path) and os.path.isfile(voices_path):
+        wav_path, allow_fallback = _kokoro_warm_to_file(
+            text, voice, speed, model_path, voices_path, generation,
+            on_status=on_status, misaki_ready=misaki_ready,
+        )
+        if wav_path or not allow_fallback:
+            return wav_path
+    if py_exe:
+        bin_dir = os.path.dirname(py_exe)
+        cand_cli = os.path.join(bin_dir, "kokoro.exe" if sys.platform == "win32" else "kokoro")
+        if os.path.isfile(cand_cli) and os.access(cand_cli, os.X_OK):
+            wav_path = _kokoro_cli_to_file(cand_cli, text, voice, speed, generation)
+            if wav_path or _playback_blocked(generation):
+                return wav_path
+        if os.path.isfile(model_path) and os.path.isfile(voices_path):
+            return _kokoro_oneshot_to_file(
+                py_exe, text, voice, speed, model_path, voices_path, generation,
+                on_status=on_status, misaki_ready=misaki_ready,
+            )
+    return None
+
+
 def _speak_kokoro_local(
     text: str,
     voice: str = _KOKORO_FALLBACK_VOICE,
     speed: float = 1.0,
     on_status: Callable[[str], None] | None = None,
+    generation: int | None = None,
 ) -> None:
-    """Synthesize text using local Kokoro ONNX model in configured venv and play audio."""
-    global _active_speech_proc
-    log.info("Speaking via local Kokoro (voice=%s, speed=%.2f)", voice, speed)
-    if _speech_active and _speech_cancelled.is_set():
-        return
+    """Synthesize text using local Kokoro and play it.
 
+    The warm worker keeps ONNX and the voices file loaded. The CLI and
+    ``python -c`` paths run only when that worker cannot.
+    """
+    log.info("Speaking via local Kokoro (voice=%s, speed=%.2f)", voice, speed)
+    if _playback_blocked(generation):
+        return
     venv_dir = get_config_str("scripting.python_venv_path").strip()
     py_exe = resolve_venv_python(venv_dir) if venv_dir else None
     if not py_exe:
@@ -751,116 +1376,100 @@ def _speak_kokoro_local(
             "Local Kokoro TTS requires a configured Python venv. "
             "Please configure your venv path in Settings → Python."
         )
-        _speak_system(text, speed=speed)
+        _speak_system(text, speed=speed, generation=generation)
         return
-
-    bin_dir = os.path.dirname(py_exe)
-    cand_cli = os.path.join(bin_dir, "kokoro.exe" if sys.platform == "win32" else "kokoro")
-    kokoro_cli: str | None = cand_cli if os.path.isfile(cand_cli) and os.access(cand_cli, os.X_OK) else None
-
-    if kokoro_cli:
-        tmp_wav = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                tmp_wav = f.name
-            cmd = [kokoro_cli, "--voice", voice, "--speed", str(speed), "--output", tmp_wav, text]
-            with _speech_lock:
-                if _speech_active and _speech_cancelled.is_set():
-                    return
-                _active_speech_proc = subprocess.Popen(
-                    cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
-            _active_speech_proc.wait()
-            if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0:
-                _play_audio_file(tmp_wav)
-                return
-        except Exception as e:
-            log.warning("Kokoro CLI execution error: %s", e)
-        finally:
-            with _speech_lock:
-                _active_speech_proc = None
-            if tmp_wav and os.path.exists(tmp_wav):
-                try:
-                    os.remove(tmp_wav)
-                except Exception:
-                    pass
-
-    model_path, voices_path = _resolve_kokoro_model_files(on_status=on_status)
-    if not os.path.exists(model_path) or not os.path.exists(voices_path):
-        log.warning("Kokoro ONNX model files missing (%s, %s); falling back to OS speech.", model_path, voices_path)
-        _speak_system(text, speed=speed)
-        return
-
     # Latin text uses English espeak; other text uses this voice's Misaki lang.
-    # ``voice`` is still the speaker id passed to Kokoro.create.
+    # ``voice`` is still the speaker id passed to Kokoro.create. Install once
+    # per language per reply. Stop during install must not fall through to OS
+    # speech. Install failure does not refuse the speak.
     lang = kokoro_g2p_lang(text, voice)
     log.info("Kokoro G2P lang=%s for voice=%s", lang, voice)
     # Non-English voices were phonemized with espeak-ng inside kokoro-onnx, so
     # ja read kanji as "chinese letter" and fr/es missed Kokoro's phone map.
-    # Misaki runs in the venv script (is_phonemes=True). Install failure does
-    # not refuse the speak: the script falls back to espeak-ng and the status
-    # line carries the install hint. English stays on espeak-ng.
-    misaki_ready: bool | None = True
-    if kokoro_lang_uses_misaki(lang):
-        misaki_ready = ensure_kokoro_misaki(
-            py_exe,
-            lang,
-            on_status=lambda message: _notify_tts_status(message, on_status),
-            cancelled=_speech_cancelled.is_set,
-        )
-        if misaki_ready is None or _speech_cancelled.is_set():
-            return
-    tmp_wav = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            tmp_wav = f.name
-        # KOKORO_ONNX_SCRIPT phonemizes non-English text with Misaki
-        # (is_phonemes=True). A voices file that lacks the requested id still
-        # speaks via af_bella; that substitution is logged and does not fail.
-        cmd = [py_exe, "-c", KOKORO_ONNX_SCRIPT, text, voice, str(speed), tmp_wav, model_path, voices_path, lang]
-        with _speech_lock:
-            if _speech_active and _speech_cancelled.is_set():
-                return
-            _active_speech_proc = subprocess.Popen(
-                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
-            )
-        _stdout, stderr = _active_speech_proc.communicate()
-        if _active_speech_proc.returncode != 0:
-            log.warning("Venv Kokoro failed (code %d): %s", _active_speech_proc.returncode, stderr)
-        else:
-            # A missing voice (custom KOKORO_VOICES_PATH still on the English
-            # pack) and a Misaki import error are written to stderr while the
-            # process still exits 0 and plays the fallback audio.
-            stderr_text = (stderr or "").strip()
-            if stderr_text:
-                log.warning("Kokoro: %s", stderr_text)
-            if misaki_ready and (
-                "Misaki G2P failed" in stderr_text or "fell back to espeak-ng" in stderr_text
-            ):
-                _notify_tts_status(
-                    _("Kokoro phonemizer failed; this language may be misread."),
-                    on_status,
-                )
-            if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0:
-                _play_audio_file(tmp_wav)
-                return
-    except Exception as e:
-        log.warning("Venv Kokoro execution error: %s", e)
-    finally:
-        with _speech_lock:
-            _active_speech_proc = None
-        if tmp_wav and os.path.exists(tmp_wav):
-            try:
-                os.remove(tmp_wav)
-            except Exception:
-                pass
-
+    # Install once, then the warm worker (or the one-shot script) passes
+    # Misaki phonemes. Install failure does not refuse the speak. Stop during
+    # install returns None and must not fall through to OS speech.
+    misaki_ready = _prepare_kokoro_misaki(text, voice, on_status, generation, py_exe=py_exe)
+    if misaki_ready is None:
+        return
+    wav_path = _kokoro_audio_file(
+        text, voice, speed, on_status, generation, misaki_ready=misaki_ready,
+    )
+    if wav_path:
+        try:
+            _play_audio_file(wav_path, generation=generation)
+        finally:
+            _release_temp(wav_path)
+        return
+    if _playback_blocked(generation):
+        return
     log.warning(
         "Local Kokoro engine not available in configured venv. "
         "Install with: %s. Falling back to OS speech.",
         KOKORO_PIP_INSTALL,
     )
-    _speak_system(text, speed=speed)
+    _speak_system(text, speed=speed, generation=generation)
+
+
+def _piper_audio_file(
+    text: str,
+    voice: str,
+    speed: float,
+    on_status: Callable[[str], None] | None,
+    generation: int | None,
+) -> str | None:
+    """One Piper wav via the CLI. Piper is not kept warm; prefetch still overlaps it with playback."""
+    if _playback_blocked(generation):
+        return None
+    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    py_exe = resolve_venv_python(venv_dir) if venv_dir else None
+    if not py_exe:
+        return None
+    model_file = _resolve_piper_model_file(voice, on_status=on_status)
+    bin_dir = os.path.dirname(py_exe)
+    cand_bin = os.path.join(bin_dir, "piper.exe" if sys.platform == "win32" else "piper")
+    piper_bin = cand_bin if os.path.isfile(cand_bin) and os.access(cand_bin, os.X_OK) else None
+    tmp_wav = _new_speech_temp(".wav", generation)
+    if tmp_wav is None:
+        return None
+    length_scale = round(1.0 / max(0.2, min(5.0, speed)), 2)
+    if piper_bin:
+        cmd = [piper_bin, "--model", model_file, "--length_scale", str(length_scale), "--output_file", tmp_wav]
+    else:
+        cmd = [py_exe, "-m", "piper", "--model", model_file, "--length_scale", str(length_scale), "--output_file", tmp_wav]
+    proc: subprocess.Popen[Any] | None = None
+    try:
+        proc = _popen_for_speech(
+            cmd,
+            generation,
+            slot="synth",
+            stdin=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if proc is None:
+            _release_temp(tmp_wav)
+            return None
+        try:
+            _unused_stdout, stderr = proc.communicate(input=text, timeout=30)
+            if proc.returncode != 0:
+                log.warning("Piper process failed (code %d): %s", proc.returncode, stderr)
+        except Exception:
+            proc.kill()
+            raise
+        if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
+            return tmp_wav
+        log.warning("Piper produced empty audio for voice %s", voice)
+    except FileNotFoundError:
+        log.warning(
+            "Local Piper executable not found in configured venv. Install via 'uv pip install piper-tts'."
+        )
+    except Exception as exc:
+        log.warning("Piper synthesis error: %s", exc)
+    finally:
+        _clear_speech_proc(proc, "synth")
+    _release_temp(tmp_wav)
+    return None
 
 
 def _speak_piper_local(
@@ -868,88 +1477,156 @@ def _speak_piper_local(
     voice: str = _PIPER_FALLBACK_VOICE,
     speed: float = 1.0,
     on_status: Callable[[str], None] | None = None,
+    generation: int | None = None,
 ) -> None:
-    """Synthesize text using local Piper fast neural TTS in configured venv and play audio."""
-    global _active_speech_proc
+    """Synthesize text using local Piper and play it."""
     log.info("Speaking via local Piper (voice=%s, speed=%.2f)", voice, speed)
-    if _speech_active and _speech_cancelled.is_set():
+    if _playback_blocked(generation):
         return
-
     venv_dir = get_config_str("scripting.python_venv_path").strip()
-    py_exe = resolve_venv_python(venv_dir) if venv_dir else None
-    if not py_exe:
+    if not (resolve_venv_python(venv_dir) if venv_dir else None):
         log.warning(
             "Local Piper TTS requires a configured Python venv. "
             "Please configure your venv path in Settings → Python."
         )
-        _speak_system(text, speed=speed)
+        _speak_system(text, speed=speed, generation=generation)
         return
-
-    model_file = _resolve_piper_model_file(voice, on_status=on_status)
-
-    bin_dir = os.path.dirname(py_exe)
-    cand_bin = os.path.join(bin_dir, "piper.exe" if sys.platform == "win32" else "piper")
-    piper_bin: str | None = cand_bin if os.path.isfile(cand_bin) and os.access(cand_bin, os.X_OK) else None
-
-    tmp_wav = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            tmp_wav = f.name
-
-        length_scale = round(1.0 / max(0.2, min(5.0, speed)), 2)
-
-        cmd: list[str] | None = None
-        if piper_bin:
-            cmd = [piper_bin, "--model", model_file, "--length_scale", str(length_scale), "--output_file", tmp_wav]
-        else:
-            cmd = [py_exe, "-m", "piper", "--model", model_file, "--length_scale", str(length_scale), "--output_file", tmp_wav]
-
-        with _speech_lock:
-            if _speech_active and _speech_cancelled.is_set():
-                return
-            _active_speech_proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+    wav_path = _piper_audio_file(text, voice, speed, on_status, generation)
+    if wav_path:
         try:
-            _, stderr = _active_speech_proc.communicate(input=text, timeout=30)
-            if _active_speech_proc.returncode != 0:
-                log.warning("Piper process failed (code %d): %s", _active_speech_proc.returncode, stderr)
-        except Exception:
-            _active_speech_proc.kill()
-            raise
+            _play_audio_file(wav_path, generation=generation)
+        finally:
+            _release_temp(wav_path)
+        return
+    if _playback_blocked(generation):
+        return
+    log.warning("Piper synthesis failed for voice %s; falling back to OS speech", voice)
+    _speak_system(text, speed=speed, generation=generation)
 
-        if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0:
-            _play_audio_file(tmp_wav)
-            return
-        else:
-            log.warning("Piper produced empty audio for voice %s; falling back to OS speech", voice)
-    except FileNotFoundError:
-        log.warning(
-            "Local Piper executable not found in configured venv. Install via 'uv pip install piper-tts'. "
-            "Falling back to OS speech."
+
+def _synthesize_sentence_clip(
+    sentence: str,
+    provider: str,
+    voice: str,
+    speed: float,
+    model: str,
+    endpoint_url: str,
+    api_key: str,
+    on_status: Callable[[str], None] | None,
+    generation: int,
+) -> _ReadyClip | None:
+    """Synthesize one sentence without playing it.
+
+    ``None`` means the utterance was cancelled. A clip with ``speak_system``
+    is the OS-speech fallback and is played by the consumer so order is kept.
+    """
+    if _playback_blocked(generation):
+        return None
+    if provider == "system":
+        return _ReadyClip(None, sentence, 0, True)
+
+    path: str | None = None
+    if provider == "kokoro":
+        path = _kokoro_audio_file(sentence, voice, speed, on_status, generation)
+    elif provider == "piper":
+        path = _piper_audio_file(sentence, voice, speed, on_status, generation)
+    elif provider == "endpoint" and endpoint_url:
+        path = _download_endpoint_speech(
+            sentence, endpoint_url, api_key, model, voice, speed=speed, generation=generation,
         )
-    except Exception as e:
-        log.warning("Piper synthesis error: %s; falling back to OS speech", e)
-    finally:
-        with _speech_lock:
-            _active_speech_proc = None
-        if tmp_wav and os.path.exists(tmp_wav):
-            try:
-                os.remove(tmp_wav)
-            except Exception:
-                pass
+    if _playback_blocked(generation):
+        _release_temp(path)
+        return None
+    if path and os.path.isfile(path) and os.path.getsize(path) > 0:
+        return _ReadyClip(path, sentence, os.path.getsize(path), False)
+    _release_temp(path)
+    if provider == "endpoint" and not endpoint_url:
+        log.warning("No endpoint URL available for TTS; falling back to OS system speech.")
+    return _ReadyClip(None, sentence, 0, True)
 
-    _speak_system(text, speed=speed)
+
+def _run_sentence_pipeline(
+    sentences: list[str],
+    provider: str,
+    voice: str,
+    speed: float,
+    model: str,
+    endpoint_url: str,
+    api_key: str,
+    on_status: Callable[[str], None] | None,
+    generation: int,
+    *,
+    max_clips: int = SPEECH_READY_MAX_CLIPS,
+    max_bytes: int = SPEECH_READY_MAX_BYTES,
+) -> None:
+    """Play sentences in order while synthesis keeps running ahead.
+
+    The producer does not wait for playback. The consumer never waits for the
+    rest of the reply. Backpressure only applies once several clips are already
+    waiting, so a one-word sentence cannot stall the long sentence after it.
+
+    Kokoro's Misaki install runs once per G2P language inside the producer.
+    ``kokoro_g2p_lang`` picks that language per sentence, so Latin text on a
+    Japanese voice does not install Misaki. Stop during an install returns
+    without an OS-speech clip. Later sentences of the same language reuse the
+    cached probe.
+    """
+    global _ready_queue
+    ready = _ReadyQueue(max_clips, max_bytes)
+    with _speech_lock:
+        if _playback_blocked_locked(generation):
+            return
+        _ready_queue = ready
+
+    def _produce() -> None:
+        try:
+            for index, sentence in enumerate(sentences):
+                if _playback_blocked(generation):
+                    return
+                if provider == "kokoro" and _prepare_kokoro_misaki(
+                    sentence, voice, on_status, generation,
+                ) is None:
+                    return
+                clip = _synthesize_sentence_clip(
+                    sentence,
+                    provider,
+                    voice,
+                    speed,
+                    model,
+                    endpoint_url,
+                    api_key,
+                    on_status if index == 0 else None,
+                    generation,
+                )
+                if clip is None:
+                    return
+                if not ready.put(clip, generation):
+                    _release_temp(clip.path)
+                    return
+        finally:
+            ready.close()
+
+    # dedicated: this loop blocks on synthesis and on the ready-queue cap, and
+    # the consumer thread joins the utterance, not this task.
+    run_in_background(_produce, dedicated=True, name="tts-prefetch")
+    while True:
+        clip = ready.get(generation)
+        if clip is None:
+            break
+        try:
+            if clip.path:
+                _play_audio_file(clip.path, generation=generation)
+            elif clip.speak_system:
+                _speak_system(clip.text, speed=speed, generation=generation)
+        finally:
+            _release_temp(clip.path)
 
 
 def speak_text_async(
     text: str,
     on_complete: Callable[[], None] | None = None,
     on_status: Callable[[str], None] | None = None,
+    ctx: Any = None,
     *,
     provider: str | None = None,
     model: str | None = None,
@@ -966,8 +1643,13 @@ def speak_text_async(
     controls on screen before OK writes them. Chat leaves them unset and reads
     ``audio.tts_*``. Local Kokoro picks Misaki vs English espeak inside
     :func:`_speak_kokoro_local` via :func:`kokoro_g2p_lang`.
+
+    When sentence mode is on and *ctx* is the sidebar's component context,
+    sentences are split here — on the caller thread — before the worker
+    starts. BreakIterator is a UNO service and must not be used from the
+    audio thread. Without *ctx* the whole reply is one clip (unit tests and
+    any caller that is not on the UNO thread). Test voice does not pass *ctx*.
     """
-    global _speech_active
     tts_on = bool(get_config("audio.tts_enabled")) if enabled is None else bool(enabled)
     if not tts_on:
         log.debug("speak_text_async: TTS is disabled (audio.tts_enabled=False)")
@@ -978,20 +1660,27 @@ def speak_text_async(
         log.debug("speak_text_async: No speakable text after cleaning")
         return
 
-    with _speech_lock:
-        _speech_active = True
-        _speech_cancelled.clear()
+    sentences: list[str] | None = None
+    if sentence_speak_enabled() and ctx is not None:
+        sentences = sentences_for_speech(clean, ctx)
+        if not sentences:
+            log.debug("speak_text_async: sentence split produced nothing to say")
+            return
 
-    log.info("speak_text_async: queued speech for %d chars", len(clean))
+    generation = _begin_utterance()
+    log.info(
+        "speak_text_async: queued speech for %d chars (%s)",
+        len(clean),
+        f"{len(sentences)} sentences" if sentences is not None else "one clip",
+    )
     chosen_provider = provider
     chosen_model = model
     chosen_voice = voice
     chosen_speed = speed
 
     def _worker() -> None:
-        global _speech_active
         try:
-            if _speech_cancelled.is_set():
+            if _playback_blocked(generation):
                 return
 
             raw_prov = chosen_provider if chosen_provider else str(get_config("audio.tts_provider") or "system")
@@ -1012,43 +1701,66 @@ def speak_text_async(
                 voice_name = get_scoped_tts_voice(provider_code, model_name)
 
             log.info(
-                "TTS worker executing: provider=%s, speed=%.2f, voice=%s, model=%s",
+                "TTS worker executing: provider=%s, speed=%.2f, voice=%s, model=%s, generation=%s",
                 provider_code,
                 speed_val,
                 voice_name,
                 model_name,
+                generation,
             )
 
+            if sentences is not None:
+                endpoint_url = ""
+                api_key = ""
+                if provider_code == "endpoint":
+                    from plugin.framework.config import get_current_endpoint
+                    endpoint_url = get_current_endpoint() or ""
+                    api_key = get_api_key_for_endpoint(endpoint_url) if endpoint_url else ""
+                _run_sentence_pipeline(
+                    sentences,
+                    provider_code,
+                    voice_name,
+                    speed_val,
+                    model_name,
+                    endpoint_url,
+                    api_key,
+                    on_status,
+                    generation,
+                )
+                return
+
             if provider_code == "system":
-                _speak_system(clean, speed=speed_val)
+                _speak_system(clean, speed=speed_val, generation=generation)
             elif provider_code == "kokoro":
-                _speak_kokoro_local(clean, voice=voice_name, speed=speed_val, on_status=on_status)
+                _speak_kokoro_local(
+                    clean, voice=voice_name, speed=speed_val, on_status=on_status, generation=generation,
+                )
             elif provider_code == "piper":
-                _speak_piper_local(clean, voice=voice_name, speed=speed_val, on_status=on_status)
+                _speak_piper_local(
+                    clean, voice=voice_name, speed=speed_val, on_status=on_status, generation=generation,
+                )
             elif provider_code == "endpoint":
                 from plugin.framework.config import get_current_endpoint
                 url = get_current_endpoint()
                 api_key = get_api_key_for_endpoint(url)
-
                 log.info("TTS endpoint resolved: url=%s, model=%s, has_key=%s", url, model_name, bool(api_key))
-
                 if url:
-                    _speak_endpoint(clean, url, api_key, model=model_name, voice=voice_name, speed=speed_val)
+                    _speak_endpoint(
+                        clean, url, api_key, model=model_name, voice=voice_name,
+                        speed=speed_val, generation=generation,
+                    )
                 else:
                     log.warning("No endpoint URL available for TTS; falling back to OS system speech.")
-                    _speak_system(clean, speed=speed_val)
+                    _speak_system(clean, speed=speed_val, generation=generation)
             else:
-                _speak_system(clean, speed=speed_val)
-        except Exception as e:
-            log.exception("speak_text_async worker error: %s", e)
+                _speak_system(clean, speed=speed_val, generation=generation)
+        except Exception as exc:
+            log.exception("speak_text_async worker error: %s", exc)
         finally:
-            with _speech_lock:
-                _speech_active = False
-                _speech_cancelled.clear()
-            if on_complete:
+            if _end_utterance(generation) and on_complete:
                 try:
                     on_complete()
                 except Exception:
                     pass
 
-    run_in_background(_worker, dedicated=True)
+    run_in_background(_worker, dedicated=True, name="tts-speak")
