@@ -329,6 +329,64 @@ class TestHasNativeVision:
         with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
             assert not (has_native_vision('unknown-vision-model', 'https://api.openai.com/v1'))
 
+    def test_uncatalogued_gemini_flash_is_vision_without_modality_cache(self):
+        # google/gemini-3.8-flash is not in DEFAULT_MODELS. Chat send does not
+        # fill _model_fetch_vision_cache for OpenRouter, so this used to return
+        # False and filter_get_image dropped get_image.
+        from plugin.framework.client.model_fetcher import has_native_vision
+        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}), \
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''):
+            assert (has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api'))
+            assert (has_native_vision('google/gemini-3.5-flash', 'https://openrouter.ai/api'))
+            assert (has_native_vision('google/gemini-3.8-flash:nitro', 'https://openrouter.ai/api'))
+            assert (has_native_vision('gemini-2.5-flash', 'https://generativelanguage.googleapis.com/v1beta/openai'))
+            assert (has_native_vision('gemini-flash-latest', 'https://generativelanguage.googleapis.com/v1beta/openai'))
+
+    def test_gemini_family_does_not_mark_text_only_or_embeddings(self):
+        from plugin.framework.client.model_fetcher import has_native_vision
+        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}), \
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''):
+            assert not (has_native_vision('gemini-1.0-pro', 'https://generativelanguage.googleapis.com/v1beta/openai'))
+            assert not (has_native_vision('gemini-pro', 'https://generativelanguage.googleapis.com/v1beta/openai'))
+            assert not (has_native_vision('gemini-embedding-001', 'https://generativelanguage.googleapis.com/v1beta/openai'))
+            assert not (has_native_vision('deepseek/deepseek-chat', 'https://openrouter.ai/api'))
+            assert not (has_native_vision('inception/mercury-2.5', 'https://openrouter.ai/api'))
+
+    def test_vision_support_map_false_overrides_gemini_family(self):
+        from plugin.framework.client.model_fetcher import has_native_vision
+        cache = {'https://openrouter.ai/api@google/gemini-3.8-flash': False}
+
+        def mock_get_config(key):
+            if key == 'vision_support_map':
+                return cache
+            return {}
+
+        with patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config):
+            assert not (has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api'))
+
+    def test_openrouter_cache_miss_still_keeps_gemini_flash(self):
+        # A populated modalities list that omits the id (suffix / stale fetch)
+        # must not hide vision on a Gemini Flash model. Unrelated ids stay off.
+        from plugin.framework.client.model_fetcher import has_native_vision, _model_fetch_vision_cache, _model_fetch_cache_key
+        with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
+             patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
+            url = 'https://openrouter.ai/api/v1/models'
+            ck = _model_fetch_cache_key(url, 'https://openrouter.ai/api')
+            _model_fetch_vision_cache[ck] = ['custom-openrouter-vision-model']
+            assert (has_native_vision('google/gemini-3.8-flash:free', 'https://openrouter.ai/api'))
+            assert not (has_native_vision('some-other-model', 'https://openrouter.ai/api'))
+
+    def test_vision_support_map_is_a_config_field(self):
+        from plugin.framework.config_schema import WriterAgentConfig, _resolve_default, is_known_config_key
+        assert (is_known_config_key('vision_support_map'))
+        assert (_resolve_default('vision_support_map')) == ({})
+        cfg = WriterAgentConfig.from_dict({
+            'vision_support_map': {'https://openrouter.ai/api@google/gemini-3.8-flash': False},
+        })
+        cfg.validate()
+        dumped = cfg.to_dict()
+        assert (dumped['vision_support_map']['https://openrouter.ai/api@google/gemini-3.8-flash']) is False
+
 
 class TestParseOllamaRuntimeNumCtx:
     """Issue #570: live PARAMETER num_ctx wins over trained context_length."""

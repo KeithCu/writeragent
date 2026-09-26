@@ -1013,6 +1013,43 @@ def set_image_model(val: Any, update_lru: bool = True) -> None:
         update_lru_history(val_str, "image_model_lru", get_current_endpoint())
 
 
+def _gemini_multimodal_model_id(model_id: str) -> bool:
+    """True for Gemini chat ids that accept image input.
+
+    Gemini 1.5+ Flash/Pro (including Flash-Lite and later uncatalogued ids such
+    as ``google/gemini-3.8-flash``) are multimodal. Gemini 1.0 Pro and embedding
+    ids are not. ``gemini-pro-vision`` / ``gemini-1.0-pro-vision`` are.
+
+    The chat path does not GET OpenRouter or Together ``/v1/models`` (those lists
+    are huge; the sidebar skips them). ``_model_fetch_vision_cache`` is therefore
+    empty on a normal send, and DEFAULT_MODELS only lists a few Gemini 3.1 rows.
+    Without this check, every newer Flash id was treated as text-only and
+    ``get_image`` was stripped.
+    """
+    slug = str(model_id or "").strip().lower().split(":", 1)[0].rsplit("/", 1)[-1]
+    if not slug.startswith("gemini"):
+        return False
+    if "embedding" in slug or slug.startswith("imagen") or "aqa" in slug:
+        return False
+    # 1.0 vision variants predate the Flash naming and do accept images.
+    if "vision" in slug:
+        return True
+    # Bare gemini-pro and gemini-1.0-pro (no "-vision") were text-only.
+    if slug == "gemini-pro" or slug.startswith("gemini-1.0"):
+        return False
+    # Current aliases: gemini-flash-latest, gemini-pro-latest, gemini-flash-lite-latest.
+    if slug.startswith("gemini-flash") or slug.startswith("gemini-pro"):
+        return True
+    matched = re.match(r"gemini-(\d+)(?:\.(\d+))?", slug)
+    if not matched:
+        return False
+    major = int(matched.group(1))
+    minor = int(matched.group(2) or "0")
+    if major > 1:
+        return True
+    return major == 1 and minor >= 5
+
+
 def has_native_vision(model_id: Any, endpoint: Any) -> bool:
     """Check if the model supports native multimodal vision input.
 
@@ -1022,7 +1059,9 @@ def has_native_vision(model_id: Any, endpoint: Any) -> bool:
     3. Dynamic provider metadata:
        - OpenRouter/Together: check input_modalities vision cache.
        - Ollama: query POST /api/show for capabilities list.
-    4. Keyword heuristics as a last resort.
+    4. Gemini 1.5+ family (Flash/Pro). A vision_support_map entry or an
+       Ollama /api/show answer still wins, including explicit False. An
+       OpenRouter/Together cache miss does not. Other unknown ids stay False.
     """
     if not model_id:
         return False
@@ -1041,14 +1080,22 @@ def has_native_vision(model_id: Any, endpoint: Any) -> bool:
 
     # 2. Static Default Models check
     caps = get_model_capability(model_id_str, endpoint_str)
-    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
+    log.debug(
+        "has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s",
+        model_id_str,
+        endpoint_str,
+        caps,
+        bool(caps & ModelCapability.VISION),
+    )
     if caps & ModelCapability.VISION:
         return True
 
     provider = get_provider_from_endpoint(endpoint_str)
 
     # 3. Dynamic provider metadata
-    # 3a. OpenRouter / Together (v1/models cache check)
+    # 3a. OpenRouter / Together (v1/models cache check). A hit returns True.
+    # A miss does not veto: the chat path usually never fills this cache, and a
+    # :nitro / :free id can fail openrouter_model_ids_equivalent against the row.
     if provider in ("openrouter", "together"):
         is_owu = get_config_bool_safe("is_openwebui")
         suffix = get_api_version_suffix(endpoint_str, is_openwebui=is_owu)
@@ -1060,11 +1107,10 @@ def has_native_vision(model_id: Any, endpoint: Any) -> bool:
                 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
                 if any(openrouter_model_ids_equivalent(v_id, model_id_str) for v_id in vision_list):
                     return True
-            else:
-                if model_id_str in vision_list:
-                    return True
+            elif model_id_str in vision_list:
+                return True
 
-    # 3b. Ollama (query POST /api/show)
+    # 3b. Ollama (query POST /api/show). None means the probe did not answer.
     if provider == "ollama":
         try:
             res = query_ollama_model_capabilities(endpoint_str, model_id_str)
@@ -1072,6 +1118,12 @@ def has_native_vision(model_id: Any, endpoint: Any) -> bool:
                 return res
         except Exception as e:
             log.debug("Ollama /api/show capability query failed: %s", e)
+
+    # 4. Gemini Flash/Pro ids that are not in the static catalog. Do not widen
+    # this to every unknown model (DeepSeek, Mercury, gpt-oss stay text-only).
+    if _gemini_multimodal_model_id(model_id_str):
+        log.debug("has_native_vision: gemini multimodal family %r", model_id_str)
+        return True
 
     return False
 

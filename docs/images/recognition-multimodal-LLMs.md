@@ -46,7 +46,7 @@ Status as of PR #364 and related multimodal work. Code paths below are live; do 
 
 | Item | Location | Notes |
 |------|----------|-------|
-| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` cache → `DEFAULT_MODELS` `ModelCapability.VISION` → OpenRouter/Together `input_modalities` cache → Ollama `POST /api/show` → **no name heuristics yet** (returns `False` if nothing matches) |
+| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` cache → `DEFAULT_MODELS` `ModelCapability.VISION` → OpenRouter/Together `input_modalities` cache → Ollama `POST /api/show` → Gemini 1.5+ Flash/Pro family (uncatalogued ids such as `google/gemini-3.8-flash`). Other unknown ids return `False`. |
 | `set_native_vision_support(model_id, endpoint, supported)` | same | Persists to `vision_support_map` |
 | `query_ollama_model_capabilities` | same | Cached Ollama `/api/show` probe (shared cache also keeps runtime `num_ctx` for the #570 crash sentence; never trained `model_info["*.context_length"]`) |
 | Vision models in catalog | [`default_models.py`](../../plugin/framework/default_models.py) | e.g. Gemini 3.1 Flash Lite, Mistral Large 3 declare `ModelCapability.VISION` |
@@ -181,7 +181,7 @@ Unit tests cover `_render_page_png` error paths only ([`test_get_image_render.py
 ### 8. Minor code-quality (low)
 
 - **`filter_get_image_for_text_only_model`** lives in [`vision_availability.py`](../../plugin/vision/vision_availability.py) (OCR/venv gating) but gates a core Writer tool on chat model capability. Consider `model_fetcher.py` or a small `multimodal_availability.py` — cosmetic only.
-- **`has_native_vision` name heuristics:** Original plan listed keyword fallback as tier 4; current implementation returns `False` when cache, catalog, and provider metadata all miss. Add heuristics only if needed (mirror audio pattern, keep predicate small).
+- **`has_native_vision` Gemini family:** Tier 4 is only Gemini 1.5+ Flash/Pro (and 1.0 `*-vision` ids). The chat path does not download the OpenRouter/Together model list, so uncatalogued Flash ids would otherwise look text-only and lose `get_image`. Other unknown ids still return `False`.
 
 ---
 
@@ -194,7 +194,7 @@ Priority order for `has_native_vision(model_id, endpoint)`:
 3. **Dynamic provider metadata:**
    - OpenRouter / Together: `architecture.input_modalities` containing `"image"` from `/v1/models` (process cache `_model_fetch_vision_cache`).
    - Ollama: `POST /api/show` → `capabilities` contains `"vision"`.
-4. **Name-based heuristics** — planned as last resort; **not implemented yet**.
+4. **Gemini 1.5+ family** — Flash/Pro slug match (including `google/gemini-3.8-flash` and `:nitro` / `:free` suffixes) when the steps above did not already return True. A `vision_support_map` entry and an Ollama `/api/show` answer still win, including an explicit False. Text-only families are not guessed.
 
 ---
 

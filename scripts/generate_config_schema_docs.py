@@ -31,6 +31,7 @@ _DATACLASS_OMIT = frozenset(
     {
         "api_keys_by_endpoint",
         "audio_support_map",
+        "vision_support_map",
         "extension_update_check_epoch",
         "libreharper_update_check_epoch",
         "librepy_update_check_epoch",

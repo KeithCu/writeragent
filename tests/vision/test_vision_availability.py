@@ -58,3 +58,18 @@ def test_chat_text_model_has_native_vision_fail_open():
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"), \
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="e"):
         assert chat_text_model_has_native_vision() is True
+
+
+def test_uncatalogued_gemini_flash_keeps_get_image():
+    # Real has_native_vision (not the mock above): OpenRouter gemini-3.8-flash
+    # is vision-capable even though it is absent from DEFAULT_MODELS.
+    import plugin.framework.client.model_fetcher as mf
+
+    mf._model_fetch_vision_cache.clear()
+    with patch("plugin.framework.client.model_fetcher.get_config", return_value={}), \
+         patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""), \
+         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="google/gemini-3.8-flash"), \
+         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"):
+        names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
+        assert chat_text_model_has_native_vision() is True
+    assert "get_image" in names
