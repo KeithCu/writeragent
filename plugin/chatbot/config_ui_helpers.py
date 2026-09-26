@@ -15,7 +15,7 @@ from plugin.framework.client.model_fetcher import (
     ENDPOINT_PRESETS,
 )
 from plugin.framework.url_utils import normalize_endpoint_url
-from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
+from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, together_speech_ids
 from plugin.framework.constants import ModelCapability
 from plugin.framework.client.model_fetcher import fetch_available_models, _filter_fetched_models
 
@@ -237,7 +237,9 @@ def _merge_provider_default_models(to_show: list[str], provider: str, req_cap: s
             is_default = True
         elif req_cap == "image" and m.get("default_image"):
             is_default = True
-        elif req_cap == "audio" and m.get("default_audio"):
+        elif req_cap == "audio" and (m.get("default_audio") or m.get("stt")):
+            # stt marks non-default speech-to-text rows (Together Whisper / Nemotron).
+            # AUDIO|CHAT models such as Gemini are not STT entries.
             is_default = True
         elif req_cap == "tts" and (m.get("default_tts") or m.get("tts")):
             is_default = True
@@ -302,12 +304,15 @@ def populate_combobox_with_lru(
         massive_providers = {"openrouter", "together"}
         fetched_models: list[str] | None = None
         if remote_models is not None:
-            # Together GET /v1/models types are chat, language, code, image,
-            # embedding, moderation, and rerank — no speech or transcription —
-            # so that catalog must not fill the Speech tab. OpenRouter callers
-            # pass modality-filtered ids (output_modalities=speech or
-            # transcription). output_modalities=audio is music / gpt-audio, not TTS.
-            if not (req_cap in ("audio", "tts") and provider == "together"):
+            # Together GET /v1/models has no speech type. Keep catalog TTS/STT
+            # ids and any remote id in those families; drop the chat catalog.
+            # OpenRouter callers pass modality-filtered ids (output_modalities=
+            # speech or transcription). output_modalities=audio is not TTS.
+            if provider == "together" and req_cap in ("audio", "tts"):
+                fetch_succeeded = True
+                kind = "tts" if req_cap == "tts" else "stt"
+                fetched_models = together_speech_ids(kind, remote_models)
+            else:
                 fetch_succeeded = True
                 fetched_models = remote_models
         elif skip_remote_fetch:
@@ -323,7 +328,9 @@ def populate_combobox_with_lru(
             # OpenRouter speech/transcription ids are already filtered by the
             # Models API. Slug keywords drop rows such as microsoft/mai-voice-2.
             modality_list = provider == "openrouter" and req_cap in ("tts", "audio")
-            if remote_models is not None and (req_cap == "image" or modality_list):
+            # Together speech ids are already the serverless catalog (+ prefixes).
+            together_audio = provider == "together" and req_cap in ("tts", "audio")
+            if remote_models is not None and (req_cap == "image" or modality_list or together_audio):
                 filtered = list(fetched_models)
             else:
                 filtered = _filter_fetched_models(fetched_models, req_cap)

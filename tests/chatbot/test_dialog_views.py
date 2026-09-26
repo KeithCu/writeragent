@@ -762,34 +762,60 @@ def test_apply_dropdowns_updates_tts_combobox() -> None:
     assert tts_calls[0]["remote_models"] == speech_ids
 
 
-def test_apply_dropdowns_together_tts_stays_on_catalog() -> None:
+def test_apply_dropdowns_together_speech_uses_serverless_catalog() -> None:
     from plugin.chatbot.dialog_views import EndpointCombinedListener
 
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), MagicMock())
     tts_ctrl = MagicMock()
     tts_ctrl.getText.return_value = ""
+    stt_ctrl = MagicMock()
+    stt_ctrl.getText.return_value = ""
 
     def get_optional_side_effect(d, name):
         if name == "audio__tts_model":
             return tts_ctrl
+        if name == "audio__stt_model":
+            return stt_ctrl
         return None
 
     populate_calls = []
 
     def track_populate(c, ctrl, current, lru_key, endpoint, **kwargs):
-        populate_calls.append(kwargs.get("remote_models"))
+        populate_calls.append({"lru_key": lru_key, "remote_models": kwargs.get("remote_models")})
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
         with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"):
             listener.populate_combobox_with_lru = track_populate
             listener.fetch_available_tts_models = lambda *args, **kwargs: ["should-not-be-used"]
+            listener.fetch_available_stt_models = lambda *args, **kwargs: ["should-not-be-used"]
             listener._apply_dropdowns(
                 "https://api.together.xyz",
-                models=["openai/gpt-oss-120b", "cartesia/sonic"],
+                models=["openai/gpt-oss-120b", "cartesia/sonic", "cartesia/sonic-4"],
                 skip_fetch=False,
             )
 
-    assert populate_calls == [None]
+    by_key = {c["lru_key"]: c["remote_models"] for c in populate_calls}
+    tts_ids = by_key["tts_model_lru"]
+    stt_ids = by_key["audio_model_lru"]
+    assert "openai/gpt-oss-120b" not in tts_ids
+    assert "should-not-be-used" not in tts_ids
+    for mid in (
+        "hexgrad/Kokoro-82M",
+        "cartesia/sonic",
+        "cartesia/sonic-2",
+        "cartesia/sonic-3",
+        "canopylabs/orpheus-3b-0.1-ft",
+        "cartesia/sonic-4",
+    ):
+        assert mid in tts_ids
+    for mid in (
+        "nvidia/parakeet-tdt-0.6b-v3",
+        "openai/whisper-large-v3",
+        "nvidia/nemotron-3-asr-streaming-0.6b",
+        "nvidia/nemotron-3.5-asr-streaming-0.6b",
+    ):
+        assert mid in stt_ids
+    assert "hexgrad/Kokoro-82M" not in stt_ids
 
 
 def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:

@@ -143,7 +143,7 @@ Settings → **Speech** (the tab was titled Audio / Speech) holds the speech-to-
 Hosted model lists on this tab:
 
 - **OpenRouter** fills TTS from `GET /v1/models?output_modalities=speech` and STT from `output_modalities=transcription` (`fetch_available_tts_models` / `fetch_available_stt_models`). `output_modalities=audio` is music and gpt-audio, not the TTS combo. Kokoro stays the default when nothing is selected. The speech list spells that slug `hexgrad/kokoro-82m`; the curated catalog still says `hexgrad/Kokoro-82M`. The combo keeps the API id, and endpoint speak sends the API id when the speech list is cached, otherwise the saved id, so either casing works.
-- **Together** `GET /v1/models` types are chat, language, code, image, embedding, moderation, and rerank — there is no speech or transcription list. The TTS combo merges every catalog row flagged `default_tts` or `tts` (Kokoro and Cartesia Sonic).
+- **Together** has no `output_modalities` filter. `GET /v1/models` types are chat, language, code, image, embedding, moderation, and rerank, so that call is not how TTS or STT models are discovered. The Speech tab uses the documented serverless audio catalog: TTS is Orpheus 3B (`canopylabs/orpheus-3b-0.1-ft`), Kokoro (`hexgrad/Kokoro-82M`), and Cartesia Sonic, Sonic 2, and Sonic 3; STT is Whisper Large v3, Parakeet TDT 0.6B v3, and the two Nemotron ASR models. Kokoro and Parakeet stay the defaults. A `/v1/models` id in one of those families is included as well.
 
 ## Text-to-speech (speech output)
 

@@ -1134,12 +1134,19 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
         OpenRouter's unfiltered ``/v1/models`` list is not a speech catalog, and
         ``output_modalities=audio`` is music (Lyria / gpt-audio), not TTS.
-        Together's ``/v1/models`` type enum has no speech or transcription
-        value, so those combos stay on curated rows (``default_tts`` / ``tts``,
-        or ``default_audio``).
+        Together has no modality filter. The combo is the documented serverless
+        audio catalog (every ``tts`` / ``default_tts`` or ``stt`` / ``default_audio``
+        row), plus remote ids that share those families when ``/v1/models``
+        happens to list them.
         """
         if resolved_provider == "together":
-            return None
+            from plugin.framework.default_models import together_speech_ids
+
+            remote = models if isinstance(models, list) else None
+            # No key and no fetched catalog yet: same placeholder as the text combo.
+            if not api_key_ov and remote is None:
+                return None
+            return together_speech_ids("tts" if kind == "tts" else "stt", remote)
         if resolved_provider != "openrouter":
             return models
         # Text-catalog fetch has not finished; don't block the UI on a second GET.

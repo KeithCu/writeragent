@@ -20,6 +20,37 @@ class TestGetProviderDefaults:
         d = get_provider_defaults("together")
         assert (d.get("tts_model")) == ("hexgrad/Kokoro-82M")
 
+    def test_together_serverless_audio_catalog(self):
+        from plugin.framework.default_models import catalog_speech_ids, together_speech_ids
+
+        tts = catalog_speech_ids("together", "tts")
+        assert tts == [
+            "hexgrad/Kokoro-82M",
+            "cartesia/sonic",
+            "cartesia/sonic-2",
+            "cartesia/sonic-3",
+            "canopylabs/orpheus-3b-0.1-ft",
+        ]
+        stt = catalog_speech_ids("together", "stt")
+        assert stt == [
+            "nvidia/parakeet-tdt-0.6b-v3",
+            "openai/whisper-large-v3",
+            "nvidia/nemotron-3-asr-streaming-0.6b",
+            "nvidia/nemotron-3.5-asr-streaming-0.6b",
+        ]
+        # Defaults stay Kokoro and Parakeet; the rest are selectable, not the default.
+        d = get_provider_defaults("together")
+        assert d.get("tts_model") == "hexgrad/Kokoro-82M"
+        assert d.get("stt_model") == "nvidia/parakeet-tdt-0.6b-v3"
+        # Raw /v1/models chat rows are ignored; a new id in a known family is kept.
+        merged = together_speech_ids(
+            "tts",
+            ["openai/gpt-oss-120b", "cartesia/sonic-4", "hexgrad/Kokoro-82M"],
+        )
+        assert "openai/gpt-oss-120b" not in merged
+        assert merged[-1] == "cartesia/sonic-4"
+        assert merged.count("hexgrad/Kokoro-82M") == 1
+
     def test_openai_default_tts_model_uses_tts_1(self):
         d = get_provider_defaults("openai")
         assert (d.get("tts_model")) == ("tts-1")

@@ -473,7 +473,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         assert ('hexgrad/Kokoro-82M') not in (items)
         ctrl.setText.assert_called_with('hexgrad/kokoro-82m')
 
-    def test_together_tts_ignores_unfiltered_remote_catalog(self):
+    def test_together_tts_keeps_catalog_and_drops_chat_models(self):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         ep = 'https://api.together.xyz'
@@ -483,14 +483,46 @@ class TestPopulateComboboxWithLruFetchOptions:
             '',
             'tts_model_lru',
             ep,
-            remote_models=['openai/gpt-oss-120b', 'cartesia/sonic-3'],
+            remote_models=['openai/gpt-oss-120b', 'cartesia/sonic-4'],
             api_key_override='test-key',
         )
         items = list(ctrl.addItems.call_args[0][0])
         assert ('openai/gpt-oss-120b') not in (items)
-        assert ('cartesia/sonic-3') not in (items)
-        assert ('hexgrad/Kokoro-82M') in (items)
-        assert ('cartesia/sonic') in (items)
+        for mid in (
+            'hexgrad/Kokoro-82M',
+            'cartesia/sonic',
+            'cartesia/sonic-2',
+            'cartesia/sonic-3',
+            'canopylabs/orpheus-3b-0.1-ft',
+            'cartesia/sonic-4',
+        ):
+            assert mid in items
+        ctrl.setText.assert_called_with('hexgrad/Kokoro-82M')
+
+    def test_together_stt_lists_serverless_asr_models(self):
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        ep = 'https://api.together.xyz'
+        populate_combobox_with_lru(
+            self.ctx,
+            ctrl,
+            '',
+            'audio_model_lru',
+            ep,
+            skip_remote_fetch=True,
+            api_key_override='test-key',
+        )
+        items = list(ctrl.addItems.call_args[0][0])
+        for mid in (
+            'nvidia/parakeet-tdt-0.6b-v3',
+            'openai/whisper-large-v3',
+            'nvidia/nemotron-3-asr-streaming-0.6b',
+            'nvidia/nemotron-3.5-asr-streaming-0.6b',
+        ):
+            assert mid in items
+        assert 'hexgrad/Kokoro-82M' not in items
+        assert 'cartesia/sonic' not in items
+        ctrl.setText.assert_called_with('nvidia/parakeet-tdt-0.6b-v3')
 
     def test_together_tts_models_include_sonic(self):
         ctrl = MagicMock()
