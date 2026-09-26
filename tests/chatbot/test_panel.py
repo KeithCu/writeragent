@@ -9,16 +9,22 @@
 """Unit tests for sidebar query Enter-to-send key classification and send dispose."""
 
 import sys
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.config_schema import _get_schema_default
 from plugin.chatbot.panel import (
+    ClearButtonListener,
     QueryKeyListener,
     SendButtonListener,
+    StopButtonListener,
+    notify_record_mouse_pressed,
+    notify_record_mouse_released,
     notify_stop_mouse_entered,
     notify_stop_mouse_pressed,
     query_enter_triggers_primary_send,
 )
+from plugin.chatbot.record_gesture import HANDS_FREE_STATUS, RecordGesture, hands_free_status_text
 from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
@@ -241,8 +247,6 @@ class TestQueryKeyListenerDispose:
 
 class TestTtsStopInteraction:
     def test_stop_button_stops_speech_when_speaking(self) -> None:
-        from plugin.chatbot.panel import StopButtonListener
-
         send_listener = MagicMock()
         send_listener._approval_event = None
         send_listener._send_busy = False
@@ -274,13 +278,218 @@ class TestTtsStopInteraction:
                 send_listener.dispatch.assert_not_called()
 
     def test_clear_stops_speech(self) -> None:
-        from plugin.chatbot.panel import ClearButtonListener
-
         session = MagicMock()
         listener = ClearButtonListener(session, MagicMock(), MagicMock(), "greeting")
         with patch("plugin.audio.tts_service.stop_speech") as mock_stop_speech:
             listener.on_action_performed(MagicMock())
             mock_stop_speech.assert_called_once()
             session.clear.assert_called_once()
+
+
+def _hands_free_listener() -> tuple[SendButtonListener, Any]:
+    listener = _make_send_listener()
+    listener.sidebar_state = SidebarCompositeState(
+        send=SendButtonState(False, False, False, False, True),
+        tool_loop=None,
+        audio=AudioRecorderState(status="idle"),
+    )
+    send_model = MagicMock()
+    send_model.Label = "Record"
+    listener.send_control.getModel.return_value = send_model
+    listener.stop_control.getModel.return_value = MagicMock()
+    listener.audio_recorder = MagicMock()
+    listener.audio_recorder.state = AudioRecorderState(status="idle")
+    listener._spawn_record_hold_wait = MagicMock()
+    listener._spawn_sticky_tts_wait = MagicMock()
+    return listener, send_model
+
+
+class TestHandsFreeRecord:
+    def setup_method(self) -> None:
+        self._modules_patcher = patch.dict(sys.modules, {"plugin.main": MagicMock()}, clear=False)
+        self._modules_patcher.start()
+
+    def teardown_method(self) -> None:
+        self._modules_patcher.stop()
+
+    def test_short_click_records_once_and_ignores_following_action(self) -> None:
+        listener, send_model = _hands_free_listener()
+        notify_record_mouse_pressed(listener)
+        notify_record_mouse_released(listener)
+        assert listener.sidebar_state.send.is_recording
+        assert listener._record_gesture.sticky is False
+        assert listener.audio_recorder.start_recording.call_count == 1
+        assert send_model.Label == "Stop Rec"
+        listener.on_action_performed(MagicMock())
+        assert listener.sidebar_state.send.is_recording
+        assert listener.sidebar_state.send.is_busy is False
+        assert listener.audio_recorder.start_recording.call_count == 1
+
+    def test_long_press_sets_sticky_and_hands_free_status(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        notify_record_mouse_pressed(listener)
+        listener._spawn_record_hold_wait.assert_called_once()
+        listener._on_record_hold_elapsed(listener._record_hold_gen)
+        assert listener._record_gesture.sticky is True
+        assert listener.sidebar_state.send.is_recording
+        assert listener.audio_recorder.start_recording.call_count == 1
+        listener.status_control.setText.assert_any_call(hands_free_status_text())
+        notify_record_mouse_released(listener)
+        listener.on_action_performed(MagicMock())
+        assert listener.sidebar_state.send.is_recording
+        assert listener._record_gesture.sticky is True
+        assert listener.audio_recorder.start_recording.call_count == 1
+
+    def test_stale_hold_timer_does_not_arm_sticky(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        notify_record_mouse_pressed(listener)
+        notify_record_mouse_released(listener)
+        listener._on_record_hold_elapsed(listener._record_hold_gen - 1)
+        assert listener._record_gesture.sticky is False
+        assert listener.audio_recorder.start_recording.call_count == 1
+
+    def test_keyboard_record_is_not_sticky(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener.on_action_performed(MagicMock())
+        assert listener.sidebar_state.send.is_recording
+        assert listener._record_gesture.sticky is False
+
+    def test_stop_rec_keeps_sticky_for_restart(self) -> None:
+        listener, send_model = _hands_free_listener()
+        notify_record_mouse_pressed(listener)
+        listener._on_record_hold_elapsed(listener._record_hold_gen)
+        notify_record_mouse_released(listener)
+        listener.on_action_performed(MagicMock())
+        assert send_model.Label == "Stop Rec"
+        posted: list[Any] = []
+        listener.queue_executor.post = lambda fn, *args, **kwargs: posted.append(fn)
+        notify_record_mouse_pressed(listener)
+        notify_record_mouse_released(listener)
+        listener.on_action_performed(MagicMock())
+        assert listener.sidebar_state.send.is_busy
+        assert listener.sidebar_state.send.is_recording is False
+        assert listener._record_gesture.sticky is True
+        assert listener._sticky_restart_pending is False
+        with patch("plugin.audio.tts_service.is_speaking", return_value=False):
+            listener.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+            assert listener._sticky_restart_pending is True
+            listener._flush_sticky_restart()
+        assert listener._sticky_restart_pending is False
+        assert listener.sidebar_state.send.is_recording
+        assert listener._record_gesture.sticky is True
+        assert not (listener.sidebar_state.send.is_busy and listener.sidebar_state.send.is_recording)
+
+    def test_send_completed_without_sticky_does_not_restart(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        with patch("plugin.audio.tts_service.is_speaking", return_value=False):
+            listener.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+            listener._flush_sticky_restart()
+        assert listener._sticky_restart_pending is False
+        assert listener.sidebar_state.send.is_recording is False
+        listener._spawn_sticky_tts_wait.assert_not_called()
+        listener.audio_recorder.start_recording.assert_not_called()
+
+    def test_send_completed_with_sticky_waits_for_tts_then_records(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener._record_gesture = RecordGesture(sticky=True)
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+        assert listener._sticky_restart_pending is True
+        with patch("plugin.audio.tts_service.is_speaking", return_value=True):
+            listener._flush_sticky_restart()
+        assert listener.sidebar_state.send.is_recording is False
+        listener._spawn_sticky_tts_wait.assert_called_once()
+        gen = listener._spawn_sticky_tts_wait.call_args.args[0]
+        with patch("plugin.audio.tts_service.is_speaking", return_value=False):
+            listener._poll_sticky_rerecord(gen)
+        assert listener.sidebar_state.send.is_recording
+        assert listener._record_gesture.sticky is True
+        listener.status_control.setText.assert_any_call(HANDS_FREE_STATUS)
+
+    def test_stop_during_busy_clears_sticky_so_completion_does_not_restart(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener._record_gesture = RecordGesture(sticky=True)
+        posted: list[Any] = []
+        listener.queue_executor.post = lambda fn, *args, **kwargs: posted.append(fn)
+        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+        assert listener.sidebar_state.send.is_busy
+        listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        assert listener._record_gesture.sticky is False
+        with patch("plugin.audio.tts_service.is_speaking", return_value=False):
+            listener.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+            listener._flush_sticky_restart()
+        assert listener._sticky_restart_pending is False
+        assert listener.sidebar_state.send.is_recording is False
+
+    def test_error_clears_sticky(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener._record_gesture = RecordGesture(sticky=True)
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, True, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+        assert listener._record_gesture.sticky is False
+        assert listener.sidebar_state.send.is_busy is False
+        listener._flush_sticky_restart()
+        listener.audio_recorder.start_recording.assert_not_called()
+
+    def test_record_start_failure_clears_sticky(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener.audio_recorder.start_recording.side_effect = RuntimeError("no microphone")
+        listener._append_response = MagicMock()
+        notify_record_mouse_pressed(listener)
+        listener._on_record_hold_elapsed(listener._record_hold_gen)
+        assert listener._record_gesture.sticky is False
+        assert listener.sidebar_state.send.is_recording is False
+
+    def test_clear_exits_sticky(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener._record_gesture = RecordGesture(sticky=True)
+        listener.response_control = None
+        listener.status_control = None
+        clear = ClearButtonListener(listener.session, None, None, send_listener=listener)
+        with patch("plugin.audio.tts_service.stop_speech"):
+            clear.on_action_performed(MagicMock())
+        assert listener._record_gesture.sticky is False
+
+    def test_send_drain_restarts_record_when_sticky(self) -> None:
+        """The drain, not the pure FSM, flushes sticky after the reply."""
+        listener, _send_model = _hands_free_listener()
+        listener._record_gesture = RecordGesture(sticky=True)
+        listener._do_send = MagicMock()
+        posted: list[Any] = []
+        listener.queue_executor.post = lambda fn, *args, **kwargs: posted.append(fn)
+        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+        assert len(posted) == 1
+        with patch("plugin.audio.tts_service.is_speaking", return_value=False):
+            posted[0]()
+        assert listener.sidebar_state.send.is_recording
+        assert listener._record_gesture.sticky is True
+        assert not (listener.sidebar_state.send.is_busy and listener.sidebar_state.send.is_recording)
+
+    def test_stop_during_playback_clears_sticky_without_cancel(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        listener._record_gesture = RecordGesture(sticky=True)
+        listener._sticky_restart_gen = 3
+        with patch("plugin.audio.tts_service.is_speaking", return_value=True):
+            with patch("plugin.audio.tts_service.stop_speech"):
+                notify_stop_mouse_pressed(listener)
+        assert listener._record_gesture.sticky is False
+        assert listener._stop_requested_fallback is False
+        listener._poll_sticky_rerecord(3)
+        assert listener.sidebar_state.send.is_recording is False
 
 

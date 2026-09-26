@@ -1007,6 +1007,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             SendButtonListener,
             SettingsButtonListener,
             StopButtonListener,
+            attach_record_mouse_listener,
             attach_stop_mouse_listener,
         )
         from plugin.doc.doc_type import is_calc
@@ -1096,6 +1097,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             if controls["send"]:
                 controls["send"].addActionListener(send_listener)
+                attach_record_mouse_listener(controls["send"], send_listener)
             start_watchdog_thread(self.ctx, controls["status"])
 
             if controls["stop"]:

@@ -81,7 +81,7 @@ Implementation:
 | `{"status":"silence_progress","ms":750}` | Optional UI status while silence accumulates |
 | `{"status":"auto_stopped","path":"/tmp/….wav"}` | VAD triggered stop; host dispatches the same FSM path as **Stop Rec** |
 
-The host runs a stdout monitor thread ([`monitor_recording_stdout`](../../plugin/scripting/audio_recorder_service.py)) and posts `STOP_REC_CLICKED` on the LibreOffice main thread via [`execute_on_main_thread`](../../plugin/framework/queue_executor.py). Manual **Stop Rec** still works.
+The host runs a stdout monitor thread ([`monitor_recording_stdout`](../../plugin/scripting/audio_recorder_service.py)) and posts `STOP_REC_CLICKED` on the LibreOffice main thread via [`execute_on_main_thread`](../../plugin/framework/queue_executor.py). Manual **Stop Rec** still works. That same stop is the pause in hands-free mode (see [Hands-free (sticky) Record](#hands-free-sticky-record)); it does not clear the sticky flag.
 
 ## Implementation Details
 
@@ -92,6 +92,22 @@ We attach an `XTextListener` (`QueryTextListener` in `panel.py`) to the text inp
 - If the box is empty and a venv path is configured, the button says **Record**.
 - The moment the user types a character, it swaps to **Send**.
 - Clicking **Record** swaps the label to **Stop Rec**.
+- **Hold Record about 2 seconds** to arm hands-free (sticky) mode. The status line switches to "Hands-free recording...". A shorter click is unchanged.
+
+### Hands-free (sticky) Record
+
+Sticky is a panel flag on `SendButtonListener`, not a send-FSM state. `send_state.next_state` still forbids `is_busy and is_recording`.
+
+| Gesture | Result |
+|---------|--------|
+| Click **Record** | Start one take. **Stop Rec** or silence (`chatbot.audio_silence_stop_ms`, default 3000) sends, then the button returns to idle. |
+| Hold **Record** ~2s | Set sticky and start the take once. Silence and **Stop Rec** still send. After the assistant reply, Record starts again. |
+| **Stop**, **Clear**, cancel, or an error that ends the turn | Clear sticky so it does not loop. |
+| **Stop Rec** during a sticky take | Send, and leave sticky on for the restart. |
+
+The mouse listener owns press / hold / release while the label is **Record**. The button's ActionEvent still fires; after a mouse start the label is already **Stop Rec**, so that event is swallowed. Keyboard activation (no mouse press) still goes through ActionEvent.
+
+Restart runs from the send drain after `speak_text_async`, not inside the pure FSM. If speech output is on and `is_speaking()` is true, the panel posts a short wait and arms Record only once speech has stopped. Voice off, or not speaking, arms Record on that same completion. Stop during playback clears sticky as well (that click stops speech and does not go through `STOP_CLICKED`). The silence detector is not duplicated — auto-stop still posts `STOP_REC_CLICKED`.
 
 `SendButtonState.audio_supported` is true when Settings → Python resolves to a venv `python` executable (cheap config check; full package probe is on **Test**).
 
