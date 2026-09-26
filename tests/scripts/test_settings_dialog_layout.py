@@ -237,6 +237,17 @@ def test_audio_model_moved_to_speech_tab(tmp_path: Path) -> None:
     assert tops["btn_edit_config_json"] == "140"
 
 
+def test_speech_tab_test_voice_shares_voice_row(tmp_path: Path) -> None:
+    """Test voice is on the Voice row and is not a saved settings field."""
+    xdl_path, xdl = _generate_settings_xdl(tmp_path)
+    attrs = _control_attrs(xdl_path)
+
+    assert "audio__test_voice" in attrs
+    assert 'dlg:value="Test voice"' in xdl
+    assert attrs["audio__test_voice"]["top"] == attrs["audio__tts_voice"]["top"]
+    assert int(attrs["audio__test_voice"]["left"]) > int(attrs["audio__tts_voice"]["left"])
+
+
 def test_starter_buttons_share_row_and_include_nvidia(tmp_path: Path) -> None:
     xdl_path, xdl = _generate_settings_xdl(tmp_path)
     attrs = _control_attrs(xdl_path)

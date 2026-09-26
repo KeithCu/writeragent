@@ -139,6 +139,52 @@ def _kokoro_lang_for_voice(voice: str) -> str:
     return "en-us"
 
 
+# English source for Settings → Speech → Test voice. ``_()`` speaks the UI locale.
+TTS_TEST_SAMPLE = "Hello, I'm your LibreOffice WriterAgent."
+
+# Basic Latin through Latin Extended-B. Accented French/Spanish still counts
+# as Latin; langdetect would be needed to split those from English.
+_LATIN_LETTER_MAX = 0x024F
+
+
+def tts_test_sample() -> str:
+    """Sample line for the Speech Test button, translated to the UI locale."""
+    return _(TTS_TEST_SAMPLE)
+
+
+def _text_is_latin_script(text: str) -> bool:
+    """True when every letter is Latin. Kana, Han, and Devanagari are not."""
+    for ch in text:
+        if ch.isalpha() and ord(ch) > _LATIN_LETTER_MAX:
+            return False
+    return True
+
+
+def kokoro_g2p_lang(text: str, voice: str = "") -> str:
+    """Phonemizer code for one Kokoro utterance. The voice id is not changed.
+
+    Latin-script text uses English G2P so English on a non-English voice is
+    not run through that voice's Misaki frontend. ``en-us`` is kokoro-onnx's
+    espeak path (not ``misaki[en]``, which installs torch). A ``b*`` voice
+    uses ``en-gb``, which is the same espeak path. The selected voice still
+    supplies the timbre (``jf_alpha`` can speak an English line).
+
+    Any non-Latin letter keeps today's voice-prefix Misaki language
+    (:func:`_kokoro_lang_for_voice`): kana on ``jf_*`` stays ``ja``, Han on
+    ``zf_*`` stays ``zh``.
+
+    TODO: langdetect (already in the dev venv) could tell accented French or
+    Spanish from English later. Do not import it here.
+    """
+    if _text_is_latin_script(text):
+        if voice and _kokoro_lang_for_voice(voice) == "en-gb":
+            return "en-gb"
+        return "en-us"
+    if not voice:
+        return "en-us"
+    return _kokoro_lang_for_voice(voice)
+
+
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
     """Return the optimal default voice for a voice family and locale."""
     fam = clean_provider_name(family)
@@ -745,7 +791,10 @@ def _speak_kokoro_local(
         _speak_system(text, speed=speed)
         return
 
-    lang = _kokoro_lang_for_voice(voice)
+    # Latin text uses English espeak; other text uses this voice's Misaki lang.
+    # ``voice`` is still the speaker id passed to Kokoro.create.
+    lang = kokoro_g2p_lang(text, voice)
+    log.info("Kokoro G2P lang=%s for voice=%s", lang, voice)
     # Non-English voices were phonemized with espeak-ng inside kokoro-onnx, so
     # ja read kanji as "chinese letter" and fr/es missed Kokoro's phone map.
     # Misaki runs in the venv script (is_phonemes=True). Install failure does
@@ -901,14 +950,26 @@ def speak_text_async(
     text: str,
     on_complete: Callable[[], None] | None = None,
     on_status: Callable[[str], None] | None = None,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    voice: str | None = None,
+    speed: float | None = None,
+    enabled: bool | None = None,
 ) -> None:
     """Synthesize and speak text in a background thread.
 
     ``on_status`` receives short user-visible lines (model download, fallback).
     The chat panel posts those onto the sidebar status field.
+
+    Keyword overrides are for Settings → Speech → Test voice, which speaks the
+    controls on screen before OK writes them. Chat leaves them unset and reads
+    ``audio.tts_*``. Local Kokoro picks Misaki vs English espeak inside
+    :func:`_speak_kokoro_local` via :func:`kokoro_g2p_lang`.
     """
     global _speech_active
-    if not bool(get_config("audio.tts_enabled")):
+    tts_on = bool(get_config("audio.tts_enabled")) if enabled is None else bool(enabled)
+    if not tts_on:
         log.debug("speak_text_async: TTS is disabled (audio.tts_enabled=False)")
         return
 
@@ -922,6 +983,10 @@ def speak_text_async(
         _speech_cancelled.clear()
 
     log.info("speak_text_async: queued speech for %d chars", len(clean))
+    chosen_provider = provider
+    chosen_model = model
+    chosen_voice = voice
+    chosen_speed = speed
 
     def _worker() -> None:
         global _speech_active
@@ -929,38 +994,51 @@ def speak_text_async(
             if _speech_cancelled.is_set():
                 return
 
-            raw_prov = str(get_config("audio.tts_provider") or "system")
-            provider = clean_provider_name(raw_prov)
-            speed = parse_tts_speed(get_config("audio.tts_speed"))
-            model = ""
-            if provider == "endpoint":
+            raw_prov = chosen_provider if chosen_provider else str(get_config("audio.tts_provider") or "system")
+            provider_code = clean_provider_name(raw_prov)
+            speed_val = (
+                parse_tts_speed(chosen_speed)
+                if chosen_speed is not None
+                else parse_tts_speed(get_config("audio.tts_speed"))
+            )
+            model_name = chosen_model.strip() if isinstance(chosen_model, str) else ""
+            if provider_code == "endpoint" and not model_name:
                 from plugin.framework.client.model_fetcher import get_tts_model
-                model = get_tts_model() or "hexgrad/Kokoro-82M"
+                model_name = get_tts_model() or "hexgrad/Kokoro-82M"
 
-            voice = get_scoped_tts_voice(provider, model)
+            if chosen_voice and chosen_voice.strip():
+                voice_name = clean_voice_name(chosen_voice)
+            else:
+                voice_name = get_scoped_tts_voice(provider_code, model_name)
 
-            log.info("TTS worker executing: provider=%s, speed=%.2f, voice=%s, model=%s", provider, speed, voice, model)
+            log.info(
+                "TTS worker executing: provider=%s, speed=%.2f, voice=%s, model=%s",
+                provider_code,
+                speed_val,
+                voice_name,
+                model_name,
+            )
 
-            if provider == "system":
-                _speak_system(clean, speed=speed)
-            elif provider == "kokoro":
-                _speak_kokoro_local(clean, voice=voice, speed=speed, on_status=on_status)
-            elif provider == "piper":
-                _speak_piper_local(clean, voice=voice, speed=speed, on_status=on_status)
-            elif provider == "endpoint":
+            if provider_code == "system":
+                _speak_system(clean, speed=speed_val)
+            elif provider_code == "kokoro":
+                _speak_kokoro_local(clean, voice=voice_name, speed=speed_val, on_status=on_status)
+            elif provider_code == "piper":
+                _speak_piper_local(clean, voice=voice_name, speed=speed_val, on_status=on_status)
+            elif provider_code == "endpoint":
                 from plugin.framework.config import get_current_endpoint
                 url = get_current_endpoint()
                 api_key = get_api_key_for_endpoint(url)
 
-                log.info("TTS endpoint resolved: url=%s, model=%s, has_key=%s", url, model, bool(api_key))
+                log.info("TTS endpoint resolved: url=%s, model=%s, has_key=%s", url, model_name, bool(api_key))
 
                 if url:
-                    _speak_endpoint(clean, url, api_key, model=model, voice=voice, speed=speed)
+                    _speak_endpoint(clean, url, api_key, model=model_name, voice=voice_name, speed=speed_val)
                 else:
                     log.warning("No endpoint URL available for TTS; falling back to OS system speech.")
-                    _speak_system(clean, speed=speed)
+                    _speak_system(clean, speed=speed_val)
             else:
-                _speak_system(clean, speed=speed)
+                _speak_system(clean, speed=speed_val)
         except Exception as e:
             log.exception("speak_text_async worker error: %s", e)
         finally:
