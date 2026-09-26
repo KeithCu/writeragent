@@ -199,6 +199,10 @@ class TestToolcallingPromptExamples:
         ring = parts[3]
         assert "ring of 8 blue circles" in ring
         assert "run_venv_python_script" in ring
+        assert "10500" in ring
+        assert "14000" in ring
+        assert "HMM" in ring
+        assert "top-left" in ring
         assert ring.index("delegate_tool_domains") < ring.index("specialized_workflow_finished")
         assert "via the shapes domain" in ring
 

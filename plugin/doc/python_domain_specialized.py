@@ -220,6 +220,48 @@ def _inner_context(parent_ctx: ToolContext) -> ToolContext:
     )
 
 
+def _shapes_canvas_hint(doc: Any) -> str:
+    """Page size, origin, and HMM units for the inner shapes tools.
+
+    Same string as the shapes specialized loop (``format_shapes_canvas_context``).
+    Must run on the main thread. A failed read must not abort the inner agent.
+    """
+    from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
+
+    try:
+        return format_shapes_canvas_context(doc) or ""
+    except Exception:
+        log.warning("Failed to get shapes canvas for domain tool agent", exc_info=True)
+        return ""
+
+
+def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label: str) -> str:
+    """Small suffixes the single-domain specialized loop adds, when those domains are requested.
+
+    Shapes canvas is a UNO read, so it is fetched on the main thread. Footnotes
+    and charts lines match ``DelegateToSpecializedBase.execute`` (static text).
+    """
+    parts: list[str] = []
+    if "footnotes" in domains:
+        # plugin/doc/specialized_base.py — domain == "footnotes"
+        parts.append(
+            " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence),"
+            " pass that exact string as insert_after so the note is placed after that text;"
+            " the task executor cannot move the view cursor."
+        )
+    if "charts" in domains:
+        # plugin/doc/specialized_base.py — domain == "charts"
+        if agent_label == "Calc":
+            parts.append(" When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10').")
+        elif agent_label in ("Writer", "Draw"):
+            parts.append(" When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters.")
+    if "shapes" in domains:
+        canvas = _run_on_main(lambda: _shapes_canvas_hint(getattr(parent_ctx, "doc", None)))
+        if canvas:
+            parts.append(canvas if canvas.startswith(" ") else " " + canvas)
+    return "".join(parts)
+
+
 def _compact_result(final_ans: Any, domains: list[str]) -> dict[str, Any]:
     if isinstance(final_ans, dict) and final_ans.get("status") == "error":
         return final_ans
@@ -252,10 +294,12 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
     # specialized loops — not the slim librarian input shape.
     smol_tools = [SmolToolAdapter(tool, inner_ctx, safe=True, inputs_style="specialized") for tool in ordered]
     domain_list = ", ".join(domains)
+    hints = _domain_loop_hints(parent_ctx, domains, label)
     instructions = (
         f"You are an inner {label} agent with tools for these specialized domains: {domain_list}. "
         "Use those tools to accomplish the task. Do not invent tools outside this list. "
         "Call specialized_workflow_finished with a compact summary when done."
+        f"{hints}"
     )
     # Not a ``*:python`` key: that few-shot teaches run_venv_python_script, which
     # this inner agent does not have.

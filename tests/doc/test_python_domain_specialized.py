@@ -87,6 +87,9 @@ def test_python_hint_and_examples_require_delegate_before_finish():
         assert "MUST call delegate_tool_domains" in hint
         assert "BEFORE specialized_workflow_finished" in hint
         assert 'delegate_to_specialized_*(domain="shapes")' in hint
+        assert "page-scale absolute positions in HMM" in hint
+        assert "top-left" in hint
+        assert "origin-centered" in hint
     writer = python_specialized_sub_agent_hint("Writer")
     assert "footnotes" in writer
     assert "shapes" in writer
@@ -99,12 +102,34 @@ def test_python_hint_and_examples_require_delegate_before_finish():
     ring = parts[3]
     assert "ring of 8 blue circles" in ring
     assert '"domains": ["shapes"]' in ring
+    assert "10500" in ring
+    assert "14000" in ring
+    assert "7000" in ring
+    assert "1600" in ring
+    assert "HMM" in ring
+    assert "top-left" in ring
+    assert "not (0,0)" in ring
     assert ring.index("run_venv_python_script") < ring.index("delegate_tool_domains")
     assert ring.index("delegate_tool_domains") < ring.index("specialized_workflow_finished")
     assert "via the shapes domain" in ring
     assert 'rather than domain="shapes"' in WRITER_CORE_DIRECTIVES
     assert 'rather than domain="shapes"' in DRAW_CORE_DIRECTIVES
     assert "draw a rectangle" in WRITER_CORE_DIRECTIVES
+
+
+def test_domain_loop_hints_include_footnotes_and_charts_lines():
+    """Cheap static suffixes match the single-domain specialized loop."""
+    from plugin.doc.python_domain_specialized import _domain_loop_hints
+
+    parent = MagicMock()
+    parent.doc = None
+    calc = _domain_loop_hints(parent, ["charts"], "Calc")
+    assert "data_range='A1:B10'" in calc
+    writer = _domain_loop_hints(parent, ["charts", "footnotes"], "Writer")
+    assert "headers" in writer
+    assert "rows" in writer
+    assert "insert_after" in writer
+    assert "Document canvas" not in writer
 
 
 def test_normalize_domain_list_dedupes_and_parses_json_array():
@@ -251,6 +276,44 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     examples_key_block = mock_build.call_args.kwargs["examples_block"]
     assert "run_venv_python_script" not in examples_key_block
     assert "specialized_workflow_finished" in examples_key_block
+    assert "insert_after" in instructions
+
+
+@patch("plugin.doc.python_domain_specialized.build_toolcalling_agent")
+@patch("plugin.doc.python_domain_specialized.SmolAgentExecutor")
+@patch("plugin.doc.specialized_shapes_context.format_shapes_canvas_context")
+def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, mock_executor_cls, mock_build):
+    """Inner shapes instructions get the same canvas line as the shapes specialized loop."""
+    mock_canvas.return_value = " Document canvas (Writer): paper 210.0 x 297.0 mm"
+    mock_build.return_value = MagicMock()
+    mock_executor_cls.return_value.execute_safe.return_value = "placed"
+
+    registry = ToolRegistry(services={})
+    registry.register(_ShapeProbe())
+    registry.register(FootnotesInsert())
+    registry.register(SpecializedWorkflowFinished())
+    parent = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
+
+    def _call(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
+        "plugin.framework.queue_executor.execute_on_main_thread", side_effect=_call
+    ) as mock_main:
+        result = run_inner_domain_tool_agent(parent, ["shapes"], "Place a ring of circles")
+
+    assert result["status"] == "ok"
+    mock_canvas.assert_called_once_with(parent.doc)
+    assert mock_main.called
+    instructions = mock_build.call_args.kwargs["instructions"]
+    assert "Document canvas (Writer)" in instructions
+    assert "210.0 x 297.0 mm" in instructions
+
+    mock_canvas.reset_mock()
+    run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
+    mock_canvas.assert_not_called()
+    footnotes_instructions = mock_build.call_args.kwargs["instructions"]
+    assert "Document canvas" not in footnotes_instructions
 
 
 @patch("plugin.doc.python_domain_specialized.build_toolcalling_agent")
@@ -367,3 +430,6 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     ring = examples.split('Task: "Use python to place a ring', 1)[1]
     assert ring.index("delegate_tool_domains") < ring.index("specialized_workflow_finished")
     assert "via the shapes domain" in ring
+    assert "10500" in ring
+    assert "HMM" in ring
+    assert "top-left" in ring

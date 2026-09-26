@@ -211,14 +211,14 @@ Task: "Use python to place a ring of 8 blue circles."
 Action:
 {
   "name": "run_venv_python_script",
-  "arguments": {"code": "n, r = 8, 4000\\nangles = np.linspace(0, 2 * np.pi, n, endpoint=False)\\nresult = [[float(np.cos(a) * r), float(np.sin(a) * r)] for a in angles]\\n"}
+  "arguments": {"code": "cx, cy, r, d = 10500, 14000, 7000, 1600\\nangles = np.linspace(0, 2 * np.pi, 8, endpoint=False)\\nresult = [[float(cx + np.cos(a) * r), float(cy + np.sin(a) * r), d] for a in angles]\\n"}
 }
-Observation: {"status": "ok", "result": [[4000.0, 0.0], [2828.4, 2828.4], [0.0, 4000.0], [-2828.4, 2828.4], [-4000.0, 0.0], [-2828.4, -2828.4], [0.0, -4000.0], [2828.4, -2828.4]], "stdout": "", "stderr": ""}
+Observation: {"status": "ok", "result": [[17500.0, 14000.0, 1600], [15449.7, 18949.7, 1600], [10500.0, 21000.0, 1600], [5550.3, 18949.7, 1600], [3500.0, 14000.0, 1600], [5550.3, 9050.3, 1600], [10500.0, 7000.0, 1600], [15449.7, 9050.3, 1600]], "stdout": "", "stderr": ""}
 
 Action:
 {
   "name": "delegate_tool_domains",
-  "arguments": {"domains": ["shapes"], "task": "Create a ring of 8 blue circles using the computed layout positions. Each circle about 800 units across (1/100 mm), fill blue, centered on those points."}
+  "arguments": {"domains": ["shapes"], "task": "Create a ring of 8 blue circles at these absolute page positions (x, y, diameter), all in HMM (1/100 mm). Origin is the top-left of the page, not (0,0) as a center. Page center used for the layout is about (10500, 14000), radius 7000 HMM, each circle 1600 HMM across, fill blue. Use those absolute positions; do not recenter the ring on the origin."}
 }
 Observation: {"status": "ok", "domains": ["shapes"], "result": "Placed 8 blue circles in a ring."}
 

@@ -317,6 +317,8 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         " you MUST call delegate_tool_domains with domains (a list of those domain names) and task"
         " (what the inner agent should accomplish, including sizes, colors, and positions or the computed layout)"
         " BEFORE specialized_workflow_finished."
+        " When placing shapes, that task must use page-scale absolute positions in HMM (1/100 mm)"
+        " from the top-left of the page, not a tiny origin-centered cluster around (0,0)."
         " Do not finish and expect the main chat agent to call delegate_to_specialized_*(domain=\"shapes\") for you."
         " The inner agent receives the full tool schemas; do not call those domain tools on this loop."
     )
