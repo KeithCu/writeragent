@@ -18,7 +18,8 @@ Microphone capture runs in the **user-provided Python venv** configured under **
 |-------|---------|------|
 | **Host (LO embedded Python)** | Sidebar UI, FSM, temp WAV path | Spawns/stops recording child |
 | **Dedicated venv subprocess** | User venv + `sounddevice` | Captures 16 kHz mono PCM to WAV |
-| **Remote HTTP** | LLM API | STT or native `input_audio` chat (unchanged) |
+| **Remote HTTP** | LLM API | Endpoint STT or native `input_audio` chat |
+| **Local STT** | User venv + `faster-whisper` | When STT Provider is Local Whisper |
 
 **Why not the warm worker?** Recording is interactive and can last minutes. Blocking [`PythonWorkerManager`](../../plugin/scripting/venv_worker.py) would stall `=PYTHON()`, chat scripts, and other trusted helpers. A **short-lived dedicated child** is spawned per recording session instead.
 
@@ -142,7 +143,17 @@ flowchart TD
 
 Capability detection, STT fallback, and runtime recovery are unchanged — see [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py), [`llm_client.py`](../../plugin/framework/client/llm_client.py), and [`panel.py`](../../plugin/chatbot/panel.py).
 
-**STT providers:** OpenRouter uses JSON + base64 `input_audio`; most other providers (OpenAI Whisper, Z.ai, local servers) use multipart `file` + `model`. Z.ai default STT model is `glm-asr-2512` via `POST /api/paas/v4/audio/transcriptions`.
+**STT providers:** Settings → Speech `audio.stt_provider` chooses where the transcript comes from. The default `endpoint` is the path below. `local` (aliases `whisper` and `faster-whisper` in `writeragent.json`) transcribes in the Settings → Python venv and does not call `/audio/transcriptions`. A missing key stays `endpoint`.
+
+OpenRouter uses JSON + base64 `input_audio`; most other providers (OpenAI Whisper, Z.ai, local servers) use multipart `file` + `model`. Z.ai default STT model is `glm-asr-2512` via `POST /api/paas/v4/audio/transcriptions`.
+
+### Local Whisper (faster-whisper)
+
+`audio.stt_provider` = `local` runs [`plugin/audio/whisper_transcribe.py`](../../plugin/audio/whisper_transcribe.py) with the venv interpreter (`scripting.python_venv_path`). LibreOffice's Python never imports `faster-whisper` and never receives a `pip install`. The host dispatcher is [`plugin/audio/stt_service.py`](../../plugin/audio/stt_service.py) `transcribe()`; sidebar Record calls it from `send_handlers._transcribe_audio`.
+
+The first recording installs the package when `import faster_whisper` fails (`uv pip install faster-whisper`, or `python -m pip` in that venv when `uv` is not on `PATH`). Model weights download on first use of a size into the Hugging Face cache (`~/.cache/huggingface`). `audio.stt_local_model` is `tiny`, `base` (default, about 150 MB), `small` (~500 MB), or `medium` (~1.5 GB). Those names are the faster-whisper aliases for `Systran/faster-whisper-<size>`. CPU `int8` is what the child requests. The sidebar status line says it is transcribing with that size and that the first run downloads the model.
+
+Local Whisper transcribes even when the chat model can take `input_audio`, then sends the transcript as text. Endpoint STT is unchanged: native chat audio when the chat model supports it, otherwise `audio.stt_model` and `/audio/transcriptions`.
 
 **Mock soak:** [`scripts/mock_llm_server.py`](../../scripts/mock_llm_server.py) (`make mock-llm`) treats `writeragent-mock` as a **chat+audio** model: sidebar Record is native `input_audio` on `/v1/chat/completions` and returns a canned transcript in HTML. It also implements `/v1/audio/transcriptions` and lists `writeragent-mock-whisper` for STT-only fallback. See [rich-text-control-sidebar.md — Mock LLM](rich-text-control-sidebar.md#mock-llm-for-sidebar-soak).
 
@@ -154,7 +165,9 @@ Release builds may pass `--no-recording` to [`scripts/build_oxt.py`](../../scrip
 
 Settings → **Speech** (the tab was titled Audio / Speech) holds the speech-to-text model and speech output. The tab is the first module tab, immediately after Image Settings.
 
-**Audio Model** is the STT combobox (`widget: combo` in [`plugin/audio/module.yaml`](../../plugin/audio/module.yaml), control id `audio__stt_model`). It used to sit on the General page as `stt_model`. Saves write **`audio.stt_model`** and leave a pre-existing top-level `stt_model` in place. [`get_stt_model()`](../../plugin/framework/client/model_fetcher.py) prefers a non-empty `audio.stt_model`, then legacy `stt_model`, then the provider default. The endpoint-scoped LRU list is still `audio_model_lru`. Changing the endpoint refreshes that list on `audio__stt_model` (the old `stt_model` control id is still recognized).
+**STT Provider** (`audio.stt_provider`) sits above Audio Model. **LLM Endpoint** (default) keeps **Audio Model** (`audio__stt_model`). **Local Whisper** shows **Local Model** (`audio.stt_local_model`) and hides Audio Model, the same way TTS Model is only for the endpoint TTS provider.
+
+**Audio Model** is the endpoint STT combobox (`widget: combo` in [`plugin/audio/module.yaml`](../../plugin/audio/module.yaml), control id `audio__stt_model`). It used to sit on the General page as `stt_model`. Saves write **`audio.stt_model`** and leave a pre-existing top-level `stt_model` in place. [`get_stt_model()`](../../plugin/framework/client/model_fetcher.py) prefers a non-empty `audio.stt_model`, then legacy `stt_model`, then the provider default. The endpoint-scoped LRU list is still `audio_model_lru`. Changing the endpoint refreshes that list on `audio__stt_model` (the old `stt_model` control id is still recognized). Local Whisper does not use that id.
 
 Hosted model lists on this tab:
 

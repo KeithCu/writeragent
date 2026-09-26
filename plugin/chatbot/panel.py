@@ -1367,16 +1367,24 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # Transcription Fallback check
         if self.audio_wav_path:
+            from plugin.audio.stt_service import uses_local_stt
+            from plugin.framework.client.model_fetcher import get_stt_model, get_text_model, has_native_audio
             from plugin.framework.config import get_current_endpoint
-            from plugin.framework.client.model_fetcher import get_text_model, has_native_audio, get_stt_model
 
             current_model = get_text_model()
             current_endpoint = get_current_endpoint()
 
-            if has_native_audio(current_model, current_endpoint) is False:
+            # Local Whisper is the user's STT choice: transcribe in the venv and
+            # send text, including when the chat model could take input_audio.
+            # Endpoint STT still waits until the chat model cannot take audio.
+            local_stt = uses_local_stt()
+            if local_stt or has_native_audio(current_model, current_endpoint) is False:
                 stt_model = get_stt_model()
-                if stt_model:
-                    log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
+                if local_stt or stt_model:
+                    if local_stt:
+                        log.info("_do_send: local Whisper STT (chat model %s)" % current_model)
+                    else:
+                        log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
                     try:
                         transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
                         if transcript:

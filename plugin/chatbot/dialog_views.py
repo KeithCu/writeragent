@@ -41,7 +41,7 @@ from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener, VenvProbeP
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from .dialogs import (
     TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state,
-    get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog,
+    get_optional, set_control_enabled, set_control_visible, set_control_text, get_control_text, translate_dialog,
     load_writeragent_dialog, msgbox,
 )
 
@@ -201,6 +201,7 @@ class SettingsDialog:
     _tts_listener: Any
     _tts_voice_listener: Any
     _tts_test_listener: Any
+    _stt_listener: Any
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
@@ -219,6 +220,7 @@ class SettingsDialog:
         self._tts_listener = None
         self._tts_voice_listener = None
         self._tts_test_listener = None
+        self._stt_listener = None
 
     def show(self) -> dict[str, Any]:
         """Execute the settings dialog and apply results."""
@@ -410,6 +412,7 @@ class SettingsDialog:
         # Populate non-persisted client config snippet
         sync_mcp_config_snippet(self._dlg)
         self._setup_tts_listeners()
+        self._setup_stt_listeners()
 
     def _setup_tts_listeners(self) -> None:
         test_btn = get_optional(self._dlg, "audio__test_voice")
@@ -443,6 +446,17 @@ class SettingsDialog:
                 voice_ctrl.addTextListener(self._tts_voice_listener)
 
         self._tts_listener.sync_ui()
+
+    def _setup_stt_listeners(self) -> None:
+        prov_ctrl = get_optional(self._dlg, "audio__stt_provider")
+        if prov_ctrl is None:
+            return
+        self._stt_listener = SttSettingsListener(self._dlg)
+        if hasattr(prov_ctrl, "addItemListener"):
+            prov_ctrl.addItemListener(self._stt_listener)
+        if hasattr(prov_ctrl, "addTextListener"):
+            prov_ctrl.addTextListener(self._stt_listener)
+        self._stt_listener.sync_ui()
 
     def _schedule_initial_models_fetch(self, endpoint: str) -> None:
         """OpenRouter/Together skip inline fetch; load full catalog when a saved key exists."""
@@ -656,6 +670,19 @@ class SettingsDialog:
                 except Exception:
                     pass
             self._tts_test_listener = None
+        if self._stt_listener and self._dlg is not None:
+            prov_ctrl = get_optional(self._dlg, "audio__stt_provider")
+            if prov_ctrl and hasattr(prov_ctrl, "removeItemListener"):
+                try:
+                    prov_ctrl.removeItemListener(self._stt_listener)
+                except Exception:
+                    pass
+            if prov_ctrl and hasattr(prov_ctrl, "removeTextListener"):
+                try:
+                    prov_ctrl.removeTextListener(self._stt_listener)
+                except Exception:
+                    pass
+            self._stt_listener = None
         clear_active_settings_dialog(self._dlg)
         if self._dlg:
             self._dlg.dispose()
@@ -855,6 +882,49 @@ def _dialog_api_key(dlg: Any) -> str | None:
     if ctrl is None:
         return None
     return get_control_text(ctrl)
+
+
+def _apply_stt_model_visibility(dlg: Any, provider_text: str) -> None:
+    """Show Audio Model for endpoint STT and Local Model for faster-whisper."""
+    from plugin.audio.stt_service import stt_controls_enabled
+
+    endpoint_on, local_on = stt_controls_enabled(provider_text)
+    groups = (
+        (endpoint_on, ("audio__stt_model", "stt_model"), ("label_audio__stt_model", "label_stt_model")),
+        (local_on, ("audio__stt_local_model",), ("label_audio__stt_local_model",)),
+    )
+    for shown, control_names, label_names in groups:
+        for name in control_names + label_names:
+            ctrl = get_optional(dlg, name)
+            if ctrl is None:
+                continue
+            set_control_visible(ctrl, shown)
+            set_control_enabled(ctrl, shown)
+
+
+class SttSettingsListener(BaseListener, XItemListener, XTextListener):
+    """Shows the endpoint STT model or the local Whisper size, not both."""
+
+    _dlg: Any
+
+    def __init__(self, dialog: Any) -> None:
+        self._dlg = dialog
+
+    def sync_ui(self) -> None:
+        if not self._dlg:
+            return
+        try:
+            prov_ctrl = get_optional(self._dlg, "audio__stt_provider")
+            raw = prov_ctrl.getText() if prov_ctrl is not None and hasattr(prov_ctrl, "getText") else ""
+            _apply_stt_model_visibility(self._dlg, raw)
+        except Exception:
+            log.exception("Error syncing STT provider controls")
+
+    def itemStateChanged(self, rEvent: ItemEvent) -> None:
+        self.sync_ui()
+
+    def textChanged(self, rEvent: TextEvent) -> None:
+        self.sync_ui()
 
 
 class TtsSettingsListener(BaseListener, XItemListener, XTextListener):

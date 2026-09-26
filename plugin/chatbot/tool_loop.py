@@ -676,9 +676,13 @@ class ToolCallingMixin:
             log.warning("Model %s failed native audio, caching and falling back to STT" % current_model)
             set_native_audio_support(current_model, current_endpoint, supported=False)
 
+            from plugin.audio.stt_service import uses_local_stt
+
             stt_model = get_stt_model()
+            # Local Whisper does not need an endpoint model id. Endpoint STT still does.
+            local_stt = uses_local_stt()
             retry_q = self._active_batched_q or self._active_q
-            if stt_model and retry_q is not None and self._active_client is not None:
+            if (stt_model or local_stt) and retry_q is not None and self._active_client is not None:
                 self._append_response("\n[Model does not support audio. Falling back to STT...]\n")
                 try:
                     transcript = self._transcribe_audio(self.audio_wav_path, stt_model)

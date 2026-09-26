@@ -3,12 +3,40 @@ title: Speech
 requires: [config]
 
 config:
+  stt_provider:
+    type: string
+    default: endpoint
+    widget: select
+    label: STT Provider
+    helper: "LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's Python)."
+    options:
+      - value: endpoint
+        label: "LLM Endpoint"
+      - value: local
+        label: "Local Whisper (faster-whisper)"
+
   stt_model:
     type: string
     default: ""
     widget: combo
     label: "Audio Model:"
-    helper: "Speech-to-text model when the chat model cannot take audio input."
+    helper: "Speech-to-text model when STT Provider is LLM Endpoint and the chat model cannot take audio input."
+
+  stt_local_model:
+    type: string
+    default: base
+    widget: select
+    label: "Local Model"
+    helper: "faster-whisper size. The first transcription downloads weights into the Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small ~500 MB, medium ~1.5 GB)."
+    options:
+      - value: tiny
+        label: "tiny (~75 MB)"
+      - value: base
+        label: "base (~150 MB)"
+      - value: small
+        label: "small (~500 MB)"
+      - value: medium
+        label: "medium (~1.5 GB)"
 
   tts_enabled:
     type: boolean
