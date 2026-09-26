@@ -416,6 +416,8 @@ Calc UNO range
   → finalize_python_return / write_formula_range
 ```
 
+Plain dicts and lists pack (`child_pack_result`) and unpack (`child_unpack_data`) without NumPy. A numeric list stays a list when NumPy is absent; a `split_grid` envelope still needs NumPy in the child.
+
 | Stage | Module | What happens | Large dense numeric `data` (shipped path) |
 |-------|--------|--------------|-------------------------------------------|
 | Range read | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) | Cell scalars in nested lists | O(cells) once at read |

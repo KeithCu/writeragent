@@ -75,6 +75,25 @@ def _to_py(v: Any) -> Any:
         return [_to_py(x) for x in v]
     return v
 
+
+def _optional_numpy() -> Any:
+    """Return the NumPy module, or None when this interpreter has no NumPy.
+
+    Bugfix: ``child_pack_result``, ``_needs_elementwise_pack``,
+    ``_container_has_packable_nested``, and ``_child_unpack_single_data``
+    imported NumPy before looking at the value. A plain dict or list then
+    raised ``ImportError`` in a venv without NumPy (LibreOffice's Python
+    ships without it, and some user venvs omit it). ``ModuleNotFoundError``
+    is an ``ImportError``. Callers skip ndarray checks when this returns
+    None. Numeric ``split_grid`` envelopes still import NumPy on their own.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    return np
+
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -1605,12 +1624,12 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
 def _child_unpack_single_data(wire: Any) -> Any:
     """Materialize one range payload in the venv (split_grid or nested list)."""
     # crosshair: off
-    import numpy as np
+    np = _optional_numpy()
 
     unpacked = child_unpack_split_grid(wire) if is_split_grid(wire) else wire
 
     # Single-cell ranges become scalars; multi-range outer list is handled by child_unpack_data.
-    if isinstance(unpacked, np.ndarray):
+    if np is not None and isinstance(unpacked, np.ndarray):
         if unpacked.size == 1:
             val = unpacked.item()
             if isinstance(val, float) and val.is_integer():
@@ -1631,6 +1650,14 @@ def _child_unpack_single_data(wire: Any) -> Any:
         if is_numeric_grid(grid):
             # is_numeric_coercible treats whitespace/"" as Calc blanks, but
             # np.float64 cannot convert those strings (ValueError). Keep the list.
+            # No NumPy: a numeric list cannot become an ndarray. Return it so
+            # plain inbound data still materializes.
+            if np is None:
+                log.debug(
+                    "payload_codec child_unpack json_list as-is (numpy unavailable) %s",
+                    describe_wire_value(unpacked),
+                )
+                return grid
             try:
                 arr = np.array(grid, dtype=np.float64)
             except ValueError:
@@ -1734,16 +1761,14 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
 def _container_has_packable_nested(obj: Any) -> bool:
     """True when *obj* contains ndarray/dict containers that need per-element packing."""
     # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
-    try:
-        import numpy as np
-    except ImportError:
-        np = None
+    np = _optional_numpy()
+    containers = (dict, np.ndarray) if np is not None else (dict,)
 
-    if isinstance(obj, dict) or (np is not None and isinstance(obj, np.ndarray)):
+    if isinstance(obj, containers):
         return True
     if isinstance(obj, (list, tuple)):
         for item in obj:
-            if isinstance(item, dict) or (np is not None and isinstance(item, np.ndarray)):
+            if isinstance(item, containers):
                 return True
             if isinstance(item, (list, tuple)) and _container_has_packable_nested(item):
                 return True
@@ -1753,17 +1778,15 @@ def _container_has_packable_nested(obj: Any) -> bool:
 def _needs_elementwise_pack(obj: Any) -> bool:
     """True when a list/tuple should be packed element-wise instead of as one grid."""
     # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
-    try:
-        import numpy as np
-    except ImportError:
-        np = None
+    np = _optional_numpy()
+    containers = (dict, np.ndarray) if np is not None else (dict,)
 
     if isinstance(obj, dict):
         return True
     if not isinstance(obj, (list, tuple)) or not obj:
         return False
     for item in obj:
-        if isinstance(item, dict) or (np is not None and isinstance(item, np.ndarray)):
+        if isinstance(item, containers):
             return True
         if isinstance(item, (list, tuple)) and _container_has_packable_nested(item):
             return True
@@ -1781,27 +1804,24 @@ def child_pack_result(
 ) -> Any:
     """JSON-safe worker result: scalar/list as-is, ndarray as list or split_grid."""
     # crosshair: off
-    try:
-        import numpy as np
-    except ImportError:
-        np = None
+    np = _optional_numpy()
 
     try:
-        if np is not None and isinstance(result, np.ndarray):
-            shape = tuple(int(x) for x in result.shape)
-            if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
-                return child_pack_split_grid(result)
-            log.debug(
-                "payload_codec child_pack json_list egress ndarray shape=%s (below_threshold)",
-                shape,
-            )
-    
-        if np is not None and isinstance(result, np.integer):
-            return int(result)
-        if np is not None and isinstance(result, np.floating):
-            return float(result)
-        if np is not None and isinstance(result, np.bool_):
-            return bool(result)
+        if np is not None:
+            if isinstance(result, np.ndarray):
+                shape = tuple(int(x) for x in result.shape)
+                if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
+                    return child_pack_split_grid(result)
+                log.debug(
+                    "payload_codec child_pack json_list egress ndarray shape=%s (below_threshold)",
+                    shape,
+                )
+            elif isinstance(result, np.integer):
+                return int(result)
+            elif isinstance(result, np.floating):
+                return float(result)
+            elif isinstance(result, np.bool_):
+                return bool(result)
         if isinstance(result, dict):
             return {str(k): child_pack_result(v, min_cells=min_cells, force=force) for k, v in result.items()}
         if isinstance(result, (list, tuple)):

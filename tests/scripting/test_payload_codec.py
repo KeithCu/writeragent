@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import math
+import sys
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -209,18 +210,28 @@ def test_none_becomes_nan_in_split_grid():
 
 
 def test_child_pack_plain_python_without_numpy() -> None:
-    """Plain Python results serialize when NumPy is unavailable."""
-    result = {"changes": [["می پردازد", "می‌پردازد"]]}
+    """Plain Python results serialize when NumPy is unavailable.
 
-    real_import = __import__
-
-    def import_without_numpy(name, *args, **kwargs):
-        if name == "numpy":
-            raise ModuleNotFoundError("No module named 'numpy'")
-        return real_import(name, *args, **kwargs)
-
-    with patch("builtins.__import__", side_effect=import_without_numpy):
+    ``sys.modules['numpy'] = None`` is how a later ``import numpy`` fails
+    (``ModuleNotFoundError``), without intercepting every other import.
+    """
+    result = {"changes": [["pays", "paid"]]}
+    with patch.dict(sys.modules, {"numpy": None}):
         assert child_pack_result(result, force="auto") == result
+
+
+def test_child_unpack_plain_python_without_numpy() -> None:
+    """Inbound lists and dicts materialize when NumPy is unavailable.
+
+    A numeric list stays a list: there is no ndarray to build. ``split_grid``
+    still needs NumPy and is not covered here.
+    """
+    text = [["pays", "paid"]]
+    numbers = [1.0, 2.0]
+    with patch.dict(sys.modules, {"numpy": None}):
+        assert child_unpack_data(text) == text
+        assert child_unpack_data({"changes": text}) == {"changes": text}
+        assert child_unpack_data(numbers) == numbers
 
 
 def test_scalar_egress_stays_json():
