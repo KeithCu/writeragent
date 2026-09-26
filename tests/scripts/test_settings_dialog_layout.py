@@ -266,6 +266,10 @@ def test_speech_tab_keep_replies_brief_checkbox(tmp_path: Path) -> None:
     box = attrs["audio__tts_short_answers"]
     assert 'dlg:value="Keep replies brief"' in xdl
     assert "Only applies while speech output (TTS) is on." in xdl
+    assert re.search(
+        r'dlg:id="audio__tts_short_answers"[^>]*dlg:checked="true"',
+        xdl,
+    )
     # Own row under the other speech checkboxes, above the provider select.
     # Not between Voice and Test voice (that pair shares a row via inline).
     assert int(attrs["audio__tts_sentence_mode"]["top"]) < int(box["top"]) < int(attrs["audio__tts_provider"]["top"])

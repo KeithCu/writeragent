@@ -879,6 +879,7 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 clean_provider_name,
                 clean_voice_name,
                 get_config,
+                get_default_voice_for_locale,
                 get_voice_family,
                 set_scoped_tts_voice,
                 voice_options_for_provider,
@@ -932,14 +933,17 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                     chosen = stored
                 else:
                     # Visible or saved voice belongs to another model (often alloy).
-                    # Remote endpoint lists share the speak fallback. Kokoro and
-                    # Piper catalogs are locale-ordered, so their first row stays.
+                    # Remote lists share the speak fallback. Kokoro and Piper use
+                    # the locale default when that id is in the catalog.
                     if provider == "endpoint" and family not in ("kokoro", "piper"):
                         chosen = _preferred_harvested_voice(
                             raw_model, [opt["value"] for opt in catalog],
                         )
                     else:
-                        chosen = catalog[0]["value"]
+                        # Locale default (Piper female / Kokoro map), not merely
+                        # whichever row the catalog listed first.
+                        locale_default = get_default_voice_for_locale(family)
+                        chosen = locale_default if locale_default in by_value else catalog[0]["value"]
                     set_scoped_tts_voice(chosen, provider, raw_model, endpoint=endpoint)
 
                 target_label = by_value.get(chosen, "")

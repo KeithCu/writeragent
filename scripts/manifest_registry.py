@@ -465,7 +465,10 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
                         board.remove(board[-1])
                     cb_left = field_x if "x" in schema else "8"
                     cb_width = field_w if "width" in schema else "120"
-                    checkbox_el = _common_add_checkbox(board, ctrl_id, label_text, cb_left, curr_y + 2, cb_width, 10)
+                    checked = "true" if schema.get("default") else "false"
+                    checkbox_el = _common_add_checkbox(
+                        board, ctrl_id, label_text, cb_left, curr_y + 2, cb_width, 10, checked=checked,
+                    )
                     # tooltip: true uses helper as dlg:help-text. Settings has no
                     # second line under a checkbox, so this is the only hover text.
                     tooltip = schema.get("tooltip")
