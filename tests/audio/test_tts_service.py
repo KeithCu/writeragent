@@ -277,6 +277,55 @@ def test_get_voice_catalog_locale_prioritized():
     assert en_catalog[0]["value"] == "en_US-lessac-medium"
 
 
+def test_kokoro_lang_for_ui_locale():
+    from plugin.audio.tts_service import kokoro_lang_for_ui_locale
+
+    assert kokoro_lang_for_ui_locale("ja_JP") == "ja"
+    assert kokoro_lang_for_ui_locale("zh_TW") == "zh"
+    assert kokoro_lang_for_ui_locale("zh-CN") == "zh"
+    assert kokoro_lang_for_ui_locale("fr_FR") == "fr-fr"
+    assert kokoro_lang_for_ui_locale("es") == "es"
+    assert kokoro_lang_for_ui_locale("it_IT") == "it"
+    assert kokoro_lang_for_ui_locale("hi_IN") == "hi"
+    assert kokoro_lang_for_ui_locale("pt_PT") == "pt-br"
+    assert kokoro_lang_for_ui_locale("en_US") == "en-us"
+    assert kokoro_lang_for_ui_locale("en_GB") == "en-gb"
+    # Locale wins even when the sample is still the English source.
+    assert kokoro_lang_for_ui_locale("ja", "Hello, I'm your LibreOffice WriterAgent.") == "ja"
+    # Unknown locale: CJK script, otherwise English espeak.
+    assert kokoro_lang_for_ui_locale("de_DE", "こんにちは") == "ja"
+    assert kokoro_lang_for_ui_locale("de_DE", "你好") == "zh"
+    assert kokoro_lang_for_ui_locale("de_DE", "Hallo") == "en-us"
+
+
+def test_tts_test_sample_uses_gettext():
+    from plugin.audio.tts_service import TTS_TEST_SAMPLE, tts_test_sample
+
+    with patch("plugin.audio.tts_service._", return_value="Bonjour, je suis WriterAgent.") as mock_gettext:
+        assert tts_test_sample() == "Bonjour, je suis WriterAgent."
+        mock_gettext.assert_called_once_with(TTS_TEST_SAMPLE)
+
+
+def test_speak_text_async_uses_dialog_overrides_when_config_disabled():
+    """Test voice speaks the on-screen controls before OK saves audio.tts_enabled."""
+    from plugin.audio.tts_service import speak_text_async
+
+    with patch("plugin.audio.tts_service.get_config", return_value=False), \
+         patch("plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kw: fn()), \
+         patch("plugin.audio.tts_service._speak_kokoro_local") as mock_kokoro:
+        speak_text_async(
+            "Bonjour",
+            provider="Kokoro (Local Neural, ONNX CPU)",
+            voice="jf_alpha (Kokoro JP Female - Alpha)",
+            speed=1.25,
+            enabled=True,
+            lang="ja",
+        )
+        mock_kokoro.assert_called_once_with(
+            "Bonjour", voice="jf_alpha", speed=1.25, on_status=None, lang="ja",
+        )
+
+
 def test_kokoro_lang_for_voice():
     from plugin.audio.tts_service import _kokoro_lang_for_voice
 

@@ -200,6 +200,7 @@ class SettingsDialog:
     _mcp_port_listener: Any
     _tts_listener: Any
     _tts_voice_listener: Any
+    _tts_test_listener: Any
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
@@ -217,6 +218,7 @@ class SettingsDialog:
         self._mcp_port_listener = None
         self._tts_listener = None
         self._tts_voice_listener = None
+        self._tts_test_listener = None
 
     def show(self) -> dict[str, Any]:
         """Execute the settings dialog and apply results."""
@@ -410,6 +412,11 @@ class SettingsDialog:
         self._setup_tts_listeners()
 
     def _setup_tts_listeners(self) -> None:
+        test_btn = get_optional(self._dlg, "audio__test_voice")
+        if test_btn and hasattr(test_btn, "addActionListener"):
+            self._tts_test_listener = TtsTestVoiceListener(self._ctx, self._dlg)
+            test_btn.addActionListener(self._tts_test_listener)
+
         prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
         voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
         model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
@@ -641,6 +648,14 @@ class SettingsDialog:
                 except Exception:
                     pass
             self._tts_voice_listener = None
+        if self._tts_test_listener and self._dlg is not None:
+            test_btn = get_optional(self._dlg, "audio__test_voice")
+            if test_btn and hasattr(test_btn, "removeActionListener"):
+                try:
+                    test_btn.removeActionListener(self._tts_test_listener)
+                except Exception:
+                    pass
+            self._tts_test_listener = None
         clear_active_settings_dialog(self._dlg)
         if self._dlg:
             self._dlg.dispose()
@@ -932,6 +947,105 @@ class TtsVoiceListener(BaseListener, XItemListener, XTextListener):
             set_scoped_tts_voice(clean_voice, clean_provider_name(raw_prov), raw_model)
         except Exception:
             log.exception("Error saving scoped TTS voice on change")
+
+
+class TtsTestVoiceListener(BaseActionListener):
+    """Settings → Speech: speak a UI-locale sample with the controls on screen.
+
+    OK has not necessarily saved yet. The checkbox, provider, model, voice,
+    and speed in this dialog are what the user is trying to hear.
+    """
+
+    _ctx: Any
+    _dlg: Any
+
+    def __init__(self, ctx: Any, dialog: Any) -> None:
+        self._ctx = ctx
+        self._dlg = dialog
+
+    def on_action_performed(self, rEvent: Any) -> None:
+        del rEvent
+        try:
+            self._speak_sample()
+        except Exception:
+            log.exception("TTS test voice failed")
+            self._status(_("Could not play the voice sample."))
+
+    def _status(self, message: str) -> None:
+        """Tell the user why the sample did not play. A failed box must not close Settings."""
+        log.info("TTS test: %s", message)
+        try:
+            msgbox(self._ctx, _("Speech"), message)
+        except Exception:
+            log.debug("TTS test status dialog failed", exc_info=True)
+
+    def _control_text(self, *names: str) -> str:
+        for name in names:
+            ctrl = get_optional(self._dlg, name)
+            if ctrl is None or not hasattr(ctrl, "getText"):
+                continue
+            try:
+                return str(ctrl.getText() or "")
+            except Exception:
+                log.debug("TTS test: could not read %s", name, exc_info=True)
+        return ""
+
+    def _speak_sample(self) -> None:
+        from plugin.audio.tts_service import (
+            clean_provider_name,
+            clean_voice_name,
+            kokoro_lang_for_ui_locale,
+            parse_tts_speed,
+            speak_text_async,
+            tts_test_sample,
+        )
+        from plugin.framework.i18n import get_active_locale
+
+        enabled_ctrl = get_optional(self._dlg, "audio__tts_enabled")
+        if enabled_ctrl is not None and is_checkbox_control(enabled_ctrl):
+            enabled = get_checkbox_state(enabled_ctrl) == 1
+        else:
+            enabled = bool(get_config("audio.tts_enabled"))
+        if not enabled:
+            self._status(
+                _("Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice.")
+            )
+            return
+
+        raw_prov = self._control_text("audio__tts_provider")
+        raw_model = self._control_text("audio__tts_model", "tts_model")
+        raw_voice = self._control_text("audio__tts_voice")
+        raw_speed = self._control_text("audio__tts_speed")
+        sample = tts_test_sample()
+        try:
+            locale = get_active_locale()
+        except Exception:
+            log.debug("TTS test: UI locale unavailable", exc_info=True)
+            locale = None
+        lang = kokoro_lang_for_ui_locale(locale, sample)
+        voice = clean_voice_name(raw_voice) if raw_voice.strip() else ""
+        log.info(
+            "TTS test: provider=%s model=%s voice=%s lang=%s",
+            clean_provider_name(raw_prov) if raw_prov else "",
+            raw_model,
+            voice,
+            lang,
+        )
+
+        def _on_status(message: str) -> None:
+            # Download / fallback lines from the worker. No sidebar status field here.
+            log.info("TTS test: %s", message)
+
+        speak_text_async(
+            sample,
+            on_status=_on_status,
+            provider=raw_prov or None,
+            model=raw_model or None,
+            voice=voice or None,
+            speed=parse_tts_speed(raw_speed) if raw_speed.strip() else None,
+            enabled=True,
+            lang=lang,
+        )
 
 
 class ApiKeyTextListener(BaseListener, XTextListener):

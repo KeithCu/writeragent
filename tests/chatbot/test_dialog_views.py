@@ -829,6 +829,95 @@ def test_tts_settings_listener_promotes_raw_voice_id_to_catalog_label():
     assert "Thorsten" in voice_ctrl.setText.call_args[0][0]
 
 
+def _tts_test_controls(*, enabled: int = 1):
+    enabled_ctrl = MagicMock()
+    enabled_ctrl.getState.return_value = enabled
+    enabled_ctrl.supportsService.return_value = True
+    prov_ctrl = MagicMock()
+    prov_ctrl.getText.return_value = "Kokoro (Local Neural, ONNX CPU)"
+    model_ctrl = MagicMock()
+    model_ctrl.getText.return_value = "hexgrad/Kokoro-82M"
+    voice_ctrl = MagicMock()
+    voice_ctrl.getText.return_value = "jf_alpha (Kokoro JP Female - Alpha)"
+    speed_ctrl = MagicMock()
+    speed_ctrl.getText.return_value = "1.25x"
+
+    def get_optional_side_effect(dlg, name):
+        del dlg
+        if name == "audio__tts_enabled":
+            return enabled_ctrl
+        if name == "audio__tts_provider":
+            return prov_ctrl
+        if name in ("audio__tts_model", "tts_model"):
+            return model_ctrl
+        if name == "audio__tts_voice":
+            return voice_ctrl
+        if name == "audio__tts_speed":
+            return speed_ctrl
+        return None
+
+    return get_optional_side_effect
+
+
+def test_tts_test_voice_listener_speaks_localized_sample():
+    from plugin.chatbot.dialog_views import TtsTestVoiceListener
+
+    listener = TtsTestVoiceListener(MagicMock(), MagicMock())
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=_tts_test_controls()), \
+         patch("plugin.chatbot.dialog_views.is_checkbox_control", return_value=True), \
+         patch("plugin.chatbot.dialog_views.get_checkbox_state", return_value=1), \
+         patch("plugin.audio.tts_service.tts_test_sample", return_value="こんにちは、WriterAgent です。"), \
+         patch("plugin.audio.tts_service.speak_text_async") as mock_speak, \
+         patch("plugin.framework.i18n.get_active_locale", return_value="ja_JP"), \
+         patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
+        listener.on_action_performed(None)
+
+    mock_msgbox.assert_not_called()
+    mock_speak.assert_called_once()
+    args, kwargs = mock_speak.call_args
+    assert args[0] == "こんにちは、WriterAgent です。"
+    assert kwargs["provider"] == "Kokoro (Local Neural, ONNX CPU)"
+    assert kwargs["model"] == "hexgrad/Kokoro-82M"
+    assert kwargs["voice"] == "jf_alpha"
+    assert kwargs["speed"] == 1.25
+    assert kwargs["enabled"] is True
+    assert kwargs["lang"] == "ja"
+    assert kwargs["on_status"] is not None
+
+
+def test_tts_test_voice_listener_disabled_does_not_speak():
+    from plugin.chatbot.dialog_views import TtsTestVoiceListener
+
+    listener = TtsTestVoiceListener(MagicMock(), MagicMock())
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=_tts_test_controls(enabled=0)), \
+         patch("plugin.chatbot.dialog_views.is_checkbox_control", return_value=True), \
+         patch("plugin.chatbot.dialog_views.get_checkbox_state", return_value=0), \
+         patch("plugin.audio.tts_service.speak_text_async") as mock_speak, \
+         patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
+        listener.on_action_performed(None)
+
+    mock_speak.assert_not_called()
+    mock_msgbox.assert_called_once()
+    assert "Speech output is off" in mock_msgbox.call_args[0][2]
+
+
+def test_tts_test_voice_listener_speak_error_stays_in_dialog():
+    from plugin.chatbot.dialog_views import TtsTestVoiceListener
+
+    listener = TtsTestVoiceListener(MagicMock(), MagicMock())
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=_tts_test_controls()), \
+         patch("plugin.chatbot.dialog_views.is_checkbox_control", return_value=True), \
+         patch("plugin.chatbot.dialog_views.get_checkbox_state", return_value=1), \
+         patch("plugin.audio.tts_service.tts_test_sample", return_value="Hello"), \
+         patch("plugin.framework.i18n.get_active_locale", return_value="en_US"), \
+         patch("plugin.audio.tts_service.speak_text_async", side_effect=RuntimeError("no audio")), \
+         patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
+        listener.on_action_performed(None)
+
+    mock_msgbox.assert_called_once()
+    assert mock_msgbox.call_args[0][2] == "Could not play the voice sample."
+
+
 def test_tts_voice_listener_on_change():
     from plugin.chatbot.dialog_views import TtsSettingsListener, TtsVoiceListener
 
