@@ -41,7 +41,7 @@ from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener, VenvProbeP
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from .dialogs import (
     TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state,
-    get_optional, set_control_enabled, set_control_visible, set_control_text, get_control_text, translate_dialog,
+    get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog,
     load_writeragent_dialog, msgbox,
 )
 
@@ -885,7 +885,18 @@ def _dialog_api_key(dlg: Any) -> str | None:
 
 
 def _apply_stt_model_visibility(dlg: Any, provider_text: str) -> None:
-    """Show Audio Model for endpoint STT and Local Model for faster-whisper."""
+    """Enable Audio Model for endpoint STT and Local Model for faster-whisper.
+
+    Do not call ``XWindow.setVisible`` on these controls. Settings is one
+    dialog with steps (General is step 1; Speech is a later step). Audio
+    Model is on the Speech step at the same Y as API Key. ``setVisible(True)``
+    while that dialog is already showing paints the control on the *current*
+    step and leaves its own Step unchanged — so the first open, which starts
+    on General, stacks "Audio Model:" on "API Key:". Assigning ``Step`` again
+    (switching tabs) hides the stray control, which is why a later look at
+    General can look fine. ``setEnable`` does not do this; TTS Model already
+    uses it for the same reason.
+    """
     from plugin.audio.stt_service import stt_controls_enabled
 
     endpoint_on, local_on = stt_controls_enabled(provider_text)
@@ -893,17 +904,16 @@ def _apply_stt_model_visibility(dlg: Any, provider_text: str) -> None:
         (endpoint_on, ("audio__stt_model", "stt_model"), ("label_audio__stt_model", "label_stt_model")),
         (local_on, ("audio__stt_local_model",), ("label_audio__stt_local_model",)),
     )
-    for shown, control_names, label_names in groups:
+    for enabled, control_names, label_names in groups:
         for name in control_names + label_names:
             ctrl = get_optional(dlg, name)
             if ctrl is None:
                 continue
-            set_control_visible(ctrl, shown)
-            set_control_enabled(ctrl, shown)
+            set_control_enabled(ctrl, enabled)
 
 
 class SttSettingsListener(BaseListener, XItemListener, XTextListener):
-    """Shows the endpoint STT model or the local Whisper size, not both."""
+    """Enables the endpoint STT model or the local Whisper size, not both."""
 
     _dlg: Any
 
