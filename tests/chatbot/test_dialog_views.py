@@ -1415,8 +1415,12 @@ def test_tts_voice_listener_on_change():
         assert stored.get("audio.tts_voice_piper") == "en_US-amy-medium"
 
 
-def test_stt_settings_listener_shows_one_model_control() -> None:
-    """Endpoint shows Audio Model; Local Whisper shows Local Model."""
+def test_stt_settings_listener_enables_one_model_control() -> None:
+    """Endpoint enables Audio Model; Local Whisper enables Local Model.
+
+    Visibility is not toggled: setVisible on a Speech-step control paints it
+    onto General (API Key's row) while Settings is open.
+    """
     from plugin.chatbot.dialog_views import SttSettingsListener
 
     dlg = MagicMock()
@@ -1437,30 +1441,27 @@ def test_stt_settings_listener_shows_one_model_control() -> None:
         del d
         return controls.get(name)
 
-    visible: dict[object, bool] = {}
     enabled: dict[object, bool] = {}
-
-    def set_visible(ctrl, flag):
-        visible[ctrl] = flag
 
     def set_enabled(ctrl, flag):
         enabled[ctrl] = flag
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
-         patch("plugin.chatbot.dialog_views.set_control_visible", side_effect=set_visible), \
          patch("plugin.chatbot.dialog_views.set_control_enabled", side_effect=set_enabled):
         prov.getText.return_value = "LLM Endpoint"
         SttSettingsListener(dlg).sync_ui()
-        assert visible[endpoint_model] is True
-        assert visible[local_model] is False
         assert enabled[endpoint_model] is True
+        assert enabled[endpoint_label] is True
+        assert enabled[local_model] is False
         assert enabled[local_label] is False
+        endpoint_model.setVisible.assert_not_called()
+        local_model.setVisible.assert_not_called()
 
         prov.getText.return_value = "Local Whisper (faster-whisper)"
         SttSettingsListener(dlg).sync_ui()
-        assert visible[endpoint_model] is False
-        assert visible[local_model] is True
         assert enabled[local_model] is True
+        assert enabled[local_label] is True
+        assert enabled[endpoint_model] is False
         assert enabled[endpoint_label] is False
 
 
