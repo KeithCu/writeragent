@@ -1,0 +1,614 @@
+{
+  "piper": {
+    "fallback_voice": "en_US-lessac-medium",
+    "locale_defaults": {
+      "bg": "bg_BG-dimitar-medium",
+      "bn": "bn_BD-google-medium",
+      "ca": "ca_ES-upc_ona-medium",
+      "cs": "cs_CZ-jirka-medium",
+      "da": "da_DK-talesyntese-medium",
+      "de": "de_DE-thorsten-medium",
+      "el": "el_GR-rapunzelina-medium",
+      "en": "en_US-lessac-medium",
+      "es": "es_ES-davefx-medium",
+      "et": "et_EE-news-medium",
+      "fi": "fi_FI-harri-medium",
+      "fr": "fr_FR-siwis-medium",
+      "hi": "hi_IN-pratham-medium",
+      "hr": "sl_SI-artur-medium",
+      "hu": "hu_HU-anna-medium",
+      "id": "id_ID-news_tts-medium",
+      "it": "it_IT-paola-medium",
+      "ja": "ja_JP-hi_fi_captain-medium",
+      "ko": "ko_KR-kss-medium",
+      "lt": "lt_LT-reginute1-medium",
+      "lv": "lv_LV-aivars-medium",
+      "nb": "no_NO-talesyntese-medium",
+      "nn": "no_NO-talesyntese-medium",
+      "no": "no_NO-talesyntese-medium",
+      "nl": "nl_NL-mls-medium",
+      "pl": "pl_PL-darkman-medium",
+      "pt": "pt_BR-cadu-medium",
+      "ro": "ro_RO-mihai-medium",
+      "ru": "ru_RU-denis-medium",
+      "sk": "sk_SK-lili-medium",
+      "sl": "sl_SI-artur-medium",
+      "sv": "sv_SE-nst-medium",
+      "tr": "tr_TR-dfki-medium",
+      "uk": "uk_UA-ukrainian_tts-medium",
+      "ur": "ur_PK-aegis_female-medium",
+      "zh": "zh_CN-huayan-medium"
+    },
+    "voices": [
+      {
+        "id": "en_US-lessac-medium",
+        "onnx": "en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+        "config": "en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
+        "lang": "en_US",
+        "label": "en_US-lessac-medium (US English Female - Lessac)",
+        "short_name": "Lessac"
+      },
+      {
+        "id": "en_US-amy-medium",
+        "onnx": "en/en_US/amy/medium/en_US-amy-medium.onnx",
+        "config": "en/en_US/amy/medium/en_US-amy-medium.onnx.json",
+        "lang": "en_US",
+        "label": "en_US-amy-medium (US English Female - Amy)",
+        "short_name": "Amy"
+      },
+      {
+        "id": "en_US-ryan-medium",
+        "onnx": "en/en_US/ryan/medium/en_US-ryan-medium.onnx",
+        "config": "en/en_US/ryan/medium/en_US-ryan-medium.onnx.json",
+        "lang": "en_US",
+        "label": "en_US-ryan-medium (US English Male - Ryan)",
+        "short_name": "Ryan"
+      },
+      {
+        "id": "en_US-danny-low",
+        "onnx": "en/en_US/danny/low/en_US-danny-low.onnx",
+        "config": "en/en_US/danny/low/en_US-danny-low.onnx.json",
+        "lang": "en_US",
+        "label": "en_US-danny-low (US English Male - Danny)",
+        "short_name": "Danny"
+      },
+      {
+        "id": "en_GB-alan-medium",
+        "onnx": "en/en_GB/alan/medium/en_GB-alan-medium.onnx",
+        "config": "en/en_GB/alan/medium/en_GB-alan-medium.onnx.json",
+        "lang": "en_GB",
+        "label": "en_GB-alan-medium (UK English Male - Alan)",
+        "short_name": "Alan"
+      },
+      {
+        "id": "en_GB-alba-medium",
+        "onnx": "en/en_GB/alba/medium/en_GB-alba-medium.onnx",
+        "config": "en/en_GB/alba/medium/en_GB-alba-medium.onnx.json",
+        "lang": "en_GB",
+        "label": "en_GB-alba-medium (UK English Female - Alba)",
+        "short_name": "Alba"
+      },
+      {
+        "id": "de_DE-thorsten-medium",
+        "onnx": "de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx",
+        "config": "de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx.json",
+        "lang": "de_DE",
+        "label": "de_DE-thorsten-medium (German Male - Thorsten)",
+        "short_name": "Thorsten"
+      },
+      {
+        "id": "de_DE-thorsten_emotional-medium",
+        "onnx": "de/de_DE/thorsten_emotional/medium/de_DE-thorsten_emotional-medium.onnx",
+        "config": "de/de_DE/thorsten_emotional/medium/de_DE-thorsten_emotional-medium.onnx.json",
+        "lang": "de_DE",
+        "label": "de_DE-thorsten_emotional-medium (German Male - Thorsten Emotional)",
+        "short_name": "Thorsten Emotional"
+      },
+      {
+        "id": "fr_FR-siwis-medium",
+        "onnx": "fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx",
+        "config": "fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx.json",
+        "lang": "fr_FR",
+        "label": "fr_FR-siwis-medium (French Female - Siwis)",
+        "short_name": "Siwis"
+      },
+      {
+        "id": "fr_FR-upmc-medium",
+        "onnx": "fr/fr_FR/upmc/medium/fr_FR-upmc-medium.onnx",
+        "config": "fr/fr_FR/upmc/medium/fr_FR-upmc-medium.onnx.json",
+        "lang": "fr_FR",
+        "label": "fr_FR-upmc-medium (French Female - UPMC)",
+        "short_name": "UPMC"
+      },
+      {
+        "id": "es_ES-davefx-medium",
+        "onnx": "es/es_ES/davefx/medium/es_ES-davefx-medium.onnx",
+        "config": "es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json",
+        "lang": "es_ES",
+        "label": "es_ES-davefx-medium (Spanish Male - Davefx)",
+        "short_name": "Davefx"
+      },
+      {
+        "id": "es_ES-sharvard-medium",
+        "onnx": "es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx",
+        "config": "es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx.json",
+        "lang": "es_ES",
+        "label": "es_ES-sharvard-medium (Spanish Male - Sharvard)",
+        "short_name": "Sharvard"
+      },
+      {
+        "id": "it_IT-paola-medium",
+        "onnx": "it/it_IT/paola/medium/it_IT-paola-medium.onnx",
+        "config": "it/it_IT/paola/medium/it_IT-paola-medium.onnx.json",
+        "lang": "it_IT",
+        "label": "it_IT-paola-medium (Italian Female - Paola)",
+        "short_name": "Paola"
+      },
+      {
+        "id": "nl_NL-mls-medium",
+        "onnx": "nl/nl_NL/mls/medium/nl_NL-mls-medium.onnx",
+        "config": "nl/nl_NL/mls/medium/nl_NL-mls-medium.onnx.json",
+        "lang": "nl_NL",
+        "label": "nl_NL-mls-medium (Dutch Female - MLS)",
+        "short_name": "MLS"
+      },
+      {
+        "id": "nl_BE-nathalie-medium",
+        "onnx": "nl/nl_BE/nathalie/medium/nl_BE-nathalie-medium.onnx",
+        "config": "nl/nl_BE/nathalie/medium/nl_BE-nathalie-medium.onnx.json",
+        "lang": "nl_BE",
+        "label": "nl_BE-nathalie-medium (Dutch Belgian Female - Nathalie)",
+        "short_name": "Nathalie"
+      },
+      {
+        "id": "pl_PL-darkman-medium",
+        "onnx": "pl/pl_PL/darkman/medium/pl_PL-darkman-medium.onnx",
+        "config": "pl/pl_PL/darkman/medium/pl_PL-darkman-medium.onnx.json",
+        "lang": "pl_PL",
+        "label": "pl_PL-darkman-medium (Polish Male - Darkman)",
+        "short_name": "Darkman"
+      },
+      {
+        "id": "pt_BR-cadu-medium",
+        "onnx": "pt/pt_BR/cadu/medium/pt_BR-cadu-medium.onnx",
+        "config": "pt/pt_BR/cadu/medium/pt_BR-cadu-medium.onnx.json",
+        "lang": "pt_BR",
+        "label": "pt_BR-cadu-medium (Portuguese Male - Cadu)",
+        "short_name": "Cadu"
+      },
+      {
+        "id": "pt_BR-faber-medium",
+        "onnx": "pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx",
+        "config": "pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx.json",
+        "lang": "pt_BR",
+        "label": "pt_BR-faber-medium (Portuguese Male - Faber)",
+        "short_name": "Faber"
+      },
+      {
+        "id": "ru_RU-denis-medium",
+        "onnx": "ru/ru_RU/denis/medium/ru_RU-denis-medium.onnx",
+        "config": "ru/ru_RU/denis/medium/ru_RU-denis-medium.onnx.json",
+        "lang": "ru_RU",
+        "label": "ru_RU-denis-medium (Russian Male - Denis)",
+        "short_name": "Denis"
+      },
+      {
+        "id": "ru_RU-dmitri-medium",
+        "onnx": "ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx",
+        "config": "ru/ru_RU/dmitri/medium/ru_RU-dmitri-medium.onnx.json",
+        "lang": "ru_RU",
+        "label": "ru_RU-dmitri-medium (Russian Male - Dmitri)",
+        "short_name": "Dmitri"
+      },
+      {
+        "id": "zh_CN-huayan-medium",
+        "onnx": "zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx",
+        "config": "zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json",
+        "lang": "zh_CN",
+        "label": "zh_CN-huayan-medium (Chinese Female - Huayan)",
+        "short_name": "Huayan"
+      },
+      {
+        "id": "ja_JP-hi_fi_captain-medium",
+        "onnx": "ja/ja_JP/hi_fi_captain/medium/ja_JP-hi_fi_captain-medium.onnx",
+        "config": "ja/ja_JP/hi_fi_captain/medium/ja_JP-hi_fi_captain-medium.onnx.json",
+        "lang": "ja_JP",
+        "label": "ja_JP-hi_fi_captain-medium (Japanese Male - Hi-Fi Captain)",
+        "short_name": "Hi-Fi Captain"
+      },
+      {
+        "id": "ko_KR-kss-medium",
+        "onnx": "ko/ko_KR/kss/medium/ko_KR-kss-medium.onnx",
+        "config": "ko/ko_KR/kss/medium/ko_KR-kss-medium.onnx.json",
+        "lang": "ko_KR",
+        "label": "ko_KR-kss-medium (Korean Female - KSS)",
+        "short_name": "KSS"
+      },
+      {
+        "id": "tr_TR-dfki-medium",
+        "onnx": "tr/tr_TR/dfki/medium/tr_TR-dfki-medium.onnx",
+        "config": "tr/tr_TR/dfki/medium/tr_TR-dfki-medium.onnx.json",
+        "lang": "tr_TR",
+        "label": "tr_TR-dfki-medium (Turkish Male - DFKI)",
+        "short_name": "DFKI"
+      },
+      {
+        "id": "uk_UA-ukrainian_tts-medium",
+        "onnx": "uk/uk_UA/ukrainian_tts/medium/uk_UA-ukrainian_tts-medium.onnx",
+        "config": "uk/uk_UA/ukrainian_tts/medium/uk_UA-ukrainian_tts-medium.onnx.json",
+        "lang": "uk_UA",
+        "label": "uk_UA-ukrainian_tts-medium (Ukrainian Female - UKR TTS)",
+        "short_name": "UKR TTS"
+      },
+      {
+        "id": "cs_CZ-jirka-medium",
+        "onnx": "cs/cs_CZ/jirka/medium/cs_CZ-jirka-medium.onnx",
+        "config": "cs/cs_CZ/jirka/medium/cs_CZ-jirka-medium.onnx.json",
+        "lang": "cs_CZ",
+        "label": "cs_CZ-jirka-medium (Czech Male - Jirka)",
+        "short_name": "Jirka"
+      },
+      {
+        "id": "da_DK-talesyntese-medium",
+        "onnx": "da/da_DK/talesyntese/medium/da_DK-talesyntese-medium.onnx",
+        "config": "da/da_DK/talesyntese/medium/da_DK-talesyntese-medium.onnx.json",
+        "lang": "da_DK",
+        "label": "da_DK-talesyntese-medium (Danish Male - Talesyntese)",
+        "short_name": "Talesyntese"
+      },
+      {
+        "id": "fi_FI-harri-medium",
+        "onnx": "fi/fi_FI/harri/medium/fi_FI-harri-medium.onnx",
+        "config": "fi/fi_FI/harri/medium/fi_FI-harri-medium.onnx.json",
+        "lang": "fi_FI",
+        "label": "fi_FI-harri-medium (Finnish Male - Harri)",
+        "short_name": "Harri"
+      },
+      {
+        "id": "sv_SE-nst-medium",
+        "onnx": "sv/sv_SE/nst/medium/sv_SE-nst-medium.onnx",
+        "config": "sv/sv_SE/nst/medium/sv_SE-nst-medium.onnx.json",
+        "lang": "sv_SE",
+        "label": "sv_SE-nst-medium (Swedish Female - NST)",
+        "short_name": "NST"
+      },
+      {
+        "id": "el_GR-rapunzelina-medium",
+        "onnx": "el/el_GR/rapunzelina/medium/el_GR-rapunzelina-medium.onnx",
+        "config": "el/el_GR/rapunzelina/medium/el_GR-rapunzelina-medium.onnx.json",
+        "lang": "el_GR",
+        "label": "el_GR-rapunzelina-medium (Greek Female - Rapunzelina)",
+        "short_name": "Rapunzelina"
+      },
+      {
+        "id": "hu_HU-anna-medium",
+        "onnx": "hu/hu_HU/anna/medium/hu_HU-anna-medium.onnx",
+        "config": "hu/hu_HU/anna/medium/hu_HU-anna-medium.onnx.json",
+        "lang": "hu_HU",
+        "label": "hu_HU-anna-medium (Hungarian Female - Anna)",
+        "short_name": "Anna"
+      },
+      {
+        "id": "ro_RO-mihai-medium",
+        "onnx": "ro/ro_RO/mihai/medium/ro_RO-mihai-medium.onnx",
+        "config": "ro/ro_RO/mihai/medium/ro_RO-mihai-medium.onnx.json",
+        "lang": "ro_RO",
+        "label": "ro_RO-mihai-medium (Romanian Male - Mihai)",
+        "short_name": "Mihai"
+      },
+      {
+        "id": "bg_BG-dimitar-medium",
+        "onnx": "bg/bg_BG/dimitar/medium/bg_BG-dimitar-medium.onnx",
+        "config": "bg/bg_BG/dimitar/medium/bg_BG-dimitar-medium.onnx.json",
+        "lang": "bg_BG",
+        "label": "bg_BG-dimitar-medium (Bulgarian Male - Dimitar)",
+        "short_name": "Dimitar"
+      },
+      {
+        "id": "sk_SK-lili-medium",
+        "onnx": "sk/sk_SK/lili/medium/sk_SK-lili-medium.onnx",
+        "config": "sk/sk_SK/lili/medium/sk_SK-lili-medium.onnx.json",
+        "lang": "sk_SK",
+        "label": "sk_SK-lili-medium (Slovak Female - Lili)",
+        "short_name": "Lili"
+      },
+      {
+        "id": "et_EE-news-medium",
+        "onnx": "et/et_EE/news/medium/et_EE-news-medium.onnx",
+        "config": "et/et_EE/news/medium/et_EE-news-medium.onnx.json",
+        "lang": "et_EE",
+        "label": "et_EE-news-medium (Estonian Female - News)",
+        "short_name": "News"
+      },
+      {
+        "id": "lt_LT-reginute1-medium",
+        "onnx": "lt/lt_LT/reginute1/medium/lt_LT-reginute1-medium.onnx",
+        "config": "lt/lt_LT/reginute1/medium/lt_LT-reginute1-medium.onnx.json",
+        "lang": "lt_LT",
+        "label": "lt_LT-reginute1-medium (Lithuanian Female - Reginute)",
+        "short_name": "Reginute"
+      },
+      {
+        "id": "lv_LV-aivars-medium",
+        "onnx": "lv/lv_LV/aivars/medium/lv_LV-aivars-medium.onnx",
+        "config": "lv/lv_LV/aivars/medium/lv_LV-aivars-medium.onnx.json",
+        "lang": "lv_LV",
+        "label": "lv_LV-aivars-medium (Latvian Male - Aivars)",
+        "short_name": "Aivars"
+      },
+      {
+        "id": "sl_SI-artur-medium",
+        "onnx": "sl/sl_SI/artur/medium/sl_SI-artur-medium.onnx",
+        "config": "sl/sl_SI/artur/medium/sl_SI-artur-medium.onnx.json",
+        "lang": "sl_SI",
+        "label": "sl_SI-artur-medium (Slovenian/Croatian Male - Artur)",
+        "short_name": "Artur"
+      },
+      {
+        "id": "no_NO-talesyntese-medium",
+        "onnx": "no/no_NO/talesyntese/medium/no_NO-talesyntese-medium.onnx",
+        "config": "no/no_NO/talesyntese/medium/no_NO-talesyntese-medium.onnx.json",
+        "lang": "no_NO",
+        "label": "no_NO-talesyntese-medium (Norwegian Male - Talesyntese)",
+        "short_name": "Talesyntese"
+      },
+      {
+        "id": "ca_ES-upc_ona-medium",
+        "onnx": "ca/ca_ES/upc_ona/medium/ca_ES-upc_ona-medium.onnx",
+        "config": "ca/ca_ES/upc_ona/medium/ca_ES-upc_ona-medium.onnx.json",
+        "lang": "ca_ES",
+        "label": "ca_ES-upc_ona-medium (Catalan Female - UPC Ona)",
+        "short_name": "UPC Ona"
+      },
+      {
+        "id": "id_ID-news_tts-medium",
+        "onnx": "id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx",
+        "config": "id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx.json",
+        "lang": "id_ID",
+        "label": "id_ID-news_tts-medium (Indonesian Female - News TTS)",
+        "short_name": "News TTS"
+      },
+      {
+        "id": "hi_IN-pratham-medium",
+        "onnx": "hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx",
+        "config": "hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx.json",
+        "lang": "hi_IN",
+        "label": "hi_IN-pratham-medium (Hindi Male - Pratham)",
+        "short_name": "Pratham"
+      },
+      {
+        "id": "bn_BD-google-medium",
+        "onnx": "bn/bn_BD/google/medium/bn_BD-google-medium.onnx",
+        "config": "bn/bn_BD/google/medium/bn_BD-google-medium.onnx.json",
+        "lang": "bn_BD",
+        "label": "bn_BD-google-medium (Bengali Female - Google)",
+        "short_name": "Google"
+      },
+      {
+        "id": "ur_PK-aegis_female-medium",
+        "onnx": "ur/ur_PK/aegis_female/medium/ur_PK-aegis_female-medium.onnx",
+        "config": "ur/ur_PK/aegis_female/medium/ur_PK-aegis_female-medium.onnx.json",
+        "lang": "ur_PK",
+        "label": "ur_PK-aegis_female-medium (Urdu Female - Aegis)",
+        "short_name": "Aegis"
+      }
+    ]
+  },
+  "kokoro": {
+    "fallback_voice": "af_bella",
+    "locale_defaults": {
+      "en": "af_bella",
+      "es": "ef_dora",
+      "fr": "ff_siwis",
+      "it": "if_sara",
+      "ja": "jf_alpha",
+      "zh": "zf_xiaobei",
+      "hi": "hf_alpha",
+      "pt": "pf_dora"
+    },
+    "openai_aliases": {
+      "alloy": "af_bella",
+      "nova": "af_bella",
+      "shimmer": "af_sarah",
+      "echo": "am_adam",
+      "fable": "am_michael",
+      "onyx": "am_adam"
+    },
+    "voices": [
+      {
+        "id": "af_bella",
+        "label": "af_bella (Kokoro US Female - Bella)",
+        "lang": "en",
+        "short_name": "Bella"
+      },
+      {
+        "id": "af_heart",
+        "label": "af_heart (Kokoro US Female - Heart)",
+        "lang": "en",
+        "short_name": "Heart"
+      },
+      {
+        "id": "af_sarah",
+        "label": "af_sarah (Kokoro US Female - Sarah)",
+        "lang": "en",
+        "short_name": "Sarah"
+      },
+      {
+        "id": "af_sky",
+        "label": "af_sky (Kokoro US Female - Sky)",
+        "lang": "en",
+        "short_name": "Sky"
+      },
+      {
+        "id": "am_adam",
+        "label": "am_adam (Kokoro US Male - Adam)",
+        "lang": "en",
+        "short_name": "Adam"
+      },
+      {
+        "id": "am_michael",
+        "label": "am_michael (Kokoro US Male - Michael)",
+        "lang": "en",
+        "short_name": "Michael"
+      },
+      {
+        "id": "bf_emma",
+        "label": "bf_emma (Kokoro UK Female - Emma)",
+        "lang": "en",
+        "short_name": "Emma"
+      },
+      {
+        "id": "bf_isabella",
+        "label": "bf_isabella (Kokoro UK Female - Isabella)",
+        "lang": "en",
+        "short_name": "Isabella"
+      },
+      {
+        "id": "bm_george",
+        "label": "bm_george (Kokoro UK Male - George)",
+        "lang": "en",
+        "short_name": "George"
+      },
+      {
+        "id": "bm_lewis",
+        "label": "bm_lewis (Kokoro UK Male - Lewis)",
+        "lang": "en",
+        "short_name": "Lewis"
+      },
+      {
+        "id": "ef_dora",
+        "label": "ef_dora (Kokoro Spanish Female - Dora)",
+        "lang": "es",
+        "short_name": "Dora"
+      },
+      {
+        "id": "em_alex",
+        "label": "em_alex (Kokoro Spanish Male - Alex)",
+        "lang": "es",
+        "short_name": "Alex"
+      },
+      {
+        "id": "em_santa",
+        "label": "em_santa (Kokoro Spanish Male - Santa)",
+        "lang": "es",
+        "short_name": "Santa"
+      },
+      {
+        "id": "ff_siwis",
+        "label": "ff_siwis (Kokoro French Female - Siwis)",
+        "lang": "fr",
+        "short_name": "Siwis"
+      },
+      {
+        "id": "if_sara",
+        "label": "if_sara (Kokoro Italian Female - Sara)",
+        "lang": "it",
+        "short_name": "Sara"
+      },
+      {
+        "id": "im_nicola",
+        "label": "im_nicola (Kokoro Italian Male - Nicola)",
+        "lang": "it",
+        "short_name": "Nicola"
+      },
+      {
+        "id": "jf_alpha",
+        "label": "jf_alpha (Kokoro Japanese Female - Alpha)",
+        "lang": "ja",
+        "short_name": "Alpha"
+      },
+      {
+        "id": "jf_gongitsune",
+        "label": "jf_gongitsune (Kokoro Japanese Female - Gongitsune)",
+        "lang": "ja",
+        "short_name": "Gongitsune"
+      },
+      {
+        "id": "jm_kumo",
+        "label": "jm_kumo (Kokoro Japanese Male - Kumo)",
+        "lang": "ja",
+        "short_name": "Kumo"
+      },
+      {
+        "id": "zf_xiaobei",
+        "label": "zf_xiaobei (Kokoro Chinese Female - Xiaobei)",
+        "lang": "zh",
+        "short_name": "Xiaobei"
+      },
+      {
+        "id": "zm_yunjian",
+        "label": "zm_yunjian (Kokoro Chinese Male - Yunjian)",
+        "lang": "zh",
+        "short_name": "Yunjian"
+      },
+      {
+        "id": "pf_dora",
+        "label": "pf_dora (Kokoro Portuguese Female - Dora)",
+        "lang": "pt",
+        "short_name": "Dora"
+      },
+      {
+        "id": "hf_alpha",
+        "label": "hf_alpha (Kokoro Hindi Female - Alpha)",
+        "lang": "hi",
+        "short_name": "Alpha"
+      },
+      {
+        "id": "hf_beta",
+        "label": "hf_beta (Kokoro Hindi Female - Beta)",
+        "lang": "hi",
+        "short_name": "Beta"
+      },
+      {
+        "id": "hm_omega",
+        "label": "hm_omega (Kokoro Hindi Male - Omega)",
+        "lang": "hi",
+        "short_name": "Omega"
+      },
+      {
+        "id": "hm_psi",
+        "label": "hm_psi (Kokoro Hindi Male - Psi)",
+        "lang": "hi",
+        "short_name": "Psi"
+      }
+    ]
+  },
+  "openai": {
+    "fallback_voice": "alloy",
+    "voices": [
+      {
+        "id": "alloy",
+        "label": "alloy (OpenAI Neutral)"
+      },
+      {
+        "id": "nova",
+        "label": "nova (OpenAI Warm)"
+      },
+      {
+        "id": "shimmer",
+        "label": "shimmer (OpenAI Expressive)"
+      },
+      {
+        "id": "echo",
+        "label": "echo (OpenAI Soft Male)"
+      },
+      {
+        "id": "onyx",
+        "label": "onyx (OpenAI Deep Male)"
+      },
+      {
+        "id": "fable",
+        "label": "fable (OpenAI British Narrator)"
+      }
+    ]
+  },
+  "system": {
+    "fallback_voice": "default",
+    "voices": [
+      {
+        "id": "default",
+        "label": "default (System Default)"
+      }
+    ]
+  }
+}

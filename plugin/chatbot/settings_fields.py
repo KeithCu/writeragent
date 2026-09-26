@@ -61,6 +61,36 @@ def call_options_provider(ctx: Any, provider_path: str) -> Any:
         raise ConfigError(f"Options provider {provider_path} failed: {e}") from e
 
 
+def _display_label_for_stored_value(opts: Any, val: Any) -> Any:
+    """Map a stored option value to its label when the list uses value/label dicts.
+
+    Compare case-insensitively: Piper ids such as ``en_US-lessac-medium`` do not
+    match a lowercased stored value against the raw option value.
+    """
+    if not isinstance(opts, list) or not opts or not isinstance(opts[0], dict):
+        return val
+    stored = str(val).strip().lower()
+    for opt in opts:
+        if isinstance(opt, dict) and str(opt.get("value", "")).strip().lower() == stored:
+            return _(str(opt.get("label", val)))
+    return val
+
+
+def _resolve_field_options(schema: dict[str, Any], config_key: str, ctx: Any | None) -> Any:
+    """Prefer ``options_provider``; yaml ``options`` stay the fallback stub."""
+    provider_path = schema.get("options_provider")
+    if provider_path and isinstance(provider_path, str) and ctx is not None:
+        try:
+            provided = call_options_provider(ctx, provider_path)
+            if isinstance(provided, list) and provided:
+                return provided
+        except Exception:
+            log.exception("options_provider failed for %s", config_key)
+    if schema.get("options"):
+        return schema["options"]
+    return None
+
+
 def build_module_field_specs(
     module_name: str,
     *,
@@ -97,26 +127,13 @@ def build_module_field_specs(
             ctrl_id = field_name
 
         val = get_config(config_key)
-        opts = schema.get("options", [])
-
-        # For select/combo with value/label options, use label for display so dropdown shows correctly.
-        if isinstance(opts, list) and opts and isinstance(opts[0], dict):
-            v_str = str(val).strip().lower()
-            for opt in opts:
-                if isinstance(opt, dict) and str(opt.get("value", "")) == v_str:
-                    val = _(str(opt.get("label", val)))
-                    break
+        # Provider options (when present) drive the dropdown; yaml options are the fallback.
+        resolved_opts = _resolve_field_options(schema, config_key, ctx)
+        val = _display_label_for_stored_value(resolved_opts, val)
 
         field: dict[str, Any] = {"name": ctrl_id, "config_key": config_key, "value": str(val)}
-
-        provider_path = schema.get("options_provider")
-        if provider_path and isinstance(provider_path, str) and ctx is not None:
-            try:
-                field["options"] = call_options_provider(ctx, provider_path)
-            except Exception:
-                log.exception("options_provider failed for %s", config_key)
-        elif schema.get("options"):
-            field["options"] = schema["options"]
+        if resolved_opts:
+            field["options"] = resolved_opts
 
         schema_type = schema.get("type", "string")
         if schema_type == "boolean":
