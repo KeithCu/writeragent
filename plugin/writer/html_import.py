@@ -507,6 +507,21 @@ def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> st
 
 
 
+def _parked_cursor(cursor: Any) -> Any:
+    """A cursor parked at *cursor*'s end, in the same ``XText``.
+
+    What was wrong: multi-segment inserts moved the cursor to the END OF THE BODY after each
+    segment, which only works when inserting at the end. A search replace whose content had math
+    left "[Math import failed] ..." and the rest of the content orphaned at the end of the
+    document (relatos #46/#47/#48), and any cursor in a frame, cell or header raised an empty
+    RuntimeException (#52): it cannot go to a range in another text. Why this fixes it: the HTML
+    import, ``insertString`` and ``insertTextContent`` all leave a cursor parked at the insert
+    point AFTER what they insert (checked live; the import leaves *cursor* itself BEFORE it), so
+    going back to the parked cursor continues right after the content, in any text.
+    """
+    return cursor.getText().createTextCursorByRange(cursor.getEnd())
+
+
 def _cursor_goto_document_end(model: Any, cursor: Any) -> None:
     """Move *cursor* to the end of the document body (``model.getText()``)."""
     end_c = model.getText().createTextCursor()
@@ -528,10 +543,11 @@ def insert_html_fragment_at_cursor(
 
     When *wrap* is True, wraps bare fragments in a full HTML document.
     *extra_css* is injected into ``<head>`` (e.g. sidebar list margins).
-    When *model* is provided, moves *cursor* to document end after import
+    When *model* is provided, moves *cursor* past the imported content
     (needed for multi-segment Writer inserts).
     """
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
+    tail = _parked_cursor(cursor) if model is not None else None
     with format_mod._with_temp_buffer(prepared, config_svc) as (_path, file_url):
         filter_name, _unused = format_mod._get_format_props(config_svc)
         filter_props = (format_mod.create_property_value("FilterName", filter_name),)
@@ -549,8 +565,8 @@ def insert_html_fragment_at_cursor(
                 exc_info=e,
             )
             raise
-    if model is not None:
-        _cursor_goto_document_end(model, cursor)
+    if tail is not None:
+        cursor.gotoRange(tail.getStart(), False)
 
 
 
@@ -575,14 +591,15 @@ def _insert_mixed_html_and_math_at_cursor(
             else:
                 _math_i += 1
                 log.debug("mixed_html_math: segment[%d] %s#%d display_block=%s src_nl=%d src_len=%d", _si, _s.kind, _math_i, _s.display_block, _s.text.count("\n"), len(_s.text))
+    tail = _parked_cursor(cursor)
     for seg in _segs:
         if seg.kind == "html":
             chunk = seg.text
             if not chunk:
                 continue
             if not chunk.strip():
-                model.getText().insertString(cursor, chunk, False)
-                _cursor_goto_document_end(model, cursor)
+                cursor.getText().insertString(cursor, chunk, False)
+                cursor.gotoRange(tail.getStart(), False)
                 continue
 
             # Expand literal \n and \t for plain HTML without math
@@ -599,13 +616,12 @@ def _insert_mixed_html_and_math_at_cursor(
             log.debug("mixed_html_math: StarMath from converter nl=%d len=%d repr=%r", res.starmath.count("\n"), len(res.starmath), res.starmath[:500])
         if res.ok and res.starmath:
             insert_writer_math_formula(model, cursor, res.starmath, display_block=seg.display_block)
-            _cursor_goto_document_end(model, cursor)
         else:
             snippet = (seg.text or "").replace("\n", " ")[:120]
             fallback = "[Math import failed] " + snippet
-            model.getText().insertString(cursor, fallback, False)
-            _cursor_goto_document_end(model, cursor)
+            cursor.getText().insertString(cursor, fallback, False)
             log.debug("math import failed: %s snippet=%r", res.error_message, snippet)
+        cursor.gotoRange(tail.getStart(), False)
 
 
 
@@ -927,13 +943,7 @@ def _is_recording_changes(model: Any) -> bool:
 def replace_single_range_with_content(
     model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None
 ) -> None:
-    """Replace the given text range with rendered *content* (HTML path).
-
-    FOLLOW-UP: cursor uses ``text_range.getText()`` but HTML import still calls
-    ``_cursor_goto_document_end`` (body) in places — markup search-replace inside
-    table cells / nested ``XText`` can raise the same RuntimeException as the
-    plain-text bug fixed in ``replace_preserving_format``.
-    """
+    """Replace the given text range with rendered *content* (HTML path)."""
     prepared = html_mod.unescape(content)
     text_obj = text_range.getText()
 
@@ -1189,9 +1199,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
 
     Field spans from ``document_to_content`` / ``xtext_to_content`` are
     restored as live fields after import. *model* is the owning document
-    (needed to create fields and to find placeholders). Do not pass it
-    through to ``insert_html_fragment_at_cursor`` — that helper would
-    then jump the cursor to the *body* end.
+    (needed to create fields and to find placeholders).
 
     The clear happens only for the import attempt. If that import raises,
     the previous text is written back (see ``_restore_xtext_string``).

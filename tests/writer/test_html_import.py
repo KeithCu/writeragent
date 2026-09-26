@@ -196,6 +196,25 @@ def test_insert_inline_at_cursor_keeps_edge_whitespace_of_markup():
     assert frag.call_args.kwargs["wrap"] is False
 
 
+def test_mixed_math_segments_stay_in_place_not_at_body_end():
+    """#46/#47: after a math segment the rest of a mid-document replace went to the END of the
+    body ("[Math import failed] ..." orphaned after the last paragraph)."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer import html_import
+
+    model, cursor = MagicMock(), MagicMock()
+    parked = cursor.getText.return_value.createTextCursorByRange.return_value
+    failed = SimpleNamespace(ok=False, starmath=None, error_message="no converter")
+    with patch.object(html_import, "insert_html_fragment_at_cursor") as frag, \
+         patch.object(html_import, "convert_latex_to_starmath", return_value=failed):
+        html_import._insert_mixed_html_and_math_at_cursor(model, MagicMock(), cursor, "<p>antes \\(x\\) depois</p>")
+    assert frag.call_count == 2
+    cursor.getText.return_value.insertString.assert_called_once_with(cursor, "[Math import failed] x", False)
+    assert cursor.gotoRange.call_args.args == (parked.getStart.return_value, False)
+    model.getText.assert_not_called()
+
 
 def test_insert_inline_at_cursor_does_not_unescape_plain_text_again():
     """content.py decodes only complete references; a second html.unescape turned "&sect 2o"
