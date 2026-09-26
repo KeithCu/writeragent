@@ -115,9 +115,41 @@ def build_search_replace_response(
     return res
 
 
+# LibreOffice search also sees text a pending tracked change deleted, so visible text that runs
+# across such a deletion ("a) no pressuposto" around a struck word) is never found (relato #43).
+_TRACKED_DELETION_HINT = (
+    " This document has pending tracked deletions: the search also sees the deleted text, so a"
+    " phrase that runs across a deletion is not found. Use a shorter piece on one side of it."
+)
+
+
+def document_has_tracked_deletions(doc: Any) -> bool:
+    """True when *doc* holds at least one pending tracked deletion (best effort)."""
+    from plugin.writer.review_scan import RedlineScanAbort, scan_redlines
+
+    found: list[bool] = []
+
+    def on_item(rl: Any) -> bool:
+        try:
+            is_delete = rl.getPropertyValue("RedlineType") == "Delete"
+        except Exception:
+            return True  # one unreadable redline does not hide the others
+        if is_delete:
+            found.append(True)
+            raise RedlineScanAbort()
+        return True
+
+    try:
+        scan_redlines(doc, on_item)
+    except Exception:
+        return False
+    return bool(found)
+
+
 def build_search_not_found_response(
     all_matches: bool = False,
     shape_name: str | None = None,
+    tracked_deletions: bool = False,
 ) -> dict[str, Any]:
     """Standardized search not-found response dictionary."""
     if shape_name:
@@ -129,15 +161,16 @@ def build_search_not_found_response(
             ),
             "replaced_count": 0,
         }
+    hint = _TRACKED_DELETION_HINT if tracked_deletions else ""
     if all_matches:
         return {
             "status": "error",
-            "message": "Replaced 0 occurrence(s). No matches found. Try a shorter substring.",
+            "message": "Replaced 0 occurrence(s). No matches found. Try a shorter substring." + hint,
             "replaced_count": 0,
         }
     return {
         "status": "error",
-        "message": "old_content not found in document. Try a shorter, unique substring.",
+        "message": "old_content not found in document. Try a shorter, unique substring." + hint,
         "replaced_count": 0,
     }
 
@@ -870,6 +903,8 @@ class SearchInDocument(ToolBase):
                 return self._tool_error(invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
 
         result = {"status": "ok", "matches": matches, "count": total_count, "returned": len(matches)}
+        if total_count == 0 and document_has_tracked_deletions(doc):
+            result["note"] = _TRACKED_DELETION_HINT.strip()
         if truncated or find_next_failed:
             result["truncated"] = True
             if truncated:

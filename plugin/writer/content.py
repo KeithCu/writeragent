@@ -1125,7 +1125,8 @@ class ApplyDocumentContent(ToolBase):
             ranges = (search_mod.find_ranges_regex_case(doc, _opts_pattern, _regex_opt, _opts_cs, all_matches=True)
                       if _use_opts else search_mod.find_all_ranges(doc, search_string))
             if not ranges:
-                return search_mod.build_search_not_found_response(all_matches=True), session
+                return search_mod.build_search_not_found_response(
+                    all_matches=True, tracked_deletions=search_mod.document_has_tracked_deletions(doc)), session
             from plugin.writer.search import _MAX_SEARCH_REPLACEMENTS
             max_limit_hit = len(ranges) >= _MAX_SEARCH_REPLACEMENTS
             # Decide before any replace. An empty replacement that is the last text
@@ -1268,7 +1269,8 @@ class ApplyDocumentContent(ToolBase):
                         None)
                     return self._annotate_review_status(ctx.ctx, result), session
                 return search_mod.build_search_not_found_response(shape_name=shape_name), session
-            return search_mod.build_search_not_found_response(all_matches=False), session
+            return search_mod.build_search_not_found_response(
+                all_matches=False, tracked_deletions=search_mod.document_has_tracked_deletions(doc)), session
         if position in ("before", "after"):
             # INSERT next to the match instead of replacing it: the single most common petition
             # edit ("add a paragraph after clause X") previously forced resending the clause
