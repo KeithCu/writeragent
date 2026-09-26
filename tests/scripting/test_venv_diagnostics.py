@@ -831,6 +831,7 @@ def test_format_self_check_success_audio_tts_optional_installed():
             "kokoro_onnx": "present",
             "soundfile": "present",
             "piper": "present",
+            "faster_whisper": "present",
         },
         "sci": [],
         "eda": [],
@@ -842,8 +843,12 @@ def test_format_self_check_success_audio_tts_optional_installed():
         "data_eng": [],
     }
     msg = _format_self_check_success(data)
-    assert "Audio Recording & Speech: sounddevice, input_device, kokoro_onnx, soundfile, piper" in msg
+    assert (
+        "Audio Recording & Speech: sounddevice, input_device, kokoro_onnx, soundfile, piper, faster_whisper"
+        in msg
+    )
     assert "Optional (not installed):" not in msg
+    assert "Local Whisper (optional):" not in msg
 
 
 def test_format_self_check_success_audio_tts_optional_missing_shows_hint():
@@ -857,6 +862,7 @@ def test_format_self_check_success_audio_tts_optional_missing_shows_hint():
             "kokoro_onnx": None,
             "soundfile": None,
             "piper": None,
+            "faster_whisper": None,
         },
         "sci": [],
         "eda": [],
@@ -869,9 +875,89 @@ def test_format_self_check_success_audio_tts_optional_missing_shows_hint():
     }
     msg = _format_self_check_success(data)
     assert "Audio Recording & Speech: sounddevice, input_device" in msg
-    assert "Optional (not installed): kokoro_onnx, soundfile, piper" in msg
+    assert "Optional (not installed): kokoro_onnx, soundfile, piper, faster_whisper" in msg
+    assert "Missing: faster_whisper" not in msg
+    assert "To install remaining packages:" not in msg
     assert (
         "Local TTS engines (optional): uv pip install kokoro-onnx soundfile piper-tts "
         "'misaki[ja,zh]' phonemizer-fork espeakng-loader"
     ) in msg
+    assert "Local Whisper (optional): uv pip install faster-whisper" in msg
+
+
+def _audio_self_check_data(packages: dict[str, str | None]) -> dict:
+    from plugin.scripting.venv_diagnostics import _AUDIO_PACKAGE_KEYS
+
+    return {
+        "v": "3.13.0",
+        "p": packages,
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "nlp": [],
+        "audio": list(_AUDIO_PACKAGE_KEYS),
+        "vector_search": [],
+        "vision": [],
+        "data_eng": [],
+    }
+
+
+def test_format_self_check_success_whisper_missing_does_not_print_tts_recipe():
+    from plugin.scripting.venv_diagnostics import _format_self_check_success
+
+    msg = _format_self_check_success(
+        _audio_self_check_data(
+            {
+                "sounddevice": "present",
+                "input_device": "present",
+                "kokoro_onnx": "present",
+                "soundfile": "present",
+                "piper": "present",
+                "faster_whisper": None,
+            }
+        )
+    )
+    assert "Optional (not installed): faster_whisper" in msg
+    assert "Local Whisper (optional): uv pip install faster-whisper" in msg
+    assert "Local TTS engines (optional):" not in msg
+    assert "kokoro-onnx" not in msg
+
+
+def test_format_self_check_success_tts_missing_does_not_print_whisper_recipe():
+    from plugin.scripting.venv_diagnostics import _format_self_check_success
+
+    msg = _format_self_check_success(
+        _audio_self_check_data(
+            {
+                "sounddevice": "present",
+                "input_device": "present",
+                "kokoro_onnx": None,
+                "soundfile": "present",
+                "piper": "present",
+                "faster_whisper": "present",
+            }
+        )
+    )
+    assert "Optional (not installed): kokoro_onnx" in msg
+    assert "faster_whisper" not in msg.split("Optional (not installed):", 1)[-1].split("\n", 1)[0]
+    assert "Local TTS engines (optional):" in msg
+    assert "Local Whisper (optional):" not in msg
+    assert "uv pip install faster-whisper" not in msg
+
+
+def test_audio_probe_lists_faster_whisper_as_optional_pip_package():
+    from plugin.scripting.venv_diagnostics import (
+        _AUDIO_OPTIONAL_KEYS,
+        _AUDIO_PACKAGE_KEYS,
+        _AUDIO_PROBE_SCRIPT,
+        _PROBE_KEY_TO_PIP,
+        _probe_key_to_pip,
+    )
+
+    assert _AUDIO_PACKAGE_KEYS[-1] == "faster_whisper"
+    assert "faster_whisper" in _AUDIO_OPTIONAL_KEYS
+    assert "import faster_whisper" in _AUDIO_PROBE_SCRIPT
+    compile(_AUDIO_PROBE_SCRIPT, "<audio_probe>", "exec")
+    assert _PROBE_KEY_TO_PIP["faster_whisper"] == "faster-whisper"
+    assert _probe_key_to_pip("faster_whisper") == "faster-whisper"
 

@@ -210,14 +210,27 @@ _DOCLING_INSTALL_CMD = "uv pip install docling rapidocr-paddle numpy pillow css-
 _VISION_PADDLE_FALLBACK_CMD = "uv pip install paddleocr paddlepaddle numpy"
 _VIZ_INSTALL_CMD = "uv pip install matplotlib seaborn"
 _SYMBOLIC_INSTALL_CMD = "uv pip install sympy"
-_AUDIO_PACKAGE_KEYS = ("sounddevice", "input_device", "kokoro_onnx", "soundfile", "piper")
-_AUDIO_OPTIONAL_KEYS = ("kokoro_onnx", "soundfile", "piper")
+_AUDIO_PACKAGE_KEYS = (
+    "sounddevice",
+    "input_device",
+    "kokoro_onnx",
+    "soundfile",
+    "piper",
+    "faster_whisper",
+)
+# sounddevice is required for Record. Local TTS and local Whisper are optional
+# and each missing set gets its own install line.
+_TTS_OPTIONAL_KEYS = ("kokoro_onnx", "soundfile", "piper")
+_AUDIO_OPTIONAL_KEYS = _TTS_OPTIONAL_KEYS + ("faster_whisper",)
 _AUDIO_INSTALL_CMD = "uv pip install sounddevice"
 # Kokoro multilingual extras match plugin/audio/kokoro_g2p.py KOKORO_PIP_INSTALL.
 # piper-tts stays in this hint; do not import plugin.audio from LibrePy diagnostics.
 _TTS_INSTALL_CMD = (
     "uv pip install kokoro-onnx soundfile piper-tts 'misaki[ja,zh]' phonemizer-fork espeakng-loader"
 )
+# Separate from the TTS recipe so a missing Whisper package does not print
+# the Kokoro/Piper install line (and the reverse).
+_WHISPER_INSTALL_CMD = "uv pip install faster-whisper"
 _AUDIO_LINUX_PORTAUDIO_HINT = _("On Linux also install system PortAudio: sudo pacman -S portaudio")
 # Hardware / non-PyPI probe keys must not appear in the copy-paste install footer.
 _NON_PIP_PROBE_KEYS = frozenset({"input_device"})
@@ -240,6 +253,7 @@ _PROBE_KEY_TO_PIP: dict[str, str] = {
     "paddle": "paddlepaddle",
     "kokoro_onnx": "kokoro-onnx",
     "piper": "piper-tts",
+    "faster_whisper": "faster-whisper",
 }
 _AUDIO_PROBE_SCRIPT = """
 import json
@@ -271,6 +285,12 @@ try:
     out["piper"] = "present"
 except Exception:
     out["piper"] = None
+
+try:
+    import faster_whisper
+    out["faster_whisper"] = "present"
+except Exception:
+    out["faster_whisper"] = None
 
 print(json.dumps(out))
 """
@@ -898,9 +918,15 @@ def _build_probe_display(
                     msg_lines.append(f"  {audio_failure}")
                 elif packages.get("sounddevice") == "present" and packages.get("input_device") != "present":
                     msg_lines.append(f"  {_('No microphone input devices detected.')}")
-                tts_missing = [k for k in _AUDIO_OPTIONAL_KEYS if packages.get(k) != "present"]
+                tts_missing = [k for k in _TTS_OPTIONAL_KEYS if packages.get(k) != "present"]
                 if tts_missing and include_install_footer:
                     msg_lines.append(f"  {_('Local TTS engines (optional):')} {_TTS_INSTALL_CMD}")
+                if (
+                    include_install_footer
+                    and "faster_whisper" in keys
+                    and packages.get("faster_whisper") != "present"
+                ):
+                    msg_lines.append(f"  {_('Local Whisper (optional):')} {_WHISPER_INSTALL_CMD}")
 
     probe_warnings = data.get("probe_warnings")
     if isinstance(probe_warnings, list):
@@ -1026,7 +1052,7 @@ def run_venv_self_check_with_progress(
     }
 
     if include_audio:
-        _status(_("Audio & Speech: checking sounddevice and TTS engines..."))
+        _status(_("Audio & Speech: checking sounddevice, TTS, and local Whisper..."))
         audio_probes, audio_failure = _probe_audio_packages(
             python_exe,
             timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),

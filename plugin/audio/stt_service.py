@@ -8,9 +8,11 @@
 (POST ``/v1/audio/transcriptions``, or chat when that STT model takes audio).
 
 ``local`` (aliases ``whisper`` and ``faster-whisper``) runs
-``whisper_transcribe.py`` in the Settings → Python venv. faster-whisper is
-never installed into LibreOffice's embedded Python — same rule as recording
-and Kokoro.
+``whisper_transcribe.py`` in the Settings → Python venv. The package is
+user-installed (Settings → Python Test lists it with the other Audio
+optional packages). Record does not pip-install it. Model weights still
+download into the Hugging Face cache the first time a size is used — the
+same binary-fetch pattern as Kokoro and Piper voice files.
 """
 
 from __future__ import annotations
@@ -18,7 +20,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -31,7 +32,7 @@ from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, 
 
 log = logging.getLogger(__name__)
 
-# Human install line. The probe may use ``python -m pip`` when ``uv`` is absent.
+# Shown when the venv cannot ``import faster_whisper``. Record does not run it.
 FASTER_WHISPER_PIP_INSTALL = "uv pip install faster-whisper"
 
 STT_PROVIDER_ENDPOINT = "endpoint"
@@ -46,7 +47,6 @@ LOCAL_STT_MODELS = ("tiny", "base", "small", "medium")
 DEFAULT_STT_LOCAL_MODEL = "base"
 
 _PROBE_TIMEOUT_SEC = 60.0
-_PIP_TIMEOUT_SEC = 300.0
 # First run may download weights (base is ~150 MB; medium is ~1.5 GB) and then
 # transcribe. A short recording on CPU is much less than this.
 _TRANSCRIBE_TIMEOUT_SEC = 900.0
@@ -181,43 +181,18 @@ def _probe_faster_whisper(py_exe: str) -> bool:
     return completed is not None and completed.returncode == 0
 
 
-def _pip_install_faster_whisper(py_exe: str) -> bool:
-    uv = shutil.which("uv")
-    if uv:
-        cmd = [uv, "pip", "install", "--python", py_exe, "faster-whisper"]
-    else:
-        cmd = [py_exe, "-m", "pip", "install", "faster-whisper"]
-    log.info("Installing faster-whisper: %s", " ".join(cmd))
-    completed = _run_cmd(cmd, _PIP_TIMEOUT_SEC)
-    if completed is None or completed.returncode != 0:
-        detail = ""
-        if completed is not None:
-            detail = (completed.stderr or completed.stdout or "").strip()
-        log.warning("faster-whisper install failed: %s", detail[-2000:])
-        return False
-    return True
+def ensure_faster_whisper(py_exe: str) -> bool:
+    """Return True when ``import faster_whisper`` succeeds in ``py_exe``.
 
-
-def ensure_faster_whisper(
-    py_exe: str,
-    on_status: Callable[[str], None] | None = None,
-) -> bool:
-    """Import-check faster-whisper in ``py_exe`` and pip-install it when missing.
-
-    Returns True when ``import faster_whisper`` succeeds. A successful probe
-    is remembered for this process so the next recording does not spawn Python
-    again just to import. Failures are not cached.
+    A successful probe is remembered for this process so the next recording
+    does not spawn Python again just to import. A missing package is not
+    installed and is not cached: Record raises ``ConfigError`` with the
+    install hint. Auto-pip on first Record failed on real machines; Kokoro
+    and Piper auto-fetch voice files, not their Python packages.
     """
     with _probe_lock:
         if py_exe in _whisper_ready:
             return True
-    if _probe_faster_whisper(py_exe):
-        with _probe_lock:
-            _whisper_ready.add(py_exe)
-        return True
-    _emit(on_status, _("Installing faster-whisper…"))
-    if not _pip_install_faster_whisper(py_exe):
-        return False
     if _probe_faster_whisper(py_exe):
         with _probe_lock:
             _whisper_ready.add(py_exe)
@@ -262,9 +237,10 @@ def _missing_venv_message() -> str:
 
 
 def _missing_package_message() -> str:
-    return _("Couldn't install faster-whisper in the Settings → Python venv. Install with: {0}").format(
-        FASTER_WHISPER_PIP_INSTALL
-    )
+    return _(
+        "faster-whisper is not installed in the Settings → Python venv. "
+        "Install with: {0}. Settings → Python Test lists it under Audio optional packages."
+    ).format(FASTER_WHISPER_PIP_INSTALL)
 
 
 def _transcribe_local(
@@ -277,7 +253,7 @@ def _transcribe_local(
         raise ConfigError(_missing_venv_message())
     if not os.path.isfile(_WHISPER_SCRIPT):
         raise ConfigError(_("Local Whisper script is missing from the extension."))
-    if not ensure_faster_whisper(py_exe, on_status=on_status):
+    if not ensure_faster_whisper(py_exe):
         raise ConfigError(_missing_package_message())
 
     # WhisperModel downloads on first use inside the child. The sidebar status
