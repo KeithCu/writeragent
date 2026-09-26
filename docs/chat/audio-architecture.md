@@ -144,6 +144,8 @@ Settings → Voice does not keep a hand-copied multilingual list in [`plugin/aud
 
 The first local speak may download a Piper or Kokoro model. That used to be log-only, including the fallback to Lessac or OS speech. `speak_text_async(..., on_status=)` now also reports short lines ("Downloading Piper voice Thorsten…", "Couldn't download Thorsten; using Lessac", "Couldn't download Kokoro; using OS speech"). The sidebar posts those onto the existing status field and restores the previous status when speech finishes.
 
+Local Kokoro downloads the multilingual v1.0 pack into `~/.cache/kokoro/`: `kokoro-v1.0.onnx` and `voices-v1.0.bin` from the kokoro-onnx `model-files-v1.1` release (54 voices, including `jf_alpha` and the other non-English catalog ids). `KOKORO_MODEL_PATH` and `KOKORO_VOICES_PATH` override those paths. An older English-only cache (`kokoro-v0_19.onnx`, `voices.bin` from the `model-files` release) is left on disk; the next speak fetches the v1.0 filenames when they are missing, so a multilingual voice is not synthesized from the English-only pack.
+
 ## Related docs
 
 - [Enabling NumPy & Python in LibreOffice](../enabling_numpy_in_libreoffice.md) — venv settings, Test diagnostics, trusted worker pattern

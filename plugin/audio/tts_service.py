@@ -533,11 +533,27 @@ def _notify_tts_status(message: str, on_status: Callable[[str], None] | None) ->
         log.debug("TTS status callback failed", exc_info=True)
 
 
+# The kokoro-onnx "model-files" release (kokoro-v0_19.onnx + voices.bin) is
+# English-only. Settings lists multilingual ids such as jf_alpha that exist in
+# voices-v1.0.bin; with the old pack the speak script substituted af_bella and
+# still passed the requested lang, so Japanese and other languages sounded wrong.
+# Default cache names are the v1.0 files from "model-files-v1.1" (the release
+# the kokoro-onnx examples download). A cache that only has the old filenames
+# misses these paths, so the next speak downloads the multilingual pack and
+# leaves the English-only files in place. KOKORO_MODEL_PATH / KOKORO_VOICES_PATH
+# still override both.
+_KOKORO_MODEL_FILENAME = "kokoro-v1.0.onnx"
+_KOKORO_VOICES_FILENAME = "voices-v1.0.bin"
+_KOKORO_RELEASE_BASE = (
+    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1"
+)
+
+
 def _resolve_kokoro_model_files(on_status: Callable[[str], None] | None = None) -> tuple[str, str]:
     """Resolve paths to Kokoro ONNX model and voices file, downloading if missing."""
     cache_dir = os.path.expanduser("~/.cache/kokoro")
-    default_model = os.path.join(cache_dir, "kokoro-v0_19.onnx")
-    default_voices = os.path.join(cache_dir, "voices.bin")
+    default_model = os.path.join(cache_dir, _KOKORO_MODEL_FILENAME)
+    default_voices = os.path.join(cache_dir, _KOKORO_VOICES_FILENAME)
 
     model_path = os.environ.get("KOKORO_MODEL_PATH") or default_model
     voices_path = os.environ.get("KOKORO_VOICES_PATH") or default_voices
@@ -549,18 +565,21 @@ def _resolve_kokoro_model_files(on_status: Callable[[str], None] | None = None) 
     try:
         os.makedirs(cache_dir, exist_ok=True)
         import urllib.request
-        base_url = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files"
         needs_voices = not os.path.exists(voices_path) and voices_path == default_voices
         needs_model = not os.path.exists(model_path) and model_path == default_model
         if needs_voices or needs_model:
             _notify_tts_status(_("Downloading Kokoro voice model…"), on_status)
         if needs_voices:
             log.info("Downloading Kokoro voices to %s...", default_voices)
-            urllib.request.urlretrieve(f"{base_url}/voices.bin", default_voices)
+            urllib.request.urlretrieve(
+                f"{_KOKORO_RELEASE_BASE}/{_KOKORO_VOICES_FILENAME}", default_voices
+            )
             voices_path = default_voices
         if needs_model:
             log.info("Downloading Kokoro ONNX model to %s...", default_model)
-            urllib.request.urlretrieve(f"{base_url}/kokoro-v0_19.onnx", default_model)
+            urllib.request.urlretrieve(
+                f"{_KOKORO_RELEASE_BASE}/{_KOKORO_MODEL_FILENAME}", default_model
+            )
             model_path = default_model
     except Exception as e:
         failed = True
@@ -718,13 +737,26 @@ def _speak_kokoro_local(
     try:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             tmp_wav = f.name
+        # A voices file that lacks the requested id (for example a custom
+        # KOKORO_VOICES_PATH still pointing at the English-only pack) keeps
+        # speaking via af_bella. Log it; do not fail the speak.
         script = (
             "import sys\n"
             "from kokoro_onnx import Kokoro\n"
             "import soundfile as sf\n"
             "kokoro = Kokoro(sys.argv[5], sys.argv[6])\n"
-            "v = sys.argv[2] if sys.argv[2] in kokoro.voices else ('af_bella' if 'af_bella' in kokoro.voices else kokoro.voices[0])\n"
-            "samples, rate = kokoro.create(sys.argv[1], voice=v, speed=float(sys.argv[3]), lang=sys.argv[7])\n"
+            "requested = sys.argv[2]\n"
+            "if requested in kokoro.voices:\n"
+            "    voice = requested\n"
+            "else:\n"
+            "    voice = 'af_bella' if 'af_bella' in kokoro.voices else kokoro.voices[0]\n"
+            "    sys.stderr.write(\n"
+            "        'Kokoro voice %r is not in %s; using %s\\n'\n"
+            "        % (requested, sys.argv[6], voice)\n"
+            "    )\n"
+            "samples, rate = kokoro.create(\n"
+            "    sys.argv[1], voice=voice, speed=float(sys.argv[3]), lang=sys.argv[7]\n"
+            ")\n"
             "sf.write(sys.argv[4], samples, rate)\n"
         )
         cmd = [py_exe, "-c", script, text, voice, str(speed), tmp_wav, model_path, voices_path, lang]
@@ -737,9 +769,12 @@ def _speak_kokoro_local(
         _, stderr = _active_speech_proc.communicate()
         if _active_speech_proc.returncode != 0:
             log.warning("Venv Kokoro failed (code %d): %s", _active_speech_proc.returncode, stderr)
-        elif os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0:
-            _play_audio_file(tmp_wav)
-            return
+        else:
+            if stderr and stderr.strip():
+                log.warning("Kokoro: %s", stderr.strip())
+            if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 0:
+                _play_audio_file(tmp_wav)
+                return
     except Exception as e:
         log.warning("Venv Kokoro execution error: %s", e)
     finally:
