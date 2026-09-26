@@ -207,6 +207,11 @@ def get_document_context_for_chat(
                 take = min(doc_len, max_context)
                 excerpt_windows = [(0, take)]
 
+            # The windows are in cursor steps (doc_len); the model is shown the visible length,
+            # the number get_document_content reports as document_length. Cursor steps also count
+            # pending deleted text, so the two disagreed in review mode (3405 vs 2439).
+            shown_len = _text_helpers.get_document_length(model)
+
             start_offset, end_offset = (0, 0)
             if include_selection:
                 sel_positions = _text_helpers._get_writer_selection_positions(model)
@@ -229,7 +234,7 @@ def get_document_context_for_chat(
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _with_math_ole_chat_hint(
                     model,
-                    "Document length: %d characters.\n\n%s%s%s" % (doc_len, start_excerpt, middle_note, end_excerpt),
+                    "Document length: %d characters.\n\n%s%s%s" % (shown_len, start_excerpt, middle_note, end_excerpt),
                 )
 
             take = min(doc_len, max_context)
@@ -239,7 +244,7 @@ def get_document_context_for_chat(
             excerpt = _inject_markers_into_excerpt(excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]")
             return _with_math_ole_chat_hint(
                 model,
-                "Document length: %d characters.\n\n%s" % (doc_len, excerpt),
+                "Document length: %d characters.\n\n%s" % (shown_len, excerpt),
             )
 
         return ""

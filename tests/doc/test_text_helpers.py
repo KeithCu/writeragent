@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.doc.text_helpers import (
     _visible_portions,
     apply_chapter_number,
@@ -330,42 +332,6 @@ def test_text_helpers_import_does_not_load_calc_analyzer():
         env={**__import__("os").environ, "PYTHONPATH": repo_root},
     )
     assert result.returncode == 0, result.stdout + result.stderr
-class MockCursor:
-    def __init__(self, string):
-        self.string = string
-    def gotoStart(self, *args):
-        pass
-    def gotoEnd(self, *args):
-        pass
-    def getString(self):
-        return self.string
-
-class MockText:
-    def __init__(self, string):
-        self.string = string
-    def createTextCursor(self):
-        return MockCursor(self.string)
-
-class MockModel:
-    def __init__(self, chars, paras, string=""):
-        self.CharacterCount = chars
-        self.ParagraphCount = paras
-        self.string = string
-    def getText(self):
-        return MockText(self.string)
-
-def test_char_count_with_paras():
-    model = MockModel(10, 3)
-    # CharacterCount + ParagraphCount - 1 = 10 + 3 - 1 = 12
-    from plugin.doc.text_helpers import _writer_char_count
-    assert _writer_char_count(model) == 12
-
-def test_char_count_no_attr():
-    model = MockModel(None, None, "hello\nworld")
-    del model.CharacterCount
-    del model.ParagraphCount
-    from plugin.doc.text_helpers import _writer_char_count
-    assert _writer_char_count(model) == 11
 
 
 def test_get_text_cursor_at_range_ignores_the_short_character_count():
@@ -392,3 +358,64 @@ def test_get_text_cursor_at_range_stops_at_the_end_of_the_text():
     cursor.goRight.return_value = False
     assert get_text_cursor_at_range(model, 10**12, 10**12 + 5) is cursor
     assert cursor.goRight.call_count == 1
+
+
+class _WalkCursor:
+    """Model cursor over a body of *n* cursor steps: goRight stops at the end and says False."""
+
+    def __init__(self, text, pos):
+        self.text, self.pos = text, pos
+
+    def gotoStart(self, expand):
+        self.pos = 0
+
+    def getStart(self):
+        return self
+
+    def goRight(self, n, expand):
+        if self.pos + n <= self.text.n:
+            self.pos += n
+            return True
+        self.pos = self.text.n
+        return False
+
+
+class _WalkText:
+    def __init__(self, n):
+        self.n = n
+
+    def createTextCursor(self):
+        return _WalkCursor(self, 0)
+
+    def createTextCursorByRange(self, rng):
+        return _WalkCursor(self, rng.pos)
+
+
+@pytest.mark.parametrize("n", [0, 5, 8192, 20001])
+def test_writer_char_count_walks_the_real_length_not_character_count(n):
+    """CharacterCount leaves out paragraph breaks and tracked deletions (54 read as 53), so the
+    chat excerpt and get_full_writer_text lost the end of the document."""
+    from types import SimpleNamespace
+
+    from plugin.doc.text_helpers import _writer_char_count
+
+    text = _WalkText(n)
+    assert _writer_char_count(SimpleNamespace(getText=lambda: text, CharacterCount=1)) == n
+
+
+def test_get_document_length_is_the_visible_writer_text():
+    """document_length and scope='range' share one space: the visible text as
+    get_string_without_tracked_deletions reads it (a field or footnote number is several
+    characters there but one cursor step; CharacterCount cut a range read at the end: "o dan")."""
+    from plugin.doc import text_helpers
+
+    model = MagicMock()
+    with (
+        patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.WRITER),
+        patch.object(text_helpers, "check_disposed"),
+        patch.object(text_helpers, "get_string_without_tracked_deletions", return_value="ab\r\ncd") as visible,
+    ):
+        assert text_helpers.get_document_length(model) == 5
+    whole = model.getText.return_value.createTextCursor.return_value
+    visible.assert_called_once_with(whole)
+    whole.gotoEnd.assert_called_once_with(True)

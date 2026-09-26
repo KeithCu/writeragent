@@ -877,9 +877,10 @@ def document_to_content(
     if scope == "range":
         start = int(range_start) if range_start is not None else 0
         end = int(range_end) if range_end is not None else 0
-        doc_len = services.document.get_document_length(model) if services else 0
-        start = max(0, min(start, doc_len))
-        end = min(end, doc_len)
+        # No clamp to the document length: the walk below skips paragraphs past the end on its
+        # own. Clamping to CharacterCount cut a read at the end short ("o dan"), and measuring
+        # the real length here would walk the whole body a second time per range read.
+        start = max(0, start)
         return _done(
             _range_to_content_via_temp_doc(
                 model, ctx, start, end, max_chars, config_svc,

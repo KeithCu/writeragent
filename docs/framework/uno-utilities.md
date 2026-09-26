@@ -89,9 +89,9 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
 | `collect_tracked_changes` | Bounded list of redlines in a range. |
 | `get_full_writer_text` | Prefix of Writer body, hiding tracked deletions. |
-| `get_document_length` / `get_document_end` | Character length / tail slice. |
+| `get_document_length` / `get_document_end` | Character length / tail slice. Writer: visible text (pending tracked deletions hidden, paragraph breaks counted) = the space of `get_document_content` `document_length` and `scope='range'`. |
 | `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). |
-| `_writer_char_count` / `_read_writer_text_slice` | O(1) `CharacterCount` when possible; slice reads for chat excerpts. |
+| `_writer_char_count` / `_read_writer_text_slice` | Body length in cursor steps (paragraph breaks and pending deleted text count, as in `goRight` / `get_selection_range`); slice reads for chat excerpts. Not `CharacterCount`: that statistic leaves both out and recomputes after an edit (slower than the walk). |
 
 Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented. `get_paragraph_ranges` keeps tables in the list so indices match the text enumeration (heading trees, bookmarks, and grep count every element). `find_paragraph_for_range` compares only `com.sun.star.text.Paragraph` elements — `SwXTextTable` is not an `XTextRange` — and a point in the gap between paragraphs (a table anchor) maps to that table's slot.
 

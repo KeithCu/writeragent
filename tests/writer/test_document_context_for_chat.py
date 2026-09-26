@@ -225,3 +225,19 @@ def test_get_document_context_draw_uses_bridge(mock_doc_type, mock_draw):
     ctx = MagicMock()
     assert get_document_context_for_chat(model, max_context=8000, ctx=ctx) == "impress summary"
     mock_draw.assert_called_once_with(model, 8000, ctx)
+
+
+@patch("plugin.doc.text_helpers.get_document_length", return_value=2439)
+@patch("plugin.doc.text_helpers._read_writer_text_slice", return_value="short doc text")
+@patch("plugin.doc.text_helpers._writer_char_count", return_value=3405)
+@patch("plugin.doc.doc_type.get_document_type")
+def test_get_document_context_shows_the_visible_length(mock_doc_type, mock_char_count, mock_read_slice, mock_len):
+    """The excerpt windows use cursor steps, but the header shows the visible length that
+    get_document_content reports as document_length (they disagreed in review mode)."""
+    from plugin.doc.doc_type import DocumentType
+
+    mock_doc_type.return_value = DocumentType.WRITER
+    model = MagicMock()
+    ctx = get_document_context_for_chat(model, max_context=8000, include_end=True, include_selection=False)
+    assert "Document length: 2439 characters." in ctx
+    mock_read_slice.assert_called_once_with(model, 0, 3405)
