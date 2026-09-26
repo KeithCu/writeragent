@@ -41,6 +41,21 @@ def _settings_add_separator(board, sep_id, y, label=None):
     return y + _SETTINGS_SEP_GAP_AFTER
 
 
+def _settings_hover_text(schema):
+    """Hover tip (``dlg:help-text``) for one Settings field.
+
+    An explicit ``tooltip`` string wins. Otherwise the YAML ``helper`` is the
+    tip — the same string ``tooltip: true`` used to opt into. Empty when the
+    field has neither, so controls without a helper stay quiet.
+    """
+    tooltip = schema.get("tooltip")
+    if isinstance(tooltip, str) and tooltip.strip():
+        return tooltip.strip()
+    helper = schema.get("helper")
+    if isinstance(helper, str) and helper.strip():
+        return helper.strip()
+    return ""
+
 
 # ── Addons.xcu Generation ────────────────────────────────────────────
 
@@ -452,42 +467,38 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
                 # because SettingsDialog uses slightly tighter spacing
                 label_x = str(schema.get("label_x", 8))
                 label_w = str(schema.get("label_width", 100))
+                label_el = None
                 if not schema.get("inline_no_label"):
                     if schema.get("label_above"):
-                        _common_add_label(board, f"label_{ctrl_id}", label_text, label_x, curr_y, label_w, 10, align="left")
+                        label_el = _common_add_label(board, f"label_{ctrl_id}", label_text, label_x, curr_y, label_w, 10, align="left")
                         curr_y += 12
                     else:
-                        _common_add_label(board, f"label_{ctrl_id}", label_text, label_x, curr_y + 2, label_w, 10, align="left")
-                
+                        label_el = _common_add_label(board, f"label_{ctrl_id}", label_text, label_x, curr_y + 2, label_w, 10, align="left")
+
+                ctrl_el = None
                 if widget == "checkbox":
-                    # Remove the duplicate label for checkbox
-                    if not schema.get("inline_no_label") and board[-1].get(_dlg("id")) == f"label_{ctrl_id}":
-                        board.remove(board[-1])
+                    # Checkbox text is the control itself; a second label would repeat it.
+                    if label_el is not None and board[-1].get(_dlg("id")) == f"label_{ctrl_id}":
+                        board.remove(label_el)
+                        label_el = None
                     cb_left = field_x if "x" in schema else "8"
                     cb_width = field_w if "width" in schema else "120"
                     checked = "true" if schema.get("default") else "false"
-                    checkbox_el = _common_add_checkbox(
+                    ctrl_el = _common_add_checkbox(
                         board, ctrl_id, label_text, cb_left, curr_y + 2, cb_width, 10, checked=checked,
                     )
-                    # tooltip: true uses helper as dlg:help-text. Settings has no
-                    # second line under a checkbox, so this is the only hover text.
-                    tooltip = schema.get("tooltip")
-                    if tooltip is True:
-                        tooltip = schema.get("helper") or ""
-                    if isinstance(tooltip, str) and tooltip.strip():
-                        checkbox_el.set(_dlg("help-text"), tooltip.strip())
                 elif widget == "password":
-                    _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, 14, echo_char=42)
+                    ctrl_el = _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, 14, echo_char=42)
                 elif widget == "textarea":
                     field_h = str(schema.get("height", 36))
-                    el = _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, field_h, multiline=True)
+                    ctrl_el = _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, field_h, multiline=True)
                     if schema.get("readonly"):
-                        el.set(_dlg("readonly"), "true")
+                        ctrl_el.set(_dlg("readonly"), "true")
                 elif widget in ("number", "slider"):
                     num_w = field_w if "width" in schema else "60"
-                    _common_add_numericfield(board, ctrl_id, field_x, curr_y, num_w, 14, spin="true")
+                    ctrl_el = _common_add_numericfield(board, ctrl_id, field_x, curr_y, num_w, 14, spin="true")
                 elif widget in ("select", "combo"):
-                    _common_add_combobox(
+                    ctrl_el = _common_add_combobox(
                         board, ctrl_id, field_x, curr_y, field_w, 14,
                         options=schema.get("options", []),
                         dropdown="true",
@@ -496,15 +507,31 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
                     )
                 elif widget == "button":
                     # Use a standard button instead of label + textbox
-                    if not schema.get("inline_no_label") and not schema.get("show_button_label") and board[-1].get(_dlg("id")) == f"label_{ctrl_id}":
-                        board.remove(board[-1])
+                    if (
+                        label_el is not None
+                        and not schema.get("show_button_label")
+                        and board[-1].get(_dlg("id")) == f"label_{ctrl_id}"
+                    ):
+                        board.remove(label_el)
+                        label_el = None
                     btn_left = field_x if "x" in schema else "8"
                     btn_width = field_w if "width" in schema else "100"
                     btn_height = str(schema.get("height", 14))
                     btn_label = schema.get("button_text") or schema.get("label", "Click")
-                    _common_add_button(board, ctrl_id, btn_label, btn_left, curr_y, btn_width, btn_height)
+                    ctrl_el = _common_add_button(board, ctrl_id, btn_label, btn_left, curr_y, btn_width, btn_height)
                 else:
-                    _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, 14)
+                    ctrl_el = _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, 14)
+
+                # Helper text is a hover tip, not a second FixedText row. Standalone
+                # module XDLs still use always-visible hlp_* lines and do not come
+                # through this generator. The label gets the same tip so hovering
+                # the caption works; checkboxes already dropped that label.
+                hover = _settings_hover_text(schema)
+                if hover:
+                    if ctrl_el is not None:
+                        ctrl_el.set(_dlg("help-text"), hover)
+                    if label_el is not None:
+                        label_el.set(_dlg("help-text"), hover)
                 
                 if not schema.get("inline"):
                     curr_y += (row_height + 2) if row_height > 14 else 16

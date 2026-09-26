@@ -302,6 +302,89 @@ def test_translate_dialog_combobox_stringitemlist_on_model(mock_i18n_translate):
     assert combo.model.StringItemList == ("T_aa", "T_bb")
 
 
+@patch("plugin.chatbot.dialogs._")
+def test_translate_dialog_help_text(mock_i18n_translate):
+    """HelpText is gettext'd, including Edit which has no caption in the type map."""
+    mock_i18n_translate.side_effect = lambda x: f"T_{x}" if x else x
+
+    class EditCtrl:
+        def getImplementationName(self):
+            return "stardiv.Toolkit.UnoEditControl"
+
+        def getModel(self):
+            return self.model
+
+        def queryInterface(self, _iface):
+            raise Exception("No container")
+
+        def __init__(self):
+            class M:
+                Name = "audio__stt_model"
+                HelpText = "Speech-to-text model"
+
+            self.model = M()
+
+    class ButtonCtrl:
+        def getImplementationName(self):
+            return "stardiv.Toolkit.UnoButtonControl"
+
+        def getModel(self):
+            return self.model
+
+        def queryInterface(self, _iface):
+            raise Exception("No container")
+
+        def __init__(self):
+            class M:
+                Name = "doc__grammar_proofreader_recheck"
+                Label = "Recheck"
+                HelpText = "Clears cached grammar results"
+
+            self.model = M()
+
+    class EmptyTipCtrl:
+        def getImplementationName(self):
+            return "stardiv.Toolkit.UnoCheckBoxControl"
+
+        def getModel(self):
+            return self.model
+
+        def queryInterface(self, _iface):
+            raise Exception("No container")
+
+        def __init__(self):
+            class M:
+                Name = "silent"
+                Label = "No tip"
+                HelpText = ""
+
+            self.model = M()
+
+    edit = EditCtrl()
+    button = ButtonCtrl()
+    silent = EmptyTipCtrl()
+    controls = {
+        "audio__stt_model": edit,
+        "doc__grammar_proofreader_recheck": button,
+        "silent": silent,
+    }
+
+    mock_dlg = MagicMock()
+    mock_dlg.queryInterface.side_effect = Exception("No container")
+    mock_dlg_model = MagicMock()
+    mock_dlg_model.ElementNames = list(controls)
+    mock_dlg.getModel.return_value = mock_dlg_model
+    mock_dlg.getControl.side_effect = lambda name: controls[name]
+
+    translate_dialog(mock_dlg)
+
+    assert edit.model.HelpText == "T_Speech-to-text model"
+    assert button.model.Label == "T_Recheck"
+    assert button.model.HelpText == "T_Clears cached grammar results"
+    assert silent.model.Label == "T_No tip"
+    assert silent.model.HelpText == ""
+
+
 def _mock_text_input_dialog_uno(text_on_ok: str):
     """Build ctx/desktop/smgr/dlg mocks for show_text_input_dialog tests."""
     ctx = MagicMock()
