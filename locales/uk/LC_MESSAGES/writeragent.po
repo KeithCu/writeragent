@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Ukrainian <LL@li.org>\n"
@@ -29,13 +29,13 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 msgid "Running local OCR on selected image(s)..."
 msgstr ""
-"Виконується локальне розпізнавання тексту (OCR) для вибраного зображення(-"
-"нь)..."
+"Виконується локальне розпізнавання тексту (OCR) для вибраного "
+"зображення(-нь)..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Читання результатів дослідження документа потребує спеціалізованого "
 "делегування завдань (USE_SUB_AGENT). Увімкніть це в налаштуваннях."
@@ -43,14 +43,14 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Виклик інструмента перемкнуто на «{0}». Ви перебуваєте в режимі "
 "спеціалізованого набору інструментів. Ви повинні викликати "
-"«specialized_workflow_finished» після завершення, щоб відновити повний набір "
-"API."
+"«specialized_workflow_finished» після завершення, щоб відновити повний набір"
+" API."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -62,8 +62,8 @@ msgstr "Запуск блокнота підтримується лише в Lib
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "У цьому документі немає імпортованого блокнота. Спочатку виберіть Файл → "
 "Відкрити Jupyter notebook (.ipynb)."
@@ -263,11 +263,12 @@ msgstr "Виконання скрипта заблоковано політик�
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
-"Час очікування запиту вичерпано. Спробуйте збільшити «Час очікування запиту» "
-"в налаштуваннях."
+"Час очікування запиту вичерпано. Спробуйте збільшити «Час очікування запиту»"
+" в налаштуваннях."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "У з'єднанні відмовлено. Чи запущено ваш локальний сервер ШІ (Ollama/LM "
 "Studio)?"
@@ -331,8 +332,8 @@ msgstr "Помилка HTTP {0} від постачальника ШІ: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Якщо ваш ключ API отримано за планом підписки GLM Coding, встановіть "
 "кінцеву точку на {0} (а не загальну URL-адресу /api/paas)."
@@ -357,8 +358,8 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Модель повторює той самий фрагмент (нескінченний цикл). Спробуйте ще раз або "
-"використайте іншу модель."
+"Модель повторює той самий фрагмент (нескінченний цикл). Спробуйте ще раз або"
+" використайте іншу модель."
 
 #: plugin/framework/client/request_controls.py
 #, python-brace-format
@@ -386,6 +387,69 @@ msgstr "Будь ласка, встановіть модель (Model) у нал
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Будь ласка, виберіть дійсну модель у налаштуваннях (не заповнювач)."
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Помилка запиту мовлення ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Помилка запиту мовлення: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Помилка запиту мовлення ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Помилка запиту мовлення."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Завантаження голосової моделі Kokoro…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "Не вдалося завантажити Kokoro; використовується системне мовлення"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Завантаження голосу Piper {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Не вдалося завантажити {0}; використовується Lessac"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "Не вдалося завантажити {0}; використовується системне мовлення"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr "Помилка фонемізатора Kokoro; ця мова може бути прочитана неправильно."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Інсталяція фонемізатора Kokoro…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Не вдалося інсталювати фонемізатор Kokoro; ця мова може бути прочитана "
+"неправильно. Інсталюйте за допомогою: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Завантаження словника японського фонемізатора…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -405,8 +469,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Редактор Monaco вимкнено параметром \"scripting."
-"force_internal_script_editor\" у файлі writeragent.json."
+"Редактор Monaco вимкнено параметром "
+"\"scripting.force_internal_script_editor\" у файлі writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -469,11 +533,12 @@ msgstr "Не вдалося завантажити PythonCellEditorDialog з р�
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Не вдалося зберегти аргументи формули PY цієї клітинки (наприклад, діапазони "
-"даних). Відредагуйте формулу в Calc або використайте рядок коду в лапках, "
+"Не вдалося зберегти аргументи формули PY цієї клітинки (наприклад, діапазони"
+" даних). Відредагуйте формулу в Calc або використайте рядок коду в лапках, "
 "наприклад =PY(\"code\"; A1:B10)."
 
 #: plugin/calc/python/editor.py
@@ -489,8 +554,7 @@ msgid ""
 msgstr ""
 "Зберегти зміни в {0}?\n"
 "\n"
-"«Так» зберігає. «Ні» скасовує зміни та відкриває нову клітинку. «Скасувати» "
-"продовжує редагування {0}."
+"«Так» зберігає. «Ні» скасовує зміни та відкриває нову клітинку. «Скасувати» продовжує редагування {0}."
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -578,8 +642,8 @@ msgstr "Зображення вставлено"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Порядок геометричного перерахунку пропустив аркуш «%(sheet)s»: знайдено "
 "%(cap)s або більше клітинок Python (ліміт виявлення). Аркуш залишено без "
@@ -591,16 +655,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Не вдалося записати частини пакета Python для Microsoft Excel для:\n"
 "{0}\n"
 "\n"
-"Файл було збережено з формулами LibreOffice =PY. Excel не побачить "
-"pythonScripts.xml / _xlws.PY, доки експорт не завершиться успішно.\n"
+"Файл було збережено з формулами LibreOffice =PY. Excel не побачить pythonScripts.xml / _xlws.PY, доки експорт не завершиться успішно.\n"
 "\n"
 "{1}"
 
@@ -1327,8 +1389,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[У активному вікні не знайдено сумісного документа LibreOffice (Writer, Calc "
-"або Draw).]"
+"[У активному вікні не знайдено сумісного документа LibreOffice (Writer, Calc"
+" або Draw).]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1415,8 +1477,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Редактор не знайдено (встановіть Kate або Gedit, або задайте змінну EDITOR). "
-"Шлях:\n"
+"Редактор не знайдено (встановіть Kate або Gedit, або задайте змінну EDITOR). Шлях:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1445,7 +1506,8 @@ msgstr "[Серверний агент '{0}' не знайдено.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Серверний агент '{0}' недоступний. Перевірте налаштування (шлях, "
 "встановлення).]"
@@ -1586,6 +1648,21 @@ msgid "Testing connection..."
 msgstr "Перевірка з'єднання..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Мовлення"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Не вдалося відтворити зразок голосу."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Виведення мовлення вимкнено. Увімкніть «Увімкнути виведення мовлення (TTS)»,"
+" щоб почути цей голос."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Завантаження аудіобібліотеки"
 
@@ -1612,6 +1689,10 @@ msgstr "Висота:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Ширина:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Озвучувати відповіді (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1793,8 +1874,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Документ доступний лише для читання або властивості не можуть бути записані. "
-"Скрипт збережено у вашій особистій бібліотеці."
+"Документ доступний лише для читання або властивості не можуть бути записані."
+" Скрипт збережено у вашій особистій бібліотеці."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1942,12 +2023,12 @@ msgstr "Помилка"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
-"Вкажіть шлях до віртуального середовища Python у Параметри → Python (те саме "
-"середовище, де ви виконували 'uv pip install pywebview rocher'). Вбудований "
-"Python у LibreOffice не може запустити редактор Monaco."
+"Вкажіть шлях до віртуального середовища Python у Параметри → Python (те саме"
+" середовище, де ви виконували 'uv pip install pywebview rocher'). Вбудований"
+" Python у LibreOffice не може запустити редактор Monaco."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1955,8 +2036,8 @@ msgid ""
 "No python executable found under configured venv: {0} (expected bin/python, "
 "Scripts/python.exe, or env-root python.exe)."
 msgstr ""
-"Виконуваний файл Python не знайдено у налаштованому віртуальному середовищі: "
-"{0} (очікується bin/python, Scripts/python.exe або python.exe у корені "
+"Виконуваний файл Python не знайдено у налаштованому віртуальному середовищі:"
+" {0} (очікується bin/python, Scripts/python.exe або python.exe у корені "
 "середовища)."
 
 #: plugin/scripting/editor_host.py
@@ -1977,7 +2058,8 @@ msgstr "Не вдалося зв'язатися з редактором Python."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr "У Linux також встановіть системний PortAudio: sudo pacman -S portaudio"
+msgstr ""
+"У Linux також встановіть системний PortAudio: sudo pacman -S portaudio"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe timed out (sounddevice import failed or hung)."
@@ -2002,7 +2084,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Збій зонда Text/NLP (див. writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Час очікування зонда бачення вичерпано (імпорт Docling може тривати 10–30 "
 "секунд під час першої перевірки)."
@@ -2024,8 +2107,8 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Зондування векторного пошуку не вдалося (див. writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Запис аудіо"
+msgid "Audio Recording & Speech"
+msgstr "Аудіозапис та мовлення"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2068,12 +2151,20 @@ msgid "Vector Search Libraries"
 msgstr "Бібліотеки векторного пошуку"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Запис аудіо"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Щоб встановити решту пакунків:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Не виявлено пристроїв введення мікрофона."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Локальні рушії TTS (необов'язково):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2084,8 +2175,8 @@ msgid "Reading Python version..."
 msgstr "Зчитування версії Python..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Запис аудіо: перевірка sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Аудіо та мовлення: перевірка sounddevice та рушіїв TTS..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2133,8 +2224,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2142,25 +2232,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Помилка робочого процесу аналізу тексту:\n"
 "{err}\n"
 "\n"
-"Функції в цьому діалоговому вікні потребують наявності таких пакунків у "
-"використовуваному середовищі Python:\n"
+"Функції в цьому діалоговому вікні потребують наявності таких пакунків у використовуваному середовищі Python:\n"
 "  • spacy + модель          (сутності, ключові фрази, базова статистика)\n"
 "  • textdescriptives         (реальні показники читабельності)\n"
-"  • transformers + torch     (аналіз тональності за допомогою багатомовної "
-"моделі)\n"
+"  • transformers + torch     (аналіз тональності за допомогою багатомовної моделі)\n"
 "\n"
 "Встановіть їх за допомогою:\n"
 "  {install}\n"
 "\n"
-"Робочий процес повідомив про відсутність модуля. Перевірте, чи встановлені "
-"пакунки саме в тому виконуваному файлі Python, який використовується для "
-"налаштованого віртуального середовища."
+"Робочий процес повідомив про відсутність модуля. Перевірте, чи встановлені пакунки саме в тому виконуваному файлі Python, який використовується для налаштованого віртуального середовища."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2179,17 +2264,11 @@ msgstr "Аналіз..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Помилка: %s\n"
 "\n"
-"Можливо, у налаштованому віртуальному середовищі (venv) відсутні необхідні "
-"пакунки (Налаштування → Python). Натисніть «Перевірити Venv» у цьому "
-"діалоговому вікні або скористайтеся повною перевіркою в розділі Налаштування "
-"→ Python для отримання детальної інформації про spacy, textdescriptives, "
-"transformers, torch тощо."
+"Можливо, у налаштованому віртуальному середовищі (venv) відсутні необхідні пакунки (Налаштування → Python). Натисніть «Перевірити Venv» у цьому діалоговому вікні або скористайтеся повною перевіркою в розділі Налаштування → Python для отримання детальної інформації про spacy, textdescriptives, transformers, torch тощо."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2277,7 +2356,8 @@ msgid ""
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
 "Скидання сеансу Python для блокнотів застосовується до LibreOffice Writer. "
-"Відкрийте документ Writer з імпортованим блокнотом Jupyter і спробуйте знову."
+"Відкрийте документ Writer з імпортованим блокнотом Jupyter і спробуйте "
+"знову."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2304,8 +2384,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Скидання сеансу Python застосовується до електронних таблиць Calc. Відкрийте "
-"книгу Calc і спробуйте знову."
+"Скидання сеансу Python застосовується до електронних таблиць Calc. Відкрийте"
+" книгу Calc і спробуйте знову."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -2406,8 +2486,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Сценарій виконано успішно, але він не повернув результату та не створив "
 "виводу. (тривалість: {time})"
@@ -2416,7 +2496,8 @@ msgstr ""
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr ""
-"Непідтримуваний тип документа для вставлення результату. (тривалість: {time})"
+"Непідтримуваний тип документа для вставлення результату. (тривалість: "
+"{time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2452,8 +2533,8 @@ msgstr "Помилка диспетчеризації"
 msgid ""
 "Select an embedded image (or a range containing images), then Run again."
 msgstr ""
-"Виберіть вбудоване зображення (або діапазон, що містить зображення), а потім "
-"запустіть знову."
+"Виберіть вбудоване зображення (або діапазон, що містить зображення), а потім"
+" запустіть знову."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2732,8 +2813,7 @@ msgstr ""
 "Бінарний файл {0} '{1}' встановлено та перевірено ({2}).\n"
 "\n"
 "Сервер MCP працює локально на порту {3}.\n"
-"Позначте 'Надати доступ через публічний тунель' та натисніть OK, щоб "
-"активувати публічну маршрутизацію."
+"Позначте 'Надати доступ через публічний тунель' та натисніть OK, щоб активувати публічну маршрутизацію."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2795,10 +2875,6 @@ msgstr "Запитати / надати інструкцію:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Співвідношення сторін:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Аудіомодель:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -2899,8 +2975,8 @@ msgstr "Збільшити макс. кількість токенів:"
 #: plugin/xdl_strings.py
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Додаткові токени понад довжину початкового тексту. 0 = та сама довжина, що й "
-"у оригіналу."
+"Додаткові токени понад довжину початкового тексту. 0 = та сама довжина, що й"
+" у оригіналу."
 
 #: plugin/xdl_strings.py
 msgid "Filter:"
@@ -3151,6 +3227,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3178,6 +3258,125 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "Аудіомодель:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Модель перетворення мовлення на текст, коли чат-модель не може приймати "
+"аудіовхід."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Увімкнути голосовий вивід (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr "Озвучувати відповіді помічника за допомогою синтезу мовлення."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Озвучувати речення за реченням (локально)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Синтезувати наступні речення під час відтворення поточного, щоб уникнути "
+"пауз між короткими реченнями. Зупинка відкидає кліпи, які ще не "
+"відтворюються. Вимкніть, щоб озвучувати всю відповідь як один кліп."
+
+msgid "Keep replies brief"
+msgstr "Робити відповіді стислими"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Намагатися вкластися в один абзац, якщо користувач не просить більшого. "
+"Застосовується лише тоді, коли увімкнено голосовий вивід (TTS)."
+
+msgid "TTS Provider"
+msgstr "Провайдер TTS"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Виберіть, чи використовувати вбудовану мовну функцію ОС, локальний нейронний"
+" рушій чи ваш API-ендпоінт."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "ОС (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (локальна нейромережа, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (локальна швидка нейромережа, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "Кінцева точка LLM"
+
+msgid "TTS Model"
+msgstr "Модель TTS"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Модель для синтезу мовлення (використовується, коли постачальником TTS є "
+"кінцева точка LLM)."
+
+msgid "Voice"
+msgstr "Голос"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Голос для вибраного постачальника. Список відповідає каталогу Piper або "
+"Kokoro для вашої локалі."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI нейтральний)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro US жіночий — Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (Американська англійська, жіночий голос - Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (Системне за замовчуванням)"
+
+msgid "Test voice"
+msgstr "Перевірити голос"
+
+msgid "Speech Speed"
+msgstr "Швидкість мовлення"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Множник швидкості відтворення (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x або "
+"власне значення до 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Інструменти електронних таблиць Calc"
 
@@ -3194,9 +3393,9 @@ msgid ""
 "disable."
 msgstr ""
 "Конвертувати споріднені файли .xlsx/.xls у writeragent_ods_cache/ поруч із "
-"папкою, щоб повторні SQL-запити DuckDB використовували ODS. Рідні файли .ods "
-"та активна робоча книга ніколи не кешуються. Встановіть calc."
-"ods_cache_enabled false у writeragent.json, щоб вимкнути."
+"папкою, щоб повторні SQL-запити DuckDB використовували ODS. Рідні файли .ods"
+" та активна робоча книга ніколи не кешуються. Встановіть "
+"calc.ods_cache_enabled false у writeragent.json, щоб вимкнути."
 
 msgid "Sidebar"
 msgstr "Бічна панель"
@@ -3287,9 +3486,9 @@ msgstr "Навичка «Гуманізатор» (природна проза)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Якщо ввімкнено, додає вказівки до системного запиту, щоб модель робила "
 "згенерований або відредагований текст документа більш природним і людяним "
@@ -3314,14 +3513,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Увімкнути перевірку граматики (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
-"Вимкнено = вимкнено. ШІ (LLM) = використовувати налаштовану модель тексту/"
-"API. LanguageTool / Vale = локальні рушії через Налаштування → Python venv. "
-"Harper = офлайн-бінарний файл Rust, що автоматично завантажується у ваш "
-"профіль (venv не потрібен)."
+"Вимкнено = вимкнено. ШІ (LLM) = використовувати налаштовану модель "
+"тексту/API. LanguageTool / Vale = локальні рушії через Налаштування → Python"
+" venv. Harper = офлайн-бінарний файл Rust, що автоматично завантажується у "
+"ваш профіль (venv не потрібен)."
 
 msgid "Off"
 msgstr "Вимк."
@@ -3343,7 +3542,8 @@ msgstr "Модель (необов'язково)"
 
 msgid "Leave empty to use the same text model as chat."
 msgstr ""
-"Залиште порожнім, щоб використовувати ту саму текстову модель, що й для чату."
+"Залиште порожнім, щоб використовувати ту саму текстову модель, що й для "
+"чату."
 
 msgid "Recheck this document"
 msgstr "Перевірити документ ще раз"
@@ -3352,8 +3552,8 @@ msgid ""
 "Clears cached grammar results for this document and asks Writer to check "
 "again. Use after changing checker or model."
 msgstr ""
-"Очищує кешовані результати перевірки граматики для цього документа та змушує "
-"Writer перевірити його знову. Використовуйте після зміни засобу перевірки "
+"Очищує кешовані результати перевірки граматики для цього документа та змушує"
+" Writer перевірити його знову. Використовуйте після зміни засобу перевірки "
 "або моделі."
 
 msgid "Pause grammar while chat/agent runs"
@@ -3428,9 +3628,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Вимкнено = пряме редагування. Запис = відстеження змін, які ви приймаєте/"
-"відхиляєте самостійно. Очікування = блокування apply_document_content (у "
-"потоці чату/MCP) до моменту перегляду."
+"Вимкнено = пряме редагування. Запис = відстеження змін, які ви "
+"приймаєте/відхиляєте самостійно. Очікування = блокування "
+"apply_document_content (у потоці чату/MCP) до моменту перегляду."
 
 msgid "Record (track changes)"
 msgstr "Запис (відстеження змін)"
@@ -3451,8 +3651,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Індексований семантичний та ключовий пошук для document_research (corpus."
-"db). Потребує venv з ембедингами — див. Python Test."
+"Індексований семантичний та ключовий пошук для document_research "
+"(corpus.db). Потребує venv з ембедингами — див. Python Test."
 
 msgid "Embeddings + FTS"
 msgstr "Ембединги + FTS"
@@ -3488,11 +3688,11 @@ msgid "Rerank model"
 msgstr "Модель переранжування"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
-"Використовується лише тоді, коли ввімкнено переранжування. Англійська MiniLM "
-"працює швидко; bge-reranker-v2-m3 є багатомовною та завантажує близько 2.3 "
+"Використовується лише тоді, коли ввімкнено переранжування. Англійська MiniLM"
+" працює швидко; bge-reranker-v2-m3 є багатомовною та завантажує близько 2.3 "
 "ГБ."
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -3511,11 +3711,11 @@ msgid "Enable MCP Server"
 msgstr "Увімкнути сервер MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Тільки localhost, без автентифікації. Клієнти використовують http://"
-"localhost:<port>/mcp (потоковий HTTP)."
+"Тільки localhost, без автентифікації. Клієнти використовують "
+"http://localhost:<port>/mcp (потоковий HTTP)."
 
 msgid "MCP Port"
 msgstr "Порт MCP"
@@ -3556,13 +3756,13 @@ msgstr "Надати доступ через публічний тунель"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Потребує наявності бінарного файлу вибраного провайдера у змінній PATH "
 "(cloudflared, bore, ngrok або tailscale). MCP не має автентифікації — будь-"
-"хто з публічною URL-адресою може викликати інструменти. Див. «Статус сервера "
-"MCP» для отримання публічної URL-адреси /mcp, коли все буде готово."
+"хто з публічною URL-адресою може викликати інструменти. Див. «Статус сервера"
+" MCP» для отримання публічної URL-адреси /mcp, коли все буде готово."
 
 msgid "Provider"
 msgstr "Провайдер"
@@ -3593,8 +3793,8 @@ msgid ""
 "Ngrok authtoken; Cloudflare tunnel token; Bore server or 'server secret'. "
 "Empty = provider default / CLI config. Unused for Tailscale."
 msgstr ""
-"Токен автентифікації Ngrok; токен тунелю Cloudflare; сервер Bore або «секрет "
-"сервера». Порожньо = типовий провайдер / конфігурація CLI. Не "
+"Токен автентифікації Ngrok; токен тунелю Cloudflare; сервер Bore або «секрет"
+" сервера». Порожньо = типовий провайдер / конфігурація CLI. Не "
 "використовується для Tailscale."
 
 msgid "Client config (copy into Claude / Hermes-Agent):"
@@ -3607,10 +3807,10 @@ msgid "Python venv path"
 msgstr "Шлях до venv Python"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
 "Якщо встановлено, виконує =PY() та «Запустити сценарій Python» у цьому "
@@ -3638,8 +3838,8 @@ msgid "Max Calc data cells"
 msgstr "Макс. кількість клітинок даних Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Максимальна кількість клітинок у даних =PYTHON() або даних/діапазоні даних "
 "Run Python Script. Більші значення потребують більше оперативної пам'яті та "
@@ -3664,8 +3864,8 @@ msgstr "Геометричний порядок перерахунку (експ
 msgid ""
 "Ensures PY cells evaluate in sheet order. Most useful with Shared kernel."
 msgstr ""
-"Забезпечує обчислення клітинок PY у порядку аркуша. Найкорисніше зі спільним "
-"ядром."
+"Забезпечує обчислення клітинок PY у порядку аркуша. Найкорисніше зі спільним"
+" ядром."
 
 msgid "Python auto spill in Calc"
 msgstr "Автоматичне розлиття Python у Calc"
@@ -3681,12 +3881,12 @@ msgid "Rewrite xl() ranges"
 msgstr "Перезаписати діапазони xl()"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Під час збереження редагування Python у клітинці, перенести статичні "
-"xl(\"A1:…\") в аргументи даних =PY та перезаписати на data / data[i] / ."
-"to_pandas()."
+"xl(\"A1:…\") в аргументи даних =PY та перезаписати на data / data[i] / "
+".to_pandas()."
 
 msgid "Vision / OCR"
 msgstr "Бачення / OCR"
@@ -3695,13 +3895,15 @@ msgid "Image scale"
 msgstr "Масштаб зображення"
 
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
-msgstr "Збільшити перед OCR/розміткою. Спробуйте 2.0 для малих знімків екрана."
+msgstr ""
+"Збільшити перед OCR/розміткою. Спробуйте 2.0 для малих знімків екрана."
 
 msgid "Worker timeout (seconds)"
 msgstr "Час очікування робочого процесу (секунди)"
 
 msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr "Ліміт хост-підпроцесів для Vision Helpers (перше завантаження моделі)."
+msgstr ""
+"Ліміт хост-підпроцесів для Vision Helpers (перше завантаження моделі)."
 
 msgid "Docling artifacts path"
 msgstr "Шлях до артефактів Docling"
@@ -3792,91 +3994,3 @@ msgstr "Таймаут документа Docling (с)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Таймаут для кожного перетворення в Docling. 0 = без обмежень."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Провайдер"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "Модель ШІ:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "вибір"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

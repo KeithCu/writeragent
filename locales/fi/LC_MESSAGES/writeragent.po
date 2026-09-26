@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -28,21 +28,22 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid "Running local OCR on selected image(s)..."
-msgstr "Suoritetaan paikallista tekstintunnistusta (OCR) valituille kuville..."
+msgstr ""
+"Suoritetaan paikallista tekstintunnistusta (OCR) valituille kuville..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
-"Asiakirjatutkimus vaatii erikoistuneen tehtävän delegoinnin (USE_SUB_AGENT). "
-"Ota tämä käyttöön asetuksista."
+"Asiakirjatutkimus vaatii erikoistuneen tehtävän delegoinnin (USE_SUB_AGENT)."
+" Ota tämä käyttöön asetuksista."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Työkalukutsu vaihdettu tilaan '{0}'. Olet erikoistyökalutilassa. Sinun on "
@@ -59,8 +60,8 @@ msgstr "Muistikirjan suoritus on tuettu vain LibreOffice Writerissa."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "Tässä asiakirjassa ei ole tuotua muistikirjaa. Avaa ensin Jupyter-"
 "muistikirja (.ipynb) valikosta Tiedosto → Avaa."
@@ -261,7 +262,8 @@ msgstr ""
 "asetuksista."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Yhteys evätty. Onko paikallinen tekoälypalvelimesi (Ollama/LM Studio) "
 "käynnissä?"
@@ -325,8 +327,8 @@ msgstr "HTTP-virhe {0} tekoälypalveluntarjoajalta: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Jos API-avaimesi on peräisin GLM Coding Plan -tilauksesta, aseta "
 "päätepisteeksi {0} (ei yleinen /api/paas-URL)."
@@ -381,6 +383,70 @@ msgstr "Aseta malli (Model) asetuksista."
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Valitse kelvollinen malli asetuksista (ei paikkamerkkiä)."
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Puhepyyntö epäonnistui ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Puhepyyntö epäonnistui: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Puhepyyntö epäonnistui ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Puhepyyntö epäonnistui."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Ladataan Kokoro-puhemallia…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr ""
+"Kokoro-mallin lataus epäonnistui; käytetään käyttöjärjestelmän puhetta"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Ladataan Piper-ääntä {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Kohteen {0} lataus epäonnistui; käytetään Lessacia"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "Kohteen {0} lataus epäonnistui; käytetään käyttöjärjestelmän puhetta"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr "Kokoro-foneemimuunnin epäonnistui; tätä kieltä ei ehkä lueta oikein."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Asennetaan Kokoro-foneemimuunninta…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Kokoro-foneemimuuntimen asennus epäonnistui; kieli saatetaan lukea väärin. "
+"Asenna komennolla: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Ladataan japanin kielen foneemimuuntimen sanastoa…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -400,8 +466,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Monaco-muokkain on poistettu käytöstä tiedoston writeragent.json asetuksella "
-"\"scripting.force_internal_script_editor\"."
+"Monaco-muokkain on poistettu käytöstä tiedoston writeragent.json asetuksella"
+" \"scripting.force_internal_script_editor\"."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -463,8 +529,9 @@ msgstr "PythonCellEditorDialog-valintaikkunaa ei voitu ladata laajennuksesta."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Tämän solun PY-kaavan argumentteja (esim. tietoalueita) ei voitu säilyttää. "
 "Muokkaa kaavaa Calcissa tai käytä lainausmerkkeihin suljettua "
@@ -483,8 +550,7 @@ msgid ""
 msgstr ""
 "Tallennetaanko muutokset kohteeseen {0}?\n"
 "\n"
-"Kyllä tallentaa. Ei hylkää muutokset ja avaa uuden solun. Peruuta jatkaa "
-"kohteen {0} muokkaamista."
+"Kyllä tallentaa. Ei hylkää muutokset ja avaa uuden solun. Peruuta jatkaa kohteen {0} muokkaamista."
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -572,8 +638,8 @@ msgstr "Kuvat lisätty"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Geometrinen uudelleenlaskentajärjestys ohitti laskentataulukon '%(sheet)s': "
 "löytyi %(cap)s tai enemmän Python-soluja (löytöraja). Laskentataulukkoa ei "
@@ -585,16 +651,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Microsoft Excelin Python-paketin osia ei voitu kirjoittaa kohteelle:\n"
 "{0}\n"
 "\n"
-"Tiedosto tallennettiin LibreOffice =PY -kaavoilla. Excel ei näe tiedostoja "
-"pythonScripts.xml / _xlws.PY ennen kuin vienti onnistuu.\n"
+"Tiedosto tallennettiin LibreOffice =PY -kaavoilla. Excel ei näe tiedostoja pythonScripts.xml / _xlws.PY ennen kuin vienti onnistuu.\n"
 "\n"
 "{1}"
 
@@ -1405,8 +1469,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-"
-"ympäristömuuttuja). Polku:\n"
+"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-ympäristömuuttuja). Polku:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1435,7 +1498,8 @@ msgstr "[Agent-taustajärjestelmää '{0}' ei löytynyt.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-taustajärjestelmä '{0}' ei ole käytettävissä. Tarkista asetukset "
 "(polku, asennus).]"
@@ -1575,6 +1639,21 @@ msgid "Testing connection..."
 msgstr "Testataan yhteyttä..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Puhe"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Ääninäytteen toistaminen epäonnistui."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Puhetulostus on pois päältä. Ota käyttöön Puhetulostus (TTS) kuullaksesi "
+"tämän äänen."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Äänikirjaston lataus"
 
@@ -1601,6 +1680,10 @@ msgstr "Korkeus:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Leveys:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Lue vastaukset ääneen (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1933,8 +2016,8 @@ msgstr "Epäonnistui"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
 "Määritä Python-virtuaaliympäristön polku kohdassa Asetukset → Python (sama "
 "virtuaaliympäristö, johon ajoit 'uv pip install pywebview rocher'). "
@@ -1946,8 +2029,8 @@ msgid ""
 "No python executable found under configured venv: {0} (expected bin/python, "
 "Scripts/python.exe, or env-root python.exe)."
 msgstr ""
-"Määritetystä virtuaaliympäristöstä ei löytynyt Python-suoritustiedostoa: {0} "
-"(odotettiin bin/python, Scripts/python.exe tai env-root python.exe)."
+"Määritetystä virtuaaliympäristöstä ei löytynyt Python-suoritustiedostoa: {0}"
+" (odotettiin bin/python, Scripts/python.exe tai env-root python.exe)."
 
 #: plugin/scripting/editor_host.py
 msgid "Could not start the Python editor."
@@ -1967,11 +2050,13 @@ msgstr "Yhteyden muodostaminen Python-editoriin epäonnistui."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr "Asenna Linuxissa myös järjestelmän PortAudio: sudo pacman -S portaudio"
+msgstr ""
+"Asenna Linuxissa myös järjestelmän PortAudio: sudo pacman -S portaudio"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe timed out (sounddevice import failed or hung)."
-msgstr "Äänitestin aikakatkaisu (sounddevice-tuonti epäonnistui tai jumiutui)."
+msgstr ""
+"Äänitestin aikakatkaisu (sounddevice-tuonti epäonnistui tai jumiutui)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe failed (see writeragent_debug.log)."
@@ -1990,7 +2075,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Teksti/NLP-testi epäonnistui (katso writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision-koettimen aikakatkaisu (Docling-tuonti voi kestää 10–30 s "
 "ensimmäisellä tarkistuskerralla)."
@@ -2012,8 +2098,8 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Vektorihakututkinta epäonnistui (katso writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Äänitys"
+msgid "Audio Recording & Speech"
+msgstr "Äänitys ja puhe"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2056,12 +2142,20 @@ msgid "Vector Search Libraries"
 msgstr "Vektorihakukirjastot"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Äänitys"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Asenna loput paketit:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Mikrofonin syöttölaitteita ei löytynyt."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Paikalliset TTS-moottorit (valinnainen):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2072,8 +2166,8 @@ msgid "Reading Python version..."
 msgstr "Luetaan Python-versiota..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Äänitys: tarkistetaan sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Ääni ja puhe: tarkistetaan sounddevice-laitetta ja TTS-moottoreita..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2119,8 +2213,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2128,14 +2221,12 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Virhe tekstianalyysin taustaprosessista:\n"
 "{err}\n"
 "\n"
-"Tämän valintaikkunan toiminnot vaativat seuraavat paketit käytössä olevassa "
-"Python-ympäristössä:\n"
+"Tämän valintaikkunan toiminnot vaativat seuraavat paketit käytössä olevassa Python-ympäristössä:\n"
 "  • spacy + malli            (entiteetit, avainlauseet, perustilastot)\n"
 "  • textdescriptives         (luettavuusindeksit)\n"
 "  • transformers + torch     (sentimenttianalyysi monikielisellä mallilla)\n"
@@ -2143,9 +2234,7 @@ msgstr ""
 "Asenna ne komennolla:\n"
 "  {install}\n"
 "\n"
-"Taustaprosessi ilmoitti moduulin puuttuvan. Varmista, että paketit on "
-"asennettu samaan Python-suoritustiedostoon, jonka määritetty "
-"virtuaaliympäristö on tunnistanut."
+"Taustaprosessi ilmoitti moduulin puuttuvan. Varmista, että paketit on asennettu samaan Python-suoritustiedostoon, jonka määritetty virtuaaliympäristö on tunnistanut."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2164,17 +2253,11 @@ msgstr "Analysoidaan..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Virhe: %s\n"
 "\n"
-"Tarvittavat paketit saattavat puuttua määritetystä virtuaaliympäristöstä "
-"(Asetukset → Python). Napsauta tässä valintaikkunassa Tarkista "
-"virtuaaliympäristö tai käytä Asetukset → Python -kohdan täyttä testiä "
-"saadaksesi lisätietoja kirjastoista spacy, textdescriptives, transformers, "
-"torch jne."
+"Tarvittavat paketit saattavat puuttua määritetystä virtuaaliympäristöstä (Asetukset → Python). Napsauta tässä valintaikkunassa Tarkista virtuaaliympäristö tai käytä Asetukset → Python -kohdan täyttä testiä saadaksesi lisätietoja kirjastoista spacy, textdescriptives, transformers, torch jne."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2247,7 +2330,8 @@ msgstr "Vision '{helper}' suoritettu. Lisätty muotoiltu HTML. (kesti {time})"
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "{domain} '{helper}' valmis. Kirjoitettiin {rows} riviä. (kesti {time})"
+msgstr ""
+"{domain} '{helper}' valmis. Kirjoitettiin {rows} riviä. (kesti {time})"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -2309,8 +2393,8 @@ msgid ""
 "you need to clear expensive one-time workbook setup."
 msgstr ""
 "Python-istuntotila on eristetty (jokainen =PY()-solu käyttää omia "
-"muuttujiaan). Jaettua soluistuntoa ei voi nollata. Lisää alustusskripti, jos "
-"sinun on tyhjennettävä työlään kertaluonteisen työkirjan määritykset."
+"muuttujiaan). Jaettua soluistuntoa ei voi nollata. Lisää alustusskripti, jos"
+" sinun on tyhjennettävä työlään kertaluonteisen työkirjan määritykset."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this document."
@@ -2388,8 +2472,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skripti suoritettiin onnistuneesti, mutta se ei palauttanut tulosta eikä "
 "tuottanut tulostetta. (kesti {time})"
@@ -2414,7 +2498,8 @@ msgstr "Suorita Python-skripti"
 
 #: plugin/scripting/python_runner.py
 msgid "Run Python Script failed to open the Monaco editor."
-msgstr "Python-skriptin suorittaminen epäonnistui Monaco-editorin avaamisessa."
+msgstr ""
+"Python-skriptin suorittaminen epäonnistui Monaco-editorin avaamisessa."
 
 #: plugin/scripting/python_runner.py
 msgid "Could not open the built-in script dialog."
@@ -2550,8 +2635,8 @@ msgstr "Julkinen tunneli {0}:n kautta"
 #, python-brace-format
 msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
 msgstr ""
-"Julkinen tunneli {0}:n kautta käynnistyy… käytä MCP-palvelimen tilaa, kun se "
-"on valmis."
+"Julkinen tunneli {0}:n kautta käynnistyy… käytä MCP-palvelimen tilaa, kun se"
+" on valmis."
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -2710,8 +2795,7 @@ msgstr ""
 "{0}-binääri '{1}' on asennettu ja vahvistettu ({2}).\n"
 "\n"
 "MCP-palvelin on käynnissä paikallisesti portissa {3}.\n"
-"Valitse 'Expose via public tunnel' ja napsauta OK aktivoidaksesi julkisen "
-"reitityksen."
+"Valitse 'Expose via public tunnel' ja napsauta OK aktivoidaksesi julkisen reitityksen."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2773,10 +2857,6 @@ msgstr "Kysy / ohjeista:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Kuvasuhde:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Äänimalli:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3129,6 +3209,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3156,6 +3240,122 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "Äänimalli:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr "Puheesta tekstiksi -malli, kun chat-malli ei tue äänisyötettä."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Ota puheulostulo käyttöön (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr "Lue avustajan vastaukset ääneen tekstistä puheeksi -toiminnolla."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Lue lause kerrallaan (paikallinen)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Syntetisoi seuraavat lauseet nykyisen toiston aikana, jotta lyhyen lauseen "
+"jälkeen ei tule taukoa. Pysäytys hylkää vielä toistamattomat pätkät. Poista "
+"käytöstä, jos haluat lukea koko vastauksen yhtenä pätkänä."
+
+msgid "Keep replies brief"
+msgstr "Pidä vastaukset lyhyinä"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Tavoittele noin yhden kappaleen mittaa, ellei käyttäjä pyydä enempää. Koskee"
+" vain, kun puheulostulo (TTS) on käytössä."
+
+msgid "TTS Provider"
+msgstr "TTS-palveluntarjoaja"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Valitse, käytetäänkö käyttöjärjestelmän sisäänrakennettua puhetta, "
+"paikallista neuroverkkomallia vai omaa API-päätepistettä."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "Käyttöjärjestelmän natiivi (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (paikallinen neuroverkko, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (paikallinen nopea neuroverkko, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "LLM-päätepiste"
+
+msgid "TTS Model"
+msgstr "TTS-malli"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Puhesynteesimalli (käytetään, kun TTS-palveluntarjoaja on LLM-päätepiste)."
+
+msgid "Voice"
+msgstr "Ääni"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Valitun palveluntarjoajan ääni. Luettelo vastaa kielialueesi Piper- tai "
+"Kokoro-luetteloa."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI neutraali)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro US naisääni – Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (US-englanti, naisääni - Lessac)"
+
+msgid "default (System Default)"
+msgstr "oletus (järjestelmän oletus)"
+
+msgid "Test voice"
+msgstr "Testaa ääntä"
+
+msgid "Speech Speed"
+msgstr "Puhenopeus"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Toistonopeuden kerroin (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x tai mukautettu "
+"nopeus aina 0.25x asti)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Calc-laskentataulukkotyökalut"
 
@@ -3171,11 +3371,11 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"Muunna sisarukset .xlsx/.xls muotoon writeragent_ods_cache/ kansion viereen, "
-"jotta toistuva DuckDB SQL käyttää ODS-tiedostoa uudelleen. Alkuperäisiä .ods-"
-"tiedostoja ja aktiivista työkirjaa ei koskaan välimuistiteta. Aseta calc."
-"ods_cache_enabled false tiedostossa writeragent.json poistaaksesi tämän "
-"käytöstä."
+"Muunna sisarukset .xlsx/.xls muotoon writeragent_ods_cache/ kansion viereen,"
+" jotta toistuva DuckDB SQL käyttää ODS-tiedostoa uudelleen. Alkuperäisiä "
+".ods-tiedostoja ja aktiivista työkirjaa ei koskaan välimuistiteta. Aseta "
+"calc.ods_cache_enabled false tiedostossa writeragent.json poistaaksesi tämän"
+" käytöstä."
 
 msgid "Sidebar"
 msgstr "Sivupalkki"
@@ -3227,8 +3427,8 @@ msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
 msgstr ""
-"Valitse selaintausta, jota käytetään verkkosivukäynneillä tutkimuksen aikana "
-"(Pois käytöstä käyttää staattisia HTTP-pyyntöjä)."
+"Valitse selaintausta, jota käytetään verkkosivukäynneillä tutkimuksen aikana"
+" (Pois käytöstä käyttää staattisia HTTP-pyyntöjä)."
 
 msgid "Off (Static HTTP)"
 msgstr "Pois (staattinen HTTP)"
@@ -3268,9 +3468,9 @@ msgstr "Humanisointitaito (luonnollinen proosa)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Kun käytössä, lisää ohjeistuksen järjestelmäkehotteeseen, jotta malli "
 "tuottaa tai muokkaa asiakirjatekstiä luonnollisemman ja inhimillisemmän "
@@ -3296,14 +3496,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Ota kieliopin tarkistus käyttöön (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Pois = pois käytöstä. AI (LLM) = käytä määritettyä tekstimallia/rajapintaa. "
 "LanguageTool / Vale = paikalliset moottorit asetusten kautta → Python venv. "
-"Harper = offline-tilassa toimiva Rust-binääri, joka ladataan automaattisesti "
-"profiiliisi (ei vaadi venv-ympäristöä)."
+"Harper = offline-tilassa toimiva Rust-binääri, joka ladataan automaattisesti"
+" profiiliisi (ei vaadi venv-ympäristöä)."
 
 msgid "Off"
 msgstr "Pois"
@@ -3345,8 +3545,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Kun tämä on päällä, tekoälypohjainen kieliopin tarkistus ohittaa "
-"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään "
-"samanaikaiset API-kutsut."
+"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään"
+" samanaikaiset API-kutsut."
 
 msgid "Batch sentences"
 msgstr "Erälauseet"
@@ -3409,9 +3609,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Off = suorat muokkaukset. Record = seurattavat muutokset, jotka hyväksyt/"
-"hylkäät itse. Wait = apply_document_content estää (chat/MCP-työsäikeessä), "
-"kunnes tarkistat."
+"Off = suorat muokkaukset. Record = seurattavat muutokset, jotka "
+"hyväksyt/hylkäät itse. Wait = apply_document_content estää (chat/MCP-"
+"työsäikeessä), kunnes tarkistat."
 
 msgid "Record (track changes)"
 msgstr "Tallenna (muutosten seuranta)"
@@ -3432,8 +3632,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Indeksoitu semanttinen ja avainsanahaku dokumenttitutkimukselle (corpus.db). "
-"Vaatii embeddings-virtuaaliympäristön – katso Python-testi."
+"Indeksoitu semanttinen ja avainsanahaku dokumenttitutkimukselle (corpus.db)."
+" Vaatii embeddings-virtuaaliympäristön – katso Python-testi."
 
 msgid "Embeddings + FTS"
 msgstr "Embeddings + FTS"
@@ -3452,8 +3652,8 @@ msgstr "Upotusmalli"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"HuggingFace-mallitunniste paikalliselle palveluntarjoajalle tai päätepisteen "
-"mukainen mallitunniste"
+"HuggingFace-mallitunniste paikalliselle palveluntarjoajalle tai päätepisteen"
+" mukainen mallitunniste"
 
 msgid "Enable cross-file rerank"
 msgstr "Ota käyttöön tiedostojen välinen uudelleenjärjestys"
@@ -3469,11 +3669,11 @@ msgid "Rerank model"
 msgstr "Uudelleenjärjestysmalli"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
-"Käytetään vain, kun uudelleenjärjestys on käytössä. Englanninkielinen MiniLM "
-"on nopea; bge-reranker-v2-m3 on monikielinen ja lataa noin 2,3 Gt."
+"Käytetään vain, kun uudelleenjärjestys on käytössä. Englanninkielinen MiniLM"
+" on nopea; bge-reranker-v2-m3 on monikielinen ja lataa noin 2,3 Gt."
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -3491,11 +3691,11 @@ msgid "Enable MCP Server"
 msgstr "Ota MCP-palvelin käyttöön"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Vain localhost, ei todennusta. Asiakasohjelmat käyttävät osoitetta http://"
-"localhost:<port>/mcp (suoratoistettava HTTP)."
+"Vain localhost, ei todennusta. Asiakasohjelmat käyttävät osoitetta "
+"http://localhost:<port>/mcp (suoratoistettava HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-portti"
@@ -3536,8 +3736,8 @@ msgstr "Altista julkisen tunnelin kautta"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Vaatii valitun palveluntarjoajan binaaritiedoston PATH-ympäristömuuttujassa "
 "(cloudflared, bore, ngrok tai tailscale). MCP:ssä ei ole todennusta – kuka "
@@ -3587,10 +3787,10 @@ msgid "Python venv path"
 msgstr "Python-virtuaaliympäristön polku"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
 "Jos asetettu, suorittaa =PY() ja Run Python Script kyseisessä "
@@ -3616,8 +3816,8 @@ msgid "Max Calc data cells"
 msgstr "Calc-datasolujen enimmäismäärä"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "=PYTHON()-datan tai Run Python Script -datan/data_range-alueen solujen "
 "enimmäismäärä. Suuremmat arvot kuluttavat enemmän RAM-muistia ja aikaa; UNO-"
@@ -3659,12 +3859,12 @@ msgid "Rewrite xl() ranges"
 msgstr "Kirjoita xl()-alueet uudelleen"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Kun Python-solua muokataan ja tallennetaan, nosta staattinen xl(\"A1:…\") "
-"=PY-data-argumenteiksi ja kirjoita uudelleen muotoon data / data[i] / ."
-"to_pandas()."
+"=PY-data-argumenteiksi ja kirjoita uudelleen muotoon data / data[i] / "
+".to_pandas()."
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"
@@ -3687,7 +3887,8 @@ msgid "Docling artifacts path"
 msgstr "Docling-artefaktien polku"
 
 msgid "Optional folder from docling-tools models download (offline use)."
-msgstr "Valinnainen kansio docling-tools-mallien lataamiseen (offline-käyttö)."
+msgstr ""
+"Valinnainen kansio docling-tools-mallien lataamiseen (offline-käyttö)."
 
 msgid "OCR confidence threshold"
 msgstr "OCR-luottamusraja"
@@ -3768,91 +3969,3 @@ msgstr "Docling-asiakirjan aikakatkaisu (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Muunnoskohtainen aikakatkaisu Doclingissa. 0 = ei rajoitusta."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Palveluntarjoaja"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "AI-malli:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "valinnat"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

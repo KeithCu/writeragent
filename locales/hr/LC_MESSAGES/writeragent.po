@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Pokretanje lokalnog OCR-a na odabranoj slici/slikama..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Čitanje istraživanja dokumenata zahtijeva delegiranje specijaliziranih "
 "zadataka (USE_SUB_AGENT). Omogućite ovo u konfiguraciji."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Poziv alata prebačen na '{0}'. Nalazite se u načinu rada specijaliziranog "
@@ -58,8 +58,8 @@ msgstr "Pokretanje bilježnice podržano je samo u LibreOffice Writeru."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "Ovaj dokument nema uvezenu bilježnicu. Prvo odaberite Datoteka → Otvori "
 "Jupyter bilježnicu (.ipynb)."
@@ -225,7 +225,8 @@ msgstr "HTTP pogreška {0}: {1}"
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "No API key configured for {0}. Open Settings and add a key."
-msgstr "Nije konfiguriran API ključ za {0}. Otvorite Postavke i dodajte ključ."
+msgstr ""
+"Nije konfiguriran API ključ za {0}. Otvorite Postavke i dodajte ključ."
 
 #: plugin/framework/errors.py
 msgid "No API key configured. Open Settings and add a key."
@@ -264,7 +265,8 @@ msgstr ""
 "postavkama."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Veza odbijena. Radi li vaš lokalni AI poslužitelj (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
@@ -326,8 +328,8 @@ msgstr "HTTP pogreška {0} od AI pružatelja: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Ako je vaš API ključ iz pretplate GLM Coding Plan, postavite krajnju točku "
 "na {0} (ne na opći /api/paas URL)."
@@ -381,6 +383,70 @@ msgstr "Molimo postavite model u postavkama."
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Molimo odaberite važeći model u postavkama (ne rezervirano mjesto)."
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Zahtjev za govor nije uspio ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Zahtjev za govor nije uspio: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Zahtjev za govor nije uspio ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Zahtjev za govor nije uspio."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Preuzimanje Kokoro glasovnog modela…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "Nije moguće preuzeti Kokoro; koristi se OS govor"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Preuzimanje Piper glasa {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Nije moguće preuzeti {0}; koristi se Lessac"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "Nije moguće preuzeti {0}; koristi se OS govor"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr ""
+"Kokoro fonemizator nije uspio; ovaj jezik možda neće biti ispravno pročitan."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Instalacija Kokoro fonemizatora…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Nije bilo moguće instalirati Kokoro fonemizator; ovaj jezik možda neće biti "
+"ispravno pročitan. Instalirajte pomoću: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Preuzimanje rječnika za japanski fonemizator…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -400,8 +466,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Monaco uređivač je onemogućen putem \"scripting."
-"force_internal_script_editor\" u writeragent.json."
+"Monaco uređivač je onemogućen putem "
+"\"scripting.force_internal_script_editor\" u writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -460,8 +526,9 @@ msgstr "PythonCellEditorDialog nije se mogao učitati iz proširenja."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Nije bilo moguće sačuvati argumente PY formule ove ćelije (npr. rasponi "
 "podataka). Uredite formulu u Calc-u ili koristite citirani niz koda kao što "
@@ -480,8 +547,7 @@ msgid ""
 msgstr ""
 "Spremiti promjene u {0}?\n"
 "\n"
-"Da sprema. Ne odbacuje i otvara novu ćeliju. Odustani zadržava uređivanje "
-"{0}."
+"Da sprema. Ne odbacuje i otvara novu ćeliju. Odustani zadržava uređivanje {0}."
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -569,8 +635,8 @@ msgstr "Umetnute slike"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Geometrijski redoslijed ponovnog izračuna preskočio je list '%(sheet)s': "
 "pronađeno je %(cap)s ili više Python ćelija (ograničenje otkrivanja). List "
@@ -583,16 +649,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Nije bilo moguće zapisati dijelove Microsoft Excel Python paketa za:\n"
 "{0}\n"
 "\n"
-"Datoteka je spremljena s LibreOffice =PY formulama. Excel neće vidjeti "
-"pythonScripts.xml / _xlws.PY dok izvoz ne uspije.\n"
+"Datoteka je spremljena s LibreOffice =PY formulama. Excel neće vidjeti pythonScripts.xml / _xlws.PY dok izvoz ne uspije.\n"
 "\n"
 "{1}"
 
@@ -1327,8 +1391,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Interna pogreška: Nije moguće identificirati vrstu dokumenta za {0}. Molimo "
-"prijavite ovo!]"
+"[Interna pogreška: Nije moguće identificirati vrstu dokumenta za {0}. Molimo"
+" prijavite ovo!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1405,8 +1469,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nije pronađen uređivač (instalirajte Kate ili Gedit ili postavite EDITOR). "
-"Putanja:\n"
+"Nije pronađen uređivač (instalirajte Kate ili Gedit ili postavite EDITOR). Putanja:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1435,7 +1498,8 @@ msgstr "[Pozadinski agent '{0}' nije pronađen.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Pozadinski agent '{0}' nije dostupan. Provjerite postavke (putanja, "
 "instalacija).]"
@@ -1576,6 +1640,21 @@ msgid "Testing connection..."
 msgstr "Provjera veze..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Govor"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Nije bilo moguće reproducirati zvučni uzorak."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Izlaz govora je isključen. Uključite Omogući izlaz govora (TTS) kako biste "
+"čuli ovaj glas."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Preuzimanje zvučne biblioteke"
 
@@ -1602,6 +1681,10 @@ msgstr "Visina:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Širina:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Izgovori odgovore naglas (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1768,7 +1851,8 @@ msgstr "Jeste li sigurni da želite izbrisati skriptu '{0}'?"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Odaberite raspon podataka ili unesite A1 adresu (umetnuto kao podaci)."
+msgstr ""
+"Odaberite raspon podataka ili unesite A1 adresu (umetnuto kao podaci)."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1904,7 +1988,8 @@ msgstr "Skripta uspješno izvršena."
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
 msgstr ""
-"Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela izlaz."
+"Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela "
+"izlaz."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Success"
@@ -1933,8 +2018,8 @@ msgstr "Neuspjelo"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
 "Postavite putanju do Python venv-a u Postavke → Python (isti venv u kojem "
 "ste pokrenuli 'uv pip install pywebview rocher'). Ugrađeni Python u "
@@ -1990,10 +2075,12 @@ msgstr ""
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text/NLP probe failed (see writeragent_debug.log)."
-msgstr "Provjera teksta/NLP-a nije uspjela (pogledajte writeragent_debug.log)."
+msgstr ""
+"Provjera teksta/NLP-a nije uspjela (pogledajte writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vremensko ograničenje vizualne sonde isteklo (uvoz Doclinga može potrajati "
 "10–30 s pri prvoj provjeri)."
@@ -2017,8 +2104,8 @@ msgstr ""
 "writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Snimanje zvuka"
+msgid "Audio Recording & Speech"
+msgstr "Snimanje zvuka i govor"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2061,12 +2148,20 @@ msgid "Vector Search Libraries"
 msgstr "Biblioteke vektorskog pretraživanja"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Snimanje zvuka"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Za instalaciju preostalih paketa:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Nisu otkriveni ulazni uređaji mikrofona."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Lokalni TTS strojevi (izborno):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2077,12 +2172,13 @@ msgid "Reading Python version..."
 msgstr "Čitanje verzije Pythona..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Snimanje zvuka: provjera sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Zvuk i govor: provjera zvučnog uređaja i TTS strojeva..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
-msgstr "Tekst / NLP biblioteke: učitavanje (prvo pokretanje može potrajati)..."
+msgstr ""
+"Tekst / NLP biblioteke: učitavanje (prvo pokretanje može potrajati)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
@@ -2124,8 +2220,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2133,25 +2228,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Pogreška radnog procesa za analizu teksta:\n"
 "{err}\n"
 "\n"
-"Značajke u ovom dijaloškom okviru zahtijevaju sljedeće pakete u Pythonu koji "
-"se koristi:\n"
+"Značajke u ovom dijaloškom okviru zahtijevaju sljedeće pakete u Pythonu koji se koristi:\n"
 "  • spacy + model          (entiteti, ključne fraze, osnovna statistika)\n"
 "  • textdescriptives         (stvarne ocjene čitljivosti)\n"
-"  • transformers + torch     (analiza sentimenta pomoću višejezičnog "
-"modela)\n"
+"  • transformers + torch     (analiza sentimenta pomoću višejezičnog modela)\n"
 "\n"
 "Instalirajte ih pomoću:\n"
 "  {install}\n"
 "\n"
-"Radni proces je prijavio da modul nedostaje. Provjerite jesu li paketi "
-"instalirani u točnoj Python izvršnoj datoteci koju je radni proces "
-"razriješio za vaš konfigurirani venv."
+"Radni proces je prijavio da modul nedostaje. Provjerite jesu li paketi instalirani u točnoj Python izvršnoj datoteci koju je radni proces razriješio za vaš konfigurirani venv."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2170,16 +2260,11 @@ msgstr "Analiziram..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Pogreška: %s\n"
 "\n"
-"Možda nedostaju potrebni paketi u vašem konfiguriranom venv-u (Postavke → "
-"Python). Kliknite Provjeri Venv u ovom dijaloškom okviru ili koristite puni "
-"Test u Postavke → Python za pojedinosti o spacy, textdescriptives, "
-"transformers, torch itd."
+"Možda nedostaju potrebni paketi u vašem konfiguriranom venv-u (Postavke → Python). Kliknite Provjeri Venv u ovom dijaloškom okviru ili koristite puni Test u Postavke → Python za pojedinosti o spacy, textdescriptives, transformers, torch itd."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2252,7 +2337,8 @@ msgstr "Vision '{helper}' dovršen. Umetnut oblikovani HTML. (trajalo {time})"
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "{domain} '{helper}' dovršeno. Zapisano {rows} redaka. (trajalo {time})"
+msgstr ""
+"{domain} '{helper}' dovršeno. Zapisano {rows} redaka. (trajalo {time})"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -2306,8 +2392,8 @@ msgid ""
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
 "Inicijalizacijska skripta i bilo koje stanje inicijalizacije u memoriji "
-"resetirani su za ovu radnu knjigu. Varijable ćelija već su bile izolirane po "
-"ćeliji."
+"resetirani su za ovu radnu knjigu. Varijable ćelija već su bile izolirane po"
+" ćeliji."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2395,8 +2481,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skripta je uspješno izvršena, ali nije vratila rezultat niti proizvela "
 "izlaz. (trajalo {time})"
@@ -2722,8 +2808,7 @@ msgstr ""
 "{0} binarna datoteka '{1}' je instalirana i potvrđena ({2}).\n"
 "\n"
 "MCP poslužitelj lokalno radi na priključku {3}.\n"
-"Označite 'Izloži putem javnog tunela' i kliknite U redu za aktivaciju javnog "
-"usmjeravanja."
+"Označite 'Izloži putem javnog tunela' i kliknite U redu za aktivaciju javnog usmjeravanja."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2785,10 +2870,6 @@ msgstr "Pitaj / uputi:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Omjer slike:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Audio model:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3140,6 +3221,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3167,6 +3252,127 @@ msgstr "Grok izgradnja (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "Audio model:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Model pretvorbe govora u tekst kada model za razgovor ne može primiti audio "
+"unos."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Omogući govorni izlaz (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+"Izgovori odgovore pomoćnika naglas koristeći pretvorbu teksta u govor."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Izgovori rečenicu po rečenicu (lokalno)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Sintetiziraj sljedeće rečenice dok se trenutna reproducira, kako kratka "
+"rečenica ne bi bila praćena stankom. Zaustavljanje odbacuje isječke koji se "
+"još ne reproduciraju. Isključite za izgovor cijelog odgovora kao jednog "
+"isječka."
+
+msgid "Keep replies brief"
+msgstr "Neka odgovori budu kratki"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Ciljajte na otprilike jedan odlomak osim ako korisnik ne traži više. "
+"Primjenjuje se samo dok je uključen govorni izlaz (TTS)."
+
+msgid "TTS Provider"
+msgstr "TTS pružatelj"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Odaberite želite li koristiti ugrađeni govor operativnog sustava, lokalni "
+"neuronski mehanizam ili vlastitu API krajnju točku."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Native (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (lokalna neuronska, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (lokalna brza neuronska, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "LLM krajnja točka"
+
+msgid "TTS Model"
+msgstr "TTS model"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Model za sintezu govora (koristi se kada je TTS pružatelj LLM krajnja "
+"točka)."
+
+msgid "Voice"
+msgstr "Glas"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Glas za odabranog pružatelja. Popis odgovara Piper ili Kokoro katalogu za "
+"vaš lokalitet."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI neutralni)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro američki ženski - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (američki engleski ženski - Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (zadano u sustavu)"
+
+msgid "Test voice"
+msgstr "Testiraj glas"
+
+msgid "Speech Speed"
+msgstr "Brzina govora"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Množitelj brzine reprodukcije (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x ili "
+"prilagođeno do 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Alati za Calc proračunske tablice"
 
@@ -3182,10 +3388,10 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"Pretvori srodne .xlsx/.xls datoteke u writeragent_ods_cache/ pored mape kako "
-"bi ponovljeni DuckDB SQL koristio ODS. Izvorne .ods datoteke i aktivna radna "
-"knjiga se nikada ne predmemoriraju. Postavite calc.ods_cache_enabled na "
-"false u writeragent.json za onemogućavanje."
+"Pretvori srodne .xlsx/.xls datoteke u writeragent_ods_cache/ pored mape kako"
+" bi ponovljeni DuckDB SQL koristio ODS. Izvorne .ods datoteke i aktivna "
+"radna knjiga se nikada ne predmemoriraju. Postavite calc.ods_cache_enabled "
+"na false u writeragent.json za onemogućavanje."
 
 msgid "Sidebar"
 msgstr "Bočna traka"
@@ -3270,7 +3476,8 @@ msgid "Rich Text Control Sidebar"
 msgstr "Bočna traka kontrole za obogaćeni tekst"
 
 msgid "Formatted chat via RichTextControl. Requires restart."
-msgstr "Formatirani chat putem RichTextControla. Zahtijeva ponovno pokretanje."
+msgstr ""
+"Formatirani chat putem RichTextControla. Zahtijeva ponovno pokretanje."
 
 msgid "Humanizer skill (natural prose)"
 msgstr "Vještina humanizacije (prirodna proza)"
@@ -3278,15 +3485,15 @@ msgstr "Vještina humanizacije (prirodna proza)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Kada je omogućeno, ubacuje smjernice u sistemski upit tako da model čini "
 "generirani ili revidirani tekst dokumenta prirodnijim i ljudskijim (uklanja "
-"uzorke AI smeća). Uredite pravila u svom LibreOffice profilu pod writeragent/"
-"skills/humanizer/SKILL.md (datoteka se automatski stvara pri prvoj "
-"upotrebi). Namjenska kartica Vještine može se dodati kasnije."
+"uzorke AI smeća). Uredite pravila u svom LibreOffice profilu pod "
+"writeragent/skills/humanizer/SKILL.md (datoteka se automatski stvara pri "
+"prvoj upotrebi). Namjenska kartica Vještine može se dodati kasnije."
 
 msgid "Silence before send (ms)"
 msgstr "Tišina prije slanja (ms)"
@@ -3305,14 +3512,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Omogući provjeru gramatike (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Isključeno = onemogućeno. AI (LLM) = koristite konfigurirani tekstualni "
 "model/API. LanguageTool / Vale = lokalni mehanizmi putem Postavke → Python "
-"venv. Harper = izvanmrežna Rust binarna datoteka koja se automatski preuzima "
-"u vaš profil (nije potreban venv)."
+"venv. Harper = izvanmrežna Rust binarna datoteka koja se automatski preuzima"
+" u vaš profil (nije potreban venv)."
 
 msgid "Off"
 msgstr "Isključeno"
@@ -3342,8 +3549,8 @@ msgid ""
 "Clears cached grammar results for this document and asks Writer to check "
 "again. Use after changing checker or model."
 msgstr ""
-"Briše predmemorirane rezultate gramatike za ovaj dokument i traži od Writera "
-"ponovnu provjeru. Koristite nakon promjene provjernika ili modela."
+"Briše predmemorirane rezultate gramatike za ovaj dokument i traži od Writera"
+" ponovnu provjeru. Koristite nakon promjene provjernika ili modela."
 
 msgid "Pause grammar while chat/agent runs"
 msgstr "Pauziraj gramatiku dok chat/agent radi"
@@ -3352,8 +3559,8 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Kada je uključeno, AI gramatika preskače pozadinske zahtjeve dok bočna traka "
-"chata ili agent radi, kako bi se izbjegli istovremeni API pozivi."
+"Kada je uključeno, AI gramatika preskače pozadinske zahtjeve dok bočna traka"
+" chata ili agent radi, kako bi se izbjegli istovremeni API pozivi."
 
 msgid "Batch sentences"
 msgstr "Skupna obrada rečenica"
@@ -3364,8 +3571,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Broj rečenica za slanje po LLM zahtjevu (1-8). 1 (zadano) je najpouzdanije; "
-"veće vrijednosti su brže i jeftinije, ali mogu doseći ograničenja tokena ili "
-"uzrokovati pogreške modela."
+"veće vrijednosti su brže i jeftinije, ali mogu doseći ograničenja tokena ili"
+" uzrokovati pogreške modela."
 
 msgid "Concurrent requests"
 msgstr "Istodobni zahtjevi"
@@ -3389,10 +3596,10 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"Provjerite jezik svake potpune rečenice prema lokalnim postavkama dokumenta. "
-"AI koristi vaš API za gramatiku/razgovor; Lokalno koristi langdetect u vašem "
-"Python venv-u (Postavke → Python; nema API poziva). Nepodudaranja ažuriraju "
-"CharLocale i ponovno provjeravaju gramatiku."
+"Provjerite jezik svake potpune rečenice prema lokalnim postavkama dokumenta."
+" AI koristi vaš API za gramatiku/razgovor; Lokalno koristi langdetect u "
+"vašem Python venv-u (Postavke → Python; nema API poziva). Nepodudaranja "
+"ažuriraju CharLocale i ponovno provjeravaju gramatiku."
 
 msgid "Local (langdetect)"
 msgstr "Lokalno (langdetect)"
@@ -3459,8 +3666,8 @@ msgstr "Model za ugradnju"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"HuggingFace ID modela za lokalnog pružatelja usluga ili ID modela specifičan "
-"za krajnju točku"
+"HuggingFace ID modela za lokalnog pružatelja usluga ili ID modela specifičan"
+" za krajnju točku"
 
 msgid "Enable cross-file rerank"
 msgstr "Omogući ponovno rangiranje između datoteka"
@@ -3476,8 +3683,8 @@ msgid "Rerank model"
 msgstr "Model za ponovno rangiranje"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Koristi se samo kada je omogućeno ponovno rangiranje. Engleski MiniLM je "
 "brz; bge-reranker-v2-m3 je višejezičan i preuzima ~2,3 GB."
@@ -3498,11 +3705,11 @@ msgid "Enable MCP Server"
 msgstr "Omogući MCP poslužitelj"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Samo localhost, bez provjere autentičnosti. Klijenti koriste http://"
-"localhost:<port>/mcp (streamable HTTP)."
+"Samo localhost, bez provjere autentičnosti. Klijenti koriste "
+"http://localhost:<port>/mcp (streamable HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP priključak"
@@ -3542,8 +3749,8 @@ msgstr "Izloži putem javnog tunela"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Zahtijeva binarnu datoteku odabranog pružatelja usluga na PATH-u "
 "(cloudflared, bore, ngrok ili tailscale). MCP nema autentifikaciju — svatko "
@@ -3580,8 +3787,8 @@ msgid ""
 "Empty = provider default / CLI config. Unused for Tailscale."
 msgstr ""
 "Ngrok authtoken; Cloudflare tunnel token; Bore poslužitelj ili 'server "
-"secret'. Prazno = zadano za pružatelja / CLI konfiguracija. Ne koristi se za "
-"Tailscale."
+"secret'. Prazno = zadano za pružatelja / CLI konfiguracija. Ne koristi se za"
+" Tailscale."
 
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Konfiguracija klijenta (kopirajte u Claude / Hermes-Agent):"
@@ -3593,14 +3800,14 @@ msgid "Python venv path"
 msgstr "Putanja do Python venv-a"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Ako je postavljeno, pokreće =PY() i Pokreni Python skriptu u tom venv-u (bin/"
-"python, Scripts/python.exe ili conda/pyenv-win env-root python.exe). "
+"Ako je postavljeno, pokreće =PY() i Pokreni Python skriptu u tom venv-u "
+"(bin/python, Scripts/python.exe ili conda/pyenv-win env-root python.exe). "
 "Zalijepite putanju bez navodnika. Ako je prazno, koristi se sys.executable "
 "ovog procesa (osnovna stdlib); koristite venv za numpy/pandas i Vision "
 "Helpers (paddleocr, paddlepaddle)."
@@ -3622,8 +3829,8 @@ msgid "Max Calc data cells"
 msgstr "Maks. broj ćelija podataka u Calc-u"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maksimalan broj ćelija u =PYTHON() podacima ili podacima/data_range-u "
 "funkcije Run Python Script. Veće vrijednosti troše više RAM-a i vremena; "
@@ -3665,8 +3872,8 @@ msgid "Rewrite xl() ranges"
 msgstr "Prepiši xl() raspone"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Prilikom spremanja Python ćelije, podigni statički xl(\"A1:…\") na =PY "
 "podatkovne argumente i prepiši u data / data[i] / .to_pandas()."
@@ -3773,91 +3980,3 @@ msgstr "Vremensko ograničenje Docling dokumenta (s)"
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr ""
 "Vremensko ograničenje po pretvorbi unutar Doclinga. 0 = bez ograničenja."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Pružatelj usluge"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "AI model:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "izbori"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

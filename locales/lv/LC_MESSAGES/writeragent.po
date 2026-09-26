@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Notiek vietējā OCR apstrāde atlasītajam(-iem) attēlam(-iem)..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentu izpētes lasījumiem ir nepieciešama specializēta uzdevumu "
 "deleģēšana (USE_SUB_AGENT). Iespējojiet to konfigurācijā."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Rīka izsaukums pārslēgts uz '{0}'. Jūs atrodaties specializētā rīkkopas "
@@ -59,8 +59,8 @@ msgstr ""
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "Šajā dokumentā nav importētas piezīmju grāmatiņas. Vispirms izvēlieties "
 "Fails → Atvērt Jupyter piezīmju grāmatiņu (.ipynb)."
@@ -203,7 +203,8 @@ msgstr "API piekļuve liegta. Jūsu atslēgai var trūkt atļauju šim modelim."
 
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "Galapunkts nav atrasts (404). Pārbaudiet savu URL un modeļa nosaukumu."
+msgstr ""
+"Galapunkts nav atrasts (404). Pārbaudiet savu URL un modeļa nosaukumu."
 
 #: plugin/framework/errors.py plugin/framework/client/errors.py
 msgid "Rate limited (429). Wait a moment and try again."
@@ -261,7 +262,8 @@ msgstr ""
 "Pieprasījuma noildze. Mēģiniet palielināt \"Request Timeout\" iestatījumos."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Savienojums atteikts. Vai jūsu lokālais AI serveris (Ollama/LM Studio) "
 "darbojas?"
@@ -314,8 +316,8 @@ msgid ""
 "The local Ollama/llama.cpp process crashed because the prompt overflowed a "
 "too-small context window."
 msgstr ""
-"Vietējais Ollama/llama.cpp process avarēja, jo uzvedne pārsniedza pārāk mazu "
-"konteksta logu."
+"Vietējais Ollama/llama.cpp process avarēja, jo uzvedne pārsniedza pārāk mazu"
+" konteksta logu."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -325,8 +327,8 @@ msgstr "HTTP kļūda {0} no AI pakalpojumu sniedzēja: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Ja jūsu API atslēga ir no GLM Coding Plan abonementa, iestatiet galapunktu "
 "uz {0} (nevis vispārīgo /api/paas URL)."
@@ -379,6 +381,69 @@ msgstr "Lūdzu, iestatiet modeli iestatījumos."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Lūdzu, atlasiet derīgu modeli iestatījumos (nevis vietturi)."
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Runas pieprasījums neizdevās ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Runas pieprasījums neizdevās: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Runas pieprasījums neizdevās ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Runas pieprasījums neizdevās."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Lejupielādē Kokoro balss modeli…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "Neizdevās lejupielādēt Kokoro; tiek izmantota OS runas funkcija"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Lejupielādē Piper balsi {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Neizdevās lejupielādēt {0}; tiek izmantota Lessac"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "Neizdevās lejupielādēt {0}; tiek izmantota OS runas funkcija"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr "Kokoro fonemizētāja kļūda; šī valoda var tikt nolasīta nepareizi."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Notiek Kokoro fonemizētāja instalēšana…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Neizdevās instalēt Kokoro fonemizētāju; šī valoda var tikt nolasīta "
+"nepareizi. Instalējiet ar: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Notiek japāņu valodas fonemizētāja vārdnīcas lejupielāde…"
 
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
@@ -439,7 +504,8 @@ msgstr ""
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
-msgstr "Calc izpildlaikā ievada `data` un `ranges` no šī(iem) diapazona(-iem)."
+msgstr ""
+"Calc izpildlaikā ievada `data` un `ranges` no šī(iem) diapazona(-iem)."
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saving…"
@@ -460,11 +526,12 @@ msgstr "PythonCellEditorDialog nevarēja ielādēt no paplašinājuma."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Neizdevās saglabāt šīs šūnas PY formulas argumentus (piem., datu apgabalus). "
-"Rediģējiet formulu programmā Calc vai izmantojiet citētu koda virkni, "
+"Neizdevās saglabāt šīs šūnas PY formulas argumentus (piem., datu apgabalus)."
+" Rediģējiet formulu programmā Calc vai izmantojiet citētu koda virkni, "
 "piemēram, =PY(\"kods\"; A1:B10)."
 
 #: plugin/calc/python/editor.py
@@ -552,8 +619,8 @@ msgid ""
 "Error: Python timed out. Open Settings → Python to raise the timeout, or "
 "Test the venv."
 msgstr ""
-"Kļūda: Python darbības laiks ir beidzies. Atveriet Iestatījumi → Python, lai "
-"palielinātu taimautu, vai pārbaudiet venv."
+"Kļūda: Python darbības laiks ir beidzies. Atveriet Iestatījumi → Python, lai"
+" palielinātu taimautu, vai pārbaudiet venv."
 
 #: plugin/calc/python/function.py
 msgid "Image inserted"
@@ -567,8 +634,8 @@ msgstr "Ievietotie attēli"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Ģeometriskā pārrēķina secība izlaida lapu '%(sheet)s': atrasts %(cap)s vai "
 "vairāk Python šūnu (atklāšanas limits). Lapa tika atstāta nesaistīta, lai "
@@ -580,16 +647,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Neizdevās ierakstīt Microsoft Excel Python pakotnes daļas priekš:\n"
 "{0}\n"
 "\n"
-"Fails tika saglabāts ar LibreOffice =PY formulām. Excel neredzēs "
-"pythonScripts.xml / _xlws.PY, kamēr eksportēšana nebūs veiksmīga.\n"
+"Fails tika saglabāts ar LibreOffice =PY formulām. Excel neredzēs pythonScripts.xml / _xlws.PY, kamēr eksportēšana nebūs veiksmīga.\n"
 "\n"
 "{1}"
 
@@ -800,7 +865,8 @@ msgstr "Rediģēt LaTeX formulu"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Select a single formula to update. Multiple formulas are selected."
-msgstr "Atlasiet vienu formulu, ko atjaunināt. Ir atlasītas vairākas formulas."
+msgstr ""
+"Atlasiet vienu formulu, ko atjaunināt. Ir atlasītas vairākas formulas."
 
 #: plugin/writer/math/latex_dialog.py
 msgid ""
@@ -1324,8 +1390,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Iekšēja kļūda: nevarēja identificēt dokumenta tipu {0}. Lūdzu, ziņojiet par "
-"to!]"
+"[Iekšēja kļūda: nevarēja identificēt dokumenta tipu {0}. Lūdzu, ziņojiet par"
+" to!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1403,8 +1469,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Redaktors nav atrasts (instalējiet Kate vai Gedit, vai iestatiet EDITOR). "
-"Ceļš:\n"
+"Redaktors nav atrasts (instalējiet Kate vai Gedit, vai iestatiet EDITOR). Ceļš:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1433,7 +1498,8 @@ msgstr "[Aģenta aizmugursistēma '{0}' nav atrasta.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Aģenta aizmugursistēma '{0}' nav pieejama. Pārbaudiet iestatījumus (ceļu, "
 "instalāciju).]"
@@ -1575,6 +1641,21 @@ msgid "Testing connection..."
 msgstr "Notiek savienojuma pārbaude..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Runas sintēze"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Neizdevās atskaņot balss paraugu."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Runas izvade ir izslēgta. Ieslēdziet \"Iespējot runas izvadi (TTS)\", lai "
+"dzirdētu šo balsi."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Audio bibliotēkas lejupielāde"
 
@@ -1601,6 +1682,10 @@ msgstr "Augstums:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Platums:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Nolasīt atbildes skaļi (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1750,8 +1835,7 @@ msgstr "Kopēt uz \"Mani skripti\" kā:"
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
-msgstr ""
-"Skripts ar nosaukumu '{0}' mapē \"Mani skripti\" jau pastāv. Pārrakstīt?"
+msgstr "Skripts ar nosaukumu '{0}' mapē \"Mani skripti\" jau pastāv. Pārrakstīt?"
 
 #: plugin/scripting/editor_ui_strings.py
 #, python-brace-format
@@ -1765,7 +1849,8 @@ msgstr "Vai tiešām vēlaties dzēst skriptu '{0}'?"
 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Atlasiet datu apgabalu vai ievadiet A1 adresi (tiks ievadīta kā dati)."
+msgstr ""
+"Atlasiet datu apgabalu vai ievadiet A1 adresi (tiks ievadīta kā dati)."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1932,12 +2017,12 @@ msgstr "Neizdevās"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
-"Iestatiet Python venv ceļu sadaļā Iestatījumi → Python (tādu pašu venv, kurā "
-"izpildījāt 'uv pip install pywebview rocher'). LibreOffice iebūvētais Python "
-"nevar palaist Monaco redaktoru."
+"Iestatiet Python venv ceļu sadaļā Iestatījumi → Python (tādu pašu venv, kurā"
+" izpildījāt 'uv pip install pywebview rocher'). LibreOffice iebūvētais "
+"Python nevar palaist Monaco redaktoru."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1982,18 +2067,19 @@ msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
-"Teksta/NLP zondes noildze (spaCy vai transformers aukstā importēšana pirmajā "
-"pārbaudē var aizņemt 10–30 s)."
+"Teksta/NLP zondes noildze (spaCy vai transformers aukstā importēšana pirmajā"
+" pārbaudē var aizņemt 10–30 s)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Teksta/NLP zonde neizdevās (skatiet writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
-"Redzes zondes noildze (Docling importēšana pirmajā pārbaudē var aizņemt 10–"
-"30 s)."
+"Redzes zondes noildze (Docling importēšana pirmajā pārbaudē var aizņemt "
+"10–30 s)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
@@ -2004,16 +2090,16 @@ msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
 msgstr ""
-"Vektoru meklēšanas zondes noildze (sentence-transformers importēšana pirmajā "
-"pārbaudē var aizņemt 10–30 s)."
+"Vektoru meklēšanas zondes noildze (sentence-transformers importēšana pirmajā"
+" pārbaudē var aizņemt 10–30 s)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Vektoru meklēšanas zonde neizdevās (skatīt writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Audio ierakstīšana"
+msgid "Audio Recording & Speech"
+msgstr "Audio ierakstīšana un runas sintēze"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2056,12 +2142,20 @@ msgid "Vector Search Libraries"
 msgstr "Vektoru meklēšanas bibliotēkas"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Audio ierakstīšana"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Lai instalētu atlikušās pakotnes:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Netika konstatētas mikrofona ievades ierīces."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Vietējie TTS dzinēji (neobligāti):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2072,8 +2166,8 @@ msgid "Reading Python version..."
 msgstr "Nolasa Python versiju..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Audio ierakstīšana: notiek sounddevice pārbaude..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Audio un runas sintēze: tiek pārbaudīta sounddevice un TTS dzinēji..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2082,7 +2176,8 @@ msgstr ""
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr "Vision bibliotēkas: ielādē (pirmā palaišana var aizņemt kādu laiku)..."
+msgstr ""
+"Vision bibliotēkas: ielādē (pirmā palaišana var aizņemt kādu laiku)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
@@ -2120,8 +2215,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2129,25 +2223,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Kļūda no teksta analīzes procesa:\n"
 "{err}\n"
 "\n"
-"Šī dialoglodziņa funkcijām ir nepieciešamas šādas pakotnes izmantotajā "
-"Python vidē:\n"
+"Šī dialoglodziņa funkcijām ir nepieciešamas šādas pakotnes izmantotajā Python vidē:\n"
 "  • spacy + modelis          (entītijas, atslēgfrāzes, pamata statistika)\n"
 "  • textdescriptives         (lasāmības rādītāji)\n"
-"  • transformers + torch     (noskaņojuma analīze, izmantojot daudzvalodu "
-"modeli)\n"
+"  • transformers + torch     (noskaņojuma analīze, izmantojot daudzvalodu modeli)\n"
 "\n"
 "Instalējiet tās ar:\n"
 "  {install}\n"
 "\n"
-"Procesā tika ziņots par trūkstošu moduli. Pārliecinieties, vai pakotnes ir "
-"instalētas tieši tajā Python izpildāmajā failā, kuru procesors izmanto jūsu "
-"konfigurētajai venv videi."
+"Procesā tika ziņots par trūkstošu moduli. Pārliecinieties, vai pakotnes ir instalētas tieši tajā Python izpildāmajā failā, kuru procesors izmanto jūsu konfigurētajai venv videi."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2166,17 +2255,11 @@ msgstr "Analizē..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Kļūda: %s\n"
 "\n"
-"Iespējams, konfigurētajā virtuālajā vidē (venv) trūkst nepieciešamo pakotņu "
-"(Iestatījumi → Python). Noklikšķiniet uz \"Pārbaudīt venv\" šajā "
-"dialoglodziņā vai izmantojiet pilno testu sadaļā Iestatījumi → Python, lai "
-"iegūtu sīkāku informāciju par spacy, textdescriptives, transformers, torch u."
-"c."
+"Iespējams, konfigurētajā virtuālajā vidē (venv) trūkst nepieciešamo pakotņu (Iestatījumi → Python). Noklikšķiniet uz \"Pārbaudīt venv\" šajā dialoglodziņā vai izmantojiet pilno testu sadaļā Iestatījumi → Python, lai iegūtu sīkāku informāciju par spacy, textdescriptives, transformers, torch u.c."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2244,7 +2327,8 @@ msgstr ""
 #: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' pabeigts. Ievietots formatēts HTML. (aizņēma {time})"
+msgstr ""
+"Vision '{helper}' pabeigts. Ievietots formatēts HTML. (aizņēma {time})"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -2262,8 +2346,8 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"Python sesijas atiestatīšana piezīmjdatoriem attiecas uz LibreOffice Writer. "
-"Atveriet Writer dokumentu ar importētu Jupyter piezīmjdatoru un mēģiniet "
+"Python sesijas atiestatīšana piezīmjdatoriem attiecas uz LibreOffice Writer."
+" Atveriet Writer dokumentu ar importētu Jupyter piezīmjdatoru un mēģiniet "
 "vēlreiz."
 
 #: plugin/scripting/session_manager.py
@@ -2394,8 +2478,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skripts izpildīts veiksmīgi, taču neatgrieza rezultātu un neizvadīja datus. "
 "(aizņēma {time})"
@@ -2447,8 +2531,8 @@ msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"Attēls '{name}' nav atrasts. Izmantojiet image_list vai atstājiet image_name "
-"tukšu un atlasiet grafisko elementu."
+"Attēls '{name}' nav atrasts. Izmantojiet image_list vai atstājiet image_name"
+" tukšu un atlasiet grafisko elementu."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2719,8 +2803,7 @@ msgstr ""
 "{0} binārais fails '{1}' ir instalēts un verificēts ({2}).\n"
 "\n"
 "MCP serveris darbojas lokāli portā {3}.\n"
-"Atzīmējiet 'Eksponēt caur publisko tuneli' un noklikšķiniet uz OK, lai "
-"aktivizētu publisko maršrutēšanu."
+"Atzīmējiet 'Eksponēt caur publisko tuneli' un noklikšķiniet uz OK, lai aktivizētu publisko maršrutēšanu."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2782,10 +2865,6 @@ msgstr "Jautāt / dot norādījumus:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Malu attiecība:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Audio modelis:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3139,6 +3218,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3165,6 +3248,123 @@ msgstr "Grok Build (ACP)"
 
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
+
+msgid "Audio Model:"
+msgstr "Audio modelis:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Runas uz tekstu modelis, kad tērzēšanas modelis nevar pieņemt audio ievadi."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Iespējot runas izvadi (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr "Nolasīt asistenta atbildes skaļi, izmantojot teksta pārvēršanu runā."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Lasīt teikumu pa teikumam (lokāli)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Sintetizēt nākamos teikumus, kamēr pašreizējais tiek atskaņots, lai īsam "
+"teikumam nesekotu pauze. Apturēšana atmet klipus, kas vēl netiek atskaņoti. "
+"Izslēdziet, lai nolasītu visu atbildi kā vienu klipu."
+
+msgid "Keep replies brief"
+msgstr "Īsas atbildes"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Tiekties uz aptuveni vienu rindkopu, ja vien lietotājs nelūdz vairāk. "
+"Attiecas tikai tad, kad ir ieslēgta runas izvade (TTS)."
+
+msgid "TTS Provider"
+msgstr "TTS nodrošinātājs"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Izvēlieties, vai izmantot iebūvēto OS runu, lokālo neironu dzinēju vai savu "
+"API galapunktu."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Native (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (lokālais neironu tīkls, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (lokālais ātrais neironu tīkls, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "LLM galapunkts"
+
+msgid "TTS Model"
+msgstr "TTS modelis"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Runas sintēzes modelis (izmanto, ja TTS nodrošinātājs ir LLM galapunkts)."
+
+msgid "Voice"
+msgstr "Balss"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Balss izvēlētajam nodrošinātājam. Saraksts atbilst jūsu lokalizācijas Piper "
+"vai Kokoro katalogam."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI neitrālā)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro ASV sieviešu - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (ASV angļu sieviešu - Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (Sistēmas noklusējums)"
+
+msgid "Test voice"
+msgstr "Testēt balsi"
+
+msgid "Speech Speed"
+msgstr "Runas ātrums"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Atskaņošanas ātruma reizinātājs (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x vai "
+"pielāgots līdz pat 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2,0x"
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc izklājlapu rīki"
@@ -3278,9 +3478,9 @@ msgstr "Humanizētāja prasme (dabiska proza)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Ja iespējots, sistēmas uzvednē tiek ievadīti norādījumi, lai modelis "
 "padarītu ģenerēto vai pārskatīto dokumenta tekstu dabiskāku un cilvēcīgāku "
@@ -3306,14 +3506,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Iespējot gramatikas pārbaudītāju (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Izslēgts = atspējots. AI (LLM) = izmantot konfigurēto teksta modeli/API. "
-"LanguageTool / Vale = lokālie dzinēji, izmantojot Iestatījumi → Python venv. "
-"Harper = bezsaistes Rust binārais fails, kas tiek automātiski lejupielādēts "
-"jūsu profilā (venv nav nepieciešams)."
+"LanguageTool / Vale = lokālie dzinēji, izmantojot Iestatījumi → Python venv."
+" Harper = bezsaistes Rust binārais fails, kas tiek automātiski lejupielādēts"
+" jūsu profilā (venv nav nepieciešams)."
 
 msgid "Off"
 msgstr "Izslēgts"
@@ -3355,8 +3555,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Ja ir ieslēgts, AI gramatikas pārbaude izlaiž fona pieprasījumus, kamēr "
-"darbojas sānjoslas tērzēšana vai aģents, lai izvairītos no vienlaicīgiem API "
-"izsaukumiem."
+"darbojas sānjoslas tērzēšana vai aģents, lai izvairītos no vienlaicīgiem API"
+" izsaukumiem."
 
 msgid "Batch sentences"
 msgstr "Pakešapstrādes teikumi"
@@ -3367,8 +3567,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Vienā LLM pieprasījumā sūtāmo teikumu skaits (1-8). 1 (noklusējums) ir "
-"visuzticamākais; lielākas vērtības ir ātrākas un lētākas, taču var pārsniegt "
-"marķieru (token) limitus vai izraisīt modeļa kļūdas."
+"visuzticamākais; lielākas vērtības ir ātrākas un lētākas, taču var pārsniegt"
+" marķieru (token) limitus vai izraisīt modeļa kļūdas."
 
 msgid "Concurrent requests"
 msgstr "Vienlaicīgi pieprasījumi"
@@ -3392,10 +3592,10 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"Pārbaudiet katra pilna teikuma valodu atbilstoši dokumenta lokalizācijai. AI "
-"izmanto jūsu gramatikas/tērzēšanas API; Local izmanto langdetect jūsu Python "
-"venv (Iestatījumi → Python; nav API izsaukuma). Neatbilstības atjaunina "
-"CharLocale un atkārtoti pārbauda gramatiku."
+"Pārbaudiet katra pilna teikuma valodu atbilstoši dokumenta lokalizācijai. AI"
+" izmanto jūsu gramatikas/tērzēšanas API; Local izmanto langdetect jūsu "
+"Python venv (Iestatījumi → Python; nav API izsaukuma). Neatbilstības "
+"atjaunina CharLocale un atkārtoti pārbauda gramatiku."
 
 msgid "Local (langdetect)"
 msgstr "Local (langdetect)"
@@ -3441,8 +3641,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Indeksēta semantiskā un atslēgvārdu meklēšana dokumentu izpētei (corpus.db). "
-"Nepieciešama iegultņu (embeddings) virtuālā vide — skatīt Python testu."
+"Indeksēta semantiskā un atslēgvārdu meklēšana dokumentu izpētei (corpus.db)."
+" Nepieciešama iegultņu (embeddings) virtuālā vide — skatīt Python testu."
 
 msgid "Embeddings + FTS"
 msgstr "Iegultnes + FTS"
@@ -3471,15 +3671,15 @@ msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
 msgstr ""
-"Otrā posma šķērsenkodētājs pēc hibrīdizguves (iegulumi + FTS un LlamaIndex). "
-"Pēc noklusējuma izslēgts."
+"Otrā posma šķērsenkodētājs pēc hibrīdizguves (iegulumi + FTS un LlamaIndex)."
+" Pēc noklusējuma izslēgts."
 
 msgid "Rerank model"
 msgstr "Pārrindošanas modelis"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Izmanto tikai tad, ja ir iespējota pārrindošana. Angļu valodas MiniLM ir "
 "ātrs; bge-reranker-v2-m3 ir daudzvalodu un lejupielādē ~2,3 GB."
@@ -3500,11 +3700,11 @@ msgid "Enable MCP Server"
 msgstr "Iespējot MCP serveri"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Tikai localhost, bez autentifikācijas. Klienti izmanto http://localhost:"
-"<port>/mcp (straumējams HTTP)."
+"Tikai localhost, bez autentifikācijas. Klienti izmanto "
+"http://localhost:<port>/mcp (straumējams HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP ports"
@@ -3520,12 +3720,12 @@ msgid ""
 "find_tools (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"Kā specializētie rīki tiek parādīti MCP klientiem. delegate=sasniedzami caur "
-"starpniekserveri (pašreizējā darbība); direct_flat=visi MCP sasniedzamie "
+"Kā specializētie rīki tiek parādīti MCP klientiem. delegate=sasniedzami caur"
+" starpniekserveri (pašreizējā darbība); direct_flat=visi MCP sasniedzamie "
 "specializētie rīki uzskaitīti tieši, izslēdzot sānjoslas plūsmas (labākais "
 "klientiem ar savu rīku meklēšanu); direct_discovery=mazs pamatsaraksts plus "
-"find_tools (domēna katalogs, tad katra domēna rīku shēmas; labākais jebkuram "
-"klientam)."
+"find_tools (domēna katalogs, tad katra domēna rīku shēmas; labākais jebkuram"
+" klientam)."
 
 msgid "Delegate (default)"
 msgstr "Starpnieks (noklusējums)"
@@ -3544,13 +3744,13 @@ msgstr "Eksponēt caur publisku tuneli"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Nepieciešams izvēlētais pakalpojumu sniedzēja binārais fails PATH "
-"(cloudflared, bore, ngrok vai tailscale). MCP nav autentifikācijas — ikviens "
-"ar publisko URL var izsaukt rīkus. Skatiet MCP servera statusu, lai uzzinātu "
-"publisko /mcp URL, kad tas būs gatavs."
+"(cloudflared, bore, ngrok vai tailscale). MCP nav autentifikācijas — ikviens"
+" ar publisko URL var izsaukt rīkus. Skatiet MCP servera statusu, lai "
+"uzzinātu publisko /mcp URL, kad tas būs gatavs."
 
 msgid "Provider"
 msgstr "Pakalpojumu sniedzējs"
@@ -3581,8 +3781,8 @@ msgid ""
 "Ngrok authtoken; Cloudflare tunnel token; Bore server or 'server secret'. "
 "Empty = provider default / CLI config. Unused for Tailscale."
 msgstr ""
-"Ngrok authtoken; Cloudflare tunnel token; Bore serveris vai 'server secret'. "
-"Tukšs = pakalpojumu sniedzēja noklusējums / CLI konfigurācija. Netiek "
+"Ngrok authtoken; Cloudflare tunnel token; Bore serveris vai 'server secret'."
+" Tukšs = pakalpojumu sniedzēja noklusējums / CLI konfigurācija. Netiek "
 "izmantots Tailscale."
 
 msgid "Client config (copy into Claude / Hermes-Agent):"
@@ -3595,15 +3795,15 @@ msgid "Python venv path"
 msgstr "Python venv ceļš"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
 "Ja iestatīts, izpilda =PY() un Run Python Script šajā venv (bin/python, "
-"Scripts/python.exe vai conda/pyenv-win env-root python.exe). Ielīmējiet ceļu "
-"bez pēdiņām. Ja tukšs, izmanto šī procesa sys.executable (pamata stdlib); "
+"Scripts/python.exe vai conda/pyenv-win env-root python.exe). Ielīmējiet ceļu"
+" bez pēdiņām. Ja tukšs, izmanto šī procesa sys.executable (pamata stdlib); "
 "izmantojiet venv priekš numpy/pandas un Vision Helpers (paddleocr, "
 "paddlepaddle)."
 
@@ -3625,11 +3825,11 @@ msgid "Max Calc data cells"
 msgstr "Maksimālais Calc datu šūnu skaits"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maksimālais šūnu skaits =PYTHON() datos vai Run Python Script data/"
-"data_range. Lielākas vērtības patērē vairāk RAM un laika; UNO apgabala "
+"Maksimālais šūnu skaits =PYTHON() datos vai Run Python Script "
+"data/data_range. Lielākas vērtības patērē vairāk RAM un laika; UNO apgabala "
 "nolasīšana joprojām ir dominējošā."
 
 msgid "Python session mode"
@@ -3668,8 +3868,8 @@ msgid "Rewrite xl() ranges"
 msgstr "Pārrakstīt xl() apgabalus"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Saglabājot Python šūnā, pacelt statiskos xl(\"A1:…\") uz =PY datu "
 "argumentiem un pārrakstīt uz data / data[i] / .to_pandas()."
@@ -3776,91 +3976,3 @@ msgstr "Docling dokumenta noildze (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Noildze katrai konvertēšanai Docling ietvaros. 0 = bez ierobežojuma."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Pakalpojumu sniedzējs"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "AI modelis:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "izvēles"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

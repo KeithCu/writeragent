@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -26,8 +26,8 @@ msgstr "Kör lokal OCR på markerad(e) bild(er)..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentforskning kräver specialiserad uppgiftsdelegering (USE_SUB_AGENT). "
 "Aktivera detta i konfigurationen."
@@ -35,8 +35,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Verktygsanrop har växlats till '{0}'. Du befinner dig i ett läge för "
@@ -53,11 +53,11 @@ msgstr "Notebook-körning stöds endast i LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
-"Detta dokument har ingen importerad anteckningsbok. Arkiv → Öppna en Jupyter-"
-"anteckningsbok (.ipynb) först."
+"Detta dokument har ingen importerad anteckningsbok. Arkiv → Öppna en "
+"Jupyter-anteckningsbok (.ipynb) först."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -257,7 +257,8 @@ msgstr ""
 "Inställningar."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Anslutning nekad. Är din lokala AI-server (Ollama/LM Studio) igång?"
 
 #: plugin/framework/errors.py
@@ -319,8 +320,8 @@ msgstr "HTTP-fel {0} från AI-leverantör: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 " Om din API-nyckel kommer från en GLM Coding Plan-prenumeration, ställ in "
 "slutpunkten till {0} (inte den allmänna /api/paas-URL:en)."
@@ -372,7 +373,72 @@ msgstr "Vänligen ställ in modell i Inställningar."
 
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
-msgstr "Vänligen välj en giltig modell i Inställningar (inte en platshållare)."
+msgstr ""
+"Vänligen välj en giltig modell i Inställningar (inte en platshållare)."
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Talbegäran misslyckades ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Talbegäran misslyckades: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Talbegäran misslyckades ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Talbegäran misslyckades."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Laddar ner Kokoro-röstmodell…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr "Kunde inte ladda ner Kokoro; använder operativsystemets talsyntes"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Laddar ner Piper-röst {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Kunde inte ladda ner {0}; använder Lessac"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "Kunde inte ladda ner {0}; använder operativsystemets talsyntes"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr ""
+"Kokoro-fonemiserare misslyckades; detta språk kan komma att läsas felaktigt."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Installerar Kokoro-fonemiserare…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Kunde inte installera Kokoro-fonemiseraren; detta språk kan komma att läsas "
+"felaktigt. Installera med: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Laddar ner japansk fonemiseringsordbok…"
 
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
@@ -393,8 +459,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Monaco-redigeraren är inaktiverad via \"scripting."
-"force_internal_script_editor\" i writeragent.json."
+"Monaco-redigeraren är inaktiverad via "
+"\"scripting.force_internal_script_editor\" i writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -454,8 +520,9 @@ msgstr "PythonCellEditorDialog kunde inte läsas in från tillägget."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Det gick inte att bevara cellens PY-formelargument (t.ex. dataområden). "
 "Redigera formeln i Calc, eller använd en citerad kodsträng som =PY(\"kod\"; "
@@ -474,8 +541,7 @@ msgid ""
 msgstr ""
 "Spara ändringar i {0}?\n"
 "\n"
-"Ja sparar. Nej förkastar och öppnar den nya cellen. Avbryt fortsätter "
-"redigera {0}."
+"Ja sparar. Nej förkastar och öppnar den nya cellen. Avbryt fortsätter redigera {0}."
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -561,8 +627,8 @@ msgstr "Bilder infogade"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Geometrisk omberäkningsordning hoppade över bladet '%(sheet)s': hittade "
 "%(cap)s eller fler Python-celler (gräns för identifiering). Bladet lämnades "
@@ -574,16 +640,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
 "Kunde inte skriva Microsoft Excel Python-paketdelar för:\n"
 "{0}\n"
 "\n"
-"Filen sparades med LibreOffice =PY-formler. Excel kommer inte att se "
-"pythonScripts.xml / _xlws.PY förrän exporten lyckas.\n"
+"Filen sparades med LibreOffice =PY-formler. Excel kommer inte att se pythonScripts.xml / _xlws.PY förrän exporten lyckas.\n"
 "\n"
 "{1}"
 
@@ -1311,8 +1375,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i "
-"det aktiva fönstret.]"
+"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i"
+" det aktiva fönstret.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1347,8 +1411,8 @@ msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr ""
-"Forskningscache-träff (fuzzy, %(pct)s%% matchning: %(lang_bit)s%(cache_key)s "
-"→ %(matched)s)"
+"Forskningscache-träff (fuzzy, %(pct)s%% matchning: %(lang_bit)s%(cache_key)s"
+" → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1398,8 +1462,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). "
-"Sökväg:\n"
+"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). Sökväg:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1428,10 +1491,11 @@ msgstr "[Agent-backend '{0}' hittades inte.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg, "
-"installation).]"
+"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg,"
+" installation).]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1507,7 +1571,8 @@ msgstr "[Forskningsfel: {0}]"
 #, python-brace-format
 msgid "Research notes (automatic synthesis failed) for: {query}"
 msgstr ""
-"Forskningsanteckningar (automatisk sammanställning misslyckades) för: {query}"
+"Forskningsanteckningar (automatisk sammanställning misslyckades) för: "
+"{query}"
 
 #: plugin/chatbot/web_research_deep.py
 msgid "Sources consulted:"
@@ -1570,6 +1635,21 @@ msgid "Testing connection..."
 msgstr "Testar anslutning..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Tal"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Det gick inte att spela upp röstprovet."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Talutmatning är avstängd. Aktivera Aktivera talutmatning (TTS) för att höra "
+"denna röst."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Hämta ljudbibliotek"
 
@@ -1596,6 +1676,10 @@ msgstr "Höjd:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Bredd:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Läs upp svar högt (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1736,7 +1820,8 @@ msgstr "Ange skriptnamn:"
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
+msgstr ""
+"Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Copy to My Scripts as:"
@@ -1925,8 +2010,8 @@ msgstr "Misslyckades"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
 "Ange sökvägen till Python venv i Inställningar → Python (samma venv där du "
 "körde 'uv pip install pywebview rocher'). LibreOffices inbyggda Python kan "
@@ -1959,13 +2044,14 @@ msgstr "Kunde inte kommunicera med Python-redigeraren."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr "Installera även systemets PortAudio på Linux: sudo pacman -S portaudio"
+msgstr ""
+"Installera även systemets PortAudio på Linux: sudo pacman -S portaudio"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe timed out (sounddevice import failed or hung)."
 msgstr ""
-"Ljudtestet tog för lång tid (import av sounddevice misslyckades eller hängde "
-"sig)."
+"Ljudtestet tog för lång tid (import av sounddevice misslyckades eller hängde"
+" sig)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe failed (see writeragent_debug.log)."
@@ -1984,7 +2070,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Text/NLP-sökning misslyckades (se writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision-sökningen tog för lång tid (Docling-import kan ta 10–30 sekunder vid "
 "första kontrollen)."
@@ -2006,8 +2093,8 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Sökning i vektorbibliotek misslyckades (se writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Ljudinspelning"
+msgid "Audio Recording & Speech"
+msgstr "Ljudinspelning och tal"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2050,12 +2137,20 @@ msgid "Vector Search Libraries"
 msgstr "Vektorsökbibliotek"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Ljudinspelning"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "För att installera återstående paket:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Inga mikrofonenheter hittades."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Lokala TTS-motorer (valfritt):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2066,8 +2161,8 @@ msgid "Reading Python version..."
 msgstr "Läser Python-version..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Ljudinspelning: kontrollerar sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Ljud och tal: kontrollerar sounddevice och TTS-motorer..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
@@ -2112,8 +2207,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2121,25 +2215,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Fel från textanalys-arbetaren:\n"
 "{err}\n"
 "\n"
-"Funktionerna i denna dialogruta kräver att följande paket finns i den Python-"
-"miljö som används:\n"
-"  • spacy + en modell          (entiteter, nyckelfraser, grundläggande "
-"statistik)\n"
+"Funktionerna i denna dialogruta kräver att följande paket finns i den Python-miljö som används:\n"
+"  • spacy + en modell          (entiteter, nyckelfraser, grundläggande statistik)\n"
 "  • textdescriptives         (faktiska läsbarhetsindex)\n"
 "  • transformers + torch     (sentimentanalys med flerspråkig modell)\n"
 "\n"
 "Installera dem med:\n"
 "  {install}\n"
 "\n"
-"Arbetaren rapporterade att modulen saknas. Kontrollera att paketen är "
-"installerade i den exakta Python-körfil som arbetaren har valt för din "
-"konfigurerade venv."
+"Arbetaren rapporterade att modulen saknas. Kontrollera att paketen är installerade i den exakta Python-körfil som arbetaren har valt för din konfigurerade venv."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2158,16 +2247,11 @@ msgstr "Analyserar..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Fel: %s\n"
 "\n"
-"Nödvändiga paket kan saknas i din konfigurerade venv (Inställningar → "
-"Python). Klicka på Kontrollera Venv i denna dialog eller använd det "
-"fullständiga testet i Inställningar → Python för detaljer om spacy, "
-"textdescriptives, transformers, torch etc."
+"Nödvändiga paket kan saknas i din konfigurerade venv (Inställningar → Python). Klicka på Kontrollera Venv i denna dialog eller använd det fullständiga testet i Inställningar → Python för detaljer om spacy, textdescriptives, transformers, torch etc."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2281,8 +2365,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok "
-"och försök igen."
+"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok"
+" och försök igen."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -2303,8 +2387,8 @@ msgid ""
 "you need to clear expensive one-time workbook setup."
 msgstr ""
 "Pythons sessionsläge är Isolerat (varje =PY()-cell använder sina egna "
-"variabler). Det finns ingen delad cell-session att återställa. Lägg till ett "
-"initieringsskript om du behöver rensa resurskrävande engångsinställningar "
+"variabler). Det finns ingen delad cell-session att återställa. Lägg till ett"
+" initieringsskript om du behöver rensa resurskrävande engångsinställningar "
 "för arbetsboken."
 
 #: plugin/scripting/session_manager.py
@@ -2381,8 +2465,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skriptet kördes utan problem, men returnerade inget resultat och gav ingen "
 "utdata. (tog {time})"
@@ -2434,8 +2518,8 @@ msgid ""
 "Image '{name}' not found. Use image_list or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"Bilden '{name}' hittades inte. Använd image_list eller lämna image_name tomt "
-"och välj grafiken."
+"Bilden '{name}' hittades inte. Använd image_list eller lämna image_name tomt"
+" och välj grafiken."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2704,8 +2788,7 @@ msgstr ""
 "{0}-binärfilen '{1}' är installerad och verifierad ({2}).\n"
 "\n"
 "MCP-servern körs lokalt på port {3}.\n"
-"Markera 'Exponera via publik tunnel' och klicka på OK för att aktivera "
-"publik routning."
+"Markera 'Exponera via publik tunnel' och klicka på OK för att aktivera publik routning."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2767,10 +2850,6 @@ msgstr "Fråga / instruera:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Bildförhållande:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Ljudmodell:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3122,6 +3201,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3149,6 +3232,122 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "Ljudmodell:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Tal-till-text-modell när chattmodellen inte kan ta emot ljudinmatning."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Aktivera talutmatning (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr "Läs upp assistentens svar högt med hjälp av talsyntes."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Läs upp mening för mening (lokalt)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Syntetisera nästa meningar medan den nuvarande spelas upp, så att en kort "
+"mening inte följs av en paus. Stopp kastar klipp som ännu inte spelas upp. "
+"Stäng av för att läsa upp hela svaret som ett klipp."
+
+msgid "Keep replies brief"
+msgstr "Håll svaren korta"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Sikta på ungefär ett stycke om inte användaren ber om mer. Gäller endast när"
+" talutmatning (TTS) är aktiverat."
+
+msgid "TTS Provider"
+msgstr "TTS-leverantör"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Välj om du vill använda operativsystemets inbyggda talfunktion, en lokal "
+"neural motor eller din API-slutpunkt."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS-inbyggd (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (lokal neural, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (lokal snabb neural, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "LLM-slutpunkt"
+
+msgid "TTS Model"
+msgstr "TTS-modell"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr "Modell för talsyntes (används när TTS-leverantör är LLM-slutpunkt)."
+
+msgid "Voice"
+msgstr "Röst"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Röst för den valda leverantören. Listan matchar Piper- eller Kokoro-"
+"katalogen för din lokala inställning."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI neutral)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro US kvinna - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (US-engelska kvinna – Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (Systemstandard)"
+
+msgid "Test voice"
+msgstr "Testa röst"
+
+msgid "Speech Speed"
+msgstr "Talhastighet"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Multiplikator för uppspelningshastighet (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, "
+"2.0x eller anpassad ned till 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2,0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Calc-kalkylbladsverktyg"
 
@@ -3164,8 +3363,8 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"Konvertera syskonfiler .xlsx/.xls till writeragent_ods_cache/ bredvid mappen "
-"så att upprepad DuckDB SQL återanvänder ODS-filen. Inbyggda .ods-filer och "
+"Konvertera syskonfiler .xlsx/.xls till writeragent_ods_cache/ bredvid mappen"
+" så att upprepad DuckDB SQL återanvänder ODS-filen. Inbyggda .ods-filer och "
 "den aktiva arbetsboken cachas aldrig. Ställ in calc.ods_cache_enabled false "
 "i writeragent.json för att inaktivera."
 
@@ -3258,15 +3457,16 @@ msgstr "Humaniseringsfärdighet (naturlig prosa)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "När aktiverad injiceras vägledning i systemprompten så att modellen får "
 "genererad eller reviderad dokumenttext att låta mer naturlig och mänsklig "
 "(tar bort AI-typiska mönster). Redigera reglerna i din LibreOffice-profil "
 "under writeragent/skills/humanizer/SKILL.md (filen skapas automatiskt vid "
-"första användning). En dedikerad flik för färdigheter kan läggas till senare."
+"första användning). En dedikerad flik för färdigheter kan läggas till "
+"senare."
 
 msgid "Silence before send (ms)"
 msgstr "Tystnad före sändning (ms)"
@@ -3285,14 +3485,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Aktivera grammatikkontroll (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Av = inaktiverad. AI (LLM) = använd din konfigurerade textmodell/API. "
-"LanguageTool / Vale = lokala motorer via Inställningar → Python venv. Harper "
-"= offline Rust-binär som laddas ned automatiskt till din profil (ingen venv "
-"krävs)."
+"LanguageTool / Vale = lokala motorer via Inställningar → Python venv. Harper"
+" = offline Rust-binär som laddas ned automatiskt till din profil (ingen venv"
+" krävs)."
 
 msgid "Off"
 msgstr "Av"
@@ -3371,8 +3571,8 @@ msgid ""
 msgstr ""
 "Verifiera varje fullständig menings språk mot dokumentets språkinställning. "
 "AI använder ditt grammatik-/chatt-API; Lokalt använder langdetect i din "
-"Python-venv (Inställningar → Python; inget API-anrop). Felaktiga matchningar "
-"uppdaterar CharLocale och kontrollerar grammatiken på nytt."
+"Python-venv (Inställningar → Python; inget API-anrop). Felaktiga matchningar"
+" uppdaterar CharLocale och kontrollerar grammatiken på nytt."
 
 msgid "Local (langdetect)"
 msgstr "Lokalt (langdetect)"
@@ -3396,9 +3596,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Av = direktredigering. Spela in = spårade ändringar som du själv accepterar/"
-"avvisar. Vänta = apply_document_content blockeras (i chatt/MCP-arbetstråd) "
-"tills du granskar."
+"Av = direktredigering. Spela in = spårade ändringar som du själv "
+"accepterar/avvisar. Vänta = apply_document_content blockeras (i chatt/MCP-"
+"arbetstråd) tills du granskar."
 
 msgid "Record (track changes)"
 msgstr "Spela in (spåra ändringar)"
@@ -3439,8 +3639,8 @@ msgstr "Inbäddningsmodell"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"HuggingFace-modell-ID för lokal leverantör, eller slutpunktsspecifikt modell-"
-"ID"
+"HuggingFace-modell-ID för lokal leverantör, eller slutpunktsspecifikt "
+"modell-ID"
 
 msgid "Enable cross-file rerank"
 msgstr "Aktivera omrankning mellan filer"
@@ -3456,8 +3656,8 @@ msgid "Rerank model"
 msgstr "Omrankningsmodell"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Används endast när omrankning är aktiverat. Engelska MiniLM är snabb; bge-"
 "reranker-v2-m3 är flerspråkig och laddar ner ca 2,3 GB."
@@ -3478,11 +3678,11 @@ msgid "Enable MCP Server"
 msgstr "Aktivera MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Endast localhost, ingen autentisering. Klienter använder http://localhost:"
-"<port>/mcp (strömbar HTTP)."
+"Endast localhost, ingen autentisering. Klienter använder "
+"http://localhost:<port>/mcp (strömbar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -3522,13 +3722,13 @@ msgstr "Exponera via offentlig tunnel"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
-"Kräver att den valda leverantörens binärfil finns i PATH (cloudflared, bore, "
-"ngrok eller tailscale). MCP saknar autentisering — vem som helst med den "
-"offentliga URL:en kan anropa verktyg. Se MCP-serverstatus för den "
-"offentliga /mcp-URL:en när den är klar."
+"Kräver att den valda leverantörens binärfil finns i PATH (cloudflared, bore,"
+" ngrok eller tailscale). MCP saknar autentisering — vem som helst med den "
+"offentliga URL:en kan anropa verktyg. Se MCP-serverstatus för den offentliga"
+" /mcp-URL:en när den är klar."
 
 msgid "Provider"
 msgstr "Leverantör"
@@ -3573,14 +3773,14 @@ msgid "Python venv path"
 msgstr "Sökväg till Python venv"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Om inställd, körs =PY() och Kör Python-skript i den venv-miljön (bin/python, "
-"Scripts/python.exe eller conda/pyenv-win env-root python.exe). Klistra in "
+"Om inställd, körs =PY() och Kör Python-skript i den venv-miljön (bin/python,"
+" Scripts/python.exe eller conda/pyenv-win env-root python.exe). Klistra in "
 "sökvägen utan citattecken. Om tom, används processens sys.executable "
 "(grundläggande stdlib); använd en venv för numpy/pandas och Vision Helpers "
 "(paddleocr, paddlepaddle)."
@@ -3601,12 +3801,12 @@ msgid "Max Calc data cells"
 msgstr "Max antal Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximalt antal celler i =PYTHON()-data eller Run Python Script-data/"
-"data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning "
-"dominerar fortfarande."
+"Maximalt antal celler i =PYTHON()-data eller Run Python Script-"
+"data/data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning"
+" dominerar fortfarande."
 
 msgid "Python session mode"
 msgstr "Python-sessionsläge"
@@ -3644,8 +3844,8 @@ msgid "Rewrite xl() ranges"
 msgstr "Skriv om xl()-intervall"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Vid sparning av Python i cell, lyft statiska xl(\"A1:…\") till =PY-"
 "dataargument och skriv om till data / data[i] / .to_pandas()."
@@ -3664,7 +3864,8 @@ msgstr "Tidsgräns för arbetsprocess (sekunder)"
 
 msgid "Host subprocess limit for Vision Helpers (first model download)."
 msgstr ""
-"Gräns för värdunderprocesser för Vision Helpers (första modellnedladdningen)."
+"Gräns för värdunderprocesser för Vision Helpers (första "
+"modellnedladdningen)."
 
 msgid "Docling artifacts path"
 msgstr "Sökväg för Docling-artefakter"
@@ -3698,7 +3899,8 @@ msgid "Table cell matching"
 msgstr "Matchning av tabellceller"
 
 msgid "Align detected table cells with content (extract_structure)."
-msgstr "Justera identifierade tabellceller efter innehåll (extract_structure)."
+msgstr ""
+"Justera identifierade tabellceller efter innehåll (extract_structure)."
 
 msgid "Keep orphan text clusters"
 msgstr "Behåll fristående textkluster"
@@ -3748,91 +3950,3 @@ msgstr "Tidsgräns för Docling-dokument (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Tidsgräns per konvertering i Docling. 0 = ingen gräns."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Leverantör"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "AI-modell:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "val"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""

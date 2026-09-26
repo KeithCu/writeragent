@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 20:40-0400\n"
+"POT-Creation-Date: 2026-09-26 12:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Greek <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Εκτέλεση τοπικού OCR στις επιλεγμένες ει
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Οι αναγνώσεις έρευνας εγγράφων απαιτούν εξειδικευμένη ανάθεση εργασιών "
 "(USE_SUB_AGENT). Ενεργοποιήστε το στις ρυθμίσεις."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Η κλήση εργαλείου άλλαξε σε '{0}'. Βρίσκεστε σε λειτουργία εξειδικευμένου "
@@ -58,8 +58,8 @@ msgstr "Η εκτέλεση σημειωματάριου υποστηρίζετ�
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook (."
-"ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 "Αυτό το έγγραφο δεν έχει εισαγόμενο σημειωματάριο. Αρχείο → Ανοίξτε πρώτα "
 "ένα σημειωματάριο Jupyter (.ipynb)."
@@ -259,7 +259,8 @@ msgstr ""
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "Script execution blocked by sandbox policy: {0}"
-msgstr "Η εκτέλεση δέσμης ενεργειών αποκλείστηκε από την πολιτική sandbox: {0}"
+msgstr ""
+"Η εκτέλεση δέσμης ενεργειών αποκλείστηκε από την πολιτική sandbox: {0}"
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
@@ -268,7 +269,8 @@ msgstr ""
 "Ρυθμίσεις."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Η σύνδεση απορρίφθηκε. Είναι ενεργός ο τοπικός διακομιστής AI (Ollama/LM "
 "Studio);"
@@ -276,7 +278,8 @@ msgstr ""
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
 msgstr ""
-"Σφάλμα DNS. Δεν ήταν δυνατή η ανάλυση της διεύθυνσης URL του τελικού σημείου."
+"Σφάλμα DNS. Δεν ήταν δυνατή η ανάλυση της διεύθυνσης URL του τελικού "
+"σημείου."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -322,8 +325,8 @@ msgid ""
 "The local Ollama/llama.cpp process crashed because the prompt overflowed a "
 "too-small context window."
 msgstr ""
-"Η τοπική διεργασία Ollama/llama.cpp κατέρρευσε επειδή το prompt ξεπέρασε ένα "
-"πολύ μικρό παράθυρο πλαισίου."
+"Η τοπική διεργασία Ollama/llama.cpp κατέρρευσε επειδή το prompt ξεπέρασε ένα"
+" πολύ μικρό παράθυρο πλαισίου."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -333,11 +336,11 @@ msgstr "Σφάλμα HTTP {0} από τον πάροχο AI: {1}"
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
-"(not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
-" Εάν το κλειδί API προέρχεται από συνδρομή GLM Coding Plan, ορίστε το τελικό "
-"σημείο (endpoint) στο {0} (όχι στο γενικό URL /api/paas)."
+" Εάν το κλειδί API προέρχεται από συνδρομή GLM Coding Plan, ορίστε το τελικό"
+" σημείο (endpoint) στο {0} (όχι στο γενικό URL /api/paas)."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -390,6 +393,72 @@ msgstr ""
 "Παρακαλώ επιλέξτε ένα έγκυρο μοντέλο στις Ρυθμίσεις (όχι ένα σύμβολο "
 "κράτησης θέσης)."
 
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0}): {1}"
+msgstr "Το αίτημα ομιλίας απέτυχε ({0}): {1}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed: {0}"
+msgstr "Το αίτημα ομιλίας απέτυχε: {0}"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Speech request failed ({0})."
+msgstr "Το αίτημα ομιλίας απέτυχε ({0})."
+
+#: plugin/audio/tts_service.py
+msgid "Speech request failed."
+msgstr "Το αίτημα ομιλίας απέτυχε."
+
+#: plugin/audio/tts_service.py
+msgid "Downloading Kokoro voice model…"
+msgstr "Λήψη του μοντέλου φωνής Kokoro…"
+
+#: plugin/audio/tts_service.py
+msgid "Couldn't download Kokoro; using OS speech"
+msgstr ""
+"Αποτυχία λήψης του Kokoro· χρήση της ομιλίας του λειτουργικού συστήματος"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Downloading Piper voice {0}…"
+msgstr "Λήψη της φωνής Piper {0}…"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using Lessac"
+msgstr "Αποτυχία λήψης του {0}· χρήση του Lessac"
+
+#: plugin/audio/tts_service.py
+#, python-brace-format
+msgid "Couldn't download {0}; using OS speech"
+msgstr "Αποτυχία λήψης του {0}· χρήση της ομιλίας του λειτουργικού συστήματος"
+
+#: plugin/audio/tts_service.py
+msgid "Kokoro phonemizer failed; this language may be misread."
+msgstr ""
+"Το phonemizer Kokoro απέτυχε· αυτή η γλώσσα ενδέχεται να αναγνωστεί "
+"εσφαλμένα."
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Installing Kokoro phonemizer…"
+msgstr "Εγκατάσταση του phonemizer Kokoro…"
+
+#: plugin/audio/kokoro_g2p.py
+#, python-brace-format
+msgid ""
+"Couldn't install the Kokoro phonemizer; this language may be misread. "
+"Install with: {0}"
+msgstr ""
+"Αποτυχία εγκατάστασης του phonemizer Kokoro· αυτή η γλώσσα ενδέχεται να μην "
+"αναγνωστεί σωστά. Εγκαταστήστε με: {0}"
+
+#: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Λήψη λεξικού phonemizer για τα Ιαπωνικά…"
+
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
 #: plugin/main.py
@@ -409,8 +478,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Ο επεξεργαστής Monaco είναι απενεργοποιημένος από το \"scripting."
-"force_internal_script_editor\" στο writeragent.json."
+"Ο επεξεργαστής Monaco είναι απενεργοποιημένος από το "
+"\"scripting.force_internal_script_editor\" στο writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -468,12 +537,14 @@ msgstr "Αποθηκεύτηκε."
 
 #: plugin/calc/python/cell_editor_ui.py
 msgid "PythonCellEditorDialog could not be loaded from the extension."
-msgstr "Δεν ήταν δυνατή η φόρτωση του PythonCellEditorDialog από την επέκταση."
+msgstr ""
+"Δεν ήταν δυνατή η φόρτωση του PythonCellEditorDialog από την επέκταση."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
-"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 "Δεν ήταν δυνατή η διατήρηση των ορισμάτων τύπου PY αυτού του κελιού (π.χ. "
 "περιοχές δεδομένων). Επεξεργαστείτε τον τύπο στο Calc ή χρησιμοποιήστε μια "
@@ -492,8 +563,7 @@ msgid ""
 msgstr ""
 "Αποθήκευση αλλαγών στο {0};\n"
 "\n"
-"Το Ναι αποθηκεύει. Το Όχι απορρίπτει και ανοίγει το νέο κελί. Το Άκυρο "
-"διατηρεί την επεξεργασία του {0}."
+"Το Ναι αποθηκεύει. Το Όχι απορρίπτει και ανοίγει το νέο κελί. Το Άκυρο διατηρεί την επεξεργασία του {0}."
 
 #: plugin/calc/python/editor.py
 #, python-format
@@ -585,8 +655,8 @@ msgstr "Εικόνες που εισήχθησαν"
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list "
-"is not treated as complete."
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 "Η σειρά Geometric Recalc παρέλειψε το φύλλο '%(sheet)s': βρέθηκαν %(cap)s ή "
 "περισσότερα κελιά Python (όριο ανακάλυψης). Το φύλλο αφέθηκε χωρίς αλυσίδα, "
@@ -598,17 +668,14 @@ msgid ""
 "Could not write Microsoft Excel Python package parts for:\n"
 "{0}\n"
 "\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see "
-"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
 "\n"
 "{1}"
 msgstr ""
-"Δεν ήταν δυνατή η εγγραφή των τμημάτων του πακέτου Python για το Microsoft "
-"Excel για το:\n"
+"Δεν ήταν δυνατή η εγγραφή των τμημάτων του πακέτου Python για το Microsoft Excel για το:\n"
 "{0}\n"
 "\n"
-"Το αρχείο αποθηκεύτηκε με τύπους =PY του LibreOffice. Το Excel δεν θα βλέπει "
-"τα pythonScripts.xml / _xlws.PY μέχρι να ολοκληρωθεί η εξαγωγή.\n"
+"Το αρχείο αποθηκεύτηκε με τύπους =PY του LibreOffice. Το Excel δεν θα βλέπει τα pythonScripts.xml / _xlws.PY μέχρι να ολοκληρωθεί η εξαγωγή.\n"
 "\n"
 "{1}"
 
@@ -823,7 +890,8 @@ msgstr "Επεξεργασία μαθηματικού τύπου LaTeX"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Select a single formula to update. Multiple formulas are selected."
-msgstr "Επιλέξτε έναν μόνο τύπο για ενημέρωση. Έχουν επιλεγεί πολλαπλοί τύποι."
+msgstr ""
+"Επιλέξτε έναν μόνο τύπο για ενημέρωση. Έχουν επιλεγεί πολλαπλοί τύποι."
 
 #: plugin/writer/math/latex_dialog.py
 msgid ""
@@ -1356,8 +1424,8 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[Το μοντέλο {0} δεν υποστηρίζει εγγενή ήχο. Παρακαλούμε επιλέξτε ένα μοντέλο "
-"STT στις Ρυθμίσεις.]"
+"[Το μοντέλο {0} δεν υποστηρίζει εγγενή ήχο. Παρακαλούμε επιλέξτε ένα μοντέλο"
+" STT στις Ρυθμίσεις.]"
 
 #: plugin/chatbot/panel.py
 msgid "[Peer send requires Chat mode on this sidebar.]"
@@ -1427,8 +1495,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Δεν βρέθηκε επεξεργαστής κειμένου (εγκαταστήστε το Kate ή το Gedit, ή ορίστε "
-"τη μεταβλητή EDITOR). Διαδρομή: {0}"
+"Δεν βρέθηκε επεξεργαστής κειμένου (εγκαταστήστε το Kate ή το Gedit, ή ορίστε"
+" τη μεταβλητή EDITOR). Διαδρομή: {0}"
 
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
@@ -1456,10 +1524,11 @@ msgstr "[Το υποσύστημα του πράκτορα '{0}' δεν βρέθ
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Το υποσύστημα του πράκτορα '{0}' δεν είναι διαθέσιμο. Ελέγξτε τις Ρυθμίσεις "
-"(διαδρομή, εγκατάσταση).]"
+"[Το υποσύστημα του πράκτορα '{0}' δεν είναι διαθέσιμο. Ελέγξτε τις Ρυθμίσεις"
+" (διαδρομή, εγκατάσταση).]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1597,6 +1666,21 @@ msgid "Testing connection..."
 msgstr "Έλεγχος σύνδεσης..."
 
 #: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr "Ομιλία"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr "Δεν ήταν δυνατή η αναπαραγωγή του δείγματος φωνής."
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+"Η έξοδος ομιλίας είναι απενεργοποιημένη. Ενεργοποιήστε την επιλογή "
+"«Ενεργοποίηση εξόδου ομιλίας (TTS)» για να ακούσετε αυτή τη φωνή."
+
+#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Λήψη βιβλιοθήκης ήχου"
 
@@ -1623,6 +1707,10 @@ msgstr "Ύψος:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Πλάτος:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Εκφώνηση απαντήσεων (TTS)"
 
 #: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
@@ -1790,13 +1878,15 @@ msgstr "Είστε βέβαιοι ότι θέλετε να διαγράψετε 
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr ""
-"Επιλέξτε περιοχή δεδομένων ή εισαγάγετε διεύθυνση A1 (εισάγεται ως δεδομένα)."
+"Επιλέξτε περιοχή δεδομένων ή εισαγάγετε διεύθυνση A1 (εισάγεται ως "
+"δεδομένα)."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
-"Τα σενάρια εγγράφου είναι πολύ μεγάλα για αποθήκευση στο έγγραφο ({0} bytes)."
+"Τα σενάρια εγγράφου είναι πολύ μεγάλα για αποθήκευση στο έγγραφο ({0} "
+"bytes)."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 msgid "No document is open to save scripts."
@@ -1957,12 +2047,12 @@ msgstr "Απέτυχε"
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
-"Monaco editor."
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
 msgstr ""
 "Ορίστε τη διαδρομή του Python venv στις Ρυθμίσεις → Python (το ίδιο venv "
-"όπου εκτελέσατε το 'uv pip install pywebview rocher'). Η ενσωματωμένη Python "
-"του LibreOffice δεν μπορεί να εκτελέσει τον επεξεργαστή Monaco."
+"όπου εκτελέσατε το 'uv pip install pywebview rocher'). Η ενσωματωμένη Python"
+" του LibreOffice δεν μπορεί να εκτελέσει τον επεξεργαστή Monaco."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -2018,7 +2108,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Το κείμενο/NLP probe απέτυχε (δείτε το writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Το χρονικό όριο του ανιχνευτή όρασης έληξε (η εισαγωγή Docling μπορεί να "
 "διαρκέσει 10–30 δευτερόλεπτα κατά τον πρώτο έλεγχο)."
@@ -2042,8 +2133,8 @@ msgstr ""
 "Ο έλεγχος διανυσματικής αναζήτησης απέτυχε (δείτε το writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Ηχογράφηση"
+msgid "Audio Recording & Speech"
+msgstr "Ηχογράφηση & Ομιλία"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Scientific Libraries"
@@ -2086,12 +2177,20 @@ msgid "Vector Search Libraries"
 msgstr "Βιβλιοθήκες διανυσματικής αναζήτησης"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Ηχογράφηση"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "To install remaining packages:"
 msgstr "Για την εγκατάσταση των υπόλοιπων πακέτων:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
 msgstr "Δεν ανιχνεύθηκαν συσκευές εισόδου μικροφώνου."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Τοπικές μηχανές TTS (προαιρετικά):"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2102,25 +2201,26 @@ msgid "Reading Python version..."
 msgstr "Ανάγνωση έκδοσης Python..."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording: checking sounddevice..."
-msgstr "Ηχογράφηση: έλεγχος sounddevice..."
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Ήχος & Ομιλία: έλεγχος του sounddevice και των μηχανών TTS..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
 msgstr ""
-"Βιβλιοθήκες κειμένου / NLP: φόρτωση (η πρώτη εκτέλεση ενδέχεται να διαρκέσει "
-"λίγο)..."
+"Βιβλιοθήκες κειμένου / NLP: φόρτωση (η πρώτη εκτέλεση ενδέχεται να διαρκέσει"
+" λίγο)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr ""
-"Βιβλιοθήκες Vision: φόρτωση (η πρώτη εκτέλεση ενδέχεται να διαρκέσει λίγο)..."
+"Βιβλιοθήκες Vision: φόρτωση (η πρώτη εκτέλεση ενδέχεται να διαρκέσει "
+"λίγο)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
-"Βιβλιοθήκες διανυσματικής αναζήτησης: φόρτωση (η πρώτη εκτέλεση ενδέχεται να "
-"διαρκέσει λίγο)..."
+"Βιβλιοθήκες διανυσματικής αναζήτησης: φόρτωση (η πρώτη εκτέλεση ενδέχεται να"
+" διαρκέσει λίγο)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2152,8 +2252,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -2161,26 +2260,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Σφάλμα από τον εργάτη ανάλυσης κειμένου:\n"
 "{err}\n"
 "\n"
-"Οι λειτουργίες σε αυτόν τον διάλογο απαιτούν αυτά τα πακέτα στην Python που "
-"χρησιμοποιεί:\n"
-"  • spacy + ένα μοντέλο          (οντότητες, φράσεις-κλειδιά, βασικά "
-"στατιστικά)\n"
+"Οι λειτουργίες σε αυτόν τον διάλογο απαιτούν αυτά τα πακέτα στην Python που χρησιμοποιεί:\n"
+"  • spacy + ένα μοντέλο          (οντότητες, φράσεις-κλειδιά, βασικά στατιστικά)\n"
 "  • textdescriptives         (πραγματικά σκορ αναγνωσιμότητας)\n"
-"  • transformers + torch     (Ανάλυση συναισθήματος χρησιμοποιώντας το "
-"πολύγλωσσο μοντέλο)\n"
+"  • transformers + torch     (Ανάλυση συναισθήματος χρησιμοποιώντας το πολύγλωσσο μοντέλο)\n"
 "\n"
 "Εγκαταστήστε τα με:\n"
 "  {install}\n"
 "\n"
-"Ο εργάτης ανέφερε ότι η ενότητα λείπει. Επαληθεύστε ότι τα πακέτα είναι "
-"εγκατεστημένα στο ακριβές εκτελέσιμο αρχείο Python που επέλυσε ο εργάτης για "
-"το ρυθμισμένο venv σας."
+"Ο εργάτης ανέφερε ότι η ενότητα λείπει. Επαληθεύστε ότι τα πακέτα είναι εγκατεστημένα στο ακριβές εκτελέσιμο αρχείο Python που επέλυσε ο εργάτης για το ρυθμισμένο venv σας."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -2199,16 +2292,11 @@ msgstr "Ανάλυση..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Σφάλμα: %s\n"
 "\n"
-"Ενδέχεται να λείπουν απαιτούμενα πακέτα από το ρυθμισμένο venv (Ρυθμίσεις → "
-"Python). Κάντε κλικ στο «Έλεγχος Venv» σε αυτό το παράθυρο διαλόγου ή "
-"χρησιμοποιήστε τον πλήρη έλεγχο (Test) στις Ρυθμίσεις → Python για "
-"λεπτομέρειες σχετικά με τα spacy, textdescriptives, transformers, torch κ.λπ."
+"Ενδέχεται να λείπουν απαιτούμενα πακέτα από το ρυθμισμένο venv (Ρυθμίσεις → Python). Κάντε κλικ στο «Έλεγχος Venv» σε αυτό το παράθυρο διαλόγου ή χρησιμοποιήστε τον πλήρη έλεγχο (Test) στις Ρυθμίσεις → Python για λεπτομέρειες σχετικά με τα spacy, textdescriptives, transformers, torch κ.λπ."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -2315,7 +2403,8 @@ msgstr "Δεν ήταν δυνατή η επίλυση της συνεδρίας
 
 #: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
-msgstr "Η συνεδρία Python του σημειωματαρίου επαναφέρθηκε για αυτό το έγγραφο."
+msgstr ""
+"Η συνεδρία Python του σημειωματαρίου επαναφέρθηκε για αυτό το έγγραφο."
 
 #: plugin/scripting/session_manager.py
 msgid "Could not reset Python session."
@@ -2430,8 +2519,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Το σενάριο εκτελέστηκε με επιτυχία, αλλά δεν επέστρεψε αποτέλεσμα και δεν "
 "παρήγαγε έξοδο. (διάρκεια {time})"
@@ -2747,8 +2836,7 @@ msgid ""
 msgstr ""
 "Το δυαδικό αρχείο {0} '{1}' επαληθεύτηκε ({2}).\n"
 "\n"
-"(Σημείωση: Μια ενεργή σήραγγα {3} εκτελείται αυτήν τη στιγμή στη διεύθυνση "
-"{4}.)"
+"(Σημείωση: Μια ενεργή σήραγγα {3} εκτελείται αυτήν τη στιγμή στη διεύθυνση {4}.)"
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2761,8 +2849,7 @@ msgstr ""
 "Το δυαδικό αρχείο {0} '{1}' είναι εγκατεστημένο και επαληθευμένο ({2}).\n"
 "\n"
 "Ο διακομιστής MCP εκτελείται τοπικά στη θύρα {3}.\n"
-"Επιλέξτε 'Έκθεση μέσω δημόσιας σήραγγας' και κάντε κλικ στο OK για να "
-"ενεργοποιήσετε τη δημόσια δρομολόγηση."
+"Επιλέξτε 'Έκθεση μέσω δημόσιας σήραγγας' και κάντε κλικ στο OK για να ενεργοποιήσετε τη δημόσια δρομολόγηση."
 
 #: plugin/mcp/tunnel.py
 #, python-brace-format
@@ -2824,10 +2911,6 @@ msgstr "Ερώτηση / οδηγία:"
 #: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Αναλογία διαστάσεων:"
-
-#: plugin/xdl_strings.py
-msgid "Audio Model:"
-msgstr "Μοντέλο ήχου:"
 
 #: plugin/xdl_strings.py
 msgid "Auto Gallery"
@@ -3182,6 +3265,10 @@ msgid "⚙"
 msgstr "⚙"
 
 #: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
 msgid "🔍"
 msgstr "🔍"
 
@@ -3209,6 +3296,127 @@ msgstr "Grok Build (ACP)"
 msgid "OpenCode (ACP)"
 msgstr "OpenCode (ACP)"
 
+msgid "Audio Model:"
+msgstr "Μοντέλο ήχου:"
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+"Μοντέλο μετατροπής ομιλίας σε κείμενο όταν το μοντέλο συνομιλίας δεν μπορεί "
+"να δεχτεί είσοδο ήχου."
+
+msgid "Enable Speech Output (TTS)"
+msgstr "Ενεργοποίηση εξόδου ομιλίας (TTS)"
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+"Εκφώνηση των απαντήσεων του βοηθού με χρήση μετατροπής κειμένου σε ομιλία."
+
+msgid "Speak sentence by sentence (Local)"
+msgstr "Εκφώνηση πρόταση προς πρόταση (Τοπικά)"
+
+msgid ""
+"Synthesize the next sentences while the current one plays, so a short "
+"sentence is not followed by a gap. Stop discards clips that are not playing "
+"yet. Turn off to speak the whole reply as one clip."
+msgstr ""
+"Σύνθεση των επόμενων προτάσεων ενώ η τρέχουσα αναπαράγεται, ώστε μια σύντομη"
+" πρόταση να μην ακολουθείται από κενό. Η διακοπή απορρίπτει τα κλιπ που δεν "
+"αναπαράγονται ακόμα. Απενεργοποιήστε το για να εκφωνηθεί ολόκληρη η απάντηση"
+" ως ένα κλιπ."
+
+msgid "Keep replies brief"
+msgstr "Σύντομες απαντήσεις"
+
+msgid ""
+"Aim for about one paragraph unless the user asks for more. Only applies "
+"while speech output (TTS) is on."
+msgstr ""
+"Στόχος είναι περίπου μία παράγραφος, εκτός αν ο χρήστης ζητήσει περισσότερα."
+" Εφαρμόζεται μόνο όταν η έξοδος ομιλίας (TTS) είναι ενεργοποιημένη."
+
+msgid "TTS Provider"
+msgstr "Πάροχος TTS"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API"
+" endpoint."
+msgstr ""
+"Επιλέξτε αν θα χρησιμοποιήσετε την ενσωματωμένη ομιλία του λειτουργικού "
+"συστήματος, μια τοπική νευρωνική μηχανή ή το API endpoint σας."
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr "OS Native (say / SAPI / spd-say)"
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr "Kokoro (Τοπικό Νευρωνικό, ONNX CPU)"
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr "Piper (Τοπικό Γρήγορο Νευρωνικό, CPU)"
+
+msgid "LLM Endpoint"
+msgstr "Τερματικό LLM"
+
+msgid "TTS Model"
+msgstr "Μοντέλο TTS"
+
+msgid "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
+msgstr ""
+"Μοντέλο για σύνθεση ομιλίας (χρησιμοποιείται όταν ο Πάροχος TTS είναι "
+"Τερματικό LLM)."
+
+msgid "Voice"
+msgstr "Φωνή"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+"Φωνή για τον επιλεγμένο πάροχο. Η λίστα αντιστοιχεί στον κατάλογο Piper ή "
+"Kokoro για την τοπική σας ρύθμιση."
+
+msgid "alloy (OpenAI Neutral)"
+msgstr "alloy (OpenAI Ουδέτερη)"
+
+msgid "af_sky (Kokoro US Female - Sky)"
+msgstr "af_sky (Kokoro US Γυναικεία - Sky)"
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr "en_US-lessac-medium (Αμερικανικά Αγγλικά Γυναικεία - Lessac)"
+
+msgid "default (System Default)"
+msgstr "default (Προεπιλογή συστήματος)"
+
+msgid "Test voice"
+msgstr "Δοκιμή φωνής"
+
+msgid "Speech Speed"
+msgstr "Ταχύτητα ομιλίας"
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+"Πολλαπλασιαστής ταχύτητας αναπαραγωγής (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, "
+"2.0x, ή προσαρμοσμένη έως 0.25x)."
+
+msgid "1.0x"
+msgstr "1.0x"
+
+msgid "1.1x"
+msgstr "1.1x"
+
+msgid "1.25x"
+msgstr "1.25x"
+
+msgid "1.5x"
+msgstr "1.5x"
+
+msgid "1.75x"
+msgstr "1.75x"
+
+msgid "2.0x"
+msgstr "2.0x"
+
 msgid "Calc spreadsheet tools"
 msgstr "Εργαλεία υπολογιστικών φύλλων Calc"
 
@@ -3227,8 +3435,8 @@ msgstr ""
 "Μετατροπή των αδελφών αρχείων .xlsx/.xls σε writeragent_ods_cache/ δίπλα "
 "στον φάκελο, ώστε το επαναλαμβανόμενο DuckDB SQL να επαναχρησιμοποιεί το "
 "ODS. Τα εγγενή αρχεία .ods και το ενεργό βιβλίο εργασίας δεν αποθηκεύονται "
-"ποτέ προσωρινά. Ορίστε το calc.ods_cache_enabled σε false στο writeragent."
-"json για απενεργοποίηση."
+"ποτέ προσωρινά. Ορίστε το calc.ods_cache_enabled σε false στο "
+"writeragent.json για απενεργοποίηση."
 
 msgid "Sidebar"
 msgstr "Πλευρική εργαλειοθήκη"
@@ -3324,9 +3532,9 @@ msgstr "Δεξιότητα εξανθρωπισμού (φυσικός λόγος
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Όταν είναι ενεργοποιημένο, εισάγει καθοδήγηση στο σύστημα προτροπών (system "
 "prompt) ώστε το μοντέλο να κάνει το παραγόμενο ή αναθεωρημένο κείμενο του "
@@ -3353,14 +3561,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Ενεργοποίηση ελέγχου γραμματικής (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. "
-"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
-"offline Rust binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
+"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
+"binary auto-downloaded to your profile (no venv required)."
 msgstr ""
-"Off = απενεργοποιημένο. AI (LLM) = χρήση του ρυθμισμένου μοντέλου κειμένου/"
-"API. LanguageTool / Vale = τοπικές μηχανές μέσω Ρυθμίσεις → Python venv. "
-"Harper = δυαδικό αρχείο Rust εκτός σύνδεσης που λαμβάνεται αυτόματα στο "
-"προφίλ σας (δεν απαιτείται venv)."
+"Off = απενεργοποιημένο. AI (LLM) = χρήση του ρυθμισμένου μοντέλου "
+"κειμένου/API. LanguageTool / Vale = τοπικές μηχανές μέσω Ρυθμίσεις → Python "
+"venv. Harper = δυαδικό αρχείο Rust εκτός σύνδεσης που λαμβάνεται αυτόματα "
+"στο προφίλ σας (δεν απαιτείται venv)."
 
 msgid "Off"
 msgstr "Απενεργοποίηση"
@@ -3443,10 +3651,10 @@ msgid ""
 "grammar."
 msgstr ""
 "Επαλήθευση της γλώσσας κάθε ολοκληρωμένης πρότασης με βάση τις ρυθμίσεις "
-"τοπικών ρυθμίσεων του εγγράφου. Το AI χρησιμοποιεί το API γραμματικής/"
-"συνομιλίας σας· το Local χρησιμοποιεί το langdetect στο Python venv σας "
-"(Ρυθμίσεις → Python· χωρίς κλήση API). Οι αναντιστοιχίες ενημερώνουν το "
-"CharLocale και επανελέγχουν τη γραμματική."
+"τοπικών ρυθμίσεων του εγγράφου. Το AI χρησιμοποιεί το API "
+"γραμματικής/συνομιλίας σας· το Local χρησιμοποιεί το langdetect στο Python "
+"venv σας (Ρυθμίσεις → Python· χωρίς κλήση API). Οι αναντιστοιχίες "
+"ενημερώνουν το CharLocale και επανελέγχουν τη γραμματική."
 
 msgid "Local (langdetect)"
 msgstr "Τοπικό (langdetect)"
@@ -3458,8 +3666,8 @@ msgid ""
 "When on, Enter in the sidebar query runs the same action as Send; "
 "Shift+Enter inserts a newline. When off, Enter inserts a newline."
 msgstr ""
-"Όταν είναι ενεργοποιημένο, το Enter στο ερώτημα της πλευρικής στήλης εκτελεί "
-"την ίδια ενέργεια με την Αποστολή· το Shift+Enter εισάγει μια νέα γραμμή. "
+"Όταν είναι ενεργοποιημένο, το Enter στο ερώτημα της πλευρικής στήλης εκτελεί"
+" την ίδια ενέργεια με την Αποστολή· το Shift+Enter εισάγει μια νέα γραμμή. "
 "Όταν είναι απενεργοποιημένο, το Enter εισάγει μια νέα γραμμή."
 
 msgid "Agent edit review"
@@ -3470,9 +3678,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Off = απευθείας επεξεργασίες. Record = παρακολούθηση αλλαγών που αποδέχεστε/"
-"απορρίπτετε εσείς. Wait = το apply_document_content αναμένει (στο νήμα "
-"συνομιλίας/MCP) μέχρι να ελέγξετε."
+"Off = απευθείας επεξεργασίες. Record = παρακολούθηση αλλαγών που "
+"αποδέχεστε/απορρίπτετε εσείς. Wait = το apply_document_content αναμένει (στο"
+" νήμα συνομιλίας/MCP) μέχρι να ελέγξετε."
 
 msgid "Record (track changes)"
 msgstr "Record (παρακολούθηση αλλαγών)"
@@ -3531,8 +3739,8 @@ msgid "Rerank model"
 msgstr "Μοντέλο ανακατάταξης"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Χρησιμοποιείται μόνο όταν η ανακατάταξη είναι ενεργοποιημένη. Το αγγλικό "
 "MiniLM είναι γρήγορο· το bge-reranker-v2-m3 είναι πολύγλωσσο και απαιτεί "
@@ -3554,11 +3762,11 @@ msgid "Enable MCP Server"
 msgstr "Ενεργοποίηση διακομιστή MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Μόνο localhost, χωρίς έλεγχο ταυτότητας. Οι πελάτες χρησιμοποιούν το http://"
-"localhost:<port>/mcp (HTTP με δυνατότητα ροής)."
+"Μόνο localhost, χωρίς έλεγχο ταυτότητας. Οι πελάτες χρησιμοποιούν το "
+"http://localhost:<port>/mcp (HTTP με δυνατότητα ροής)."
 
 msgid "MCP Port"
 msgstr "Θύρα MCP"
@@ -3599,13 +3807,14 @@ msgstr "Έκθεση μέσω δημόσιου τούνελ"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
-"MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
+" MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Απαιτεί το δυαδικό αρχείο του επιλεγμένου παρόχου στη διαδρομή PATH "
 "(cloudflared, bore, ngrok ή tailscale). Το MCP δεν διαθέτει έλεγχο "
 "ταυτότητας — οποιοσδήποτε έχει το δημόσιο URL μπορεί να καλέσει εργαλεία. "
-"Δείτε την Κατάσταση διακομιστή MCP για το δημόσιο URL /mcp όταν είναι έτοιμο."
+"Δείτε την Κατάσταση διακομιστή MCP για το δημόσιο URL /mcp όταν είναι "
+"έτοιμο."
 
 msgid "Provider"
 msgstr "Πάροχος"
@@ -3637,8 +3846,8 @@ msgid ""
 "Empty = provider default / CLI config. Unused for Tailscale."
 msgstr ""
 "Ngrok authtoken· Cloudflare tunnel token· Διακομιστής Bore ή 'server "
-"secret'. Κενό = προεπιλογή παρόχου / ρύθμιση CLI. Δεν χρησιμοποιείται για το "
-"Tailscale."
+"secret'. Κενό = προεπιλογή παρόχου / ρύθμιση CLI. Δεν χρησιμοποιείται για το"
+" Tailscale."
 
 msgid "Client config (copy into Claude / Hermes-Agent):"
 msgstr "Ρύθμιση πελάτη (αντιγραφή στο Claude / Hermes-Agent):"
@@ -3650,17 +3859,17 @@ msgid "Python venv path"
 msgstr "Διαδρομή venv Python"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
-"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
-"surrounding quotes. If empty, uses this process's sys.executable (basic "
-"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, "
+"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
+"without surrounding quotes. If empty, uses this process's sys.executable "
+"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Εάν οριστεί, εκτελεί το =PY() και το Run Python Script σε αυτό το venv (bin/"
-"python, Scripts/python.exe ή conda/pyenv-win env-root python.exe). "
+"Εάν οριστεί, εκτελεί το =PY() και το Run Python Script σε αυτό το venv "
+"(bin/python, Scripts/python.exe ή conda/pyenv-win env-root python.exe). "
 "Επικολλήστε τη διαδρομή χωρίς εισαγωγικά. Εάν είναι κενό, χρησιμοποιεί το "
-"sys.executable αυτής της διεργασίας (βασική stdlib)· χρησιμοποιήστε ένα venv "
-"για numpy/pandas και Vision Helpers (paddleocr, paddlepaddle)."
+"sys.executable αυτής της διεργασίας (βασική stdlib)· χρησιμοποιήστε ένα venv"
+" για numpy/pandas και Vision Helpers (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Δοκιμή"
@@ -3679,8 +3888,8 @@ msgid "Max Calc data cells"
 msgstr "Μέγιστα κελιά δεδομένων Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Μέγιστος αριθμός κελιών σε δεδομένα =PYTHON() ή δεδομένα/data_range του Run "
 "Python Script. Μεγαλύτερες τιμές καταναλώνουν περισσότερη μνήμη RAM και "
@@ -3693,8 +3902,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"Απομονωμένο: κάθε κελί =PYTHON() αποκτά έναν νέο χώρο ονομάτων. Κοινόχρηστο: "
-"ένας χώρος ονομάτων ανά βιβλίο εργασίας (οι μεταβλητές μεταφέρονται μεταξύ "
+"Απομονωμένο: κάθε κελί =PYTHON() αποκτά έναν νέο χώρο ονομάτων. Κοινόχρηστο:"
+" ένας χώρος ονομάτων ανά βιβλίο εργασίας (οι μεταβλητές μεταφέρονται μεταξύ "
 "των κελιών)."
 
 msgid "Isolated (default)"
@@ -3723,8 +3932,8 @@ msgid "Rewrite xl() ranges"
 msgstr "Αναγραφή περιοχών xl()"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
-"rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
+" rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Κατά την αποθήκευση του Python in Cell, μεταφορά των στατικών xl(\"A1:…\") "
 "στα ορίσματα δεδομένων =PY και αναγραφή σε data / data[i] / .to_pandas()."
@@ -3835,91 +4044,3 @@ msgstr "Χρονικό όριο εγγράφου Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Χρονικό όριο ανά μετατροπή εντός του Docling. 0 = χωρίς όριο."
-
-msgid "Speech"
-msgstr ""
-
-msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-
-msgid "Enable Speech Output (TTS)"
-msgstr ""
-
-msgid "Speak assistant responses aloud using text-to-speech."
-msgstr ""
-
-#, fuzzy
-msgid "TTS Provider"
-msgstr "Πάροχος"
-
-msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API "
-"endpoint."
-msgstr ""
-
-msgid "OS Native (say / SAPI / spd-say)"
-msgstr ""
-
-msgid "Kokoro (Local Neural, ONNX CPU)"
-msgstr ""
-
-msgid "Piper (Local Fast Neural, CPU)"
-msgstr ""
-
-msgid "Current Chat Endpoint (/audio/speech)"
-msgstr ""
-
-#, fuzzy
-msgid "TTS Model"
-msgstr "Μοντέλο AI:"
-
-msgid ""
-"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
-msgstr ""
-
-#, fuzzy
-msgid "Voice"
-msgstr "επιλογές"
-
-msgid ""
-"Voice for the selected provider. The list matches the Piper or Kokoro "
-"catalog for your locale."
-msgstr ""
-
-msgid "alloy (OpenAI Neutral)"
-msgstr ""
-
-msgid "af_bella (Kokoro US Female - Bella)"
-msgstr ""
-
-msgid "en_US-lessac-medium (US English Female - Lessac)"
-msgstr ""
-
-msgid "default (System Default)"
-msgstr ""
-
-msgid "Speech Speed"
-msgstr ""
-
-msgid ""
-"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
-"down to 0.25x)."
-msgstr ""
-
-msgid "1.0x"
-msgstr ""
-
-msgid "1.1x"
-msgstr ""
-
-msgid "1.25x"
-msgstr ""
-
-msgid "1.5x"
-msgstr ""
-
-msgid "1.75x"
-msgstr ""
-
-msgid "2.0x"
-msgstr ""
