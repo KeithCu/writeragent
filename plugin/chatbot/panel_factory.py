@@ -525,8 +525,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             log.exception("_render_session_history failed [greeting=%s]")
 
     def _refresh_controls_from_config(self) -> None:
-        """Reload model and prompt selectors from config (e.g. after user changes Settings).
+        """Reload sidebar controls from config (e.g. after user changes Settings).
 
+        Refreshes model/prompt/image/mode selectors, Voice (TTS) checkbox, and backend indicator.
         Does not re-run ``translate_dialog`` — sidebar strings are translated once at wire/load.
 
         Bugfix / Re-entrancy Guard:
@@ -584,6 +585,23 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     dt = cached or doc_type_label_for_enum(get_document_type(model))
                     flags = sidebar_mode_flags_for_doc_type(dt)
                     populate_mode_selector_with_flags(chat_mode_selector, flags)
+            # Keep sidebar Voice checkbox in sync with Settings → Speech (audio.tts_enabled).
+            # Settings apply emits config:changed; without this, chk_voice stays at wire-time state.
+            chk_voice = get_optional("chk_voice")
+            if chk_voice is not None and hasattr(chk_voice, "setState"):
+                with suppress_disposed("refresh chk_voice from audio.tts_enabled", logger=log):
+                    from plugin.framework.config import get_config_bool_safe
+
+                    want = 1 if get_config_bool_safe("audio.tts_enabled") else 0
+                    cur = None
+                    if hasattr(chk_voice, "getState"):
+                        try:
+                            cur = int(chk_voice.getState())
+                        except Exception:
+                            cur = None
+                    if cur != want:
+                        chk_voice.setState(want)
+
             try:
                 # Backend indicator: show "Aider" / "Hermes" when external agent backend is enabled
                 self._update_backend_indicator(root)
@@ -1097,13 +1115,22 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     chk_ctrl.getModel().HelpText = _("Speak responses aloud (TTS)")
 
                 class VoiceCheckboxListener(BaseItemListener):
+                    panel: Any
+
+                    def __init__(self, panel: Any) -> None:
+                        self.panel = panel
+
                     def on_item_state_changed(self, rEvent: Any) -> None:
+                        # Programmatic setState during _refresh_controls_from_config must not
+                        # re-enter set_config → config:changed → refresh (UNO fires listeners).
+                        if getattr(self.panel, "_in_refresh_controls", False):
+                            return
                         val = bool(getattr(rEvent, "Selected", 0) == 1)
                         set_config("audio.tts_enabled", val)
                         log.info("Voice checkbox toggled: tts_enabled=%s", val)
 
                 if hasattr(chk_ctrl, "addItemListener"):
-                    chk_ctrl.addItemListener(VoiceCheckboxListener())
+                    chk_ctrl.addItemListener(VoiceCheckboxListener(self))
             except Exception:
                 log.exception("Voice checkbox wiring failed")
 
