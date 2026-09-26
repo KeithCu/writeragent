@@ -110,3 +110,42 @@ def test_stt_enable_does_not_paint_audio_model_on_general(ctx):
     finally:
         dlg.setVisible(False)
         dlg.dispose()
+
+
+@native_test
+def test_image_then_general_hides_audio_model_leaked_by_setvisible(ctx):
+    """Keith: Image then General clears the first-paint overlap.
+
+    Tab buttons only assign dialog Step (General=1, Image=2). They do not
+    refresh STT visibility. setVisible while General is already showing
+    paints Audio Model there. Assigning Step to 1 again, while already on
+    General, does not re-filter. Leaving for Image and coming back does.
+    """
+    dlg, model = _build(ctx)
+    try:
+        audio = dlg.getControl("audio__stt_model")
+        api_key = dlg.getControl("label_api_key")
+        assert int(model.Step) == 1
+        assert audio.isVisible() is False
+
+        # What the old STT listener did on the first show of General.
+        audio.setVisible(True)
+        assert audio.isVisible() is True
+        assert int(audio.getModel().Step) == 3
+        assert api_key.isVisible() is True
+
+        # Clicking General while already there does not repair the paint.
+        model.Step = 1
+        assert int(model.Step) == 1
+        assert audio.isVisible() is True
+
+        # Image (step 2) then General (step 1): the round trip re-filters.
+        model.Step = 2
+        assert audio.isVisible() is False
+        model.Step = 1
+        assert audio.isVisible() is False
+        assert api_key.isVisible() is True
+        assert int(audio.getModel().Step) == 3
+    finally:
+        dlg.setVisible(False)
+        dlg.dispose()

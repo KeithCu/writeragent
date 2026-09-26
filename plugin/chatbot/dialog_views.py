@@ -888,14 +888,16 @@ def _apply_stt_model_visibility(dlg: Any, provider_text: str) -> None:
     """Enable Audio Model for endpoint STT and Local Model for faster-whisper.
 
     Do not call ``XWindow.setVisible`` on these controls. Settings is one
-    dialog with steps (General is step 1; Speech is a later step). Audio
-    Model is on the Speech step at the same Y as API Key. ``setVisible(True)``
-    while that dialog is already showing paints the control on the *current*
-    step and leaves its own Step unchanged — so the first open, which starts
-    on General, stacks "Audio Model:" on "API Key:". Assigning ``Step`` again
-    (switching tabs) hides the stray control, which is why a later look at
-    General can look fine. ``setEnable`` does not do this; TTS Model already
-    uses it for the same reason.
+    dialog with steps (General is step 1, Image is step 2, Speech is later).
+    Audio Model is on the Speech step at the same Y as API Key. The dialog
+    opens already on General, so that first show never goes through
+    ``TabListener``. ``setVisible(True)`` while the dialog is showing paints
+    the control on the current step and leaves its own Step unchanged, which
+    stacks "Audio Model:" on "API Key:". Assigning Step to 1 again while
+    already on General does not re-filter. Tab buttons only assign Step;
+    they do not refresh STT visibility. Switching to Image and back to
+    General does re-filter and hides the stray control. ``setEnable`` does
+    not paint across steps; TTS Model already uses it for the same reason.
     """
     from plugin.audio.stt_service import stt_controls_enabled
 
