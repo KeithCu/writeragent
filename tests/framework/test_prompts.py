@@ -608,6 +608,7 @@ def test_python_specialized_sub_agent_hint_writer():
     assert 'delegate_to_specialized_*(domain="shapes")' in hint
     assert "page-scale absolute positions in HMM" in hint
     assert "top-left" in hint
+    assert "document canvas line" in hint
 
 
 def test_python_specialized_sub_agent_hint_calc():
@@ -622,6 +623,7 @@ def test_python_specialized_sub_agent_hint_calc():
     assert "BEFORE specialized_workflow_finished" in hint
     assert "does not place" in hint
     assert "page-scale absolute positions in HMM" in hint
+    assert "document canvas line" in hint
 
 
 def test_document_research_multi_file_delegation_in_prompts():

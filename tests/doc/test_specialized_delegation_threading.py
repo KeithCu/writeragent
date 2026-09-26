@@ -22,7 +22,12 @@ from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.worker_pool import run_in_background
 from plugin.writer.specialized.footnotes import FootnotesList
-from plugin.writer.specialized_base import DelegateToSpecializedWriter, ToolWriterFootnoteBase, ToolWriterShapeBase
+from plugin.writer.specialized_base import (
+    DelegateToSpecializedWriter,
+    ToolWriterFootnoteBase,
+    ToolWriterPythonBase,
+    ToolWriterShapeBase,
+)
 from tests.framework.thread_safety import start_uno_thread_safety_session
 
 
@@ -56,6 +61,15 @@ class _DummyShapeTool(ToolBase):
 # Mark as shapes domain via base mixin pattern used in production tools
 class _DummyShapeToolRegistered(_DummyShapeTool, ToolWriterShapeBase):
     pass
+
+
+class _DummyPythonTool(ToolWriterPythonBase):
+    name = "dummy_python_tool"
+    description = "test"
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok"}
 
 
 class _DummyDocResearchTool(ToolBase):
@@ -241,6 +255,60 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
     mock_format_canvas.assert_called_once_with(mock_doc)
     instructions = mock_agent_class.call_args.kwargs["instructions"]
     assert "Document canvas (Writer)" in instructions
+
+
+@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
+@patch(
+    "plugin.chatbot.smol_agent.get_config_int",
+    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
+)
+@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
+@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
+@patch("plugin.chatbot.smol_agent.LlmClient")
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.doc.specialized_base.format_shapes_canvas_context")
+def test_writer_python_domain_includes_shapes_canvas(
+    mock_format_canvas,
+    mock_execute_on_main,
+    _mock_llm,
+    _mock_smol_model,
+    mock_agent_class,
+    _mock_get_config,
+    _mock_get_config_int,
+):
+    """Outer python agent gets page HMM bounds, same marshal as the shapes loop."""
+    mock_format_canvas.return_value = " Document canvas (Writer): page style 'Standard'; paper 210.0 x 297.0 mm"
+    mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+
+    mock_agent_instance = MagicMock()
+    mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
+    mock_agent_class.return_value = mock_agent_instance
+
+    registry = ToolRegistry(MagicMock())
+    registry.register(_DummyPythonTool())
+    registry.register(DelegateToSpecializedWriter())
+
+    mock_doc = MagicMock()
+    mock_doc.supportsService.return_value = True
+
+    ctx = MagicMock()
+    ctx.services = {"tools": registry}
+    ctx.doc = mock_doc
+    ctx.ctx = MagicMock()
+    ctx.doc_type = "writer"
+    ctx.stop_checker = lambda: False
+
+    gateway = registry.get("delegate_to_specialized_writer_toolset")
+    result = gateway.execute_safe(ctx, domain="python", task="Place a ring of circles via python")
+
+    assert result["status"] == "ok"
+    mock_format_canvas.assert_called_once_with(mock_doc)
+    assert mock_execute_on_main.called
+    instructions = mock_agent_class.call_args.kwargs["instructions"]
+    assert "Document canvas (Writer)" in instructions
+    assert "delegate_tool_domains" in instructions
+    assert "document canvas line" in instructions
 
 
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)

@@ -90,6 +90,7 @@ def test_python_hint_and_examples_require_delegate_before_finish():
         assert "page-scale absolute positions in HMM" in hint
         assert "top-left" in hint
         assert "origin-centered" in hint
+        assert "document canvas line" in hint
     writer = python_specialized_sub_agent_hint("Writer")
     assert "footnotes" in writer
     assert "shapes" in writer
@@ -378,7 +379,9 @@ def test_delegate_tool_domains_execute_returns_inner_result(mock_inner):
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
+@patch("plugin.doc.specialized_base.format_shapes_canvas_context", return_value=" Document canvas (Writer): paper 210.0 x 297.0 mm")
 def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
+    mock_canvas,
     mock_llm,
     mock_smol_model,
     mock_agent_class,
@@ -422,6 +425,9 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     assert "BEFORE specialized_workflow_finished" in instructions
     assert "does not place" in instructions
     assert 'delegate_to_specialized_*(domain="shapes")' in instructions
+    mock_canvas.assert_called_once_with(ctx.doc)
+    assert "Document canvas (Writer)" in instructions
+    assert "210.0 x 297.0 mm" in instructions
     examples = mock_agent_class.call_args.kwargs.get("system_prompt_examples") or ""
     assert "delegate_tool_domains" in examples
     assert '"domains"' in examples
