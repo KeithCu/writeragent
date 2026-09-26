@@ -192,7 +192,13 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
                         val = opt.get("value", val)
                         break
 
-        if key in ("audio__tts_provider", "audio.tts_provider"):
+        if key in ("audio__stt_provider", "audio.stt_provider"):
+            from plugin.audio.stt_service import normalize_stt_provider
+            val = normalize_stt_provider(val)
+        elif key in ("audio__stt_local_model", "audio.stt_local_model"):
+            from plugin.audio.stt_service import normalize_stt_local_model
+            val = normalize_stt_local_model(val)
+        elif key in ("audio__tts_provider", "audio.tts_provider"):
             from plugin.audio.tts_service import clean_provider_name
             val = clean_provider_name(str(val))
         elif key in ("audio__tts_voice", "audio.tts_voice"):

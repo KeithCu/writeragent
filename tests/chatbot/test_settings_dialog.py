@@ -231,3 +231,43 @@ def test_apply_settings_result_tts_speed():
         # Type number below 0.25 minimum -> clamped to 0.25
         apply_settings_result(MagicMock(), {"audio__tts_speed": "0.1"})
         assert stored.get("audio.tts_speed") == "0.25"
+
+
+def test_apply_settings_stt_provider_and_local_model():
+    """Speech tab stores canonical provider and Whisper size, including aliases."""
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    stored = {}
+    specs = [
+        {
+            "name": "audio__stt_provider",
+            "options": [
+                {"value": "endpoint", "label": "LLM Endpoint"},
+                {"value": "local", "label": "Local Whisper (faster-whisper)"},
+            ],
+        },
+        {
+            "name": "audio__stt_local_model",
+            "options": [
+                {"value": "base", "label": "base (~150 MB)"},
+                {"value": "small", "label": "small (~500 MB)"},
+            ],
+        },
+    ]
+
+    with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
+         patch("plugin.chatbot.settings_dialog.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"):
+        apply_settings_result(MagicMock(), {
+            "audio__stt_provider": "Local Whisper (faster-whisper)",
+            "audio__stt_local_model": "small (~500 MB)",
+        })
+        assert stored.get("audio.stt_provider") == "local"
+        assert stored.get("audio.stt_local_model") == "small"
+
+        apply_settings_result(MagicMock(), {
+            "audio__stt_provider": "faster-whisper",
+            "audio__stt_local_model": "BASE",
+        })
+        assert stored.get("audio.stt_provider") == "local"
+        assert stored.get("audio.stt_local_model") == "base"

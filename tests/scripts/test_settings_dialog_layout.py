@@ -368,7 +368,11 @@ def test_settings_helpers_become_help_text(tmp_path: Path) -> None:
     assert tips["audio__tts_enabled"] == "Speak assistant responses aloud using text-to-speech."
     assert "label_audio__tts_enabled" not in tips
     assert tips["label_audio__stt_model"] == tips["audio__stt_model"]
-    assert tips["audio__stt_model"] == "Speech-to-text model when the chat model cannot take audio input."
+    assert tips["audio__stt_model"] == (
+        "Speech-to-text model when STT Provider is LLM Endpoint and the chat model cannot take audio input."
+    )
+    assert int(_control_tops(xdl_path)["audio__stt_provider"]) < int(_control_tops(xdl_path)["audio__stt_model"])
+    assert int(_control_tops(xdl_path)["audio__stt_model"]) < int(_control_tops(xdl_path)["audio__stt_local_model"])
     assert tips["doc__grammar_proofreader_recheck"] == tips["label_doc__grammar_proofreader_recheck"]
     assert tips["doc__grammar_proofreader_recheck"].startswith("Clears cached grammar results")
     assert not tips.get("chatbot__max_tool_rounds")

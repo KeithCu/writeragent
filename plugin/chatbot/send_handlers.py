@@ -146,7 +146,8 @@ class SendHandlersMixin:
 
     def _transcribe_audio(self: SendHandlerHost, wav_path: str, stt_model: str) -> str:
         """Transcribe audio synchronously using event pumping on the main thread."""
-
+        from plugin.audio.stt_service import status_for_transcription, transcribe
+        from plugin.framework.queue_executor import post_to_main_thread
 
         if not self.client:
 
@@ -157,12 +158,19 @@ class SendHandlersMixin:
         cl = self.client
         assert cl is not None
 
-        transcribing = _("Transcribing audio...")
+        transcribing = status_for_transcription()
         self._set_status(transcribing)
         self._append_response("\n[" + transcribing + "]\n")
 
+        def on_status(message: str) -> None:
+            # Worker thread: the status control is UNO. run_blocking_in_thread
+            # pumps processEventsToIdle, which runs this posted callback.
+            post_to_main_thread(self._set_status, message)
+
         try:
-            transcript_text = run_blocking_in_thread(self.ctx, cl.transcribe_audio, wav_path, model=stt_model)
+            transcript_text = run_blocking_in_thread(
+                self.ctx, transcribe, wav_path, client=cl, model=stt_model, on_status=on_status,
+            )
             return transcript_text
 
         except Exception as e:
