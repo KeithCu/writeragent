@@ -1359,6 +1359,7 @@ def test_module_yaml_sentence_mode_defaults_on():
     assert field["type"] == "boolean"
     assert field["widget"] == "checkbox"
     assert field["default"] is True
+    assert str(field["label"]).endswith(" (Local)")
 
 
 def test_module_yaml_short_answers_defaults_on():
@@ -1549,27 +1550,143 @@ def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
     assert not late_path.exists()
 
 
-def test_speak_text_async_passes_split_sentences_when_ctx_present():
-    from plugin.audio.tts_service import speak_text_async
+def test_uses_sentence_by_sentence_only_kokoro_and_piper():
+    from plugin.audio.tts_service import uses_sentence_by_sentence
 
-    captured: dict[str, list[str]] = {}
+    assert uses_sentence_by_sentence("kokoro") is True
+    assert uses_sentence_by_sentence("piper") is True
+    assert uses_sentence_by_sentence("Kokoro (Local Neural, ONNX CPU)") is True
+    assert uses_sentence_by_sentence("Piper (Local Fast Neural, CPU)") is True
+    assert uses_sentence_by_sentence("system") is False
+    assert uses_sentence_by_sentence("OS Native (say / SAPI / spd-say)") is False
+    assert uses_sentence_by_sentence("endpoint") is False
+    assert uses_sentence_by_sentence("LLM Endpoint") is False
+    assert uses_sentence_by_sentence("Current Chat Endpoint") is False
+    assert uses_sentence_by_sentence("openrouter") is False
+    assert uses_sentence_by_sentence("together") is False
 
-    def fake_pipeline(sentences, provider, voice, speed, model, endpoint_url, api_key, on_status, generation, **kwargs):
-        del provider, voice, speed, model, endpoint_url, api_key, on_status, generation, kwargs
+
+def test_sentence_speak_enabled_unset_is_on_saved_false_stays_off():
+    """Fresh or missing preference stays on. A stored false is not rewritten."""
+    from plugin.audio.tts_service import sentence_speak_enabled
+
+    def _lookup(cfg):
+        return lambda key, default=None: cfg.get(key, default)
+
+    with patch("plugin.audio.tts_service.get_config", side_effect=_lookup({})):
+        assert sentence_speak_enabled() is True
+    with patch(
+        "plugin.audio.tts_service.get_config",
+        side_effect=_lookup({"audio.tts_sentence_mode": False}),
+    ):
+        assert sentence_speak_enabled() is False
+    with patch(
+        "plugin.audio.tts_service.get_config",
+        side_effect=_lookup({"audio.tts_sentence_mode": True}),
+    ):
+        assert sentence_speak_enabled() is True
+
+
+def _speak_sentence_case(cfg, *, provider=None, model=None):
+    """Run speak_text_async on the caller thread and record split vs one-shot."""
+    from plugin.audio import tts_service as tts
+
+    captured: dict[str, object] = {}
+    oneshot: dict[str, str] = {}
+    real_split = tts.sentences_for_speech
+
+    def fake_pipeline(sentences, prov, voice, speed, model_name, endpoint_url, api_key, on_status, generation, **kwargs):
+        del voice, speed, model_name, endpoint_url, api_key, on_status, generation, kwargs
         captured["sentences"] = list(sentences)
+        captured["provider"] = prov
 
-    cfg = {
-        "audio.tts_enabled": True,
-        "audio.tts_provider": "system",
-        "audio.tts_speed": 1.0,
-    }
+    def spy_split(text, ctx):
+        captured["split"] = True
+        return real_split(text, ctx)
+
+    def remember(name):
+        def _call(*args, **kwargs):
+            del kwargs
+            oneshot[name] = args[0]
+        return _call
+
     with patch("plugin.audio.tts_service.get_config", side_effect=lambda key, default=None: cfg.get(key, default)), patch(
         "plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kwargs: fn()
     ), patch(
         "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",
         return_value=(_FakeSentenceBI(), "en-US"),
-    ), patch("plugin.audio.tts_service._run_sentence_pipeline", side_effect=fake_pipeline):
-        speak_text_async("Hi. Not done yet", ctx=object())
+    ), patch("plugin.audio.tts_service.sentences_for_speech", side_effect=spy_split), patch(
+        "plugin.audio.tts_service._run_sentence_pipeline", side_effect=fake_pipeline
+    ), patch("plugin.audio.tts_service._speak_system", side_effect=remember("system")), patch(
+        "plugin.audio.tts_service._speak_kokoro_local", side_effect=remember("kokoro")
+    ), patch("plugin.audio.tts_service._speak_piper_local", side_effect=remember("piper")), patch(
+        "plugin.audio.tts_service._speak_endpoint", side_effect=remember("endpoint")
+    ), patch(
+        "plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api/v1"
+    ), patch("plugin.audio.tts_service.get_api_key_for_endpoint", return_value="test-key"):
+        tts.speak_text_async(
+            "Hi. Not done yet",
+            ctx=object(),
+            provider=provider,
+            model=model,
+            voice="af_sky",
+        )
+    return captured, oneshot
 
+
+def test_kokoro_and_piper_honor_sentence_mode():
+    for prov in ("kokoro", "piper"):
+        cfg = {
+            "audio.tts_enabled": True,
+            "audio.tts_provider": prov,
+            "audio.tts_speed": 1.0,
+            "audio.tts_sentence_mode": True,
+        }
+        captured, oneshot = _speak_sentence_case(cfg)
+        assert captured["split"] is True
+        assert captured["sentences"] == ["Hi.", "Not done yet"]
+        assert captured["provider"] == prov
+        assert oneshot == {}
+
+        cfg["audio.tts_sentence_mode"] = False
+        captured, oneshot = _speak_sentence_case(cfg)
+        assert "split" not in captured
+        assert "sentences" not in captured
+        assert oneshot == {prov: "Hi. Not done yet"}
+
+
+def test_unset_sentence_mode_splits_kokoro():
+    """Missing audio.tts_sentence_mode uses the schema default (on)."""
+    cfg = {
+        "audio.tts_enabled": True,
+        "audio.tts_provider": "kokoro",
+        "audio.tts_speed": 1.0,
+    }
+    captured, oneshot = _speak_sentence_case(cfg)
     assert captured["sentences"] == ["Hi.", "Not done yet"]
+    assert oneshot == {}
+
+
+def test_endpoint_and_native_do_not_split():
+    endpoint_cfg = {
+        "audio.tts_enabled": True,
+        "audio.tts_provider": "endpoint",
+        "audio.tts_speed": 1.0,
+        "audio.tts_sentence_mode": True,
+    }
+    captured, oneshot = _speak_sentence_case(endpoint_cfg, model="openai/gpt-4o-audio-preview")
+    assert "split" not in captured
+    assert "sentences" not in captured
+    assert oneshot == {"endpoint": "Hi. Not done yet"}
+
+    system_cfg = {
+        "audio.tts_enabled": True,
+        "audio.tts_provider": "system",
+        "audio.tts_speed": 1.0,
+        "audio.tts_sentence_mode": True,
+    }
+    captured, oneshot = _speak_sentence_case(system_cfg)
+    assert "split" not in captured
+    assert "sentences" not in captured
+    assert oneshot == {"system": "Hi. Not done yet"}
 
