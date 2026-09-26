@@ -237,8 +237,8 @@ def test_audio_model_moved_to_speech_tab(tmp_path: Path) -> None:
     assert tops["btn_edit_config_json"] == "140"
 
 
-def test_speech_tab_voice_select_aligns_and_test_voice_is_below(tmp_path: Path) -> None:
-    """Voice matches the other Speech selects; Test voice is the next row."""
+def test_speech_tab_voice_select_aligns_and_test_voice_is_beside(tmp_path: Path) -> None:
+    """Voice matches the other Speech selects; Test voice is on that row, past the column."""
     xdl_path, xdl = _generate_settings_xdl(tmp_path)
     attrs = _control_attrs(xdl_path)
 
@@ -249,9 +249,13 @@ def test_speech_tab_voice_select_aligns_and_test_voice_is_below(tmp_path: Path) 
 
     btn = attrs["audio__test_voice"]
     assert 'dlg:value="Test voice"' in xdl
-    # Control column, under Voice and above Speech Speed — not beside Voice.
-    assert btn["left"] == voice["left"]
-    assert int(voice["top"]) < int(btn["top"]) < int(attrs["audio__tts_speed"]["top"])
+    # Beside Voice, starting at or past the shared right edge — not on the next row.
+    assert btn["top"] == voice["top"]
+    voice_right = int(voice["left"]) + int(voice["width"])
+    assert int(btn["left"]) >= voice_right
+    window = ET.parse(xdl_path).getroot()
+    dlg_width = int(window.get(f"{{{_DLG_NS}}}width") or 0)
+    assert int(btn["left"]) + int(btn["width"]) <= dlg_width
 
 
 def test_starter_buttons_share_row_and_include_nvidia(tmp_path: Path) -> None:
