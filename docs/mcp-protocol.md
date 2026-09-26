@@ -252,6 +252,16 @@ This section is the important mental model for integrating Cursor, LM Studio, or
 
 It does **not** receive dozens of low-level UNO tools (`style_list`, page margin APIs, chart editors, etc.) as separate MCP tools.
 
+**Which document the catalog follows:** every **open** document type, the active one first
+(`_add_other_open_doc_schemas`). Filtering by the *active* document alone hid every Writer tool
+whenever a spreadsheet had focus with a Writer document open beside it, which a host cannot tell
+from the extension being down. Every tool takes `document_url`, and a call without it still targets
+the active document; per-type filters (sidebar-only flows) are applied to the added types too. The
+no-document gate counts open **documents**, not types: with none active it proceeds on the single
+open document, and with several it returns `NO_ACTIVE_DOCUMENT` naming them so the caller passes
+`document_url` — two Writer documents are one type, and picking "the" Writer document would edit
+the wrong one.
+
 #### Sidebar chat core vs MCP core (Writer)
 
 Same registry, different filters:
