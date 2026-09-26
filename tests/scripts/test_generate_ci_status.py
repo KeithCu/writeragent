@@ -117,7 +117,10 @@ def test_collect_status_picks_newest_matching_jobs() -> None:
     }
     jobs = {
         33689813185: [_job("CrossHair (cover-all, ubuntu-latest)", "cancelled", "2026-09-03T04:19:58Z")],
-        33677574062: [_job("CrossHair (check-all, ubuntu-latest)", "failure", "2026-09-02T21:21:27Z")],
+        33677574062: [
+            _job("CrossHair (check-all, ubuntu-latest)", "failure", "2026-09-02T21:21:27Z"),
+            _job("CrossHair (cover-all, ubuntu-latest)", "success", "2026-09-02T21:21:27Z"),
+        ],
         33789965142: [
             {"name": "Test & Typecheck (ubuntu-latest)", "conclusion": None, "status": "in_progress", "started_at": "2026-09-03T18:21:10Z"}
         ],
@@ -144,8 +147,9 @@ def test_collect_status_picks_newest_matching_jobs() -> None:
     by_key = {(row.suite, row.os): row for row in rows}
     assert by_key[("CrossHair check-all", "ubuntu-latest")].conclusion == "failure"
     assert by_key[("CrossHair check-all", "ubuntu-latest")].sha == "ce0da96"
-    assert by_key[("CrossHair cover-all", "ubuntu-latest")].conclusion == "cancelled"
-    assert by_key[("CrossHair cover-all", "ubuntu-latest")].sha == "6045c1b"
+    # Cancelled job in 33689813185 is ignored; the previous green run (33677574062) is picked.
+    assert by_key[("CrossHair cover-all", "ubuntu-latest")].conclusion == "success"
+    assert by_key[("CrossHair cover-all", "ubuntu-latest")].sha == "ce0da96"
     assert by_key[("Test & Typecheck", "ubuntu-latest")].conclusion == "in_progress"
     assert by_key[("Test & Typecheck", "ubuntu-latest")].sha == "a595724"
     assert by_key[("Test & Typecheck", "windows-latest")].sha == "96912c4"
@@ -431,13 +435,23 @@ def test_parse_cached_rows_filters_non_terminal_conclusions() -> None:
                 "run_url": "url4",
                 "run_id": 104,
             },
+            {
+                "suite": "CrossHair cover-all",
+                "os": "ubuntu-latest",
+                "conclusion": "cancelled",
+                "sha": "5555555",
+                "when": "2026-09-08T12:00:00Z",
+                "run_url": "url5",
+                "run_id": 105,
+            },
         ]
     }
     rows = parse_cached_rows(cached, specs, max_age_days=60, now=now)
-    # in_progress, queued, and unknown are non-terminal and MUST NOT be accepted as cached hints
+    # in_progress, queued, unknown, and cancelled MUST NOT be accepted as cached hints
     assert not any(r.suite == "Test & Typecheck" and r.os == "macos-latest" for r in rows.values())
     assert not any(r.suite == "Test & Typecheck" and r.os == "windows-latest" for r in rows.values())
     assert not any(r.suite == "Mock LLM Sidebar" and r.os == "ubuntu-latest" for r in rows.values())
+    assert not any(r.suite == "CrossHair cover-all" for r in rows.values())
     # success is terminal and is retained with its run_attempt
     ubuntu_row = [r for r in rows.values() if r.suite == "Test & Typecheck" and r.os == "ubuntu-latest"][0]
     assert ubuntu_row.conclusion == "success"
@@ -602,6 +616,96 @@ def test_collect_status_skips_pr_runs_when_ubuntu_typecheck_resolved() -> None:
     assert job_calls == [500]  # Only run 500 called jobs; 499 and 498 were skipped!
     by_key = {(r.suite, r.os): r for r in rows}
     assert by_key[("Test & Typecheck", "ubuntu-latest")].conclusion == "success"
+
+
+def test_collect_status_ignores_cancelled_job_and_shows_previous_green_job() -> None:
+    """Cancelled jobs must be ignored so prior green jobs show instead."""
+    now = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+    # Scenario 1: Live runs where Run 200 is cancelled and Run 100 is green.
+    runs = {
+        "crosshair-deep.yml": [],
+        "pr-ci.yml": [
+            {
+                "id": 200,
+                "head_sha": "sha_cancelled_200",
+                "html_url": "url200",
+                "created_at": "2026-09-20T10:00:00Z",
+                "event": "workflow_dispatch",
+            },
+            {
+                "id": 100,
+                "head_sha": "sha_green_100",
+                "html_url": "url100",
+                "created_at": "2026-09-19T10:00:00Z",
+                "event": "workflow_dispatch",
+            },
+        ],
+    }
+
+    def fetch(url: str) -> dict[str, Any]:
+        if "crosshair-deep.yml" in url:
+            return {"workflow_runs": []}
+        if "pr-ci.yml" in url and "/jobs" not in url:
+            return {"workflow_runs": runs["pr-ci.yml"]}
+        if "/200/jobs" in url:
+            return {"jobs": [_job("Test & Typecheck (ubuntu-latest)", "cancelled", "2026-09-20T10:05:00Z")]}
+        if "/100/jobs" in url:
+            return {"jobs": [_job("Test & Typecheck (ubuntu-latest)", "success", "2026-09-19T10:05:00Z")]}
+        raise AssertionError(f"unexpected URL: {url}")
+
+    rows = collect_status(fetch, "KeithCu/writeragent", max_age_days=60, now=now)
+    by_key = {(r.suite, r.os): r for r in rows}
+    ubuntu_row = by_key[("Test & Typecheck", "ubuntu-latest")]
+    assert ubuntu_row.conclusion == "success"
+    assert ubuntu_row.sha == "sha_gre"
+    assert ubuntu_row.run_id == 100
+
+    # Scenario 2: Cached hint has Run 100 as green, and a new live Run 200 is started and cancelled.
+    cached_data = {
+        "rows": [
+            {
+                "suite": "Test & Typecheck",
+                "os": "ubuntu-latest",
+                "conclusion": "success",
+                "sha": "sha_gre",
+                "when": "2026-09-19T10:05:00Z",
+                "run_url": "url100",
+                "run_id": 100,
+            }
+        ]
+    }
+    rows_cached = collect_status(fetch, "KeithCu/writeragent", cached_data=cached_data, max_age_days=60, now=now)
+    by_key_cached = {(r.suite, r.os): r for r in rows_cached}
+    ubuntu_cached_row = by_key_cached[("Test & Typecheck", "ubuntu-latest")]
+    assert ubuntu_cached_row.conclusion == "success"
+    assert ubuntu_cached_row.sha == "sha_gre"
+    assert ubuntu_cached_row.run_id == 100
+
+    # Scenario 3: All runs are cancelled -> resolves to "no run".
+    runs_all_cancelled = {
+        "pr-ci.yml": [
+            {
+                "id": 200,
+                "head_sha": "sha_cancelled_200",
+                "html_url": "url200",
+                "created_at": "2026-09-20T10:00:00Z",
+                "event": "workflow_dispatch",
+            },
+        ],
+    }
+
+    def fetch_all_cancelled(url: str) -> dict[str, Any]:
+        if "crosshair-deep.yml" in url:
+            return {"workflow_runs": []}
+        if "pr-ci.yml" in url and "/jobs" not in url:
+            return {"workflow_runs": runs_all_cancelled["pr-ci.yml"]}
+        if "/200/jobs" in url:
+            return {"jobs": [_job("Test & Typecheck (ubuntu-latest)", "cancelled", "2026-09-20T10:05:00Z")]}
+        raise AssertionError(f"unexpected URL: {url}")
+
+    rows_cancelled = collect_status(fetch_all_cancelled, "KeithCu/writeragent", max_age_days=60, now=now)
+    by_key_cancelled = {(r.suite, r.os): r for r in rows_cancelled}
+    assert by_key_cancelled[("Test & Typecheck", "ubuntu-latest")].conclusion == "no run"
 
 
 def test_render_json_includes_run_ids() -> None:

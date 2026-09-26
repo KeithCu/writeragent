@@ -82,10 +82,12 @@ class SuiteSpec:
 # Non-terminal statuses (e.g. in_progress, queued, waiting) or "no run" must
 # NEVER be cached as checkpoints, otherwise a job inspected while running will
 # permanently lock in "in_progress" (yellow) instead of resolving to "success".
+# Cancelled jobs are intentionally excluded: they are ignored during collection
+# so prior completed (e.g. green) runs are surfaced, and caching a cancelled
+# row would prematurely stop inspection of older runs.
 TERMINAL_CONCLUSIONS: frozenset[str] = frozenset({
     "success",
     "failure",
-    "cancelled",
     "timed_out",
     "skipped",
     "neutral",
@@ -343,8 +345,12 @@ def parse_cached_rows(
         # Only accept completed/terminal runs as cached hints; in-progress or
         # non-terminal rows must be re-evaluated against the live Actions API.
         # Expired cached runs revert to "no run" and are not accepted as hints.
+        # Bugfix: Previously, cancelled jobs were treated as valid terminal conclusions,
+        # caching a cancelled state that prevented inspecting older runs. We explicitly
+        # ensure cancelled conclusions are never accepted as cached checkpoint hints.
         if (
             conclusion not in TERMINAL_CONCLUSIONS
+            or conclusion == "cancelled"
             or is_expired(when, max_age_days, now)
         ):
             continue
@@ -474,6 +480,14 @@ def collect_status(
                 when = job_when(job)
                 if is_expired(when, max_age_days, now):
                     continue
+                # Bugfix: Cancelled jobs previously matched pending specs and were recorded
+                # as conclusion="cancelled", discarding the spec from pending. When a green run
+                # was followed by a cancelled run, the status page showed "cancelled" instead
+                # of the green run. Skipping cancelled jobs keeps the spec in pending so
+                # older completed (e.g. green) runs are discovered instead.
+                conclusion = job_conclusion(job)
+                if conclusion == "cancelled":
+                    continue
                 still_pending = list(pending)
                 for index in still_pending:
                     spec = specs[index]
@@ -482,7 +496,7 @@ def collect_status(
                     found[index] = StatusRow(
                         suite=spec.suite,
                         os=spec.os or extract_os(name),
-                        conclusion=job_conclusion(job),
+                        conclusion=conclusion,
                         sha=sha,
                         when=when,
                         run_url=run_url or "",
