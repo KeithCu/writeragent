@@ -418,8 +418,8 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
             return store.get(key, default)
 
         with patch("plugin.audio.tts_service.get_config", side_effect=_cfg):
-            # Missing id: speak still uses the first advertised voice, not the sorted label.
-            assert get_scoped_tts_voice("endpoint", gemini) == "Zephyr"
+            # Missing id and no Aoede: speak uses the first label-sorted id.
+            assert get_scoped_tts_voice("endpoint", gemini) == "Kore"
             store["audio.tts_voice_openrouter"] = "Puck"
             assert get_scoped_tts_voice("endpoint", gemini) == "Puck"
 
@@ -449,6 +449,57 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
         cfg._tts_supported_voices.pop("case-model", None)
         cfg._model_fetch_tts_cache.clear()
         cfg._together_voices_fetch_cache.clear()
+
+
+def test_preferred_harvested_voice_prefers_aoede_for_gemini():
+    """Gemini fallback is Aoede when the harvested list advertises it.
+
+    Achernar sorts before Aoede, and Zephyr is first in API order, so neither
+    "first entry" would be Aoede. A saved in-list id still wins.
+    """
+    from plugin.audio.tts_service import _preferred_harvested_voice, get_scoped_tts_voice
+    from plugin.framework.client import model_fetcher as cfg
+
+    gemini = "google/gemini-2.5-flash-preview-tts"
+    grok = "x-ai/grok-voice-tts-1.0"
+    advertised = ["Zephyr", "Achernar", "Aoede"]
+    assert _preferred_harvested_voice(gemini, advertised) == "Aoede"
+    assert _preferred_harvested_voice("Google/GEMINI-2.5-flash-preview-tts", ["Zephyr", "aoede"]) == "aoede"
+    assert _preferred_harvested_voice(gemini, ["Zephyr", "Puck", "Kore"]) == "Kore"
+    assert _preferred_harvested_voice(grok, advertised) == "Achernar"
+    assert _preferred_harvested_voice("canopylabs/orpheus-3b-0.1-ft", ["tara", "leah"]) == "leah"
+
+    cfg._tts_supported_voices.pop(gemini, None)
+    cfg._tts_supported_voices.pop(grok, None)
+    folded = "models/Gemini-2.5-flash-preview-tts"
+    cfg._tts_supported_voices.pop(folded, None)
+    try:
+        cfg._tts_supported_voices[gemini] = list(advertised)
+        cfg._tts_supported_voices[grok] = list(advertised)
+
+        def _run(model: str, store: dict[str, str]) -> str:
+            with patch("plugin.audio.tts_service.get_config", side_effect=lambda key, default=None: store.get(key, default)):
+                return get_scoped_tts_voice("endpoint", model)
+
+        missing = {"audio.tts_voice_openrouter": "alloy", "audio.tts_voice": "alloy"}
+        assert _run(gemini, missing) == "Aoede"
+        assert _run(grok, dict(missing)) == "Achernar"
+
+        assert _run(gemini, {"audio.tts_voice_openrouter": "Aoede", "audio.tts_voice": "alloy"}) == "Aoede"
+        assert _run(grok, {"audio.tts_voice_openrouter": "Aoede", "audio.tts_voice": "alloy"}) == "Aoede"
+        assert _run(gemini, {"audio.tts_voice_openrouter": "Zephyr", "audio.tts_voice": "alloy"}) == "Zephyr"
+        # Scoped id is missing; the general voice is still in the harvested list.
+        assert _run(gemini, {"audio.tts_voice_openrouter": "alloy", "audio.tts_voice": "Zephyr"}) == "Zephyr"
+
+        cfg._tts_supported_voices[gemini] = ["Zephyr", "Puck", "Kore"]
+        assert _run(gemini, missing) == "Kore"
+
+        cfg._tts_supported_voices[folded] = ["Puck", "aoede"]
+        assert _run(folded, {"audio.tts_voice_openrouter": "alloy", "audio.tts_voice": ""}) == "aoede"
+    finally:
+        cfg._tts_supported_voices.pop(gemini, None)
+        cfg._tts_supported_voices.pop(grok, None)
+        cfg._tts_supported_voices.pop(folded, None)
 
 
 def test_is_speaking_lifecycle():

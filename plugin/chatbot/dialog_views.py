@@ -875,6 +875,7 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
         self._syncing = True
         try:
             from plugin.audio.tts_service import (
+                _preferred_harvested_voice,
                 clean_provider_name,
                 clean_voice_name,
                 get_config,
@@ -931,7 +932,14 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                     chosen = stored
                 else:
                     # Visible or saved voice belongs to another model (often alloy).
-                    chosen = catalog[0]["value"]
+                    # Remote endpoint lists share the speak fallback. Kokoro and
+                    # Piper catalogs are locale-ordered, so their first row stays.
+                    if provider == "endpoint" and family not in ("kokoro", "piper"):
+                        chosen = _preferred_harvested_voice(
+                            raw_model, [opt["value"] for opt in catalog],
+                        )
+                    else:
+                        chosen = catalog[0]["value"]
                     set_scoped_tts_voice(chosen, provider, raw_model, endpoint=endpoint)
 
                 target_label = by_value.get(chosen, "")

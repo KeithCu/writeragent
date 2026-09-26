@@ -846,6 +846,26 @@ def _endpoint_uses_openrouter_voices(model: str) -> bool:
     return openrouter_speech_list_has_model(model)
 
 
+def _preferred_harvested_voice(model: str | None, voices: list[str]) -> str:
+    """Fallback id when the saved voice is missing from a harvested list.
+
+    Gemini prefers Aoede — the closest Gemini voice to Kokoro's ``af_sky`` —
+    when that id is advertised. The match is case-insensitive and the list's
+    own spelling is returned (the first match if the list repeats it). Every
+    other harvested list, and a Gemini list without Aoede, uses the first id
+    after the same case-insensitive sort as the Voice combo
+    (``_sort_voice_rows_by_label``), so speak and Settings agree.
+    Do not pass Kokoro or Piper locale catalogs; those stay in locale order.
+    """
+    if not voices:
+        return ""
+    if model and "gemini" in model.casefold():
+        for voice in voices:
+            if voice.casefold() == "aoede":
+                return voice
+    return sorted(voices, key=str.casefold)[0]
+
+
 def get_scoped_tts_voice(
     provider: str | None = None,
     model: str | None = None,
@@ -881,7 +901,9 @@ def get_scoped_tts_voice(
             return clean_scoped
         if clean_gen in voices:
             return clean_gen
-        return voices[0]
+        # Saved id is missing. Gemini with Aoede advertised uses that id;
+        # otherwise the first label-sorted harvested id (not API order).
+        return _preferred_harvested_voice(model, voices)
 
     if clean_scoped:
         return clean_scoped
