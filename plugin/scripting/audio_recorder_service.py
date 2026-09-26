@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.config import get_config_str
@@ -114,6 +115,59 @@ def spawn_recording_process(
     return proc
 
 
+class RecordingStopHandoff:
+    """WAV path stashed by the sole stdout monitor for ``stop_recording_process``.
+
+    Manual Stop Rec used to call ``read_json_line`` on the same pipe the silence
+    monitor was already reading. The monitor only handled ``silence_progress``,
+    ``auto_stopped``, and ``error``, so it dropped ``{"status":"ok","path":…}``.
+    Stop then timed out, and the panel deleted the temp WAV and sent nothing.
+    """
+
+    _lock: threading.Lock
+    _ready: threading.Event
+    _path: str | None
+    _error: str | None
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._ready = threading.Event()
+        self._path = None
+        self._error = None
+
+    def note_ok(self, path: str) -> None:
+        """Record a finished WAV from ``ok`` or ``auto_stopped``."""
+        if not path:
+            return
+        with self._lock:
+            if self._path is None:
+                self._path = path
+        self._ready.set()
+
+    def note_error(self, message: str) -> None:
+        """Record a terminal child error so stop does not wait out the timeout."""
+        with self._lock:
+            if self._error is None:
+                self._error = message or "Audio recording failed."
+        self._ready.set()
+
+    def snapshot_path(self) -> str | None:
+        with self._lock:
+            return self._path
+
+    def wait_for_path(self, timeout_sec: float) -> str:
+        """Block until ``note_ok`` / ``note_error``, or raise on timeout."""
+        if not self._ready.wait(timeout_sec):
+            raise RuntimeError(f"Recording subprocess timed out after {timeout_sec:g} seconds.")
+        with self._lock:
+            # A path wins over an error: auto-stop can emit both, and the WAV is usable.
+            if self._path:
+                return self._path
+            if self._error:
+                raise RuntimeError(self._error)
+        raise RuntimeError("Recording subprocess did not return a WAV path.")
+
+
 def _read_json_line(proc: subprocess.Popen[str], timeout: float) -> dict[str, Any]:
     if proc.stdout is None:
         raise RuntimeError("Recording subprocess stdout is not available.")
@@ -148,13 +202,36 @@ def wait_for_recording_ready(proc: subprocess.Popen[str], *, timeout_sec: float 
     raise RuntimeError(f"Unexpected recording subprocess status: {status!r}")
 
 
+def _reap_recording_process(proc: subprocess.Popen[str], timeout_sec: float) -> None:
+    try:
+        proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+    _recording_stderr_drains.pop(id(proc), None)
+
+
 def stop_recording_process(
     proc: subprocess.Popen[str],
     *,
     timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC,
     fallback_path: str | None = None,
+    handoff: RecordingStopHandoff | None = None,
 ) -> str:
-    """Send stop, read final JSON line, terminate child, return WAV path."""
+    """Send stop, then return the WAV path.
+
+    When *handoff* is set the stdout monitor is the only reader (see
+    ``monitor_recording_stdout``). This function writes ``{"command":"stop"}``
+    and waits on that handoff. It must not also call ``read_json_line``: that
+    second reader stole ``ok`` and manual Stop Rec never got a path.
+    """
+    if handoff is not None:
+        return _stop_recording_via_handoff(
+            proc,
+            handoff,
+            timeout_sec=timeout_sec,
+            fallback_path=fallback_path,
+        )
+
     if proc.poll() is not None:
         if proc.stdout is not None:
             try:
@@ -185,12 +262,108 @@ def stop_recording_process(
     if not isinstance(path, str) or not path:
         raise RuntimeError("Recording subprocess did not return a WAV path.")
 
-    try:
-        proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        proc.terminate()
-    _recording_stderr_drains.pop(id(proc), None)
+    _reap_recording_process(proc, timeout_sec)
     return path
+
+
+def _stop_recording_via_handoff(
+    proc: subprocess.Popen[str],
+    handoff: RecordingStopHandoff,
+    *,
+    timeout_sec: float,
+    fallback_path: str | None,
+) -> str:
+    """Write stop and wait for the monitor. Do not read stdout."""
+
+    def _fallback() -> str | None:
+        if isinstance(fallback_path, str) and fallback_path:
+            return fallback_path
+        return None
+
+    if proc.poll() is not None:
+        # Child already exited (typical after silence auto-stop). The monitor
+        # owns any ``ok`` still in the pipe; use the stashed path or the
+        # auto-stop fallback instead of a competing read.
+        known = handoff.snapshot_path() or _fallback()
+        if known:
+            _reap_recording_process(proc, timeout_sec)
+            return known
+        try:
+            path = handoff.wait_for_path(min(timeout_sec, 1.0))
+        except RuntimeError:
+            known = handoff.snapshot_path() or _fallback()
+            if known:
+                return known
+            raise RuntimeError("Recording subprocess already exited without a WAV path.") from None
+        _reap_recording_process(proc, timeout_sec)
+        return path
+
+    if proc.stdin is None:
+        known = handoff.snapshot_path() or _fallback()
+        if known:
+            return known
+        raise RuntimeError("Recording subprocess stdin is not available.")
+    try:
+        write_json_line(proc.stdin, {"command": "stop"})
+    except OSError as exc:
+        # Auto-stop can close stdin between poll() and the write. The WAV path
+        # is already on the handoff in that case.
+        known = handoff.snapshot_path() or _fallback()
+        if known:
+            _reap_recording_process(proc, timeout_sec)
+            return known
+        raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
+
+    try:
+        path = handoff.wait_for_path(timeout_sec)
+    except RuntimeError:
+        known = handoff.snapshot_path()
+        if known:
+            _reap_recording_process(proc, timeout_sec)
+            return known
+        raise
+    _reap_recording_process(proc, timeout_sec)
+    return path
+
+
+def _dispatch_recording_stdout(
+    payload: dict[str, Any],
+    *,
+    handoff: RecordingStopHandoff | None,
+    on_auto_stopped: Callable[[str], None],
+    on_silence_progress: Callable[[int], None] | None,
+    on_error: Callable[[str], None] | None,
+) -> None:
+    """Handle one child IPC line. Stash ``ok`` before any callback that may stop.
+
+    Callbacks run on this thread. ``note_ok`` / ``note_error`` must happen
+    first: a synchronous stop waits on the handoff, and it would deadlock if
+    the path were published only after the callback returned.
+    """
+    status = payload.get("status")
+    if status == "ok":
+        path = payload.get("path")
+        if isinstance(path, str) and path and handoff is not None:
+            handoff.note_ok(path)
+        return
+    if status == "silence_progress" and on_silence_progress is not None:
+        ms = payload.get("ms")
+        if isinstance(ms, int):
+            on_silence_progress(ms)
+        return
+    if status == "auto_stopped":
+        path = payload.get("path")
+        if isinstance(path, str) and path:
+            if handoff is not None:
+                handoff.note_ok(path)
+            on_auto_stopped(path)
+        return
+    if status == "error" and on_error is not None:
+        message = payload.get("message")
+        if isinstance(message, str):
+            if handoff is not None:
+                handoff.note_error(message)
+            on_error(message)
 
 
 def monitor_recording_stdout(
@@ -199,35 +372,40 @@ def monitor_recording_stdout(
     on_auto_stopped: Callable[[str], None],
     on_silence_progress: Callable[[int], None] | None = None,
     on_error: Callable[[str], None] | None = None,
+    handoff: RecordingStopHandoff | None = None,
 ) -> BackgroundHandle:
-    """Background reader for venv recorder IPC (auto-stop and silence progress)."""
+    """Sole stdout reader for venv recorder IPC.
+
+    Pass the same *handoff* to ``stop_recording_process``. This thread consumes
+    ``silence_progress``, ``auto_stopped``, ``error``, and the final ``ok``
+    line. Stop must not read the pipe or it races this loop and loses the path.
+    """
 
     def _reader() -> None:
         if proc.stdout is None:
             return
-        while proc.poll() is None:
+        # Poll-first used to exit when the child wrote ``ok`` and exited in the
+        # same moment, leaving that line unread. Read until EOF, and treat a
+        # read timeout as done only after the process has exited.
+        while True:
             try:
                 payload = read_json_line(proc.stdout, timeout_sec=0.25)
             except subprocess.TimeoutExpired:
+                if proc.poll() is not None:
+                    break
                 continue
             except (ValueError, RuntimeError) as exc:
                 log.debug("Recording IPC monitor stopped: %s", exc)
                 break
             if payload is None:
                 break
-            status = payload.get("status")
-            if status == "silence_progress" and on_silence_progress is not None:
-                ms = payload.get("ms")
-                if isinstance(ms, int):
-                    on_silence_progress(ms)
-            elif status == "auto_stopped":
-                path = payload.get("path")
-                if isinstance(path, str) and path:
-                    on_auto_stopped(path)
-            elif status == "error" and on_error is not None:
-                message = payload.get("message")
-                if isinstance(message, str):
-                    on_error(message)
+            _dispatch_recording_stdout(
+                payload,
+                handoff=handoff,
+                on_auto_stopped=on_auto_stopped,
+                on_silence_progress=on_silence_progress,
+                on_error=on_error,
+            )
 
     return run_in_background(_reader, name="audio-rec-stdout-monitor", daemon=True, dedicated=True)
 

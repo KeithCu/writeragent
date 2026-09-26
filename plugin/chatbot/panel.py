@@ -1341,8 +1341,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             query_text = (get_control_text(self.query_control) or "").strip()
 
-        # Audio implies we have input even if text is empty
+        # Audio implies we have input even if text is empty.
+        # Stop Rec sets has_audio and always starts a send. A missing WAV used
+        # to clear _terminal_status and return, so the click looked like it did
+        # nothing (no Whisper, no chat) after the stop handshake lost the file.
         if not query_text and not self.audio_wav_path:
+            if self.sidebar_state.send.has_audio:
+                log.warning("_do_send: Stop Rec finished without a WAV path")
+                self._append_response("\n" + _("[Audio error: recording stopped without a sound file.]") + "\n")
+                self._terminal_status = "Error"
+                self._set_status(_("Error"))
+                return
             self._terminal_status = ""
             return
 

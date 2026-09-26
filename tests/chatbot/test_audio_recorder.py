@@ -173,6 +173,97 @@ def test_audio_recorder_control_file_clears_fail_start(ctx, tmp_path):
             os.remove(recorder.temp_filename)
 
 
+def test_manual_stop_returns_path_while_silence_monitor_runs(ctx, tmp_path):
+    """Stop Rec goes through the real monitor and the real stop handshake.
+
+    ``ready`` is read before the monitor starts. The monitor then consumes
+    ``silence_progress`` and ``ok``. Stop must return that path anyway.
+    """
+    import json
+    import time
+    from io import StringIO
+
+    wav_path = str(tmp_path / "voice.wav")
+    stdout = StringIO(
+        json.dumps({"status": "ready"}) + "\n"
+        + json.dumps({"status": "silence_progress", "ms": 100}) + "\n"
+        + json.dumps({"status": "ok", "path": wav_path}) + "\n"
+    )
+    proc = MagicMock()
+    proc.stdout = stdout
+    proc.stdin = StringIO()
+    proc.poll.return_value = None
+    proc.wait.return_value = 0
+    with (
+        patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
+        patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
+        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=proc),
+    ):
+        recorder = AudioRecorder(ctx)
+        recorder.start_recording()
+        assert recorder.state.status == "recording"
+        assert recorder._stop_handoff is not None
+        deadline = time.monotonic() + 2
+        while recorder._stop_handoff.snapshot_path() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert recorder._stop_handoff.snapshot_path() == wav_path
+        monitor = recorder._stdout_monitor
+        returned = recorder.stop_recording()
+        if monitor is not None:
+            monitor.join(timeout=2)
+    assert returned == wav_path
+    assert json.loads(proc.stdin.getvalue()) == {"command": "stop"}
+
+
+def test_stop_keeps_nonempty_wav_when_handshake_fails(ctx, tmp_path):
+    wav_path = tmp_path / "keep.wav"
+    wav_path.write_bytes(b"RIFF")
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = MagicMock()
+    with (
+        patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
+        patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=str(wav_path)),
+        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=proc),
+        patch("plugin.chatbot.audio_recorder.wait_for_recording_ready"),
+        patch("plugin.chatbot.audio_recorder.monitor_recording_stdout", return_value=MagicMock()),
+        patch(
+            "plugin.chatbot.audio_recorder.stop_recording_process",
+            side_effect=RuntimeError("timed out"),
+        ),
+    ):
+        recorder = AudioRecorder(ctx)
+        recorder.start_recording()
+        returned = recorder.stop_recording()
+    assert returned == str(wav_path)
+    assert wav_path.is_file()
+    assert wav_path.read_bytes() == b"RIFF"
+
+
+def test_stop_deletes_empty_wav_when_handshake_fails(ctx, tmp_path):
+    wav_path = tmp_path / "empty.wav"
+    wav_path.write_bytes(b"")
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = MagicMock()
+    with (
+        patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
+        patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=str(wav_path)),
+        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=proc),
+        patch("plugin.chatbot.audio_recorder.wait_for_recording_ready"),
+        patch("plugin.chatbot.audio_recorder.monitor_recording_stdout", return_value=MagicMock()),
+        patch(
+            "plugin.chatbot.audio_recorder.stop_recording_process",
+            side_effect=RuntimeError("timed out"),
+        ),
+    ):
+        recorder = AudioRecorder(ctx)
+        recorder.start_recording()
+        returned = recorder.stop_recording()
+    assert returned is None
+    assert not wav_path.exists()
+
+
 def test_audio_recorder_missing_venv(ctx):
     with (
         patch(

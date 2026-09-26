@@ -43,6 +43,7 @@ from plugin.chatbot.audio_recorder_state import (
     next_state,
 )
 from plugin.scripting.audio_recorder_service import (
+    RecordingStopHandoff,
     ensure_downloaded_audio_on_path,
     make_temp_wav_path,
     monitor_recording_stdout,
@@ -55,6 +56,21 @@ from plugin.scripting.audio_recorder_service import (
 from plugin.scripting.audio_silence_detector import SilenceDetector, load_silence_detector_config
 
 log = logging.getLogger(__name__)
+
+
+def _wav_file_has_bytes(path: str | None) -> bool:
+    """True when the capture child has already written a non-empty WAV.
+
+    The child writes the file continuously. A stop handshake can still fail
+    after that (the silence monitor used to drop the ``ok`` line), and the
+    bytes on disk are the take the user just finished.
+    """
+    if not path:
+        return False
+    try:
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+    except OSError:
+        return False
 
 
 def stub_recorder_control_path() -> str:
@@ -106,6 +122,7 @@ class AudioRecorder:
         self.temp_filename: str | None = None
         self._proc: subprocess.Popen[str] | None = None
         self._stdout_monitor: threading.Thread | Any = None
+        self._stop_handoff: RecordingStopHandoff | None = None
         self._auto_stopped_path: str | None = None
         self._auto_stop_lock = threading.Lock()
         self.stream: Any = None
@@ -157,17 +174,23 @@ class AudioRecorder:
         proc = self._proc
         if proc is None:
             return
+        # One handoff shared with stop. The monitor is the only stdout reader
+        # after ready; stop waits here instead of reading the same pipe.
+        handoff = RecordingStopHandoff()
+        self._stop_handoff = handoff
         self._stdout_monitor = monitor_recording_stdout(
             proc,
             on_auto_stopped=lambda path: self._notify_auto_stop(path),
             on_silence_progress=self._notify_silence_progress,
             on_error=lambda msg: self._apply_event(ErrorOccurredEvent(msg)),
+            handoff=handoff,
         )
 
     def _cleanup_failed_start(self) -> None:
         terminate_recording_process(self._proc)
         self._proc = None
         self._stdout_monitor = None
+        self._stop_handoff = None
         self._auto_stopped_path = None
         self._silence_detector = None
         if self.stream is not None:
@@ -192,6 +215,37 @@ class AudioRecorder:
             except OSError as exc:
                 log.debug("Failed to remove temp_filename during cleanup: %s", exc)
             self.temp_filename = None
+
+    def _keep_recorded_wav_or_cleanup(
+        self,
+        proc: subprocess.Popen[str] | None,
+        auto_path: str | None,
+        exc: BaseException,
+    ) -> None:
+        """Prefer an on-disk WAV over deleting it when stop's handshake fails.
+
+        What was wrong: a lost ``ok`` line raised here, ``_cleanup_failed_start``
+        deleted ``temp_filename``, and Stop Rec sent nothing.
+        How: the stdout monitor and ``stop_recording_process`` both read the
+        child pipe, and the monitor ignored ``ok``.
+        Why this keeps the file: the child has already been writing that path,
+        so a non-empty WAV is still the recording. ``auto_path`` is the same
+        idea for silence auto-stop, which publishes the path before ``ok``.
+        """
+        if auto_path:
+            self.temp_filename = auto_path
+            terminate_recording_process(proc)
+            return
+        if _wav_file_has_bytes(self.temp_filename):
+            log.warning("Stop handshake failed; using WAV already on disk: %s", exc)
+            terminate_recording_process(proc)
+            return
+        log.debug("Failed to stop recording subprocess: %s", exc)
+        # Cleanup terminates ``self._proc``. The stop effect already cleared it,
+        # so put the child back or the mic process is leaked and the empty
+        # temp file is left behind.
+        self._proc = proc
+        self._cleanup_failed_start()
 
     def _write_injected_wav(self) -> None:
         inject = self._test_inject_wav
@@ -362,6 +416,8 @@ class AudioRecorder:
             proc = self._proc
             self._proc = None
             self._stdout_monitor = None
+            handoff = self._stop_handoff
+            self._stop_handoff = None
             auto_path = self._auto_stopped_path
             self._auto_stopped_path = None
 
@@ -370,22 +426,12 @@ class AudioRecorder:
                     if auto_path and proc.poll() is not None:
                         self.temp_filename = auto_path
                     elif proc.poll() is None:
-                        path = stop_recording_process(proc, fallback_path=auto_path)
+                        path = stop_recording_process(proc, fallback_path=auto_path, handoff=handoff)
                         self.temp_filename = path
                     else:
                         self.temp_filename = auto_path or self.temp_filename
-                except RuntimeError as exc:
-                    if auto_path:
-                        self.temp_filename = auto_path
-                    else:
-                        log.debug("Failed to stop recording subprocess: %s", exc)
-                        self._cleanup_failed_start()
                 except Exception as exc:
-                    if auto_path:
-                        self.temp_filename = auto_path
-                    else:
-                        log.debug("Unexpected error stopping recording subprocess: %s", exc)
-                        self._cleanup_failed_start()
+                    self._keep_recorded_wav_or_cleanup(proc, auto_path, exc)
             else:
                 terminate_recording_process(proc)
 
@@ -417,6 +463,7 @@ class AudioRecorder:
                 terminate_recording_process(self._proc)
                 self._proc = None
                 self._stdout_monitor = None
+                self._stop_handoff = None
                 if self.stream is not None:
                     try:
                         self.stream.stop()
