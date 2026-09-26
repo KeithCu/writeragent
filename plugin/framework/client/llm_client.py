@@ -696,7 +696,8 @@ class LlmClient:
         from plugin.framework.client.model_fetcher import has_native_audio
 
         # Determine model
-        model_name = model or self.config.get("stt_model") or "whisper-1"
+        # Client dict may carry the Speech-tab key or the legacy top-level key.
+        model_name = model or self.config.get("audio.stt_model") or self.config.get("stt_model") or "whisper-1"
 
         # 1. Check if the STT model itself supports native audio
         if has_native_audio(model_name, self._endpoint()):

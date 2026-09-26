@@ -35,6 +35,50 @@ def test_image_default_aspect_has_sidebar_matching_options():
     )
 
 
+def test_core_field_specs_omit_stt_model():
+    """Audio Model is a Speech-tab yaml field, not a General-page core spec."""
+    from plugin.chatbot.settings_dialog import _get_core_field_specs
+
+    with (
+        patch("plugin.chatbot.settings_dialog.get_config_str", return_value=""),
+        patch("plugin.chatbot.settings_dialog.get_config_int", return_value=0),
+        patch("plugin.chatbot.settings_dialog.get_config_float", return_value=0.0),
+        patch("plugin.chatbot.settings_dialog.get_config", return_value=""),
+        patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
+        patch("plugin.chatbot.settings_dialog.get_text_model", return_value=""),
+    ):
+        specs = _get_core_field_specs(MagicMock(), "https://openrouter.ai/api")
+    names = {spec["name"] for spec in specs}
+    assert "stt_model" not in names
+    assert "audio__stt_model" not in names
+
+
+def test_update_lru_for_audio_stt_model():
+    from plugin.chatbot.settings_dialog import _update_lru_for_key
+
+    with patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
+        _update_lru_for_key(MagicMock(), "audio__stt_model", "whisper-1", "https://openrouter.ai/api")
+        mock_lru.assert_called_once_with("whisper-1", "audio_model_lru", "https://openrouter.ai/api")
+
+
+def test_apply_settings_writes_audio_stt_model():
+    """Speech tab save stores audio.stt_model and does not write legacy stt_model."""
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    stored = {}
+    specs = [{"name": "audio__stt_model", "value": ""}]
+
+    with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
+         patch("plugin.chatbot.settings_dialog.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+         patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
+        apply_settings_result(MagicMock(), {"audio__stt_model": "whisper-1"})
+
+    assert stored.get("audio.stt_model") == "whisper-1"
+    assert "stt_model" not in stored
+    mock_lru.assert_called_once_with("whisper-1", "audio_model_lru", "https://openrouter.ai/api")
+
+
 def test_update_lru_for_tts_model():
     from plugin.chatbot.settings_dialog import _update_lru_for_key
 

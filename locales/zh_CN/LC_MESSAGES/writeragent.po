@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-14 16:20-0400\n"
+"POT-Creation-Date: 2026-09-18 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Simplified) <LL@li.org>\n"
@@ -55,8 +55,8 @@ msgstr "仅 LibreOffice Writer 支持运行 Notebook。"
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook (."
+"ipynb) first."
 msgstr ""
 "本文档未导入任何笔记本。请先执行“文件”→“打开 Jupyter 笔记本 (.ipynb)”。"
 
@@ -375,8 +375,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Monaco 编辑器已被 writeragent.json 中的 "
-"\"scripting.force_internal_script_editor\" 禁用。"
+"Monaco 编辑器已被 writeragent.json 中的 \"scripting."
+"force_internal_script_editor\" 禁用。"
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -2099,8 +2099,8 @@ msgid ""
 msgstr ""
 "错误：%s\n"
 "\n"
-"您配置的虚拟环境（设置 → Python）中可能缺少必需的软件包。请点击此对话框中的"
-"“检查虚拟环境”，或使用“设置 → Python”中的完整测试功能以获取有关 spacy、"
+"您配置的虚拟环境（设置 → Python）中可能缺少必需的软件包。请点击此对话框中"
+"的“检查虚拟环境”，或使用“设置 → Python”中的完整测试功能以获取有关 spacy、"
 "textdescriptives、transformers、torch 等的详细信息。"
 
 #: plugin/scripting/text_analytics_ui.py
@@ -3634,3 +3634,91 @@ msgstr "Docling 文档处理超时时间 (秒)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling 内部单次转换的超时时间。0 = 无限制。"
+
+msgid "Speech"
+msgstr ""
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+
+msgid "Enable Speech Output (TTS)"
+msgstr ""
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+
+#, fuzzy
+msgid "TTS Provider"
+msgstr "提供程序"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
+msgstr ""
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr ""
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr ""
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr ""
+
+msgid "Current Chat Endpoint (/audio/speech)"
+msgstr ""
+
+#, fuzzy
+msgid "TTS Model"
+msgstr "AI 模型："
+
+msgid ""
+"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
+msgstr ""
+
+#, fuzzy
+msgid "Voice"
+msgstr "选择"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+
+msgid "alloy (OpenAI Neutral)"
+msgstr ""
+
+msgid "af_bella (Kokoro US Female - Bella)"
+msgstr ""
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr ""
+
+msgid "default (System Default)"
+msgstr ""
+
+msgid "Speech Speed"
+msgstr ""
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+
+msgid "1.0x"
+msgstr ""
+
+msgid "1.1x"
+msgstr ""
+
+msgid "1.25x"
+msgstr ""
+
+msgid "1.5x"
+msgstr ""
+
+msgid "1.75x"
+msgstr ""
+
+msgid "2.0x"
+msgstr ""

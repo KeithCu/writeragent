@@ -67,7 +67,6 @@ def _get_core_field_specs(ctx: Any, current_endpoint: str) -> list[dict[str, Any
         {"name": "temperature", "value": str(get_config_float("temperature")), "type": "float"},
         {"name": "chat_max_tokens", "value": str(get_config_int("chat_max_tokens")), "type": "int"},
         {"name": "additional_instructions", "value": get_config_str("additional_instructions")},
-        {"name": "stt_model", "value": str(get_config("stt_model") or "")},
         # Text analytics sentiment (JSON overridable; for now only transformers engine with multilingual model).
         {"name": "text_analytics_sentiment_model", "value": str(get_config("text_analytics_sentiment_model") or "")},
         {"name": "text_analytics_sentiment_engine", "value": str(get_config("text_analytics_sentiment_engine") or "")},
@@ -181,7 +180,7 @@ def _update_lru_for_key(ctx: Any, key: str, val: Any, current_endpoint: str) -> 
     if not val:
         return
         
-    if key == "stt_model":
+    if key in ("audio__stt_model", "stt_model", "audio.stt_model"):
         update_lru_history(val, "audio_model_lru", current_endpoint)
     elif key in ("audio__tts_model", "tts_model", "audio.tts_model"):
         update_lru_history(val, "tts_model_lru", current_endpoint)

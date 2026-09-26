@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-14 16:20-0400\n"
+"POT-Creation-Date: 2026-09-18 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Bokmål <LL@li.org>\n"
@@ -58,8 +58,8 @@ msgstr "Kjøring av notatblokk støttes bare i LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook (."
+"ipynb) first."
 msgstr ""
 "Dette dokumentet har ingen importert notatbok. Fil → Åpne en Jupyter-"
 "notatbok (.ipynb) først."
@@ -3177,8 +3177,8 @@ msgid ""
 msgstr ""
 "Konverter søskenfiler (.xlsx/.xls) til writeragent_ods_cache/ ved siden av "
 "mappen slik at gjentatt DuckDB SQL gjenbruker ODS-filen. Native .ods-filer "
-"og den aktive arbeidsboken blir aldri mellomlagret. Sett "
-"calc.ods_cache_enabled til false i writeragent.json for å deaktivere."
+"og den aktive arbeidsboken blir aldri mellomlagret. Sett calc."
+"ods_cache_enabled til false i writeragent.json for å deaktivere."
 
 msgid "Sidebar"
 msgstr "Sidepanel"
@@ -3758,3 +3758,91 @@ msgstr "Tidsavbrudd for Docling-dokument (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Tidsavbrudd per konvertering i Docling. 0 = ingen grense."
+
+msgid "Speech"
+msgstr ""
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+
+msgid "Enable Speech Output (TTS)"
+msgstr ""
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+
+#, fuzzy
+msgid "TTS Provider"
+msgstr "Leverandør"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
+msgstr ""
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr ""
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr ""
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr ""
+
+msgid "Current Chat Endpoint (/audio/speech)"
+msgstr ""
+
+#, fuzzy
+msgid "TTS Model"
+msgstr "AI-modell:"
+
+msgid ""
+"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
+msgstr ""
+
+#, fuzzy
+msgid "Voice"
+msgstr "valg"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+
+msgid "alloy (OpenAI Neutral)"
+msgstr ""
+
+msgid "af_bella (Kokoro US Female - Bella)"
+msgstr ""
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr ""
+
+msgid "default (System Default)"
+msgstr ""
+
+msgid "Speech Speed"
+msgstr ""
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+
+msgid "1.0x"
+msgstr ""
+
+msgid "1.1x"
+msgstr ""
+
+msgid "1.25x"
+msgstr ""
+
+msgid "1.5x"
+msgstr ""
+
+msgid "1.75x"
+msgstr ""
+
+msgid "2.0x"
+msgstr ""

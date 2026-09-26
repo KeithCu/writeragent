@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-14 16:20-0400\n"
+"POT-Creation-Date: 2026-09-18 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -57,8 +57,8 @@ msgstr "ノートブックの実行はLibreOffice Writerでのみサポートさ
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook (."
+"ipynb) first."
 msgstr ""
 "このドキュメントにはインポートされたノートブックがありません。「ファイル」→"
 "「Jupyterノートブック (.ipynb) を開く」を先に実行してください。"
@@ -3191,9 +3191,9 @@ msgid ""
 "disable."
 msgstr ""
 "兄弟ファイルの .xlsx/.xls をフォルダー横の writeragent_ods_cache/ に変換し、"
-"繰り返し行われる DuckDB SQL で ODS を再利用できるようにします。ネイティブ"
-"の .ods および現在開いているワークブックはキャッシュされません。無効にするに"
-"は writeragent.json で calc.ods_cache_enabled を false に設定してください。"
+"繰り返し行われる DuckDB SQL で ODS を再利用できるようにします。ネイティブの ."
+"ods および現在開いているワークブックはキャッシュされません。無効にするには "
+"writeragent.json で calc.ods_cache_enabled を false に設定してください。"
 
 msgid "Sidebar"
 msgstr "サイドバー"
@@ -3604,8 +3604,8 @@ msgid ""
 msgstr ""
 "設定した場合、=PY()および「Pythonスクリプトの実行」はそのvenv (bin/python、"
 "Scripts/python.exe、またはconda/pyenv-winのenv-root python.exe) で実行されま"
-"す。パスは引用符で囲まずに貼り付けてください。空の場合、このプロセスの"
-"sys.executable (基本的な標準ライブラリ) を使用します。numpy/pandasやVision "
+"す。パスは引用符で囲まずに貼り付けてください。空の場合、このプロセスのsys."
+"executable (基本的な標準ライブラリ) を使用します。numpy/pandasやVision "
 "Helpers (paddleocr, paddlepaddle) を使用する場合はvenvを指定してください。"
 
 msgid "Test"
@@ -3774,3 +3774,91 @@ msgstr "Doclingドキュメントのタイムアウト（秒）"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling内での変換ごとのタイムアウト。0は制限なし。"
+
+msgid "Speech"
+msgstr ""
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+
+msgid "Enable Speech Output (TTS)"
+msgstr ""
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+
+#, fuzzy
+msgid "TTS Provider"
+msgstr "プロバイダー"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
+msgstr ""
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr ""
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr ""
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr ""
+
+msgid "Current Chat Endpoint (/audio/speech)"
+msgstr ""
+
+#, fuzzy
+msgid "TTS Model"
+msgstr "AIモデル:"
+
+msgid ""
+"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
+msgstr ""
+
+#, fuzzy
+msgid "Voice"
+msgstr "選択肢"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+
+msgid "alloy (OpenAI Neutral)"
+msgstr ""
+
+msgid "af_bella (Kokoro US Female - Bella)"
+msgstr ""
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr ""
+
+msgid "default (System Default)"
+msgstr ""
+
+msgid "Speech Speed"
+msgstr ""
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+
+msgid "1.0x"
+msgstr ""
+
+msgid "1.1x"
+msgstr ""
+
+msgid "1.25x"
+msgstr ""
+
+msgid "1.5x"
+msgstr ""
+
+msgid "1.75x"
+msgstr ""
+
+msgid "2.0x"
+msgstr ""

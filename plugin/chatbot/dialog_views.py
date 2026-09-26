@@ -387,7 +387,7 @@ class SettingsDialog:
                 populate_image_model_selector(
                     self._ctx, ctrl, override_endpoint=current_endpoint, api_key_override=api_key_val,
                 )
-            elif name == "stt_model":
+            elif name in ("audio__stt_model", "stt_model"):
                 populate_combobox_with_lru(
                     self._ctx, ctrl, val, "audio_model_lru", current_endpoint, api_key_override=api_key_val,
                 )
@@ -1055,12 +1055,13 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 skip_remote_fetch=skip_remote,
             )
 
-        stt_ctrl = get_optional(self._dlg, "stt_model")
+        stt_ctrl = get_optional(self._dlg, "audio__stt_model") or get_optional(self._dlg, "stt_model")
         if stt_ctrl:
             stt_val = self._combo_current_for_provider(
                 stt_ctrl,
                 same_provider=same_provider,
-                fallback=str(get_config("stt_model") or get_stt_model() or ""),
+                # get_stt_model dual-reads audio.stt_model then legacy stt_model.
+                fallback=str(get_stt_model() or ""),
             )
             stt_remote = None if resolved_provider in {"openrouter", "together"} else models
             self.populate_combobox_with_lru(

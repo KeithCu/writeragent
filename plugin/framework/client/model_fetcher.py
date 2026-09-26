@@ -523,10 +523,20 @@ def get_text_model() -> str:
 
 
 def get_stt_model() -> str:
-    """Return the configured STT model."""
-    val = get_config("stt_model")
-    if val is not None and str(val).strip():
-        return str(val).strip()
+    """Return the configured STT model.
+
+    Settings → Speech stores ``audio.stt_model``. Configs saved before that
+    move still have top-level ``stt_model``; prefer the new key when it is
+    non-empty, otherwise the legacy key, otherwise the provider default.
+    """
+    val = _sanitize_stored_model_value(get_config("audio.stt_model"))
+    if val:
+        return val
+    # Flat ``stt_model`` wins over the dotted alias inside get_config, so a
+    # leftover legacy value is still visible when the new key is empty.
+    legacy = _sanitize_stored_model_value(get_config("stt_model"))
+    if legacy:
+        return legacy
     current_endpoint = get_current_endpoint()
     provider = get_provider_from_endpoint(current_endpoint)
     defaults = get_provider_defaults(provider)

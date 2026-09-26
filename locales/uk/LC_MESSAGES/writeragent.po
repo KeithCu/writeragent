@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-14 16:20-0400\n"
+"POT-Creation-Date: 2026-09-18 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Ukrainian <LL@li.org>\n"
@@ -62,8 +62,8 @@ msgstr "Запуск блокнота підтримується лише в Lib
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook (."
+"ipynb) first."
 msgstr ""
 "У цьому документі немає імпортованого блокнота. Спочатку виберіть Файл → "
 "Відкрити Jupyter notebook (.ipynb)."
@@ -405,8 +405,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"Редактор Monaco вимкнено параметром "
-"\"scripting.force_internal_script_editor\" у файлі writeragent.json."
+"Редактор Monaco вимкнено параметром \"scripting."
+"force_internal_script_editor\" у файлі writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -3195,8 +3195,8 @@ msgid ""
 msgstr ""
 "Конвертувати споріднені файли .xlsx/.xls у writeragent_ods_cache/ поруч із "
 "папкою, щоб повторні SQL-запити DuckDB використовували ODS. Рідні файли .ods "
-"та активна робоча книга ніколи не кешуються. Встановіть "
-"calc.ods_cache_enabled false у writeragent.json, щоб вимкнути."
+"та активна робоча книга ніколи не кешуються. Встановіть calc."
+"ods_cache_enabled false у writeragent.json, щоб вимкнути."
 
 msgid "Sidebar"
 msgstr "Бічна панель"
@@ -3451,8 +3451,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Індексований семантичний та ключовий пошук для document_research "
-"(corpus.db). Потребує venv з ембедингами — див. Python Test."
+"Індексований семантичний та ключовий пошук для document_research (corpus."
+"db). Потребує venv з ембедингами — див. Python Test."
 
 msgid "Embeddings + FTS"
 msgstr "Ембединги + FTS"
@@ -3685,8 +3685,8 @@ msgid ""
 "rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Під час збереження редагування Python у клітинці, перенести статичні "
-"xl(\"A1:…\") в аргументи даних =PY та перезаписати на data / "
-"data[i] / .to_pandas()."
+"xl(\"A1:…\") в аргументи даних =PY та перезаписати на data / data[i] / ."
+"to_pandas()."
 
 msgid "Vision / OCR"
 msgstr "Бачення / OCR"
@@ -3792,3 +3792,91 @@ msgstr "Таймаут документа Docling (с)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Таймаут для кожного перетворення в Docling. 0 = без обмежень."
+
+msgid "Speech"
+msgstr ""
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+
+msgid "Enable Speech Output (TTS)"
+msgstr ""
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+
+#, fuzzy
+msgid "TTS Provider"
+msgstr "Провайдер"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
+msgstr ""
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr ""
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr ""
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr ""
+
+msgid "Current Chat Endpoint (/audio/speech)"
+msgstr ""
+
+#, fuzzy
+msgid "TTS Model"
+msgstr "Модель ШІ:"
+
+msgid ""
+"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
+msgstr ""
+
+#, fuzzy
+msgid "Voice"
+msgstr "вибір"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+
+msgid "alloy (OpenAI Neutral)"
+msgstr ""
+
+msgid "af_bella (Kokoro US Female - Bella)"
+msgstr ""
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr ""
+
+msgid "default (System Default)"
+msgstr ""
+
+msgid "Speech Speed"
+msgstr ""
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+
+msgid "1.0x"
+msgstr ""
+
+msgid "1.1x"
+msgstr ""
+
+msgid "1.25x"
+msgstr ""
+
+msgid "1.5x"
+msgstr ""
+
+msgid "1.75x"
+msgstr ""
+
+msgid "2.0x"
+msgstr ""

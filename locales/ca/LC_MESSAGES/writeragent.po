@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-14 16:20-0400\n"
+"POT-Creation-Date: 2026-09-18 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -58,8 +58,8 @@ msgstr "L'execució de quaderns només s'admet al LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook (."
+"ipynb) first."
 msgstr ""
 "Aquest document no té cap quadern importat. Primer aneu a Fitxer → Obre un "
 "quadern Jupyter (.ipynb)."
@@ -409,8 +409,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"L'editor Monaco està desactivat per "
-"\"scripting.force_internal_script_editor\" a writeragent.json."
+"L'editor Monaco està desactivat per \"scripting."
+"force_internal_script_editor\" a writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -3219,8 +3219,8 @@ msgid ""
 msgstr ""
 "Converteix els fitxers germans .xlsx/.xls a writeragent_ods_cache/ al costat "
 "de la carpeta perquè el SQL de DuckDB reutilitzi l'ODS. Els .ods natius i el "
-"llibre de treball actiu no es posen mai a la memòria cau. Establiu "
-"calc.ods_cache_enabled a false a writeragent.json per desactivar-ho."
+"llibre de treball actiu no es posen mai a la memòria cau. Establiu calc."
+"ods_cache_enabled a false a writeragent.json per desactivar-ho."
 
 msgid "Sidebar"
 msgstr "Barra lateral"
@@ -3480,9 +3480,9 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Cerca semàntica + paraules clau indexada per a document_research "
-"(corpus.db). Requereix l'entorn virtual d'incrustacions (embeddings venv) — "
-"vegeu la prova de Python."
+"Cerca semàntica + paraules clau indexada per a document_research (corpus."
+"db). Requereix l'entorn virtual d'incrustacions (embeddings venv) — vegeu la "
+"prova de Python."
 
 msgid "Embeddings + FTS"
 msgstr "Incrustacions + FTS"
@@ -3820,3 +3820,91 @@ msgstr "Temps d'espera del document Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Temps d'espera per conversió dins de Docling. 0 = sense límit."
+
+msgid "Speech"
+msgstr ""
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+
+msgid "Enable Speech Output (TTS)"
+msgstr ""
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+
+#, fuzzy
+msgid "TTS Provider"
+msgstr "Proveïdor"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
+msgstr ""
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr ""
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr ""
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr ""
+
+msgid "Current Chat Endpoint (/audio/speech)"
+msgstr ""
+
+#, fuzzy
+msgid "TTS Model"
+msgstr "Model d'IA:"
+
+msgid ""
+"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
+msgstr ""
+
+#, fuzzy
+msgid "Voice"
+msgstr "opcions"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+
+msgid "alloy (OpenAI Neutral)"
+msgstr ""
+
+msgid "af_bella (Kokoro US Female - Bella)"
+msgstr ""
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr ""
+
+msgid "default (System Default)"
+msgstr ""
+
+msgid "Speech Speed"
+msgstr ""
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+
+msgid "1.0x"
+msgstr ""
+
+msgid "1.1x"
+msgstr ""
+
+msgid "1.25x"
+msgstr ""
+
+msgid "1.5x"
+msgstr ""
+
+msgid "1.75x"
+msgstr ""
+
+msgid "2.0x"
+msgstr ""

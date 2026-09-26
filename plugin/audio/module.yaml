@@ -1,8 +1,15 @@
 name: audio
-title: Audio / Speech
+title: Speech
 requires: [config]
 
 config:
+  stt_model:
+    type: string
+    default: ""
+    widget: combo
+    label: "Audio Model:"
+    helper: "Speech-to-text model when the chat model cannot take audio input."
+
   tts_enabled:
     type: boolean
     default: false
