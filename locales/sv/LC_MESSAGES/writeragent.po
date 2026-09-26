@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 12:42-0400\n"
+"POT-Creation-Date: 2026-09-26 12:49-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -12,174 +12,1431 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: plugin/doc/specialized_base.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Tunneltestläge: {0}-leverantör simulerades korrekt."
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Okänd tunnel-leverantör: {0}"
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
-"(Settings → Python → Test for install hints)."
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
 msgstr ""
-"Lokal OCR kräver Inställningar → Python venv med Docling eller PaddleOCR "
-"(Inställningar → Python → Testa för installationshjälp)."
+"Binärfilen '{0}' för {1} hittades inte i PATH.\n"
+"\n"
+"Installera från: {2}"
 
-#: plugin/doc/specialized_base.py
-msgid "Running local OCR on selected image(s)..."
-msgstr "Kör lokal OCR på markerad(e) bild(er)..."
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Kunde inte köra binärfilen {0} ({1}): {2}"
 
-#: plugin/doc/specialized_base.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
 msgstr ""
-"Dokumentforskning kräver specialiserad uppgiftsdelegering (USE_SUB_AGENT). "
-"Aktivera detta i konfigurationen."
+"{0}-tunneln körs och svarar!\n"
+"\n"
+"Publik slutpunkt:\n"
+"{1}\n"
+"\n"
+"Hälsokontroll: OK (200)"
 
-#: plugin/doc/specialized_base.py
+#: plugin/mcp/tunnel.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
 msgstr ""
-"Verktygsanrop har växlats till '{0}'. Du befinner dig i ett läge för "
-"specialiserade verktyg. Du måste anropa 'specialized_workflow_finished' när "
-"du är klar för att återställa hela uppsättningen API:er."
+"{0}-tunneln är aktiv!\n"
+"\n"
+"Publik slutpunkt:\n"
+"{1}\n"
+"\n"
+"(Publik URL hämtad från aktiv tunnelsession.)"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Cell execution failed."
-msgstr "Cellkörning misslyckades."
-
-#: plugin/notebook/notebook_runner.py
-msgid "Notebook run is only supported in LibreOffice Writer."
-msgstr "Notebook-körning stöds endast i LibreOffice Writer."
-
-#: plugin/notebook/notebook_runner.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
 msgstr ""
-"Detta dokument har ingen importerad anteckningsbok. Arkiv → Öppna en "
-"Jupyter-anteckningsbok (.ipynb) först."
+"{0}-binärfilen '{1}' är verifierad ({2}).\n"
+"\n"
+"(Obs: En aktiv {3}-tunnel körs för närvarande på {4}.)"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Could not find notebook cell for this control."
-msgstr "Kunde inte hitta notebook-cell för denna kontroll."
-
-#: plugin/notebook/notebook_runner.py
-msgid "Open a Writer document first."
-msgstr "Öppna ett Writer-dokument först."
-
-#: plugin/notebook/notebook_controls.py
-msgid "Run code cell"
-msgstr "Kör kodcell"
-
-#: plugin/embeddings/search_ui.py
-msgid "just now"
-msgstr "just nu"
-
-#: plugin/embeddings/search_ui.py
+#: plugin/mcp/tunnel.py
 #, python-brace-format
-msgid "{0}m ago"
-msgstr "för {0}m sedan"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}h ago"
-msgstr "för {0}h sedan"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}d ago"
-msgstr "för {0}d sedan"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: No active document"
-msgstr "Cachestatus: Inget aktivt dokument"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Folder not resolved"
-msgstr "Cachestatus: Mapp ej löst"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built (zvec)"
-msgstr "Cachestatus: Ej byggd (zvec)"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built (lancedb)"
-msgstr "Cachestatus: Ej byggd (lancedb)"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built"
-msgstr "Cachestatus: Ej byggd"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "Cache Status: Built ({0})"
-msgstr "Cachestatus: Byggd ({0})"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Built"
-msgstr "Cachestatus: Byggd"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "Cache Status: Error ({0})"
-msgstr "Cachestatus: Fel ({0})"
-
-#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
-msgid "Search"
-msgstr "Sök"
-
-#: plugin/embeddings/search_ui.py
-msgid "Please enter a search query."
-msgstr "Ange en sökfråga."
-
-#: plugin/embeddings/search_ui.py
-msgid "Searching..."
-msgstr "Söker..."
-
-#: plugin/embeddings/search_ui.py
-msgid "No active document found."
-msgstr "Inget aktivt dokument hittades."
-
-#: plugin/embeddings/search_ui.py
 msgid ""
-"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
-"Embeddings."
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
 msgstr ""
-"Sökning över flera filer är inaktiverad. Aktivera Inbäddningar + FTS i "
-"Inställningar → Inbäddningar."
+"{0}-binärfilen '{1}' är installerad och verifierad ({2}).\n"
+"\n"
+"MCP-servern körs lokalt på port {3}.\n"
+"Markera 'Exponera via publik tunnel' och klicka på OK för att aktivera "
+"publik routning."
 
-#: plugin/embeddings/search_ui.py
-msgid "Error: "
-msgstr "Fel: "
-
-#: plugin/embeddings/search_ui.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"Folder index is building in the background. Please retry search shortly."
-msgstr "Mappindex skapas i bakgrunden. Försök söka igen om en stund."
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"{0}-binärfilen '{1}' är installerad och verifierad ({2}).\n"
+"\n"
+"Obs: MCP-servern körs för närvarande inte på port {3}."
 
-#: plugin/embeddings/search_ui.py
-msgid "No matches found."
-msgstr "Inga träffar hittades."
+#: plugin/mcp/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Kopierad!"
 
-#: plugin/embeddings/search_ui.py
-msgid "Error running search: "
-msgstr "Fel vid körning av sökning: "
+#: plugin/mcp/mcp_ui.py
+msgid "Testing…"
+msgstr "Testar…"
 
-#: plugin/embeddings/search_ui.py
-msgid "Rebuilding cache..."
-msgstr "Bygger om cache..."
+#: plugin/mcp/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Testa tunnel"
 
-#: plugin/embeddings/search_ui.py
-msgid "No active folder resolved."
-msgstr "Ingen aktiv mapp kunde identifieras."
+#: plugin/mcp/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "Test av MCP-tunnel"
 
-#: plugin/embeddings/search_ui.py
-msgid "Cache rebuild completed successfully."
-msgstr "Cache-ombyggnad slutfördes."
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP-server misslyckades med att starta"
 
-#: plugin/embeddings/search_ui.py
-msgid "Rebuild failed: "
-msgstr "Ombyggnad misslyckades: "
+#: plugin/mcp/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Kontrollera writeragent_debug.log i din LibreOffice-"
+"användarkonfigurationsmapp"
+
+#: plugin/mcp/__init__.py
+msgid "Stop MCP Server"
+msgstr "Stoppa MCP-server"
+
+#: plugin/mcp/__init__.py
+msgid "Start MCP Server"
+msgstr "Starta MCP-server"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Offentlig tunnel via {0} (ingen autentisering)"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Offentlig tunnel via {0}: {1}"
+
+#: plugin/mcp/__init__.py
+msgid "reconnecting…"
+msgstr "återansluter…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Offentlig tunnel via {0} misslyckades: {1}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Offentlig tunnel via {0} startar…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Offentlig tunnel via {0} körs inte (är leverantörens binärfil installerad?)"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server stopped"
+msgstr "MCP-server stoppad"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server started"
+msgstr "MCP-server startad"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0}"
+msgstr "Offentlig tunnel via {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
+msgstr ""
+"Offentlig tunnel via {0} startar… använd MCP-serverstatus när den är klar."
+
+#: plugin/mcp/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP-server körs inte"
+
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "MCP-servern körs"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Rutter: {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "Lokal URL: {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "Offentlig URL: {0}"
+
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Lokal slutpunkt:"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Offentlig tunnel ({0}):"
+
+#: plugin/mcp/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Status: Aktiv (ansluten)"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Status: Återansluter — {0}"
+
+#: plugin/mcp/__init__.py
+msgid "retrying…"
+msgstr "försöker igen…"
+
+#: plugin/mcp/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Status: Startar tunnel…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Status: Misslyckades — {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Status: Körs inte (är binärfilen {0} installerad?)"
+
+#: plugin/mcp/__init__.py plugin/chatbot/dialogs.py
+msgid "Copied!"
+msgstr "Kopierat!"
+
+#: plugin/scripting/viz.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Dokumenttypen stöds inte för infogning av diagram."
+
+#: plugin/scripting/viz.py
+msgid "Viz helper failed."
+msgstr "Visualiseringshjälpmedlet misslyckades."
+
+#: plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Visualiseringshjälpmedlet returnerade ingen bilddata."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
+msgstr "PythonScriptDialog kunde inte läsas in från tillägget."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/document_scripts.py
+msgid "No document is open to save scripts."
+msgstr "Inget dokument är öppet för att spara skript."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Sparades i Mina skript istället."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skriptet \"%s\" sparades i detta dokument."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skriptet \"%s\" har sparats."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/calc/python/cell_editor_ui.py plugin/framework/main_shared.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/panel.py
+#: plugin/chatbot/dialog_views.py
+msgid "Error"
+msgstr "Fel"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Save Script As"
+msgstr "Spara skript som"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr "Ett skript med namnet ”{0}” finns redan i Mina skript. Skriva över?"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to My Scripts."
+msgstr "Skriptet \"%s\" har sparats i Mina skript."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Är du säker på att du vill ta bort skriptet \"%s\"?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Ta bort skript"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/document_scripts.py
+msgid "No document is open."
+msgstr "Inget dokument är öppet."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skriptet \"%s\" har tagits bort."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "New Script"
+msgstr "Nytt skript"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' created in this document."
+msgstr "Skriptet \"%s\" har skapats i detta dokument."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' created in My Scripts."
+msgstr "Skriptet \"%s\" har skapats i Mina skript."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Körningsfel"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/calc/python/function.py
+msgid "Unknown error"
+msgstr "Okänt fel"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skriptet kördes utan problem."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skriptet kördes utan fel, men returnerade inget resultat och producerade "
+"ingen utdata."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Lyckades"
+
+#: plugin/scripting/python_runner_ui.py plugin/librepy/python_sidebar.py
+msgid "Output"
+msgstr "Utdata"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
+msgstr "Installera även systemets PortAudio på Linux: sudo pacman -S portaudio"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+"Ljudtestet tog för lång tid (import av sounddevice misslyckades eller hängde "
+"sig)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Ljudtestet misslyckades (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"Text/NLP-sökning tog för lång tid (spaCy- eller transformers-kallimport kan "
+"ta 10–30 sekunder vid första kontrollen)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "Text/NLP-sökning misslyckades (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgstr ""
+"Vision-sökningen tog för lång tid (Docling-import kan ta 10–30 sekunder vid "
+"första kontrollen)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision probe failed (see writeragent_debug.log)."
+msgstr "Vision-sökningen misslyckades (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
+msgstr ""
+"Sökning i vektorbibliotek fick timeout (import av sentence-transformers kan "
+"ta 10–30 sekunder vid första körningen)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr "Sökning i vektorbibliotek misslyckades (se writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording & Speech"
+msgstr "Ljudinspelning och tal"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Scientific Libraries"
+msgstr "Vetenskapliga bibliotek"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Data Analysis / EDA Libraries"
+msgstr "Bibliotek för dataanalys / EDA"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries"
+msgstr "UI- / Monaco-bibliotek"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Visualization Libraries"
+msgstr "Visualiseringsbibliotek"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Computer Algebra"
+msgstr "Datoralgebra"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Quantitative Finance Libraries"
+msgstr "Bibliotek för kvantitativ finans"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Data Engineering Libraries"
+msgstr "Data Engineering-bibliotek"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Text- / NLP-bibliotek"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries"
+msgstr "Vision-bibliotek"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Vektorsökbibliotek"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Ljudinspelning"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "To install remaining packages:"
+msgstr "För att installera återstående paket:"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Inga mikrofonenheter hittades."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Lokala TTS-motorer (valfritt):"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Starting Python worker..."
+msgstr "Startar Python-arbetsprocess..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Reading Python version..."
+msgstr "Läser Python-version..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Ljud och tal: kontrollerar sounddevice och TTS-motorer..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr "Text/NLP-bibliotek: läser in (första körningen kan ta en stund)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries: loading (first run may take a while)..."
+msgstr "Vision-bibliotek: läser in (första körningen kan ta en stund)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
+msgstr "Vektorsökbibliotek: läser in (första körningen kan ta en stund)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Using LibreOffice process Python..."
+msgstr "Använder LibreOffice-processens Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Resolving venv Python..."
+msgstr "Matchar venv Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Using"
+msgstr "Använder"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "Dokumentskripten är för stora för att lagras i dokumentet ({0} byte)."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Dokumentet är skrivskyddat eller så kan egenskaper inte skrivas. Skriptet "
+"sparades i ditt personliga bibliotek istället."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot be empty."
+msgstr "Skriptnamnet får inte vara tomt."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Ett skript med namnet '{0}' finns redan i detta dokument."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+msgid "My Scripts"
+msgstr "Mina skript"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Detta dokument"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Skriptet '{0}' sparades i Mina skript."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Skriptet '{0}' sparades i detta dokument."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Skriptet '{0}' sparades."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+msgid "No document is open to attach scripts."
+msgstr "Inget dokument är öppet för att bifoga skript."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Bifogade skriptet \"{0}\" till detta dokument."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Ett skript med namnet \"{0}\" finns redan i Mina skript."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Kopierade skriptet \"{0}\" till Mina skript."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Tog bort dokumentskriptet \"{0}\"."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Tog bort skriptet \"{0}\"."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Misslyckades med att infoga resultat i Calc: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Info"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr "Resultatinfogning i Draw/Impress stöds ännu inte. PR:s välkomnas!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Vision-hjälpmedel kräver ett Writer- eller Calc-dokument."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Vision-hjälpare misslyckades."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
+"(took {time})"
+msgstr ""
+"Vision '{helper}' slutförd. Infogade formaterad HTML för {count} bilder. "
+"(tog {time})"
+
+#: plugin/scripting/python_runner.py plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision ”{helper}” slutförd. Infogad formaterad HTML. (tog {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script executed successfully, but returned no result and produced no output. "
+"(took {time})"
+msgstr ""
+"Skriptet kördes utan problem, men returnerade inget resultat och gav ingen "
+"utdata. (tog {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Unsupported document type for result insertion. (took {time})"
+msgstr "Dokumenttypen stöds inte för infogning av resultat. (tog {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Script executed successfully. (took {time})"
+msgstr "Skriptet kördes utan problem. (tog {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Skript sparat."
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr "Kör Python-skript"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
+msgid "Run"
+msgstr "Kör"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/calc/python/editor.py plugin/xdl_strings.py
+msgid "Save"
+msgstr "Spara"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Close"
+msgstr "Stäng"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "Markera dataområde eller ange A1-adress (inmatas som data)."
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
+msgstr "Kör Python-skript misslyckades med att öppna Monaco-redigeraren."
+
+#: plugin/scripting/python_runner.py
+msgid "Could not open the built-in script dialog."
+msgstr "Kunde inte öppna den inbyggda skriptdialogrutan."
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
+msgstr "Ett oväntat fel uppstod vid öppning av Kör Python-skript."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Status:"
+msgstr "Status:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+#: plugin/xdl_strings.py plugin/chatbot/panel_wiring.py plugin/chatbot/panel.py
+msgid "Ready"
+msgstr "Redo"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Saving…"
+msgstr "Sparar…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Kör…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
+msgstr "Monaco-inläsare saknas."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Install jedi in the Python venv for completions."
+msgstr "Installera jedi i Python venv för kodkomplettering."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Avbryt"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/editor.py
+#: plugin/xdl_strings.py
+msgid "Save without =PY()"
+msgstr "Spara utan =PY()"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Data:"
+msgstr "Data:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "A1:C1  or  A1:C1, C1:C5"
+msgstr "A1:C1 eller A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
+msgstr "Calc injicerar `data` och `ranges` från dessa område(n) vid körning."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Dataområden gäller endast vid sparande som en =PY()-formel."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Saved."
+msgstr "Sparat."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/python/editor.py
+msgid "Saved without =PY()."
+msgstr "Sparad utan =PY()."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "New"
+msgstr "Nytt"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "New Python Script"
+msgstr "Nytt Python-skript"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "Script name:"
+msgstr "Skriptnamn:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "Attach to this document"
+msgstr "Bifoga till detta dokument"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Create"
+msgstr "Skapa"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Skript:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach"
+msgstr "Bifoga"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to Document"
+msgstr "Bifoga till dokument"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Spara som..."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Ta bort"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr "Skript"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr ""
+"Inbyggda hjälpare är skrivskyddade. Använd Kopiera till Mina skript för att "
+"anpassa."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid ""
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
+msgstr ""
+"Dokumentet har ändrats — stäng och öppna Kör Python-skript igen för att "
+"redigera dokumentskript."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
+msgstr "Läste in skriptet \"{0}\"."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
+msgstr "Bifogar skriptet \"{0}\"..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr "Kopierar skriptet \"{0}\" till Mina skript..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr "Sparar skriptet \"{0}\"..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr "Tar bort skriptet ”{0}”..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr "Inbyggda hjälpare kan inte tas bort."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Enter script name:"
+msgstr "Ange skriptnamn:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr "Kopiera till Mina skript som:"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Spara skriptet ”{0}” i detta dokument?"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr "Är du säker på att du vill ta bort skriptet ”{0}”?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Infoga som visningsblock (centrerat stycke)"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Insert"
+msgstr "Infoga"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+msgid "Formula inserted."
+msgstr "Formel infogad."
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+"Vision ”{helper}” slutförd. Infogad HTML ({blocks} block, {tables} "
+"tabeller). (tog {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "{domain} ”{helper}” slutförd. Skrev {rows} rader. (tog {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr "{domain} ”{helper}” slutförd. (tog {time})"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Återställ Python-session för anteckningsböcker gäller för LibreOffice "
+"Writer. Öppna ett Writer-dokument med en importerad Jupyter-anteckningsbok "
+"och försök igen."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. File → Open a "
+"Jupyter notebook (.ipynb) first."
+msgstr ""
+"Detta Writer-dokument har inget register för importerade anteckningsböcker. "
+"Arkiv → Öppna en Jupyter-anteckningsbok (.ipynb) först."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Det gick inte att lösa Python-sessionen för anteckningsboken."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Python-session för anteckningsbok återställd för detta dokument."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Det gick inte att återställa Python-sessionen."
+
+#: plugin/scripting/session_manager.py plugin/calc/python/function.py
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Fel: {0}"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok "
+"och försök igen."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Python-session återställd för denna arbetsbok."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Initieringsskript och eventuellt initieringstillstånd i minnet har "
+"återställts för denna arbetsbok. Cellvariabler var redan isolerade per cell."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
+msgstr ""
+"Pythons sessionsläge är Isolerat (varje =PY()-cell använder sina egna "
+"variabler). Det finns ingen delad cell-session att återställa. Lägg till ett "
+"initieringsskript om du behöver rensa resurskrävande engångsinställningar "
+"för arbetsboken."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this document."
+msgstr "Python-sessionen har återställts för detta dokument."
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Textanalys"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "Kunde inte läsa in dialogrutan för analys."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr ""
+"Kontrollerar installation av spaCy / textdescriptives / transformers..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is "
+"using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed "
+"in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Fel från textanalys-arbetaren:\n"
+"{err}\n"
+"\n"
+"Funktionerna i denna dialogruta kräver att följande paket finns i den Python-"
+"miljö som används:\n"
+"  • spacy + en modell          (entiteter, nyckelfraser, grundläggande "
+"statistik)\n"
+"  • textdescriptives         (faktiska läsbarhetsindex)\n"
+"  • transformers + torch     (sentimentanalys med flerspråkig modell)\n"
+"\n"
+"Installera dem med:\n"
+"  {install}\n"
+"\n"
+"Arbetaren rapporterade att modulen saknas. Kontrollera att paketen är "
+"installerade i den exakta Python-körfil som arbetaren har valt för din "
+"konfigurerade venv."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Öppna ett Writer-dokument för att analysera."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Inte tillräckligt med text i det valda omfånget."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Analyserar..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → "
+"Python). Click Check Venv in this dialog or use the full Test in Settings → "
+"Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Fel: %s\n"
+"\n"
+"Nödvändiga paket kan saknas i din konfigurerade venv (Inställningar → "
+"Python). Klicka på Kontrollera Venv i denna dialog eller använd det "
+"fullständiga testet i Inställningar → Python för detaljer om spacy, "
+"textdescriptives, transformers, torch etc."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "Inget Writer-dokument att infoga i."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Kör en analys först."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "Inget användbart att infoga från det senaste resultatet."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Infogning misslyckades: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Infogat efter markering/insättningspunkt."
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv check failed"
+msgstr "Venv-kontroll misslyckades"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr "Testar Python-miljö..."
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Done"
+msgstr "Klar"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Failed"
+msgstr "Misslyckades"
+
+#: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Enhetshjälpen misslyckades."
+
+#: plugin/scripting/units.py
+msgid "Units helper returned no formatted text."
+msgstr "Enhetshjälpen returnerade ingen formaterad text."
+
+#: plugin/scripting/units.py
+msgid "Unsupported document type for units insertion."
+msgstr "Dokumenttypen stöds inte för infogning av enheter."
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Det gick inte att infoga resultatet: {error} (tog {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Diagram infogat ({title}). (tog {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz ”{helper}” slutförd. {msg}"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math ”{helper}” slutförd. Infogat: {preview} (tog {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Enheter '{helper}' slutförda. Infogat: {preview} (tog {time})"
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in Settings → Python (same venv where you ran 'uv "
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
+"Monaco editor."
+msgstr ""
+"Ange sökvägen till Python venv i Inställningar → Python (samma venv där du "
+"körde 'uv pip install pywebview rocher'). LibreOffices inbyggda Python kan "
+"inte köra Monaco-redigeraren."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"Scripts/python.exe, or env-root python.exe)."
+msgstr ""
+"Ingen körbar Python-fil hittades under konfigurerad venv: {0} (förväntade "
+"bin/python, Scripts/python.exe eller env-root python.exe)."
+
+#: plugin/scripting/editor_host.py
+msgid "Could not start the Python editor."
+msgstr "Kunde inte starta Python-redigeraren."
+
+#: plugin/scripting/editor_host.py
+msgid "The Python editor window did not start."
+msgstr "Python-redigerarens fönster startade inte."
+
+#: plugin/scripting/editor_host.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Python-redigeraren avslutades innan koden kunde läsas in."
+
+#: plugin/scripting/editor_host.py
+msgid "Could not talk to the Python editor."
+msgstr "Kunde inte kommunicera med Python-redigeraren."
+
+#: plugin/scripting/symbolic.py
+msgid "Symbolic helper failed."
+msgstr "Symboliskt hjälpverktyg misslyckades."
+
+#: plugin/scripting/symbolic.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Symboliskt hjälpverktyg returnerade ingen LaTeX."
+
+#: plugin/scripting/symbolic.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Misslyckades med att konvertera LaTeX till Writer Math: {error}"
+
+#: plugin/scripting/symbolic.py
+msgid "No active document view."
+msgstr "Ingen aktiv dokumentvy."
+
+#: plugin/scripting/symbolic.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Dokumenttypen stöds inte för symbolisk infogning."
+
+#: plugin/calc/editselection.py
+msgid "WriterAgent: Edit Selection (Calc)"
+msgstr "WriterAgent: Redigera markering (Calc)"
+
+#: plugin/calc/editselection.py
+msgid "WriterAgent: Extend Selection (Calc)"
+msgstr "WriterAgent: Utöka markering (Calc)"
+
+#: plugin/calc/excel_py_convert/auto_open.py
+#, python-brace-format
+msgid ""
+"Could not write Microsoft Excel Python package parts for:\n"
+"{0}\n"
+"\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see "
+"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"\n"
+"{1}"
+msgstr ""
+"Kunde inte skriva Microsoft Excel Python-paketdelar för:\n"
+"{0}\n"
+"\n"
+"Filen sparades med LibreOffice =PY-formler. Excel kommer inte att se "
+"pythonScripts.xml / _xlws.PY förrän exporten lyckas.\n"
+"\n"
+"{1}"
+
+#: plugin/calc/python/function.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Fel: Körning i huvudtråden fick tidsavbrott ({0})"
+
+#: plugin/calc/python/function.py
+msgid ""
+"Error: Python venv not found. Open Settings → Python, set the venv path, "
+"then Test."
+msgstr ""
+"Fel: Python venv hittades inte. Öppna Inställningar → Python, ange sökvägen "
+"till venv och testa sedan."
+
+#: plugin/calc/python/function.py
+msgid ""
+"Error: Python timed out. Open Settings → Python to raise the timeout, or "
+"Test the venv."
+msgstr ""
+"Fel: Python fick timeout. Öppna Inställningar → Python för att öka timeout-"
+"gränsen, eller testa venv."
+
+#: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Bild infogad"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Bilder infogade"
+
+#: plugin/calc/python/geometric_recalc.py
+#, python-format
+msgid ""
+"Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
+"Python cells (discovery cap). The sheet was left unchained so a partial list "
+"is not treated as complete."
+msgstr ""
+"Geometrisk omberäkningsordning hoppade över bladet '%(sheet)s': hittade "
+"%(cap)s eller fler Python-celler (gräns för identifiering). Bladet lämnades "
+"utan kedja så att en ofullständig lista inte behandlas som komplett."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Edit Initialization Script"
+msgstr "Redigera initieringsskript"
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Open a Calc spreadsheet first."
+msgstr "Öppna ett Calc-kalkylblad först."
+
+#: plugin/calc/python/init_script_editor.py
+msgid ""
+"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
+"in writeragent.json."
+msgstr ""
+"Monaco-redigeraren är inaktiverad via "
+"\"scripting.force_internal_script_editor\" i writeragent.json."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Configure a Python venv path in Settings → Python."
+msgstr "Konfigurera en sökväg till Python-venv i Inställningar → Python."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Cannot import webview (pywebview) in the configured venv."
+msgstr ""
+"Kan inte importera webview (pywebview) i den konfigurerade venv-miljön."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Initialization script saved."
+msgstr "Initieringsskriptet har sparats."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Save initialization script"
+msgstr "Spara initieringsskript"
+
+#: plugin/calc/python/cell_editor_ui.py
+msgid "PythonCellEditorDialog could not be loaded from the extension."
+msgstr "PythonCellEditorDialog kunde inte läsas in från tillägget."
+
+#: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
+#: plugin/main.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Edit Python in Cell..."
+msgstr "Redigera Python i cell..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
+"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+msgstr ""
+"Det gick inte att bevara cellens PY-formelargument (t.ex. dataområden). "
+"Redigera formeln i Calc, eller använd en citerad kodsträng som =PY(\"kod\"; "
+"A1:B10)."
+
+#: plugin/calc/python/editor.py
+msgid "this cell"
+msgstr "denna cell"
+
+#: plugin/calc/python/editor.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves. No discards and opens the new cell. Cancel keeps editing {0}."
+msgstr ""
+"Spara ändringar i {0}?\n"
+"\n"
+"Ja sparar. Nej förkastar och öppnar den nya cellen. Avbryt fortsätter "
+"redigera {0}."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
+msgstr "Kunde inte skriva om xl()-områdesliteraler till =PY-dataargument: %s"
+
+#: plugin/calc/python/editor.py plugin/xdl_strings.py
+msgid "Python cell editor"
+msgstr "Python-cellredigerare"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Python-redigeraren misslyckades oväntat."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Markera en cell i ett Calc-kalkylblad för att redigera Python."
+
+#: plugin/calc/python/editor.py
+#, python-brace-format
+msgid "Could not open the code cell {0}."
+msgstr "Kunde inte öppna kodcellen {0}."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
+msgstr ""
+"Denna PY-formel använder en form som redigeraren inte säkert kan skriva om "
+"(t.ex. kod i en annan cell). Redigera den i formelfältet, eller använd "
+"=PY(\"kod\"; område) med citerad kod."
+
+#: plugin/calc/python/editor.py
+msgid "Could not open the built-in Python cell editor."
+msgstr "Det gick inte att öppna den inbyggda Python-cellredigeraren."
+
+#: plugin/calc/vision_egress.py
+msgid "Select an embedded image, then Run again."
+msgstr "Markera en inbäddad bild och kör sedan igen."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Förankra bilden i en cell, markera den och kör sedan igen."
+
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Inga strukturerade tabeller eller textblock att infoga."
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+msgstr ""
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr ""
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr ""
+
+#: plugin/framework/config_schema.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Chat max tokens måste vara >= 0"
+
+#: plugin/framework/config_schema.py
+msgid "Request timeout must be > 0"
+msgstr "Begärans timeout måste vara > 0"
+
+#: plugin/framework/config_schema.py
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatur måste vara <= 1.0"
+
+#: plugin/framework/client/request_controls.py
+#, python-brace-format
+msgid "Provider busy, retrying in {0}s…"
+msgstr "Leverantören är upptagen, försöker igen om {0} s…"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid ""
+"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
+"{0} context window."
+msgstr ""
+"Den lokala Ollama/llama.cpp-processen kraschade eftersom prompten överskred "
+"ett {0} kontextfönster."
+
+#: plugin/framework/client/errors.py
+msgid ""
+"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
+"too-small context window."
+msgstr ""
+"Den lokala Ollama/llama.cpp-processen kraschade eftersom prompten överskred "
+"ett för litet kontextfönster."
+
+#: plugin/framework/client/errors.py plugin/framework/errors.py
+msgid "Rate limited (429). Wait a moment and try again."
+msgstr "Hastighetsbegränsning (429). Vänta en stund och försök igen."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr "HTTP-fel {0} från AI-leverantör: {1}"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
+"(not the general /api/paas URL)."
+msgstr ""
+" Om din API-nyckel kommer från en GLM Coding Plan-prenumeration, ställ in "
+"slutpunkten till {0} (inte den allmänna /api/paas-URL:en)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " Begärd modell var: {0}."
+
+#: plugin/framework/client/llm_client.py
+msgid "Stream ended with finish_reason=error"
+msgstr "Strömmen avslutades med finish_reason=error"
+
+#: plugin/framework/client/llm_client.py
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+"Modellen upprepar samma segment (oändlig loop). Försök igen eller använd en "
+"annan modell."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -199,10 +1456,6 @@ msgstr ""
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "Slutpunkt hittades inte (404). Kontrollera din URL och modellnamn."
-
-#: plugin/framework/errors.py plugin/framework/client/errors.py
-msgid "Rate limited (429). Wait a moment and try again."
-msgstr "Hastighetsbegränsning (429). Vänta en stund och försök igen."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -257,8 +1510,7 @@ msgstr ""
 "Inställningar."
 
 #: plugin/framework/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Anslutning nekad. Är din lokala AI-server (Ollama/LM Studio) igång?"
 
 #: plugin/framework/errors.py
@@ -279,90 +1531,6 @@ msgstr "AI-leverantören rapporterade ett fel. Försök igen."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} hittades inte: {identifier}"
 
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Chat max tokens måste vara >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "Begärans timeout måste vara > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Temperatur måste vara <= 1.0"
-
-#: plugin/framework/thread_guard.py
-msgid "UNO Thread Violation"
-msgstr "UNO-trådöverträdelse"
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid ""
-"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
-"{0} context window."
-msgstr ""
-"Den lokala Ollama/llama.cpp-processen kraschade eftersom prompten överskred "
-"ett {0} kontextfönster."
-
-#: plugin/framework/client/errors.py
-msgid ""
-"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
-"too-small context window."
-msgstr ""
-"Den lokala Ollama/llama.cpp-processen kraschade eftersom prompten överskred "
-"ett för litet kontextfönster."
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr "HTTP-fel {0} från AI-leverantör: {1}"
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
-" (not the general /api/paas URL)."
-msgstr ""
-" Om din API-nyckel kommer från en GLM Coding Plan-prenumeration, ställ in "
-"slutpunkten till {0} (inte den allmänna /api/paas-URL:en)."
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid " Request model was: {0}."
-msgstr " Begärd modell var: {0}."
-
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Fel: {0}"
-
-#: plugin/framework/client/llm_client.py
-msgid "Stream ended with finish_reason=error"
-msgstr "Strömmen avslutades med finish_reason=error"
-
-#: plugin/framework/client/llm_client.py
-msgid ""
-"The model is repeating the same chunk (infinite loop). Try again or use a "
-"different model."
-msgstr ""
-"Modellen upprepar samma segment (oändlig loop). Försök igen eller använd en "
-"annan modell."
-
-#: plugin/framework/client/request_controls.py
-#, python-brace-format
-msgid "Provider busy, retrying in {0}s…"
-msgstr "Leverantören är upptagen, försöker igen om {0} s…"
-
-#: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Error"
-msgstr "Fel"
-
 #: plugin/framework/config.py
 msgid "Please set Endpoint in Settings."
 msgstr "Vänligen ställ in slutpunkt i Inställningar."
@@ -373,8 +1541,244 @@ msgstr "Vänligen ställ in modell i Inställningar."
 
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
+msgstr "Vänligen välj en giltig modell i Inställningar (inte en platshållare)."
+
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "UNO-trådöverträdelse"
+
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
+msgstr "Hämta Cython-accelerator"
+
+#: plugin/librepy/settings.py
+msgid "Download Cython serialization binary:"
+msgstr "Ladda ner Cython-serialiseringsbinär:"
+
+#: plugin/librepy/settings.py
+msgid "Python Settings"
+msgstr "Python-inställningar"
+
+#: plugin/librepy/settings.py
+msgid "Could not open Settings."
+msgstr "Kunde inte öppna Inställningar."
+
+#: plugin/librepy/python_sidebar.py plugin/xdl_strings.py
+msgid "All"
+msgstr "Alla"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Errors"
+msgstr "Fel"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Shared kernel"
+msgstr "Delad kärna"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Isolated"
+msgstr "Isolerad"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: (LibreOffice embedded Python)"
 msgstr ""
-"Vänligen välj en giltig modell i Inställningar (inte en platshållare)."
+"{mode}\n"
+"Virtuell miljö: (LibreOffice inbäddad Python)"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: {path}"
+msgstr ""
+"{mode}\n"
+"Virtuell miljö: {path}"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: missing python at {path}"
+msgstr ""
+"{mode}\n"
+"Virtuell miljö: saknar python vid {path}"
+
+#: plugin/librepy/python_sidebar.py
+msgid "(no =PY() cells on active sheet)"
+msgstr "(inga =PY()-celler på aktivt blad)"
+
+#: plugin/librepy/python_sidebar.py
+msgid "(no diagnostics yet)"
+msgstr "(inga diagnostikdata ännu)"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/panel_factory.py plugin/chatbot/hamburger_menu.py
+msgid "Run Python Script..."
+msgstr "Kör Python-skript..."
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Insert LaTeX Math..."
+msgstr "Infoga LaTeX-formel..."
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Text Analytics..."
+msgstr "Textanalys..."
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/panel_factory.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Settings"
+msgstr "Inställningar"
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+msgid "Vision OCR Settings..."
+msgstr "Vision OCR-inställningar..."
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Reset Python Session"
+msgstr "Återställ Python-session"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Run All"
+msgstr "Kör alla"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Run From Here"
+msgstr "Kör härifrån"
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Stop"
+msgstr "Stoppa"
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/dialogs.py plugin/chatbot/hamburger_menu.py
+msgid "Report bug..."
+msgstr "Rapportera fel..."
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
+msgid "More actions..."
+msgstr "Fler åtgärder..."
+
+#: plugin/writer/editselection.py
+msgid "WriterAgent: Extend Selection"
+msgstr "WriterAgent: Utöka markering"
+
+#: plugin/writer/editselection.py
+msgid "WriterAgent: Edit Selection"
+msgstr "WriterAgent: Redigera urval"
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr "Acceptera denna ändring"
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr "Avvisa denna ändring"
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr "Acceptera hela ändringen (agent)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr "Avvisa hela ändringen (agent)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Update"
+msgstr "Uppdatera"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Edit LaTeX Math"
+msgstr "Redigera LaTeX-formel"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Select a single formula to update. Multiple formulas are selected."
+msgstr ""
+"Markera en enskild formel för att uppdatera. Flera formler är markerade."
+
+#: plugin/writer/math/latex_dialog.py
+msgid ""
+"Could not identify the selected formula. Click in the text, then insert a "
+"new formula."
+msgstr ""
+"Det gick inte att identifiera den markerade formeln. Klicka i texten och "
+"infoga sedan en ny formel."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "Okänt konverteringsfel"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"Kunde inte konvertera LaTeX till StarMath:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "The selected formula is no longer in the document."
+msgstr "Den markerade formeln finns inte längre i dokumentet."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Formula updated."
+msgstr "Formel uppdaterad."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "Detta kommando är endast tillgängligt i Writer-dokument."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr "LaTeX-formeleditor"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "LaTeX-konverteringsfel"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "Ett oväntat fel uppstod vid infogning av LaTeX."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "No automatic replacement is available."
+msgstr "Ingen automatisk ersättning är tillgänglig."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid ""
+"Suggested fix: delete the highlighted text (the blank replacement below)."
+msgstr ""
+"Föreslagen åtgärd: ta bort den markerade texten (den tomma ersättningen "
+"nedan)."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Suggested fix: replace with one space (the blank replacement below)."
+msgstr ""
+"Föreslagen åtgärd: ersätt med ett blanksteg (den tomma ersättningen nedan)."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Choose a replacement below."
+msgstr "Välj en ersättning nedan."
+
+#: plugin/writer/locale/ai_grammar_proofreader.py
+msgid "AI Grammar"
+msgstr "AI-grammatik"
+
+#: plugin/audio/tts_service.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr ""
 
 #: plugin/audio/tts_service.py
 #, python-brace-format
@@ -440,488 +1844,868 @@ msgstr ""
 msgid "Downloading Japanese phonemizer dictionary…"
 msgstr "Laddar ner japansk fonemiseringsordbok…"
 
-#: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
-#: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
-#: plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "Redigera Python i cell..."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Edit Initialization Script"
-msgstr "Redigera initieringsskript"
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Open a Calc spreadsheet first."
-msgstr "Öppna ett Calc-kalkylblad först."
-
-#: plugin/calc/python/init_script_editor.py
-msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
-msgstr ""
-"Monaco-redigeraren är inaktiverad via "
-"\"scripting.force_internal_script_editor\" i writeragent.json."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Configure a Python venv path in Settings → Python."
-msgstr "Konfigurera en sökväg till Python-venv i Inställningar → Python."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Cannot import webview (pywebview) in the configured venv."
-msgstr ""
-"Kan inte importera webview (pywebview) i den konfigurerade venv-miljön."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Initialization script saved."
-msgstr "Initieringsskriptet har sparats."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Save initialization script"
-msgstr "Spara initieringsskript"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Status:"
-msgstr "Status:"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Ready"
-msgstr "Redo"
+msgid "-1"
+msgstr "-1"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "A1:C1  or  A1:C1, C1:C5"
-msgstr "A1:C1 eller A1:C1, C1:C5"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PY() formula."
-msgstr "Dataområden gäller endast vid sparande som en =PY()-formel."
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
-msgstr "Calc injicerar `data` och `ranges` från dessa område(n) vid körning."
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Saving…"
-msgstr "Sparar…"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/calc/python/editor.py
-#: plugin/scripting/editor_ui_strings.py
-msgid "Saved without =PY()."
-msgstr "Sparad utan =PY()."
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Saved."
-msgstr "Sparat."
-
-#: plugin/calc/python/cell_editor_ui.py
-msgid "PythonCellEditorDialog could not be loaded from the extension."
-msgstr "PythonCellEditorDialog kunde inte läsas in från tillägget."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Det gick inte att bevara cellens PY-formelargument (t.ex. dataområden). "
-"Redigera formeln i Calc, eller använd en citerad kodsträng som =PY(\"kod\"; "
-"A1:B10)."
-
-#: plugin/calc/python/editor.py
-msgid "this cell"
-msgstr "denna cell"
-
-#: plugin/calc/python/editor.py
-#, python-brace-format
-msgid ""
-"Save changes to {0}?\n"
-"\n"
-"Yes saves. No discards and opens the new cell. Cancel keeps editing {0}."
-msgstr ""
-"Spara ändringar i {0}?\n"
-"\n"
-"Ja sparar. Nej förkastar och öppnar den nya cellen. Avbryt fortsätter redigera {0}."
-
-#: plugin/calc/python/editor.py
-#, python-format
-msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
-msgstr "Kunde inte skriva om xl()-områdesliteraler till =PY-dataargument: %s"
-
-#: plugin/calc/python/editor.py plugin/xdl_strings.py
-msgid "Python cell editor"
-msgstr "Python-cellredigerare"
-
-#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Save without =PY()"
-msgstr "Spara utan =PY()"
+msgid "AI Model:"
+msgstr "AI-modell:"
 
-#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Save"
-msgstr "Spara"
+#: plugin/xdl_strings.py
+msgid "API Key:"
+msgstr "API-nyckel:"
 
-#: plugin/calc/python/editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Python-redigeraren misslyckades oväntat."
+#: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr "Aktivt blad"
 
-#: plugin/calc/python/editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Markera en cell i ett Calc-kalkylblad för att redigera Python."
+#: plugin/xdl_strings.py
+msgid "Additional Instructions (History):"
+msgstr "Ytterligare instruktioner (historik):"
 
-#: plugin/calc/python/editor.py
-#, python-brace-format
-msgid "Could not open the code cell {0}."
-msgstr "Kunde inte öppna kodcellen {0}."
+#: plugin/xdl_strings.py
+msgid "Additional Instructions:"
+msgstr "Ytterligare instruktioner:"
 
-#: plugin/calc/python/editor.py
+#: plugin/xdl_strings.py
+msgid "Ask / instruct:"
+msgstr "Fråga / instruera:"
+
+#: plugin/xdl_strings.py
+msgid "Aspect Ratio:"
+msgstr "Bildförhållande:"
+
+#: plugin/xdl_strings.py
+msgid "Auto Gallery"
+msgstr "Autogalleri"
+
+#: plugin/xdl_strings.py
+msgid "Base Size:"
+msgstr "Grundstorlek:"
+
+#: plugin/xdl_strings.py
+msgid "Base:"
+msgstr "Bas:"
+
+#: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr "Cachestatus: Kontrollerar..."
+
+#: plugin/xdl_strings.py
+msgid "Calc"
+msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Categories:"
+msgstr "Kategorier:"
+
+#: plugin/xdl_strings.py plugin/chatbot/chat_sidebar_mode.py
+msgid "Chat"
+msgstr "Chatt"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Kontrollera Venv"
+
+#: plugin/xdl_strings.py
+msgid "Clear"
+msgstr "Rensa"
+
+#: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr "Konvertera kalkylblad till Python"
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr "Kopiera"
+
+#: plugin/xdl_strings.py plugin/chatbot/dialogs.py
+msgid "Copy URL"
+msgstr "Kopiera URL"
+
+#: plugin/xdl_strings.py
+msgid "Diagnostics:"
+msgstr "Diagnostik:"
+
+#: plugin/xdl_strings.py
+msgid "Draw"
+msgstr "Rita"
+
+#: plugin/xdl_strings.py
+msgid "Edit Cell"
+msgstr "Redigera cell"
+
+#: plugin/xdl_strings.py
+msgid "Edit Init Script"
+msgstr "Redigera init-skript"
+
+#: plugin/xdl_strings.py
+msgid "Edit config (JSON)…"
+msgstr "Redigera konfiguration (JSON)…"
+
+#: plugin/xdl_strings.py
+msgid "Edit extra tokens:"
+msgstr "Redigera extra tokens:"
+
+#: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr "Redigera sökfråga"
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL (/v1 added):"
+msgstr "Slutpunkt-URL (/v1 tillagd):"
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL:"
+msgstr "Slutpunkt-URL:"
+
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "Ange LaTeX-kod för att konvertera och infoga som formel:"
+
+#: plugin/xdl_strings.py
 msgid ""
-"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
-"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
-"quoted code."
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
 msgstr ""
-"Denna PY-formel använder en form som redigeraren inte säkert kan skriva om "
-"(t.ex. kod i en annan cell). Redigera den i formelfältet, eller använd "
-"=PY(\"kod\"; område) med citerad kod."
+"Ange Python-kod att köra i användarens virtuella miljö.\n"
+"Tilldela resultatet till variabeln 'result'."
 
-#: plugin/calc/python/editor.py
-msgid "Could not open the built-in Python cell editor."
-msgstr "Det gick inte att öppna den inbyggda Python-cellredigeraren."
+#: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Entiteter"
 
-#: plugin/calc/python/function.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Fel: Körning i huvudtråden fick tidsavbrott ({0})"
+#: plugin/xdl_strings.py
+msgid "Extend max tokens:"
+msgstr "Utöka max antal tokens:"
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Okänt fel"
-
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python venv not found. Open Settings → Python, set the venv path, "
-"then Test."
+#: plugin/xdl_strings.py
+msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Fel: Python venv hittades inte. Öppna Inställningar → Python, ange sökvägen "
-"till venv och testa sedan."
+"Extra tokens utöver originaltextens längd. 0 = samma längd som originalet."
 
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python timed out. Open Settings → Python to raise the timeout, or "
-"Test the venv."
-msgstr ""
-"Fel: Python fick timeout. Öppna Inställningar → Python för att öka timeout-"
-"gränsen, eller testa venv."
+#: plugin/xdl_strings.py
+msgid "Filter:"
+msgstr "Filter:"
 
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Bild infogad"
+#: plugin/xdl_strings.py
+msgid "General"
+msgstr "Allmänt"
 
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Bilder infogade"
+#: plugin/xdl_strings.py
+msgid "Get API Key:"
+msgstr "Hämta API-nyckel:"
 
-#: plugin/calc/python/geometric_recalc.py
-#, python-format
-msgid ""
-"Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list"
-" is not treated as complete."
-msgstr ""
-"Geometrisk omberäkningsordning hoppade över bladet '%(sheet)s': hittade "
-"%(cap)s eller fler Python-celler (gräns för identifiering). Bladet lämnades "
-"utan kedja så att en ofullständig lista inte behandlas som komplett."
+#: plugin/xdl_strings.py
+msgid "Hugging Face"
+msgstr "Hugging Face"
 
-#: plugin/calc/excel_py_convert/auto_open.py
-#, python-brace-format
-msgid ""
-"Could not write Microsoft Excel Python package parts for:\n"
-"{0}\n"
-"\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
-"\n"
-"{1}"
-msgstr ""
-"Kunde inte skriva Microsoft Excel Python-paketdelar för:\n"
-"{0}\n"
-"\n"
-"Filen sparades med LibreOffice =PY-formler. Excel kommer inte att se pythonScripts.xml / _xlws.PY förrän exporten lyckas.\n"
-"\n"
-"{1}"
+#: plugin/xdl_strings.py
+msgid "Image Model:"
+msgstr "Bildmodell:"
 
-#: plugin/calc/editselection.py
-msgid "WriterAgent: Edit Selection (Calc)"
-msgstr "WriterAgent: Redigera markering (Calc)"
+#: plugin/xdl_strings.py
+msgid "Image Settings"
+msgstr "Bildinställningar"
 
-#: plugin/calc/editselection.py
-msgid "WriterAgent: Extend Selection (Calc)"
-msgstr "WriterAgent: Utöka markering (Calc)"
+#: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr "Ersättning på plats"
 
-#: plugin/calc/vision_egress.py
-msgid "Select an embedded image, then Run again."
-msgstr "Markera en inbäddad bild och kör sedan igen."
+#: plugin/xdl_strings.py plugin/chatbot/selection.py
+msgid "Input"
+msgstr "Inmatning"
 
-#: plugin/calc/vision_egress.py
-msgid "Anchor the image to a cell, select it, then Run again."
-msgstr "Förankra bilden i en cell, markera den och kör sedan igen."
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr "Indata:"
 
-#: plugin/calc/vision_egress.py
-msgid "No structured tables or text blocks to insert."
-msgstr "Inga strukturerade tabeller eller textblock att infoga."
+#: plugin/xdl_strings.py
+msgid "Insert Frame"
+msgstr "Infoga ram"
 
-#: plugin/librepy/settings.py
-msgid "Cython Accelerator Download"
-msgstr "Hämta Cython-accelerator"
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr "Infoga LaTeX-formel"
 
-#: plugin/librepy/settings.py
-msgid "Download Cython serialization binary:"
-msgstr "Ladda ner Cython-serialiseringsbinär:"
+#: plugin/xdl_strings.py
+msgid "Insert report here"
+msgstr "Infoga rapport här"
 
-#: plugin/librepy/settings.py
-msgid "Python Settings"
-msgstr "Python-inställningar"
+#: plugin/xdl_strings.py
+msgid "Key Phrases"
+msgstr "Nyckelfraser"
 
-#: plugin/librepy/settings.py
-msgid "Could not open Settings."
-msgstr "Kunde inte öppna Inställningar."
+#: plugin/xdl_strings.py plugin/main.py
+msgid "MCP Server Status"
+msgstr "MCP-serverstatus"
 
-#: plugin/librepy/python_sidebar.py plugin/xdl_strings.py
-msgid "All"
-msgstr "Alla"
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Max tokens:"
 
-#: plugin/librepy/python_sidebar.py
-msgid "Errors"
-msgstr "Fel"
+#: plugin/xdl_strings.py
+msgid "Message"
+msgstr "Meddelande"
 
-#: plugin/librepy/python_sidebar.py plugin/scripting/python_runner_ui.py
-msgid "Output"
-msgstr "Utdata"
+#: plugin/xdl_strings.py
+msgid "Models to Test:"
+msgstr "Modeller att testa:"
 
-#: plugin/librepy/python_sidebar.py
-msgid "Shared kernel"
-msgstr "Delad kärna"
+#: plugin/xdl_strings.py
+msgid "Multimodal"
+msgstr "Multimodal"
 
-#: plugin/librepy/python_sidebar.py
-msgid "Isolated"
-msgstr "Isolerad"
+#: plugin/xdl_strings.py
+msgid "NVIDIA NIM"
+msgstr "NVIDIA NIM"
 
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: (LibreOffice embedded Python)"
-msgstr ""
-"{mode}\n"
-"Virtuell miljö: (LibreOffice inbäddad Python)"
+#: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr "Nytt blad (PythonImport)"
 
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: {path}"
-msgstr ""
-"{mode}\n"
-"Virtuell miljö: {path}"
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr "Antal svar:"
 
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: missing python at {path}"
-msgstr ""
-"{mode}\n"
-"Virtuell miljö: saknar python vid {path}"
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr "OK"
 
-#: plugin/librepy/python_sidebar.py
-msgid "(no =PY() cells on active sheet)"
-msgstr "(inga =PY()-celler på aktivt blad)"
+#: plugin/xdl_strings.py
+msgid "OpenRouter"
+msgstr "OpenRouter"
 
-#: plugin/librepy/python_sidebar.py
-msgid "(no diagnostics yet)"
-msgstr "(inga diagnostikdata ännu)"
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr "Alternativ"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py plugin/main.py
-msgid "Run Python Script..."
-msgstr "Kör Python-skript..."
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr "Utmatningsläge"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
-msgid "Insert LaTeX Math..."
-msgstr "Infoga LaTeX-formel..."
+#: plugin/xdl_strings.py
+msgid "Please enter edit instructions:"
+msgstr "Ange redigeringsinstruktioner:"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Text Analytics..."
-msgstr "Textanalys..."
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr "Behåll talformat"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/dialog_views.py plugin/chatbot/panel_factory.py
-#: plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "Inställningar"
+#: plugin/xdl_strings.py
+msgid "Public Tunnel:"
+msgstr "Publik tunnel:"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-msgid "Vision OCR Settings..."
-msgstr "Vision OCR-inställningar..."
+#: plugin/xdl_strings.py
+msgid "Python Settings…"
+msgstr "Python-inställningar…"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Reset Python Session"
-msgstr "Återställ Python-session"
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Python-test"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Run All"
-msgstr "Kör alla"
+#: plugin/xdl_strings.py
+msgid "Python cells (active sheet):"
+msgstr "Python-celler (aktivt blad):"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Run From Here"
-msgstr "Kör härifrån"
+#: plugin/xdl_strings.py
+msgid "Python:"
+msgstr "Python:"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py plugin/xdl_strings.py
-msgid "Stop"
-msgstr "Stoppa"
+#: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Läsbarhet"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/dialogs.py
-#: plugin/chatbot/hamburger_menu.py plugin/main.py plugin/xdl_strings.py
-msgid "Report bug..."
-msgstr "Rapportera fel..."
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr "Återskapa"
 
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
-msgid "More actions..."
-msgstr "Fler åtgärder..."
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept whole change (agent)"
-msgstr "Acceptera hela ändringen (agent)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject whole change (agent)"
-msgstr "Avvisa hela ändringen (agent)"
-
-#: plugin/writer/review_click_popup.py
-msgid "Accept this change"
-msgstr "Acceptera denna ändring"
-
-#: plugin/writer/review_click_popup.py
-msgid "Reject this change"
-msgstr "Avvisa denna ändring"
-
-#: plugin/writer/editselection.py
-msgid "WriterAgent: Extend Selection"
-msgstr "WriterAgent: Utöka markering"
-
-#: plugin/writer/editselection.py
-msgid "WriterAgent: Edit Selection"
-msgstr "WriterAgent: Redigera urval"
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "No automatic replacement is available."
-msgstr "Ingen automatisk ersättning är tillgänglig."
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid ""
-"Suggested fix: delete the highlighted text (the blank replacement below)."
-msgstr ""
-"Föreslagen åtgärd: ta bort den markerade texten (den tomma ersättningen "
-"nedan)."
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "Suggested fix: replace with one space (the blank replacement below)."
-msgstr ""
-"Föreslagen åtgärd: ersätt med ett blanksteg (den tomma ersättningen nedan)."
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "Choose a replacement below."
-msgstr "Välj en ersättning nedan."
-
-#: plugin/writer/locale/ai_grammar_proofreader.py
-msgid "AI Grammar"
-msgstr "AI-grammatik"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Update"
+#: plugin/xdl_strings.py
+msgid "Refresh"
 msgstr "Uppdatera"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Insert"
-msgstr "Infoga"
+msgid "Reset Session"
+msgstr "Återställ session"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Edit LaTeX Math"
-msgstr "Redigera LaTeX-formel"
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr "Resultat:"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Select a single formula to update. Multiple formulas are selected."
-msgstr ""
-"Markera en enskild formel för att uppdatera. Flera formler är markerade."
+#: plugin/xdl_strings.py
+msgid "Run Benchmark"
+msgstr "Kör benchmark"
 
-#: plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Run Script"
+msgstr "Kör skript"
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr "Omfång"
+
+#: plugin/xdl_strings.py plugin/embeddings/search_ui.py
+msgid "Search"
+msgstr "Sök"
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr "Sök i närliggande filer"
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr "Sökfråga:"
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr "Sökfråga:"
+
+#: plugin/xdl_strings.py
+msgid "Seed:"
+msgstr "Seed:"
+
+#: plugin/xdl_strings.py
+msgid "Selection"
+msgstr "Markering"
+
+#: plugin/xdl_strings.py plugin/chatbot/panel.py
+msgid "Send"
+msgstr "Skicka"
+
+#: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Sentiment"
+
+#: plugin/xdl_strings.py
+msgid "Square"
+msgstr "Kvadrat"
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr "Status"
+
+#: plugin/xdl_strings.py
+msgid "Status: Ready"
+msgstr "Status: Redo"
+
+#: plugin/xdl_strings.py
+msgid "Steps:"
+msgstr "Steg:"
+
+#: plugin/xdl_strings.py
+msgid "Temperature:"
+msgstr "Temperatur:"
+
+#: plugin/xdl_strings.py
+msgid "Test Connection"
+msgstr "Testa anslutning"
+
+#: plugin/xdl_strings.py
+msgid "Text/Chat Model:"
+msgstr "Text-/chatmodell:"
+
+#: plugin/xdl_strings.py
+msgid "Timeout (s):"
+msgstr "Tidsgräns (s):"
+
+#: plugin/xdl_strings.py
+msgid "Together AI"
+msgstr "Together AI"
+
+#: plugin/xdl_strings.py
+msgid "Topics"
+msgstr "Ämnen"
+
+#: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr "Vektorisera kolumner när det är säkert"
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr "Verifiera omberäkning (oracle-diff)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Hela dokumentet"
+
+#: plugin/xdl_strings.py
+msgid "Writer"
+msgstr "Writer"
+
+#: plugin/xdl_strings.py
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgent utvärderingspanel"
+
+#: plugin/xdl_strings.py
+msgid "√x"
+msgstr "√x"
+
+#: plugin/xdl_strings.py
+msgid "☰"
+msgstr "☰"
+
+#: plugin/xdl_strings.py
+msgid "⚙"
+msgstr "⚙"
+
+#: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
+msgid "🔍"
+msgstr "🔍"
+
+#: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
 msgid ""
-"Could not identify the selected formula. Click in the text, then insert a "
-"new formula."
+"Select an embedded image (or a range containing images), then Run again."
 msgstr ""
-"Det gick inte att identifiera den markerade formeln. Klicka i texten och "
-"infoga sedan en ny formel."
+"Markera en inbäddad bild (eller ett område som innehåller bilder) och kör "
+"sedan igen."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Unknown conversion error"
-msgstr "Okänt konverteringsfel"
-
-#: plugin/writer/math/latex_dialog.py
+#: plugin/vision/vision_runner.py
 #, python-brace-format
 msgid ""
-"Failed to convert LaTeX to StarMath:\n"
-"\n"
-"{0}"
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
 msgstr ""
-"Kunde inte konvertera LaTeX till StarMath:\n"
-"\n"
-"{0}"
+"Bilden '{name}' hittades inte. Använd image_list eller lämna image_name tomt "
+"och välj grafiken."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "The selected formula is no longer in the document."
-msgstr "Den markerade formeln finns inte längre i dokumentet."
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Bilden '{name}' kunde inte exporteras."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "Formula updated."
-msgstr "Formel uppdaterad."
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "OCR complete ({count} images)."
+msgstr "OCR slutförd ({count} bilder)."
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-msgid "Formula inserted."
-msgstr "Formel infogad."
+#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
+msgid "OCR complete."
+msgstr "OCR slutförd."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "This command is only available in Writer documents."
-msgstr "Detta kommando är endast tillgängligt i Writer-dokument."
+#: plugin/vision/vision_runner.py
+msgid "OCR complete (text returned only; not inserted)."
+msgstr "OCR slutförd (endast text returnerad; ej infogad)."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "LaTeX Math Editor"
-msgstr "LaTeX-formeleditor"
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr "Writer-dokumentet saknar en kontroller."
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Insert as display block (centered paragraph)"
-msgstr "Infoga som visningsblock (centrerat stycke)"
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr "Kunde inte lösa bildankaret för infogning."
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Stäng"
+#: plugin/vision/vision_egress.py
+#, python-format
+msgid "Could not position insert after the image: %s"
+msgstr "Kunde inte placera infogningen efter bilden: %s"
 
-#: plugin/writer/math/latex_dialog.py
-msgid "LaTeX Conversion Error"
-msgstr "LaTeX-konverteringsfel"
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr "Bilden togs bort under förberedelse av OCR-infogning."
 
-#: plugin/writer/math/latex_dialog.py
-msgid "An unexpected error occurred during LaTeX insertion."
-msgstr "Ett oväntat fel uppstod vid infogning av LaTeX."
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
+msgstr "Bilden togs bort under OCR-infogning."
+
+#: plugin/vision/vision_tools.py
+msgid "Vision OCR requires a Writer or Calc document."
+msgstr "Vision OCR kräver ett Writer- eller Calc-dokument."
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
+msgstr "Dispatch-fel"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
+"(Settings → Python → Test for install hints)."
+msgstr ""
+"Lokal OCR kräver Inställningar → Python venv med Docling eller PaddleOCR "
+"(Inställningar → Python → Testa för installationshjälp)."
+
+#: plugin/doc/specialized_base.py
+msgid "Running local OCR on selected image(s)..."
+msgstr "Kör lokal OCR på markerad(e) bild(er)..."
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Document research reads require specialized task delegation (USE_SUB_AGENT). "
+"Enable this in configuration."
+msgstr ""
+"Dokumentforskning kräver specialiserad uppgiftsdelegering (USE_SUB_AGENT). "
+"Aktivera detta i konfigurationen."
+
+#: plugin/doc/specialized_base.py
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"Verktygsanrop har växlats till '{0}'. Du befinner dig i ett läge för "
+"specialiserade verktyg. Du måste anropa 'specialized_workflow_finished' när "
+"du är klar för att återställa hela uppsättningen API:er."
+
+#: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} godkända, {2} misslyckade."
+
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Kunde inte köra tester: {0}"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Extend Selection"
+msgstr "Utöka markering"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Edit Selection"
+msgstr "Redigera markering"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Toggle MCP Server"
+msgstr "Växla MCP-server"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run format tests"
+msgstr "Kör formattester"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run calc tests"
+msgstr "Kör beräkningstester"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run Calc API integration tests"
+msgstr "Kör Calc API-integreringstester"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run draw tests"
+msgstr "Kör rit-tester"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Evaluation Dashboard"
+msgstr "Utvärderingspanel"
+
+#: plugin/main.py
+msgid "Edit LaTeX Math..."
+msgstr "Redigera LaTeX-formel..."
+
+#: plugin/main.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Search Nearby Files..."
+msgstr "Sök i närliggande filer..."
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Convert Sheet to Python..."
+msgstr "Konvertera blad till Python..."
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr "just nu"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr "för {0}m sedan"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr "för {0}h sedan"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}d ago"
+msgstr "för {0}d sedan"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr "Cachestatus: Inget aktivt dokument"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr "Cachestatus: Mapp ej löst"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr "Cachestatus: Ej byggd (zvec)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr "Cachestatus: Ej byggd (lancedb)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr "Cachestatus: Ej byggd"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr "Cachestatus: Byggd ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr "Cachestatus: Byggd"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr "Cachestatus: Fel ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr "Ange en sökfråga."
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr "Söker..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr "Inget aktivt dokument hittades."
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
+msgstr ""
+"Sökning över flera filer är inaktiverad. Aktivera Inbäddningar + FTS i "
+"Inställningar → Inbäddningar."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr "Fel: "
+
+#: plugin/embeddings/search_ui.py
+msgid ""
+"Folder index is building in the background. Please retry search shortly."
+msgstr "Mappindex skapas i bakgrunden. Försök söka igen om en stund."
+
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr "Inga träffar hittades."
+
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr "Fel vid körning av sökning: "
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr "Bygger om cache..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr "Ingen aktiv mapp kunde identifieras."
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr "Cache-ombyggnad slutfördes."
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr "Ombyggnad misslyckades: "
+
+#: plugin/notebook/notebook_controls.py
+msgid "Run code cell"
+msgstr "Kör kodcell"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Cellkörning misslyckades."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Notebook-körning stöds endast i LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
+msgstr ""
+"Detta dokument har ingen importerad anteckningsbok. Arkiv → Öppna en Jupyter-"
+"anteckningsbok (.ipynb) först."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Kunde inte hitta notebook-cell för denna kontroll."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Open a Writer document first."
+msgstr "Öppna ett Writer-dokument först."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Transcribing audio..."
+msgstr "Transkriberar ljud..."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Transkriberingsfel: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr "[Dokumentkontextfel: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr "[Agent-backend '{0}' hittades inte.]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg, "
+"installation).]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Perfekt! Nu byter jag till huvudassistenten."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown librarian error."
+msgstr "Okänt bibliotekarfel."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[Bibliotekarfel: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Brainstorming slutförd."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Okänt brainstorming-fel."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Brainstorming error: {0}]"
+msgstr "[Brainstorming-fel: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Skrivplanen är klar."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Okänt fel i skrivplanen."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Writing plan error: {0}]"
+msgstr "[Fel i skrivplan: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master-session slutförd."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Okänt PPT-Master-fel."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[PPT-Master error: {0}]"
+msgstr "[PPT-Master-fel: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Okänt fel vid Deep Research."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Deep research-fel: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Okänt forskningsfel."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr "[Forskningsfel: {0}]"
+
+#: plugin/chatbot/web_research.py
+msgid "Web research completed."
+msgstr "Webbforskning slutförd."
+
+#: plugin/chatbot/extension_update_check.py
+msgid "Update available"
+msgstr "Uppdatering tillgänglig"
+
+#: plugin/chatbot/extension_update_check.py
+#, python-format
+msgid ""
+"A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
+"to check for updates and install the latest extension."
+msgstr ""
+"En nyare %(name)s (%(version)s) finns tillgänglig. Använd Verktyg → "
+"Tilläggshanterare för att söka efter uppdateringar och installera det "
+"senaste tillägget."
+
+#: plugin/chatbot/dialogs.py
+msgid "Agent requests approval"
+msgstr "Agenten begär godkännande"
+
+#: plugin/chatbot/dialogs.py
+msgid "Proceed with this action?"
+msgstr "Fortsätt med denna åtgärd?"
+
+#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Tool: %s"
+msgstr "Verktyg: %s"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Print the command list"
+msgstr "Skriv ut kommandolistan"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Start a new chat"
+msgstr "Starta en ny chatt"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Cancel the in-flight send"
+msgstr "Avbryt pågående sändning"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Mock command (echo only)"
+msgstr "Mock-kommando (endast eko)"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Apply last draft (mock)"
+msgstr "Använd senaste utkast (mock)"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Web research (mock)"
+msgstr "Webbsökning (mock)"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Switch model (mock)"
+msgstr "Byt modell (mock)"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Slash commands:"
+msgstr "Slash-kommandon:"
+
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[No speech detected.]"
+msgstr "[Inget tal detekterat.]"
+
+#: plugin/chatbot/tool_loop.py
+msgid "Error: Toolkit unavailable"
+msgstr "Fel: Verktygskit otillgängligt"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "about"
@@ -1183,151 +2967,72 @@ msgstr "varför"
 msgid "you"
 msgstr "du"
 
-#: plugin/chatbot/dialogs.py
-msgid "Agent requests approval"
-msgstr "Agenten begär godkännande"
-
-#: plugin/chatbot/dialogs.py
-msgid "Proceed with this action?"
-msgstr "Fortsätt med denna åtgärd?"
-
-#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
+#: plugin/chatbot/web_research_chat.py
 #, python-format
-msgid "Tool: %s"
-msgstr "Verktyg: %s"
+msgid "This search query '%s' will be sent to the search engine."
+msgstr "Denna sökfråga '%s' kommer att skickas till sökmotorn."
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
-msgid "Copied!"
-msgstr "Kopierat!"
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Forskningscache-träff (fuzzy, %(pct)s%% matchning: %(lang_bit)s%(cache_key)s "
+"→ %(matched)s)"
 
-#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
-msgid "Copy URL"
-msgstr "Kopiera URL"
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Research-cacheträff (inbäddning, %(pct)s%% matchning: "
+"%(lang_bit)s%(cache_key)s → %(matched)s)"
 
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Extend Selection"
-msgstr "Utöka markering"
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Forskningscache-träff (nyckel: %s)"
 
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Edit Selection"
-msgstr "Redigera markering"
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "Forskningscache sparad (nyckel: %s)"
 
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Convert Sheet to Python..."
-msgstr "Konvertera blad till Python..."
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Opening '%s' for read-only access."
+msgstr "Öppnar \"%s\" för skrivskyddad åtkomst."
 
-#: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
-#: plugin/main.py
-msgid "Search Nearby Files..."
-msgstr "Sök i närliggande filer..."
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid "Could not create config file: {0}"
+msgstr "Kunde inte skapa konfigurationsfil: {0}"
 
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Toggle MCP Server"
-msgstr "Växla MCP-server"
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid ""
+"Could not open an editor. Path:\n"
+"{0}"
+msgstr ""
+"Kunde inte öppna en editor. Sökväg:\n"
+"{0}"
 
-#: plugin/chatbot/hamburger_menu.py
-msgid "MCP Server (Running)"
-msgstr "MCP-server (körs)"
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid ""
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
+"{0}"
+msgstr ""
+"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). "
+"Sökväg:\n"
+"{0}"
 
-#: plugin/chatbot/hamburger_menu.py
-msgid "MCP Server (Stopped)"
-msgstr "MCP-server (stoppad)"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run format tests"
-msgstr "Kör formattester"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run calc tests"
-msgstr "Kör beräkningstester"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run Calc API integration tests"
-msgstr "Kör Calc API-integreringstester"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run draw tests"
-msgstr "Kör rit-tester"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Evaluation Dashboard"
-msgstr "Utvärderingspanel"
-
-#: plugin/chatbot/hamburger_menu.py
-msgid "Debug"
-msgstr "Felsökning"
-
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Inget tal detekterat.]"
-
-#: plugin/chatbot/tool_loop.py
-msgid "Error: Toolkit unavailable"
-msgstr "Fel: Verktygskit otillgängligt"
-
-#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
-msgid "Chat"
-msgstr "Chatt"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Image"
-msgstr "Bild"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Web Research"
-msgstr "Webbforskning"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Deep Research"
-msgstr "Deep Research"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Brainstorming"
-msgstr "Brainstorming"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Writing Plan"
-msgstr "Skrivplan"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "PPT-Master"
-msgstr "PPT-Master"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Librarian"
-msgstr "Bibliotekarie"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Print the command list"
-msgstr "Skriv ut kommandolistan"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Start a new chat"
-msgstr "Starta en ny chatt"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Cancel the in-flight send"
-msgstr "Avbryt pågående sändning"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Mock command (echo only)"
-msgstr "Mock-kommando (endast eko)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Apply last draft (mock)"
-msgstr "Använd senaste utkast (mock)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Web research (mock)"
-msgstr "Webbsökning (mock)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Switch model (mock)"
-msgstr "Byt modell (mock)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Slash commands:"
-msgstr "Slash-kommandon:"
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid "Could not start editor: {0}"
+msgstr "Kunde inte starta editor: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -1358,10 +3063,6 @@ msgstr "Spela in"
 msgid "Stop Rec"
 msgstr "Stoppa insp."
 
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Skicka"
-
 #: plugin/chatbot/panel.py
 msgid "Starting..."
 msgstr "Startar..."
@@ -1375,8 +3076,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i"
-" det aktiva fönstret.]"
+"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i "
+"det aktiva fönstret.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1400,195 +3101,9 @@ msgstr ""
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Peer-sändning kräver chattläge i detta sidofält.]"
 
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "This search query '%s' will be sent to the search engine."
-msgstr "Denna sökfråga '%s' kommer att skickas till sökmotorn."
-
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid ""
-"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
-"%(matched)s)"
-msgstr ""
-"Forskningscache-träff (fuzzy, %(pct)s%% matchning: %(lang_bit)s%(cache_key)s"
-" → %(matched)s)"
-
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid ""
-"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
-"%(matched)s)"
-msgstr ""
-"Research-cacheträff (inbäddning, %(pct)s%% matchning: "
-"%(lang_bit)s%(cache_key)s → %(matched)s)"
-
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Research cache hit (key: %s)"
-msgstr "Forskningscache-träff (nyckel: %s)"
-
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Research cache saved (key: %s)"
-msgstr "Forskningscache sparad (nyckel: %s)"
-
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Opening '%s' for read-only access."
-msgstr "Öppnar \"%s\" för skrivskyddad åtkomst."
-
-#: plugin/chatbot/web_research.py
-msgid "Web research completed."
-msgstr "Webbforskning slutförd."
-
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid "Could not create config file: {0}"
-msgstr "Kunde inte skapa konfigurationsfil: {0}"
-
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid ""
-"Could not open an editor. Path:\n"
-"{0}"
-msgstr ""
-"Kunde inte öppna en editor. Sökväg:\n"
-"{0}"
-
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid ""
-"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
-"{0}"
-msgstr ""
-"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). Sökväg:\n"
-"{0}"
-
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid "Could not start editor: {0}"
-msgstr "Kunde inte starta editor: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Transkriberar ljud..."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Transkriberingsfel: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Document context error: {0}]"
-msgstr "[Dokumentkontextfel: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Agent backend '{0}' not found.]"
-msgstr "[Agent-backend '{0}' hittades inte.]"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr ""
-"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg,"
-" installation).]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Perfekt! Nu byter jag till huvudassistenten."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Okänt bibliotekarfel."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Bibliotekarfel: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Brainstorming slutförd."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Okänt brainstorming-fel."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Brainstorming-fel: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Skrivplanen är klar."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Okänt fel i skrivplanen."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Fel i skrivplan: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master-session slutförd."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Okänt PPT-Master-fel."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[PPT-Master-fel: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Okänt fel vid Deep Research."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Deep research-fel: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Okänt forskningsfel."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Forskningsfel: {0}]"
-
-#: plugin/chatbot/web_research_deep.py
-#, python-brace-format
-msgid "Research notes (automatic synthesis failed) for: {query}"
-msgstr ""
-"Forskningsanteckningar (automatisk sammanställning misslyckades) för: "
-"{query}"
-
-#: plugin/chatbot/web_research_deep.py
-msgid "Sources consulted:"
-msgstr "Konsulterade källor:"
-
-#: plugin/chatbot/web_research_deep.py
-msgid "Web research collected no usable evidence."
-msgstr "Webbforskningen samlade inte in några användbara bevis."
-
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
 msgstr "Vänligen ange redigeringsinstruktioner!"
-
-#: plugin/chatbot/selection.py plugin/xdl_strings.py
-msgid "Input"
-msgstr "Inmatning"
 
 #: plugin/chatbot/selection.py
 msgid "Edit"
@@ -1607,19 +3122,115 @@ msgstr "{0}-markering stöds inte för denna dokumenttyp"
 msgid "No document open"
 msgstr "Inget dokument öppet"
 
-#: plugin/chatbot/extension_update_check.py
-msgid "Update available"
-msgstr "Uppdatering tillgänglig"
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(Ange API-nyckel för att läsa in modeller)"
 
-#: plugin/chatbot/extension_update_check.py
-#, python-format
-msgid ""
-"A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
-"to check for updates and install the latest extension."
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(No image models on this endpoint)"
+msgstr "(Inga bildmodeller på denna slutpunkt)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(Anslutningen misslyckades)"
+
+#: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Research notes (automatic synthesis failed) for: {query}"
 msgstr ""
-"En nyare %(name)s (%(version)s) finns tillgänglig. Använd Verktyg → "
-"Tilläggshanterare för att söka efter uppdateringar och installera det "
-"senaste tillägget."
+"Forskningsanteckningar (automatisk sammanställning misslyckades) för: {query}"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Sources consulted:"
+msgstr "Konsulterade källor:"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Web research collected no usable evidence."
+msgstr "Webbforskningen samlade inte in några användbara bevis."
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest "
+"approaches, and help you build an approved spec in your document when you're "
+"ready."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your approval."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite "
+"colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid "Size:"
+msgstr "Storlek:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Height:"
+msgstr "Höjd:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Width:"
+msgstr "Bredd:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Läs upp svar högt (TTS)"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Image"
+msgstr "Bild"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Web Research"
+msgstr "Webbforskning"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Deep Research"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming"
+msgstr "Brainstorming"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing Plan"
+msgstr "Skrivplan"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master"
+msgstr "PPT-Master"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Librarian"
+msgstr "Bibliotekarie"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Invalid Setting"
@@ -1653,1560 +3264,17 @@ msgstr ""
 msgid "Audio Library Download"
 msgstr "Hämta ljudbibliotek"
 
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(Enter API Key to load models)"
-msgstr "(Ange API-nyckel för att läsa in modeller)"
-
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(No image models on this endpoint)"
-msgstr "(Inga bildmodeller på denna slutpunkt)"
-
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(Connection failed)"
-msgstr "(Anslutningen misslyckades)"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Size:"
-msgstr "Storlek:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Height:"
-msgstr "Höjd:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Width:"
-msgstr "Bredd:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Speak responses aloud (TTS)"
-msgstr "Läs upp svar högt (TTS)"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "New Python Script"
-msgstr "Nytt Python-skript"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Script name:"
-msgstr "Skriptnamn:"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Attach to this document"
-msgstr "Bifoga till detta dokument"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/document_scripts.py
-msgid "Script name cannot be empty."
-msgstr "Skriptnamnet får inte vara tomt."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Kör…"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Monaco loader missing."
-msgstr "Monaco-inläsare saknas."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Install jedi in the Python venv for completions."
-msgstr "Installera jedi i Python venv för kodkomplettering."
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Run"
-msgstr "Kör"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Cancel"
-msgstr "Avbryt"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Data:"
-msgstr "Data:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "New"
-msgstr "Nytt"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Create"
-msgstr "Skapa"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Script:"
-msgstr "Skript:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Attach"
-msgstr "Bifoga"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Attach to Document"
-msgstr "Bifoga till dokument"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Save As..."
-msgstr "Spara som..."
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-msgid "Save Script As"
-msgstr "Spara skript som"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Delete"
-msgstr "Ta bort"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Scripts"
-msgstr "Skript"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-msgid "My Scripts"
-msgstr "Mina skript"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
-msgstr ""
-"Inbyggda hjälpare är skrivskyddade. Använd Kopiera till Mina skript för att "
-"anpassa."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid ""
-"Document changed — close and reopen Run Python Script to edit document "
-"scripts."
-msgstr ""
-"Dokumentet har ändrats — stäng och öppna Kör Python-skript igen för att "
-"redigera dokumentskript."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Loaded script '{0}'."
-msgstr "Läste in skriptet \"{0}\"."
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-msgid "No document is open to attach scripts."
-msgstr "Inget dokument är öppet för att bifoga skript."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Attaching script '{0}'..."
-msgstr "Bifogar skriptet \"{0}\"..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Copying script '{0}' to My Scripts..."
-msgstr "Kopierar skriptet \"{0}\" till Mina skript..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Saving script '{0}'..."
-msgstr "Sparar skriptet \"{0}\"..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Deleting script '{0}'..."
-msgstr "Tar bort skriptet ”{0}”..."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Built-in helpers cannot be deleted."
-msgstr "Inbyggda hjälpare kan inte tas bort."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Enter script name:"
-msgstr "Ange skriptnamn:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Copy to My Scripts as:"
-msgstr "Kopiera till Mina skript som:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
-msgstr "Ett skript med namnet ”{0}” finns redan i Mina skript. Skriva över?"
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Spara skriptet ”{0}” i detta dokument?"
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Are you sure you want to delete script '{0}'?"
-msgstr "Är du säker på att du vill ta bort skriptet ”{0}”?"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
-msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Markera dataområde eller ange A1-adress (inmatas som data)."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Document scripts are too large to store in the document ({0} bytes)."
-msgstr "Dokumentskripten är för stora för att lagras i dokumentet ({0} byte)."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open to save scripts."
-msgstr "Inget dokument är öppet för att spara skript."
-
-#: plugin/scripting/document_scripts.py
-msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
-msgstr ""
-"Dokumentet är skrivskyddat eller så kan egenskaper inte skrivas. Skriptet "
-"sparades i ditt personliga bibliotek istället."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document."
-msgstr "Ett skript med namnet '{0}' finns redan i detta dokument."
-
-#: plugin/scripting/document_scripts.py
-msgid "This Document"
-msgstr "Detta dokument"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "Skriptet '{0}' sparades i Mina skript."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Skriptet '{0}' sparades i detta dokument."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Skriptet '{0}' sparades."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Attached script '{0}' to this document."
-msgstr "Bifogade skriptet \"{0}\" till detta dokument."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in My Scripts."
-msgstr "Ett skript med namnet \"{0}\" finns redan i Mina skript."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Copied script '{0}' to My Scripts."
-msgstr "Kopierade skriptet \"{0}\" till Mina skript."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Inget dokument är öppet."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Tog bort dokumentskriptet \"{0}\"."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Tog bort skriptet \"{0}\"."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "PythonScriptDialog could not be loaded from the extension."
-msgstr "PythonScriptDialog kunde inte läsas in från tillägget."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Sparades i Mina skript istället."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skriptet \"%s\" sparades i detta dokument."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skriptet \"%s\" har sparats."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to My Scripts."
-msgstr "Skriptet \"%s\" har sparats i Mina skript."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Är du säker på att du vill ta bort skriptet \"%s\"?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete Script"
-msgstr "Ta bort skript"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skriptet \"%s\" har tagits bort."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "New Script"
-msgstr "Nytt skript"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' created in this document."
-msgstr "Skriptet \"%s\" har skapats i detta dokument."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' created in My Scripts."
-msgstr "Skriptet \"%s\" har skapats i Mina skript."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Körningsfel"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skriptet kördes utan problem."
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skriptet kördes utan fel, men returnerade inget resultat och producerade "
-"ingen utdata."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Lyckades"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Venv OK"
-msgstr "Venv OK"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Venv check failed"
-msgstr "Venv-kontroll misslyckades"
-
-#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr "Testar Python-miljö..."
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Done"
-msgstr "Klar"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Failed"
-msgstr "Misslyckades"
-
-#: plugin/scripting/editor_host.py
-msgid ""
-"Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" Monaco editor."
-msgstr ""
-"Ange sökvägen till Python venv i Inställningar → Python (samma venv där du "
-"körde 'uv pip install pywebview rocher'). LibreOffices inbyggda Python kan "
-"inte köra Monaco-redigeraren."
-
-#: plugin/scripting/editor_host.py
-#, python-brace-format
-msgid ""
-"No python executable found under configured venv: {0} (expected bin/python, "
-"Scripts/python.exe, or env-root python.exe)."
-msgstr ""
-"Ingen körbar Python-fil hittades under konfigurerad venv: {0} (förväntade "
-"bin/python, Scripts/python.exe eller env-root python.exe)."
-
-#: plugin/scripting/editor_host.py
-msgid "Could not start the Python editor."
-msgstr "Kunde inte starta Python-redigeraren."
-
-#: plugin/scripting/editor_host.py
-msgid "The Python editor window did not start."
-msgstr "Python-redigerarens fönster startade inte."
-
-#: plugin/scripting/editor_host.py
-msgid "The Python editor exited before it could load your code."
-msgstr "Python-redigeraren avslutades innan koden kunde läsas in."
-
-#: plugin/scripting/editor_host.py
-msgid "Could not talk to the Python editor."
-msgstr "Kunde inte kommunicera med Python-redigeraren."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr ""
-"Installera även systemets PortAudio på Linux: sudo pacman -S portaudio"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio probe timed out (sounddevice import failed or hung)."
-msgstr ""
-"Ljudtestet tog för lång tid (import av sounddevice misslyckades eller hängde"
-" sig)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio probe failed (see writeragent_debug.log)."
-msgstr "Ljudtestet misslyckades (se writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
-"on first check)."
-msgstr ""
-"Text/NLP-sökning tog för lång tid (spaCy- eller transformers-kallimport kan "
-"ta 10–30 sekunder vid första kontrollen)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text/NLP probe failed (see writeragent_debug.log)."
-msgstr "Text/NLP-sökning misslyckades (se writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
-msgstr ""
-"Vision-sökningen tog för lång tid (Docling-import kan ta 10–30 sekunder vid "
-"första kontrollen)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe failed (see writeragent_debug.log)."
-msgstr "Vision-sökningen misslyckades (se writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vector Search probe timed out (sentence-transformers import can take 10–30s "
-"on first check)."
-msgstr ""
-"Sökning i vektorbibliotek fick timeout (import av sentence-transformers kan "
-"ta 10–30 sekunder vid första körningen)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search probe failed (see writeragent_debug.log)."
-msgstr "Sökning i vektorbibliotek misslyckades (se writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording & Speech"
-msgstr "Ljudinspelning och tal"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Scientific Libraries"
-msgstr "Vetenskapliga bibliotek"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Analysis / EDA Libraries"
-msgstr "Bibliotek för dataanalys / EDA"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries"
-msgstr "UI- / Monaco-bibliotek"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Visualization Libraries"
-msgstr "Visualiseringsbibliotek"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Computer Algebra"
-msgstr "Datoralgebra"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Quantitative Finance Libraries"
-msgstr "Bibliotek för kvantitativ finans"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Engineering Libraries"
-msgstr "Data Engineering-bibliotek"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries"
-msgstr "Text- / NLP-bibliotek"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries"
-msgstr "Vision-bibliotek"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries"
-msgstr "Vektorsökbibliotek"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Ljudinspelning"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "To install remaining packages:"
-msgstr "För att installera återstående paket:"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "No microphone input devices detected."
-msgstr "Inga mikrofonenheter hittades."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Local TTS engines (optional):"
-msgstr "Lokala TTS-motorer (valfritt):"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Starting Python worker..."
-msgstr "Startar Python-arbetsprocess..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Reading Python version..."
-msgstr "Läser Python-version..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Ljud och tal: kontrollerar sounddevice och TTS-motorer..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries: loading (first run may take a while)..."
-msgstr "Text/NLP-bibliotek: läser in (första körningen kan ta en stund)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr "Vision-bibliotek: läser in (första körningen kan ta en stund)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries: loading (first run may take a while)..."
-msgstr "Vektorsökbibliotek: läser in (första körningen kan ta en stund)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Using LibreOffice process Python..."
-msgstr "Använder LibreOffice-processens Python..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Resolving venv Python..."
-msgstr "Matchar venv Python..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Using"
-msgstr "Använder"
-
-#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
-msgid "Text Analytics"
-msgstr "Textanalys"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Could not load the analytics dialog."
-msgstr "Kunde inte läsa in dialogrutan för analys."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr ""
-"Kontrollerar installation av spaCy / textdescriptives / transformers..."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-brace-format
-msgid ""
-"Error from the Text Analytics worker:\n"
-"{err}\n"
-"\n"
-"The features in this dialog require these packages in the python it is using:\n"
-"  • spacy + a model          (entities, key phrases, basic stats)\n"
-"  • textdescriptives         (real Readability scores)\n"
-"  • transformers + torch     (Sentiment using the multilingual model)\n"
-"\n"
-"Install them with:\n"
-"  {install}\n"
-"\n"
-"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
-msgstr ""
-"Fel från textanalys-arbetaren:\n"
-"{err}\n"
-"\n"
-"Funktionerna i denna dialogruta kräver att följande paket finns i den Python-miljö som används:\n"
-"  • spacy + en modell          (entiteter, nyckelfraser, grundläggande statistik)\n"
-"  • textdescriptives         (faktiska läsbarhetsindex)\n"
-"  • transformers + torch     (sentimentanalys med flerspråkig modell)\n"
-"\n"
-"Installera dem med:\n"
-"  {install}\n"
-"\n"
-"Arbetaren rapporterade att modulen saknas. Kontrollera att paketen är installerade i den exakta Python-körfil som arbetaren har valt för din konfigurerade venv."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Open a Writer document to analyze."
-msgstr "Öppna ett Writer-dokument för att analysera."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Not enough text in the chosen scope."
-msgstr "Inte tillräckligt med text i det valda omfånget."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Analyzing..."
-msgstr "Analyserar..."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-format
-msgid ""
-"Error: %s\n"
-"\n"
-"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
-msgstr ""
-"Fel: %s\n"
-"\n"
-"Nödvändiga paket kan saknas i din konfigurerade venv (Inställningar → Python). Klicka på Kontrollera Venv i denna dialog eller använd det fullständiga testet i Inställningar → Python för detaljer om spacy, textdescriptives, transformers, torch etc."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "No Writer document to insert into."
-msgstr "Inget Writer-dokument att infoga i."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Kör en analys först."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Nothing useful to insert from the last result."
-msgstr "Inget användbart att infoga från det senaste resultatet."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-format
-msgid "Insert failed: %s"
-msgstr "Infogning misslyckades: %s"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Inserted after selection/caret."
-msgstr "Infogat efter markering/insättningspunkt."
-
-#: plugin/scripting/symbolic.py
-msgid "Symbolic helper failed."
-msgstr "Symboliskt hjälpverktyg misslyckades."
-
-#: plugin/scripting/symbolic.py
-msgid "Symbolic helper returned no LaTeX."
-msgstr "Symboliskt hjälpverktyg returnerade ingen LaTeX."
-
-#: plugin/scripting/symbolic.py
-#, python-brace-format
-msgid "Failed to convert LaTeX to Writer Math: {error}"
-msgstr "Misslyckades med att konvertera LaTeX till Writer Math: {error}"
-
-#: plugin/scripting/symbolic.py
-msgid "No active document view."
-msgstr "Ingen aktiv dokumentvy."
-
-#: plugin/scripting/symbolic.py
-msgid "Unsupported document type for symbolic insertion."
-msgstr "Dokumenttypen stöds inte för symbolisk infogning."
-
-#: plugin/scripting/viz.py
-msgid "Unsupported document type for plot insertion."
-msgstr "Dokumenttypen stöds inte för infogning av diagram."
-
-#: plugin/scripting/viz.py
-msgid "Viz helper failed."
-msgstr "Visualiseringshjälpmedlet misslyckades."
-
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Visualiseringshjälpmedlet returnerade ingen bilddata."
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-"Vision ”{helper}” slutförd. Infogad HTML ({blocks} block, {tables} "
-"tabeller). (tog {time})"
-
-#: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision ”{helper}” slutförd. Infogad formaterad HTML. (tog {time})"
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "{domain} ”{helper}” slutförd. Skrev {rows} rader. (tog {time})"
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "{domain} '{helper}' completed. (took {time})"
-msgstr "{domain} ”{helper}” slutförd. (tog {time})"
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Återställ Python-session för anteckningsböcker gäller för LibreOffice "
-"Writer. Öppna ett Writer-dokument med en importerad Jupyter-anteckningsbok "
-"och försök igen."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"This Writer document has no imported notebook registry. File → Open a "
-"Jupyter notebook (.ipynb) first."
-msgstr ""
-"Detta Writer-dokument har inget register för importerade anteckningsböcker. "
-"Arkiv → Öppna en Jupyter-anteckningsbok (.ipynb) först."
-
-#: plugin/scripting/session_manager.py
-msgid "Could not resolve notebook Python session."
-msgstr "Det gick inte att lösa Python-sessionen för anteckningsboken."
-
-#: plugin/scripting/session_manager.py
-msgid "Notebook Python session reset for this document."
-msgstr "Python-session för anteckningsbok återställd för detta dokument."
-
-#: plugin/scripting/session_manager.py
-msgid "Could not reset Python session."
-msgstr "Det gick inte att återställa Python-sessionen."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok"
-" och försök igen."
-
-#: plugin/scripting/session_manager.py
-msgid "Python session reset for this workbook."
-msgstr "Python-session återställd för denna arbetsbok."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Initialization script and any in-memory init state were reset for this "
-"workbook. Cell variables were already isolated per cell."
-msgstr ""
-"Initieringsskript och eventuellt initieringstillstånd i minnet har "
-"återställts för denna arbetsbok. Cellvariabler var redan isolerade per cell."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Python session mode is Isolated (each =PY() cell uses its own variables). "
-"There is no shared cell session to reset. Add an initialization script if "
-"you need to clear expensive one-time workbook setup."
-msgstr ""
-"Pythons sessionsläge är Isolerat (varje =PY()-cell använder sina egna "
-"variabler). Det finns ingen delad cell-session att återställa. Lägg till ett"
-" initieringsskript om du behöver rensa resurskrävande engångsinställningar "
-"för arbetsboken."
-
-#: plugin/scripting/session_manager.py
-msgid "Python session reset for this document."
-msgstr "Python-sessionen har återställts för detta dokument."
-
-#: plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Enhetshjälpen misslyckades."
-
-#: plugin/scripting/units.py
-msgid "Units helper returned no formatted text."
-msgstr "Enhetshjälpen returnerade ingen formaterad text."
-
-#: plugin/scripting/units.py
-msgid "Unsupported document type for units insertion."
-msgstr "Dokumenttypen stöds inte för infogning av enheter."
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Det gick inte att infoga resultatet: {error} (tog {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr "Diagram infogat ({title}). (tog {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr "Viz ”{helper}” slutförd. {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math ”{helper}” slutförd. Infogat: {preview} (tog {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Enheter '{helper}' slutförda. Infogat: {preview} (tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Misslyckades med att infoga resultat i Calc: %s"
-
-#: plugin/scripting/python_runner.py
-msgid "Info"
-msgstr "Info"
-
-#: plugin/scripting/python_runner.py
-msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr "Resultatinfogning i Draw/Impress stöds ännu inte. PR:s välkomnas!"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Vision-hjälpmedel kräver ett Writer- eller Calc-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr "Vision-hjälpare misslyckades."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
-"(took {time})"
-msgstr ""
-"Vision '{helper}' slutförd. Infogade formaterad HTML för {count} bilder. "
-"(tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
-msgstr ""
-"Skriptet kördes utan problem, men returnerade inget resultat och gav ingen "
-"utdata. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr "Dokumenttypen stöds inte för infogning av resultat. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Script executed successfully. (took {time})"
-msgstr "Skriptet kördes utan problem. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Skript sparat."
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run Python Script"
-msgstr "Kör Python-skript"
-
-#: plugin/scripting/python_runner.py
-msgid "Run Python Script failed to open the Monaco editor."
-msgstr "Kör Python-skript misslyckades med att öppna Monaco-redigeraren."
-
-#: plugin/scripting/python_runner.py
-msgid "Could not open the built-in script dialog."
-msgstr "Kunde inte öppna den inbyggda skriptdialogrutan."
-
-#: plugin/scripting/python_runner.py
-msgid "An unexpected error occurred while opening Run Python Script."
-msgstr "Ett oväntat fel uppstod vid öppning av Kör Python-skript."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Dispatch-fel"
-
-#: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
-msgid ""
-"Select an embedded image (or a range containing images), then Run again."
-msgstr ""
-"Markera en inbäddad bild (eller ett område som innehåller bilder) och kör "
-"sedan igen."
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Bilden '{name}' hittades inte. Använd image_list eller lämna image_name tomt"
-" och välj grafiken."
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Bilden '{name}' kunde inte exporteras."
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid "OCR complete ({count} images)."
-msgstr "OCR slutförd ({count} bilder)."
-
-#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
-msgid "OCR complete."
-msgstr "OCR slutförd."
-
-#: plugin/vision/vision_runner.py
-msgid "OCR complete (text returned only; not inserted)."
-msgstr "OCR slutförd (endast text returnerad; ej infogad)."
-
-#: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR kräver ett Writer- eller Calc-dokument."
-
-#: plugin/vision/vision_egress.py
-msgid "Writer document has no controller."
-msgstr "Writer-dokumentet saknar en kontroller."
-
-#: plugin/vision/vision_egress.py
-msgid "Could not resolve the image anchor for insert."
-msgstr "Kunde inte lösa bildankaret för infogning."
-
-#: plugin/vision/vision_egress.py
-#, python-format
-msgid "Could not position insert after the image: %s"
-msgstr "Kunde inte placera infogningen efter bilden: %s"
-
-#: plugin/vision/vision_egress.py
-msgid "The image was removed while preparing OCR insert."
-msgstr "Bilden togs bort under förberedelse av OCR-infogning."
-
-#: plugin/vision/vision_egress.py
-msgid "The image was removed during OCR insert."
-msgstr "Bilden togs bort under OCR-infogning."
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP-server misslyckades med att starta"
-
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Kontrollera writeragent_debug.log i din LibreOffice-"
-"användarkonfigurationsmapp"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Stoppa MCP-server"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Starta MCP-server"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Offentlig tunnel via {0} (ingen autentisering)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Offentlig tunnel via {0}: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "återansluter…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Offentlig tunnel via {0} misslyckades: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Offentlig tunnel via {0} startar…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Offentlig tunnel via {0} körs inte (är leverantörens binärfil installerad?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "MCP-server stoppad"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "MCP-server startad"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "Offentlig tunnel via {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"Offentlig tunnel via {0} startar… använd MCP-serverstatus när den är klar."
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "MCP-server körs inte"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "MCP-servern körs"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Rutter: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "Lokal URL: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "Offentlig URL: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Lokal slutpunkt:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Offentlig tunnel ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Status: Aktiv (ansluten)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Status: Återansluter — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "försöker igen…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Status: Startar tunnel…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Status: Misslyckades — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Status: Körs inte (är binärfilen {0} installerad?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Kopierad!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Testar…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Testa tunnel"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "Test av MCP-tunnel"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Tunneltestläge: {0}-leverantör simulerades korrekt."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Okänd tunnel-leverantör: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binärfilen '{0}' för {1} hittades inte i PATH.\n"
-"\n"
-"Installera från: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Kunde inte köra binärfilen {0} ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"{0}-tunneln körs och svarar!\n"
-"\n"
-"Publik slutpunkt:\n"
-"{1}\n"
-"\n"
-"Hälsokontroll: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"{0}-tunneln är aktiv!\n"
-"\n"
-"Publik slutpunkt:\n"
-"{1}\n"
-"\n"
-"(Publik URL hämtad från aktiv tunnelsession.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"{0}-binärfilen '{1}' är verifierad ({2}).\n"
-"\n"
-"(Obs: En aktiv {3}-tunnel körs för närvarande på {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"{0}-binärfilen '{1}' är installerad och verifierad ({2}).\n"
-"\n"
-"MCP-servern körs lokalt på port {3}.\n"
-"Markera 'Exponera via publik tunnel' och klicka på OK för att aktivera publik routning."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"{0}-binärfilen '{1}' är installerad och verifierad ({2}).\n"
-"\n"
-"Obs: MCP-servern körs för närvarande inte på port {3}."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} godkända, {2} misslyckade."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Kunde inte köra tester: {0}"
-
-#: plugin/main.py plugin/xdl_strings.py
-msgid "MCP Server Status"
-msgstr "MCP-serverstatus"
-
-#: plugin/main.py
-msgid "Edit LaTeX Math..."
-msgstr "Redigera LaTeX-formel..."
-
-#: plugin/xdl_strings.py
-msgid "-1"
-msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "AI Model:"
-msgstr "AI-modell:"
-
-#: plugin/xdl_strings.py
-msgid "API Key:"
-msgstr "API-nyckel:"
-
-#: plugin/xdl_strings.py
-msgid "Active Sheet"
-msgstr "Aktivt blad"
-
-#: plugin/xdl_strings.py
-msgid "Additional Instructions (History):"
-msgstr "Ytterligare instruktioner (historik):"
-
-#: plugin/xdl_strings.py
-msgid "Additional Instructions:"
-msgstr "Ytterligare instruktioner:"
-
-#: plugin/xdl_strings.py
-msgid "Ask / instruct:"
-msgstr "Fråga / instruera:"
-
-#: plugin/xdl_strings.py
-msgid "Aspect Ratio:"
-msgstr "Bildförhållande:"
-
-#: plugin/xdl_strings.py
-msgid "Auto Gallery"
-msgstr "Autogalleri"
-
-#: plugin/xdl_strings.py
-msgid "Base Size:"
-msgstr "Grundstorlek:"
-
-#: plugin/xdl_strings.py
-msgid "Base:"
-msgstr "Bas:"
-
-#: plugin/xdl_strings.py
-msgid "Cache Status: Checking..."
-msgstr "Cachestatus: Kontrollerar..."
-
-#: plugin/xdl_strings.py
-msgid "Calc"
-msgstr "Calc"
-
-#: plugin/xdl_strings.py
-msgid "Categories:"
-msgstr "Kategorier:"
-
-#: plugin/xdl_strings.py
-msgid "Check Venv"
-msgstr "Kontrollera Venv"
-
-#: plugin/xdl_strings.py
-msgid "Clear"
-msgstr "Rensa"
-
-#: plugin/xdl_strings.py
-msgid "Convert Sheet to Python"
-msgstr "Konvertera kalkylblad till Python"
-
-#: plugin/xdl_strings.py
-msgid "Copy"
-msgstr "Kopiera"
-
-#: plugin/xdl_strings.py
-msgid "Diagnostics:"
-msgstr "Diagnostik:"
-
-#: plugin/xdl_strings.py
-msgid "Draw"
-msgstr "Rita"
-
-#: plugin/xdl_strings.py
-msgid "Edit Cell"
-msgstr "Redigera cell"
-
-#: plugin/xdl_strings.py
-msgid "Edit Init Script"
-msgstr "Redigera init-skript"
-
-#: plugin/xdl_strings.py
-msgid "Edit config (JSON)…"
-msgstr "Redigera konfiguration (JSON)…"
-
-#: plugin/xdl_strings.py
-msgid "Edit extra tokens:"
-msgstr "Redigera extra tokens:"
-
-#: plugin/xdl_strings.py
-msgid "Edit search query"
-msgstr "Redigera sökfråga"
-
-#: plugin/xdl_strings.py
-msgid "Endpoint URL (/v1 added):"
-msgstr "Slutpunkt-URL (/v1 tillagd):"
-
-#: plugin/xdl_strings.py
-msgid "Endpoint URL:"
-msgstr "Slutpunkt-URL:"
-
-#: plugin/xdl_strings.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr "Ange LaTeX-kod för att konvertera och infoga som formel:"
-
-#: plugin/xdl_strings.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Ange Python-kod att köra i användarens virtuella miljö.\n"
-"Tilldela resultatet till variabeln 'result'."
-
-#: plugin/xdl_strings.py
-msgid "Entities"
-msgstr "Entiteter"
-
-#: plugin/xdl_strings.py
-msgid "Extend max tokens:"
-msgstr "Utöka max antal tokens:"
-
-#: plugin/xdl_strings.py
-msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr ""
-"Extra tokens utöver originaltextens längd. 0 = samma längd som originalet."
-
-#: plugin/xdl_strings.py
-msgid "Filter:"
-msgstr "Filter:"
-
-#: plugin/xdl_strings.py
-msgid "General"
-msgstr "Allmänt"
-
-#: plugin/xdl_strings.py
-msgid "Get API Key:"
-msgstr "Hämta API-nyckel:"
-
-#: plugin/xdl_strings.py
-msgid "Hugging Face"
-msgstr "Hugging Face"
-
-#: plugin/xdl_strings.py
-msgid "Image Model:"
-msgstr "Bildmodell:"
-
-#: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Bildinställningar"
-
-#: plugin/xdl_strings.py
-msgid "In-place replacement"
-msgstr "Ersättning på plats"
-
-#: plugin/xdl_strings.py
-msgid "Input:"
-msgstr "Indata:"
-
-#: plugin/xdl_strings.py
-msgid "Insert Frame"
-msgstr "Infoga ram"
-
-#: plugin/xdl_strings.py
-msgid "Insert LaTeX Math"
-msgstr "Infoga LaTeX-formel"
-
-#: plugin/xdl_strings.py
-msgid "Insert report here"
-msgstr "Infoga rapport här"
-
-#: plugin/xdl_strings.py
-msgid "Key Phrases"
-msgstr "Nyckelfraser"
-
-#: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Max tokens:"
-
-#: plugin/xdl_strings.py
-msgid "Message"
-msgstr "Meddelande"
-
-#: plugin/xdl_strings.py
-msgid "Models to Test:"
-msgstr "Modeller att testa:"
-
-#: plugin/xdl_strings.py
-msgid "Multimodal"
-msgstr "Multimodal"
-
-#: plugin/xdl_strings.py
-msgid "NVIDIA NIM"
-msgstr "NVIDIA NIM"
-
-#: plugin/xdl_strings.py
-msgid "New Sheet (PythonImport)"
-msgstr "Nytt blad (PythonImport)"
-
-#: plugin/xdl_strings.py
-msgid "Number of Responses:"
-msgstr "Antal svar:"
-
-#: plugin/xdl_strings.py
-msgid "OK"
-msgstr "OK"
-
-#: plugin/xdl_strings.py
-msgid "OpenRouter"
-msgstr "OpenRouter"
-
-#: plugin/xdl_strings.py
-msgid "Options"
-msgstr "Alternativ"
-
-#: plugin/xdl_strings.py
-msgid "Output Mode"
-msgstr "Utmatningsläge"
-
-#: plugin/xdl_strings.py
-msgid "Please enter edit instructions:"
-msgstr "Ange redigeringsinstruktioner:"
-
-#: plugin/xdl_strings.py
-msgid "Preserve number formats"
-msgstr "Behåll talformat"
-
-#: plugin/xdl_strings.py
-msgid "Public Tunnel:"
-msgstr "Publik tunnel:"
-
-#: plugin/xdl_strings.py
-msgid "Python Settings…"
-msgstr "Python-inställningar…"
-
-#: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Python-test"
-
-#: plugin/xdl_strings.py
-msgid "Python cells (active sheet):"
-msgstr "Python-celler (aktivt blad):"
-
-#: plugin/xdl_strings.py
-msgid "Python:"
-msgstr "Python:"
-
-#: plugin/xdl_strings.py
-msgid "Readability"
-msgstr "Läsbarhet"
-
-#: plugin/xdl_strings.py
-msgid "Rebuild"
-msgstr "Återskapa"
-
-#: plugin/xdl_strings.py
-msgid "Refresh"
-msgstr "Uppdatera"
-
-#: plugin/xdl_strings.py
-msgid "Reset Session"
-msgstr "Återställ session"
-
-#: plugin/xdl_strings.py
-msgid "Results:"
-msgstr "Resultat:"
-
-#: plugin/xdl_strings.py
-msgid "Run Benchmark"
-msgstr "Kör benchmark"
-
-#: plugin/xdl_strings.py
-msgid "Run Script"
-msgstr "Kör skript"
-
-#: plugin/xdl_strings.py
-msgid "Scope"
-msgstr "Omfång"
-
-#: plugin/xdl_strings.py
-msgid "Search Nearby Files"
-msgstr "Sök i närliggande filer"
-
-#: plugin/xdl_strings.py
-msgid "Search Query:"
-msgstr "Sökfråga:"
-
-#: plugin/xdl_strings.py
-msgid "Search query:"
-msgstr "Sökfråga:"
-
-#: plugin/xdl_strings.py
-msgid "Seed:"
-msgstr "Seed:"
-
-#: plugin/xdl_strings.py
-msgid "Selection"
-msgstr "Markering"
-
-#: plugin/xdl_strings.py
-msgid "Sentiment"
-msgstr "Sentiment"
-
-#: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Kvadrat"
-
-#: plugin/xdl_strings.py
-msgid "Status"
-msgstr "Status"
-
-#: plugin/xdl_strings.py
-msgid "Status: Ready"
-msgstr "Status: Redo"
-
-#: plugin/xdl_strings.py
-msgid "Steps:"
-msgstr "Steg:"
-
-#: plugin/xdl_strings.py
-msgid "Temperature:"
-msgstr "Temperatur:"
-
-#: plugin/xdl_strings.py
-msgid "Test Connection"
-msgstr "Testa anslutning"
-
-#: plugin/xdl_strings.py
-msgid "Text/Chat Model:"
-msgstr "Text-/chatmodell:"
-
-#: plugin/xdl_strings.py
-msgid "Timeout (s):"
-msgstr "Tidsgräns (s):"
-
-#: plugin/xdl_strings.py
-msgid "Together AI"
-msgstr "Together AI"
-
-#: plugin/xdl_strings.py
-msgid "Topics"
-msgstr "Ämnen"
-
-#: plugin/xdl_strings.py
-msgid "Vectorize columns when safe"
-msgstr "Vektorisera kolumner när det är säkert"
-
-#: plugin/xdl_strings.py
-msgid "Verify recalc (oracle diff)"
-msgstr "Verifiera omberäkning (oracle-diff)"
-
-#: plugin/xdl_strings.py
-msgid "Whole Document"
-msgstr "Hela dokumentet"
-
-#: plugin/xdl_strings.py
-msgid "Writer"
-msgstr "Writer"
-
-#: plugin/xdl_strings.py
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "WriterAgent utvärderingspanel"
-
-#: plugin/xdl_strings.py
-msgid "√x"
-msgstr "√x"
-
-#: plugin/xdl_strings.py
-msgid "☰"
-msgstr "☰"
-
-#: plugin/xdl_strings.py
-msgid "⚙"
-msgstr "⚙"
-
-#: plugin/xdl_strings.py
-msgid "🔊"
-msgstr "🔊"
-
-#: plugin/xdl_strings.py
-msgid "🔍"
-msgstr "🔍"
+#: plugin/chatbot/hamburger_menu.py
+msgid "MCP Server (Running)"
+msgstr "MCP-server (körs)"
+
+#: plugin/chatbot/hamburger_menu.py
+msgid "MCP Server (Stopped)"
+msgstr "MCP-server (stoppad)"
+
+#: plugin/chatbot/hamburger_menu.py
+msgid "Debug"
+msgstr "Felsökning"
 
 msgid "Agent Communication Protocol"
 msgstr "Agentkommunikationsprotokoll"
@@ -3236,8 +3304,7 @@ msgid "Audio Model:"
 msgstr "Ljudmodell:"
 
 msgid "Speech-to-text model when the chat model cannot take audio input."
-msgstr ""
-"Tal-till-text-modell när chattmodellen inte kan ta emot ljudinmatning."
+msgstr "Tal-till-text-modell när chattmodellen inte kan ta emot ljudinmatning."
 
 msgid "Enable Speech Output (TTS)"
 msgstr "Aktivera talutmatning (TTS)"
@@ -3264,15 +3331,15 @@ msgid ""
 "Aim for about one paragraph unless the user asks for more. Only applies "
 "while speech output (TTS) is on."
 msgstr ""
-"Sikta på ungefär ett stycke om inte användaren ber om mer. Gäller endast när"
-" talutmatning (TTS) är aktiverat."
+"Sikta på ungefär ett stycke om inte användaren ber om mer. Gäller endast när "
+"talutmatning (TTS) är aktiverat."
 
 msgid "TTS Provider"
 msgstr "TTS-leverantör"
 
 msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API"
-" endpoint."
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
 msgstr ""
 "Välj om du vill använda operativsystemets inbyggda talfunktion, en lokal "
 "neural motor eller din API-slutpunkt."
@@ -3363,8 +3430,8 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"Konvertera syskonfiler .xlsx/.xls till writeragent_ods_cache/ bredvid mappen"
-" så att upprepad DuckDB SQL återanvänder ODS-filen. Inbyggda .ods-filer och "
+"Konvertera syskonfiler .xlsx/.xls till writeragent_ods_cache/ bredvid mappen "
+"så att upprepad DuckDB SQL återanvänder ODS-filen. Inbyggda .ods-filer och "
 "den aktiva arbetsboken cachas aldrig. Ställ in calc.ods_cache_enabled false "
 "i writeragent.json för att inaktivera."
 
@@ -3457,16 +3524,15 @@ msgstr "Humaniseringsfärdighet (naturlig prosa)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
+"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
+"dedicated Skills tab can be added later."
 msgstr ""
 "När aktiverad injiceras vägledning i systemprompten så att modellen får "
 "genererad eller reviderad dokumenttext att låta mer naturlig och mänsklig "
 "(tar bort AI-typiska mönster). Redigera reglerna i din LibreOffice-profil "
 "under writeragent/skills/humanizer/SKILL.md (filen skapas automatiskt vid "
-"första användning). En dedikerad flik för färdigheter kan läggas till "
-"senare."
+"första användning). En dedikerad flik för färdigheter kan läggas till senare."
 
 msgid "Silence before send (ms)"
 msgstr "Tystnad före sändning (ms)"
@@ -3485,14 +3551,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Aktivera grammatikkontroll (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
-"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
-"binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. "
+"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
+"offline Rust binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Av = inaktiverad. AI (LLM) = använd din konfigurerade textmodell/API. "
-"LanguageTool / Vale = lokala motorer via Inställningar → Python venv. Harper"
-" = offline Rust-binär som laddas ned automatiskt till din profil (ingen venv"
-" krävs)."
+"LanguageTool / Vale = lokala motorer via Inställningar → Python venv. Harper "
+"= offline Rust-binär som laddas ned automatiskt till din profil (ingen venv "
+"krävs)."
 
 msgid "Off"
 msgstr "Av"
@@ -3571,8 +3637,8 @@ msgid ""
 msgstr ""
 "Verifiera varje fullständig menings språk mot dokumentets språkinställning. "
 "AI använder ditt grammatik-/chatt-API; Lokalt använder langdetect i din "
-"Python-venv (Inställningar → Python; inget API-anrop). Felaktiga matchningar"
-" uppdaterar CharLocale och kontrollerar grammatiken på nytt."
+"Python-venv (Inställningar → Python; inget API-anrop). Felaktiga matchningar "
+"uppdaterar CharLocale och kontrollerar grammatiken på nytt."
 
 msgid "Local (langdetect)"
 msgstr "Lokalt (langdetect)"
@@ -3596,9 +3662,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Av = direktredigering. Spela in = spårade ändringar som du själv "
-"accepterar/avvisar. Vänta = apply_document_content blockeras (i chatt/MCP-"
-"arbetstråd) tills du granskar."
+"Av = direktredigering. Spela in = spårade ändringar som du själv accepterar/"
+"avvisar. Vänta = apply_document_content blockeras (i chatt/MCP-arbetstråd) "
+"tills du granskar."
 
 msgid "Record (track changes)"
 msgstr "Spela in (spåra ändringar)"
@@ -3639,8 +3705,8 @@ msgstr "Inbäddningsmodell"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"HuggingFace-modell-ID för lokal leverantör, eller slutpunktsspecifikt "
-"modell-ID"
+"HuggingFace-modell-ID för lokal leverantör, eller slutpunktsspecifikt modell-"
+"ID"
 
 msgid "Enable cross-file rerank"
 msgstr "Aktivera omrankning mellan filer"
@@ -3656,8 +3722,8 @@ msgid "Rerank model"
 msgstr "Omrankningsmodell"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
-" is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
+"is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Används endast när omrankning är aktiverat. Engelska MiniLM är snabb; bge-"
 "reranker-v2-m3 är flerspråkig och laddar ner ca 2,3 GB."
@@ -3678,11 +3744,11 @@ msgid "Enable MCP Server"
 msgstr "Aktivera MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Endast localhost, ingen autentisering. Klienter använder "
-"http://localhost:<port>/mcp (strömbar HTTP)."
+"Endast localhost, ingen autentisering. Klienter använder http://localhost:"
+"<port>/mcp (strömbar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -3722,13 +3788,13 @@ msgstr "Exponera via offentlig tunnel"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
-" MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
+"MCP Server Status for the public /mcp URL when ready."
 msgstr ""
-"Kräver att den valda leverantörens binärfil finns i PATH (cloudflared, bore,"
-" ngrok eller tailscale). MCP saknar autentisering — vem som helst med den "
-"offentliga URL:en kan anropa verktyg. Se MCP-serverstatus för den offentliga"
-" /mcp-URL:en när den är klar."
+"Kräver att den valda leverantörens binärfil finns i PATH (cloudflared, bore, "
+"ngrok eller tailscale). MCP saknar autentisering — vem som helst med den "
+"offentliga URL:en kan anropa verktyg. Se MCP-serverstatus för den "
+"offentliga /mcp-URL:en när den är klar."
 
 msgid "Provider"
 msgstr "Leverantör"
@@ -3773,14 +3839,14 @@ msgid "Python venv path"
 msgstr "Sökväg till Python venv"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, "
-"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
-"without surrounding quotes. If empty, uses this process's sys.executable "
-"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
+"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
+"surrounding quotes. If empty, uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Om inställd, körs =PY() och Kör Python-skript i den venv-miljön (bin/python,"
-" Scripts/python.exe eller conda/pyenv-win env-root python.exe). Klistra in "
+"Om inställd, körs =PY() och Kör Python-skript i den venv-miljön (bin/python, "
+"Scripts/python.exe eller conda/pyenv-win env-root python.exe). Klistra in "
 "sökvägen utan citattecken. Om tom, används processens sys.executable "
 "(grundläggande stdlib); använd en venv för numpy/pandas och Vision Helpers "
 "(paddleocr, paddlepaddle)."
@@ -3801,12 +3867,12 @@ msgid "Max Calc data cells"
 msgstr "Max antal Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximalt antal celler i =PYTHON()-data eller Run Python Script-"
-"data/data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning"
-" dominerar fortfarande."
+"Maximalt antal celler i =PYTHON()-data eller Run Python Script-data/"
+"data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning "
+"dominerar fortfarande."
 
 msgid "Python session mode"
 msgstr "Python-sessionsläge"
@@ -3844,8 +3910,8 @@ msgid "Rewrite xl() ranges"
 msgstr "Skriv om xl()-intervall"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
-" rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
+"rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Vid sparning av Python i cell, lyft statiska xl(\"A1:…\") till =PY-"
 "dataargument och skriv om till data / data[i] / .to_pandas()."
@@ -3864,8 +3930,7 @@ msgstr "Tidsgräns för arbetsprocess (sekunder)"
 
 msgid "Host subprocess limit for Vision Helpers (first model download)."
 msgstr ""
-"Gräns för värdunderprocesser för Vision Helpers (första "
-"modellnedladdningen)."
+"Gräns för värdunderprocesser för Vision Helpers (första modellnedladdningen)."
 
 msgid "Docling artifacts path"
 msgstr "Sökväg för Docling-artefakter"
@@ -3899,8 +3964,7 @@ msgid "Table cell matching"
 msgstr "Matchning av tabellceller"
 
 msgid "Align detected table cells with content (extract_structure)."
-msgstr ""
-"Justera identifierade tabellceller efter innehåll (extract_structure)."
+msgstr "Justera identifierade tabellceller efter innehåll (extract_structure)."
 
 msgid "Keep orphan text clusters"
 msgstr "Behåll fristående textkluster"

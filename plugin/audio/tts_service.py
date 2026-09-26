@@ -499,6 +499,8 @@ def _kokoro_lang_for_voice(voice: str) -> str:
 
 
 # English source for Settings → Speech → Test voice. ``_()`` speaks the UI locale.
+# English msgid. Keep in sync with the _() literal in tts_test_sample() —
+# xgettext only extracts string literals inside _(), not _(CONSTANT).
 TTS_TEST_SAMPLE = "Hello, I'm your LibreOffice WriterAgent."
 
 # Basic Latin through Latin Extended-B. Accented French/Spanish still counts
@@ -507,8 +509,13 @@ _LATIN_LETTER_MAX = 0x024F
 
 
 def tts_test_sample() -> str:
-    """Sample line for the Speech Test button, translated to the UI locale."""
-    return _(TTS_TEST_SAMPLE)
+    """Sample line for the Speech Test button, translated to the UI locale.
+
+    The English literal must appear inside _() so ``make extract-strings``
+    puts it in writeragent.pot. Passing TTS_TEST_SAMPLE alone is invisible
+    to xgettext and left Test voice speaking English under JA/ES UI.
+    """
+    return _("Hello, I'm your LibreOffice WriterAgent.")
 
 
 def _text_is_latin_script(text: str) -> bool:

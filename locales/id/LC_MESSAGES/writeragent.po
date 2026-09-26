@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 12:42-0400\n"
+"POT-Creation-Date: 2026-09-26 12:49-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -17,176 +17,1434 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: plugin/doc/specialized_base.py
-msgid ""
-"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
-"(Settings → Python → Test for install hints)."
-msgstr ""
-"OCR lokal memerlukan Pengaturan → Python venv dengan Docling atau PaddleOCR "
-"(Pengaturan → Python → Uji untuk petunjuk instalasi)."
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr "Mode uji terowongan: penyedia {0} berhasil disimulasikan."
 
-#: plugin/doc/specialized_base.py
-msgid "Running local OCR on selected image(s)..."
-msgstr "Menjalankan OCR lokal pada gambar yang dipilih..."
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr "Penyedia tunnel tidak dikenal: {0}"
 
-#: plugin/doc/specialized_base.py
-msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
-msgstr ""
-"Pembacaan riset dokumen memerlukan pendelegasian tugas khusus "
-"(USE_SUB_AGENT). Aktifkan ini di konfigurasi."
-
-#: plugin/doc/specialized_base.py
+#: plugin/mcp/tunnel.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
 msgstr ""
-"Panggilan alat beralih ke '{0}'. Anda berada dalam mode perangkat alat "
-"khusus. Anda harus memanggil 'specialized_workflow_finished' setelah selesai"
-" untuk memulihkan rangkaian API lengkap."
+"Binary '{0}' untuk {1} tidak ditemukan pada PATH.\n"
+"\n"
+"Instal dari: {2}"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Cell execution failed."
-msgstr "Eksekusi sel gagal."
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr "Gagal mengeksekusi binary {0} ({1}): {2}"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Notebook run is only supported in LibreOffice Writer."
-msgstr "Menjalankan notebook hanya didukung di LibreOffice Writer."
-
-#: plugin/notebook/notebook_runner.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
 msgstr ""
-"Dokumen ini tidak memiliki notebook yang diimpor. Buka Berkas → Buka "
-"notebook Jupyter (.ipynb) terlebih dahulu."
+"Tunnel {0} sedang berjalan dan responsif!\n"
+"\n"
+"Endpoint publik:\n"
+"{1}\n"
+"\n"
+"Cek kesehatan: OK (200)"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Could not find notebook cell for this control."
-msgstr "Tidak dapat menemukan sel notebook untuk kontrol ini."
-
-#: plugin/notebook/notebook_runner.py
-msgid "Open a Writer document first."
-msgstr "Buka dokumen Writer terlebih dahulu."
-
-#: plugin/notebook/notebook_controls.py
-msgid "Run code cell"
-msgstr "Jalankan sel kode"
-
-#: plugin/embeddings/search_ui.py
-msgid "just now"
-msgstr "baru saja"
-
-#: plugin/embeddings/search_ui.py
+#: plugin/mcp/tunnel.py
 #, python-brace-format
-msgid "{0}m ago"
-msgstr "{0}m yang lalu"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}h ago"
-msgstr "{0}j yang lalu"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}d ago"
-msgstr "{0} hari yang lalu"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: No active document"
-msgstr "Status Cache: Tidak ada dokumen aktif"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Folder not resolved"
-msgstr "Status Cache: Folder tidak teratasi"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built (zvec)"
-msgstr "Status Cache: Belum dibangun (zvec)"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built (lancedb)"
-msgstr "Status Cache: Belum dibangun (lancedb)"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built"
-msgstr "Status Cache: Belum dibangun"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "Cache Status: Built ({0})"
-msgstr "Status Cache: Sudah dibangun ({0})"
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Built"
-msgstr "Status Cache: Sudah dibangun"
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "Cache Status: Error ({0})"
-msgstr "Status Cache: Kesalahan ({0})"
-
-#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
-msgid "Search"
-msgstr "Cari"
-
-#: plugin/embeddings/search_ui.py
-msgid "Please enter a search query."
-msgstr "Harap masukkan kueri pencarian."
-
-#: plugin/embeddings/search_ui.py
-msgid "Searching..."
-msgstr "Mencari..."
-
-#: plugin/embeddings/search_ui.py
-msgid "No active document found."
-msgstr "Tidak ada dokumen aktif yang ditemukan."
-
-#: plugin/embeddings/search_ui.py
 msgid ""
-"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
-"Embeddings."
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
 msgstr ""
-"Pencarian lintas file dinonaktifkan. Aktifkan Embeddings + FTS di Pengaturan"
-" → Embeddings."
+"Tunnel {0} aktif!\n"
+"\n"
+"Endpoint publik:\n"
+"{1}\n"
+"\n"
+"(URL publik diperoleh dari sesi tunnel yang aktif.)"
 
-#: plugin/embeddings/search_ui.py
-msgid "Error: "
-msgstr "Kesalahan: "
-
-#: plugin/embeddings/search_ui.py
+#: plugin/mcp/tunnel.py
+#, python-brace-format
 msgid ""
-"Folder index is building in the background. Please retry search shortly."
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
 msgstr ""
-"Indeks folder sedang dibangun di latar belakang. Harap coba pencarian lagi "
-"sebentar lagi."
+"Binary {0} '{1}' telah diverifikasi ({2}).\n"
+"\n"
+"(Catatan: Tunnel {3} yang aktif saat ini sedang berjalan di {4}.)"
 
-#: plugin/embeddings/search_ui.py
-msgid "No matches found."
-msgstr "Tidak ada kecocokan yang ditemukan."
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+"Binary {0} '{1}' telah diinstal dan diverifikasi ({2}).\n"
+"\n"
+"Server MCP sedang berjalan secara lokal pada port {3}.\n"
+"Centang 'Expose via public tunnel' dan klik OK untuk mengaktifkan perutean "
+"publik."
 
-#: plugin/embeddings/search_ui.py
-msgid "Error running search: "
-msgstr "Kesalahan saat menjalankan pencarian: "
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+"Binary {0} '{1}' telah diinstal dan diverifikasi ({2}).\n"
+"\n"
+"Catatan: Server MCP saat ini tidak berjalan pada port {3}."
 
-#: plugin/embeddings/search_ui.py
-msgid "Rebuilding cache..."
-msgstr "Membangun ulang tembolok..."
+#: plugin/mcp/mcp_ui.py
+msgid "✓ Copied!"
+msgstr "✓ Disalin!"
 
-#: plugin/embeddings/search_ui.py
-msgid "No active folder resolved."
-msgstr "Tidak ada folder aktif yang terdeteksi."
+#: plugin/mcp/mcp_ui.py
+msgid "Testing…"
+msgstr "Menguji…"
 
-#: plugin/embeddings/search_ui.py
-msgid "Cache rebuild completed successfully."
-msgstr "Pembangunan ulang tembolok berhasil diselesaikan."
+#: plugin/mcp/mcp_ui.py
+msgid "Test Tunnel"
+msgstr "Uji Terowongan"
 
-#: plugin/embeddings/search_ui.py
-msgid "Rebuild failed: "
-msgstr "Pembangunan ulang gagal: "
+#: plugin/mcp/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr "Uji Terowongan MCP"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "Server MCP gagal dijalankan"
+
+#: plugin/mcp/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+"Periksa writeragent_debug.log di folder konfigurasi pengguna LibreOffice Anda"
+
+#: plugin/mcp/__init__.py
+msgid "Stop MCP Server"
+msgstr "Hentikan Server MCP"
+
+#: plugin/mcp/__init__.py
+msgid "Start MCP Server"
+msgstr "Jalankan Server MCP"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr "Terowongan publik melalui {0} (tanpa autentikasi)"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr "Terowongan publik melalui {0}: {1}"
+
+#: plugin/mcp/__init__.py
+msgid "reconnecting…"
+msgstr "menghubungkan kembali…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr "Terowongan publik melalui {0} gagal: {1}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr "Terowongan publik melalui {0} sedang dimulai…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+"Terowongan publik melalui {0} tidak berjalan (apakah biner penyedia sudah "
+"terinstal?)"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server stopped"
+msgstr "Server MCP dihentikan"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server started"
+msgstr "Server MCP dijalankan"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0}"
+msgstr "Terowongan publik melalui {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
+msgstr ""
+"Terowongan publik melalui {0} sedang dimulai… gunakan Status Server MCP saat "
+"siap."
+
+#: plugin/mcp/__init__.py
+msgid "MCP server is not running"
+msgstr "Server MCP tidak berjalan"
+
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr "Server MCP berjalan"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Rute: {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr "URL Lokal: {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr "URL Publik: {0}"
+
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr "Titik Akhir Lokal:"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr "Terowongan Publik ({0}):"
+
+#: plugin/mcp/__init__.py
+msgid "Status: Active (connected)"
+msgstr "Status: Aktif (terhubung)"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr "Status: Menyambungkan kembali — {0}"
+
+#: plugin/mcp/__init__.py
+msgid "retrying…"
+msgstr "mencoba lagi…"
+
+#: plugin/mcp/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr "Status: Memulai terowongan…"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr "Status: Gagal — {0}"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr "Status: Tidak berjalan (apakah biner {0} terinstal?)"
+
+#: plugin/mcp/__init__.py plugin/chatbot/dialogs.py
+msgid "Copied!"
+msgstr "Tersalin!"
+
+#: plugin/scripting/viz.py
+msgid "Unsupported document type for plot insertion."
+msgstr "Tipe dokumen tidak didukung untuk penyisipan plot."
+
+#: plugin/scripting/viz.py
+msgid "Viz helper failed."
+msgstr "Pembantu Viz gagal."
+
+#: plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr "Pembantu Viz tidak mengembalikan payload gambar."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
+msgstr "PythonScriptDialog tidak dapat dimuat dari ekstensi."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/document_scripts.py
+msgid "No document is open to save scripts."
+msgstr "Tidak ada dokumen yang terbuka untuk menyimpan skrip."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr "%s Disimpan ke Skrip Saya sebagai gantinya."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr "Skrip '%s' disimpan ke dokumen ini."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr "Skrip '%s' berhasil disimpan."
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/calc/python/cell_editor_ui.py plugin/framework/main_shared.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/panel.py
+#: plugin/chatbot/dialog_views.py
+msgid "Error"
+msgstr "Galat"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Save Script As"
+msgstr "Simpan Skrip Sebagai"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Skrip bernama '{0}' sudah ada di dokumen ini. Timpa?"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr "Skrip bernama '{0}' sudah ada di Skrip Saya. Timpa?"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to My Scripts."
+msgstr "Skrip '%s' disimpan ke Skrip Saya."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr "Apakah Anda yakin ingin menghapus skrip '%s'?"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr "Hapus Skrip"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/document_scripts.py
+msgid "No document is open."
+msgstr "Tidak ada dokumen yang terbuka."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr "Skrip '%s' telah dihapus."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "New Script"
+msgstr "Skrip Baru"
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' created in this document."
+msgstr "Skrip '%s' dibuat di dokumen ini."
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' created in My Scripts."
+msgstr "Skrip '%s' dibuat di Skrip Saya."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr "Kesalahan Eksekusi"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/calc/python/function.py
+msgid "Unknown error"
+msgstr "Kesalahan tidak dikenal"
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr "Skrip berhasil dijalankan."
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skrip berhasil dijalankan, tetapi tidak mengembalikan hasil dan tidak "
+"menghasilkan output."
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr "Berhasil"
+
+#: plugin/scripting/python_runner_ui.py plugin/librepy/python_sidebar.py
+msgid "Output"
+msgstr "Output"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
+msgstr "Di Linux, instal juga PortAudio sistem: sudo pacman -S portaudio"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr "Pemeriksaan audio habis waktu (impor sounddevice gagal atau macet)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr "Pemeriksaan audio gagal (lihat writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+"Probe Teks/NLP kehabisan waktu (impor awal spaCy atau transformers bisa "
+"memakan waktu 10–30 detik pada pemeriksaan pertama)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr "Probe Teks/NLP gagal (lihat writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgstr ""
+"Probe visi kehabisan waktu (impor Docling bisa memakan waktu 10–30 detik "
+"pada pemeriksaan pertama)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision probe failed (see writeragent_debug.log)."
+msgstr "Probe visi gagal (lihat writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
+msgstr ""
+"Probe Pencarian Vektor habis waktu (impor sentence-transformers bisa memakan "
+"waktu 10–30 detik pada pemeriksaan pertama)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr "Probe Pencarian Vektor gagal (lihat writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording & Speech"
+msgstr "Rekaman Audio & Ucapan"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Scientific Libraries"
+msgstr "Pustaka Ilmiah"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Data Analysis / EDA Libraries"
+msgstr "Pustaka Analisis Data / EDA"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries"
+msgstr "Pustaka UI / Monaco"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Visualization Libraries"
+msgstr "Pustaka Visualisasi"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Computer Algebra"
+msgstr "Aljabar Komputer"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Quantitative Finance Libraries"
+msgstr "Pustaka Keuangan Kuantitatif"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Data Engineering Libraries"
+msgstr "Pustaka Rekayasa Data"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Pustaka Teks / NLP"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries"
+msgstr "Pustaka Visi"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Pustaka Pencarian Vektor"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr "Perekaman Audio"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "To install remaining packages:"
+msgstr "Untuk menginstal paket yang tersisa:"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr "Tidak ada perangkat input mikrofon yang terdeteksi."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr "Mesin TTS lokal (opsional):"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Starting Python worker..."
+msgstr "Memulai pekerja Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Reading Python version..."
+msgstr "Membaca versi Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr "Audio & Ucapan: memeriksa sounddevice dan mesin TTS..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr ""
+"Pustaka Teks / NLP: memuat (penggunaan pertama mungkin memakan waktu)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries: loading (first run may take a while)..."
+msgstr "Pustaka Visi: memuat (penggunaan pertama mungkin memakan waktu)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
+msgstr ""
+"Pustaka Pencarian Vektor: memuat (penggunaan pertama mungkin memakan "
+"waktu)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Using LibreOffice process Python..."
+msgstr "Menggunakan Python proses LibreOffice..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Resolving venv Python..."
+msgstr "Menyelesaikan venv Python..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Using"
+msgstr "Menggunakan"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr "Skrip dokumen terlalu besar untuk disimpan dalam dokumen ({0} bita)."
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+"Dokumen bersifat baca-saja atau properti tidak dapat ditulis. Skrip disimpan "
+"ke pustaka pribadi Anda sebagai gantinya."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/script_dialogs.py
+msgid "Script name cannot be empty."
+msgstr "Nama skrip tidak boleh kosong."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr "Skrip bernama '{0}' sudah ada di dokumen ini."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+msgid "My Scripts"
+msgstr "Skrip Saya"
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr "Dokumen Ini"
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr "Skrip '{0}' disimpan ke Skrip Saya."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr "Skrip '{0}' disimpan ke dokumen ini."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr "Skrip '{0}' disimpan."
+
+#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
+msgid "No document is open to attach scripts."
+msgstr "Tidak ada dokumen yang terbuka untuk melampirkan skrip."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr "Skrip '{0}' telah dilampirkan ke dokumen ini."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr "Skrip bernama '{0}' sudah ada di Skrip Saya."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr "Skrip '{0}' telah disalin ke Skrip Saya."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr "Skrip dokumen '{0}' telah dihapus."
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr "Skrip '{0}' telah dihapus."
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Gagal menyisipkan hasil ke Calc: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Info"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr "Penyisipan hasil ke Draw/Impress belum didukung. PR diterima!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Pembantu visi memerlukan dokumen Writer atau Calc."
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr "Pembantu visi gagal."
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
+"(took {time})"
+msgstr ""
+"Visi '{helper}' selesai. Menyisipkan HTML terformat untuk {count} gambar. "
+"(memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr ""
+"Vision '{helper}' selesai. HTML terformat disisipkan. (memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script executed successfully, but returned no result and produced no output. "
+"(took {time})"
+msgstr ""
+"Skrip berhasil dijalankan, tetapi tidak mengembalikan hasil dan tidak "
+"menghasilkan keluaran. (memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Unsupported document type for result insertion. (took {time})"
+msgstr ""
+"Tipe dokumen tidak didukung untuk penyisipan hasil. (memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Script executed successfully. (took {time})"
+msgstr "Skrip berhasil dijalankan. (memakan waktu {time})"
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr "Skrip disimpan."
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr "Jalankan Skrip Python"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
+msgid "Run"
+msgstr "Jalankan"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/calc/python/editor.py plugin/xdl_strings.py
+msgid "Save"
+msgstr "Simpan"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+msgid "Close"
+msgstr "Tutup"
+
+#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "Pilih rentang data atau masukkan alamat A1 (disisipkan sebagai data)."
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
+msgstr "Jalankan Skrip Python gagal membuka editor Monaco."
+
+#: plugin/scripting/python_runner.py
+msgid "Could not open the built-in script dialog."
+msgstr "Tidak dapat membuka dialog skrip bawaan."
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
+msgstr ""
+"Terjadi kesalahan yang tidak terduga saat membuka Jalankan Skrip Python."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Status:"
+msgstr "Status:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+#: plugin/xdl_strings.py plugin/chatbot/panel_wiring.py plugin/chatbot/panel.py
+msgid "Ready"
+msgstr "Siap"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Saving…"
+msgstr "Menyimpan…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Menjalankan…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
+msgstr "Pemuat Monaco hilang."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Install jedi in the Python venv for completions."
+msgstr "Instal jedi di dalam venv Python untuk pelengkapan otomatis."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Batal"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/editor.py
+#: plugin/xdl_strings.py
+msgid "Save without =PY()"
+msgstr "Simpan tanpa =PY()"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Data:"
+msgstr "Data:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "A1:C1  or  A1:C1, C1:C5"
+msgstr "A1:C1 atau A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
+msgstr "Calc menyuntikkan `data` dan `ranges` dari rentang ini saat runtime."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Rentang data hanya berlaku saat menyimpan sebagai rumus =PY()."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+msgid "Saved."
+msgstr "Tersimpan."
+
+#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
+#: plugin/calc/python/editor.py
+msgid "Saved without =PY()."
+msgstr "Disimpan tanpa =PY()."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "New"
+msgstr "Baru"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "New Python Script"
+msgstr "Skrip Python Baru"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "Script name:"
+msgstr "Nama skrip:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
+#: plugin/xdl_strings.py
+msgid "Attach to this document"
+msgstr "Lampirkan ke dokumen ini"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Create"
+msgstr "Buat"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Skrip:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach"
+msgstr "Lampirkan"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to Document"
+msgstr "Lampirkan ke Dokumen"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Simpan Sebagai..."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Hapus"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr "Skrip"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr ""
+"Pembantu bawaan bersifat baca-saja. Gunakan Salin ke Skrip Saya untuk "
+"menyesuaikan."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid ""
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
+msgstr ""
+"Dokumen berubah — tutup dan buka kembali Jalankan Skrip Python untuk "
+"menyunting skrip dokumen."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
+msgstr "Skrip '{0}' dimuat."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
+msgstr "Melampirkan skrip '{0}'..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr "Menyalin skrip '{0}' ke Skrip Saya..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr "Menyimpan skrip '{0}'..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr "Menghapus skrip '{0}'..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr "Bantuan bawaan tidak dapat dihapus."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Enter script name:"
+msgstr "Masukkan nama skrip:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr "Salin ke Skrip Saya sebagai:"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Simpan skrip '{0}' ke dokumen ini?"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr "Apakah Anda yakin ingin menghapus skrip '{0}'?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Sisipkan sebagai blok tampilan (paragraf rata tengah)"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+#: plugin/xdl_strings.py
+msgid "Insert"
+msgstr "Sisipkan"
+
+#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
+msgid "Formula inserted."
+msgstr "Rumus disisipkan."
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+"Vision '{helper}' selesai. HTML disisipkan ({blocks} blok, {tables} tabel). "
+"(memakan waktu {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+"{domain} '{helper}' selesai. Menulis {rows} baris. (memakan waktu {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr "{domain} '{helper}' selesai. (memakan waktu {time})"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+"Atur Ulang Sesi Python untuk buku catatan berlaku untuk LibreOffice Writer. "
+"Buka dokumen Writer dengan buku catatan Jupyter yang diimpor dan coba lagi."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. File → Open a "
+"Jupyter notebook (.ipynb) first."
+msgstr ""
+"Dokumen Writer ini tidak memiliki registri notebook yang diimpor. Buka "
+"Berkas → Buka notebook Jupyter (.ipynb) terlebih dahulu."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr "Tidak dapat menyelesaikan sesi Python buku catatan."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Sesi Python buku catatan diatur ulang untuk dokumen ini."
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Tidak dapat mengatur ulang sesi Python."
+
+#: plugin/scripting/session_manager.py plugin/calc/python/function.py
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Kesalahan: {0}"
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+"Atur Ulang Sesi Python berlaku untuk lembar kerja Calc. Buka buku kerja Calc "
+"dan coba lagi."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr "Sesi Python diatur ulang untuk buku kerja ini."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+"Skrip inisialisasi dan status inisialisasi dalam memori telah diatur ulang "
+"untuk buku kerja ini. Variabel sel sudah diisolasi per sel."
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
+msgstr ""
+"Mode sesi Python adalah Terisolasi (setiap sel =PY() menggunakan variabelnya "
+"sendiri). Tidak ada sesi sel bersama untuk diatur ulang. Tambahkan skrip "
+"inisialisasi jika Anda perlu menghapus pengaturan buku kerja satu kali yang "
+"memakan sumber daya."
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this document."
+msgstr "Sesi Python diatur ulang untuk dokumen ini."
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr "Analisis Teks"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr "Tidak dapat memuat dialog analisis."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "Memeriksa instalasi spaCy / textdescriptives / transformers..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is "
+"using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed "
+"in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+"Kesalahan dari pekerja Analisis Teks:\n"
+"{err}\n"
+"\n"
+"Fitur-fitur dalam dialog ini memerlukan paket-paket berikut dalam python "
+"yang digunakannya:\n"
+"  • spacy + model          (entitas, frasa kunci, statistik dasar)\n"
+"  • textdescriptives         (skor Keterbacaan nyata)\n"
+"  • transformers + torch     (Sentimen menggunakan model multibahasa)\n"
+"\n"
+"Instal paket tersebut dengan:\n"
+"  {install}\n"
+"\n"
+"Pekerja melaporkan modul tersebut hilang. Pastikan paket terinstal di "
+"eksekusi python yang tepat yang diselesaikan oleh pekerja untuk venv yang "
+"Anda konfigurasi."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr "Buka dokumen Writer untuk dianalisis."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr "Tidak cukup teks dalam cakupan yang dipilih."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr "Menganalisis..."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → "
+"Python). Click Check Venv in this dialog or use the full Test in Settings → "
+"Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+"Kesalahan: %s\n"
+"\n"
+"Paket yang diperlukan mungkin hilang dalam venv yang Anda konfigurasi "
+"(Pengaturan → Python). Klik Periksa Venv di dialog ini atau gunakan Tes "
+"lengkap di Pengaturan → Python untuk detail mengenai spacy, "
+"textdescriptives, transformers, torch, dll."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr "Tidak ada dokumen Writer untuk disisipkan."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr "Jalankan analisis terlebih dahulu."
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr "Tidak ada yang berguna untuk disisipkan dari hasil terakhir."
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr "Penyisipan gagal: %s"
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr "Disisipkan setelah pilihan/kursor."
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv check failed"
+msgstr "Pemeriksaan Venv gagal"
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr "Menguji lingkungan Python..."
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Done"
+msgstr "Selesai"
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Failed"
+msgstr "Gagal"
+
+#: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Pembantu unit gagal."
+
+#: plugin/scripting/units.py
+msgid "Units helper returned no formatted text."
+msgstr "Pembantu unit tidak mengembalikan teks terformat."
+
+#: plugin/scripting/units.py
+msgid "Unsupported document type for units insertion."
+msgstr "Tipe dokumen tidak didukung untuk penyisipan unit."
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Gagal menyisipkan hasil: {error} (memakan waktu {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Plot disisipkan ({title}). (memakan waktu {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' selesai. {msg}"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' selesai. Disisipkan: {preview} (memakan waktu {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Unit '{helper}' selesai. Disisipkan: {preview} (memakan waktu {time})"
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in Settings → Python (same venv where you ran 'uv "
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the "
+"Monaco editor."
+msgstr ""
+"Atur jalur venv Python di Pengaturan → Python (venv yang sama tempat Anda "
+"menjalankan 'uv pip install pywebview rocher'). Python bawaan LibreOffice "
+"tidak dapat menjalankan editor Monaco."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"Scripts/python.exe, or env-root python.exe)."
+msgstr ""
+"Tidak ada eksekusi python yang ditemukan di bawah venv yang dikonfigurasi: "
+"{0} (diharapkan bin/python, Scripts/python.exe, atau env-root python.exe)."
+
+#: plugin/scripting/editor_host.py
+msgid "Could not start the Python editor."
+msgstr "Tidak dapat memulai editor Python."
+
+#: plugin/scripting/editor_host.py
+msgid "The Python editor window did not start."
+msgstr "Jendela editor Python tidak dimulai."
+
+#: plugin/scripting/editor_host.py
+msgid "The Python editor exited before it could load your code."
+msgstr "Editor Python keluar sebelum dapat memuat kode Anda."
+
+#: plugin/scripting/editor_host.py
+msgid "Could not talk to the Python editor."
+msgstr "Tidak dapat berkomunikasi dengan editor Python."
+
+#: plugin/scripting/symbolic.py
+msgid "Symbolic helper failed."
+msgstr "Pembantu simbolik gagal."
+
+#: plugin/scripting/symbolic.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr "Pembantu simbolik tidak mengembalikan LaTeX."
+
+#: plugin/scripting/symbolic.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr "Gagal mengonversi LaTeX ke Writer Math: {error}"
+
+#: plugin/scripting/symbolic.py
+msgid "No active document view."
+msgstr "Tidak ada tampilan dokumen aktif."
+
+#: plugin/scripting/symbolic.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr "Tipe dokumen tidak didukung untuk penyisipan simbolik."
+
+#: plugin/calc/editselection.py
+msgid "WriterAgent: Edit Selection (Calc)"
+msgstr "WriterAgent: Sunting Pilihan (Calc)"
+
+#: plugin/calc/editselection.py
+msgid "WriterAgent: Extend Selection (Calc)"
+msgstr "WriterAgent: Perluas Pilihan (Calc)"
+
+#: plugin/calc/excel_py_convert/auto_open.py
+#, python-brace-format
+msgid ""
+"Could not write Microsoft Excel Python package parts for:\n"
+"{0}\n"
+"\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see "
+"pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"\n"
+"{1}"
+msgstr ""
+"Tidak dapat menulis bagian paket Python Microsoft Excel untuk:\n"
+"{0}\n"
+"\n"
+"File disimpan dengan rumus =PY LibreOffice. Excel tidak akan melihat "
+"pythonScripts.xml / _xlws.PY sampai ekspor berhasil.\n"
+"\n"
+"{1}"
+
+#: plugin/calc/python/function.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr "Galat: Eksekusi utas utama habis waktu ({0})"
+
+#: plugin/calc/python/function.py
+msgid ""
+"Error: Python venv not found. Open Settings → Python, set the venv path, "
+"then Test."
+msgstr ""
+"Kesalahan: venv Python tidak ditemukan. Buka Pengaturan → Python, atur jalur "
+"venv, lalu Uji."
+
+#: plugin/calc/python/function.py
+msgid ""
+"Error: Python timed out. Open Settings → Python to raise the timeout, or "
+"Test the venv."
+msgstr ""
+"Kesalahan: Python kehabisan waktu. Buka Pengaturan → Python untuk menambah "
+"batas waktu, atau Uji venv tersebut."
+
+#: plugin/calc/python/function.py
+msgid "Image inserted"
+msgstr "Gambar disisipkan"
+
+#: plugin/calc/python/function.py
+msgid "Images inserted"
+msgstr "Gambar disisipkan"
+
+#: plugin/calc/python/geometric_recalc.py
+#, python-format
+msgid ""
+"Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
+"Python cells (discovery cap). The sheet was left unchained so a partial list "
+"is not treated as complete."
+msgstr ""
+"Urutan Hitung Ulang Geometris melewati lembar '%(sheet)s': ditemukan %(cap)s "
+"sel Python atau lebih (batas penemuan). Lembar dibiarkan tidak berantai "
+"sehingga daftar parsial tidak dianggap lengkap."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Edit Initialization Script"
+msgstr "Edit Skrip Inisialisasi"
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Open a Calc spreadsheet first."
+msgstr "Buka lembar kerja Calc terlebih dahulu."
+
+#: plugin/calc/python/init_script_editor.py
+msgid ""
+"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
+"in writeragent.json."
+msgstr ""
+"Editor Monaco dinonaktifkan oleh \"scripting.force_internal_script_editor\" "
+"di writeragent.json."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Configure a Python venv path in Settings → Python."
+msgstr "Konfigurasikan jalur venv Python di Pengaturan → Python."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Cannot import webview (pywebview) in the configured venv."
+msgstr "Tidak dapat mengimpor webview (pywebview) di venv yang dikonfigurasi."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Initialization script saved."
+msgstr "Skrip inisialisasi disimpan."
+
+#: plugin/calc/python/init_script_editor.py
+msgid "Save initialization script"
+msgstr "Simpan skrip inisialisasi"
+
+#: plugin/calc/python/cell_editor_ui.py
+msgid "PythonCellEditorDialog could not be loaded from the extension."
+msgstr "PythonCellEditorDialog tidak dapat dimuat dari ekstensi."
+
+#: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
+#: plugin/main.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Edit Python in Cell..."
+msgstr "Edit Python di Sel..."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit "
+"the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
+msgstr ""
+"Tidak dapat mempertahankan argumen rumus PY sel ini (misalnya rentang data). "
+"Edit rumus di Calc, atau gunakan string kode dalam tanda kutip seperti "
+"=PY(\"kode\"; A1:B10)."
+
+#: plugin/calc/python/editor.py
+msgid "this cell"
+msgstr "sel ini"
+
+#: plugin/calc/python/editor.py
+#, python-brace-format
+msgid ""
+"Save changes to {0}?\n"
+"\n"
+"Yes saves. No discards and opens the new cell. Cancel keeps editing {0}."
+msgstr ""
+"Simpan perubahan ke {0}?\n"
+"\n"
+"Ya untuk menyimpan. Tidak untuk membuang dan membuka sel baru. Batal untuk "
+"tetap menyunting {0}."
+
+#: plugin/calc/python/editor.py
+#, python-format
+msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
+msgstr ""
+"Tidak dapat menulis ulang literal rentang xl() menjadi argumen data =PY: %s"
+
+#: plugin/calc/python/editor.py plugin/xdl_strings.py
+msgid "Python cell editor"
+msgstr "Penyunting sel Python"
+
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
+msgstr "Editor Python gagal secara tidak terduga."
+
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr "Pilih sel di lembar kerja Calc untuk mengedit Python."
+
+#: plugin/calc/python/editor.py
+#, python-brace-format
+msgid "Could not open the code cell {0}."
+msgstr "Tidak dapat membuka sel kode {0}."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
+msgstr ""
+"Rumus PY ini menggunakan bentuk yang tidak dapat ditulis ulang dengan aman "
+"oleh editor (misalnya kode di sel lain). Edit di bilah rumus, atau gunakan "
+"=PY(\"kode\"; rentang) dengan kode dalam tanda kutip."
+
+#: plugin/calc/python/editor.py
+msgid "Could not open the built-in Python cell editor."
+msgstr "Tidak dapat membuka penyunting sel Python bawaan."
+
+#: plugin/calc/vision_egress.py
+msgid "Select an embedded image, then Run again."
+msgstr "Pilih gambar yang disematkan, lalu Jalankan lagi."
+
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
+msgstr "Jangkar gambar ke sel, pilih gambar tersebut, lalu Jalankan lagi."
+
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
+msgstr "Tidak ada tabel atau blok teks terstruktur untuk disisipkan."
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+msgstr ""
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr ""
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr ""
+
+#: plugin/framework/config_schema.py
+msgid "Chat max tokens must be >= 0"
+msgstr "Token maksimal chat harus >= 0"
+
+#: plugin/framework/config_schema.py
+msgid "Request timeout must be > 0"
+msgstr "Batas waktu permintaan harus > 0"
+
+#: plugin/framework/config_schema.py
+msgid "Temperature must be <= 1.0"
+msgstr "Suhu harus <= 1.0"
+
+#: plugin/framework/client/request_controls.py
+#, python-brace-format
+msgid "Provider busy, retrying in {0}s…"
+msgstr "Penyedia sibuk, mencoba lagi dalam {0} d…"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid ""
+"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
+"{0} context window."
+msgstr ""
+"Proses lokal Ollama/llama.cpp mengalami kegagalan karena prompt melampaui "
+"jendela konteks {0}."
+
+#: plugin/framework/client/errors.py
+msgid ""
+"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
+"too-small context window."
+msgstr ""
+"Proses lokal Ollama/llama.cpp mengalami kegagalan karena prompt melampaui "
+"jendela konteks yang terlalu kecil."
+
+#: plugin/framework/client/errors.py plugin/framework/errors.py
+msgid "Rate limited (429). Wait a moment and try again."
+msgstr "Terkena limit (429). Tunggu sejenak dan coba lagi."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr "Kesalahan HTTP {0} dari Penyedia AI: {1}"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
+"(not the general /api/paas URL)."
+msgstr ""
+" Jika kunci API Anda berasal dari langganan Paket Coding GLM, atur titik "
+"akhir ke {0} (bukan URL /api/paas umum)."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr " Model permintaan adalah: {0}."
+
+#: plugin/framework/client/llm_client.py
+msgid "Stream ended with finish_reason=error"
+msgstr "Aliran berakhir dengan finish_reason=error"
+
+#: plugin/framework/client/llm_client.py
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+"Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau "
+"gunakan model yang berbeda."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -205,10 +1463,6 @@ msgstr ""
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "Titik akhir tidak ditemukan (404). Periksa URL dan nama Model Anda."
-
-#: plugin/framework/errors.py plugin/framework/client/errors.py
-msgid "Rate limited (429). Wait a moment and try again."
-msgstr "Terkena limit (429). Tunggu sejenak dan coba lagi."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -236,8 +1490,8 @@ msgstr ""
 msgid ""
 "Python venv not found. Open Settings → Python, set the venv path, then Test."
 msgstr ""
-"Python venv tidak ditemukan. Buka Pengaturan → Python, atur jalur venv, lalu"
-" Uji."
+"Python venv tidak ditemukan. Buka Pengaturan → Python, atur jalur venv, lalu "
+"Uji."
 
 #: plugin/framework/errors.py
 msgid ""
@@ -262,8 +1516,7 @@ msgstr ""
 "Pengaturan."
 
 #: plugin/framework/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Koneksi Ditolak. Apakah server AI lokal Anda (Ollama/LM Studio) sedang "
 "berjalan?"
@@ -286,90 +1539,6 @@ msgstr "Penyedia AI melaporkan kesalahan. Coba lagi."
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} tidak ditemukan: {identifier}"
 
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr "Token maksimal chat harus >= 0"
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr "Batas waktu permintaan harus > 0"
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr "Suhu harus <= 1.0"
-
-#: plugin/framework/thread_guard.py
-msgid "UNO Thread Violation"
-msgstr "Pelanggaran Thread UNO"
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid ""
-"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
-"{0} context window."
-msgstr ""
-"Proses lokal Ollama/llama.cpp mengalami kegagalan karena prompt melampaui "
-"jendela konteks {0}."
-
-#: plugin/framework/client/errors.py
-msgid ""
-"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
-"too-small context window."
-msgstr ""
-"Proses lokal Ollama/llama.cpp mengalami kegagalan karena prompt melampaui "
-"jendela konteks yang terlalu kecil."
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr "Kesalahan HTTP {0} dari Penyedia AI: {1}"
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
-" (not the general /api/paas URL)."
-msgstr ""
-" Jika kunci API Anda berasal dari langganan Paket Coding GLM, atur titik "
-"akhir ke {0} (bukan URL /api/paas umum)."
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid " Request model was: {0}."
-msgstr " Model permintaan adalah: {0}."
-
-#: plugin/framework/client/errors.py plugin/calc/python/function.py
-#: plugin/scripting/session_manager.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr "Kesalahan: {0}"
-
-#: plugin/framework/client/llm_client.py
-msgid "Stream ended with finish_reason=error"
-msgstr "Aliran berakhir dengan finish_reason=error"
-
-#: plugin/framework/client/llm_client.py
-msgid ""
-"The model is repeating the same chunk (infinite loop). Try again or use a "
-"different model."
-msgstr ""
-"Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau"
-" gunakan model yang berbeda."
-
-#: plugin/framework/client/request_controls.py
-#, python-brace-format
-msgid "Provider busy, retrying in {0}s…"
-msgstr "Penyedia sibuk, mencoba lagi dalam {0} d…"
-
-#: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Error"
-msgstr "Galat"
-
 #: plugin/framework/config.py
 msgid "Please set Endpoint in Settings."
 msgstr "Harap atur Endpoint di Pengaturan."
@@ -381,6 +1550,241 @@ msgstr "Harap atur Model di Pengaturan."
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
 msgstr "Harap pilih model yang valid di Pengaturan (bukan placeholder)."
+
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr "Pelanggaran Thread UNO"
+
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
+msgstr "Unduh Akselerator Cython"
+
+#: plugin/librepy/settings.py
+msgid "Download Cython serialization binary:"
+msgstr "Unduh biner serialisasi Cython:"
+
+#: plugin/librepy/settings.py
+msgid "Python Settings"
+msgstr "Pengaturan Python"
+
+#: plugin/librepy/settings.py
+msgid "Could not open Settings."
+msgstr "Tidak dapat membuka Pengaturan."
+
+#: plugin/librepy/python_sidebar.py plugin/xdl_strings.py
+msgid "All"
+msgstr "Semua"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Errors"
+msgstr "Galat"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Shared kernel"
+msgstr "Kernel berbagi"
+
+#: plugin/librepy/python_sidebar.py
+msgid "Isolated"
+msgstr "Terisolasi"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: (LibreOffice embedded Python)"
+msgstr ""
+"{mode}\n"
+"Venv: (Python tertanam LibreOffice)"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: {path}"
+msgstr ""
+"{mode}\n"
+"Venv: {path}"
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: missing python at {path}"
+msgstr ""
+"{mode}\n"
+"Venv: python tidak ditemukan di {path}"
+
+#: plugin/librepy/python_sidebar.py
+msgid "(no =PY() cells on active sheet)"
+msgstr "(tidak ada sel =PY() pada lembar aktif)"
+
+#: plugin/librepy/python_sidebar.py
+msgid "(no diagnostics yet)"
+msgstr "(belum ada diagnostik)"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/panel_factory.py plugin/chatbot/hamburger_menu.py
+msgid "Run Python Script..."
+msgstr "Jalankan Skrip Python..."
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Insert LaTeX Math..."
+msgstr "Sisipkan Matematika LaTeX..."
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Text Analytics..."
+msgstr "Analisis Teks..."
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/panel_factory.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Settings"
+msgstr "Pengaturan"
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+msgid "Vision OCR Settings..."
+msgstr "Pengaturan OCR Vision..."
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Reset Python Session"
+msgstr "Atur Ulang Sesi Python"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Run All"
+msgstr "Jalankan Semua"
+
+#: plugin/librepy/sidebar_menus.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Run From Here"
+msgstr "Jalankan Dari Sini"
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Stop"
+msgstr "Berhenti"
+
+#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
+#: plugin/chatbot/dialogs.py plugin/chatbot/hamburger_menu.py
+msgid "Report bug..."
+msgstr "Laporkan bug..."
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
+msgid "More actions..."
+msgstr "Tindakan lainnya..."
+
+#: plugin/writer/editselection.py
+msgid "WriterAgent: Extend Selection"
+msgstr "WriterAgent: Perluas Pilihan"
+
+#: plugin/writer/editselection.py
+msgid "WriterAgent: Edit Selection"
+msgstr "WriterAgent: Sunting Pilihan"
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr "Terima perubahan ini"
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr "Tolak perubahan ini"
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr "Terima seluruh perubahan (agen)"
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr "Tolak seluruh perubahan (agen)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Update"
+msgstr "Perbarui"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Edit LaTeX Math"
+msgstr "Sunting Matematika LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Select a single formula to update. Multiple formulas are selected."
+msgstr "Pilih satu rumus untuk diperbarui. Beberapa rumus terpilih."
+
+#: plugin/writer/math/latex_dialog.py
+msgid ""
+"Could not identify the selected formula. Click in the text, then insert a "
+"new formula."
+msgstr ""
+"Tidak dapat mengidentifikasi rumus yang dipilih. Klik di dalam teks, lalu "
+"sisipkan rumus baru."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "Kesalahan konversi tidak dikenal"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"Gagal mengonversi LaTeX ke StarMath:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "The selected formula is no longer in the document."
+msgstr "Rumus yang dipilih tidak lagi ada di dalam dokumen."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Formula updated."
+msgstr "Rumus diperbarui."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "Perintah ini hanya tersedia di dokumen Writer."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr "Penyunting Matematika LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "Kesalahan Konversi LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "Terjadi kesalahan yang tidak terduga saat penyisipan LaTeX."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "No automatic replacement is available."
+msgstr "Tidak ada penggantian otomatis yang tersedia."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid ""
+"Suggested fix: delete the highlighted text (the blank replacement below)."
+msgstr ""
+"Saran perbaikan: hapus teks yang disorot (penggantian kosong di bawah)."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Suggested fix: replace with one space (the blank replacement below)."
+msgstr ""
+"Saran perbaikan: ganti dengan satu spasi (penggantian kosong di bawah)."
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Choose a replacement below."
+msgstr "Pilih penggantian di bawah."
+
+#: plugin/writer/locale/ai_grammar_proofreader.py
+msgid "AI Grammar"
+msgstr "Tata Bahasa AI"
+
+#: plugin/audio/tts_service.py
+msgid "Hello, I'm your LibreOffice WriterAgent."
+msgstr ""
 
 #: plugin/audio/tts_service.py
 #, python-brace-format
@@ -445,486 +1849,869 @@ msgstr ""
 msgid "Downloading Japanese phonemizer dictionary…"
 msgstr "Mengunduh kamus phonemizer bahasa Jepang…"
 
-#: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
-#: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
-#: plugin/main.py
-msgid "Edit Python in Cell..."
-msgstr "Edit Python di Sel..."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Edit Initialization Script"
-msgstr "Edit Skrip Inisialisasi"
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Open a Calc spreadsheet first."
-msgstr "Buka lembar kerja Calc terlebih dahulu."
-
-#: plugin/calc/python/init_script_editor.py
-msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
-msgstr ""
-"Editor Monaco dinonaktifkan oleh \"scripting.force_internal_script_editor\" "
-"di writeragent.json."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Configure a Python venv path in Settings → Python."
-msgstr "Konfigurasikan jalur venv Python di Pengaturan → Python."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Cannot import webview (pywebview) in the configured venv."
-msgstr "Tidak dapat mengimpor webview (pywebview) di venv yang dikonfigurasi."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Initialization script saved."
-msgstr "Skrip inisialisasi disimpan."
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Save initialization script"
-msgstr "Simpan skrip inisialisasi"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Status:"
-msgstr "Status:"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Ready"
-msgstr "Siap"
+msgid "-1"
+msgstr "-1"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "A1:C1  or  A1:C1, C1:C5"
-msgstr "A1:C1 atau A1:C1, C1:C5"
+#: plugin/xdl_strings.py
+msgid "AI Model:"
+msgstr "Model AI:"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PY() formula."
-msgstr "Rentang data hanya berlaku saat menyimpan sebagai rumus =PY()."
+#: plugin/xdl_strings.py
+msgid "API Key:"
+msgstr "Kunci API:"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
-msgstr "Calc menyuntikkan `data` dan `ranges` dari rentang ini saat runtime."
+#: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr "Lembar Aktif"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Saving…"
-msgstr "Menyimpan…"
+#: plugin/xdl_strings.py
+msgid "Additional Instructions (History):"
+msgstr "Instruksi Tambahan (Riwayat):"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/calc/python/editor.py
-#: plugin/scripting/editor_ui_strings.py
-msgid "Saved without =PY()."
-msgstr "Disimpan tanpa =PY()."
+#: plugin/xdl_strings.py
+msgid "Additional Instructions:"
+msgstr "Instruksi Tambahan:"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Saved."
-msgstr "Tersimpan."
+#: plugin/xdl_strings.py
+msgid "Ask / instruct:"
+msgstr "Tanya / instruksikan:"
 
-#: plugin/calc/python/cell_editor_ui.py
-msgid "PythonCellEditorDialog could not be loaded from the extension."
-msgstr "PythonCellEditorDialog tidak dapat dimuat dari ekstensi."
+#: plugin/xdl_strings.py
+msgid "Aspect Ratio:"
+msgstr "Rasio Aspek:"
 
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
+#: plugin/xdl_strings.py
+msgid "Auto Gallery"
+msgstr "Galeri Otomatis"
+
+#: plugin/xdl_strings.py
+msgid "Base Size:"
+msgstr "Ukuran Dasar:"
+
+#: plugin/xdl_strings.py
+msgid "Base:"
+msgstr "Dasar:"
+
+#: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr "Status Cache: Memeriksa..."
+
+#: plugin/xdl_strings.py
+msgid "Calc"
+msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Categories:"
+msgstr "Kategori:"
+
+#: plugin/xdl_strings.py plugin/chatbot/chat_sidebar_mode.py
+msgid "Chat"
+msgstr "Obrolan"
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr "Periksa Venv"
+
+#: plugin/xdl_strings.py
+msgid "Clear"
+msgstr "Bersihkan"
+
+#: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr "Konversi Lembar ke Python"
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr "Salin"
+
+#: plugin/xdl_strings.py plugin/chatbot/dialogs.py
+msgid "Copy URL"
+msgstr "Salin URL"
+
+#: plugin/xdl_strings.py
+msgid "Diagnostics:"
+msgstr "Diagnostik:"
+
+#: plugin/xdl_strings.py
+msgid "Draw"
+msgstr "Draw"
+
+#: plugin/xdl_strings.py
+msgid "Edit Cell"
+msgstr "Sunting Sel"
+
+#: plugin/xdl_strings.py
+msgid "Edit Init Script"
+msgstr "Sunting Skrip Inisialisasi"
+
+#: plugin/xdl_strings.py
+msgid "Edit config (JSON)…"
+msgstr "Edit konfigurasi (JSON)…"
+
+#: plugin/xdl_strings.py
+msgid "Edit extra tokens:"
+msgstr "Edit token tambahan:"
+
+#: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr "Edit kueri pencarian"
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL (/v1 added):"
+msgstr "URL Titik Akhir (/v1 ditambahkan):"
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL:"
+msgstr "URL Titik Akhir:"
+
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
 msgstr ""
-"Tidak dapat mempertahankan argumen rumus PY sel ini (misalnya rentang data)."
-" Edit rumus di Calc, atau gunakan string kode dalam tanda kutip seperti "
-"=PY(\"kode\"; A1:B10)."
+"Masukkan kode matematika LaTeX untuk dikonversi dan disisipkan sebagai rumus:"
 
-#: plugin/calc/python/editor.py
-msgid "this cell"
-msgstr "sel ini"
+#: plugin/xdl_strings.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Masukkan kode Python untuk dijalankan di lingkungan virtual pengguna.\n"
+"Tetapkan hasilnya ke variabel 'result'."
 
-#: plugin/calc/python/editor.py
+#: plugin/xdl_strings.py
+msgid "Entities"
+msgstr "Entitas"
+
+#: plugin/xdl_strings.py
+msgid "Extend max tokens:"
+msgstr "Perpanjang token maksimal:"
+
+#: plugin/xdl_strings.py
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr ""
+"Token ekstra di luar panjang teks asli. 0 = panjang sama dengan aslinya."
+
+#: plugin/xdl_strings.py
+msgid "Filter:"
+msgstr "Filter:"
+
+#: plugin/xdl_strings.py
+msgid "General"
+msgstr "Umum"
+
+#: plugin/xdl_strings.py
+msgid "Get API Key:"
+msgstr "Dapatkan Kunci API:"
+
+#: plugin/xdl_strings.py
+msgid "Hugging Face"
+msgstr "Hugging Face"
+
+#: plugin/xdl_strings.py
+msgid "Image Model:"
+msgstr "Model Gambar:"
+
+#: plugin/xdl_strings.py
+msgid "Image Settings"
+msgstr "Pengaturan Gambar"
+
+#: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr "Penggantian di tempat"
+
+#: plugin/xdl_strings.py plugin/chatbot/selection.py
+msgid "Input"
+msgstr "Masukan"
+
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr "Masukan:"
+
+#: plugin/xdl_strings.py
+msgid "Insert Frame"
+msgstr "Sisipkan Bingkai"
+
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr "Sisipkan Matematika LaTeX"
+
+#: plugin/xdl_strings.py
+msgid "Insert report here"
+msgstr "Sisipkan laporan di sini"
+
+#: plugin/xdl_strings.py
+msgid "Key Phrases"
+msgstr "Frasa Kunci"
+
+#: plugin/xdl_strings.py plugin/main.py
+msgid "MCP Server Status"
+msgstr "Status Server MCP"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Token Maks:"
+
+#: plugin/xdl_strings.py
+msgid "Message"
+msgstr "Pesan"
+
+#: plugin/xdl_strings.py
+msgid "Models to Test:"
+msgstr "Model untuk Diuji:"
+
+#: plugin/xdl_strings.py
+msgid "Multimodal"
+msgstr "Multimodal"
+
+#: plugin/xdl_strings.py
+msgid "NVIDIA NIM"
+msgstr "NVIDIA NIM"
+
+#: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr "Lembar Baru (PythonImport)"
+
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr "Jumlah Respons:"
+
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr "OK"
+
+#: plugin/xdl_strings.py
+msgid "OpenRouter"
+msgstr "OpenRouter"
+
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr "Opsi"
+
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr "Mode Keluaran"
+
+#: plugin/xdl_strings.py
+msgid "Please enter edit instructions:"
+msgstr "Silakan masukkan instruksi penyuntingan:"
+
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr "Pertahankan format angka"
+
+#: plugin/xdl_strings.py
+msgid "Public Tunnel:"
+msgstr "Tunnel Publik:"
+
+#: plugin/xdl_strings.py
+msgid "Python Settings…"
+msgstr "Pengaturan Python…"
+
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr "Uji Python"
+
+#: plugin/xdl_strings.py
+msgid "Python cells (active sheet):"
+msgstr "Sel Python (lembar aktif):"
+
+#: plugin/xdl_strings.py
+msgid "Python:"
+msgstr "Python:"
+
+#: plugin/xdl_strings.py
+msgid "Readability"
+msgstr "Keterbacaan"
+
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr "Bangun Ulang"
+
+#: plugin/xdl_strings.py
+msgid "Refresh"
+msgstr "Segarkan"
+
+#: plugin/xdl_strings.py
+msgid "Reset Session"
+msgstr "Atur Ulang Sesi"
+
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr "Hasil:"
+
+#: plugin/xdl_strings.py
+msgid "Run Benchmark"
+msgstr "Jalankan Tolok Ukur"
+
+#: plugin/xdl_strings.py
+msgid "Run Script"
+msgstr "Jalankan Skrip"
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr "Cakupan"
+
+#: plugin/xdl_strings.py plugin/embeddings/search_ui.py
+msgid "Search"
+msgstr "Cari"
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr "Cari Berkas Terdekat"
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr "Kueri Pencarian:"
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr "Kueri pencarian:"
+
+#: plugin/xdl_strings.py
+msgid "Seed:"
+msgstr "Seed:"
+
+#: plugin/xdl_strings.py
+msgid "Selection"
+msgstr "Pilihan"
+
+#: plugin/xdl_strings.py plugin/chatbot/panel.py
+msgid "Send"
+msgstr "Kirim"
+
+#: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr "Sentimen"
+
+#: plugin/xdl_strings.py
+msgid "Square"
+msgstr "Persegi"
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr "Status"
+
+#: plugin/xdl_strings.py
+msgid "Status: Ready"
+msgstr "Status: Siap"
+
+#: plugin/xdl_strings.py
+msgid "Steps:"
+msgstr "Langkah:"
+
+#: plugin/xdl_strings.py
+msgid "Temperature:"
+msgstr "Temperatur:"
+
+#: plugin/xdl_strings.py
+msgid "Test Connection"
+msgstr "Uji Koneksi"
+
+#: plugin/xdl_strings.py
+msgid "Text/Chat Model:"
+msgstr "Model Teks/Obrolan:"
+
+#: plugin/xdl_strings.py
+msgid "Timeout (s):"
+msgstr "Batas Waktu (dtk):"
+
+#: plugin/xdl_strings.py
+msgid "Together AI"
+msgstr "Together AI"
+
+#: plugin/xdl_strings.py
+msgid "Topics"
+msgstr "Topik"
+
+#: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr "Vektorkan kolom jika aman"
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr "Verifikasi hitung ulang (selisih oracle)"
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr "Seluruh Dokumen"
+
+#: plugin/xdl_strings.py
+msgid "Writer"
+msgstr "Writer"
+
+#: plugin/xdl_strings.py
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "Dasbor Evaluasi WriterAgent"
+
+#: plugin/xdl_strings.py
+msgid "√x"
+msgstr "√x"
+
+#: plugin/xdl_strings.py
+msgid "☰"
+msgstr "☰"
+
+#: plugin/xdl_strings.py
+msgid "⚙"
+msgstr "⚙"
+
+#: plugin/xdl_strings.py
+msgid "🔊"
+msgstr "🔊"
+
+#: plugin/xdl_strings.py
+msgid "🔍"
+msgstr "🔍"
+
+#: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
+msgid ""
+"Select an embedded image (or a range containing images), then Run again."
+msgstr ""
+"Pilih gambar yang disematkan (atau rentang yang berisi gambar), lalu "
+"Jalankan lagi."
+
+#: plugin/vision/vision_runner.py
 #, python-brace-format
 msgid ""
-"Save changes to {0}?\n"
-"\n"
-"Yes saves. No discards and opens the new cell. Cancel keeps editing {0}."
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
 msgstr ""
-"Simpan perubahan ke {0}?\n"
-"\n"
-"Ya untuk menyimpan. Tidak untuk membuang dan membuka sel baru. Batal untuk tetap menyunting {0}."
+"Gambar '{name}' tidak ditemukan. Gunakan image_list atau biarkan image_name "
+"kosong dan pilih grafisnya."
 
-#: plugin/calc/python/editor.py
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr "Gambar '{name}' tidak dapat diekspor."
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "OCR complete ({count} images)."
+msgstr "OCR selesai ({count} gambar)."
+
+#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
+msgid "OCR complete."
+msgstr "OCR selesai."
+
+#: plugin/vision/vision_runner.py
+msgid "OCR complete (text returned only; not inserted)."
+msgstr "OCR selesai (teks hanya dikembalikan; tidak disisipkan)."
+
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr "Dokumen Writer tidak memiliki pengontrol."
+
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr "Tidak dapat menyelesaikan jangkar gambar untuk penyisipan."
+
+#: plugin/vision/vision_egress.py
 #, python-format
-msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
+msgid "Could not position insert after the image: %s"
+msgstr "Tidak dapat memosisikan penyisipan setelah gambar: %s"
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr "Gambar dihapus saat menyiapkan penyisipan OCR."
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
+msgstr "Gambar dihapus selama penyisipan OCR."
+
+#: plugin/vision/vision_tools.py
+msgid "Vision OCR requires a Writer or Calc document."
+msgstr "Vision OCR memerlukan dokumen Writer atau Calc."
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
+msgstr "Kesalahan Pengiriman"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
+"(Settings → Python → Test for install hints)."
 msgstr ""
-"Tidak dapat menulis ulang literal rentang xl() menjadi argumen data =PY: %s"
+"OCR lokal memerlukan Pengaturan → Python venv dengan Docling atau PaddleOCR "
+"(Pengaturan → Python → Uji untuk petunjuk instalasi)."
 
-#: plugin/calc/python/editor.py plugin/xdl_strings.py
-msgid "Python cell editor"
-msgstr "Penyunting sel Python"
+#: plugin/doc/specialized_base.py
+msgid "Running local OCR on selected image(s)..."
+msgstr "Menjalankan OCR lokal pada gambar yang dipilih..."
 
-#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Save without =PY()"
-msgstr "Simpan tanpa =PY()"
+#: plugin/doc/specialized_base.py
+msgid ""
+"Document research reads require specialized task delegation (USE_SUB_AGENT). "
+"Enable this in configuration."
+msgstr ""
+"Pembacaan riset dokumen memerlukan pendelegasian tugas khusus "
+"(USE_SUB_AGENT). Aktifkan ini di konfigurasi."
 
-#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Save"
-msgstr "Simpan"
-
-#: plugin/calc/python/editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr "Editor Python gagal secara tidak terduga."
-
-#: plugin/calc/python/editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Pilih sel di lembar kerja Calc untuk mengedit Python."
-
-#: plugin/calc/python/editor.py
+#: plugin/doc/specialized_base.py
 #, python-brace-format
-msgid "Could not open the code cell {0}."
-msgstr "Tidak dapat membuka sel kode {0}."
-
-#: plugin/calc/python/editor.py
 msgid ""
-"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
-"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
-"quoted code."
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
 msgstr ""
-"Rumus PY ini menggunakan bentuk yang tidak dapat ditulis ulang dengan aman "
-"oleh editor (misalnya kode di sel lain). Edit di bilah rumus, atau gunakan "
-"=PY(\"kode\"; rentang) dengan kode dalam tanda kutip."
+"Panggilan alat beralih ke '{0}'. Anda berada dalam mode perangkat alat "
+"khusus. Anda harus memanggil 'specialized_workflow_finished' setelah selesai "
+"untuk memulihkan rangkaian API lengkap."
 
-#: plugin/calc/python/editor.py
-msgid "Could not open the built-in Python cell editor."
-msgstr "Tidak dapat membuka penyunting sel Python bawaan."
-
-#: plugin/calc/python/function.py
+#: plugin/main.py
 #, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr "Galat: Eksekusi utas utama habis waktu ({0})"
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} berhasil, {2} gagal."
 
-#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Unknown error"
-msgstr "Kesalahan tidak dikenal"
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Pengujian gagal dijalankan: {0}"
 
-#: plugin/calc/python/function.py
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Extend Selection"
+msgstr "Perluas Pilihan"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Edit Selection"
+msgstr "Edit Pilihan"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Toggle MCP Server"
+msgstr "Alihkan Server MCP"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run format tests"
+msgstr "Jalankan tes format"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run calc tests"
+msgstr "Jalankan tes Calc"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run Calc API integration tests"
+msgstr "Jalankan tes integrasi API Calc"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Run draw tests"
+msgstr "Jalankan tes Draw"
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Evaluation Dashboard"
+msgstr "Dasbor Evaluasi"
+
+#: plugin/main.py
+msgid "Edit LaTeX Math..."
+msgstr "Edit Matematika LaTeX..."
+
+#: plugin/main.py plugin/chatbot/panel_factory.py
+#: plugin/chatbot/hamburger_menu.py
+msgid "Search Nearby Files..."
+msgstr "Cari Berkas Terdekat..."
+
+#: plugin/main.py plugin/chatbot/hamburger_menu.py
+msgid "Convert Sheet to Python..."
+msgstr "Konversi Lembar ke Python..."
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr "baru saja"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}m ago"
+msgstr "{0}m yang lalu"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr "{0}j yang lalu"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}d ago"
+msgstr "{0} hari yang lalu"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr "Status Cache: Tidak ada dokumen aktif"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr "Status Cache: Folder tidak teratasi"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr "Status Cache: Belum dibangun (zvec)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr "Status Cache: Belum dibangun (lancedb)"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr "Status Cache: Belum dibangun"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr "Status Cache: Sudah dibangun ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr "Status Cache: Sudah dibangun"
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr "Status Cache: Kesalahan ({0})"
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr "Harap masukkan kueri pencarian."
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr "Mencari..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr "Tidak ada dokumen aktif yang ditemukan."
+
+#: plugin/embeddings/search_ui.py
 msgid ""
-"Error: Python venv not found. Open Settings → Python, set the venv path, "
-"then Test."
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
 msgstr ""
-"Kesalahan: venv Python tidak ditemukan. Buka Pengaturan → Python, atur jalur"
-" venv, lalu Uji."
+"Pencarian lintas file dinonaktifkan. Aktifkan Embeddings + FTS di Pengaturan "
+"→ Embeddings."
 
-#: plugin/calc/python/function.py
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr "Kesalahan: "
+
+#: plugin/embeddings/search_ui.py
 msgid ""
-"Error: Python timed out. Open Settings → Python to raise the timeout, or "
-"Test the venv."
+"Folder index is building in the background. Please retry search shortly."
 msgstr ""
-"Kesalahan: Python kehabisan waktu. Buka Pengaturan → Python untuk menambah "
-"batas waktu, atau Uji venv tersebut."
+"Indeks folder sedang dibangun di latar belakang. Harap coba pencarian lagi "
+"sebentar lagi."
 
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr "Gambar disisipkan"
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
+msgstr "Tidak ada kecocokan yang ditemukan."
 
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr "Gambar disisipkan"
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
+msgstr "Kesalahan saat menjalankan pencarian: "
 
-#: plugin/calc/python/geometric_recalc.py
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
+msgstr "Membangun ulang tembolok..."
+
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
+msgstr "Tidak ada folder aktif yang terdeteksi."
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
+msgstr "Pembangunan ulang tembolok berhasil diselesaikan."
+
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
+msgstr "Pembangunan ulang gagal: "
+
+#: plugin/notebook/notebook_controls.py
+msgid "Run code cell"
+msgstr "Jalankan sel kode"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
+msgstr "Eksekusi sel gagal."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr "Menjalankan notebook hanya didukung di LibreOffice Writer."
+
+#: plugin/notebook/notebook_runner.py
+msgid ""
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
+msgstr ""
+"Dokumen ini tidak memiliki notebook yang diimpor. Buka Berkas → Buka "
+"notebook Jupyter (.ipynb) terlebih dahulu."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Tidak dapat menemukan sel notebook untuk kontrol ini."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Open a Writer document first."
+msgstr "Buka dokumen Writer terlebih dahulu."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Transcribing audio..."
+msgstr "Mentranskripsikan audio..."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Kesalahan transkripsi: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr "[Kesalahan konteks dokumen: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr "[Backend agen '{0}' tidak ditemukan.]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+"[Backend agen '{0}' tidak tersedia. Periksa Pengaturan (jalur, instalasi).]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Sempurna! Saya akan mengalihkan Anda ke asisten utama sekarang."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown librarian error."
+msgstr "Kesalahan pustakawan tidak dikenal."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[Kesalahan pustakawan: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr "Brainstorming selesai."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr "Kesalahan brainstorming tidak diketahui."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Brainstorming error: {0}]"
+msgstr "[Kesalahan brainstorming: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr "Rencana penulisan selesai."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr "Kesalahan rencana penulisan tidak diketahui."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Writing plan error: {0}]"
+msgstr "[Kesalahan rencana penulisan: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr "Sesi PPT-Master selesai."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr "Kesalahan PPT-Master tidak dikenal."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[PPT-Master error: {0}]"
+msgstr "[Kesalahan PPT-Master: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr "Kesalahan deep research tidak diketahui."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr "[Kesalahan deep research: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Kesalahan riset tidak dikenal."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr "[Kesalahan riset: {0}]"
+
+#: plugin/chatbot/web_research.py
+msgid "Web research completed."
+msgstr "Riset web selesai."
+
+#: plugin/chatbot/extension_update_check.py
+msgid "Update available"
+msgstr "Pembaruan tersedia"
+
+#: plugin/chatbot/extension_update_check.py
 #, python-format
 msgid ""
-"Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list"
-" is not treated as complete."
+"A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
+"to check for updates and install the latest extension."
 msgstr ""
-"Urutan Hitung Ulang Geometris melewati lembar '%(sheet)s': ditemukan %(cap)s"
-" sel Python atau lebih (batas penemuan). Lembar dibiarkan tidak berantai "
-"sehingga daftar parsial tidak dianggap lengkap."
+"%(name)s versi baru (%(version)s) tersedia. Gunakan Alat → Manajer Ekstensi "
+"untuk memeriksa pembaruan dan menginstal ekstensi terbaru."
 
-#: plugin/calc/excel_py_convert/auto_open.py
-#, python-brace-format
-msgid ""
-"Could not write Microsoft Excel Python package parts for:\n"
-"{0}\n"
-"\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
-"\n"
-"{1}"
-msgstr ""
-"Tidak dapat menulis bagian paket Python Microsoft Excel untuk:\n"
-"{0}\n"
-"\n"
-"File disimpan dengan rumus =PY LibreOffice. Excel tidak akan melihat pythonScripts.xml / _xlws.PY sampai ekspor berhasil.\n"
-"\n"
-"{1}"
+#: plugin/chatbot/dialogs.py
+msgid "Agent requests approval"
+msgstr "Agen meminta persetujuan"
 
-#: plugin/calc/editselection.py
-msgid "WriterAgent: Edit Selection (Calc)"
-msgstr "WriterAgent: Sunting Pilihan (Calc)"
+#: plugin/chatbot/dialogs.py
+msgid "Proceed with this action?"
+msgstr "Lanjutkan tindakan ini?"
 
-#: plugin/calc/editselection.py
-msgid "WriterAgent: Extend Selection (Calc)"
-msgstr "WriterAgent: Perluas Pilihan (Calc)"
+#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Tool: %s"
+msgstr "Alat: %s"
 
-#: plugin/calc/vision_egress.py
-msgid "Select an embedded image, then Run again."
-msgstr "Pilih gambar yang disematkan, lalu Jalankan lagi."
+#: plugin/chatbot/slash_commands.py
+msgid "Print the command list"
+msgstr "Cetak daftar perintah"
 
-#: plugin/calc/vision_egress.py
-msgid "Anchor the image to a cell, select it, then Run again."
-msgstr "Jangkar gambar ke sel, pilih gambar tersebut, lalu Jalankan lagi."
+#: plugin/chatbot/slash_commands.py
+msgid "Start a new chat"
+msgstr "Mulai obrolan baru"
 
-#: plugin/calc/vision_egress.py
-msgid "No structured tables or text blocks to insert."
-msgstr "Tidak ada tabel atau blok teks terstruktur untuk disisipkan."
+#: plugin/chatbot/slash_commands.py
+msgid "Cancel the in-flight send"
+msgstr "Batalkan pengiriman yang sedang berlangsung"
 
-#: plugin/librepy/settings.py
-msgid "Cython Accelerator Download"
-msgstr "Unduh Akselerator Cython"
+#: plugin/chatbot/slash_commands.py
+msgid "Mock command (echo only)"
+msgstr "Perintah tiruan (hanya gema)"
 
-#: plugin/librepy/settings.py
-msgid "Download Cython serialization binary:"
-msgstr "Unduh biner serialisasi Cython:"
+#: plugin/chatbot/slash_commands.py
+msgid "Apply last draft (mock)"
+msgstr "Terapkan draf terakhir (tiruan)"
 
-#: plugin/librepy/settings.py
-msgid "Python Settings"
-msgstr "Pengaturan Python"
+#: plugin/chatbot/slash_commands.py
+msgid "Web research (mock)"
+msgstr "Riset web (mock)"
 
-#: plugin/librepy/settings.py
-msgid "Could not open Settings."
-msgstr "Tidak dapat membuka Pengaturan."
+#: plugin/chatbot/slash_commands.py
+msgid "Switch model (mock)"
+msgstr "Ganti model (mock)"
 
-#: plugin/librepy/python_sidebar.py plugin/xdl_strings.py
-msgid "All"
-msgstr "Semua"
+#: plugin/chatbot/slash_commands.py
+msgid "Slash commands:"
+msgstr "Perintah garis miring:"
 
-#: plugin/librepy/python_sidebar.py
-msgid "Errors"
-msgstr "Galat"
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[No speech detected.]"
+msgstr "[Tidak ada ucapan terdeteksi.]"
 
-#: plugin/librepy/python_sidebar.py plugin/scripting/python_runner_ui.py
-msgid "Output"
-msgstr "Output"
-
-#: plugin/librepy/python_sidebar.py
-msgid "Shared kernel"
-msgstr "Kernel berbagi"
-
-#: plugin/librepy/python_sidebar.py
-msgid "Isolated"
-msgstr "Terisolasi"
-
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: (LibreOffice embedded Python)"
-msgstr ""
-"{mode}\n"
-"Venv: (Python tertanam LibreOffice)"
-
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: {path}"
-msgstr ""
-"{mode}\n"
-"Venv: {path}"
-
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: missing python at {path}"
-msgstr ""
-"{mode}\n"
-"Venv: python tidak ditemukan di {path}"
-
-#: plugin/librepy/python_sidebar.py
-msgid "(no =PY() cells on active sheet)"
-msgstr "(tidak ada sel =PY() pada lembar aktif)"
-
-#: plugin/librepy/python_sidebar.py
-msgid "(no diagnostics yet)"
-msgstr "(belum ada diagnostik)"
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py plugin/main.py
-msgid "Run Python Script..."
-msgstr "Jalankan Skrip Python..."
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
-msgid "Insert LaTeX Math..."
-msgstr "Sisipkan Matematika LaTeX..."
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Text Analytics..."
-msgstr "Analisis Teks..."
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/dialog_views.py plugin/chatbot/panel_factory.py
-#: plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "Pengaturan"
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-msgid "Vision OCR Settings..."
-msgstr "Pengaturan OCR Vision..."
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Reset Python Session"
-msgstr "Atur Ulang Sesi Python"
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Run All"
-msgstr "Jalankan Semua"
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py
-msgid "Run From Here"
-msgstr "Jalankan Dari Sini"
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/main.py plugin/xdl_strings.py
-msgid "Stop"
-msgstr "Berhenti"
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/dialogs.py
-#: plugin/chatbot/hamburger_menu.py plugin/main.py plugin/xdl_strings.py
-msgid "Report bug..."
-msgstr "Laporkan bug..."
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
-msgid "More actions..."
-msgstr "Tindakan lainnya..."
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept whole change (agent)"
-msgstr "Terima seluruh perubahan (agen)"
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject whole change (agent)"
-msgstr "Tolak seluruh perubahan (agen)"
-
-#: plugin/writer/review_click_popup.py
-msgid "Accept this change"
-msgstr "Terima perubahan ini"
-
-#: plugin/writer/review_click_popup.py
-msgid "Reject this change"
-msgstr "Tolak perubahan ini"
-
-#: plugin/writer/editselection.py
-msgid "WriterAgent: Extend Selection"
-msgstr "WriterAgent: Perluas Pilihan"
-
-#: plugin/writer/editselection.py
-msgid "WriterAgent: Edit Selection"
-msgstr "WriterAgent: Sunting Pilihan"
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "No automatic replacement is available."
-msgstr "Tidak ada penggantian otomatis yang tersedia."
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid ""
-"Suggested fix: delete the highlighted text (the blank replacement below)."
-msgstr ""
-"Saran perbaikan: hapus teks yang disorot (penggantian kosong di bawah)."
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "Suggested fix: replace with one space (the blank replacement below)."
-msgstr ""
-"Saran perbaikan: ganti dengan satu spasi (penggantian kosong di bawah)."
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "Choose a replacement below."
-msgstr "Pilih penggantian di bawah."
-
-#: plugin/writer/locale/ai_grammar_proofreader.py
-msgid "AI Grammar"
-msgstr "Tata Bahasa AI"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Update"
-msgstr "Perbarui"
-
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Insert"
-msgstr "Sisipkan"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Edit LaTeX Math"
-msgstr "Sunting Matematika LaTeX"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Select a single formula to update. Multiple formulas are selected."
-msgstr "Pilih satu rumus untuk diperbarui. Beberapa rumus terpilih."
-
-#: plugin/writer/math/latex_dialog.py
-msgid ""
-"Could not identify the selected formula. Click in the text, then insert a "
-"new formula."
-msgstr ""
-"Tidak dapat mengidentifikasi rumus yang dipilih. Klik di dalam teks, lalu "
-"sisipkan rumus baru."
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Unknown conversion error"
-msgstr "Kesalahan konversi tidak dikenal"
-
-#: plugin/writer/math/latex_dialog.py
-#, python-brace-format
-msgid ""
-"Failed to convert LaTeX to StarMath:\n"
-"\n"
-"{0}"
-msgstr ""
-"Gagal mengonversi LaTeX ke StarMath:\n"
-"\n"
-"{0}"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "The selected formula is no longer in the document."
-msgstr "Rumus yang dipilih tidak lagi ada di dalam dokumen."
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Formula updated."
-msgstr "Rumus diperbarui."
-
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-msgid "Formula inserted."
-msgstr "Rumus disisipkan."
-
-#: plugin/writer/math/latex_dialog.py
-msgid "This command is only available in Writer documents."
-msgstr "Perintah ini hanya tersedia di dokumen Writer."
-
-#: plugin/writer/math/latex_dialog.py
-msgid "LaTeX Math Editor"
-msgstr "Penyunting Matematika LaTeX"
-
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Insert as display block (centered paragraph)"
-msgstr "Sisipkan sebagai blok tampilan (paragraf rata tengah)"
-
-#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Close"
-msgstr "Tutup"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "LaTeX Conversion Error"
-msgstr "Kesalahan Konversi LaTeX"
-
-#: plugin/writer/math/latex_dialog.py
-msgid "An unexpected error occurred during LaTeX insertion."
-msgstr "Terjadi kesalahan yang tidak terduga saat penyisipan LaTeX."
+#: plugin/chatbot/tool_loop.py
+msgid "Error: Toolkit unavailable"
+msgstr "Galat: Toolkit tidak tersedia"
 
 #: plugin/chatbot/research_cache_fluff.py
 msgid "about"
@@ -1186,151 +2973,70 @@ msgstr "mengapa"
 msgid "you"
 msgstr "Anda"
 
-#: plugin/chatbot/dialogs.py
-msgid "Agent requests approval"
-msgstr "Agen meminta persetujuan"
-
-#: plugin/chatbot/dialogs.py
-msgid "Proceed with this action?"
-msgstr "Lanjutkan tindakan ini?"
-
-#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
+#: plugin/chatbot/web_research_chat.py
 #, python-format
-msgid "Tool: %s"
-msgstr "Alat: %s"
+msgid "This search query '%s' will be sent to the search engine."
+msgstr "Kueri pencarian '%s' ini akan dikirim ke mesin pencari."
 
-#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
-msgid "Copied!"
-msgstr "Tersalin!"
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Cache riset ditemukan (fuzzy, kecocokan %(pct)s%%: %(lang_bit)s%(cache_key)s "
+"→ %(matched)s)"
 
-#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
-msgid "Copy URL"
-msgstr "Salin URL"
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+"Cache riset ditemukan (embedding, %(pct)s%% cocok: %(lang_bit)s%(cache_key)s "
+"→ %(matched)s)"
 
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Extend Selection"
-msgstr "Perluas Pilihan"
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr "Cache riset ditemukan (kunci: %s)"
 
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Edit Selection"
-msgstr "Edit Pilihan"
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr "Cache riset disimpan (kunci: %s)"
 
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Convert Sheet to Python..."
-msgstr "Konversi Lembar ke Python..."
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Opening '%s' for read-only access."
+msgstr "Membuka '%s' untuk akses baca-saja."
 
-#: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
-#: plugin/main.py
-msgid "Search Nearby Files..."
-msgstr "Cari Berkas Terdekat..."
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid "Could not create config file: {0}"
+msgstr "Tidak dapat membuat file konfigurasi: {0}"
 
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Toggle MCP Server"
-msgstr "Alihkan Server MCP"
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid ""
+"Could not open an editor. Path:\n"
+"{0}"
+msgstr ""
+"Tidak dapat membuka editor. Jalur:\n"
+"{0}"
 
-#: plugin/chatbot/hamburger_menu.py
-msgid "MCP Server (Running)"
-msgstr "Server MCP (Berjalan)"
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid ""
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
+"{0}"
+msgstr ""
+"Editor tidak ditemukan (instal Kate atau Gedit, atau atur EDITOR). Jalur: {0}"
 
-#: plugin/chatbot/hamburger_menu.py
-msgid "MCP Server (Stopped)"
-msgstr "Server MCP (Berhenti)"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run format tests"
-msgstr "Jalankan tes format"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run calc tests"
-msgstr "Jalankan tes Calc"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run Calc API integration tests"
-msgstr "Jalankan tes integrasi API Calc"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Run draw tests"
-msgstr "Jalankan tes Draw"
-
-#: plugin/chatbot/hamburger_menu.py plugin/main.py
-msgid "Evaluation Dashboard"
-msgstr "Dasbor Evaluasi"
-
-#: plugin/chatbot/hamburger_menu.py
-msgid "Debug"
-msgstr "Debug"
-
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
-msgstr "[Tidak ada ucapan terdeteksi.]"
-
-#: plugin/chatbot/tool_loop.py
-msgid "Error: Toolkit unavailable"
-msgstr "Galat: Toolkit tidak tersedia"
-
-#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
-msgid "Chat"
-msgstr "Obrolan"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Image"
-msgstr "Gambar"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Web Research"
-msgstr "Riset Web"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Deep Research"
-msgstr "Deep Research"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Brainstorming"
-msgstr "Brainstorming"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Writing Plan"
-msgstr "Rencana Penulisan"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "PPT-Master"
-msgstr "PPT-Master"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Librarian"
-msgstr "Pustakawan"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Print the command list"
-msgstr "Cetak daftar perintah"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Start a new chat"
-msgstr "Mulai obrolan baru"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Cancel the in-flight send"
-msgstr "Batalkan pengiriman yang sedang berlangsung"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Mock command (echo only)"
-msgstr "Perintah tiruan (hanya gema)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Apply last draft (mock)"
-msgstr "Terapkan draf terakhir (tiruan)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Web research (mock)"
-msgstr "Riset web (mock)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Switch model (mock)"
-msgstr "Ganti model (mock)"
-
-#: plugin/chatbot/slash_commands.py
-msgid "Slash commands:"
-msgstr "Perintah garis miring:"
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid "Could not start editor: {0}"
+msgstr "Tidak dapat memulai editor: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -1360,10 +3066,6 @@ msgstr "Rekam"
 #: plugin/chatbot/panel.py
 msgid "Stop Rec"
 msgstr "Berhenti Rekam"
-
-#: plugin/chatbot/panel.py plugin/xdl_strings.py
-msgid "Send"
-msgstr "Kirim"
 
 #: plugin/chatbot/panel.py
 msgid "Starting..."
@@ -1402,192 +3104,9 @@ msgstr ""
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr "[Pengiriman rekan memerlukan mode Obrolan pada bilah sisi ini.]"
 
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "This search query '%s' will be sent to the search engine."
-msgstr "Kueri pencarian '%s' ini akan dikirim ke mesin pencari."
-
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid ""
-"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
-"%(matched)s)"
-msgstr ""
-"Cache riset ditemukan (fuzzy, kecocokan %(pct)s%%: %(lang_bit)s%(cache_key)s"
-" → %(matched)s)"
-
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid ""
-"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
-"%(matched)s)"
-msgstr ""
-"Cache riset ditemukan (embedding, %(pct)s%% cocok: %(lang_bit)s%(cache_key)s"
-" → %(matched)s)"
-
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Research cache hit (key: %s)"
-msgstr "Cache riset ditemukan (kunci: %s)"
-
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Research cache saved (key: %s)"
-msgstr "Cache riset disimpan (kunci: %s)"
-
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Opening '%s' for read-only access."
-msgstr "Membuka '%s' untuk akses baca-saja."
-
-#: plugin/chatbot/web_research.py
-msgid "Web research completed."
-msgstr "Riset web selesai."
-
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid "Could not create config file: {0}"
-msgstr "Tidak dapat membuat file konfigurasi: {0}"
-
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid ""
-"Could not open an editor. Path:\n"
-"{0}"
-msgstr ""
-"Tidak dapat membuka editor. Jalur:\n"
-"{0}"
-
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid ""
-"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
-"{0}"
-msgstr ""
-"Editor tidak ditemukan (instal Kate atau Gedit, atau atur EDITOR). Jalur: "
-"{0}"
-
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid "Could not start editor: {0}"
-msgstr "Tidak dapat memulai editor: {0}"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr "Mentranskripsikan audio..."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr "[Kesalahan transkripsi: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Document context error: {0}]"
-msgstr "[Kesalahan konteks dokumen: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Agent backend '{0}' not found.]"
-msgstr "[Backend agen '{0}' tidak ditemukan.]"
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr ""
-"[Backend agen '{0}' tidak tersedia. Periksa Pengaturan (jalur, instalasi).]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Sempurna! Saya akan mengalihkan Anda ke asisten utama sekarang."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Kesalahan pustakawan tidak dikenal."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr "[Kesalahan pustakawan: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Brainstorming selesai."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Kesalahan brainstorming tidak diketahui."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr "[Kesalahan brainstorming: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Rencana penulisan selesai."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Kesalahan rencana penulisan tidak diketahui."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr "[Kesalahan rencana penulisan: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "Sesi PPT-Master selesai."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Kesalahan PPT-Master tidak dikenal."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr "[Kesalahan PPT-Master: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Kesalahan deep research tidak diketahui."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr "[Kesalahan deep research: {0}]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Kesalahan riset tidak dikenal."
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr "[Kesalahan riset: {0}]"
-
-#: plugin/chatbot/web_research_deep.py
-#, python-brace-format
-msgid "Research notes (automatic synthesis failed) for: {query}"
-msgstr "Catatan penelitian (sintesis otomatis gagal) untuk: {query}"
-
-#: plugin/chatbot/web_research_deep.py
-msgid "Sources consulted:"
-msgstr "Sumber yang dikonsultasikan:"
-
-#: plugin/chatbot/web_research_deep.py
-msgid "Web research collected no usable evidence."
-msgstr "Penelitian web tidak mengumpulkan bukti yang dapat digunakan."
-
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
 msgstr "Harap masukkan instruksi penyuntingan!"
-
-#: plugin/chatbot/selection.py plugin/xdl_strings.py
-msgid "Input"
-msgstr "Masukan"
 
 #: plugin/chatbot/selection.py
 msgid "Edit"
@@ -1606,18 +3125,114 @@ msgstr "Pilihan {0} tidak didukung untuk jenis dokumen ini"
 msgid "No document open"
 msgstr "Tidak ada dokumen yang terbuka"
 
-#: plugin/chatbot/extension_update_check.py
-msgid "Update available"
-msgstr "Pembaruan tersedia"
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(Masukkan Kunci API untuk memuat model)"
 
-#: plugin/chatbot/extension_update_check.py
-#, python-format
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(No image models on this endpoint)"
+msgstr "(Tidak ada model gambar pada titik akhir ini)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(Koneksi gagal)"
+
+#: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Research notes (automatic synthesis failed) for: {query}"
+msgstr "Catatan penelitian (sintesis otomatis gagal) untuk: {query}"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Sources consulted:"
+msgstr "Sumber yang dikonsultasikan:"
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Web research collected no usable evidence."
+msgstr "Penelitian web tidak mengumpulkan bukti yang dapat digunakan."
+
+#: plugin/chatbot/panel_factory.py
 msgid ""
-"A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
-"to check for updates and install the latest extension."
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
 msgstr ""
-"%(name)s versi baru (%(version)s) tersedia. Gunakan Alat → Manajer Ekstensi "
-"untuk memeriksa pembaruan dan menginstal ekstensi terbaru."
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Deep Research mode runs a multi-step web investigation (planning, "
+"several searches, synthesis) and can insert a formatted report into your "
+"document. It takes longer but produces more thorough results."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Let's explore and design your idea together. I'll ask questions, suggest "
+"approaches, and help you build an approved spec in your document when you're "
+"ready."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: Let's draft your document section-by-section. I'll help you create a "
+"writing plan outline, and then implement it incrementally with your approval."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
+"Python venv (scripts + export to Impress). Describe your topic or point me "
+"at a project folder."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid ""
+"AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite "
+"colors, and give a short tour. Pick Chat in the dropdown whenever you want "
+"to work on the document."
+msgstr ""
+
+#: plugin/chatbot/panel_factory.py
+msgid "Size:"
+msgstr "Ukuran:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Height:"
+msgstr "Tinggi:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Width:"
+msgstr "Lebar:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Speak responses aloud (TTS)"
+msgstr "Ucapkan respons dengan lantang (TTS)"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Image"
+msgstr "Gambar"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Web Research"
+msgstr "Riset Web"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Deep Research"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming"
+msgstr "Brainstorming"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing Plan"
+msgstr "Rencana Penulisan"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master"
+msgstr "PPT-Master"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Librarian"
+msgstr "Pustakawan"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Invalid Setting"
@@ -1651,1565 +3266,17 @@ msgstr ""
 msgid "Audio Library Download"
 msgstr "Unduh Pustaka Audio"
 
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(Enter API Key to load models)"
-msgstr "(Masukkan Kunci API untuk memuat model)"
-
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(No image models on this endpoint)"
-msgstr "(Tidak ada model gambar pada titik akhir ini)"
-
-#: plugin/chatbot/config_ui_helpers.py
-msgid "(Connection failed)"
-msgstr "(Koneksi gagal)"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Size:"
-msgstr "Ukuran:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Height:"
-msgstr "Tinggi:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Width:"
-msgstr "Lebar:"
-
-#: plugin/chatbot/panel_factory.py
-msgid "Speak responses aloud (TTS)"
-msgstr "Ucapkan respons dengan lantang (TTS)"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "New Python Script"
-msgstr "Skrip Python Baru"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Script name:"
-msgstr "Nama skrip:"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Attach to this document"
-msgstr "Lampirkan ke dokumen ini"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/document_scripts.py
-msgid "Script name cannot be empty."
-msgstr "Nama skrip tidak boleh kosong."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr "Menjalankan…"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Monaco loader missing."
-msgstr "Pemuat Monaco hilang."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Install jedi in the Python venv for completions."
-msgstr "Instal jedi di dalam venv Python untuk pelengkapan otomatis."
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
-msgid "Run"
-msgstr "Jalankan"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Cancel"
-msgstr "Batal"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Data:"
-msgstr "Data:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "New"
-msgstr "Baru"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Create"
-msgstr "Buat"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Script:"
-msgstr "Skrip:"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Attach"
-msgstr "Lampirkan"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Attach to Document"
-msgstr "Lampirkan ke Dokumen"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Save As..."
-msgstr "Simpan Sebagai..."
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-msgid "Save Script As"
-msgstr "Simpan Skrip Sebagai"
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Delete"
-msgstr "Hapus"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Scripts"
-msgstr "Skrip"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-msgid "My Scripts"
-msgstr "Skrip Saya"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
-msgstr ""
-"Pembantu bawaan bersifat baca-saja. Gunakan Salin ke Skrip Saya untuk "
-"menyesuaikan."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid ""
-"Document changed — close and reopen Run Python Script to edit document "
-"scripts."
-msgstr ""
-"Dokumen berubah — tutup dan buka kembali Jalankan Skrip Python untuk "
-"menyunting skrip dokumen."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Loaded script '{0}'."
-msgstr "Skrip '{0}' dimuat."
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
-msgid "No document is open to attach scripts."
-msgstr "Tidak ada dokumen yang terbuka untuk melampirkan skrip."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Attaching script '{0}'..."
-msgstr "Melampirkan skrip '{0}'..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Copying script '{0}' to My Scripts..."
-msgstr "Menyalin skrip '{0}' ke Skrip Saya..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Saving script '{0}'..."
-msgstr "Menyimpan skrip '{0}'..."
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Deleting script '{0}'..."
-msgstr "Menghapus skrip '{0}'..."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Built-in helpers cannot be deleted."
-msgstr "Bantuan bawaan tidak dapat dihapus."
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Enter script name:"
-msgstr "Masukkan nama skrip:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Skrip bernama '{0}' sudah ada di dokumen ini. Timpa?"
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Copy to My Scripts as:"
-msgstr "Salin ke Skrip Saya sebagai:"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
-msgstr "Skrip bernama '{0}' sudah ada di Skrip Saya. Timpa?"
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Simpan skrip '{0}' ke dokumen ini?"
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Are you sure you want to delete script '{0}'?"
-msgstr "Apakah Anda yakin ingin menghapus skrip '{0}'?"
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
-msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Pilih rentang data atau masukkan alamat A1 (disisipkan sebagai data)."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Document scripts are too large to store in the document ({0} bytes)."
-msgstr "Skrip dokumen terlalu besar untuk disimpan dalam dokumen ({0} bita)."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open to save scripts."
-msgstr "Tidak ada dokumen yang terbuka untuk menyimpan skrip."
-
-#: plugin/scripting/document_scripts.py
-msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
-msgstr ""
-"Dokumen bersifat baca-saja atau properti tidak dapat ditulis. Skrip disimpan"
-" ke pustaka pribadi Anda sebagai gantinya."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document."
-msgstr "Skrip bernama '{0}' sudah ada di dokumen ini."
-
-#: plugin/scripting/document_scripts.py
-msgid "This Document"
-msgstr "Dokumen Ini"
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr "Skrip '{0}' disimpan ke Skrip Saya."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr "Skrip '{0}' disimpan ke dokumen ini."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr "Skrip '{0}' disimpan."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Attached script '{0}' to this document."
-msgstr "Skrip '{0}' telah dilampirkan ke dokumen ini."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in My Scripts."
-msgstr "Skrip bernama '{0}' sudah ada di Skrip Saya."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Copied script '{0}' to My Scripts."
-msgstr "Skrip '{0}' telah disalin ke Skrip Saya."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Tidak ada dokumen yang terbuka."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr "Skrip dokumen '{0}' telah dihapus."
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr "Skrip '{0}' telah dihapus."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "PythonScriptDialog could not be loaded from the extension."
-msgstr "PythonScriptDialog tidak dapat dimuat dari ekstensi."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr "%s Disimpan ke Skrip Saya sebagai gantinya."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr "Skrip '%s' disimpan ke dokumen ini."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr "Skrip '%s' berhasil disimpan."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to My Scripts."
-msgstr "Skrip '%s' disimpan ke Skrip Saya."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr "Apakah Anda yakin ingin menghapus skrip '%s'?"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete Script"
-msgstr "Hapus Skrip"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr "Skrip '%s' telah dihapus."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "New Script"
-msgstr "Skrip Baru"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' created in this document."
-msgstr "Skrip '%s' dibuat di dokumen ini."
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' created in My Scripts."
-msgstr "Skrip '%s' dibuat di Skrip Saya."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr "Kesalahan Eksekusi"
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr "Skrip berhasil dijalankan."
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"Skrip berhasil dijalankan, tetapi tidak mengembalikan hasil dan tidak "
-"menghasilkan output."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr "Berhasil"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Venv OK"
-msgstr "Venv OK"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Venv check failed"
-msgstr "Pemeriksaan Venv gagal"
-
-#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr "Menguji lingkungan Python..."
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Done"
-msgstr "Selesai"
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Failed"
-msgstr "Gagal"
-
-#: plugin/scripting/editor_host.py
-msgid ""
-"Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" Monaco editor."
-msgstr ""
-"Atur jalur venv Python di Pengaturan → Python (venv yang sama tempat Anda "
-"menjalankan 'uv pip install pywebview rocher'). Python bawaan LibreOffice "
-"tidak dapat menjalankan editor Monaco."
-
-#: plugin/scripting/editor_host.py
-#, python-brace-format
-msgid ""
-"No python executable found under configured venv: {0} (expected bin/python, "
-"Scripts/python.exe, or env-root python.exe)."
-msgstr ""
-"Tidak ada eksekusi python yang ditemukan di bawah venv yang dikonfigurasi: "
-"{0} (diharapkan bin/python, Scripts/python.exe, atau env-root python.exe)."
-
-#: plugin/scripting/editor_host.py
-msgid "Could not start the Python editor."
-msgstr "Tidak dapat memulai editor Python."
-
-#: plugin/scripting/editor_host.py
-msgid "The Python editor window did not start."
-msgstr "Jendela editor Python tidak dimulai."
-
-#: plugin/scripting/editor_host.py
-msgid "The Python editor exited before it could load your code."
-msgstr "Editor Python keluar sebelum dapat memuat kode Anda."
-
-#: plugin/scripting/editor_host.py
-msgid "Could not talk to the Python editor."
-msgstr "Tidak dapat berkomunikasi dengan editor Python."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr "Di Linux, instal juga PortAudio sistem: sudo pacman -S portaudio"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio probe timed out (sounddevice import failed or hung)."
-msgstr "Pemeriksaan audio habis waktu (impor sounddevice gagal atau macet)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio probe failed (see writeragent_debug.log)."
-msgstr "Pemeriksaan audio gagal (lihat writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
-"on first check)."
-msgstr ""
-"Probe Teks/NLP kehabisan waktu (impor awal spaCy atau transformers bisa "
-"memakan waktu 10–30 detik pada pemeriksaan pertama)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text/NLP probe failed (see writeragent_debug.log)."
-msgstr "Probe Teks/NLP gagal (lihat writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
-msgstr ""
-"Probe visi kehabisan waktu (impor Docling bisa memakan waktu 10–30 detik "
-"pada pemeriksaan pertama)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe failed (see writeragent_debug.log)."
-msgstr "Probe visi gagal (lihat writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vector Search probe timed out (sentence-transformers import can take 10–30s "
-"on first check)."
-msgstr ""
-"Probe Pencarian Vektor habis waktu (impor sentence-transformers bisa memakan"
-" waktu 10–30 detik pada pemeriksaan pertama)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search probe failed (see writeragent_debug.log)."
-msgstr "Probe Pencarian Vektor gagal (lihat writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording & Speech"
-msgstr "Rekaman Audio & Ucapan"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Scientific Libraries"
-msgstr "Pustaka Ilmiah"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Analysis / EDA Libraries"
-msgstr "Pustaka Analisis Data / EDA"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries"
-msgstr "Pustaka UI / Monaco"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Visualization Libraries"
-msgstr "Pustaka Visualisasi"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Computer Algebra"
-msgstr "Aljabar Komputer"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Quantitative Finance Libraries"
-msgstr "Pustaka Keuangan Kuantitatif"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Engineering Libraries"
-msgstr "Pustaka Rekayasa Data"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries"
-msgstr "Pustaka Teks / NLP"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries"
-msgstr "Pustaka Visi"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries"
-msgstr "Pustaka Pencarian Vektor"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr "Perekaman Audio"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "To install remaining packages:"
-msgstr "Untuk menginstal paket yang tersisa:"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "No microphone input devices detected."
-msgstr "Tidak ada perangkat input mikrofon yang terdeteksi."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Local TTS engines (optional):"
-msgstr "Mesin TTS lokal (opsional):"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Starting Python worker..."
-msgstr "Memulai pekerja Python..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Reading Python version..."
-msgstr "Membaca versi Python..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr "Audio & Ucapan: memeriksa sounddevice dan mesin TTS..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries: loading (first run may take a while)..."
-msgstr ""
-"Pustaka Teks / NLP: memuat (penggunaan pertama mungkin memakan waktu)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr "Pustaka Visi: memuat (penggunaan pertama mungkin memakan waktu)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries: loading (first run may take a while)..."
-msgstr ""
-"Pustaka Pencarian Vektor: memuat (penggunaan pertama mungkin memakan "
-"waktu)..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Using LibreOffice process Python..."
-msgstr "Menggunakan Python proses LibreOffice..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Resolving venv Python..."
-msgstr "Menyelesaikan venv Python..."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Using"
-msgstr "Menggunakan"
-
-#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
-msgid "Text Analytics"
-msgstr "Analisis Teks"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Could not load the analytics dialog."
-msgstr "Tidak dapat memuat dialog analisis."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr "Memeriksa instalasi spaCy / textdescriptives / transformers..."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-brace-format
-msgid ""
-"Error from the Text Analytics worker:\n"
-"{err}\n"
-"\n"
-"The features in this dialog require these packages in the python it is using:\n"
-"  • spacy + a model          (entities, key phrases, basic stats)\n"
-"  • textdescriptives         (real Readability scores)\n"
-"  • transformers + torch     (Sentiment using the multilingual model)\n"
-"\n"
-"Install them with:\n"
-"  {install}\n"
-"\n"
-"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
-msgstr ""
-"Kesalahan dari pekerja Analisis Teks:\n"
-"{err}\n"
-"\n"
-"Fitur-fitur dalam dialog ini memerlukan paket-paket berikut dalam python yang digunakannya:\n"
-"  • spacy + model          (entitas, frasa kunci, statistik dasar)\n"
-"  • textdescriptives         (skor Keterbacaan nyata)\n"
-"  • transformers + torch     (Sentimen menggunakan model multibahasa)\n"
-"\n"
-"Instal paket tersebut dengan:\n"
-"  {install}\n"
-"\n"
-"Pekerja melaporkan modul tersebut hilang. Pastikan paket terinstal di eksekusi python yang tepat yang diselesaikan oleh pekerja untuk venv yang Anda konfigurasi."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Open a Writer document to analyze."
-msgstr "Buka dokumen Writer untuk dianalisis."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Not enough text in the chosen scope."
-msgstr "Tidak cukup teks dalam cakupan yang dipilih."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Analyzing..."
-msgstr "Menganalisis..."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-format
-msgid ""
-"Error: %s\n"
-"\n"
-"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
-msgstr ""
-"Kesalahan: %s\n"
-"\n"
-"Paket yang diperlukan mungkin hilang dalam venv yang Anda konfigurasi (Pengaturan → Python). Klik Periksa Venv di dialog ini atau gunakan Tes lengkap di Pengaturan → Python untuk detail mengenai spacy, textdescriptives, transformers, torch, dll."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "No Writer document to insert into."
-msgstr "Tidak ada dokumen Writer untuk disisipkan."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr "Jalankan analisis terlebih dahulu."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Nothing useful to insert from the last result."
-msgstr "Tidak ada yang berguna untuk disisipkan dari hasil terakhir."
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-format
-msgid "Insert failed: %s"
-msgstr "Penyisipan gagal: %s"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Inserted after selection/caret."
-msgstr "Disisipkan setelah pilihan/kursor."
-
-#: plugin/scripting/symbolic.py
-msgid "Symbolic helper failed."
-msgstr "Pembantu simbolik gagal."
-
-#: plugin/scripting/symbolic.py
-msgid "Symbolic helper returned no LaTeX."
-msgstr "Pembantu simbolik tidak mengembalikan LaTeX."
-
-#: plugin/scripting/symbolic.py
-#, python-brace-format
-msgid "Failed to convert LaTeX to Writer Math: {error}"
-msgstr "Gagal mengonversi LaTeX ke Writer Math: {error}"
-
-#: plugin/scripting/symbolic.py
-msgid "No active document view."
-msgstr "Tidak ada tampilan dokumen aktif."
-
-#: plugin/scripting/symbolic.py
-msgid "Unsupported document type for symbolic insertion."
-msgstr "Tipe dokumen tidak didukung untuk penyisipan simbolik."
-
-#: plugin/scripting/viz.py
-msgid "Unsupported document type for plot insertion."
-msgstr "Tipe dokumen tidak didukung untuk penyisipan plot."
-
-#: plugin/scripting/viz.py
-msgid "Viz helper failed."
-msgstr "Pembantu Viz gagal."
-
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr "Pembantu Viz tidak mengembalikan payload gambar."
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-"Vision '{helper}' selesai. HTML disisipkan ({blocks} blok, {tables} tabel). "
-"(memakan waktu {time})"
-
-#: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr ""
-"Vision '{helper}' selesai. HTML terformat disisipkan. (memakan waktu {time})"
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"{domain} '{helper}' selesai. Menulis {rows} baris. (memakan waktu {time})"
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "{domain} '{helper}' completed. (took {time})"
-msgstr "{domain} '{helper}' selesai. (memakan waktu {time})"
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-"Atur Ulang Sesi Python untuk buku catatan berlaku untuk LibreOffice Writer. "
-"Buka dokumen Writer dengan buku catatan Jupyter yang diimpor dan coba lagi."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"This Writer document has no imported notebook registry. File → Open a "
-"Jupyter notebook (.ipynb) first."
-msgstr ""
-"Dokumen Writer ini tidak memiliki registri notebook yang diimpor. Buka "
-"Berkas → Buka notebook Jupyter (.ipynb) terlebih dahulu."
-
-#: plugin/scripting/session_manager.py
-msgid "Could not resolve notebook Python session."
-msgstr "Tidak dapat menyelesaikan sesi Python buku catatan."
-
-#: plugin/scripting/session_manager.py
-msgid "Notebook Python session reset for this document."
-msgstr "Sesi Python buku catatan diatur ulang untuk dokumen ini."
-
-#: plugin/scripting/session_manager.py
-msgid "Could not reset Python session."
-msgstr "Tidak dapat mengatur ulang sesi Python."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-"Atur Ulang Sesi Python berlaku untuk lembar kerja Calc. Buka buku kerja Calc"
-" dan coba lagi."
-
-#: plugin/scripting/session_manager.py
-msgid "Python session reset for this workbook."
-msgstr "Sesi Python diatur ulang untuk buku kerja ini."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Initialization script and any in-memory init state were reset for this "
-"workbook. Cell variables were already isolated per cell."
-msgstr ""
-"Skrip inisialisasi dan status inisialisasi dalam memori telah diatur ulang "
-"untuk buku kerja ini. Variabel sel sudah diisolasi per sel."
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Python session mode is Isolated (each =PY() cell uses its own variables). "
-"There is no shared cell session to reset. Add an initialization script if "
-"you need to clear expensive one-time workbook setup."
-msgstr ""
-"Mode sesi Python adalah Terisolasi (setiap sel =PY() menggunakan variabelnya"
-" sendiri). Tidak ada sesi sel bersama untuk diatur ulang. Tambahkan skrip "
-"inisialisasi jika Anda perlu menghapus pengaturan buku kerja satu kali yang "
-"memakan sumber daya."
-
-#: plugin/scripting/session_manager.py
-msgid "Python session reset for this document."
-msgstr "Sesi Python diatur ulang untuk dokumen ini."
-
-#: plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Pembantu unit gagal."
-
-#: plugin/scripting/units.py
-msgid "Units helper returned no formatted text."
-msgstr "Pembantu unit tidak mengembalikan teks terformat."
-
-#: plugin/scripting/units.py
-msgid "Unsupported document type for units insertion."
-msgstr "Tipe dokumen tidak didukung untuk penyisipan unit."
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Gagal menyisipkan hasil: {error} (memakan waktu {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr "Plot disisipkan ({title}). (memakan waktu {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr "Viz '{helper}' selesai. {msg}"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' selesai. Disisipkan: {preview} (memakan waktu {time})"
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Unit '{helper}' selesai. Disisipkan: {preview} (memakan waktu {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr "Gagal menyisipkan hasil ke Calc: %s"
-
-#: plugin/scripting/python_runner.py
-msgid "Info"
-msgstr "Info"
-
-#: plugin/scripting/python_runner.py
-msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr "Penyisipan hasil ke Draw/Impress belum didukung. PR diterima!"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Pembantu visi memerlukan dokumen Writer atau Calc."
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr "Pembantu visi gagal."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
-"(took {time})"
-msgstr ""
-"Visi '{helper}' selesai. Menyisipkan HTML terformat untuk {count} gambar. "
-"(memakan waktu {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
-msgstr ""
-"Skrip berhasil dijalankan, tetapi tidak mengembalikan hasil dan tidak "
-"menghasilkan keluaran. (memakan waktu {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr ""
-"Tipe dokumen tidak didukung untuk penyisipan hasil. (memakan waktu {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Script executed successfully. (took {time})"
-msgstr "Skrip berhasil dijalankan. (memakan waktu {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr "Skrip disimpan."
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run Python Script"
-msgstr "Jalankan Skrip Python"
-
-#: plugin/scripting/python_runner.py
-msgid "Run Python Script failed to open the Monaco editor."
-msgstr "Jalankan Skrip Python gagal membuka editor Monaco."
-
-#: plugin/scripting/python_runner.py
-msgid "Could not open the built-in script dialog."
-msgstr "Tidak dapat membuka dialog skrip bawaan."
-
-#: plugin/scripting/python_runner.py
-msgid "An unexpected error occurred while opening Run Python Script."
-msgstr ""
-"Terjadi kesalahan yang tidak terduga saat membuka Jalankan Skrip Python."
-
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
-msgstr "Kesalahan Pengiriman"
-
-#: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
-msgid ""
-"Select an embedded image (or a range containing images), then Run again."
-msgstr ""
-"Pilih gambar yang disematkan (atau rentang yang berisi gambar), lalu "
-"Jalankan lagi."
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
-msgstr ""
-"Gambar '{name}' tidak ditemukan. Gunakan image_list atau biarkan image_name "
-"kosong dan pilih grafisnya."
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr "Gambar '{name}' tidak dapat diekspor."
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid "OCR complete ({count} images)."
-msgstr "OCR selesai ({count} gambar)."
-
-#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
-msgid "OCR complete."
-msgstr "OCR selesai."
-
-#: plugin/vision/vision_runner.py
-msgid "OCR complete (text returned only; not inserted)."
-msgstr "OCR selesai (teks hanya dikembalikan; tidak disisipkan)."
-
-#: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
-msgstr "Vision OCR memerlukan dokumen Writer atau Calc."
-
-#: plugin/vision/vision_egress.py
-msgid "Writer document has no controller."
-msgstr "Dokumen Writer tidak memiliki pengontrol."
-
-#: plugin/vision/vision_egress.py
-msgid "Could not resolve the image anchor for insert."
-msgstr "Tidak dapat menyelesaikan jangkar gambar untuk penyisipan."
-
-#: plugin/vision/vision_egress.py
-#, python-format
-msgid "Could not position insert after the image: %s"
-msgstr "Tidak dapat memosisikan penyisipan setelah gambar: %s"
-
-#: plugin/vision/vision_egress.py
-msgid "The image was removed while preparing OCR insert."
-msgstr "Gambar dihapus saat menyiapkan penyisipan OCR."
-
-#: plugin/vision/vision_egress.py
-msgid "The image was removed during OCR insert."
-msgstr "Gambar dihapus selama penyisipan OCR."
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Server MCP gagal dijalankan"
-
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Periksa writeragent_debug.log di folder konfigurasi pengguna LibreOffice "
-"Anda"
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr "Hentikan Server MCP"
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr "Jalankan Server MCP"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr "Terowongan publik melalui {0} (tanpa autentikasi)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr "Terowongan publik melalui {0}: {1}"
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr "menghubungkan kembali…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr "Terowongan publik melalui {0} gagal: {1}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr "Terowongan publik melalui {0} sedang dimulai…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-"Terowongan publik melalui {0} tidak berjalan (apakah biner penyedia sudah "
-"terinstal?)"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr "Server MCP dihentikan"
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr "Server MCP dijalankan"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr "Terowongan publik melalui {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-"Terowongan publik melalui {0} sedang dimulai… gunakan Status Server MCP saat"
-" siap."
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr "Server MCP tidak berjalan"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr "Server MCP berjalan"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr "Rute: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr "URL Lokal: {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr "URL Publik: {0}"
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr "Titik Akhir Lokal:"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr "Terowongan Publik ({0}):"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr "Status: Aktif (terhubung)"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr "Status: Menyambungkan kembali — {0}"
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr "mencoba lagi…"
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr "Status: Memulai terowongan…"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr "Status: Gagal — {0}"
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr "Status: Tidak berjalan (apakah biner {0} terinstal?)"
-
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
-msgstr "✓ Disalin!"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
-msgstr "Menguji…"
-
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
-msgstr "Uji Terowongan"
-
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr "Uji Terowongan MCP"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
-msgstr "Mode uji terowongan: penyedia {0} berhasil disimulasikan."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
-msgstr "Penyedia tunnel tidak dikenal: {0}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
-msgstr ""
-"Binary '{0}' untuk {1} tidak ditemukan pada PATH.\n"
-"\n"
-"Instal dari: {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
-msgstr "Gagal mengeksekusi binary {0} ({1}): {2}"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
-msgstr ""
-"Tunnel {0} sedang berjalan dan responsif!\n"
-"\n"
-"Endpoint publik:\n"
-"{1}\n"
-"\n"
-"Cek kesehatan: OK (200)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
-msgstr ""
-"Tunnel {0} aktif!\n"
-"\n"
-"Endpoint publik:\n"
-"{1}\n"
-"\n"
-"(URL publik diperoleh dari sesi tunnel yang aktif.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
-msgstr ""
-"Binary {0} '{1}' telah diverifikasi ({2}).\n"
-"\n"
-"(Catatan: Tunnel {3} yang aktif saat ini sedang berjalan di {4}.)"
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
-msgstr ""
-"Binary {0} '{1}' telah diinstal dan diverifikasi ({2}).\n"
-"\n"
-"Server MCP sedang berjalan secara lokal pada port {3}.\n"
-"Centang 'Expose via public tunnel' dan klik OK untuk mengaktifkan perutean publik."
-
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
-msgstr ""
-"Binary {0} '{1}' telah diinstal dan diverifikasi ({2}).\n"
-"\n"
-"Catatan: Server MCP saat ini tidak berjalan pada port {3}."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} berhasil, {2} gagal."
-
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Pengujian gagal dijalankan: {0}"
-
-#: plugin/main.py plugin/xdl_strings.py
-msgid "MCP Server Status"
-msgstr "Status Server MCP"
-
-#: plugin/main.py
-msgid "Edit LaTeX Math..."
-msgstr "Edit Matematika LaTeX..."
-
-#: plugin/xdl_strings.py
-msgid "-1"
-msgstr "-1"
-
-#: plugin/xdl_strings.py
-msgid "AI Model:"
-msgstr "Model AI:"
-
-#: plugin/xdl_strings.py
-msgid "API Key:"
-msgstr "Kunci API:"
-
-#: plugin/xdl_strings.py
-msgid "Active Sheet"
-msgstr "Lembar Aktif"
-
-#: plugin/xdl_strings.py
-msgid "Additional Instructions (History):"
-msgstr "Instruksi Tambahan (Riwayat):"
-
-#: plugin/xdl_strings.py
-msgid "Additional Instructions:"
-msgstr "Instruksi Tambahan:"
-
-#: plugin/xdl_strings.py
-msgid "Ask / instruct:"
-msgstr "Tanya / instruksikan:"
-
-#: plugin/xdl_strings.py
-msgid "Aspect Ratio:"
-msgstr "Rasio Aspek:"
-
-#: plugin/xdl_strings.py
-msgid "Auto Gallery"
-msgstr "Galeri Otomatis"
-
-#: plugin/xdl_strings.py
-msgid "Base Size:"
-msgstr "Ukuran Dasar:"
-
-#: plugin/xdl_strings.py
-msgid "Base:"
-msgstr "Dasar:"
-
-#: plugin/xdl_strings.py
-msgid "Cache Status: Checking..."
-msgstr "Status Cache: Memeriksa..."
-
-#: plugin/xdl_strings.py
-msgid "Calc"
-msgstr "Calc"
-
-#: plugin/xdl_strings.py
-msgid "Categories:"
-msgstr "Kategori:"
-
-#: plugin/xdl_strings.py
-msgid "Check Venv"
-msgstr "Periksa Venv"
-
-#: plugin/xdl_strings.py
-msgid "Clear"
-msgstr "Bersihkan"
-
-#: plugin/xdl_strings.py
-msgid "Convert Sheet to Python"
-msgstr "Konversi Lembar ke Python"
-
-#: plugin/xdl_strings.py
-msgid "Copy"
-msgstr "Salin"
-
-#: plugin/xdl_strings.py
-msgid "Diagnostics:"
-msgstr "Diagnostik:"
-
-#: plugin/xdl_strings.py
-msgid "Draw"
-msgstr "Draw"
-
-#: plugin/xdl_strings.py
-msgid "Edit Cell"
-msgstr "Sunting Sel"
-
-#: plugin/xdl_strings.py
-msgid "Edit Init Script"
-msgstr "Sunting Skrip Inisialisasi"
-
-#: plugin/xdl_strings.py
-msgid "Edit config (JSON)…"
-msgstr "Edit konfigurasi (JSON)…"
-
-#: plugin/xdl_strings.py
-msgid "Edit extra tokens:"
-msgstr "Edit token tambahan:"
-
-#: plugin/xdl_strings.py
-msgid "Edit search query"
-msgstr "Edit kueri pencarian"
-
-#: plugin/xdl_strings.py
-msgid "Endpoint URL (/v1 added):"
-msgstr "URL Titik Akhir (/v1 ditambahkan):"
-
-#: plugin/xdl_strings.py
-msgid "Endpoint URL:"
-msgstr "URL Titik Akhir:"
-
-#: plugin/xdl_strings.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr ""
-"Masukkan kode matematika LaTeX untuk dikonversi dan disisipkan sebagai "
-"rumus:"
-
-#: plugin/xdl_strings.py
-msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
-msgstr ""
-"Masukkan kode Python untuk dijalankan di lingkungan virtual pengguna.\n"
-"Tetapkan hasilnya ke variabel 'result'."
-
-#: plugin/xdl_strings.py
-msgid "Entities"
-msgstr "Entitas"
-
-#: plugin/xdl_strings.py
-msgid "Extend max tokens:"
-msgstr "Perpanjang token maksimal:"
-
-#: plugin/xdl_strings.py
-msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr ""
-"Token ekstra di luar panjang teks asli. 0 = panjang sama dengan aslinya."
-
-#: plugin/xdl_strings.py
-msgid "Filter:"
-msgstr "Filter:"
-
-#: plugin/xdl_strings.py
-msgid "General"
-msgstr "Umum"
-
-#: plugin/xdl_strings.py
-msgid "Get API Key:"
-msgstr "Dapatkan Kunci API:"
-
-#: plugin/xdl_strings.py
-msgid "Hugging Face"
-msgstr "Hugging Face"
-
-#: plugin/xdl_strings.py
-msgid "Image Model:"
-msgstr "Model Gambar:"
-
-#: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr "Pengaturan Gambar"
-
-#: plugin/xdl_strings.py
-msgid "In-place replacement"
-msgstr "Penggantian di tempat"
-
-#: plugin/xdl_strings.py
-msgid "Input:"
-msgstr "Masukan:"
-
-#: plugin/xdl_strings.py
-msgid "Insert Frame"
-msgstr "Sisipkan Bingkai"
-
-#: plugin/xdl_strings.py
-msgid "Insert LaTeX Math"
-msgstr "Sisipkan Matematika LaTeX"
-
-#: plugin/xdl_strings.py
-msgid "Insert report here"
-msgstr "Sisipkan laporan di sini"
-
-#: plugin/xdl_strings.py
-msgid "Key Phrases"
-msgstr "Frasa Kunci"
-
-#: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr "Token Maks:"
-
-#: plugin/xdl_strings.py
-msgid "Message"
-msgstr "Pesan"
-
-#: plugin/xdl_strings.py
-msgid "Models to Test:"
-msgstr "Model untuk Diuji:"
-
-#: plugin/xdl_strings.py
-msgid "Multimodal"
-msgstr "Multimodal"
-
-#: plugin/xdl_strings.py
-msgid "NVIDIA NIM"
-msgstr "NVIDIA NIM"
-
-#: plugin/xdl_strings.py
-msgid "New Sheet (PythonImport)"
-msgstr "Lembar Baru (PythonImport)"
-
-#: plugin/xdl_strings.py
-msgid "Number of Responses:"
-msgstr "Jumlah Respons:"
-
-#: plugin/xdl_strings.py
-msgid "OK"
-msgstr "OK"
-
-#: plugin/xdl_strings.py
-msgid "OpenRouter"
-msgstr "OpenRouter"
-
-#: plugin/xdl_strings.py
-msgid "Options"
-msgstr "Opsi"
-
-#: plugin/xdl_strings.py
-msgid "Output Mode"
-msgstr "Mode Keluaran"
-
-#: plugin/xdl_strings.py
-msgid "Please enter edit instructions:"
-msgstr "Silakan masukkan instruksi penyuntingan:"
-
-#: plugin/xdl_strings.py
-msgid "Preserve number formats"
-msgstr "Pertahankan format angka"
-
-#: plugin/xdl_strings.py
-msgid "Public Tunnel:"
-msgstr "Tunnel Publik:"
-
-#: plugin/xdl_strings.py
-msgid "Python Settings…"
-msgstr "Pengaturan Python…"
-
-#: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr "Uji Python"
-
-#: plugin/xdl_strings.py
-msgid "Python cells (active sheet):"
-msgstr "Sel Python (lembar aktif):"
-
-#: plugin/xdl_strings.py
-msgid "Python:"
-msgstr "Python:"
-
-#: plugin/xdl_strings.py
-msgid "Readability"
-msgstr "Keterbacaan"
-
-#: plugin/xdl_strings.py
-msgid "Rebuild"
-msgstr "Bangun Ulang"
-
-#: plugin/xdl_strings.py
-msgid "Refresh"
-msgstr "Segarkan"
-
-#: plugin/xdl_strings.py
-msgid "Reset Session"
-msgstr "Atur Ulang Sesi"
-
-#: plugin/xdl_strings.py
-msgid "Results:"
-msgstr "Hasil:"
-
-#: plugin/xdl_strings.py
-msgid "Run Benchmark"
-msgstr "Jalankan Tolok Ukur"
-
-#: plugin/xdl_strings.py
-msgid "Run Script"
-msgstr "Jalankan Skrip"
-
-#: plugin/xdl_strings.py
-msgid "Scope"
-msgstr "Cakupan"
-
-#: plugin/xdl_strings.py
-msgid "Search Nearby Files"
-msgstr "Cari Berkas Terdekat"
-
-#: plugin/xdl_strings.py
-msgid "Search Query:"
-msgstr "Kueri Pencarian:"
-
-#: plugin/xdl_strings.py
-msgid "Search query:"
-msgstr "Kueri pencarian:"
-
-#: plugin/xdl_strings.py
-msgid "Seed:"
-msgstr "Seed:"
-
-#: plugin/xdl_strings.py
-msgid "Selection"
-msgstr "Pilihan"
-
-#: plugin/xdl_strings.py
-msgid "Sentiment"
-msgstr "Sentimen"
-
-#: plugin/xdl_strings.py
-msgid "Square"
-msgstr "Persegi"
-
-#: plugin/xdl_strings.py
-msgid "Status"
-msgstr "Status"
-
-#: plugin/xdl_strings.py
-msgid "Status: Ready"
-msgstr "Status: Siap"
-
-#: plugin/xdl_strings.py
-msgid "Steps:"
-msgstr "Langkah:"
-
-#: plugin/xdl_strings.py
-msgid "Temperature:"
-msgstr "Temperatur:"
-
-#: plugin/xdl_strings.py
-msgid "Test Connection"
-msgstr "Uji Koneksi"
-
-#: plugin/xdl_strings.py
-msgid "Text/Chat Model:"
-msgstr "Model Teks/Obrolan:"
-
-#: plugin/xdl_strings.py
-msgid "Timeout (s):"
-msgstr "Batas Waktu (dtk):"
-
-#: plugin/xdl_strings.py
-msgid "Together AI"
-msgstr "Together AI"
-
-#: plugin/xdl_strings.py
-msgid "Topics"
-msgstr "Topik"
-
-#: plugin/xdl_strings.py
-msgid "Vectorize columns when safe"
-msgstr "Vektorkan kolom jika aman"
-
-#: plugin/xdl_strings.py
-msgid "Verify recalc (oracle diff)"
-msgstr "Verifikasi hitung ulang (selisih oracle)"
-
-#: plugin/xdl_strings.py
-msgid "Whole Document"
-msgstr "Seluruh Dokumen"
-
-#: plugin/xdl_strings.py
-msgid "Writer"
-msgstr "Writer"
-
-#: plugin/xdl_strings.py
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "Dasbor Evaluasi WriterAgent"
-
-#: plugin/xdl_strings.py
-msgid "√x"
-msgstr "√x"
-
-#: plugin/xdl_strings.py
-msgid "☰"
-msgstr "☰"
-
-#: plugin/xdl_strings.py
-msgid "⚙"
-msgstr "⚙"
-
-#: plugin/xdl_strings.py
-msgid "🔊"
-msgstr "🔊"
-
-#: plugin/xdl_strings.py
-msgid "🔍"
-msgstr "🔍"
+#: plugin/chatbot/hamburger_menu.py
+msgid "MCP Server (Running)"
+msgstr "Server MCP (Berjalan)"
+
+#: plugin/chatbot/hamburger_menu.py
+msgid "MCP Server (Stopped)"
+msgstr "Server MCP (Berhenti)"
+
+#: plugin/chatbot/hamburger_menu.py
+msgid "Debug"
+msgstr "Debug"
 
 msgid "Agent Communication Protocol"
 msgstr "Protokol Komunikasi Agen"
@@ -3274,8 +3341,8 @@ msgid "TTS Provider"
 msgstr "Penyedia TTS"
 
 msgid ""
-"Choose whether to use built-in OS speech, a local neural engine, or your API"
-" endpoint."
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
 msgstr ""
 "Pilih apakah akan menggunakan ucapan bawaan OS, mesin saraf lokal, atau "
 "titik akhir API Anda."
@@ -3368,8 +3435,8 @@ msgid ""
 "never cached. Set calc.ods_cache_enabled false in writeragent.json to "
 "disable."
 msgstr ""
-"Konversi .xlsx/.xls saudara ke writeragent_ods_cache/ di samping folder agar"
-" SQL DuckDB berulang menggunakan kembali ODS tersebut. .ods asli dan buku "
+"Konversi .xlsx/.xls saudara ke writeragent_ods_cache/ di samping folder agar "
+"SQL DuckDB berulang menggunakan kembali ODS tersebut. .ods asli dan buku "
 "kerja langsung tidak pernah disinggah. Atur calc.ods_cache_enabled false di "
 "writeragent.json untuk menonaktifkan."
 
@@ -3442,8 +3509,7 @@ msgid "Cache max (MB)"
 msgstr "Cache maksimal (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
-msgstr ""
-"Ukuran disk maksimum untuk cache pencarian web (0 untuk menonaktifkan)"
+msgstr "Ukuran disk maksimum untuk cache pencarian web (0 untuk menonaktifkan)"
 
 msgid "Cache validity (days)"
 msgstr "Masa berlaku cache (hari)"
@@ -3463,13 +3529,13 @@ msgstr "Keahlian Humanizer (prosa alami)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
+"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
+"dedicated Skills tab can be added later."
 msgstr ""
 "Saat diaktifkan, menyuntikkan panduan ke dalam prompt sistem agar model "
-"membuat teks dokumen yang dihasilkan atau direvisi terdengar lebih alami dan"
-" manusiawi (menghapus pola AI yang kaku). Edit aturan di profil LibreOffice "
+"membuat teks dokumen yang dihasilkan atau direvisi terdengar lebih alami dan "
+"manusiawi (menghapus pola AI yang kaku). Edit aturan di profil LibreOffice "
 "Anda di bawah writeragent/skills/humanizer/SKILL.md (file dibuat otomatis "
 "saat penggunaan pertama). Tab Keahlian khusus dapat ditambahkan nanti."
 
@@ -3480,8 +3546,8 @@ msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
 msgstr ""
-"Jeda setelah Anda berhenti bicara, lalu berhenti otomatis dan kirim (Rekam)."
-" 0 = tunggu sampai Anda mengeklik Berhenti Rekam."
+"Jeda setelah Anda berhenti bicara, lalu berhenti otomatis dan kirim (Rekam). "
+"0 = tunggu sampai Anda mengeklik Berhenti Rekam."
 
 msgid "Doc"
 msgstr "Dok"
@@ -3490,14 +3556,14 @@ msgid "Enable grammar checker (Writer)"
 msgstr "Aktifkan pemeriksa tata bahasa (Writer)"
 
 msgid ""
-"Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
-"/ Vale = local engines via Settings → Python venv. Harper = offline Rust "
-"binary auto-downloaded to your profile (no venv required)."
+"Off = disabled. AI (LLM) = use your configured text model/API. "
+"LanguageTool / Vale = local engines via Settings → Python venv. Harper = "
+"offline Rust binary auto-downloaded to your profile (no venv required)."
 msgstr ""
 "Mati = dinonaktifkan. AI (LLM) = gunakan model/API teks yang telah Anda "
 "konfigurasi. LanguageTool / Vale = mesin lokal melalui Pengaturan → Python "
-"venv. Harper = biner Rust luring yang diunduh otomatis ke profil Anda (tidak"
-" memerlukan venv)."
+"venv. Harper = biner Rust luring yang diunduh otomatis ke profil Anda (tidak "
+"memerlukan venv)."
 
 msgid "Off"
 msgstr "Mati"
@@ -3562,8 +3628,8 @@ msgid ""
 "requests; use with care alongside sidebar chat."
 msgstr ""
 "Maksimum panggilan API tata bahasa latar belakang secara simultan (1-8). 1 "
-"sesuai dengan perilaku sebelumnya. Tingkatkan untuk OpenRouter atau penyedia"
-" lain yang mengizinkan permintaan paralel; gunakan dengan hati-hati bersama "
+"sesuai dengan perilaku sebelumnya. Tingkatkan untuk OpenRouter atau penyedia "
+"lain yang mengizinkan permintaan paralel; gunakan dengan hati-hati bersama "
 "obrolan bilah samping."
 
 msgid "Sentence language detection"
@@ -3602,9 +3668,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Mati = suntingan langsung. Rekam = perubahan terlacak yang Anda terima/tolak"
-" sendiri. Tunggu = apply_document_content memblokir (pada utas pekerja "
-"chat/MCP) sampai Anda meninjau."
+"Mati = suntingan langsung. Rekam = perubahan terlacak yang Anda terima/tolak "
+"sendiri. Tunggu = apply_document_content memblokir (pada utas pekerja chat/"
+"MCP) sampai Anda meninjau."
 
 msgid "Record (track changes)"
 msgstr "Rekam (lacak perubahan)"
@@ -3645,8 +3711,7 @@ msgstr "Model Penyematan"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"ID model HuggingFace untuk penyedia lokal, atau ID model spesifik titik "
-"akhir"
+"ID model HuggingFace untuk penyedia lokal, atau ID model spesifik titik akhir"
 
 msgid "Enable cross-file rerank"
 msgstr "Aktifkan rerank lintas berkas"
@@ -3662,8 +3727,8 @@ msgid "Rerank model"
 msgstr "Model rerank"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
-" is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
+"is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Hanya digunakan saat rerank diaktifkan. MiniLM bahasa Inggris cepat; bge-"
 "reranker-v2-m3 bersifat multibahasa dan mengunduh ~2,3 GB."
@@ -3684,11 +3749,11 @@ msgid "Enable MCP Server"
 msgstr "Aktifkan Server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Hanya localhost, tanpa autentikasi. Klien menggunakan "
-"http://localhost:<port>/mcp (HTTP yang dapat dialirkan)."
+"Hanya localhost, tanpa autentikasi. Klien menggunakan http://localhost:"
+"<port>/mcp (HTTP yang dapat dialirkan)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -3708,8 +3773,8 @@ msgstr ""
 "gateway delegasi (perilaku saat ini); direct_flat=semua alat khusus yang "
 "dapat dijangkau MCP dicantumkan secara langsung, tidak termasuk alur khusus "
 "bilah sisi (terbaik untuk klien dengan pencarian alat sendiri); "
-"direct_discovery=daftar inti kecil ditambah find_tools (katalog domain, lalu"
-" skema alat per domain; terbaik untuk klien mana pun)."
+"direct_discovery=daftar inti kecil ditambah find_tools (katalog domain, lalu "
+"skema alat per domain; terbaik untuk klien mana pun)."
 
 msgid "Delegate (default)"
 msgstr "Delegasi (default)"
@@ -3728,8 +3793,8 @@ msgstr "Paparkan melalui terowong publik"
 
 msgid ""
 "Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or "
-"tailscale). MCP has no auth — anyone with the public URL can call tools. See"
-" MCP Server Status for the public /mcp URL when ready."
+"tailscale). MCP has no auth — anyone with the public URL can call tools. See "
+"MCP Server Status for the public /mcp URL when ready."
 msgstr ""
 "Memerlukan biner penyedia yang dipilih pada PATH (cloudflared, bore, ngrok, "
 "atau tailscale). MCP tidak memiliki autentikasi — siapa pun dengan URL "
@@ -3779,10 +3844,10 @@ msgid "Python venv path"
 msgstr "Jalur venv Python"
 
 msgid ""
-"If set, runs =PY() and Run Python Script in that venv (bin/python, "
-"Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path "
-"without surrounding quotes. If empty, uses this process's sys.executable "
-"(basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
+"If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/"
+"python.exe, or conda/pyenv-win env-root python.exe). Paste the path without "
+"surrounding quotes. If empty, uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
 "Jika diatur, menjalankan =PY() dan Jalankan Skrip Python di venv tersebut "
@@ -3801,18 +3866,17 @@ msgid "Python script timeout (seconds)"
 msgstr "Batas waktu skrip Python (detik)"
 
 msgid "Wall-clock limit for Run Python Script and =PYTHON() / =PY()."
-msgstr ""
-"Batas waktu dinding untuk Jalankan Skrip Python dan =PYTHON() / =PY()."
+msgstr "Batas waktu dinding untuk Jalankan Skrip Python dan =PYTHON() / =PY()."
 
 msgid "Max Calc data cells"
 msgstr "Jumlah sel data Calc maksimum"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Jumlah sel maksimum dalam data =PYTHON() atau data/data_range Jalankan Skrip"
-" Python. Nilai yang lebih besar menggunakan lebih banyak RAM dan waktu; "
+"Jumlah sel maksimum dalam data =PYTHON() atau data/data_range Jalankan Skrip "
+"Python. Nilai yang lebih besar menggunakan lebih banyak RAM dan waktu; "
 "pembacaan rentang UNO tetap yang paling dominan."
 
 msgid "Python session mode"
@@ -3851,8 +3915,8 @@ msgid "Rewrite xl() ranges"
 msgstr "Tulis ulang rentang xl()"
 
 msgid ""
-"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and"
-" rewrite to data / data[i] / .to_pandas()."
+"On Edit Python in Cell save, lift static xl(\"A1:…\") onto =PY data args and "
+"rewrite to data / data[i] / .to_pandas()."
 msgstr ""
 "Saat menyimpan Edit Python di Sel, angkat xl(\"A1:…\") statis ke argumen "
 "data =PY dan tulis ulang menjadi data / data[i] / .to_pandas()."
@@ -3872,8 +3936,7 @@ msgid "Worker timeout (seconds)"
 msgstr "Batas waktu pekerja (detik)"
 
 msgid "Host subprocess limit for Vision Helpers (first model download)."
-msgstr ""
-"Batas subproses host untuk Vision Helpers (pengunduhan model pertama)."
+msgstr "Batas subproses host untuk Vision Helpers (pengunduhan model pertama)."
 
 msgid "Docling artifacts path"
 msgstr "Jalur artefak Docling"
@@ -3891,8 +3954,7 @@ msgid "OCR entire image"
 msgstr "OCR seluruh gambar"
 
 msgid "Recommended for embedded graphics exported from LibreOffice."
-msgstr ""
-"Direkomendasikan untuk grafik tertanam yang diekspor dari LibreOffice."
+msgstr "Direkomendasikan untuk grafik tertanam yang diekspor dari LibreOffice."
 
 msgid "Table extraction mode"
 msgstr "Mode ekstraksi tabel"

@@ -1084,16 +1084,22 @@ def get_vision_core_directive(model: Any, ctx: Any) -> str:
 
 
 def get_greeting_for_document(model: Any) -> str:
-    """Return a greeting relevant to the document type."""
+    """Return a greeting relevant to the document type.
+
+    English literals must sit inside _() so xgettext extracts them into
+    writeragent.pot. ``_(DEFAULT_*_GREETING)`` alone is invisible to
+    extract-strings, so JA/ES UI kept showing English welcome text.
+    Constants above stay the English source for tests / equality checks.
+    """
     from plugin.framework.i18n import _
     from plugin.doc.doc_type import is_calc, is_draw
 
     if is_calc(model):
-        return _(DEFAULT_CALC_GREETING)
+        return _("AI: I can help you with formulas, data analysis, and colorful charts. Try me!")
     elif is_draw(model):
-        return _(DEFAULT_DRAW_GREETING)
+        return _("AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!")
     else:
-        return _(DEFAULT_WRITER_GREETING)
+        return _("AI: I can edit or translate your document instantly with professional formatting and color. Try me!")
 
 
 # Spoken chat only. Verbatim so every endpoint sees the same brevity rules.
