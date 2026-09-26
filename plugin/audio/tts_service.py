@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -527,9 +528,22 @@ def kokoro_g2p_lang(text: str, voice: str = "") -> str:
     return target
 
 
+def _normalize_voice_family(family: str) -> str:
+    """Family key, or a provider label reduced to a family.
+
+    ``clean_provider_name`` maps anything that is not Kokoro/Piper/endpoint to
+    ``system``. Passing the family id ``openai`` through it used to do that, so
+    the OpenAI catalog never reached the Voice combo.
+    """
+    fam = (family or "").strip().lower()
+    if fam in ("piper", "kokoro", "openai", "system", "openrouter", "endpoint"):
+        return fam
+    return clean_provider_name(family)
+
+
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
     """Return the optimal default voice for a voice family and locale."""
-    fam = clean_provider_name(family)
+    fam = _normalize_voice_family(family)
     if locale is None:
         try:
             from plugin.framework.i18n import get_active_locale
@@ -543,12 +557,15 @@ def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
         return _LOCALE_TO_KOKORO_DEFAULT.get(stem, _KOKORO_FALLBACK_VOICE)
     if fam in ("openai", "endpoint"):
         return DEFAULT_VOICE_FOR_FAMILY["openai"]
+    # OpenRouter speech models have no static default; the harvested list supplies one.
+    if fam == "openrouter":
+        return ""
     return DEFAULT_VOICE_FOR_FAMILY["system"]
 
 
 def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, str]]:
     """Return ordered voice options for the family, prioritizing the active locale."""
-    fam = clean_provider_name(family)
+    fam = _normalize_voice_family(family)
     if fam not in ("piper", "kokoro"):
         return VOICE_CATALOGS.get(fam, [])
 
@@ -621,7 +638,67 @@ def settings_voice_options(services: Any = None) -> list[dict[str, str]]:
     model = ""
     if clean_provider_name(provider) == "endpoint":
         model = str(get_config("audio.tts_model") or "")
-    return get_voice_catalog(get_voice_family(provider, model))
+    return voice_options_for_provider(provider, model)
+
+
+def voice_options_for_provider(
+    provider: str,
+    model: str | None = None,
+    locale: str | None = None,
+) -> list[dict[str, str]]:
+    """Voice rows for Settings.
+
+    Endpoint models with a harvested ``supported_voices`` list use those ids.
+    An OpenRouter speech model whose list omitted voices, or whose speech list
+    has not been fetched yet, returns ``[]`` so the combo stays free text
+    instead of the OpenAI alloy list. Other OpenAI-compatible endpoints keep
+    the openai catalog. Local Kokoro and Piper are unchanged.
+    """
+    prov = clean_provider_name(provider)
+    if prov == "endpoint":
+        rows = _endpoint_voice_rows(str(model or ""))
+        if rows is not None:
+            return rows
+    return get_voice_catalog(get_voice_family(prov, model), locale)
+
+
+def _endpoint_voice_rows(model: str) -> list[dict[str, str]] | None:
+    """OR voice rows, ``[]`` for free text, or None to use the family catalog."""
+    from plugin.framework.client.model_fetcher import (
+        cached_tts_supported_voices,
+        openrouter_speech_list_has_model,
+        openrouter_speech_list_loaded,
+    )
+
+    voices = cached_tts_supported_voices(model) if model else []
+    if voices:
+        # Label equals the API id. Pretty-casing would hide ids the request must send.
+        return [{"value": voice, "label": voice} for voice in voices]
+    if model and "kokoro" in model.lower():
+        return None
+    if model and openrouter_speech_list_has_model(model):
+        # Fetched speech row with no supported_voices: do not invent alloy.
+        return []
+    if _saved_endpoint_is_openrouter() and not openrouter_speech_list_loaded():
+        # Not fetched yet. Alloy is the wrong list for Grok/Gemini speech models.
+        return []
+    return None
+
+
+def _saved_endpoint_is_openrouter() -> bool:
+    """True when the saved chat endpoint is OpenRouter.
+
+    Speech uses Current Chat Endpoint, so the host that will speak is the
+    saved URL, not an unsaved value still sitting in the endpoint combo.
+    """
+    try:
+        from plugin.framework.client.provider_detection import get_provider_from_endpoint
+        from plugin.framework.config import get_current_endpoint
+
+        return get_provider_from_endpoint(get_current_endpoint() or "") == "openrouter"
+    except Exception:
+        log.debug("TTS voice list: endpoint provider unavailable", exc_info=True)
+        return False
 
 
 def clean_provider_name(provider_or_label: str) -> str:
@@ -644,17 +721,36 @@ def clean_voice_name(voice_or_label: str) -> str:
 
 
 def get_voice_family(provider: str | None, model: str | None = None) -> str:
-    """Return voice family key ('kokoro', 'piper', 'openai', 'system')."""
+    """Return voice family key ('kokoro', 'piper', 'openai', 'openrouter', 'system')."""
     prov = clean_provider_name(provider or "")
     if prov == "kokoro":
         return "kokoro"
     if prov == "piper":
         return "piper"
     if prov == "endpoint":
+        # Kokoro on an endpoint still shares the local Kokoro voice key.
         if model and "kokoro" in model.lower():
             return "kokoro"
+        if model and _endpoint_uses_openrouter_voices(model):
+            return "openrouter"
         return "openai"
     return "system"
+
+
+def _endpoint_uses_openrouter_voices(model: str) -> bool:
+    """True when this endpoint model should not use the OpenAI voice family.
+
+    Harvested ``supported_voices`` win. A speech-list id with no voice array
+    is the same family so a typed voice is not stored as ``alloy``.
+    """
+    from plugin.framework.client.model_fetcher import (
+        cached_tts_supported_voices,
+        openrouter_speech_list_has_model,
+    )
+
+    if cached_tts_supported_voices(model):
+        return True
+    return openrouter_speech_list_has_model(model)
 
 
 def get_scoped_tts_voice(
@@ -674,13 +770,33 @@ def get_scoped_tts_voice(
             model = None
 
     family = get_voice_family(prov_clean, model)
+    or_voices: list[str] = []
+    if prov_clean == "endpoint" and model:
+        from plugin.framework.client.model_fetcher import cached_tts_supported_voices
+
+        or_voices = cached_tts_supported_voices(model)
+
     scoped_key = f"audio.tts_voice_{family}"
     val = get_config(scoped_key)
-    if val and isinstance(val, str) and val.strip():
-        return clean_voice_name(val.strip())
-
+    clean_scoped = clean_voice_name(val.strip()) if isinstance(val, str) and val.strip() else ""
     general_voice = str(get_config("audio.tts_voice") or "").strip()
     clean_gen = clean_voice_name(general_voice)
+
+    # Model-specific OpenRouter ids beat a stored OpenAI voice such as alloy.
+    if or_voices:
+        if clean_scoped in or_voices:
+            return clean_scoped
+        if clean_gen in or_voices:
+            return clean_gen
+        return or_voices[0]
+
+    if clean_scoped:
+        return clean_scoped
+
+    if family == "openrouter":
+        # No advertised list: keep a typed id. Do not substitute alloy.
+        return clean_gen
+
     valid_voices = {opt["value"] for opt in get_voice_catalog(family, locale)}
     if clean_gen in valid_voices:
         return clean_gen
@@ -833,6 +949,156 @@ def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) 
         _clear_speech_proc(proc, "play")
 
 
+_PCM_RATE_RE = re.compile(r"rate\s*=\s*(\d+)", re.IGNORECASE)
+_DEFAULT_PCM_RATE = 24000
+
+
+def _response_content_type(resp: Any) -> str:
+    """Content-Type from a urllib response, or empty when the mock has none."""
+    headers = getattr(resp, "headers", None)
+    getter = getattr(headers, "get", None)
+    if not callable(getter):
+        return ""
+    try:
+        value = getter("Content-Type")
+    except Exception:
+        return ""
+    return value if isinstance(value, str) else ""
+
+
+def _content_type_is_pcm(content_type: str) -> bool:
+    low = (content_type or "").lower()
+    return "audio/pcm" in low or "audio/l16" in low
+
+
+def _content_type_is_wav(content_type: str) -> bool:
+    low = (content_type or "").lower()
+    return "audio/wav" in low or "audio/wave" in low or "audio/x-wav" in low
+
+
+def _pcm_rate_from_content_type(content_type: str) -> int:
+    """Sample rate from ``audio/pcm;rate=…``, else 24 kHz."""
+    match = _PCM_RATE_RE.search(content_type or "")
+    if not match:
+        return _DEFAULT_PCM_RATE
+    try:
+        rate = int(match.group(1))
+    except ValueError:
+        return _DEFAULT_PCM_RATE
+    return rate if rate > 0 else _DEFAULT_PCM_RATE
+
+
+def _pcm_s16le_to_wav(pcm: bytes, sample_rate: int) -> bytes:
+    """Wrap raw signed-16-bit little-endian mono PCM in a RIFF/WAVE header.
+
+    Players invoked by ``_play_audio_file`` do not play a bare PCM blob. OpenRouter
+    Gemini speech returns that blob (often ``audio/pcm;rate=24000``).
+    """
+    channels = 1
+    bits_per_sample = 16
+    block_align = channels * bits_per_sample // 8
+    byte_rate = sample_rate * block_align
+    data_size = len(pcm)
+    header = b"".join((
+        b"RIFF",
+        struct.pack("<I", 36 + data_size),
+        b"WAVE",
+        b"fmt ",
+        struct.pack("<IHHIIHH", 16, 1, channels, sample_rate, byte_rate, block_align, bits_per_sample),
+        b"data",
+        struct.pack("<I", data_size),
+    ))
+    return header + pcm
+
+
+def _alternate_tts_response_format(body: str, requested: str) -> str | None:
+    """Format to retry once when the error says ``requested`` is not accepted.
+
+    pcm wins when the body names it (Gemini: mp3 is rejected, pcm is required).
+    wav is the retry when the body names wav and not pcm. A bare "mp3 is not
+    supported" retries pcm, which is the OpenRouter speech miss we have seen.
+    Unrelated errors (auth, unknown voice) do not match and are not retried.
+    """
+    low = (body or "").lower()
+    talks_format = any(token in low for token in (
+        "response_format",
+        "response format",
+        "audio format",
+        "audio/pcm",
+        "audio/l16",
+        "audio/wav",
+        "audio/mpeg",
+    ))
+    unsupported_requested = requested in low and any(
+        token in low for token in ("not support", "unsupported", "invalid", "only support", "must be")
+    )
+    if not talks_format and not unsupported_requested:
+        return None
+    if "pcm" in low and requested != "pcm":
+        return "pcm"
+    if "wav" in low and requested != "wav":
+        return "wav"
+    if requested == "mp3" and unsupported_requested:
+        return "pcm"
+    return None
+
+
+def _speech_failure_message(code: int, body: str) -> str:
+    """User-visible line for Test voice / sidebar status. Includes the HTTP body."""
+    snippet = " ".join((body or "").split())
+    if len(snippet) > 300:
+        snippet = snippet[:300] + "…"
+    if code and snippet:
+        return _("Speech request failed ({0}): {1}").format(code, snippet)
+    if snippet:
+        return _("Speech request failed: {0}").format(snippet)
+    if code:
+        return _("Speech request failed ({0}).").format(code)
+    return _("Speech request failed.")
+
+
+def _post_audio_speech(
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+) -> tuple[bytes | None, str, int, str]:
+    """POST one speech clip.
+
+    Returns ``(audio, content_type, http_code, error_body)``. ``error_body`` is
+    empty on success. The body is the raw response text so format detection and
+    the status line can both show it.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            code = getattr(resp, "status", None)
+            http_code = code if isinstance(code, int) else 200
+            return resp.read(), _response_content_type(resp), http_code, ""
+    except urllib.error.HTTPError as exc:
+        err_body = ""
+        try:
+            raw = exc.read()
+            if isinstance(raw, bytes):
+                err_body = raw.decode("utf-8", errors="replace")
+            elif isinstance(raw, str):
+                err_body = raw
+        except Exception:
+            err_body = ""
+        code = int(getattr(exc, "code", 0) or 0)
+        if not err_body:
+            err_body = str(exc)
+        log.error("TTS HTTP error %d from %s: %s | Response: %s", code, url, exc, err_body)
+        return None, "", code, err_body
+    except Exception as exc:
+        log.exception("TTS error from %s: %s", url, exc)
+        return None, "", 0, str(exc)
+
+
 def _download_endpoint_speech(
     text: str,
     endpoint_url: str,
@@ -841,15 +1107,23 @@ def _download_endpoint_speech(
     voice: str,
     speed: float = 1.0,
     generation: int | None = None,
+    on_status: Callable[[str], None] | None = None,
 ) -> str | None:
     """Download one ``/audio/speech`` clip to a tracked temp file.
 
     Remote TTS does not use the warm Kokoro worker. The caller plays the file
     and then ``_release_temp``. Returns None on failure or cancel.
+
+    ``response_format`` starts at ``mp3`` unless this process already learned
+    another format for the model (see ``remember_tts_response_format``). A
+    pcm-only or wav-only error retries once. ``audio/pcm`` bytes are wrapped
+    as WAV before the path is returned — the file used to be named ``.mp3``
+    and players stayed silent.
     """
-    import json
-    import urllib.error
-    import urllib.request
+    from plugin.framework.client.model_fetcher import (
+        cached_tts_response_format,
+        remember_tts_response_format,
+    )
 
     if _playback_blocked(generation):
         return None
@@ -869,17 +1143,10 @@ def _download_endpoint_speech(
             url = f"{url}/v1/audio/speech"
 
     eff_voice = _resolve_tts_voice(model, voice)
-    payload = {
-        "model": model or "hexgrad/Kokoro-82M",
-        "input": text,
-        "voice": eff_voice,
-        "speed": speed,
-        "response_format": "mp3",
-    }
+    response_format = cached_tts_response_format(model) or "mp3"
+    if response_format not in ("mp3", "pcm", "wav"):
+        response_format = "mp3"
 
-    log.info("Requesting TTS from %s (model=%s, voice=%s, text_len=%d)", url, payload["model"], eff_voice, len(text))
-
-    data = json.dumps(payload).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "WriterAgent/1.0",
@@ -887,24 +1154,71 @@ def _download_endpoint_speech(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            audio_bytes = resp.read()
-    except urllib.error.HTTPError as exc:
-        err_body = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
-        log.error("TTS HTTP error %d from %s: %s | Response: %s", getattr(exc, "code", 0), url, exc, err_body)
-        return None
-    except Exception as exc:
-        log.exception("TTS error from %s: %s", url, exc)
+    audio_bytes: bytes | None = None
+    content_type = ""
+    code = 0
+    err_body = ""
+    tried_alt = False
+    while True:
+        payload = {
+            "model": model or "hexgrad/Kokoro-82M",
+            "input": text,
+            "voice": eff_voice,
+            "speed": speed,
+            "response_format": response_format,
+        }
+        log.info(
+            "Requesting TTS from %s (model=%s, voice=%s, format=%s, text_len=%d)",
+            url, payload["model"], eff_voice, response_format, len(text),
+        )
+        audio_bytes, content_type, code, err_body = _post_audio_speech(url, headers, payload)
+        if err_body and not tried_alt:
+            alt = _alternate_tts_response_format(err_body, response_format)
+            if alt and alt != response_format:
+                # One retry. The format that succeeds is remembered so the next
+                # clip does not ask for mp3 again.
+                log.info(
+                    "TTS response_format %s rejected for %s; retrying %s",
+                    response_format, model, alt,
+                )
+                response_format = alt
+                tried_alt = True
+                if _playback_blocked(generation):
+                    return None
+                continue
+        break
+
+    if err_body or audio_bytes is None:
+        _notify_tts_status(_speech_failure_message(code, err_body), on_status)
         return None
 
-    log.info("TTS audio received from %s (%d bytes)", url, len(audio_bytes))
+    if response_format in ("pcm", "wav"):
+        remember_tts_response_format(model, response_format)
+
+    # Asked for mp3 and the server still returned raw PCM (or named pcm).
+    # Remember that so the next request does not ask for mp3 again.
+    if _content_type_is_pcm(content_type):
+        remember_tts_response_format(model, "pcm")
+        response_format = "pcm"
+    elif _content_type_is_wav(content_type):
+        remember_tts_response_format(model, "wav")
+        response_format = "wav"
+
+    if response_format == "pcm" or _content_type_is_pcm(content_type):
+        rate = _pcm_rate_from_content_type(content_type)
+        audio_bytes = _pcm_s16le_to_wav(audio_bytes, rate)
+        suffix = ".wav"
+    elif response_format == "wav":
+        suffix = ".wav"
+    else:
+        suffix = ".mp3"
+
+    log.info("TTS audio received from %s (%d bytes, %s)", url, len(audio_bytes), suffix)
     if _playback_blocked(generation):
         log.info("TTS playback cancelled after download")
         return None
 
-    tmp_file = _new_speech_temp(".mp3", generation)
+    tmp_file = _new_speech_temp(suffix, generation)
     if tmp_file is None:
         return None
     try:
@@ -925,10 +1239,12 @@ def _speak_endpoint(
     voice: str,
     speed: float = 1.0,
     generation: int | None = None,
+    on_status: Callable[[str], None] | None = None,
 ) -> None:
     """Request speech audio from an OpenAI-compatible /audio/speech endpoint."""
     tmp_file = _download_endpoint_speech(
         text, endpoint_url, api_key, model, voice, speed=speed, generation=generation,
+        on_status=on_status,
     )
     if not tmp_file:
         return
@@ -1543,6 +1859,7 @@ def _synthesize_sentence_clip(
     elif provider == "endpoint" and endpoint_url:
         path = _download_endpoint_speech(
             sentence, endpoint_url, api_key, model, voice, speed=speed, generation=generation,
+            on_status=on_status,
         )
     if _playback_blocked(generation):
         _release_temp(path)
@@ -1757,7 +2074,7 @@ def speak_text_async(
                 if url:
                     _speak_endpoint(
                         clean, url, api_key, model=model_name, voice=voice_name,
-                        speed=speed_val, generation=generation,
+                        speed=speed_val, generation=generation, on_status=on_status,
                     )
                 else:
                     log.warning("No endpoint URL available for TTS; falling back to OS system speech.")

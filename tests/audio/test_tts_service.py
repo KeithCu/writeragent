@@ -100,6 +100,7 @@ def test_speak_endpoint_payload():
 
     # A warm speech-list cache must not rewrite this assertion's catalog id.
     cfg._model_fetch_tts_cache.clear()
+    cfg._tts_response_format.clear()
 
     with patch("urllib.request.urlopen") as mock_urlopen:
         mock_resp = MagicMock()
@@ -125,6 +126,7 @@ def test_speak_endpoint_prefers_cached_openrouter_speech_id():
     import json
 
     cfg._model_fetch_tts_cache.clear()
+    cfg._tts_response_format.clear()
     cfg._model_fetch_tts_cache["speech-test"] = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
     try:
         with patch("urllib.request.urlopen") as mock_urlopen:
@@ -143,6 +145,284 @@ def test_speak_endpoint_prefers_cached_openrouter_speech_id():
             assert payload["model"] == "hexgrad/kokoro-82m"
             assert payload["voice"] == "af_bella"
     finally:
+        cfg._model_fetch_tts_cache.clear()
+        cfg._tts_response_format.clear()
+
+
+def _speech_response(data: bytes, content_type: str):
+    class _Resp:
+        def __init__(self) -> None:
+            self.headers = {"Content-Type": content_type}
+            self.status = 200
+
+        def read(self) -> bytes:
+            return data
+
+        def __enter__(self) -> "_Resp":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            del exc_type, exc, tb
+            return False
+
+    return _Resp()
+
+
+def _speech_http_error(code: int, body: str):
+    import io
+    import urllib.error
+
+    return urllib.error.HTTPError(
+        "https://openrouter.ai/api/v1/audio/speech",
+        code,
+        "error",
+        hdrs=None,
+        fp=io.BytesIO(body.encode("utf-8")),
+    )
+
+
+def test_endpoint_pcm_failure_is_remembered_and_wrapped():
+    """Gemini-like 400 on mp3 then pcm: cache pcm, wrap s16le as WAV, next call asks pcm."""
+    import json
+    import struct
+
+    from plugin.audio.tts_service import _download_endpoint_speech, _release_temp
+    from plugin.framework.client import model_fetcher as cfg
+
+    model = "google/gemini-2.5-flash-preview-tts"
+    cfg._tts_response_format.clear()
+    cfg._model_fetch_tts_cache.clear()
+    pcm = b"\x01\x00\x02\x00"
+    body = '{"error":{"message":"response_format must be pcm"}}'
+    calls: list[dict] = []
+    statuses: list[str] = []
+    # First download: reject mp3 once, then return pcm. Later downloads are pcm-only.
+    reject_mp3 = True
+
+    def urlopen(req, timeout=None):
+        del timeout
+        payload = json.loads(req.data.decode("utf-8"))
+        calls.append(payload)
+        if reject_mp3 and payload["response_format"] == "mp3":
+            raise _speech_http_error(400, body)
+        return _speech_response(pcm, "audio/pcm;rate=16000")
+
+    path = None
+    path2 = None
+    try:
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            path = _download_endpoint_speech(
+                "Hello",
+                "https://openrouter.ai/api",
+                "test-key",
+                model=model,
+                voice="Kore",
+                on_status=statuses.append,
+            )
+            assert path is not None
+            assert path.endswith(".wav")
+            with open(path, "rb") as handle:
+                wav = handle.read()
+        assert not statuses
+        assert [item["response_format"] for item in calls] == ["mp3", "pcm"]
+        assert cfg.cached_tts_response_format(model) == "pcm"
+        assert wav[:4] == b"RIFF"
+        assert wav[8:12] == b"WAVE"
+        assert struct.unpack_from("<H", wav, 22)[0] == 1
+        assert struct.unpack_from("<I", wav, 24)[0] == 16000
+        assert struct.unpack_from("<H", wav, 34)[0] == 16
+        assert wav[44:] == pcm
+
+        reject_mp3 = False
+        calls.clear()
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            path2 = _download_endpoint_speech(
+                "Again",
+                "https://openrouter.ai/api",
+                "test-key",
+                model=model,
+                voice="Kore",
+            )
+        assert path2 is not None
+        assert [item["response_format"] for item in calls] == ["pcm"]
+    finally:
+        _release_temp(path)
+        _release_temp(path2)
+        cfg._tts_response_format.clear()
+
+
+def test_pcm_wrap_defaults_to_24khz():
+    import struct
+
+    from plugin.audio.tts_service import _pcm_rate_from_content_type, _pcm_s16le_to_wav
+
+    assert _pcm_rate_from_content_type("audio/pcm") == 24000
+    assert _pcm_rate_from_content_type("audio/L16;rate=22050") == 22050
+    wav = _pcm_s16le_to_wav(b"\x00\x00", 24000)
+    assert wav[:4] == b"RIFF"
+    assert struct.unpack_from("<I", wav, 24)[0] == 24000
+    assert struct.unpack_from("<H", wav, 22)[0] == 1
+    assert struct.unpack_from("<H", wav, 34)[0] == 16
+
+
+def test_endpoint_wav_error_retries_wav():
+    import json
+
+    from plugin.audio.tts_service import _download_endpoint_speech, _release_temp
+    from plugin.framework.client import model_fetcher as cfg
+
+    model = "vendor/wav-only"
+    cfg._tts_response_format.clear()
+    calls: list[dict] = []
+    wav_bytes = b"RIFF" + b"\x00" * 40
+
+    def urlopen(req, timeout=None):
+        del timeout
+        payload = json.loads(req.data.decode("utf-8"))
+        calls.append(payload)
+        if payload["response_format"] == "mp3":
+            raise _speech_http_error(400, "unsupported response_format mp3; use wav")
+        return _speech_response(wav_bytes, "audio/wav")
+
+    path = None
+    try:
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            path = _download_endpoint_speech(
+                "Hello",
+                "https://openrouter.ai/api",
+                "k",
+                model=model,
+                voice="cedar",
+            )
+        assert path is not None
+        assert path.endswith(".wav")
+        assert [item["response_format"] for item in calls] == ["mp3", "wav"]
+        assert cfg.cached_tts_response_format(model) == "wav"
+        with open(path, "rb") as handle:
+            assert handle.read().startswith(b"RIFF")
+    finally:
+        _release_temp(path)
+        cfg._tts_response_format.clear()
+
+
+def test_endpoint_mp3_success_does_not_cache_format():
+    import json
+
+    from plugin.audio.tts_service import _download_endpoint_speech, _release_temp
+    from plugin.framework.client import model_fetcher as cfg
+
+    model = "x-ai/grok-voice-tts-1.0"
+    cfg._tts_response_format.clear()
+    calls: list[dict] = []
+
+    def urlopen(req, timeout=None):
+        del timeout
+        calls.append(json.loads(req.data.decode("utf-8")))
+        return _speech_response(b"ID3fake-mp3", "audio/mpeg")
+
+    path = None
+    try:
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            path = _download_endpoint_speech(
+                "Hello",
+                "https://openrouter.ai/api",
+                "test-key",
+                model=model,
+                voice="ara",
+            )
+        assert path is not None
+        assert path.endswith(".mp3")
+        assert calls[0]["response_format"] == "mp3"
+        assert cfg.cached_tts_response_format(model) is None
+    finally:
+        _release_temp(path)
+        cfg._tts_response_format.clear()
+
+
+def test_endpoint_http_error_is_reported_to_status():
+    from plugin.audio.tts_service import _download_endpoint_speech
+    from plugin.framework.client import model_fetcher as cfg
+
+    cfg._tts_response_format.clear()
+    statuses: list[str] = []
+
+    def urlopen(req, timeout=None):
+        del req, timeout
+        raise _speech_http_error(401, '{"error":{"message":"invalid api key"}}')
+
+    try:
+        with patch("urllib.request.urlopen", side_effect=urlopen):
+            path = _download_endpoint_speech(
+                "Hello",
+                "https://api.openai.com",
+                "test-key",
+                model="tts-1",
+                voice="alloy",
+                on_status=statuses.append,
+            )
+        assert path is None
+        assert len(statuses) == 1
+        assert "401" in statuses[0]
+        assert "invalid api key" in statuses[0]
+        assert cfg.cached_tts_response_format("tts-1") is None
+    finally:
+        cfg._tts_response_format.clear()
+
+
+def test_endpoint_voice_options_follow_cached_openrouter_voices():
+    from plugin.audio.tts_service import (
+        get_scoped_tts_voice,
+        get_voice_catalog,
+        get_voice_family,
+        voice_options_for_provider,
+    )
+    from plugin.framework.client import model_fetcher as cfg
+
+    gemini = "google/gemini-2.5-flash-preview-tts"
+    grok = "x-ai/grok-voice-tts-1.0"
+    cfg._tts_supported_voices.pop(gemini, None)
+    cfg._tts_supported_voices.pop(grok, None)
+    cfg._model_fetch_tts_cache.clear()
+    try:
+        cfg._tts_supported_voices[gemini] = ["Kore", "Puck"]
+        assert get_voice_family("endpoint", gemini) == "openrouter"
+        assert get_voice_family("endpoint", "hexgrad/Kokoro-82M") == "kokoro"
+        assert get_voice_family("kokoro") == "kokoro"
+        assert get_voice_family("piper") == "piper"
+        assert voice_options_for_provider("endpoint", gemini) == [
+            {"value": "Kore", "label": "Kore"},
+            {"value": "Puck", "label": "Puck"},
+        ]
+        assert voice_options_for_provider("piper", "") == get_voice_catalog("piper")
+
+        store = {
+            "audio.tts_voice_openrouter": "alloy",
+            "audio.tts_voice": "alloy",
+        }
+
+        def _cfg(key, default=None):
+            return store.get(key, default)
+
+        with patch("plugin.audio.tts_service.get_config", side_effect=_cfg):
+            assert get_scoped_tts_voice("endpoint", gemini) == "Kore"
+            store["audio.tts_voice_openrouter"] = "Puck"
+            assert get_scoped_tts_voice("endpoint", gemini) == "Puck"
+
+        cfg._tts_supported_voices.pop(gemini, None)
+        cfg._model_fetch_tts_cache["speech"] = [grok]
+        assert voice_options_for_provider("endpoint", grok) == []
+        assert get_voice_family("endpoint", grok) == "openrouter"
+
+        cfg._model_fetch_tts_cache.clear()
+        with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"):
+            assert voice_options_for_provider("endpoint", gemini) == []
+        with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"):
+            rows = voice_options_for_provider("endpoint", "openai/tts-1")
+        assert any(row["value"] == "alloy" for row in rows)
+        assert get_voice_family("endpoint", "openai/tts-1") == "openai"
+    finally:
+        cfg._tts_supported_voices.pop(gemini, None)
+        cfg._tts_supported_voices.pop(grok, None)
         cfg._model_fetch_tts_cache.clear()
 
 

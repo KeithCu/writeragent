@@ -854,9 +854,11 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
         try:
             from plugin.audio.tts_service import (
                 clean_provider_name,
+                clean_voice_name,
+                get_config,
                 get_voice_family,
-                get_scoped_tts_voice,
-                get_voice_catalog,
+                set_scoped_tts_voice,
+                voice_options_for_provider,
             )
             prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
             model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
@@ -870,26 +872,42 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 set_control_enabled(model_ctrl, provider == "endpoint")
 
             if voice_ctrl and hasattr(voice_ctrl, "getModel"):
-                family = get_voice_family(provider, raw_model)
-                catalog = get_voice_catalog(family)
+                catalog = voice_options_for_provider(provider, raw_model)
                 labels = tuple(opt["label"] for opt in catalog)
 
                 model = voice_ctrl.getModel()
                 if hasattr(model, "StringItemList"):
-                    if tuple(getattr(model, "StringItemList", ())) != labels:
+                    current_items = getattr(model, "StringItemList", ())
+                    # UNO returns a tuple. A missing list is not one — assigning
+                    # is what fills the dropdown. Do not iterate arbitrary objects.
+                    if not isinstance(current_items, (tuple, list)) or tuple(current_items) != labels:
                         model.StringItemList = labels
 
-                scoped_voice = get_scoped_tts_voice(provider, raw_model)
+                # Empty catalog: OpenRouter speech model with no voice list yet.
+                # Leave the combo editable. Do not fill it with alloy.
+                if not catalog:
+                    return
+
                 current_text = voice_ctrl.getText() if hasattr(voice_ctrl, "getText") else ""
+                current_id = clean_voice_name(current_text)
+                # get_scoped_tts_voice substitutes the first id when the saved
+                # voice is not in the list, which would hide the mismatch and
+                # skip the persist. Read the stored id itself.
+                family = get_voice_family(provider, raw_model)
+                stored = clean_voice_name(str(get_config(f"audio.tts_voice_{family}") or ""))
+                by_value = {opt["value"]: opt["label"] for opt in catalog}
+                if current_id in by_value:
+                    chosen = current_id
+                    if stored != chosen:
+                        set_scoped_tts_voice(chosen, provider, raw_model)
+                elif not current_id and stored in by_value:
+                    chosen = stored
+                else:
+                    # Visible or saved voice belongs to another model.
+                    chosen = catalog[0]["value"]
+                    set_scoped_tts_voice(chosen, provider, raw_model)
 
-                target_label = ""
-                for opt in catalog:
-                    if opt["value"] == scoped_voice:
-                        target_label = opt["label"]
-                        break
-                if not target_label and catalog:
-                    target_label = catalog[0]["label"]
-
+                target_label = by_value.get(chosen, "")
                 # Promote a raw voice id (or a previous family's label) to the catalog label.
                 if target_label and current_text != target_label:
                     voice_ctrl.setText(target_label)
@@ -1025,8 +1043,13 @@ class TtsTestVoiceListener(BaseActionListener):
         )
 
         def _on_status(message: str) -> None:
-            # Download / fallback lines from the worker. No sidebar status field here.
+            # Download / fallback / HTTP body from the worker. There is no sidebar
+            # status field on Settings, so the same message box as a failed sample
+            # is the status. UNO dialogs run on the UI thread.
             log.info("TTS test: %s", message)
+            from plugin.framework.queue_executor import post_to_main_thread
+
+            post_to_main_thread(self._status, message)
 
         speak_text_async(
             sample,
@@ -1203,6 +1226,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 api_key_override=api_key_ov,
                 skip_remote_fetch=skip_remote,
             )
+            # fetch_available_tts_models just filled supported_voices. The model
+            # text may be unchanged, so the voice listener would not run on its own.
+            TtsSettingsListener(self._dlg, self._ctx).sync_ui()
 
         image_ctrl = get_optional(self._dlg, "image_model")
         if image_ctrl:
