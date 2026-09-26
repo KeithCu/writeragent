@@ -416,14 +416,18 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
         cfg._model_fetch_tts_cache.clear()
         with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"):
             assert voice_options_for_provider("endpoint", gemini) == []
-        with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"):
+        # Together is not the OpenAI alloy list. A model with no /v1/voices rows stays empty.
+        with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"), \
+             patch("plugin.framework.client.requests.sync_request", return_value={"model": "openai/tts-1", "voices": []}):
             rows = voice_options_for_provider("endpoint", "openai/tts-1")
-        assert any(row["value"] == "alloy" for row in rows)
+            assert rows == []
+            assert get_voice_family("endpoint", "openai/tts-1") == "together"
         assert get_voice_family("endpoint", "openai/tts-1") == "openai"
     finally:
         cfg._tts_supported_voices.pop(gemini, None)
         cfg._tts_supported_voices.pop(grok, None)
         cfg._model_fetch_tts_cache.clear()
+        cfg._together_voices_fetch_cache.clear()
 
 
 def test_is_speaking_lifecycle():
@@ -464,7 +468,56 @@ def test_get_voice_family():
     assert get_voice_family("piper") == "piper"
     assert get_voice_family("system") == "system"
     assert get_voice_family("endpoint", "hexgrad/Kokoro-82M") == "kokoro"
-    assert get_voice_family("endpoint", "openai/tts-1") == "openai"
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com"):
+        assert get_voice_family("endpoint", "openai/tts-1") == "openai"
+    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"):
+        assert get_voice_family("endpoint", "cartesia/sonic") == "together"
+        assert get_voice_family("endpoint", "hexgrad/Kokoro-82M") == "kokoro"
+
+
+def test_together_voice_options_use_cached_voices_and_fetch_on_miss():
+    from plugin.audio.tts_service import voice_options_for_provider
+    from plugin.framework.client import model_fetcher as cfg
+
+    cfg._tts_supported_voices.clear()
+    cfg._together_voices_fetch_cache.clear()
+    cfg.remember_tts_supported_voices(
+        "canopylabs/orpheus-3b-0.1-ft",
+        ["tara", "leah"],
+    )
+    try:
+        with patch("plugin.framework.client.requests.sync_request") as mock_sync:
+            options = voice_options_for_provider(
+                "endpoint",
+                "canopylabs/orpheus-3b-0.1-ft",
+                endpoint="https://api.together.xyz",
+            )
+            mock_sync.assert_not_called()
+        assert [opt["value"] for opt in options] == ["tara", "leah"]
+        assert options[0]["label"] == "tara"
+
+        payload = {
+            "model": "cartesia/sonic",
+            "voices": [{"name": "Sidekick", "id": "cart-id", "language": "en"}],
+        }
+        with patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync:
+            cartesia = voice_options_for_provider(
+                "endpoint",
+                "cartesia/sonic",
+                endpoint="https://api.together.xyz",
+                api_key="sk-test",
+            )
+            assert "model=cartesia%2Fsonic" in mock_sync.call_args[0][0]
+        assert [opt["value"] for opt in cartesia] == ["cart-id"]
+
+        with patch("plugin.framework.client.requests.sync_request") as mock_sync:
+            local = voice_options_for_provider("kokoro", "hexgrad/Kokoro-82M")
+            mock_sync.assert_not_called()
+        assert any(opt["value"] == "af_bella" for opt in local)
+        assert any("Kokoro" in opt["label"] for opt in local)
+    finally:
+        cfg._tts_supported_voices.clear()
+        cfg._together_voices_fetch_cache.clear()
 
 
 def test_scoped_tts_voice_persistence():

@@ -36,7 +36,12 @@ from plugin.audio.voice_catalog import (
     VOICE_CATALOGS,
     voice_short_name as _voice_short_name,
 )
-from plugin.framework.config import get_config, get_config_str, set_config, get_api_key_for_endpoint
+from plugin.framework.config import (
+    get_api_key_for_endpoint,
+    get_config,
+    get_config_str,
+    set_config,
+)
 from plugin.framework.i18n import _
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.sandbox import resolve_venv_python
@@ -536,7 +541,7 @@ def _normalize_voice_family(family: str) -> str:
     the OpenAI catalog never reached the Voice combo.
     """
     fam = (family or "").strip().lower()
-    if fam in ("piper", "kokoro", "openai", "system", "openrouter", "endpoint"):
+    if fam in ("piper", "kokoro", "openai", "system", "openrouter", "together", "endpoint"):
         return fam
     return clean_provider_name(family)
 
@@ -557,8 +562,8 @@ def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
         return _LOCALE_TO_KOKORO_DEFAULT.get(stem, _KOKORO_FALLBACK_VOICE)
     if fam in ("openai", "endpoint"):
         return DEFAULT_VOICE_FOR_FAMILY["openai"]
-    # OpenRouter speech models have no static default; the harvested list supplies one.
-    if fam == "openrouter":
+    # OpenRouter and Together speech models have no static default; the harvested list supplies one.
+    if fam in ("openrouter", "together"):
         return ""
     return DEFAULT_VOICE_FOR_FAMILY["system"]
 
@@ -641,14 +646,39 @@ def settings_voice_options(services: Any = None) -> list[dict[str, str]]:
     return voice_options_for_provider(provider, model)
 
 
+def endpoint_is_together(endpoint: str | None = None) -> bool:
+    """True when speech should use Together ``/v1/voices`` for this host.
+
+    ``endpoint`` None means the saved chat endpoint (what speak will call).
+    The Settings endpoint combo passes its own URL before OK saves it.
+    """
+    return _endpoint_provider(endpoint) == "together"
+
+
+def _endpoint_provider(endpoint: str | None) -> str:
+    try:
+        from plugin.framework.client.provider_detection import get_provider_from_endpoint
+        from plugin.framework.config import get_current_endpoint as saved_endpoint
+
+        url = endpoint if endpoint is not None else (saved_endpoint() or "")
+        return get_provider_from_endpoint(url or "") or ""
+    except Exception:
+        log.debug("TTS voice list: endpoint provider unavailable", exc_info=True)
+        return ""
+
+
 def voice_options_for_provider(
     provider: str,
     model: str | None = None,
     locale: str | None = None,
+    endpoint: str | None = None,
+    api_key: str | None = None,
 ) -> list[dict[str, str]]:
     """Voice rows for Settings.
 
-    Endpoint models with a harvested ``supported_voices`` list use those ids.
+    Together + Current Chat Endpoint uses ``cached_tts_supported_voices`` for
+    that TTS model, fetching ``GET /v1/voices?model=`` on a miss.
+    OpenRouter models with a harvested ``supported_voices`` list use those ids.
     An OpenRouter speech model whose list omitted voices, or whose speech list
     has not been fetched yet, returns ``[]`` so the combo stays free text
     instead of the OpenAI alloy list. Other OpenAI-compatible endpoints keep
@@ -656,10 +686,48 @@ def voice_options_for_provider(
     """
     prov = clean_provider_name(provider)
     if prov == "endpoint":
+        together_rows = _together_endpoint_voice_rows(str(model or ""), endpoint, api_key)
+        if together_rows is not None:
+            return together_rows
         rows = _endpoint_voice_rows(str(model or ""))
         if rows is not None:
             return rows
-    return get_voice_catalog(get_voice_family(prov, model), locale)
+    return get_voice_catalog(get_voice_family(prov, model, endpoint), locale)
+
+
+def _together_endpoint_voice_rows(
+    model: str,
+    endpoint: str | None,
+    api_key: str | None,
+) -> list[dict[str, str]] | None:
+    """Together voice rows, ``[]`` so alloy is not shown, or None for the family catalog.
+
+    Kokoro with no Together answer falls through to the local Kokoro catalog.
+    Orpheus and Cartesia do not: an empty list beats the OpenAI alloy list.
+    """
+    if not endpoint_is_together(endpoint):
+        return None
+    mid = (model or "").strip()
+    if not mid:
+        return []
+    from plugin.framework.client.model_fetcher import (
+        cached_tts_supported_voices,
+        fetch_together_tts_voices,
+    )
+    from plugin.framework.config import get_current_endpoint as saved_endpoint
+
+    voices = cached_tts_supported_voices(mid)
+    if not voices:
+        url = endpoint if endpoint is not None else (saved_endpoint() or "")
+        if url:
+            fetch_together_tts_voices(url, model_id=mid, api_key_override=api_key)
+            voices = cached_tts_supported_voices(mid)
+    if voices:
+        # Label equals the token /audio/speech must send (Cartesia id or voice name).
+        return [{"value": voice, "label": voice} for voice in voices]
+    if "kokoro" in mid.lower():
+        return None
+    return []
 
 
 def _endpoint_voice_rows(model: str) -> list[dict[str, str]] | None:
@@ -693,9 +761,9 @@ def _saved_endpoint_is_openrouter() -> bool:
     """
     try:
         from plugin.framework.client.provider_detection import get_provider_from_endpoint
-        from plugin.framework.config import get_current_endpoint
+        from plugin.framework.config import get_current_endpoint as saved_endpoint
 
-        return get_provider_from_endpoint(get_current_endpoint() or "") == "openrouter"
+        return get_provider_from_endpoint(saved_endpoint() or "") == "openrouter"
     except Exception:
         log.debug("TTS voice list: endpoint provider unavailable", exc_info=True)
         return False
@@ -720,17 +788,21 @@ def clean_voice_name(voice_or_label: str) -> str:
     return voice_or_label.split(" (")[0].strip()
 
 
-def get_voice_family(provider: str | None, model: str | None = None) -> str:
-    """Return voice family key ('kokoro', 'piper', 'openai', 'openrouter', 'system')."""
+def get_voice_family(provider: str | None, model: str | None = None, endpoint: str | None = None) -> str:
+    """Return voice family key ('kokoro', 'piper', 'openai', 'openrouter', 'together', 'system')."""
     prov = clean_provider_name(provider or "")
     if prov == "kokoro":
         return "kokoro"
     if prov == "piper":
         return "piper"
     if prov == "endpoint":
-        # Kokoro on an endpoint still shares the local Kokoro voice key.
+        # Endpoint Kokoro shares the local Kokoro voice key (af_* names).
         if model and "kokoro" in model.lower():
             return "kokoro"
+        # Together before the shared voice cache. Cartesia ids must not land in
+        # audio.tts_voice_openrouter just because /v1/voices filled that map.
+        if endpoint_is_together(endpoint):
+            return "together"
         if model and _endpoint_uses_openrouter_voices(model):
             return "openrouter"
         return "openai"
@@ -757,6 +829,7 @@ def get_scoped_tts_voice(
     provider: str | None = None,
     model: str | None = None,
     locale: str | None = None,
+    endpoint: str | None = None,
 ) -> str:
     """Get the scoped voice for the given provider/model's voice family."""
     if provider is None:
@@ -769,31 +842,30 @@ def get_scoped_tts_voice(
         except ImportError:
             model = None
 
-    family = get_voice_family(prov_clean, model)
-    or_voices: list[str] = []
-    if prov_clean == "endpoint" and model:
-        from plugin.framework.client.model_fetcher import cached_tts_supported_voices
-
-        or_voices = cached_tts_supported_voices(model)
-
+    family = get_voice_family(prov_clean, model, endpoint)
     scoped_key = f"audio.tts_voice_{family}"
     val = get_config(scoped_key)
     clean_scoped = clean_voice_name(val.strip()) if isinstance(val, str) and val.strip() else ""
     general_voice = str(get_config("audio.tts_voice") or "").strip()
     clean_gen = clean_voice_name(general_voice)
 
-    # Model-specific OpenRouter ids beat a stored OpenAI voice such as alloy.
-    if or_voices:
-        if clean_scoped in or_voices:
+    # Harvested ids (OpenRouter supported_voices or Together /v1/voices) beat alloy.
+    voices: list[str] = []
+    if prov_clean == "endpoint" and model:
+        from plugin.framework.client.model_fetcher import cached_tts_supported_voices
+
+        voices = cached_tts_supported_voices(str(model))
+    if voices:
+        if clean_scoped in voices:
             return clean_scoped
-        if clean_gen in or_voices:
+        if clean_gen in voices:
             return clean_gen
-        return or_voices[0]
+        return voices[0]
 
     if clean_scoped:
         return clean_scoped
 
-    if family == "openrouter":
+    if family in ("openrouter", "together"):
         # No advertised list: keep a typed id. Do not substitute alloy.
         return clean_gen
 
@@ -804,7 +876,12 @@ def get_scoped_tts_voice(
     return get_default_voice_for_locale(family, locale)
 
 
-def set_scoped_tts_voice(voice: str, provider: str | None = None, model: str | None = None) -> None:
+def set_scoped_tts_voice(
+    voice: str,
+    provider: str | None = None,
+    model: str | None = None,
+    endpoint: str | None = None,
+) -> None:
     """Persist the voice selection for the given provider/model family."""
     clean_v = clean_voice_name(voice)
     if not clean_v:
@@ -819,7 +896,7 @@ def set_scoped_tts_voice(voice: str, provider: str | None = None, model: str | N
         except ImportError:
             model = None
 
-    family = get_voice_family(prov_clean, model)
+    family = get_voice_family(prov_clean, model, endpoint)
     scoped_key = f"audio.tts_voice_{family}"
     set_config(scoped_key, clean_v)
     set_config("audio.tts_voice", clean_v)

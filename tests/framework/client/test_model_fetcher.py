@@ -525,6 +525,7 @@ class TestFetchAvailableSpeechModels:
                     cache.pop(key, None)
         cfg._tts_supported_voices.clear()
         cfg._tts_response_format.clear()
+        cfg._together_voices_fetch_cache.clear()
 
     def test_openrouter_tts_queries_speech_modality(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -585,4 +586,76 @@ class TestFetchAvailableSpeechModels:
         with patch("plugin.framework.client.requests.sync_request") as mock_sync:
             assert cfg.fetch_available_tts_models("https://api.together.xyz") is None
             assert cfg.fetch_available_stt_models("https://api.together.xyz") is None
+            mock_sync.assert_not_called()
+
+    def test_together_voices_list_all_fills_shared_cache(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = {
+            "data": [
+                {
+                    "model": "hexgrad/Kokoro-82M",
+                    "voices": [
+                        {"name": "af_bella", "id": "af_bella", "language": "en"},
+                        {"name": "af_sky"},
+                    ],
+                },
+                {
+                    "model": "canopylabs/orpheus-3b-0.1-ft",
+                    "voices": [
+                        {"name": "tara", "id": "do-not-send", "language": "en"},
+                        {"name": "leah"},
+                    ],
+                },
+                {
+                    "model": "cartesia/sonic-2",
+                    "voices": [
+                        {"name": "Friendly Sidekick", "id": "694f9389-aac1-45b6-b726-9d9369183238", "language": "en"},
+                        {"name": "No Id Voice"},
+                    ],
+                },
+            ]
+        }
+        with patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync:
+            found = cfg.fetch_together_tts_voices("https://api.together.xyz", api_key_override="sk-test")
+            again = cfg.fetch_together_tts_voices("https://api.together.xyz", api_key_override="sk-test")
+            mock_sync.assert_called_once()
+            assert mock_sync.call_args[0][0] == "https://api.together.xyz/v1/voices"
+            headers = mock_sync.call_args.kwargs.get("headers") or {}
+            assert headers.get("Authorization") == "Bearer sk-test"
+        assert found == again
+        assert cfg.cached_tts_supported_voices("hexgrad/kokoro-82m") == ["af_bella", "af_sky"]
+        assert cfg.cached_tts_supported_voices("canopylabs/orpheus-3b-0.1-ft") == ["tara", "leah"]
+        assert cfg.cached_tts_supported_voices("cartesia/sonic-2") == [
+            "694f9389-aac1-45b6-b726-9d9369183238",
+            "No Id Voice",
+        ]
+
+    def test_together_voices_filtered_by_model(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = {
+            "model": "cartesia/sonic",
+            "voices": [
+                {"name": "Customer Service", "id": "voice-id-1"},
+                {"name": "Narrator", "id": "voice-id-2", "language": "en"},
+            ],
+        }
+        with patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync:
+            found = cfg.fetch_together_tts_voices(
+                "https://api.together.xyz",
+                model_id="cartesia/sonic",
+                api_key_override="",
+            )
+            assert mock_sync.call_args[0][0] == "https://api.together.xyz/v1/voices?model=cartesia%2Fsonic"
+            headers = mock_sync.call_args.kwargs.get("headers") or {}
+            assert "Authorization" not in headers
+        assert found == {"cartesia/sonic": ["voice-id-1", "voice-id-2"]}
+        assert cfg.cached_tts_supported_voices("cartesia/sonic") == ["voice-id-1", "voice-id-2"]
+
+    def test_together_voices_skip_non_together_host(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        with patch("plugin.framework.client.requests.sync_request") as mock_sync:
+            assert cfg.fetch_together_tts_voices("https://openrouter.ai/api", model_id="hexgrad/Kokoro-82M") is None
             mock_sync.assert_not_called()

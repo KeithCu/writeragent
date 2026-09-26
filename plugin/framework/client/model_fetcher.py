@@ -71,13 +71,20 @@ _model_fetch_vision_cache: dict[str, list[str] | None] = {}
 # is music / gpt-audio, not the Speech-tab TTS combo.
 _model_fetch_tts_cache: dict[str, list[str] | None] = {}
 _model_fetch_stt_cache: dict[str, list[str] | None] = {}
-# Speech-list supported_voices, keyed by the API model id (process lifetime).
+# Speech voice tokens, keyed by the API model id (process lifetime).
+# OpenRouter fills this from supported_voices on the speech model list.
+# Together fills it from GET /v1/voices. Same map — not a second voice cache.
 _tts_supported_voices: dict[str, list[str]] = {}
 # response_format that worked for that model (mp3 / pcm / wav). Same lifetime
 # as the voice list: learned while speaking, not written to writeragent.json.
 # Gemini-class speech models reject mp3; remembering pcm skips that 400 next time.
+# Together uses this too: _download_endpoint_speech learns the format per model id.
 _tts_response_format: dict[str, str] = {}
 _TTS_RESPONSE_FORMATS = ("mp3", "pcm", "wav")
+# GET /v1/voices response memo (URL+key -> model->tokens, or None after failure).
+# The Voice combo reads _tts_supported_voices, not this dict. It only stops a
+# dialog refresh from repeating the same GET.
+_together_voices_fetch_cache: dict[str, dict[str, list[str]] | None] = {}
 # Same key as _model_fetch_cache. Per-id context tokens harvested from /v1/models
 # (context_length or context_window only). None after a failed fetch. Lookup
 # never HTTP — compact reads this; Settings/sidebar populate it.
@@ -491,7 +498,8 @@ def _fetch_openrouter_modality_models(
         if entries is not None:
             model_ids, voices = _modality_ids_from_entries(entries, modality)
             if modality == "speech" and voices:
-                _tts_supported_voices.update(voices)
+                for speech_id, speech_voices in voices.items():
+                    remember_tts_supported_voices(speech_id, speech_voices)
             cache[cache_key] = model_ids
             return model_ids
     except Exception as e:
@@ -516,7 +524,11 @@ def fetch_available_stt_models(endpoint: str, api_key_override: str | None = Non
 
 
 def cached_tts_supported_voices(model_id: str) -> list[str]:
-    """Voices harvested from the last OpenRouter speech-list response, if any."""
+    """Voice tokens harvested for this speech model, if any.
+
+    OpenRouter speech rows and Together ``/v1/voices`` share this map.
+    ``hexgrad/Kokoro-82M`` and ``hexgrad/kokoro-82m`` are one entry.
+    """
     mid = str(model_id or "").strip()
     if not mid:
         return []
@@ -585,6 +597,148 @@ def openrouter_speech_list_has_model(model_id: str) -> bool:
         if any(str(api_id).casefold() == mid for api_id in ids):
             return True
     return False
+
+
+def remember_tts_supported_voices(model_id: str, voices: list[str]) -> None:
+    """Store speech voice tokens for ``model_id`` until this process exits.
+
+    Empty input does not erase a previous list. A later successful harvest
+    replaces the row. Case-insensitive ids share one key so a Together
+    ``Kokoro-82M`` row does not hide an earlier ``kokoro-82m`` entry.
+    """
+    mid = str(model_id or "").strip()
+    if not mid:
+        return
+    clean: list[str] = []
+    for voice in voices:
+        token = voice.strip() if isinstance(voice, str) else ""
+        if token and token not in clean:
+            clean.append(token)
+    if not clean:
+        return
+    key = mid
+    folded = mid.casefold()
+    for existing in _tts_supported_voices:
+        if existing.casefold() == folded:
+            key = existing
+            break
+    _tts_supported_voices[key] = clean
+
+
+def _together_voice_token(model_id: str, row: Any) -> str:
+    """Token to send as ``voice`` on Together ``/audio/speech``.
+
+    Orpheus and Kokoro use the voice name. Cartesia docs say pass the voice
+    id, not the display name, when the row includes ``id``.
+    https://docs.together.ai/docs/inference/text-to-speech/overview
+    """
+    if isinstance(row, str):
+        return row.strip()
+    if not isinstance(row, dict):
+        return ""
+    name = row.get("name")
+    name_s = name.strip() if isinstance(name, str) else ""
+    raw_id = row.get("id")
+    id_s = raw_id.strip() if isinstance(raw_id, str) else ""
+    if "cartesia" in model_id.casefold() and id_s:
+        return id_s
+    return name_s or id_s
+
+
+def _together_voice_groups(data: Any, requested_model: str | None) -> list[tuple[str, list[Any]]]:
+    """Normalize list-all ``{data:[{model, voices}]}`` and filtered ``{model, voices}``."""
+    if isinstance(data, dict) and isinstance(data.get("data"), list):
+        groups: list[tuple[str, list[Any]]] = []
+        for item in data["data"]:
+            if not isinstance(item, dict):
+                continue
+            mid = str(item.get("model") or requested_model or "").strip()
+            raw_voices = item.get("voices")
+            if mid and isinstance(raw_voices, list):
+                groups.append((mid, raw_voices))
+        return groups
+    if isinstance(data, dict) and isinstance(data.get("voices"), list):
+        mid = str(data.get("model") or requested_model or "").strip()
+        if mid:
+            return [(mid, data["voices"])]
+    return []
+
+
+def _voices_from_together_body(data: Any, requested_model: str | None) -> dict[str, list[str]]:
+    found: dict[str, list[str]] = {}
+    for mid, raw_voices in _together_voice_groups(data, requested_model):
+        tokens: list[str] = []
+        for row in raw_voices:
+            token = _together_voice_token(mid, row)
+            if token and token not in tokens:
+                tokens.append(token)
+        if tokens:
+            found[mid] = tokens
+    return found
+
+
+def fetch_together_tts_voices(
+    endpoint: str,
+    model_id: str | None = None,
+    api_key_override: str | None = None,
+) -> dict[str, list[str]] | None:
+    """GET Together ``/v1/voices`` and copy tokens into ``_tts_supported_voices``.
+
+    ``model_id`` set: ``GET /v1/voices?model=``. Omitted: list every model.
+    Unauthenticated listing often works; a saved or dialog key is still sent.
+    None when the host is not Together or the request fails. Memoized like
+    the other model fetches. The combo reads ``cached_tts_supported_voices``.
+    """
+    if not endpoint:
+        return None
+    base = normalize_endpoint_url(endpoint)
+    if not base or not endpoint_url_suitable_for_v1_models_fetch(base):
+        return None
+    if get_provider_from_endpoint(base) != "together":
+        return None
+
+    requested = str(model_id or "").strip()
+    is_owu = get_config_bool_safe("is_openwebui")
+    suffix = get_api_version_suffix(base, is_openwebui=is_owu)
+    if requested:
+        query = urllib.parse.urlencode({"model": requested})
+        url = f"{base}{suffix}/voices?{query}"
+    else:
+        url = f"{base}{suffix}/voices"
+    cache_key = _model_fetch_cache_key(url, base, api_key_override)
+    if cache_key in _together_voices_fetch_cache:
+        return _together_voices_fetch_cache[cache_key]
+
+    from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
+
+    if api_key_override is not None:
+        api_key = str(api_key_override).strip()
+    else:
+        api_key = str(get_api_key_for_endpoint(base) or "").strip()
+    mini = {"endpoint": base, "api_key": api_key, "is_openwebui": is_owu, "is_openrouter": False}
+    try:
+        req_headers = build_auth_headers(resolve_auth_for_config(mini))
+    except AuthError as e:
+        if api_key:
+            log.debug("fetch together voices skipping %s: %s", url, e)
+            _together_voices_fetch_cache[cache_key] = None
+            return None
+        log.debug("fetch together voices unauthenticated for %s: %s", url, e)
+        req_headers = {}
+
+    try:
+        from plugin.framework.client.requests import sync_request
+
+        data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
+        found = _voices_from_together_body(data, requested or None)
+        for speech_id, speech_voices in found.items():
+            remember_tts_supported_voices(speech_id, speech_voices)
+        _together_voices_fetch_cache[cache_key] = found
+        return found
+    except Exception as e:
+        log.warning("fetch together voices failed for %s: %s", url, e)
+    _together_voices_fetch_cache[cache_key] = None
+    return None
 
 
 def preferred_openrouter_tts_model_id(model_id: str) -> str:
