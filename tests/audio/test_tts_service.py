@@ -92,7 +92,11 @@ def test_resolve_tts_voice():
 
 def test_speak_endpoint_payload():
     from plugin.audio.tts_service import _speak_endpoint
+    from plugin.framework.client import model_fetcher as cfg
     import json
+
+    # A warm speech-list cache must not rewrite this assertion's catalog id.
+    cfg._model_fetch_tts_cache.clear()
 
     with patch("urllib.request.urlopen") as mock_urlopen:
         mock_resp = MagicMock()
@@ -110,6 +114,33 @@ def test_speak_endpoint_payload():
         assert payload["model"] == "hexgrad/Kokoro-82M"
         assert payload["voice"] == "af_bella"
         assert payload["response_format"] == "mp3"
+
+
+def test_speak_endpoint_prefers_cached_openrouter_speech_id():
+    from plugin.audio.tts_service import _speak_endpoint
+    from plugin.framework.client import model_fetcher as cfg
+    import json
+
+    cfg._model_fetch_tts_cache.clear()
+    cfg._model_fetch_tts_cache["speech-test"] = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
+    try:
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b"fake-audio-bytes"
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+            with patch("plugin.audio.tts_service._play_audio_file"):
+                _speak_endpoint(
+                    "Test hello",
+                    "https://openrouter.ai/api",
+                    "test-key",
+                    model="hexgrad/Kokoro-82M",
+                    voice="af_bella",
+                )
+            payload = json.loads(mock_urlopen.call_args[0][0].data.decode("utf-8"))
+            assert payload["model"] == "hexgrad/kokoro-82m"
+            assert payload["voice"] == "af_bella"
+    finally:
+        cfg._model_fetch_tts_cache.clear()
 
 
 def test_is_speaking_lifecycle():
