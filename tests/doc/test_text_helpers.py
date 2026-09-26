@@ -366,3 +366,29 @@ def test_char_count_no_attr():
     del model.ParagraphCount
     from plugin.doc.text_helpers import _writer_char_count
     assert _writer_char_count(model) == 11
+
+
+def test_get_text_cursor_at_range_ignores_the_short_character_count():
+    """#37: CharacterCount leaves out paragraph breaks and tracked deletions, so clamping to it
+    cut a real offset from search_in_document(return_offsets) down to nothing."""
+    from plugin.doc.text_helpers import get_text_cursor_at_range
+
+    model = MagicMock()
+    model.CharacterCount = 5  # far shorter than the offsets asked for
+    cursor = model.getText.return_value.createTextCursor.return_value
+    got = get_text_cursor_at_range(model, 3338, 3358)
+    assert got is cursor
+    assert cursor.goRight.call_args_list[0].args == (3338, False)
+    assert cursor.goRight.call_args_list[-1].args == (20, True)
+
+
+def test_get_text_cursor_at_range_stops_at_the_end_of_the_text():
+    """Without the clamp, char_end=10**12 would run ~10**8 goRight calls; stop once one runs
+    out of text (it has already moved to the end)."""
+    from plugin.doc.text_helpers import get_text_cursor_at_range
+
+    model = MagicMock()
+    cursor = model.getText.return_value.createTextCursor.return_value
+    cursor.goRight.return_value = False
+    assert get_text_cursor_at_range(model, 10**12, 10**12 + 5) is cursor
+    assert cursor.goRight.call_count == 1

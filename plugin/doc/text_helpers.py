@@ -682,25 +682,32 @@ def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> 
     Returns None on error or invalid range."""
     try:
         check_disposed(model, "Document Model")
-        doc_len = get_document_length(model)
-        start_offset = max(0, min(start_offset, doc_len))
-        end_offset = max(0, min(end_offset, doc_len))
+        # What was wrong: both offsets were clamped to get_document_length(), which for Writer is
+        # the CharacterCount statistic -- it leaves out paragraph breaks and tracked deletions, while
+        # offsets (search_in_document return_offsets, getString) count both. On a long document the
+        # range was clamped past its real end and set_selection selected nothing (relato #37).
+        # No clamp is needed at the end: goRight stops at the end of the text on its own.
+        start_offset = max(0, start_offset)
+        end_offset = max(0, end_offset)
         if start_offset > end_offset:
             start_offset, end_offset = end_offset, start_offset
         text = safe_call(model.getText, "Get document text")
         cursor = safe_call(text.createTextCursor, "Create text cursor")
         safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        # Move to start_offset in chunks
+        # Move to start_offset in chunks. A goRight that runs out of text stops at the end and
+        # returns False: stop there, or an offset like 10**12 runs millions of UNO calls.
         remaining = start_offset
         while remaining > 0:
             n = min(remaining, _GO_RIGHT_CHUNK)
-            safe_call(cursor.goRight, "Cursor goRight", n, False)
+            if safe_call(cursor.goRight, "Cursor goRight", n, False) is False:
+                return cursor
             remaining -= n
         # Expand selection by (end_offset - start_offset)
         remaining = end_offset - start_offset
         while remaining > 0:
             n = min(remaining, _GO_RIGHT_CHUNK)
-            safe_call(cursor.goRight, "Cursor goRight", n, True)
+            if safe_call(cursor.goRight, "Cursor goRight", n, True) is False:
+                break
             remaining -= n
         return cursor
     except UnoObjectError:
