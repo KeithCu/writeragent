@@ -92,7 +92,8 @@ def misaki_phonemes(text: str, lang: str) -> str:
     if not snippet:
         return ""
     namespace: dict[str, object] = {"text": text}
-    exec(snippet, namespace, namespace)  # noqa: S102 - fixed G2P snippets, not user code
+    # Fixed Misaki snippets from this module, not caller text.
+    exec(snippet, namespace, namespace)  # nosec B102  # noqa: S102
     phonemes = namespace.get("phonemes", "")
     if not isinstance(phonemes, str):
         return ""

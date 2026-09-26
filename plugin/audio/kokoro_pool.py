@@ -68,6 +68,11 @@ def _child_env() -> dict[str, str]:
 class _KokoroProcess:
     """One persistent child. ``execute`` is serialized; ``kill`` is not."""
 
+    python_executable: str
+    script_path: str
+    _lock: threading.Lock
+    _retired: bool
+
     def __init__(self, python_executable: str, script_path: str) -> None:
         self.python_executable = python_executable
         self.script_path = script_path
@@ -221,6 +226,17 @@ class _KokoroProcess:
 
 class KokoroProcessPool:
     """Single warm worker plus an idle reaper. ``num_workers`` is always 1."""
+
+    python_executable: str
+    script_path: str
+    idle_worker_ttl_sec: float | None
+    job_timeout_sec: float
+    num_workers: int
+    _lock: threading.Lock
+    _inflight: bool
+    _shutdown: bool
+    _last_active: float
+    _reaper_stop: threading.Event
 
     def __init__(
         self,

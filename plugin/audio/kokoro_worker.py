@@ -101,7 +101,8 @@ def _get_kokoro(model_path: str, voices_path: str) -> Any:
     key = (model_path, voices_path)
     if _loaded is not None and _loaded_key == key:
         return _loaded
-    from kokoro_onnx import Kokoro
+    # kokoro-onnx lives in the user venv, not LibreOffice's or CI's site-packages.
+    from kokoro_onnx import Kokoro  # type: ignore[import-not-found, ty:unresolved-import]
 
     inst = Kokoro(model_path, voices_path)
     _loaded = inst
@@ -180,7 +181,8 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         warning = f"{warning} {g2p_warning}".strip() if warning else g2p_warning
 
     try:
-        import soundfile as sf
+        # soundfile is the same venv-only dependency as kokoro-onnx.
+        import soundfile as sf  # type: ignore[import-not-found, ty:unresolved-import]
 
         if phonemes:
             samples, rate = kokoro.create(

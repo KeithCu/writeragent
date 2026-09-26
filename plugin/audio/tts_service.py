@@ -15,7 +15,7 @@ import sys
 import tempfile
 import threading
 from collections import deque
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 from plugin.audio.kokoro_g2p import (
     KOKORO_ONNX_SCRIPT,
@@ -71,7 +71,11 @@ SPEECH_READY_MAX_BYTES = 32 * 1024 * 1024
 class _ReadyClip:
     """One synthesized sentence waiting to play, in utterance order."""
 
-    __slots__ = ("path", "text", "nbytes", "speak_system")
+    __slots__: ClassVar[tuple[str, ...]] = ("path", "text", "nbytes", "speak_system")
+    path: str | None
+    text: str
+    nbytes: int
+    speak_system: bool
 
     def __init__(self, path: str | None, text: str, nbytes: int, speak_system: bool) -> None:
         self.path = path
@@ -82,6 +86,13 @@ class _ReadyClip:
 
 class _ReadyQueue:
     """Bounded FIFO of clips. The producer blocks when the soft cap is hit."""
+
+    _max_clips: int
+    _max_bytes: int
+    _bytes: int
+    _cv: threading.Condition
+    _closed: bool
+    _drained: bool
 
     def __init__(self, max_clips: int, max_bytes: int) -> None:
         self._max_clips = max(2, max_clips)
