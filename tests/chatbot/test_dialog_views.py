@@ -979,10 +979,10 @@ def test_tts_settings_listener_uses_cached_openrouter_voices():
     from plugin.framework.client import model_fetcher as cfg
 
     model_id = "google/gemini-2.5-flash-preview-tts"
-    cfg._tts_supported_voices[model_id] = ["Kore", "Puck"]
+    cfg._tts_supported_voices[model_id] = ["Zephyr", "Puck", "Kore"]
     dlg = MagicMock()
     prov_ctrl = MagicMock()
-    prov_ctrl.getText.return_value = "Current Chat Endpoint (/audio/speech)"
+    prov_ctrl.getText.return_value = "LLM Endpoint"
     model_ctrl = MagicMock()
     model_ctrl.getText.return_value = model_id
     voice_ctrl = MagicMock()
@@ -1008,10 +1008,52 @@ def test_tts_settings_listener_uses_cached_openrouter_voices():
              patch("plugin.audio.tts_service.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
              patch("plugin.audio.tts_service.set_config", side_effect=lambda key, val: stored.__setitem__(key, val)):
             TtsSettingsListener(dlg, MagicMock()).sync_ui()
-        assert list(voice_model.StringItemList) == ["Kore", "Puck"]
+        assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
         assert voice_ctrl.setText.call_args[0][0] == "Kore"
         assert stored.get("audio.tts_voice_openrouter") == "Kore"
         assert stored.get("audio.tts_voice") == "Kore"
+    finally:
+        cfg._tts_supported_voices.pop(model_id, None)
+
+
+def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
+    """Re-sorting the endpoint combo must not replace a voice that is still listed."""
+    from plugin.chatbot.dialog_views import TtsSettingsListener
+    from plugin.framework.client import model_fetcher as cfg
+
+    model_id = "google/gemini-2.5-flash-preview-tts"
+    cfg._tts_supported_voices[model_id] = ["Zephyr", "Puck", "Kore"]
+    dlg = MagicMock()
+    prov_ctrl = MagicMock()
+    prov_ctrl.getText.return_value = "LLM Endpoint"
+    model_ctrl = MagicMock()
+    model_ctrl.getText.return_value = model_id
+    voice_ctrl = MagicMock()
+    voice_model = MagicMock()
+    voice_model.StringItemList = ()
+    voice_ctrl.getModel.return_value = voice_model
+    voice_ctrl.getText.return_value = "Puck"
+
+    def get_optional_side_effect(d, name):
+        del d
+        if name == "audio__tts_provider":
+            return prov_ctrl
+        if name in ("audio__tts_model", "tts_model"):
+            return model_ctrl
+        if name == "audio__tts_voice":
+            return voice_ctrl
+        return None
+
+    stored = {"audio.tts_voice_openrouter": "Puck"}
+    try:
+        with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+             patch("plugin.chatbot.dialog_views.set_control_enabled"), \
+             patch("plugin.audio.tts_service.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
+             patch("plugin.audio.tts_service.set_config", side_effect=lambda key, val: stored.__setitem__(key, val)):
+            TtsSettingsListener(dlg, MagicMock()).sync_ui()
+        assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
+        voice_ctrl.setText.assert_not_called()
+        assert stored.get("audio.tts_voice_openrouter") == "Puck"
     finally:
         cfg._tts_supported_voices.pop(model_id, None)
 

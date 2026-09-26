@@ -641,6 +641,18 @@ def settings_voice_options(services: Any = None) -> list[dict[str, str]]:
     return voice_options_for_provider(provider, model)
 
 
+def _sort_voice_rows_by_label(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Case-insensitive label order for remote endpoint Voice combos.
+
+    API order (OpenRouter ``supported_voices``, Together, the alloy/nova
+    catalog) looks arbitrary in the dropdown. Local Kokoro and Piper are
+    not passed through here, so locale grouping stays put. ``sorted`` is
+    stable and does not rewrite the selected id: the dialog keeps the
+    current voice when that id is still in the list.
+    """
+    return sorted(rows, key=lambda row: str(row.get("label") or "").casefold())
+
+
 def voice_options_for_provider(
     provider: str,
     model: str | None = None,
@@ -652,13 +664,22 @@ def voice_options_for_provider(
     An OpenRouter speech model whose list omitted voices, or whose speech list
     has not been fetched yet, returns ``[]`` so the combo stays free text
     instead of the OpenAI alloy list. Other OpenAI-compatible endpoints keep
-    the openai catalog. Local Kokoro and Piper are unchanged.
+    the openai catalog. Remote endpoint rows are sorted by display label.
+    Local Kokoro and Piper, including Kokoro served by an endpoint model id,
+    keep catalog and locale order.
     """
     prov = clean_provider_name(provider)
     if prov == "endpoint":
         rows = _endpoint_voice_rows(str(model or ""))
         if rows is not None:
-            return rows
+            return _sort_voice_rows_by_label(rows)
+        family = get_voice_family(prov, model)
+        catalog = get_voice_catalog(family, locale)
+        # Alloy/nova-style list (OpenAI-compatible hosts, including Together
+        # when no harvested voice list exists). Kokoro-on-endpoint is not this.
+        if family == "openai":
+            return _sort_voice_rows_by_label(catalog)
+        return catalog
     return get_voice_catalog(get_voice_family(prov, model), locale)
 
 
@@ -688,7 +709,7 @@ def _endpoint_voice_rows(model: str) -> list[dict[str, str]] | None:
 def _saved_endpoint_is_openrouter() -> bool:
     """True when the saved chat endpoint is OpenRouter.
 
-    Speech uses Current Chat Endpoint, so the host that will speak is the
+    Speech uses the LLM Endpoint provider, so the host that will speak is the
     saved URL, not an unsaved value still sitting in the endpoint combo.
     """
     try:

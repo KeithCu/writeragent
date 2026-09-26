@@ -382,9 +382,12 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
     grok = "x-ai/grok-voice-tts-1.0"
     cfg._tts_supported_voices.pop(gemini, None)
     cfg._tts_supported_voices.pop(grok, None)
+    cfg._tts_supported_voices.pop("hexgrad/Kokoro-82M", None)
+    cfg._tts_supported_voices.pop("hexgrad/kokoro-82m", None)
     cfg._model_fetch_tts_cache.clear()
     try:
-        cfg._tts_supported_voices[gemini] = ["Kore", "Puck"]
+        # API order is not alphabetical. The combo sorts labels; Kokoro does not.
+        cfg._tts_supported_voices[gemini] = ["Zephyr", "Puck", "Kore"]
         assert get_voice_family("endpoint", gemini) == "openrouter"
         assert get_voice_family("endpoint", "hexgrad/Kokoro-82M") == "kokoro"
         assert get_voice_family("kokoro") == "kokoro"
@@ -392,8 +395,19 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
         assert voice_options_for_provider("endpoint", gemini) == [
             {"value": "Kore", "label": "Kore"},
             {"value": "Puck", "label": "Puck"},
+            {"value": "Zephyr", "label": "Zephyr"},
         ]
         assert voice_options_for_provider("piper", "") == get_voice_catalog("piper")
+        assert voice_options_for_provider("kokoro", "") == get_voice_catalog("kokoro")
+        assert voice_options_for_provider("endpoint", "hexgrad/Kokoro-82M") == get_voice_catalog("kokoro")
+        kokoro_labels = [row["label"] for row in get_voice_catalog("kokoro", "en_US")]
+        assert kokoro_labels != sorted(kokoro_labels, key=str.casefold)
+        cfg._tts_supported_voices["case-model"] = ["nova", "Alloy", "echo"]
+        assert [row["label"] for row in voice_options_for_provider("endpoint", "case-model")] == [
+            "Alloy",
+            "echo",
+            "nova",
+        ]
 
         store = {
             "audio.tts_voice_openrouter": "alloy",
@@ -404,7 +418,8 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
             return store.get(key, default)
 
         with patch("plugin.audio.tts_service.get_config", side_effect=_cfg):
-            assert get_scoped_tts_voice("endpoint", gemini) == "Kore"
+            # Missing id: speak still uses the first advertised voice, not the sorted label.
+            assert get_scoped_tts_voice("endpoint", gemini) == "Zephyr"
             store["audio.tts_voice_openrouter"] = "Puck"
             assert get_scoped_tts_voice("endpoint", gemini) == "Puck"
 
@@ -419,10 +434,14 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
         with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"):
             rows = voice_options_for_provider("endpoint", "openai/tts-1")
         assert any(row["value"] == "alloy" for row in rows)
+        labels = [row["label"] for row in rows]
+        assert labels == sorted(labels, key=str.casefold)
+        assert labels[0].startswith("alloy")
         assert get_voice_family("endpoint", "openai/tts-1") == "openai"
     finally:
         cfg._tts_supported_voices.pop(gemini, None)
         cfg._tts_supported_voices.pop(grok, None)
+        cfg._tts_supported_voices.pop("case-model", None)
         cfg._model_fetch_tts_cache.clear()
 
 
@@ -448,6 +467,8 @@ def test_clean_provider_and_voice_names():
 
     assert clean_provider_name("Kokoro (Local Neural, ONNX CPU)") == "kokoro"
     assert clean_provider_name("Piper (Local Fast Neural, CPU)") == "piper"
+    assert clean_provider_name("LLM Endpoint") == "endpoint"
+    # Older builds showed this label; a stale combo string still maps to endpoint.
     assert clean_provider_name("Current Chat Endpoint (/audio/speech)") == "endpoint"
     assert clean_provider_name("OS Native (say / SAPI / spd-say)") == "system"
 
