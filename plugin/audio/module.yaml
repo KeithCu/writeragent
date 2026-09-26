@@ -50,14 +50,14 @@ config:
       - value: piper
         label: "Piper (Local Fast Neural, CPU)"
       - value: endpoint
-        label: "Current Chat Endpoint (/audio/speech)"
+        label: "LLM Endpoint"
 
   tts_model:
     type: string
     default: ""
     widget: combo
     label: TTS Model
-    helper: "Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
+    helper: "Model for speech synthesis (used when TTS Provider is LLM Endpoint)."
 
   tts_voice:
     type: string
