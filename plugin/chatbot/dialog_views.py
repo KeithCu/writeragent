@@ -42,7 +42,7 @@ from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from .dialogs import (
     TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state,
     get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog,
-    msgbox,
+    load_writeragent_dialog, msgbox,
 )
 
 log = logging.getLogger(__name__)
@@ -999,6 +999,124 @@ class TtsVoiceListener(BaseListener, XItemListener, XTextListener):
             log.exception("Error saving scoped TTS voice on change")
 
 
+class _TtsTestProgressBox:
+    """Modeless Speech status for on-demand Piper/Kokoro downloads during Test voice.
+
+    Native MessageBox.execute() cannot be closed from a download-completion
+    callback (main thread is inside execute). This box uses setVisible and is
+    dismissed via clear() on the UNO thread, or OK if the user dismisses early.
+    """
+
+    _ctx: Any
+    _dlg: Any
+    _closed: bool
+
+    def __init__(self, ctx: Any) -> None:
+        self._ctx = ctx
+        self._dlg = None
+        self._closed = False
+
+    def show_or_update(self, message: str) -> None:
+        if self._closed:
+            return
+        try:
+            if self._dlg is None:
+                self._open(message)
+            else:
+                msg_ctrl = self._dlg.getControl("Msg")
+                if msg_ctrl is not None:
+                    msg_ctrl.getModel().Label = message
+        except Exception:
+            log.debug("TTS test progress update failed", exc_info=True)
+
+    def _open(self, message: str) -> None:
+        from plugin.framework.uno_listeners import BaseActionListener as _BAL
+
+        dlg = load_writeragent_dialog("MsgBoxWithCopyDialog", self._ctx)
+        if dlg is None:
+            # Last resort: blocking box (cannot auto-close). Prefer logging only.
+            log.info("TTS test progress (no dialog): %s", message)
+            return
+        try:
+            dlg.getModel().Title = _("Speech")
+        except Exception:
+            log.debug("TTS test progress title failed", exc_info=True)
+        msg_ctrl = dlg.getControl("Msg")
+        if msg_ctrl is not None:
+            msg_ctrl.getModel().Label = message
+        copy_btn = dlg.getControl("CopyBtn")
+        if copy_btn is not None:
+            try:
+                if hasattr(copy_btn, "setVisible"):
+                    copy_btn.setVisible(False)
+                else:
+                    copy_btn.getModel().Visible = False
+            except Exception:
+                log.debug("TTS test progress hide Copy failed", exc_info=True)
+
+        owner = self
+
+        class _OkListener(_BAL):
+            def on_action_performed(self, rEvent: Any) -> None:
+                del rEvent
+                owner.close()
+
+        ok_btn = dlg.getControl("OKBtn")
+        if ok_btn is not None:
+            ok_btn.addActionListener(_OkListener())
+        self._dlg = dlg
+        dlg.setVisible(True)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        dlg = self._dlg
+        self._dlg = None
+        if dlg is None:
+            return
+        try:
+            dlg.setVisible(False)
+        except Exception:
+            log.debug("TTS test progress hide failed", exc_info=True)
+        try:
+            dlg.dispose()
+        except Exception:
+            log.debug("TTS test progress dispose failed", exc_info=True)
+
+
+class _TtsTestStatusSink:
+    """Worker-facing status sink for Test voice (progress / clear / sticky errors)."""
+
+    _listener: TtsTestVoiceListener
+
+    def __init__(self, listener: TtsTestVoiceListener) -> None:
+        self._listener = listener
+
+    def progress(self, message: str) -> None:
+        log.info("TTS test progress: %s", message)
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(self._listener._show_progress, message)
+
+    def clear(self) -> None:
+        log.info("TTS test progress: clear")
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(self._listener._close_progress)
+
+    def __call__(self, message: str) -> None:
+        # Fallback / HTTP body: close any progress box, then blocking MessageBox.
+        log.info("TTS test: %s", message)
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        def _show() -> None:
+            self._listener._close_progress()
+            self._listener._status(message)
+
+        post_to_main_thread(_show)
+
+
 class TtsTestVoiceListener(BaseActionListener):
     """Settings → Speech: speak a UI-locale sample with the controls on screen.
 
@@ -1008,10 +1126,12 @@ class TtsTestVoiceListener(BaseActionListener):
 
     _ctx: Any
     _dlg: Any
+    _progress: _TtsTestProgressBox | None
 
     def __init__(self, ctx: Any, dialog: Any) -> None:
         self._ctx = ctx
         self._dlg = dialog
+        self._progress = None
 
     def on_action_performed(self, rEvent: Any) -> None:
         del rEvent
@@ -1028,6 +1148,17 @@ class TtsTestVoiceListener(BaseActionListener):
             msgbox(self._ctx, _("Speech"), message)
         except Exception:
             log.debug("TTS test status dialog failed", exc_info=True)
+
+    def _show_progress(self, message: str) -> None:
+        if self._progress is None or self._progress._closed:
+            self._progress = _TtsTestProgressBox(self._ctx)
+        self._progress.show_or_update(message)
+
+    def _close_progress(self) -> None:
+        box = self._progress
+        self._progress = None
+        if box is not None:
+            box.close()
 
     def _control_text(self, *names: str) -> str:
         for name in names:
@@ -1074,18 +1205,19 @@ class TtsTestVoiceListener(BaseActionListener):
             voice,
         )
 
-        def _on_status(message: str) -> None:
-            # Download / fallback / HTTP body from the worker. There is no sidebar
-            # status field on Settings, so the same message box as a failed sample
-            # is the status. UNO dialogs run on the UI thread.
-            log.info("TTS test: %s", message)
-            from plugin.framework.queue_executor import post_to_main_thread
+        # Progress downloads use a modeless box that clear() auto-closes.
+        # Sticky errors (HTTP body, fallback) still use MessageBox via __call__.
+        on_status = _TtsTestStatusSink(self)
 
-            post_to_main_thread(self._status, message)
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        def _on_complete() -> None:
+            post_to_main_thread(self._close_progress)
 
         speak_text_async(
             sample,
-            on_status=_on_status,
+            on_status=on_status,
+            on_complete=_on_complete,
             provider=raw_prov or None,
             model=raw_model or None,
             voice=voice or None,
