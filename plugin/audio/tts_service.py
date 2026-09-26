@@ -744,7 +744,7 @@ def _speak_kokoro_local(
     # Misaki runs in the venv script (is_phonemes=True). Install failure does
     # not refuse the speak: the script falls back to espeak-ng and the status
     # line carries the install hint. English stays on espeak-ng.
-    misaki_ready = True
+    misaki_ready: bool | None = True
     if kokoro_lang_uses_misaki(lang):
         misaki_ready = ensure_kokoro_misaki(
             py_exe,
@@ -768,7 +768,7 @@ def _speak_kokoro_local(
             _active_speech_proc = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
             )
-        _, stderr = _active_speech_proc.communicate()
+        _stdout, stderr = _active_speech_proc.communicate()
         if _active_speech_proc.returncode != 0:
             log.warning("Venv Kokoro failed (code %d): %s", _active_speech_proc.returncode, stderr)
         else:
