@@ -647,3 +647,73 @@ def test_sheets_create_completion_instruction_is_create_not_populate():
         create_sheet_ran=False,
     )
     assert reported["instruction"] == inst
+
+
+_TTS_SHORT_INSTRUCTION = (
+    "Keep replies short by default. Lead with the answer in plain language. "
+    "Prefer one short paragraph (about 2–4 sentences). Skip preambles, filler, "
+    "restatements, and closing questions. Use lists only when they clearly help. "
+    "Go longer only when the user asks for detail, steps, code, or a full document."
+)
+_TTS_SHORT_REMINDER = "Default to one short paragraph unless more detail is requested."
+
+
+def _writer_model() -> MagicMock:
+    model = MagicMock()
+    model.supportsService.return_value = False
+    return model
+
+
+def _tts_flags(*, short_answers: bool, tts_enabled: bool):
+    def flags(key: str) -> bool:
+        if key == "audio.tts_short_answers":
+            return short_answers
+        if key == "audio.tts_enabled":
+            return tts_enabled
+        return False
+
+    return flags
+
+
+def test_tts_short_answers_constants_are_verbatim():
+    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION, TTS_SHORT_ANSWERS_REMINDER
+
+    assert TTS_SHORT_ANSWERS_INSTRUCTION == _TTS_SHORT_INSTRUCTION
+    assert TTS_SHORT_ANSWERS_REMINDER == _TTS_SHORT_REMINDER
+
+
+def test_tts_short_answers_injected_when_option_and_tts_on():
+    with patch(
+        "plugin.framework.config.get_config_bool_safe",
+        side_effect=_tts_flags(short_answers=True, tts_enabled=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(_writer_model(), "house style")
+
+    assert _TTS_SHORT_INSTRUCTION in prompt
+    assert _TTS_SHORT_REMINDER in prompt
+    assert prompt.index("house style") < prompt.index(_TTS_SHORT_INSTRUCTION) < prompt.index(_TTS_SHORT_REMINDER)
+    assert prompt.rstrip().endswith(_TTS_SHORT_REMINDER)
+    assert prompt.count(_TTS_SHORT_INSTRUCTION) == 1
+
+
+def test_tts_short_answers_absent_when_tts_off():
+    with patch(
+        "plugin.framework.config.get_config_bool_safe",
+        side_effect=_tts_flags(short_answers=True, tts_enabled=False),
+    ):
+        prompt = get_chat_system_prompt_for_document(_writer_model(), "house style")
+
+    assert _TTS_SHORT_INSTRUCTION not in prompt
+    assert _TTS_SHORT_REMINDER not in prompt
+    assert "house style" in prompt
+
+
+def test_tts_short_answers_absent_when_checkbox_off():
+    with patch(
+        "plugin.framework.config.get_config_bool_safe",
+        side_effect=_tts_flags(short_answers=False, tts_enabled=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(_writer_model())
+
+    assert _TTS_SHORT_INSTRUCTION not in prompt
+    assert _TTS_SHORT_REMINDER not in prompt

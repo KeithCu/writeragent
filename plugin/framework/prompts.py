@@ -1096,6 +1096,35 @@ def get_greeting_for_document(model: Any) -> str:
         return _(DEFAULT_WRITER_GREETING)
 
 
+# Spoken chat only. Verbatim so every endpoint sees the same brevity rules.
+TTS_SHORT_ANSWERS_INSTRUCTION = (
+    "Keep replies short by default. Lead with the answer in plain language. "
+    "Prefer one short paragraph (about 2–4 sentences). Skip preambles, filler, "
+    "restatements, and closing questions. Use lists only when they clearly help. "
+    "Go longer only when the user asks for detail, steps, code, or a full document."
+)
+# Second copy near the end of a long system prompt (Anthropic recency).
+TTS_SHORT_ANSWERS_REMINDER = "Default to one short paragraph unless more detail is requested."
+
+
+def tts_short_answers_prompt_suffix() -> str:
+    """Brevity block for the chat system prompt, or empty.
+
+    Settings → Speech ``audio.tts_short_answers`` is ignored unless speech
+    output is also on (``audio.tts_enabled``). Either flag off is a no-op.
+    This is not user ``additional_instructions`` and does not use provider
+    verbosity or ``max_tokens``, so OpenRouter, Together, and local endpoints
+    all see the same text.
+    """
+    from plugin.framework.config import get_config_bool_safe
+
+    if not get_config_bool_safe("audio.tts_short_answers"):
+        return ""
+    if not get_config_bool_safe("audio.tts_enabled"):
+        return ""
+    return TTS_SHORT_ANSWERS_INSTRUCTION + "\n\n" + TTS_SHORT_ANSWERS_REMINDER
+
+
 def get_chat_system_prompt_for_document(model: Any, additional_instructions: str = "", ctx: Any = None) -> str:
     """Single source of truth for chat system prompt. Use this so Writer vs Calc prompt cannot be mixed.
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.
@@ -1174,7 +1203,12 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
             logging.getLogger(__name__).debug(f"Failed to inject humanizer guidance: {e}")
 
     if additional_instructions and str(additional_instructions).strip():
-        return base + "\n\n" + str(additional_instructions).strip()
+        base += "\n\n" + str(additional_instructions).strip()
+
+    # After custom instructions so those stay intact and the reminder is last.
+    short_answers = tts_short_answers_prompt_suffix()
+    if short_answers:
+        base += "\n\n" + short_answers
     return base
 
 

@@ -258,6 +258,20 @@ def test_speech_tab_voice_select_aligns_and_test_voice_is_beside(tmp_path: Path)
     assert int(btn["left"]) + int(btn["width"]) <= dlg_width
 
 
+def test_speech_tab_keep_replies_brief_checkbox(tmp_path: Path) -> None:
+    """Short-answers checkbox is on the Speech page, with the other TTS controls."""
+    xdl_path, xdl = _generate_settings_xdl(tmp_path)
+    attrs = _control_attrs(xdl_path)
+
+    box = attrs["audio__tts_short_answers"]
+    assert 'dlg:value="Keep replies brief"' in xdl
+    assert "Only applies while speech output (TTS) is on." in xdl
+    # Own row under the other speech checkboxes, above the provider select.
+    # Not between Voice and Test voice (that pair shares a row via inline).
+    assert int(attrs["audio__tts_sentence_mode"]["top"]) < int(box["top"]) < int(attrs["audio__tts_provider"]["top"])
+    assert int(box["top"]) < int(attrs["audio__tts_voice"]["top"])
+
+
 def test_starter_buttons_share_row_and_include_nvidia(tmp_path: Path) -> None:
     xdl_path, xdl = _generate_settings_xdl(tmp_path)
     attrs = _control_attrs(xdl_path)
