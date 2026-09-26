@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 12:49-0400\n"
+"POT-Creation-Date: 2026-09-26 13:23-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,1301 +17,162 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Tunnel test mode: {0} provider simulated successfully."
+#: plugin/doc/specialized_base.py
+msgid ""
+"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
+"(Settings → Python → Test for install hints)."
 msgstr ""
 
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Unknown tunnel provider: {0}"
+#: plugin/doc/specialized_base.py
+msgid "Running local OCR on selected image(s)..."
 msgstr ""
 
-#: plugin/mcp/tunnel.py
+#: plugin/doc/specialized_base.py
+msgid ""
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
+msgstr ""
+
+#: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Binary '{0}' for {1} not found on PATH.\n"
-"\n"
-"Install from: {2}"
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
 msgstr ""
 
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid "Failed to execute {0} binary ({1}): {2}"
+#: plugin/notebook/notebook_runner.py
+msgid "Cell execution failed."
 msgstr ""
 
-#: plugin/mcp/tunnel.py
-#, python-brace-format
+#: plugin/notebook/notebook_runner.py
+msgid "Notebook run is only supported in LibreOffice Writer."
+msgstr ""
+
+#: plugin/notebook/notebook_runner.py
 msgid ""
-"{0} tunnel is running and responsive!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"Health check: OK (200)"
+"This document has no imported notebook. File → Open a Jupyter notebook "
+"(.ipynb) first."
 msgstr ""
 
-#: plugin/mcp/tunnel.py
+#: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr ""
+
+#: plugin/notebook/notebook_runner.py
+msgid "Open a Writer document first."
+msgstr ""
+
+#: plugin/notebook/notebook_controls.py
+msgid "Run code cell"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "just now"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
 #, python-brace-format
+msgid "{0}m ago"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}h ago"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "{0}d ago"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: No active document"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Folder not resolved"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (zvec)"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built (lancedb)"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Not built"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Built ({0})"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Cache Status: Built"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+#, python-brace-format
+msgid "Cache Status: Error ({0})"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py plugin/xdl_strings.py
+msgid "Search"
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Please enter a search query."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "Searching..."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
+msgid "No active document found."
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
 msgid ""
-"{0} tunnel is active!\n"
-"\n"
-"Public endpoint:\n"
-"{1}\n"
-"\n"
-"(Public URL acquired from active tunnel session.)"
+"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
+"Embeddings."
 msgstr ""
 
-#: plugin/mcp/tunnel.py
-#, python-brace-format
+#: plugin/embeddings/search_ui.py
+msgid "Error: "
+msgstr ""
+
+#: plugin/embeddings/search_ui.py
 msgid ""
-"{0} binary '{1}' is verified ({2}).\n"
-"\n"
-"(Note: An active {3} tunnel is currently running at {4}.)"
+"Folder index is building in the background. Please retry search shortly."
 msgstr ""
 
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"MCP server is running locally on port {3}.\n"
-"Check 'Expose via public tunnel' and click OK to activate public routing."
+#: plugin/embeddings/search_ui.py
+msgid "No matches found."
 msgstr ""
 
-#: plugin/mcp/tunnel.py
-#, python-brace-format
-msgid ""
-"{0} binary '{1}' is installed and verified ({2}).\n"
-"\n"
-"Note: MCP server is not currently running on port {3}."
+#: plugin/embeddings/search_ui.py
+msgid "Error running search: "
 msgstr ""
 
-#: plugin/mcp/mcp_ui.py
-msgid "✓ Copied!"
+#: plugin/embeddings/search_ui.py
+msgid "Rebuilding cache..."
 msgstr ""
 
-#: plugin/mcp/mcp_ui.py
-msgid "Testing…"
+#: plugin/embeddings/search_ui.py
+msgid "No active folder resolved."
 msgstr ""
 
-#: plugin/mcp/mcp_ui.py
-msgid "Test Tunnel"
+#: plugin/embeddings/search_ui.py
+msgid "Cache rebuild completed successfully."
 msgstr ""
 
-#: plugin/mcp/mcp_ui.py
-msgid "MCP Tunnel Test"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "Stop MCP Server"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "Start MCP Server"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} (no auth)"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}: {1}"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "reconnecting…"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} failed: {1}"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting…"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} not running (is the provider binary installed?)"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "MCP server stopped"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "MCP server started"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0}"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "MCP server is not running"
-msgstr ""
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "MCP server running"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Routes: {0}"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Local URL: {0}"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public URL: {0}"
-msgstr ""
-
-#: plugin/mcp/__init__.py plugin/xdl_strings.py
-msgid "Local Endpoint:"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Public Tunnel ({0}):"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "Status: Active (connected)"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Reconnecting — {0}"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "retrying…"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-msgid "Status: Starting tunnel…"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Failed — {0}"
-msgstr ""
-
-#: plugin/mcp/__init__.py
-#, python-brace-format
-msgid "Status: Not running (is {0} binary installed?)"
-msgstr ""
-
-#: plugin/mcp/__init__.py plugin/chatbot/dialogs.py
-msgid "Copied!"
-msgstr ""
-
-#: plugin/scripting/viz.py
-msgid "Unsupported document type for plot insertion."
-msgstr ""
-
-#: plugin/scripting/viz.py
-msgid "Viz helper failed."
-msgstr ""
-
-#: plugin/scripting/viz.py
-msgid "Viz helper returned no image payload."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-msgid "PythonScriptDialog could not be loaded from the extension."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/document_scripts.py
-msgid "No document is open to save scripts."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "%s Saved to My Scripts instead."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to this document."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved successfully."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
-#: plugin/calc/python/cell_editor_ui.py plugin/framework/main_shared.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/panel.py
-#: plugin/chatbot/dialog_views.py
-msgid "Error"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Save Script As"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' saved to My Scripts."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Are you sure you want to delete script '%s'?"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Delete Script"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/document_scripts.py
-msgid "No document is open."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' deleted."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-msgid "New Script"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' created in this document."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-#, python-format
-msgid "Script '%s' created in My Scripts."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Execution Error"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/calc/python/function.py
-msgid "Unknown error"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-msgid "Script executed successfully."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Success"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py plugin/librepy/python_sidebar.py
-msgid "Output"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio probe timed out (sounddevice import failed or hung)."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio probe failed (see writeragent_debug.log)."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
-"on first check)."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text/NLP probe failed (see writeragent_debug.log)."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe failed (see writeragent_debug.log)."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vector Search probe timed out (sentence-transformers import can take 10–30s "
-"on first check)."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search probe failed (see writeragent_debug.log)."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording & Speech"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Scientific Libraries"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Analysis / EDA Libraries"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Visualization Libraries"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Computer Algebra"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Quantitative Finance Libraries"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Engineering Libraries"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "To install remaining packages:"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "No microphone input devices detected."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Local TTS engines (optional):"
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Starting Python worker..."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Reading Python version..."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio & Speech: checking sounddevice and TTS engines..."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries: loading (first run may take a while)..."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries: loading (first run may take a while)..."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Using LibreOffice process Python..."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Resolving venv Python..."
-msgstr ""
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Using"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Document scripts are too large to store in the document ({0} bytes)."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid ""
-"Document is read-only or properties cannot be written. Script saved to your "
-"personal library instead."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/script_dialogs.py
-msgid "Script name cannot be empty."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
-msgid "My Scripts"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid "This Document"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to My Scripts."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}' to this document."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Saved script '{0}'."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py plugin/scripting/editor_ui_strings.py
-msgid "No document is open to attach scripts."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Attached script '{0}' to this document."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in My Scripts."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Copied script '{0}' to My Scripts."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted document script '{0}'."
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-#, python-brace-format
-msgid "Deleted script '{0}'."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-format
-msgid "Failed to insert result into Calc: %s"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Info"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
-"(took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Unsupported document type for result insertion. (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Script executed successfully. (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Script saved."
-msgstr ""
-
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run Python Script"
-msgstr ""
-
-#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
-#: plugin/xdl_strings.py
-msgid "Run"
-msgstr ""
-
-#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
-#: plugin/calc/python/editor.py plugin/xdl_strings.py
-msgid "Save"
-msgstr ""
-
-#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
-msgid "Close"
-msgstr ""
-
-#: plugin/scripting/python_runner.py plugin/scripting/editor_ui_strings.py
-msgid "Select data range or enter A1 address (injected as data)."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Run Python Script failed to open the Monaco editor."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Could not open the built-in script dialog."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "An unexpected error occurred while opening Run Python Script."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
-msgid "Status:"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
-#: plugin/xdl_strings.py plugin/chatbot/panel_wiring.py
-#: plugin/chatbot/panel.py
-msgid "Ready"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
-msgid "Saving…"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Running…"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Monaco loader missing."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Install jedi in the Python venv for completions."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Cancel"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/calc/python/editor.py
-#: plugin/xdl_strings.py
-msgid "Save without =PY()"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Data:"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
-msgid "A1:C1  or  A1:C1, C1:C5"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
-msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
-msgid "Data ranges apply only when saving as a =PY() formula."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
-msgid "Saved."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/calc/python/cell_editor_ui.py
-#: plugin/calc/python/editor.py
-msgid "Saved without =PY()."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "New"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
-#: plugin/xdl_strings.py
-msgid "New Python Script"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
-#: plugin/xdl_strings.py
-msgid "Script name:"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/script_dialogs.py
-#: plugin/xdl_strings.py
-msgid "Attach to this document"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Create"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Script:"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Attach"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Attach to Document"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Save As..."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
-msgid "Delete"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Scripts"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid ""
-"Document changed — close and reopen Run Python Script to edit document "
-"scripts."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Loaded script '{0}'."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Attaching script '{0}'..."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Copying script '{0}' to My Scripts..."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Saving script '{0}'..."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Deleting script '{0}'..."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Built-in helpers cannot be deleted."
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Enter script name:"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-msgid "Copy to My Scripts as:"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py
-#, python-brace-format
-msgid "Are you sure you want to delete script '{0}'?"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
-#: plugin/xdl_strings.py
-msgid "Insert as display block (centered paragraph)"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
-#: plugin/xdl_strings.py
-msgid "Insert"
-msgstr ""
-
-#: plugin/scripting/editor_ui_strings.py plugin/writer/math/latex_dialog.py
-msgid "Formula inserted."
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-#, python-brace-format
-msgid "{domain} '{helper}' completed. (took {time})"
-msgstr ""
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
-"Writer document with an imported Jupyter notebook and try again."
-msgstr ""
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"This Writer document has no imported notebook registry. File → Open a "
-"Jupyter notebook (.ipynb) first."
-msgstr ""
-
-#: plugin/scripting/session_manager.py
-msgid "Could not resolve notebook Python session."
-msgstr ""
-
-#: plugin/scripting/session_manager.py
-msgid "Notebook Python session reset for this document."
-msgstr ""
-
-#: plugin/scripting/session_manager.py
-msgid "Could not reset Python session."
-msgstr ""
-
-#: plugin/scripting/session_manager.py plugin/calc/python/function.py
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid "Error: {0}"
-msgstr ""
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
-"try again."
-msgstr ""
-
-#: plugin/scripting/session_manager.py
-msgid "Python session reset for this workbook."
-msgstr ""
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Initialization script and any in-memory init state were reset for this "
-"workbook. Cell variables were already isolated per cell."
-msgstr ""
-
-#: plugin/scripting/session_manager.py
-msgid ""
-"Python session mode is Isolated (each =PY() cell uses its own variables). "
-"There is no shared cell session to reset. Add an initialization script if "
-"you need to clear expensive one-time workbook setup."
-msgstr ""
-
-#: plugin/scripting/session_manager.py
-msgid "Python session reset for this document."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
-msgid "Text Analytics"
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Could not load the analytics dialog."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-brace-format
-msgid ""
-"Error from the Text Analytics worker:\n"
-"{err}\n"
-"\n"
-"The features in this dialog require these packages in the python it is using:\n"
-"  • spacy + a model          (entities, key phrases, basic stats)\n"
-"  • textdescriptives         (real Readability scores)\n"
-"  • transformers + torch     (Sentiment using the multilingual model)\n"
-"\n"
-"Install them with:\n"
-"  {install}\n"
-"\n"
-"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Open a Writer document to analyze."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Not enough text in the chosen scope."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Analyzing..."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-format
-msgid ""
-"Error: %s\n"
-"\n"
-"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "No Writer document to insert into."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Run an analysis first."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Nothing useful to insert from the last result."
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-#, python-format
-msgid "Insert failed: %s"
-msgstr ""
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Inserted after selection/caret."
-msgstr ""
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Venv OK"
-msgstr ""
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Venv check failed"
-msgstr ""
-
-#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr ""
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Done"
-msgstr ""
-
-#: plugin/scripting/venv_probe_ui.py
-msgid "Failed"
-msgstr ""
-
-#: plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr ""
-
-#: plugin/scripting/units.py
-msgid "Units helper returned no formatted text."
-msgstr ""
-
-#: plugin/scripting/units.py
-msgid "Unsupported document type for units insertion."
-msgstr ""
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr ""
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr ""
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr ""
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-
-#: plugin/scripting/helper_domain.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-
-#: plugin/scripting/editor_host.py
-msgid ""
-"Set the Python venv path in Settings → Python (same venv where you ran 'uv "
-"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" Monaco editor."
-msgstr ""
-
-#: plugin/scripting/editor_host.py
-#, python-brace-format
-msgid ""
-"No python executable found under configured venv: {0} (expected bin/python, "
-"Scripts/python.exe, or env-root python.exe)."
-msgstr ""
-
-#: plugin/scripting/editor_host.py
-msgid "Could not start the Python editor."
-msgstr ""
-
-#: plugin/scripting/editor_host.py
-msgid "The Python editor window did not start."
-msgstr ""
-
-#: plugin/scripting/editor_host.py
-msgid "The Python editor exited before it could load your code."
-msgstr ""
-
-#: plugin/scripting/editor_host.py
-msgid "Could not talk to the Python editor."
-msgstr ""
-
-#: plugin/scripting/symbolic.py
-msgid "Symbolic helper failed."
-msgstr ""
-
-#: plugin/scripting/symbolic.py
-msgid "Symbolic helper returned no LaTeX."
-msgstr ""
-
-#: plugin/scripting/symbolic.py
-#, python-brace-format
-msgid "Failed to convert LaTeX to Writer Math: {error}"
-msgstr ""
-
-#: plugin/scripting/symbolic.py
-msgid "No active document view."
-msgstr ""
-
-#: plugin/scripting/symbolic.py
-msgid "Unsupported document type for symbolic insertion."
-msgstr ""
-
-#: plugin/calc/editselection.py
-msgid "WriterAgent: Edit Selection (Calc)"
-msgstr ""
-
-#: plugin/calc/editselection.py
-msgid "WriterAgent: Extend Selection (Calc)"
-msgstr ""
-
-#: plugin/calc/excel_py_convert/auto_open.py
-#, python-brace-format
-msgid ""
-"Could not write Microsoft Excel Python package parts for:\n"
-"{0}\n"
-"\n"
-"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
-"\n"
-"{1}"
-msgstr ""
-
-#: plugin/calc/python/function.py
-#, python-brace-format
-msgid "Error: Main-thread execution timed out ({0})"
-msgstr ""
-
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python venv not found. Open Settings → Python, set the venv path, "
-"then Test."
-msgstr ""
-
-#: plugin/calc/python/function.py
-msgid ""
-"Error: Python timed out. Open Settings → Python to raise the timeout, or "
-"Test the venv."
-msgstr ""
-
-#: plugin/calc/python/function.py
-msgid "Image inserted"
-msgstr ""
-
-#: plugin/calc/python/function.py
-msgid "Images inserted"
-msgstr ""
-
-#: plugin/calc/python/geometric_recalc.py
-#, python-format
-msgid ""
-"Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
-"Python cells (discovery cap). The sheet was left unchained so a partial list"
-" is not treated as complete."
-msgstr ""
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Edit Initialization Script"
-msgstr ""
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Open a Calc spreadsheet first."
-msgstr ""
-
-#: plugin/calc/python/init_script_editor.py
-msgid ""
-"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
-"in writeragent.json."
-msgstr ""
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Configure a Python venv path in Settings → Python."
-msgstr ""
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Cannot import webview (pywebview) in the configured venv."
-msgstr ""
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Initialization script saved."
-msgstr ""
-
-#: plugin/calc/python/init_script_editor.py
-msgid "Save initialization script"
-msgstr ""
-
-#: plugin/calc/python/cell_editor_ui.py
-msgid "PythonCellEditorDialog could not be loaded from the extension."
-msgstr ""
-
-#: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
-#: plugin/main.py plugin/chatbot/panel_factory.py
-#: plugin/chatbot/hamburger_menu.py
-msgid "Edit Python in Cell..."
-msgstr ""
-
-#: plugin/calc/python/editor.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-
-#: plugin/calc/python/editor.py
-msgid "this cell"
-msgstr ""
-
-#: plugin/calc/python/editor.py
-#, python-brace-format
-msgid ""
-"Save changes to {0}?\n"
-"\n"
-"Yes saves. No discards and opens the new cell. Cancel keeps editing {0}."
-msgstr ""
-
-#: plugin/calc/python/editor.py
-#, python-format
-msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
-msgstr ""
-
-#: plugin/calc/python/editor.py plugin/xdl_strings.py
-msgid "Python cell editor"
-msgstr ""
-
-#: plugin/calc/python/editor.py
-msgid "The Python editor failed unexpectedly."
-msgstr ""
-
-#: plugin/calc/python/editor.py
-msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr ""
-
-#: plugin/calc/python/editor.py
-#, python-brace-format
-msgid "Could not open the code cell {0}."
-msgstr ""
-
-#: plugin/calc/python/editor.py
-msgid ""
-"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
-"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
-"quoted code."
-msgstr ""
-
-#: plugin/calc/python/editor.py
-msgid "Could not open the built-in Python cell editor."
-msgstr ""
-
-#: plugin/calc/vision_egress.py
-msgid "Select an embedded image, then Run again."
-msgstr ""
-
-#: plugin/calc/vision_egress.py
-msgid "Anchor the image to a cell, select it, then Run again."
-msgstr ""
-
-#: plugin/calc/vision_egress.py
-msgid "No structured tables or text blocks to insert."
-msgstr ""
-
-#: plugin/framework/prompts.py
-msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
-msgstr ""
-
-#: plugin/framework/prompts.py
-msgid ""
-"AI: I can help you create and edit polished, colorful shapes in Draw and "
-"Impress. Try me!"
-msgstr ""
-
-#: plugin/framework/prompts.py
-msgid ""
-"AI: I can edit or translate your document instantly with professional "
-"formatting and color. Try me!"
-msgstr ""
-
-#: plugin/framework/config_schema.py
-msgid "Chat max tokens must be >= 0"
-msgstr ""
-
-#: plugin/framework/config_schema.py
-msgid "Request timeout must be > 0"
-msgstr ""
-
-#: plugin/framework/config_schema.py
-msgid "Temperature must be <= 1.0"
-msgstr ""
-
-#: plugin/framework/client/request_controls.py
-#, python-brace-format
-msgid "Provider busy, retrying in {0}s…"
-msgstr ""
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid ""
-"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
-"{0} context window."
-msgstr ""
-
-#: plugin/framework/client/errors.py
-msgid ""
-"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
-"too-small context window."
-msgstr ""
-
-#: plugin/framework/client/errors.py plugin/framework/errors.py
-msgid "Rate limited (429). Wait a moment and try again."
-msgstr ""
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr ""
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
-" (not the general /api/paas URL)."
-msgstr ""
-
-#: plugin/framework/client/errors.py
-#, python-brace-format
-msgid " Request model was: {0}."
-msgstr ""
-
-#: plugin/framework/client/llm_client.py
-msgid "Stream ended with finish_reason=error"
-msgstr ""
-
-#: plugin/framework/client/llm_client.py
-msgid ""
-"The model is repeating the same chunk (infinite loop). Try again or use a "
-"different model."
+#: plugin/embeddings/search_ui.py
+msgid "Rebuild failed: "
 msgstr ""
 
 #: plugin/framework/errors.py
@@ -1329,6 +190,10 @@ msgstr ""
 
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
+msgstr ""
+
+#: plugin/framework/errors.py plugin/framework/client/errors.py
+msgid "Rate limited (429). Wait a moment and try again."
 msgstr ""
 
 #: plugin/framework/errors.py
@@ -1396,6 +261,100 @@ msgstr ""
 msgid "{resource_type} not found: {identifier}"
 msgstr ""
 
+#: plugin/framework/config_schema.py
+msgid "Chat max tokens must be >= 0"
+msgstr ""
+
+#: plugin/framework/config_schema.py
+msgid "Request timeout must be > 0"
+msgstr ""
+
+#: plugin/framework/config_schema.py
+msgid "Temperature must be <= 1.0"
+msgstr ""
+
+#: plugin/framework/thread_guard.py
+msgid "UNO Thread Violation"
+msgstr ""
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
+msgstr ""
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr ""
+
+#: plugin/framework/prompts.py
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr ""
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid ""
+"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
+"{0} context window."
+msgstr ""
+
+#: plugin/framework/client/errors.py
+msgid ""
+"The local Ollama/llama.cpp process crashed because the prompt overflowed a "
+"too-small context window."
+msgstr ""
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr ""
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid ""
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
+msgstr ""
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid " Request model was: {0}."
+msgstr ""
+
+#: plugin/framework/client/errors.py plugin/calc/python/function.py
+#: plugin/scripting/session_manager.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr ""
+
+#: plugin/framework/client/llm_client.py
+msgid "Stream ended with finish_reason=error"
+msgstr ""
+
+#: plugin/framework/client/llm_client.py
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+
+#: plugin/framework/client/request_controls.py
+#, python-brace-format
+msgid "Provider busy, retrying in {0}s…"
+msgstr ""
+
+#: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/script_dialogs.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr ""
+
 #: plugin/framework/config.py
 msgid "Please set Endpoint in Settings."
 msgstr ""
@@ -1406,224 +365,6 @@ msgstr ""
 
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
-msgstr ""
-
-#: plugin/framework/thread_guard.py
-msgid "UNO Thread Violation"
-msgstr ""
-
-#: plugin/librepy/settings.py
-msgid "Cython Accelerator Download"
-msgstr ""
-
-#: plugin/librepy/settings.py
-msgid "Download Cython serialization binary:"
-msgstr ""
-
-#: plugin/librepy/settings.py
-msgid "Python Settings"
-msgstr ""
-
-#: plugin/librepy/settings.py
-msgid "Could not open Settings."
-msgstr ""
-
-#: plugin/librepy/python_sidebar.py plugin/xdl_strings.py
-msgid "All"
-msgstr ""
-
-#: plugin/librepy/python_sidebar.py
-msgid "Errors"
-msgstr ""
-
-#: plugin/librepy/python_sidebar.py
-msgid "Shared kernel"
-msgstr ""
-
-#: plugin/librepy/python_sidebar.py
-msgid "Isolated"
-msgstr ""
-
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: (LibreOffice embedded Python)"
-msgstr ""
-
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: {path}"
-msgstr ""
-
-#: plugin/librepy/python_sidebar.py
-#, python-brace-format
-msgid ""
-"{mode}\n"
-"Venv: missing python at {path}"
-msgstr ""
-
-#: plugin/librepy/python_sidebar.py
-msgid "(no =PY() cells on active sheet)"
-msgstr ""
-
-#: plugin/librepy/python_sidebar.py
-msgid "(no diagnostics yet)"
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/main.py
-#: plugin/chatbot/panel_factory.py plugin/chatbot/hamburger_menu.py
-msgid "Run Python Script..."
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
-#: plugin/chatbot/hamburger_menu.py
-msgid "Insert LaTeX Math..."
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/main.py
-#: plugin/chatbot/hamburger_menu.py
-msgid "Text Analytics..."
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
-#: plugin/chatbot/panel_factory.py plugin/chatbot/dialog_views.py
-#: plugin/chatbot/hamburger_menu.py
-msgid "Settings"
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-msgid "Vision OCR Settings..."
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/main.py
-#: plugin/chatbot/hamburger_menu.py
-msgid "Reset Python Session"
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/main.py
-#: plugin/chatbot/hamburger_menu.py
-msgid "Run All"
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/main.py
-#: plugin/chatbot/hamburger_menu.py
-msgid "Run From Here"
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
-#: plugin/chatbot/hamburger_menu.py
-msgid "Stop"
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/xdl_strings.py plugin/main.py
-#: plugin/chatbot/dialogs.py plugin/chatbot/hamburger_menu.py
-msgid "Report bug..."
-msgstr ""
-
-#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
-msgid "More actions..."
-msgstr ""
-
-#: plugin/writer/editselection.py
-msgid "WriterAgent: Extend Selection"
-msgstr ""
-
-#: plugin/writer/editselection.py
-msgid "WriterAgent: Edit Selection"
-msgstr ""
-
-#: plugin/writer/review_click_popup.py
-msgid "Accept this change"
-msgstr ""
-
-#: plugin/writer/review_click_popup.py
-msgid "Reject this change"
-msgstr ""
-
-#: plugin/writer/change_context_menu.py
-msgid "Accept whole change (agent)"
-msgstr ""
-
-#: plugin/writer/change_context_menu.py
-msgid "Reject whole change (agent)"
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Update"
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Edit LaTeX Math"
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Select a single formula to update. Multiple formulas are selected."
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid ""
-"Could not identify the selected formula. Click in the text, then insert a "
-"new formula."
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Unknown conversion error"
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-#, python-brace-format
-msgid ""
-"Failed to convert LaTeX to StarMath:\n"
-"\n"
-"{0}"
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid "The selected formula is no longer in the document."
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid "Formula updated."
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid "This command is only available in Writer documents."
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid "LaTeX Math Editor"
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid "LaTeX Conversion Error"
-msgstr ""
-
-#: plugin/writer/math/latex_dialog.py
-msgid "An unexpected error occurred during LaTeX insertion."
-msgstr ""
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "No automatic replacement is available."
-msgstr ""
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid ""
-"Suggested fix: delete the highlighted text (the blank replacement below)."
-msgstr ""
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "Suggested fix: replace with one space (the blank replacement below)."
-msgstr ""
-
-#: plugin/writer/locale/grammar_proofread_text.py
-msgid "Choose a replacement below."
-msgstr ""
-
-#: plugin/writer/locale/ai_grammar_proofreader.py
-msgid "AI Grammar"
 msgstr ""
 
 #: plugin/audio/tts_service.py
@@ -1691,845 +432,447 @@ msgstr ""
 msgid "Downloading Japanese phonemizer dictionary…"
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "-1"
+#: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
+#: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/main.py
+msgid "Edit Python in Cell..."
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "AI Model:"
+#: plugin/calc/python/init_script_editor.py
+msgid "Edit Initialization Script"
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "API Key:"
+#: plugin/calc/python/init_script_editor.py
+msgid "Open a Calc spreadsheet first."
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "Active Sheet"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Additional Instructions (History):"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Additional Instructions:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Ask / instruct:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Aspect Ratio:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Auto Gallery"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Base Size:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Base:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Cache Status: Checking..."
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Calc"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Categories:"
-msgstr ""
-
-#: plugin/xdl_strings.py plugin/chatbot/chat_sidebar_mode.py
-msgid "Chat"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Check Venv"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Clear"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Convert Sheet to Python"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Copy"
-msgstr ""
-
-#: plugin/xdl_strings.py plugin/chatbot/dialogs.py
-msgid "Copy URL"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Diagnostics:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Draw"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Edit Cell"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Edit Init Script"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Edit config (JSON)…"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Edit extra tokens:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Edit search query"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Endpoint URL (/v1 added):"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Endpoint URL:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Enter LaTeX math code to convert and insert as formula:"
-msgstr ""
-
-#: plugin/xdl_strings.py
+#: plugin/calc/python/init_script_editor.py
 msgid ""
-"Enter Python code to execute in the user virtual environment.\n"
-"Assign the result to the 'result' variable."
+"The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
+"in writeragent.json."
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "Entities"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Extend max tokens:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Filter:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "General"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Get API Key:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Hugging Face"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Image Model:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Image Settings"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "In-place replacement"
-msgstr ""
-
-#: plugin/xdl_strings.py plugin/chatbot/selection.py
-msgid "Input"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Input:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Insert Frame"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Insert LaTeX Math"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Insert report here"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Key Phrases"
-msgstr ""
-
-#: plugin/xdl_strings.py plugin/main.py
-msgid "MCP Server Status"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Max Tokens:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Message"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Models to Test:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Multimodal"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "NVIDIA NIM"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "New Sheet (PythonImport)"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Number of Responses:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "OK"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "OpenRouter"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Options"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Output Mode"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Please enter edit instructions:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Preserve number formats"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Public Tunnel:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Python Settings…"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Python Test"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Python cells (active sheet):"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Python:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Readability"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Rebuild"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Refresh"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Reset Session"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Results:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Run Benchmark"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Run Script"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Scope"
-msgstr ""
-
-#: plugin/xdl_strings.py plugin/embeddings/search_ui.py
-msgid "Search"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Search Nearby Files"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Search Query:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Search query:"
+#: plugin/calc/python/init_script_editor.py
+msgid "Configure a Python venv path in Settings → Python."
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "Seed:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Selection"
-msgstr ""
-
-#: plugin/xdl_strings.py plugin/chatbot/panel.py
-msgid "Send"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Sentiment"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Square"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Status"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Status: Ready"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Steps:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Temperature:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Test Connection"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Text/Chat Model:"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Timeout (s):"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Together AI"
+#: plugin/calc/python/init_script_editor.py
+msgid "Cannot import webview (pywebview) in the configured venv."
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "Topics"
+#: plugin/calc/python/init_script_editor.py
+msgid "Initialization script saved."
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "Vectorize columns when safe"
+#: plugin/calc/python/init_script_editor.py
+msgid "Save initialization script"
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "Verify recalc (oracle diff)"
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Status:"
 msgstr ""
 
+#: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
+#: plugin/chatbot/panel.py plugin/scripting/editor_ui_strings.py
 #: plugin/xdl_strings.py
-msgid "Whole Document"
+msgid "Ready"
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "Writer"
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "A1:C1  or  A1:C1, C1:C5"
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "WriterAgent Evaluation Dashboard"
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Data ranges apply only when saving as a =PY() formula."
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "√x"
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "☰"
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Saving…"
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "⚙"
+#: plugin/calc/python/cell_editor_ui.py plugin/calc/python/editor.py
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saved without =PY()."
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "🔊"
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Saved."
 msgstr ""
 
-#: plugin/xdl_strings.py
-msgid "🔍"
+#: plugin/calc/python/cell_editor_ui.py
+msgid "PythonCellEditorDialog could not be loaded from the extension."
 msgstr ""
 
-#: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
+#: plugin/calc/python/editor.py
 msgid ""
-"Select an embedded image (or a range containing images), then Run again."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
 
-#: plugin/vision/vision_runner.py
+#: plugin/calc/python/editor.py
+msgid "this cell"
+msgstr ""
+
+#: plugin/calc/python/editor.py
 #, python-brace-format
 msgid ""
-"Image '{name}' not found. Use image_list or leave image_name empty and "
-"select the graphic."
+"Save changes to {0}?\n"
+"\n"
+"Yes saves. No discards and opens the new cell. Cancel keeps editing {0}."
 msgstr ""
 
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid "Image '{name}' could not be exported."
-msgstr ""
-
-#: plugin/vision/vision_runner.py
-#, python-brace-format
-msgid "OCR complete ({count} images)."
-msgstr ""
-
-#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
-msgid "OCR complete."
-msgstr ""
-
-#: plugin/vision/vision_runner.py
-msgid "OCR complete (text returned only; not inserted)."
-msgstr ""
-
-#: plugin/vision/vision_egress.py
-msgid "Writer document has no controller."
-msgstr ""
-
-#: plugin/vision/vision_egress.py
-msgid "Could not resolve the image anchor for insert."
-msgstr ""
-
-#: plugin/vision/vision_egress.py
+#: plugin/calc/python/editor.py
 #, python-format
-msgid "Could not position insert after the image: %s"
+msgid "Could not rewrite xl() range literals into =PY data arguments: %s"
 msgstr ""
 
-#: plugin/vision/vision_egress.py
-msgid "The image was removed while preparing OCR insert."
+#: plugin/calc/python/editor.py plugin/xdl_strings.py
+msgid "Python cell editor"
 msgstr ""
 
-#: plugin/vision/vision_egress.py
-msgid "The image was removed during OCR insert."
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
+msgid "Save without =PY()"
 msgstr ""
 
-#: plugin/vision/vision_tools.py
-msgid "Vision OCR requires a Writer or Calc document."
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Save"
 msgstr ""
 
-#: plugin/main_core.py plugin/main.py
-msgid "Dispatch Error"
+#: plugin/calc/python/editor.py
+msgid "The Python editor failed unexpectedly."
 msgstr ""
 
-#: plugin/doc/specialized_base.py
+#: plugin/calc/python/editor.py
+msgid "Select a cell in a Calc spreadsheet to edit Python."
+msgstr ""
+
+#: plugin/calc/python/editor.py
+#, python-brace-format
+msgid "Could not open the code cell {0}."
+msgstr ""
+
+#: plugin/calc/python/editor.py
 msgid ""
-"Local OCR requires Settings → Python venv with Docling or PaddleOCR "
-"(Settings → Python → Test for install hints)."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
 
-#: plugin/doc/specialized_base.py
-msgid "Running local OCR on selected image(s)..."
+#: plugin/calc/python/editor.py
+msgid "Could not open the built-in Python cell editor."
 msgstr ""
 
-#: plugin/doc/specialized_base.py
+#: plugin/calc/python/function.py
+#, python-brace-format
+msgid "Error: Main-thread execution timed out ({0})"
+msgstr ""
+
+#: plugin/calc/python/function.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr ""
+
+#: plugin/calc/python/function.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
+"Error: Python venv not found. Open Settings → Python, set the venv path, "
+"then Test."
 msgstr ""
 
-#: plugin/doc/specialized_base.py
-#, python-brace-format
+#: plugin/calc/python/function.py
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
+"Error: Python timed out. Open Settings → Python to raise the timeout, or "
+"Test the venv."
 msgstr ""
 
-#: plugin/main.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
+#: plugin/calc/python/function.py
+msgid "Image inserted"
 msgstr ""
 
-#: plugin/main.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
+#: plugin/calc/python/function.py
+msgid "Images inserted"
 msgstr ""
 
-#: plugin/main.py plugin/chatbot/hamburger_menu.py
-msgid "Extend Selection"
-msgstr ""
-
-#: plugin/main.py plugin/chatbot/hamburger_menu.py
-msgid "Edit Selection"
-msgstr ""
-
-#: plugin/main.py plugin/chatbot/hamburger_menu.py
-msgid "Toggle MCP Server"
-msgstr ""
-
-#: plugin/main.py plugin/chatbot/hamburger_menu.py
-msgid "Run format tests"
-msgstr ""
-
-#: plugin/main.py plugin/chatbot/hamburger_menu.py
-msgid "Run calc tests"
-msgstr ""
-
-#: plugin/main.py plugin/chatbot/hamburger_menu.py
-msgid "Run Calc API integration tests"
-msgstr ""
-
-#: plugin/main.py plugin/chatbot/hamburger_menu.py
-msgid "Run draw tests"
-msgstr ""
-
-#: plugin/main.py plugin/chatbot/hamburger_menu.py
-msgid "Evaluation Dashboard"
-msgstr ""
-
-#: plugin/main.py
-msgid "Edit LaTeX Math..."
-msgstr ""
-
-#: plugin/main.py plugin/chatbot/panel_factory.py
-#: plugin/chatbot/hamburger_menu.py
-msgid "Search Nearby Files..."
-msgstr ""
-
-#: plugin/main.py plugin/chatbot/hamburger_menu.py
-msgid "Convert Sheet to Python..."
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "just now"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}m ago"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}h ago"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "{0}d ago"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: No active document"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Folder not resolved"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built (zvec)"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built (lancedb)"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Not built"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "Cache Status: Built ({0})"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache Status: Built"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-#, python-brace-format
-msgid "Cache Status: Error ({0})"
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Please enter a search query."
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Searching..."
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "No active document found."
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid ""
-"Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
-"Embeddings."
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Error: "
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid ""
-"Folder index is building in the background. Please retry search shortly."
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "No matches found."
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Error running search: "
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Rebuilding cache..."
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "No active folder resolved."
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Cache rebuild completed successfully."
-msgstr ""
-
-#: plugin/embeddings/search_ui.py
-msgid "Rebuild failed: "
-msgstr ""
-
-#: plugin/notebook/notebook_controls.py
-msgid "Run code cell"
-msgstr ""
-
-#: plugin/notebook/notebook_runner.py
-msgid "Cell execution failed."
-msgstr ""
-
-#: plugin/notebook/notebook_runner.py
-msgid "Notebook run is only supported in LibreOffice Writer."
-msgstr ""
-
-#: plugin/notebook/notebook_runner.py
-msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
-msgstr ""
-
-#: plugin/notebook/notebook_runner.py
-msgid "Could not find notebook cell for this control."
-msgstr ""
-
-#: plugin/notebook/notebook_runner.py
-msgid "Open a Writer document first."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "Transcribing audio..."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Transcription error: {0}]"
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Document context error: {0}]"
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Agent backend '{0}' not found.]"
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Librarian error: {0}]"
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Brainstorming error: {0}]"
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Writing plan error: {0}]"
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[PPT-Master error: {0}]"
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Deep research error: {0}]"
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr ""
-
-#: plugin/chatbot/send_handlers.py
-#, python-brace-format
-msgid "[Research error: {0}]"
-msgstr ""
-
-#: plugin/chatbot/web_research.py
-msgid "Web research completed."
-msgstr ""
-
-#: plugin/chatbot/extension_update_check.py
-msgid "Update available"
-msgstr ""
-
-#: plugin/chatbot/extension_update_check.py
+#: plugin/calc/python/geometric_recalc.py
 #, python-format
 msgid ""
-"A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
-"to check for updates and install the latest extension."
+"Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
+"Python cells (discovery cap). The sheet was left unchained so a partial list"
+" is not treated as complete."
 msgstr ""
 
-#: plugin/chatbot/dialogs.py
-msgid "Agent requests approval"
+#: plugin/calc/excel_py_convert/auto_open.py
+#, python-brace-format
+msgid ""
+"Could not write Microsoft Excel Python package parts for:\n"
+"{0}\n"
+"\n"
+"The file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n"
+"\n"
+"{1}"
 msgstr ""
 
-#: plugin/chatbot/dialogs.py
-msgid "Proceed with this action?"
+#: plugin/calc/editselection.py
+msgid "WriterAgent: Edit Selection (Calc)"
 msgstr ""
 
-#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Tool: %s"
+#: plugin/calc/editselection.py
+msgid "WriterAgent: Extend Selection (Calc)"
 msgstr ""
 
-#: plugin/chatbot/slash_commands.py
-msgid "Print the command list"
+#: plugin/calc/vision_egress.py
+msgid "Select an embedded image, then Run again."
 msgstr ""
 
-#: plugin/chatbot/slash_commands.py
-msgid "Start a new chat"
+#: plugin/calc/vision_egress.py
+msgid "Anchor the image to a cell, select it, then Run again."
 msgstr ""
 
-#: plugin/chatbot/slash_commands.py
-msgid "Cancel the in-flight send"
+#: plugin/calc/vision_egress.py
+msgid "No structured tables or text blocks to insert."
 msgstr ""
 
-#: plugin/chatbot/slash_commands.py
-msgid "Mock command (echo only)"
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
 msgstr ""
 
-#: plugin/chatbot/slash_commands.py
-msgid "Apply last draft (mock)"
+#: plugin/librepy/settings.py
+msgid "Download Cython serialization binary:"
 msgstr ""
 
-#: plugin/chatbot/slash_commands.py
-msgid "Web research (mock)"
+#: plugin/librepy/settings.py
+msgid "Python Settings"
 msgstr ""
 
-#: plugin/chatbot/slash_commands.py
-msgid "Switch model (mock)"
+#: plugin/librepy/settings.py
+msgid "Could not open Settings."
 msgstr ""
 
-#: plugin/chatbot/slash_commands.py
-msgid "Slash commands:"
+#: plugin/librepy/python_sidebar.py plugin/xdl_strings.py
+msgid "All"
 msgstr ""
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
-msgid "[No speech detected.]"
+#: plugin/librepy/python_sidebar.py
+msgid "Errors"
 msgstr ""
 
-#: plugin/chatbot/tool_loop.py
-msgid "Error: Toolkit unavailable"
+#: plugin/librepy/python_sidebar.py plugin/scripting/python_runner_ui.py
+msgid "Output"
+msgstr ""
+
+#: plugin/librepy/python_sidebar.py
+msgid "Shared kernel"
+msgstr ""
+
+#: plugin/librepy/python_sidebar.py
+msgid "Isolated"
+msgstr ""
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: (LibreOffice embedded Python)"
+msgstr ""
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: {path}"
+msgstr ""
+
+#: plugin/librepy/python_sidebar.py
+#, python-brace-format
+msgid ""
+"{mode}\n"
+"Venv: missing python at {path}"
+msgstr ""
+
+#: plugin/librepy/python_sidebar.py
+msgid "(no =PY() cells on active sheet)"
+msgstr ""
+
+#: plugin/librepy/python_sidebar.py
+msgid "(no diagnostics yet)"
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/panel_factory.py plugin/main.py
+msgid "Run Python Script..."
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/panel_factory.py
+msgid "Insert LaTeX Math..."
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
+msgid "Text Analytics..."
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/dialog_views.py plugin/chatbot/panel_factory.py
+#: plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+msgid "Vision OCR Settings..."
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
+msgid "Reset Python Session"
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
+msgid "Run All"
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py
+msgid "Run From Here"
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/main.py plugin/xdl_strings.py
+msgid "Stop"
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/dialogs.py
+#: plugin/chatbot/hamburger_menu.py plugin/main.py plugin/xdl_strings.py
+msgid "Report bug..."
+msgstr ""
+
+#: plugin/librepy/sidebar_menus.py plugin/chatbot/panel_factory.py
+msgid "More actions..."
+msgstr ""
+
+#: plugin/writer/change_context_menu.py
+msgid "Accept whole change (agent)"
+msgstr ""
+
+#: plugin/writer/change_context_menu.py
+msgid "Reject whole change (agent)"
+msgstr ""
+
+#: plugin/writer/review_click_popup.py
+msgid "Accept this change"
+msgstr ""
+
+#: plugin/writer/review_click_popup.py
+msgid "Reject this change"
+msgstr ""
+
+#: plugin/writer/editselection.py
+msgid "WriterAgent: Extend Selection"
+msgstr ""
+
+#: plugin/writer/editselection.py
+msgid "WriterAgent: Edit Selection"
+msgstr ""
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "No automatic replacement is available."
+msgstr ""
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid ""
+"Suggested fix: delete the highlighted text (the blank replacement below)."
+msgstr ""
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Suggested fix: replace with one space (the blank replacement below)."
+msgstr ""
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Choose a replacement below."
+msgstr ""
+
+#: plugin/writer/locale/ai_grammar_proofreader.py
+msgid "AI Grammar"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Update"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
+msgid "Insert"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Edit LaTeX Math"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Select a single formula to update. Multiple formulas are selected."
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid ""
+"Could not identify the selected formula. Click in the text, then insert a "
+"new formula."
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "The selected formula is no longer in the document."
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Formula updated."
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+msgid "Formula inserted."
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Math Editor"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
+msgid "Insert as display block (centered paragraph)"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Close"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr ""
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
 msgstr ""
 
 #: plugin/chatbot/research_cache_fluff.py
@@ -2792,62 +1135,150 @@ msgstr ""
 msgid "you"
 msgstr ""
 
-#: plugin/chatbot/web_research_chat.py
+#: plugin/chatbot/dialogs.py
+msgid "Agent requests approval"
+msgstr ""
+
+#: plugin/chatbot/dialogs.py
+msgid "Proceed with this action?"
+msgstr ""
+
+#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
 #, python-format
-msgid "This search query '%s' will be sent to the search engine."
+msgid "Tool: %s"
 msgstr ""
 
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid ""
-"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
-"%(matched)s)"
+#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py
+msgid "Copied!"
 msgstr ""
 
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid ""
-"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
-"%(matched)s)"
+#: plugin/chatbot/dialogs.py plugin/xdl_strings.py
+msgid "Copy URL"
 msgstr ""
 
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Research cache hit (key: %s)"
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
+msgid "Extend Selection"
 msgstr ""
 
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Research cache saved (key: %s)"
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
+msgid "Edit Selection"
 msgstr ""
 
-#: plugin/chatbot/web_research_chat.py
-#, python-format
-msgid "Opening '%s' for read-only access."
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
+msgid "Convert Sheet to Python..."
 msgstr ""
 
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid "Could not create config file: {0}"
+#: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/main.py
+msgid "Search Nearby Files..."
 msgstr ""
 
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid ""
-"Could not open an editor. Path:\n"
-"{0}"
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
+msgid "Toggle MCP Server"
 msgstr ""
 
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid ""
-"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
-"{0}"
+#: plugin/chatbot/hamburger_menu.py
+msgid "MCP Server (Running)"
 msgstr ""
 
-#: plugin/chatbot/external_editor.py
-#, python-brace-format
-msgid "Could not start editor: {0}"
+#: plugin/chatbot/hamburger_menu.py
+msgid "MCP Server (Stopped)"
+msgstr ""
+
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
+msgid "Run format tests"
+msgstr ""
+
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
+msgid "Run calc tests"
+msgstr ""
+
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
+msgid "Run Calc API integration tests"
+msgstr ""
+
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
+msgid "Run draw tests"
+msgstr ""
+
+#: plugin/chatbot/hamburger_menu.py plugin/main.py
+msgid "Evaluation Dashboard"
+msgstr ""
+
+#: plugin/chatbot/hamburger_menu.py
+msgid "Debug"
+msgstr ""
+
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+msgid "[No speech detected.]"
+msgstr ""
+
+#: plugin/chatbot/tool_loop.py
+msgid "Error: Toolkit unavailable"
+msgstr ""
+
+#: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
+msgid "Chat"
+msgstr ""
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Image"
+msgstr ""
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Web Research"
+msgstr ""
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr ""
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming"
+msgstr ""
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing Plan"
+msgstr ""
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master"
+msgstr ""
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Librarian"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "Print the command list"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "Start a new chat"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "Cancel the in-flight send"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "Mock command (echo only)"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "Apply last draft (mock)"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "Web research (mock)"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "Switch model (mock)"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "Slash commands:"
 msgstr ""
 
 #: plugin/chatbot/panel.py
@@ -2877,6 +1308,10 @@ msgstr ""
 
 #: plugin/chatbot/panel.py
 msgid "Stop Rec"
+msgstr ""
+
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
 msgstr ""
 
 #: plugin/chatbot/panel.py
@@ -2911,8 +1346,182 @@ msgstr ""
 msgid "[Peer send requires Chat mode on this sidebar.]"
 msgstr ""
 
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "This search query '%s' will be sent to the search engine."
+msgstr ""
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid ""
+"Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
+"%(matched)s)"
+msgstr ""
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache hit (key: %s)"
+msgstr ""
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Research cache saved (key: %s)"
+msgstr ""
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Opening '%s' for read-only access."
+msgstr ""
+
+#: plugin/chatbot/web_research.py
+msgid "Web research completed."
+msgstr ""
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid "Could not create config file: {0}"
+msgstr ""
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid ""
+"Could not open an editor. Path:\n"
+"{0}"
+msgstr ""
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid ""
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
+"{0}"
+msgstr ""
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid "Could not start editor: {0}"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Transcribing audio..."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown librarian error."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Brainstorming complete."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown brainstorming error."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Brainstorming error: {0}]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Writing plan complete."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown writing plan error."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Writing plan error: {0}]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "PPT-Master session complete."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown PPT-Master error."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[PPT-Master error: {0}]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown deep research error."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Deep research error: {0}]"
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr ""
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr ""
+
+#: plugin/chatbot/web_research_deep.py
+#, python-brace-format
+msgid "Research notes (automatic synthesis failed) for: {query}"
+msgstr ""
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Sources consulted:"
+msgstr ""
+
+#: plugin/chatbot/web_research_deep.py
+msgid "Web research collected no usable evidence."
+msgstr ""
+
 #: plugin/chatbot/selection.py
 msgid "Please enter edit instructions!"
+msgstr ""
+
+#: plugin/chatbot/selection.py plugin/xdl_strings.py
+msgid "Input"
 msgstr ""
 
 #: plugin/chatbot/selection.py
@@ -2932,6 +1541,47 @@ msgstr ""
 msgid "No document open"
 msgstr ""
 
+#: plugin/chatbot/extension_update_check.py
+msgid "Update available"
+msgstr ""
+
+#: plugin/chatbot/extension_update_check.py
+#, python-format
+msgid ""
+"A newer %(name)s (%(version)s) is available. Use Tools → Extension Manager "
+"to check for updates and install the latest extension."
+msgstr ""
+
+#: plugin/chatbot/dialog_views.py
+msgid "Invalid Setting"
+msgstr ""
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr ""
+
+#: plugin/chatbot/dialog_views.py
+msgid "Testing connection..."
+msgstr ""
+
+#: plugin/chatbot/dialog_views.py
+msgid "Speech"
+msgstr ""
+
+#: plugin/chatbot/dialog_views.py
+msgid "Could not play the voice sample."
+msgstr ""
+
+#: plugin/chatbot/dialog_views.py
+msgid ""
+"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+msgstr ""
+
+#: plugin/chatbot/dialog_views.py
+msgid "Audio Library Download"
+msgstr ""
+
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Enter API Key to load models)"
 msgstr ""
@@ -2942,19 +1592,6 @@ msgstr ""
 
 #: plugin/chatbot/config_ui_helpers.py
 msgid "(Connection failed)"
-msgstr ""
-
-#: plugin/chatbot/web_research_deep.py
-#, python-brace-format
-msgid "Research notes (automatic synthesis failed) for: {query}"
-msgstr ""
-
-#: plugin/chatbot/web_research_deep.py
-msgid "Sources consulted:"
-msgstr ""
-
-#: plugin/chatbot/web_research_deep.py
-msgid "Web research collected no usable evidence."
 msgstr ""
 
 #: plugin/chatbot/panel_factory.py
@@ -3014,74 +1651,1437 @@ msgstr ""
 msgid "Speak responses aloud (TTS)"
 msgstr ""
 
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Image"
+#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
+msgid "New Python Script"
 msgstr ""
 
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Web Research"
+#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
+msgid "Script name:"
 msgstr ""
 
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Deep Research"
+#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
+msgid "Attach to this document"
 msgstr ""
 
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Brainstorming"
+#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/document_scripts.py
+msgid "Script name cannot be empty."
 msgstr ""
 
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Writing Plan"
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
 msgstr ""
 
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "PPT-Master"
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
 msgstr ""
 
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Librarian"
+#: plugin/scripting/editor_ui_strings.py
+msgid "Install jedi in the Python venv for completions."
 msgstr ""
 
-#: plugin/chatbot/dialog_views.py
-msgid "Invalid Setting"
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Run"
 msgstr ""
 
-#: plugin/chatbot/dialog_views.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
 msgstr ""
 
-#: plugin/chatbot/dialog_views.py
-msgid "Testing connection..."
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Data:"
 msgstr ""
 
-#: plugin/chatbot/dialog_views.py
-msgid "Speech"
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "New"
 msgstr ""
 
-#: plugin/chatbot/dialog_views.py
-msgid "Could not play the voice sample."
+#: plugin/scripting/editor_ui_strings.py
+msgid "Create"
 msgstr ""
 
-#: plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to Document"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Save Script As"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
 msgid ""
-"Speech output is off. Turn on Enable Speech Output (TTS) to hear this voice."
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
 msgstr ""
 
-#: plugin/chatbot/dialog_views.py
-msgid "Audio Library Download"
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
 msgstr ""
 
-#: plugin/chatbot/hamburger_menu.py
-msgid "MCP Server (Running)"
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+msgid "No document is open to attach scripts."
 msgstr ""
 
-#: plugin/chatbot/hamburger_menu.py
-msgid "MCP Server (Stopped)"
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
 msgstr ""
 
-#: plugin/chatbot/hamburger_menu.py
-msgid "Debug"
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Enter script name:"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Document scripts are too large to store in the document ({0} bytes)."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open to save scripts."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+msgid ""
+"Document is read-only or properties cannot be written. Script saved to your "
+"personal library instead."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+msgid "This Document"
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to My Scripts."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}' to this document."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Saved script '{0}'."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Attached script '{0}' to this document."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Copied script '{0}' to My Scripts."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Deleted document script '{0}'."
+msgstr ""
+
+#: plugin/scripting/document_scripts.py
+#, python-brace-format
+msgid "Deleted script '{0}'."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "%s Saved to My Scripts instead."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to this document."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved successfully."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' saved to My Scripts."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Are you sure you want to delete script '%s'?"
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Delete Script"
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' deleted."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+msgid "New Script"
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' created in this document."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+#, python-format
+msgid "Script '%s' created in My Scripts."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Execution Error"
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+msgid "Script executed successfully."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+
+#: plugin/scripting/python_runner_ui.py
+msgid "Success"
+msgstr ""
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv OK"
+msgstr ""
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv check failed"
+msgstr ""
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr ""
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Done"
+msgstr ""
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Failed"
+msgstr ""
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in Settings → Python (same venv where you ran 'uv "
+"pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
+" Monaco editor."
+msgstr ""
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"Scripts/python.exe, or env-root python.exe)."
+msgstr ""
+
+#: plugin/scripting/editor_host.py
+msgid "Could not start the Python editor."
+msgstr ""
+
+#: plugin/scripting/editor_host.py
+msgid "The Python editor window did not start."
+msgstr ""
+
+#: plugin/scripting/editor_host.py
+msgid "The Python editor exited before it could load your code."
+msgstr ""
+
+#: plugin/scripting/editor_host.py
+msgid "Could not talk to the Python editor."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe timed out (sounddevice import failed or hung)."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio probe failed (see writeragent_debug.log)."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
+"on first check)."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text/NLP probe failed (see writeragent_debug.log)."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision probe failed (see writeragent_debug.log)."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid ""
+"Vector Search probe timed out (sentence-transformers import can take 10–30s "
+"on first check)."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search probe failed (see writeragent_debug.log)."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording & Speech"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Scientific Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Data Analysis / EDA Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Visualization Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Computer Algebra"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Quantitative Finance Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Data Engineering Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "To install remaining packages:"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "No microphone input devices detected."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Local TTS engines (optional):"
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Starting Python worker..."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Reading Python version..."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio & Speech: checking sounddevice and TTS engines..."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries: loading (first run may take a while)..."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries: loading (first run may take a while)..."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries: loading (first run may take a while)..."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Using LibreOffice process Python..."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Resolving venv Python..."
+msgstr ""
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Using"
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py plugin/xdl_strings.py
+msgid "Text Analytics"
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Could not load the analytics dialog."
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-brace-format
+msgid ""
+"Error from the Text Analytics worker:\n"
+"{err}\n"
+"\n"
+"The features in this dialog require these packages in the python it is using:\n"
+"  • spacy + a model          (entities, key phrases, basic stats)\n"
+"  • textdescriptives         (real Readability scores)\n"
+"  • transformers + torch     (Sentiment using the multilingual model)\n"
+"\n"
+"Install them with:\n"
+"  {install}\n"
+"\n"
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Open a Writer document to analyze."
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Not enough text in the chosen scope."
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Analyzing..."
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid ""
+"Error: %s\n"
+"\n"
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "No Writer document to insert into."
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Run an analysis first."
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Nothing useful to insert from the last result."
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+#, python-format
+msgid "Insert failed: %s"
+msgstr ""
+
+#: plugin/scripting/text_analytics_ui.py
+msgid "Inserted after selection/caret."
+msgstr ""
+
+#: plugin/scripting/symbolic.py
+msgid "Symbolic helper failed."
+msgstr ""
+
+#: plugin/scripting/symbolic.py
+msgid "Symbolic helper returned no LaTeX."
+msgstr ""
+
+#: plugin/scripting/symbolic.py
+#, python-brace-format
+msgid "Failed to convert LaTeX to Writer Math: {error}"
+msgstr ""
+
+#: plugin/scripting/symbolic.py
+msgid "No active document view."
+msgstr ""
+
+#: plugin/scripting/symbolic.py
+msgid "Unsupported document type for symbolic insertion."
+msgstr ""
+
+#: plugin/scripting/viz.py
+msgid "Unsupported document type for plot insertion."
+msgstr ""
+
+#: plugin/scripting/viz.py
+msgid "Viz helper failed."
+msgstr ""
+
+#: plugin/scripting/viz.py
+msgid "Viz helper returned no image payload."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr ""
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
+"Writer document with an imported Jupyter notebook and try again."
+msgstr ""
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"This Writer document has no imported notebook registry. File → Open a "
+"Jupyter notebook (.ipynb) first."
+msgstr ""
+
+#: plugin/scripting/session_manager.py
+msgid "Could not resolve notebook Python session."
+msgstr ""
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr ""
+
+#: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr ""
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
+"try again."
+msgstr ""
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this workbook."
+msgstr ""
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Initialization script and any in-memory init state were reset for this "
+"workbook. Cell variables were already isolated per cell."
+msgstr ""
+
+#: plugin/scripting/session_manager.py
+msgid ""
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
+msgstr ""
+
+#: plugin/scripting/session_manager.py
+msgid "Python session reset for this document."
+msgstr ""
+
+#: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr ""
+
+#: plugin/scripting/units.py
+msgid "Units helper returned no formatted text."
+msgstr ""
+
+#: plugin/scripting/units.py
+msgid "Unsupported document type for units insertion."
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helper failed."
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted formatted HTML for {count} images. "
+"(took {time})"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Unsupported document type for result insertion. (took {time})"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+#, python-brace-format
+msgid "Script executed successfully. (took {time})"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "Script saved."
+msgstr ""
+
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
+msgid "Run Python Script"
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "Could not open the built-in script dialog."
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
+msgstr ""
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
+msgstr ""
+
+#: plugin/vision/vision_runner.py plugin/vision/vision_egress.py
+msgid ""
+"Select an embedded image (or a range containing images), then Run again."
+msgstr ""
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid ""
+"Image '{name}' not found. Use image_list or leave image_name empty and "
+"select the graphic."
+msgstr ""
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "Image '{name}' could not be exported."
+msgstr ""
+
+#: plugin/vision/vision_runner.py
+#, python-brace-format
+msgid "OCR complete ({count} images)."
+msgstr ""
+
+#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
+msgid "OCR complete."
+msgstr ""
+
+#: plugin/vision/vision_runner.py
+msgid "OCR complete (text returned only; not inserted)."
+msgstr ""
+
+#: plugin/vision/vision_tools.py
+msgid "Vision OCR requires a Writer or Calc document."
+msgstr ""
+
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr ""
+
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr ""
+
+#: plugin/vision/vision_egress.py
+#, python-format
+msgid "Could not position insert after the image: %s"
+msgstr ""
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr ""
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "Check writeragent_debug.log in your LibreOffice user config folder"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "Stop MCP Server"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "Start MCP Server"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} (no auth)"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0}: {1}"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "reconnecting…"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} failed: {1}"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting…"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} not running (is the provider binary installed?)"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "MCP server stopped"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "MCP server started"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0}"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public tunnel via {0} starting… use MCP Server Status when ready."
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "MCP server is not running"
+msgstr ""
+
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "MCP server running"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Local URL: {0}"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public URL: {0}"
+msgstr ""
+
+#: plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "Local Endpoint:"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Public Tunnel ({0}):"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "Status: Active (connected)"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Reconnecting — {0}"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "retrying…"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+msgid "Status: Starting tunnel…"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Failed — {0}"
+msgstr ""
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Status: Not running (is {0} binary installed?)"
+msgstr ""
+
+#: plugin/mcp/mcp_ui.py
+msgid "✓ Copied!"
+msgstr ""
+
+#: plugin/mcp/mcp_ui.py
+msgid "Testing…"
+msgstr ""
+
+#: plugin/mcp/mcp_ui.py
+msgid "Test Tunnel"
+msgstr ""
+
+#: plugin/mcp/mcp_ui.py
+msgid "MCP Tunnel Test"
+msgstr ""
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Tunnel test mode: {0} provider simulated successfully."
+msgstr ""
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Unknown tunnel provider: {0}"
+msgstr ""
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"Binary '{0}' for {1} not found on PATH.\n"
+"\n"
+"Install from: {2}"
+msgstr ""
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid "Failed to execute {0} binary ({1}): {2}"
+msgstr ""
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is running and responsive!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"Health check: OK (200)"
+msgstr ""
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} tunnel is active!\n"
+"\n"
+"Public endpoint:\n"
+"{1}\n"
+"\n"
+"(Public URL acquired from active tunnel session.)"
+msgstr ""
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is verified ({2}).\n"
+"\n"
+"(Note: An active {3} tunnel is currently running at {4}.)"
+msgstr ""
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"MCP server is running locally on port {3}.\n"
+"Check 'Expose via public tunnel' and click OK to activate public routing."
+msgstr ""
+
+#: plugin/mcp/tunnel.py
+#, python-brace-format
+msgid ""
+"{0} binary '{1}' is installed and verified ({2}).\n"
+"\n"
+"Note: MCP server is not currently running on port {3}."
+msgstr ""
+
+#: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr ""
+
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr ""
+
+#: plugin/main.py plugin/xdl_strings.py
+msgid "MCP Server Status"
+msgstr ""
+
+#: plugin/main.py
+msgid "Edit LaTeX Math..."
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "-1"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "AI Model:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "API Key:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Active Sheet"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Additional Instructions (History):"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Additional Instructions:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Ask / instruct:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Aspect Ratio:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Auto Gallery"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Base Size:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Base:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Cache Status: Checking..."
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Calc"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Categories:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Check Venv"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Clear"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Convert Sheet to Python"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Copy"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Diagnostics:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Draw"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Edit Cell"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Edit Init Script"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Edit config (JSON)…"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Edit extra tokens:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Edit search query"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL (/v1 added):"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Entities"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Extend max tokens:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Filter:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "General"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Get API Key:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Hugging Face"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Image Model:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Image Settings"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "In-place replacement"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Input:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Insert Frame"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Insert LaTeX Math"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Insert report here"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Key Phrases"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Message"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Models to Test:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Multimodal"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "NVIDIA NIM"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "New Sheet (PythonImport)"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Number of Responses:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "OK"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "OpenRouter"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Options"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Output Mode"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Please enter edit instructions:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Preserve number formats"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Public Tunnel:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Python Settings…"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Python Test"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Python cells (active sheet):"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Python:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Readability"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Rebuild"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Refresh"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Reset Session"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Results:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Run Benchmark"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Run Script"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Scope"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Search Nearby Files"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Search Query:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Search query:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Seed:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Selection"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Sentiment"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Square"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Status"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Status: Ready"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Steps:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Temperature:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Test Connection"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Text/Chat Model:"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Timeout (s):"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Together AI"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Topics"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Vectorize columns when safe"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Verify recalc (oracle diff)"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Whole Document"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "Writer"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "WriterAgent Evaluation Dashboard"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "√x"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "☰"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "⚙"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "🔊"
+msgstr ""
+
+#: plugin/xdl_strings.py
+msgid "🔍"
 msgstr ""
 
 msgid "Agent Communication Protocol"
@@ -3174,10 +3174,10 @@ msgstr ""
 msgid "alloy (OpenAI Neutral)"
 msgstr ""
 
-msgid "af_sky (Kokoro US Female - Sky)"
+msgid "US Female - Sky"
 msgstr ""
 
-msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgid "US English Female - Lessac"
 msgstr ""
 
 msgid "default (System Default)"

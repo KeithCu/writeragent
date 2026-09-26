@@ -97,16 +97,8 @@ def get_provider_defaults(provider: str | None) -> dict[str, str]:
 # Together serverless audio families. GET /v1/models has no audio type, so a row
 # is only picked up when its id starts with one of these (docs catalog is the
 # source of truth; a new sonic-* or nemotron ASR id can still appear).
-_TOGETHER_TTS_PREFIXES: tuple[str, ...] = (
-    "canopylabs/orpheus",
-    "hexgrad/kokoro",
-    "cartesia/sonic",
-)
-_TOGETHER_STT_PREFIXES: tuple[str, ...] = (
-    "openai/whisper",
-    "nvidia/parakeet",
-    "nvidia/nemotron",
-)
+_TOGETHER_TTS_PREFIXES: tuple[str, ...] = ("canopylabs/orpheus", "hexgrad/kokoro", "cartesia/sonic")
+_TOGETHER_STT_PREFIXES: tuple[str, ...] = ("openai/whisper", "nvidia/parakeet", "nvidia/nemotron")
 
 
 def _row_is_tts(model: dict[str, Any]) -> bool:
@@ -180,7 +172,7 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
     {"display_name": "Cartesia Sonic 2", "capability": ModelCapability.AUDIO, "ids": {"together": "cartesia/sonic-2"}, "tts": True},
     {"display_name": "Cartesia Sonic 3", "capability": ModelCapability.AUDIO, "ids": {"together": "cartesia/sonic-3"}, "tts": True},
     {"display_name": "Orpheus 3B", "capability": ModelCapability.AUDIO, "ids": {"together": "canopylabs/orpheus-3b-0.1-ft"}, "tts": True},
-    {"display_name": "GPT Audio Mini", "capability": ModelCapability.AUDIO | ModelCapability.CHAT, "ids": {"openrouter": "openai/gpt-audio-mini"}},
+    {"display_name": "GPT Audio Mini", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.TOOLS, "context_length": 128000, "ids": {"openrouter": "openai/gpt-audio-mini"}},
     {"display_name": "OpenAI TTS-1", "capability": ModelCapability.AUDIO, "ids": {"openai": "tts-1"}, "default_tts": True},
     {"display_name": "GLM 5.2", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 200000, "ids": {"zai": "glm-5.2"}, "default_text": True},
     {"display_name": "GLM ASR 2512", "capability": ModelCapability.AUDIO, "ids": {"zai": "glm-asr-2512"}, "default_audio": True},
