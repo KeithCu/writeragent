@@ -139,24 +139,12 @@ def _kokoro_lang_for_voice(voice: str) -> str:
     return "en-us"
 
 
-# UI language stem → Kokoro ``create(lang=)`` code. Kokoro has no German,
-# Korean, and similar frontends.
-_UI_LOCALE_TO_KOKORO_LANG = {
-    "en": "en-us",
-    "es": "es",
-    "fr": "fr-fr",
-    "it": "it",
-    "ja": "ja",
-    "zh": "zh",
-    "hi": "hi",
-    "pt": "pt-br",
-}
-
-# es/fr/it/pt-br are Misaki EspeakG2P langs. en-us / en-gb stay on kokoro-onnx espeak.
-_LATIN_MISAKI_LANGS = frozenset({"es", "fr-fr", "it", "pt-br"})
-
 # English source for Settings → Speech → Test voice. ``_()`` speaks the UI locale.
 TTS_TEST_SAMPLE = "Hello, I'm your LibreOffice WriterAgent."
+
+# Basic Latin through Latin Extended-B. Accented French/Spanish still counts
+# as Latin; langdetect would be needed to split those from English.
+_LATIN_LETTER_MAX = 0x024F
 
 
 def tts_test_sample() -> str:
@@ -164,86 +152,37 @@ def tts_test_sample() -> str:
     return _(TTS_TEST_SAMPLE)
 
 
-def _locale_stem_region(locale: str | None) -> tuple[str, str]:
-    """``('ja', 'jp')`` from ``ja_JP`` / ``ja-JP``. Missing locale uses the UI catalog."""
-    if locale is None:
-        try:
-            from plugin.framework.i18n import get_active_locale
-
-            locale = get_active_locale()
-        except Exception:
-            locale = "en_US"
-    tag = (locale or "").split(".")[0].replace("-", "_")
-    parts = [part for part in tag.split("_") if part]
-    stem = parts[0].lower() if parts else ""
-    region = parts[1].lower() if len(parts) > 1 else ""
-    return stem, region
-
-
-def _locale_kokoro_lang(stem: str, region: str) -> str | None:
-    if stem == "en" and region == "gb":
-        return "en-gb"
-    return _UI_LOCALE_TO_KOKORO_LANG.get(stem)
-
-
-def _english_kokoro_lang(voice: str, stem: str, region: str) -> str:
-    """en-gb for a British voice or en_GB UI; otherwise en-us. Both skip Misaki."""
-    if _kokoro_lang_for_voice(voice) == "en-gb" or (stem == "en" and region == "gb"):
-        return "en-gb"
-    return "en-us"
-
-
-def kokoro_g2p_lang(text: str, voice: str = "", locale: str | None = None) -> str:
-    """Choose Misaki vs English espeak, and which Misaki language, for one utterance.
-
-    This is the Kokoro phonemizer code (``create(..., lang=)``). The selected
-    voice id is left alone, so ``jf_alpha`` can still speak an English line.
-
-    Kana is Japanese. Han without kana is Chinese, unless the UI locale is
-    Japanese (a kanji-only line). Devanagari is Hindi.
-
-    Latin text that uses only ASCII letters is treated as English. A ``jf_*``,
-    ``ff_*``, or ``ef_*`` voice is then not asked to run JAG2P or
-    ``EspeakG2P(fr-fr/es)`` on that sentence. Accented Latin uses the voice's
-    Misaki language when the voice is es/fr/it/pt, otherwise the UI locale if
-    that is one of those, otherwise English espeak.
-
-    TODO: langdetect (already installed in the dev venv) may replace or
-    augment this. ASCII French such as "Bonjour, je suis..." is classified as
-    English here. Do not import langdetect in this module.
-    """
-    stem, region = _locale_stem_region(locale)
-    has_kana = False
-    has_han = False
-    has_devanagari = False
-    has_accented_letter = False
+def _text_is_latin_script(text: str) -> bool:
+    """True when every letter is Latin. Kana, Han, and Devanagari are not."""
     for ch in text:
-        code = ord(ch)
-        if 0x3040 <= code <= 0x30FF or 0x31F0 <= code <= 0x31FF:
-            has_kana = True
-        elif 0x4E00 <= code <= 0x9FFF:
-            has_han = True
-        elif 0x0900 <= code <= 0x097F:
-            has_devanagari = True
-        elif ch.isalpha() and code > 127:
-            has_accented_letter = True
-    if has_kana:
-        return "ja"
-    if has_han:
-        if stem == "ja":
-            return "ja"
-        return "zh"
-    if has_devanagari:
-        return "hi"
-    if has_accented_letter:
-        voice_lang = _kokoro_lang_for_voice(voice) if voice else "en-us"
-        if voice_lang in _LATIN_MISAKI_LANGS:
-            return voice_lang
-        locale_lang = _locale_kokoro_lang(stem, region)
-        if locale_lang in _LATIN_MISAKI_LANGS:
-            return locale_lang
-        return _english_kokoro_lang(voice, stem, region)
-    return _english_kokoro_lang(voice, stem, region)
+        if ch.isalpha() and ord(ch) > _LATIN_LETTER_MAX:
+            return False
+    return True
+
+
+def kokoro_g2p_lang(text: str, voice: str = "") -> str:
+    """Phonemizer code for one Kokoro utterance. The voice id is not changed.
+
+    Latin-script text uses English G2P so English on a non-English voice is
+    not run through that voice's Misaki frontend. ``en-us`` is kokoro-onnx's
+    espeak path (not ``misaki[en]``, which installs torch). A ``b*`` voice
+    uses ``en-gb``, which is the same espeak path. The selected voice still
+    supplies the timbre (``jf_alpha`` can speak an English line).
+
+    Any non-Latin letter keeps today's voice-prefix Misaki language
+    (:func:`_kokoro_lang_for_voice`): kana on ``jf_*`` stays ``ja``, Han on
+    ``zf_*`` stays ``zh``.
+
+    TODO: langdetect (already in the dev venv) could tell accented French or
+    Spanish from English later. Do not import it here.
+    """
+    if _text_is_latin_script(text):
+        if voice and _kokoro_lang_for_voice(voice) == "en-gb":
+            return "en-gb"
+        return "en-us"
+    if not voice:
+        return "en-us"
+    return _kokoro_lang_for_voice(voice)
 
 
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
@@ -845,8 +784,8 @@ def _speak_kokoro_local(
         _speak_system(text, speed=speed)
         return
 
-    # Misaki vs English espeak is chosen from the utterance, not from the
-    # voice id. The voice argument above is still the speaker the user picked.
+    # Latin text uses English espeak; other text uses this voice's Misaki lang.
+    # ``voice`` is still the speaker id passed to Kokoro.create.
     lang = kokoro_g2p_lang(text, voice)
     log.info("Kokoro G2P lang=%s for voice=%s", lang, voice)
     # Non-English voices were phonemized with espeak-ng inside kokoro-onnx, so
