@@ -458,6 +458,41 @@ class TestV1ContextHarvest:
             mock_sync.assert_not_called()
 
 
+class TestGetSttModel:
+    def test_audio_stt_model_wins_over_legacy(self):
+        from plugin.framework.client.model_fetcher import get_stt_model
+
+        def fake_get(key):
+            if key == "audio.stt_model":
+                return "speech-new"
+            if key == "stt_model":
+                return "speech-old"
+            return ""
+
+        with patch("plugin.framework.client.model_fetcher.get_config", side_effect=fake_get):
+            assert get_stt_model() == "speech-new"
+
+    def test_legacy_stt_model_when_new_key_empty(self):
+        from plugin.framework.client.model_fetcher import get_stt_model
+
+        def fake_get(key):
+            if key == "audio.stt_model":
+                return ""
+            if key == "stt_model":
+                return "whisper-legacy"
+            return ""
+
+        with patch("plugin.framework.client.model_fetcher.get_config", side_effect=fake_get):
+            assert get_stt_model() == "whisper-legacy"
+
+    def test_default_from_provider_when_both_empty(self):
+        from plugin.framework.client.model_fetcher import get_stt_model
+
+        with patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
+            with patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api/v1"):
+                assert get_stt_model() == "mistralai/voxtral-mini-transcribe"
+
+
 class TestGetTtsModel:
     def test_explicit_config_wins(self):
         from plugin.framework.client.model_fetcher import get_tts_model

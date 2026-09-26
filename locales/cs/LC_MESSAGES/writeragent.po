@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-14 16:20-0400\n"
+"POT-Creation-Date: 2026-09-18 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -58,8 +58,8 @@ msgstr "Spuštění poznámkového bloku je podporováno pouze v LibreOffice Wri
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook (."
+"ipynb) first."
 msgstr ""
 "Tento dokument neobsahuje žádný importovaný poznámkový blok. Nejprve zvolte "
 "Soubor → Otevřít poznámkový blok Jupyter (.ipynb)."
@@ -3434,8 +3434,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Indexované sémantické a klíčové vyhledávání pro document_research "
-"(corpus.db). Vyžaduje venv s embeddingy — viz Python Test."
+"Indexované sémantické a klíčové vyhledávání pro document_research (corpus."
+"db). Vyžaduje venv s embeddingy — viz Python Test."
 
 msgid "Embeddings + FTS"
 msgstr "Embeddingy + FTS"
@@ -3767,3 +3767,91 @@ msgstr "Časový limit dokumentu Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Časový limit na konverzi v rámci Docling. 0 = bez omezení."
+
+msgid "Speech"
+msgstr ""
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+
+msgid "Enable Speech Output (TTS)"
+msgstr ""
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+
+#, fuzzy
+msgid "TTS Provider"
+msgstr "Poskytovatel"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
+msgstr ""
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr ""
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr ""
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr ""
+
+msgid "Current Chat Endpoint (/audio/speech)"
+msgstr ""
+
+#, fuzzy
+msgid "TTS Model"
+msgstr "Model AI:"
+
+msgid ""
+"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
+msgstr ""
+
+#, fuzzy
+msgid "Voice"
+msgstr "možnosti"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+
+msgid "alloy (OpenAI Neutral)"
+msgstr ""
+
+msgid "af_bella (Kokoro US Female - Bella)"
+msgstr ""
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr ""
+
+msgid "default (System Default)"
+msgstr ""
+
+msgid "Speech Speed"
+msgstr ""
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+
+msgid "1.0x"
+msgstr ""
+
+msgid "1.1x"
+msgstr ""
+
+msgid "1.25x"
+msgstr ""
+
+msgid "1.5x"
+msgstr ""
+
+msgid "1.75x"
+msgstr ""
+
+msgid "2.0x"
+msgstr ""

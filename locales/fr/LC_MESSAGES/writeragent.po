@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-14 16:20-0400\n"
+"POT-Creation-Date: 2026-09-18 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: French <LL@li.org>\n"
@@ -58,8 +58,8 @@ msgstr ""
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook (."
+"ipynb) first."
 msgstr ""
 "Ce document ne contient aucun notebook importé. Fichier → Ouvrir un notebook "
 "Jupyter (.ipynb) d'abord."
@@ -406,8 +406,8 @@ msgid ""
 "The Monaco editor is disabled by \"scripting.force_internal_script_editor\" "
 "in writeragent.json."
 msgstr ""
-"L'éditeur Monaco est désactivé par "
-"« scripting.force_internal_script_editor » dans writeragent.json."
+"L'éditeur Monaco est désactivé par « scripting.force_internal_script_editor "
+"» dans writeragent.json."
 
 #: plugin/calc/python/init_script_editor.py
 msgid "Configure a Python venv path in Settings → Python."
@@ -3221,8 +3221,8 @@ msgid ""
 msgstr ""
 "Convertir les fichiers .xlsx/.xls frères dans writeragent_ods_cache/ à côté "
 "du dossier afin que le SQL DuckDB répété réutilise l'ODS. Les fichiers .ods "
-"natifs et le classeur actif ne sont jamais mis en cache. Définissez "
-"calc.ods_cache_enabled sur false dans writeragent.json pour désactiver."
+"natifs et le classeur actif ne sont jamais mis en cache. Définissez calc."
+"ods_cache_enabled sur false dans writeragent.json pour désactiver."
 
 msgid "Sidebar"
 msgstr "Volet"
@@ -3482,8 +3482,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"Recherche sémantique + par mots-clés indexée pour document_research "
-"(corpus.db). Nécessite un venv d'embeddings — voir Python Test."
+"Recherche sémantique + par mots-clés indexée pour document_research (corpus."
+"db). Nécessite un venv d'embeddings — voir Python Test."
 
 msgid "Embeddings + FTS"
 msgstr "Embeddings + FTS"
@@ -3645,9 +3645,9 @@ msgid ""
 msgstr ""
 "Si défini, exécute =PY() et Exécuter le script Python dans ce venv (bin/"
 "python, Scripts/python.exe, ou python.exe à la racine de l'environnement "
-"conda/pyenv-win). Collez le chemin sans guillemets. Si vide, utilise le "
-"sys.executable de ce processus (stdlib de base) ; utilisez un venv pour "
-"numpy/pandas et les assistants de vision (paddleocr, paddlepaddle)."
+"conda/pyenv-win). Collez le chemin sans guillemets. Si vide, utilise le sys."
+"executable de ce processus (stdlib de base) ; utilisez un venv pour numpy/"
+"pandas et les assistants de vision (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Tester"
@@ -3830,3 +3830,91 @@ msgstr "Délai d'expiration du document Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Délai d'expiration par conversion dans Docling. 0 = aucune limite."
+
+msgid "Speech"
+msgstr ""
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+
+msgid "Enable Speech Output (TTS)"
+msgstr ""
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+
+#, fuzzy
+msgid "TTS Provider"
+msgstr "Fournisseur"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
+msgstr ""
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr ""
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr ""
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr ""
+
+msgid "Current Chat Endpoint (/audio/speech)"
+msgstr ""
+
+#, fuzzy
+msgid "TTS Model"
+msgstr "Modèle d'IA :"
+
+msgid ""
+"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
+msgstr ""
+
+#, fuzzy
+msgid "Voice"
+msgstr "choix"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+
+msgid "alloy (OpenAI Neutral)"
+msgstr ""
+
+msgid "af_bella (Kokoro US Female - Bella)"
+msgstr ""
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr ""
+
+msgid "default (System Default)"
+msgstr ""
+
+msgid "Speech Speed"
+msgstr ""
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+
+msgid "1.0x"
+msgstr ""
+
+msgid "1.1x"
+msgstr ""
+
+msgid "1.25x"
+msgstr ""
+
+msgid "1.5x"
+msgstr ""
+
+msgid "1.75x"
+msgstr ""
+
+msgid "2.0x"
+msgstr ""

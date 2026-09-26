@@ -28,7 +28,6 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `chat_max_tokens` | `int` | `16384` |  |  |
 | `chat_compaction_enabled` | `boolean` | `true` |  |  |
 | `request_timeout` | `int` | `120` |  |  |
-| `stt_model` | `string` | `""` |  |  |
 | `image_base_size` | `int` | `1024` |  |  |
 | `image_default_aspect` | `string` | `"Square"` |  |  |
 | `image_steps` | `int` | `-1` |  |  |
@@ -62,6 +61,21 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `path` | `string` | `""` |  | Internal. Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://localhost:8000 for Hermes). Empty = try default. |
 | `args` | `string` | `""` |  | Internal. Optional arguments for the selected backend (space-separated). |
 | `acp_agent_name` | `string` | `""` |  | Internal. Agent name on the ACP server (e.g. hermes). Empty = auto-discover first agent. |
+
+## Speech (`audio`)
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `stt_model` | `string` | `""` |  | Speech-to-text model when the chat model cannot take audio input. |
+| `tts_enabled` | `boolean` | `false` |  | Speak assistant responses aloud using text-to-speech. |
+| `tts_provider` | `string` | `"system"` |  | Choose whether to use built-in OS speech, a local neural engine, or your API endpoint. Options: system (OS Native (say / SAPI / spd-say)), kokoro (Kokoro (Local Neural, ONNX CPU)), piper (Piper (Local Fast Neural, CPU)), endpoint (Current Chat Endpoint (/audio/speech)) |
+| `tts_model` | `string` | `""` |  | Model for speech synthesis (used when TTS Provider is Current Chat Endpoint). |
+| `tts_voice` | `string` | `"alloy"` |  | Voice for the selected provider. The list matches the Piper or Kokoro catalog for your locale. Options: alloy (alloy (OpenAI Neutral)), af_bella (af_bella (Kokoro US Female - Bella)), en_US-lessac-medium (en_US-lessac-medium (US English Female - Lessac)), default (default (System Default)) |
+| `tts_speed` | `string` | `"1.0x"` |  | Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom down to 0.25x). Options: 1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x |
+| `tts_voice_kokoro` | `string` | `"af_bella"` |  | Internal |
+| `tts_voice_piper` | `string` | `"en_US-lessac-medium"` |  | Internal |
+| `tts_voice_openai` | `string` | `"alloy"` |  | Internal |
+| `tts_voice_system` | `string` | `"default"` |  | Internal |
 
 ## Calc spreadsheet tools (`calc`)
 

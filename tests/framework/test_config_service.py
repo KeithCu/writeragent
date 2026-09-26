@@ -82,6 +82,19 @@ class TestSetGet():
         assert data is not None
         assert data['mcp.mcp_port'] == 9000
 
+    def test_ai_stt_model_uses_audio_key(self, config_svc):
+        from unittest.mock import patch
+
+        with (
+            patch("plugin.framework.config_service.get_stt_model", return_value="from-dual-read") as mock_get,
+            patch("plugin.framework.config_service.set_config") as mock_set,
+            patch("plugin.framework.config_service.global_event_bus"),
+        ):
+            assert config_svc.get("ai.stt_model") == "from-dual-read"
+            config_svc.set("ai.stt_model", "whisper-1")
+        mock_get.assert_called()
+        mock_set.assert_called_once_with("audio.stt_model", "whisper-1")
+
 class TestAccessControl():
 
     def test_read_own_key_ok(self, config_svc, manifest):

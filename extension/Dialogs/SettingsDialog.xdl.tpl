@@ -29,29 +29,27 @@
   <dlg:text dlg:id="label_image_model" dlg:page="1" dlg:left="8" dlg:top="74" dlg:width="150" dlg:height="10" dlg:value="Image Model:" dlg:align="left"/>
   <dlg:combobox dlg:id="image_model" dlg:page="1" dlg:left="165" dlg:top="72" dlg:width="265" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
 
-  <dlg:text dlg:id="label_stt_model" dlg:page="1" dlg:left="8" dlg:top="90" dlg:width="150" dlg:height="10" dlg:value="Audio Model:" dlg:align="left"/>
-  <dlg:combobox dlg:id="stt_model" dlg:page="1" dlg:left="165" dlg:top="88" dlg:width="265" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
+  <!-- Audio Model moved to the Speech tab (audio__stt_model). Shift the rows
+       that followed it up by one 16px slot so General has no empty gap. -->
+  <dlg:text dlg:id="label_temperature" dlg:page="1" dlg:left="8" dlg:top="90" dlg:width="58" dlg:height="10" dlg:value="Temperature:" dlg:align="left"/>
+  <dlg:textfield dlg:id="temperature" dlg:page="1" dlg:left="68" dlg:top="88" dlg:width="50" dlg:height="14" dlg:tabstop="true" dlg:value="-1"/>
+  <dlg:text dlg:id="label_chat_max_tokens" dlg:page="1" dlg:left="165" dlg:top="90" dlg:width="60" dlg:height="10" dlg:value="Max Tokens:" dlg:align="left"/>
+  <dlg:textfield dlg:id="chat_max_tokens" dlg:page="1" dlg:left="230" dlg:top="88" dlg:width="60" dlg:height="14" dlg:tabstop="true" dlg:value="16384"/>
 
-  <!-- Row 6: Temperature and Max Tokens on same line -->
-  <dlg:text dlg:id="label_temperature" dlg:page="1" dlg:left="8" dlg:top="106" dlg:width="58" dlg:height="10" dlg:value="Temperature:" dlg:align="left"/>
-  <dlg:textfield dlg:id="temperature" dlg:page="1" dlg:left="68" dlg:top="104" dlg:width="50" dlg:height="14" dlg:tabstop="true" dlg:value="-1"/>
-  <dlg:text dlg:id="label_chat_max_tokens" dlg:page="1" dlg:left="165" dlg:top="106" dlg:width="60" dlg:height="10" dlg:value="Max Tokens:" dlg:align="left"/>
-  <dlg:textfield dlg:id="chat_max_tokens" dlg:page="1" dlg:left="230" dlg:top="104" dlg:width="60" dlg:height="14" dlg:tabstop="true" dlg:value="16384"/>
+  <!-- Additional Instructions -->
+  <dlg:text dlg:id="label_additional_instructions" dlg:page="1" dlg:left="8" dlg:top="106" dlg:width="150" dlg:height="10" dlg:value="Additional Instructions:" dlg:align="left"/>
+  <dlg:combobox dlg:id="additional_instructions" dlg:page="1" dlg:left="165" dlg:top="104" dlg:width="265" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
 
-  <!-- Row 7: Additional Instructions -->
-  <dlg:text dlg:id="label_additional_instructions" dlg:page="1" dlg:left="8" dlg:top="122" dlg:width="150" dlg:height="10" dlg:value="Additional Instructions:" dlg:align="left"/>
-  <dlg:combobox dlg:id="additional_instructions" dlg:page="1" dlg:left="165" dlg:top="120" dlg:width="265" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
+  <!-- Get API Key buttons -->
+  <dlg:text dlg:id="label_get_api_key" dlg:page="1" dlg:left="8" dlg:top="124" dlg:width="150" dlg:height="10" dlg:value="Get API Key:" dlg:align="left"/>
+  <dlg:button dlg:id="btn_openrouter" dlg:page="1" dlg:left="165" dlg:top="121" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="OpenRouter"/>
+  <dlg:button dlg:id="btn_together" dlg:page="1" dlg:left="233" dlg:top="121" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="Together AI"/>
+  <dlg:button dlg:id="btn_hf" dlg:page="1" dlg:left="301" dlg:top="121" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="Hugging Face"/>
+  <dlg:button dlg:id="btn_nvidia" dlg:page="1" dlg:left="369" dlg:top="121" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="NVIDIA NIM"/>
 
-  <!-- Row 8: Get API Key buttons -->
-  <dlg:text dlg:id="label_get_api_key" dlg:page="1" dlg:left="8" dlg:top="140" dlg:width="150" dlg:height="10" dlg:value="Get API Key:" dlg:align="left"/>
-  <dlg:button dlg:id="btn_openrouter" dlg:page="1" dlg:left="165" dlg:top="137" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="OpenRouter"/>
-  <dlg:button dlg:id="btn_together" dlg:page="1" dlg:left="233" dlg:top="137" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="Together AI"/>
-  <dlg:button dlg:id="btn_hf" dlg:page="1" dlg:left="301" dlg:top="137" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="Hugging Face"/>
-  <dlg:button dlg:id="btn_nvidia" dlg:page="1" dlg:left="369" dlg:top="137" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="NVIDIA NIM"/>
-
-  <!-- Row 9: Edit JSON button & Status Line -->
-  <dlg:button dlg:id="btn_edit_config_json" dlg:page="1" dlg:left="8" dlg:top="156" dlg:width="125" dlg:height="14" dlg:tabstop="true" dlg:value="Edit config (JSON)…"/>
-  <dlg:text dlg:id="lbl_test_status" dlg:page="1" dlg:left="140" dlg:top="157" dlg:width="290" dlg:height="12" dlg:value="" dlg:align="left"/>
+  <!-- Edit JSON button & Status Line -->
+  <dlg:button dlg:id="btn_edit_config_json" dlg:page="1" dlg:left="8" dlg:top="140" dlg:width="125" dlg:height="14" dlg:tabstop="true" dlg:value="Edit config (JSON)…"/>
+  <dlg:text dlg:id="lbl_test_status" dlg:page="1" dlg:left="140" dlg:top="141" dlg:width="290" dlg:height="12" dlg:value="" dlg:align="left"/>
 
   <!-- === Page 2: Image Settings === -->
 

@@ -33,7 +33,7 @@ from plugin.framework.config import (
     AI_SIMPLE_FIELDS,
 )
 from plugin.framework.config_schema import WriterAgentConfig
-from plugin.framework.client.model_fetcher import set_image_model, set_text_model
+from plugin.framework.client.model_fetcher import get_stt_model, set_image_model, set_text_model
 
 _unohelper_mod: Any
 try:
@@ -138,6 +138,8 @@ class ConfigService(ServiceBase):
             if field in AI_SIMPLE_FIELDS:
                 if field == "endpoint":
                     return str(get_config("endpoint") or "").strip()
+                if field == "stt_model":
+                    return get_stt_model()
 
                 return get_config(field)
 
@@ -195,6 +197,9 @@ class ConfigService(ServiceBase):
                     set_image_model(value or "", update_lru=True)
                 elif field == "text_model":
                     set_text_model(value or "", update_lru=True)
+                elif field == "stt_model":
+                    # Speech tab canonical key. Do not write legacy stt_model.
+                    set_config("audio.stt_model", value)
                 else:
                     # Direct 1:1 mapping to top-level key.
                     set_config(field, value)

@@ -240,7 +240,7 @@ class TestEndpointCombinedListener:
         image_ctrl.getText.return_value = ''
 
         def get_optional_side_effect(dlg, name):
-            return {'text_model': text_ctrl, 'stt_model': stt_ctrl, 'image_model': image_ctrl, 'api_key': None}.get(name)
+            return {'text_model': text_ctrl, 'audio__stt_model': stt_ctrl, 'image_model': image_ctrl, 'api_key': None}.get(name)
 
         populate_calls = []
 
@@ -282,7 +282,7 @@ class TestEndpointCombinedListener:
         image_ctrl.getText.return_value = ''
 
         def get_optional_side_effect(dlg, name):
-            return {'text_model': text_ctrl, 'stt_model': stt_ctrl, 'image_model': image_ctrl, 'api_key': None}.get(name)
+            return {'text_model': text_ctrl, 'audio__stt_model': stt_ctrl, 'image_model': image_ctrl, 'api_key': None}.get(name)
 
         populate_calls = []
 
@@ -320,7 +320,7 @@ class TestEndpointCombinedListener:
         def get_optional_side_effect(dlg, name):
             return {
                 'text_model': text_ctrl,
-                'stt_model': stt_ctrl,
+                'audio__stt_model': stt_ctrl,
                 'image_model': image_ctrl,
                 'api_key': api_key_ctrl,
             }.get(name)
@@ -366,7 +366,7 @@ class TestEndpointCombinedListener:
         def get_optional_side_effect(dlg, name):
             return {
                 'text_model': text_ctrl,
-                'stt_model': stt_ctrl,
+                'audio__stt_model': stt_ctrl,
                 'image_model': image_ctrl,
                 'api_key': api_key_ctrl,
             }.get(name)
@@ -663,6 +663,42 @@ def test_dialog_parent_for_child_prefers_settings_peer() -> None:
     parent.getPeer.return_value = "settings-peer"
     assert _dialog_parent_for_child(MagicMock(), parent) == "settings-peer"
     parent.getPeer.assert_called_once()
+
+
+def test_populate_fields_wires_audio_stt_model_lru() -> None:
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dlg = MagicMock()
+    stt_ctrl = MagicMock()
+    dlg.getControl.side_effect = lambda name: stt_ctrl if name == "audio__stt_model" else None
+
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+    field_specs = [{"name": "audio__stt_model", "value": "whisper-1"}]
+
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
+        view._populate_fields(field_specs, "https://openrouter.ai/api")
+        mock_lru.assert_called_once_with(
+            view._ctx, stt_ctrl, "whisper-1", "audio_model_lru", "https://openrouter.ai/api", api_key_override=""
+        )
+
+
+def test_populate_fields_wires_legacy_stt_control_id() -> None:
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dlg = MagicMock()
+    stt_ctrl = MagicMock()
+    dlg.getControl.side_effect = lambda name: stt_ctrl if name == "stt_model" else None
+
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+    field_specs = [{"name": "stt_model", "value": "whisper-legacy"}]
+
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
+        view._populate_fields(field_specs, "https://openrouter.ai/api")
+        mock_lru.assert_called_once_with(
+            view._ctx, stt_ctrl, "whisper-legacy", "audio_model_lru", "https://openrouter.ai/api", api_key_override=""
+        )
 
 
 def test_populate_fields_wires_tts_model_lru() -> None:

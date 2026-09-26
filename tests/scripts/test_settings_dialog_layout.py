@@ -218,6 +218,25 @@ def test_librepy_flavor_omits_ppt_master_from_scripting_page(tmp_path: Path) -> 
     assert "scripting__test_ppt_master_data" not in tops
 
 
+def test_audio_model_moved_to_speech_tab(tmp_path: Path) -> None:
+    """General no longer has stt_model; Speech tab has audio__stt_model and rows closed up."""
+    xdl_path, xdl = _generate_settings_xdl(tmp_path)
+    tops = _control_tops(xdl_path)
+    attrs = _control_attrs(xdl_path)
+
+    assert "stt_model" not in tops
+    assert "label_stt_model" not in tops
+    assert "audio__stt_model" in tops
+    assert 'dlg:id="btn_tab_audio"' in xdl
+    assert 'dlg:value="Speech"' in xdl
+    # One row under Image Model (combo top 72); the old Audio Model row was 88.
+    assert tops["temperature"] == "88"
+    assert tops["label_temperature"] == "90"
+    assert tops["additional_instructions"] == "104"
+    assert attrs["btn_openrouter"]["top"] == "121"
+    assert tops["btn_edit_config_json"] == "140"
+
+
 def test_starter_buttons_share_row_and_include_nvidia(tmp_path: Path) -> None:
     xdl_path, xdl = _generate_settings_xdl(tmp_path)
     attrs = _control_attrs(xdl_path)

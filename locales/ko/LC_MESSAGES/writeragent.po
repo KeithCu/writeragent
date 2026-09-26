@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-14 16:20-0400\n"
+"POT-Creation-Date: 2026-09-18 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -58,8 +58,8 @@ msgstr "노트북 실행은 LibreOffice Writer에서만 지원됩니다."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. File → Open a Jupyter notebook "
-"(.ipynb) first."
+"This document has no imported notebook. File → Open a Jupyter notebook (."
+"ipynb) first."
 msgstr ""
 "이 문서에는 가져온 노트북이 없습니다. 먼저 파일 → Jupyter 노트북(.ipynb) 열기"
 "를 수행하십시오."
@@ -3157,8 +3157,8 @@ msgid ""
 msgstr ""
 "반복적인 DuckDB SQL 재사용을 위해 형제 .xlsx/.xls 파일을 폴더 옆의 "
 "writeragent_ods_cache/로 변환합니다. 기본 .ods 파일과 현재 열려 있는 통합 문"
-"서는 캐시되지 않습니다. 비활성화하려면 writeragent.json에서 "
-"calc.ods_cache_enabled를 false로 설정하십시오."
+"서는 캐시되지 않습니다. 비활성화하려면 writeragent.json에서 calc."
+"ods_cache_enabled를 false로 설정하십시오."
 
 msgid "Sidebar"
 msgstr "사이드바"
@@ -3733,3 +3733,91 @@ msgstr "Docling 문서 시간 제한 (초)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling 내부 변환당 시간 제한입니다. 0은 제한 없음입니다."
+
+msgid "Speech"
+msgstr ""
+
+msgid "Speech-to-text model when the chat model cannot take audio input."
+msgstr ""
+
+msgid "Enable Speech Output (TTS)"
+msgstr ""
+
+msgid "Speak assistant responses aloud using text-to-speech."
+msgstr ""
+
+#, fuzzy
+msgid "TTS Provider"
+msgstr "공급자"
+
+msgid ""
+"Choose whether to use built-in OS speech, a local neural engine, or your API "
+"endpoint."
+msgstr ""
+
+msgid "OS Native (say / SAPI / spd-say)"
+msgstr ""
+
+msgid "Kokoro (Local Neural, ONNX CPU)"
+msgstr ""
+
+msgid "Piper (Local Fast Neural, CPU)"
+msgstr ""
+
+msgid "Current Chat Endpoint (/audio/speech)"
+msgstr ""
+
+#, fuzzy
+msgid "TTS Model"
+msgstr "AI 모델:"
+
+msgid ""
+"Model for speech synthesis (used when TTS Provider is Current Chat Endpoint)."
+msgstr ""
+
+#, fuzzy
+msgid "Voice"
+msgstr "선택"
+
+msgid ""
+"Voice for the selected provider. The list matches the Piper or Kokoro "
+"catalog for your locale."
+msgstr ""
+
+msgid "alloy (OpenAI Neutral)"
+msgstr ""
+
+msgid "af_bella (Kokoro US Female - Bella)"
+msgstr ""
+
+msgid "en_US-lessac-medium (US English Female - Lessac)"
+msgstr ""
+
+msgid "default (System Default)"
+msgstr ""
+
+msgid "Speech Speed"
+msgstr ""
+
+msgid ""
+"Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom "
+"down to 0.25x)."
+msgstr ""
+
+msgid "1.0x"
+msgstr ""
+
+msgid "1.1x"
+msgstr ""
+
+msgid "1.25x"
+msgstr ""
+
+msgid "1.5x"
+msgstr ""
+
+msgid "1.75x"
+msgstr ""
+
+msgid "2.0x"
+msgstr ""

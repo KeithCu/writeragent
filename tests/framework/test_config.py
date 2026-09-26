@@ -187,6 +187,25 @@ class TestConfigSyncFileIO:
         assert isinstance(data, dict), text[:300]
         return data
 
+    def test_set_audio_stt_model_keeps_legacy_stt_model(self):
+        """Saving the Speech-tab key must not delete a pre-move stt_model."""
+        from plugin.framework.client.model_fetcher import get_stt_model
+
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"stt_model": "whisper-legacy"}, f)
+        reset_config_for_tests()
+        set_config("audio.stt_model", "whisper-new")
+        data = self._load_written()
+        assert (data.get("audio.stt_model")) == ("whisper-new")
+        assert (data.get("stt_model")) == ("whisper-legacy")
+        assert (get_stt_model()) == ("whisper-new")
+
+        reset_config_for_tests()
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"stt_model": "whisper-legacy"}, f)
+        reset_config_for_tests()
+        assert (get_stt_model()) == ("whisper-legacy")
+
     def test_set_api_key_file_io(self):
         set_api_key_for_endpoint('http://api.openai.com', 'sk-1234')
         assert (os.path.exists(self.config_path))

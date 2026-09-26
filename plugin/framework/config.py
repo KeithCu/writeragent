@@ -114,7 +114,13 @@ CONFIG_BACKUP_SUFFIX = ".bak"
 LRU_MAX_ITEMS = 10
 # Simple AI settings fields that the Tools → Options "AI" page should map
 # directly to top-level config keys (endpoint, model, etc.).
+# ``stt_model`` is the Options field name; Settings saves ``audio.stt_model``.
 AI_SIMPLE_FIELDS = {"endpoint", "text_model", "image_model", "stt_model", "temperature", "chat_max_tokens", "request_timeout", "additional_instructions", "parallel_tool_calls"}
+
+# Dotted keys whose unsuffixed alias must stay in the file. set_config normally
+# drops ``stt_model`` when writing ``audio.stt_model`` (flat name is the alias).
+# That would erase the pre-move value; get_stt_model still reads it.
+_DUAL_READ_DOTTED_KEYS_KEEP_FLAT = frozenset({"audio.stt_model"})
 
 _resolved_config_path = None
 # RLock: set_config holds this while loading; GET-path persist helpers take it
@@ -586,7 +592,7 @@ def set_config(key: str, value: Any) -> None:
         test_data = dict(config_data)
         for dotted in _config_schema._dotted_fallback_keys(key):
             test_data.pop(dotted, None)
-        if "." in key:
+        if "." in key and key not in _DUAL_READ_DOTTED_KEYS_KEEP_FLAT:
             test_data.pop(key.split(".", 1)[1], None)
         test_data[key] = value
 
