@@ -1086,3 +1086,32 @@ def test_tracked_delete_reports_an_untracked_removal():
     doc = _TrackingDoc({"T": table}, redlines_per_delete=0, keep_table=False)
     res = TableDelete().execute(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
     assert res["status"] == "error" and "no tracked change" in res["message"]
+
+
+def test_cell_matrix_text_hides_tracked_deletions():
+    """#43: a pending "velha" -> "nova" edit read "celula novavelha" (getString keeps deleted text)."""
+    from unittest.mock import patch
+
+    from plugin.writer.specialized import tables
+
+    cell = SimpleNamespace(getString=lambda: "celula novavelha")
+    with patch.object(tables, "_cell_hosted_table_names", return_value=[]), \
+         patch.object(tables, "get_string_without_tracked_deletions", return_value="celula nova") as visible:
+        assert tables._cell_matrix_text(cell) == "celula nova"
+    visible.assert_called_once_with(cell)
+
+
+def test_empty_replacement_keeps_a_table_whose_cell_holds_a_pending_deletion():
+    """Visible text "nova" with "velha" pending deletion is not an empty shell: deleting "nova"
+    must edit the text, not delete the table (review finding on the #43 change)."""
+    from unittest.mock import patch
+
+    from plugin.writer.specialized import tables
+
+    cell = SimpleNamespace(getString=lambda: "celula novavelha")
+    table = SimpleNamespace(getCellNames=lambda: ["A1"], getCellByName=lambda name: cell)
+    found = SimpleNamespace(getString=lambda: "celula nova")
+    with patch.object(tables, "_cell_hosted_table_names", return_value=[]), \
+         patch.object(tables, "_range_in_cell", return_value=True), \
+         patch.object(tables, "get_string_without_tracked_deletions", return_value="celula nova"):
+        assert tables._empty_replacement_clears_table(table, [found]) is False

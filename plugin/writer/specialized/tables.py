@@ -10,6 +10,8 @@ Writer: named text tables (table_list / getCellByName). Draw: TableShape on a pa
 import logging
 from typing import Any, Iterator
 
+from plugin.doc.text_helpers import get_string_without_tracked_deletions
+
 from ..html_export import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase
 
@@ -255,12 +257,17 @@ def _cell_plain_siblings(cell: Any) -> str:
     return "\n".join(parts)
 
 
-def _cell_matrix_text(cell: Any) -> str:
-    """Cell text for table_get_cells: host cells omit concatenated inner-table text."""
+def _cell_matrix_text(cell: Any, visible: bool = True) -> str:
+    """Cell text for table_get_cells: host cells omit concatenated inner-table text.
+
+    *visible* hides pending tracked deletions: getString() also returns text a tracked change
+    deleted, so a pending "velha" -> "nova" read "celula novavelha" here while
+    get_document_content showed "celula nova" (relato #43).
+    """
     if _cell_hosted_table_names(cell):
         return _cell_plain_siblings(cell)
     try:
-        return cell.getString()
+        return get_string_without_tracked_deletions(cell) if visible else cell.getString()
     except Exception:
         return ""
 
@@ -366,7 +373,9 @@ def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
         if _cell_hosted_table_names(cell):
             return False
         try:
-            text = _cell_matrix_text(cell).strip()
+            # Raw text, pending deletions included: a cell that still holds a pending change is
+            # not an empty shell, so an empty replacement must not delete the whole table.
+            text = _cell_matrix_text(cell, visible=False).strip()
         except Exception:
             return False
         if not text:
