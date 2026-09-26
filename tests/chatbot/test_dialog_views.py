@@ -1145,7 +1145,31 @@ def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
         cfg._tts_supported_voices.pop(model_id, None)
 
 
+
+def test_tts_test_voice_progress_uses_modeless_box_not_msgbox():
+    from plugin.chatbot.dialog_views import TtsTestVoiceListener, _TtsTestStatusSink
+
+    listener = TtsTestVoiceListener(MagicMock(), MagicMock())
+    sink = _TtsTestStatusSink(listener)
+    box = MagicMock()
+    box._closed = False
+
+    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)), \
+         patch.object(listener, "_show_progress") as show, \
+         patch.object(listener, "_close_progress") as close, \
+         patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
+        sink.progress("Downloading Piper voice Alba…")
+        sink.clear()
+        sink("Speech request failed (400): bad format")
+
+    show.assert_called_once_with("Downloading Piper voice Alba…")
+    assert close.call_count >= 1
+    mock_msgbox.assert_called_once()
+    assert "bad format" in mock_msgbox.call_args[0][2]
+
+
 def test_tts_test_voice_status_shows_http_body():
+
     from plugin.chatbot.dialog_views import TtsTestVoiceListener
 
     listener = TtsTestVoiceListener(MagicMock(), MagicMock())

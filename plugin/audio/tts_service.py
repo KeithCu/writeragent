@@ -1352,20 +1352,53 @@ def _speak_endpoint(
         _release_temp(tmp_file)
 
 
-def _notify_tts_status(message: str, on_status: Callable[[str], None] | None) -> None:
+def _notify_tts_status(
+    message: str,
+    on_status: Callable[[str], None] | None,
+    *,
+    progress: bool = False,
+) -> None:
     """Log a TTS progress line and forward it when the caller supplied a callback.
 
     On-demand Piper/Kokoro downloads and the Lessac / OS-speech fallback used to
     be log-only. The callback is additive so the sidebar status field can show
     the same sentence. ``message`` is already translated.
+
+    When ``progress`` is True and the callback has a ``progress`` method (Settings
+    → Test voice), that path is used so the UI can show a closable status box
+    instead of a blocking MessageBox. Plain callables (sidebar) still receive
+    ``on_status(message)``.
     """
     log.info("%s", message)
     if on_status is None:
         return
     try:
+        if progress:
+            prog = getattr(on_status, "progress", None)
+            if callable(prog):
+                prog(message)
+                return
         on_status(message)
     except Exception:
         log.debug("TTS status callback failed", exc_info=True)
+
+
+def _clear_tts_status(on_status: Callable[[str], None] | None) -> None:
+    """Dismiss a transient download/progress status when the callback supports it.
+
+    Settings → Test voice implements ``clear()`` so the Speech box can close when
+    a Piper/Kokoro download finishes (playback may continue). Sidebar status is a
+    plain callable — no-op here; chat restores Ready when speech ends.
+    """
+    if on_status is None:
+        return
+    clear = getattr(on_status, "clear", None)
+    if not callable(clear):
+        return
+    try:
+        clear()
+    except Exception:
+        log.debug("TTS status clear failed", exc_info=True)
 
 
 # The kokoro-onnx "model-files" release (kokoro-v0_19.onnx + voices.bin) is
@@ -1397,13 +1430,13 @@ def _resolve_kokoro_model_files(on_status: Callable[[str], None] | None = None) 
         return model_path, voices_path
 
     failed = False
+    needs_voices = not os.path.exists(voices_path) and voices_path == default_voices
+    needs_model = not os.path.exists(model_path) and model_path == default_model
     try:
         os.makedirs(cache_dir, exist_ok=True)
         import urllib.request
-        needs_voices = not os.path.exists(voices_path) and voices_path == default_voices
-        needs_model = not os.path.exists(model_path) and model_path == default_model
         if needs_voices or needs_model:
-            _notify_tts_status(_("Downloading Kokoro voice model…"), on_status)
+            _notify_tts_status(_("Downloading Kokoro voice model…"), on_status, progress=True)
         if needs_voices:
             log.info("Downloading Kokoro voices to %s...", default_voices)
             urllib.request.urlretrieve(
@@ -1421,7 +1454,10 @@ def _resolve_kokoro_model_files(on_status: Callable[[str], None] | None = None) 
         log.warning("Could not auto-download Kokoro models: %s", e)
 
     if failed:
-        _notify_tts_status(_("Couldn't download Kokoro; using OS speech"), on_status)
+        _notify_tts_status(_("Couldn't download Kokoro; using OS speech"), on_status, progress=True)
+        _clear_tts_status(on_status)
+    elif needs_voices or needs_model:
+        _clear_tts_status(on_status)
 
     return model_path, voices_path
 
@@ -1453,7 +1489,7 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
         try:
             os.makedirs(cache_dir, exist_ok=True)
             import urllib.request
-            _notify_tts_status(_("Downloading Piper voice {0}…").format(short), on_status)
+            _notify_tts_status(_("Downloading Piper voice {0}…").format(short), on_status, progress=True)
             log.info("Downloading Piper voice model '%s' to %s...", clean_v, voice_file)
             req_onnx = urllib.request.Request(onnx_url, headers={"User-Agent": "WriterAgent/1.0"})
             with urllib.request.urlopen(req_onnx, timeout=60) as resp, open(voice_file, "wb") as f_out:
@@ -1461,6 +1497,7 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
             req_json = urllib.request.Request(json_url, headers={"User-Agent": "WriterAgent/1.0"})
             with urllib.request.urlopen(req_json, timeout=30) as resp, open(json_file, "wb") as f_out:
                 shutil.copyfileobj(resp, f_out)
+            _clear_tts_status(on_status)
             return voice_file
         except Exception as e:
             download_failed = True
@@ -1483,7 +1520,8 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
     other_voice = clean_v != _PIPER_FALLBACK_VOICE
     if lessac_ready:
         if download_failed and other_voice:
-            _notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status)
+            _notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status, progress=True)
+            _clear_tts_status(on_status)
         return default_voice_file
 
     try:
@@ -1492,18 +1530,21 @@ def _resolve_piper_model_file(voice: str, on_status: Callable[[str], None] | Non
         rel_onnx, rel_json = _PIPER_VOICE_MODELS[_PIPER_FALLBACK_VOICE][0], _PIPER_VOICE_MODELS[_PIPER_FALLBACK_VOICE][1]
         base_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
         if download_failed and other_voice:
-            _notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status)
+            _notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status, progress=True)
+            _clear_tts_status(on_status)
         elif not download_failed:
             fallback_short = _voice_short_name(_PIPER_FALLBACK_VOICE)
-            _notify_tts_status(_("Downloading Piper voice {0}…").format(fallback_short), on_status)
+            _notify_tts_status(_("Downloading Piper voice {0}…").format(fallback_short), on_status, progress=True)
         log.info("Downloading Piper default voice model to %s...", default_voice_file)
         urllib.request.urlretrieve(f"{base_url}/{rel_onnx}", default_voice_file)
         urllib.request.urlretrieve(f"{base_url}/{rel_json}", default_json)
+        _clear_tts_status(on_status)
         return default_voice_file
     except Exception as e:
         log.warning("Could not auto-download Piper default voice model: %s", e)
         failed_name = short if download_failed else _voice_short_name(_PIPER_FALLBACK_VOICE)
-        _notify_tts_status(_("Couldn't download {0}; using OS speech").format(failed_name), on_status)
+        _notify_tts_status(_("Couldn't download {0}; using OS speech").format(failed_name), on_status, progress=True)
+        _clear_tts_status(on_status)
 
     return voice
 
@@ -1582,13 +1623,14 @@ def _prepare_kokoro_misaki(
     ready = ensure_kokoro_misaki(
         py_exe,
         lang,
-        on_status=lambda message: _notify_tts_status(message, on_status),
+        on_status=lambda message: _notify_tts_status(message, on_status, progress=True),
         cancelled=_cancelled,
     )
     # None is "do not speak", including when Stop lands after a successful
     # probe. Do not cache that: the next reply has a new generation.
     if ready is None or _cancelled():
         return None
+    _clear_tts_status(on_status)
     _remember_misaki_ready(generation, lang, bool(ready))
     return bool(ready)
 
