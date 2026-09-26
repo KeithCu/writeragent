@@ -225,12 +225,68 @@ def test_group_tools_drops_sidebar_chat_domains():
     assert "web_research" not in API_EXCLUDED_DOMAINS
 
 
+def test_group_tools_drops_llm_orchestration_tools():
+    """Delegate/finish tools are chat orchestration, not venv script methods.
+
+    A copied description may still mention the Calc delegate; that breadcrumb
+    is not a method or a DOMAIN_TOOLS entry.
+    """
+    from scripts.generate_tool_proxies import API_EXCLUDED_TOOLS
+
+    tools = [
+        _as_tool(
+            MockTool(
+                name,
+                "Orchestrate a specialized toolset.",
+                {
+                    "type": "object",
+                    "properties": {"task": {"type": "string"}},
+                    "required": ["task"],
+                },
+                specialized_domain=None,
+                tier="core",
+            )
+        )
+        for name in sorted(API_EXCLUDED_TOOLS)
+    ]
+    tools.append(
+        _as_tool(
+            MockTool(
+                "apply_sheet_filter",
+                "Hide rows. delegate_to_specialized_calc_toolset(domain='sheets').",
+                {
+                    "type": "object",
+                    "properties": {"range": {"type": "array", "items": {"type": "string"}}},
+                    "required": ["range"],
+                },
+                specialized_domain="sheets",
+            )
+        )
+    )
+    groups = group_tools(tools)
+    emitted = [tool.name for entries in groups.values() for _short, tool in entries]
+    for name in API_EXCLUDED_TOOLS:
+        assert name not in emitted
+    assert "sheet" in groups
+
+    code = generate_module(tools)
+    compile(code, "<generated>", "exec")
+    for name in API_EXCLUDED_TOOLS:
+        assert f"def {name}(" not in code
+        assert f"'{name}'" not in code
+        assert f'_rpc_call("{name}"' not in code
+    assert "delegate_to_specialized_calc_toolset(domain='sheets')" in code
+    assert "def apply_sheet_filter(" in code
+
+
 def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
     """Committed proxy: shape_upsert Args text, chat-mode domains gone, shapes/footnotes kept.
 
     Delegate gateway descriptions still name ``document_research`` as a chat domain
     argument, so that word can remain in another tool's docstring. The domain itself
-    must not be a DOMAIN_TOOLS key or a proxy class.
+    must not be a DOMAIN_TOOLS key or a proxy class. LLM orchestration tools are
+    omitted as methods and DOMAIN_TOOLS entries; sheet-filter breadcrumbs may
+    still mention the Calc delegate.
     """
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     api_path = os.path.join(repo_root, "plugin", "scripting", "writeragent_api.py")
@@ -271,6 +327,18 @@ def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
     # Scripts keep web_research (core proxy). It is not a sidebar chat-mode domain.
     assert "def web_research(self, query: str" in source
     assert "'web_research'" in source
+    orchestration = (
+        "delegate_to_specialized_writer_toolset",
+        "delegate_to_specialized_calc_toolset",
+        "delegate_to_specialized_draw_toolset",
+        "specialized_workflow_finished",
+    )
+    for name in orchestration:
+        assert f"def {name}(" not in source
+        assert f"'{name}'" not in source
+        assert f'_rpc_call("{name}"' not in source
+    # Copied sheet-filter descriptions; not a method.
+    assert "delegate_to_specialized_calc_toolset(domain='sheets')" in source
 
 
 def test_range_schema_becomes_range_name_python_param():

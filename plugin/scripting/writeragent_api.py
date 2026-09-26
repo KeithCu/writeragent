@@ -74,8 +74,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                     'bookmark_list',
                     'bookmark_rename',
                     'bookmark_resolve'],
-    'calc': [   'delegate_to_specialized_calc_toolset',
-                'delete_structure',
+    'calc': [   'delete_structure',
                 'get_sheet_summary',
                 'insert_cell_html',
                 'list_calc_functions',
@@ -101,13 +100,11 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'get_image',
                 'list_open_documents',
                 'redo',
-                'specialized_workflow_finished',
                 'undo',
                 'upsert_memory',
                 'web_research'],
     'draw': [   'add_slide',
                 'apply_design',
-                'delegate_to_specialized_draw_toolset',
                 'delete_slide',
                 'duplicate_slide',
                 'get_draw_tree',
@@ -220,7 +217,6 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'writer': [   'add_comment',
                   'apply_document_content',
                   'apply_style',
-                  'delegate_to_specialized_writer_toolset',
                   'get_document_content',
                   'get_document_tree',
                   'get_page_objects',
@@ -285,15 +281,6 @@ bookmark = _BookmarkProxy()
 
 class _CalcProxy:
     """Proxy for calc tools."""
-
-    def delegate_to_specialized_calc_toolset(self, domain: str, task: str) -> dict[str, Any]:
-        """Delegates a specialized Calc task. document_research to use information that is not in the current document, and may be in (my / our) personal or business documents; web_research to research public topics. Also: images, shapes, vision (extract text and structure from images when configured), pivot, sheets, forms, tracking, etc.
-
-        Args:
-            domain (required): The specialized domain to activate. One of: images, vision, web_research, document_research, comments, conditional_formatting, sheets, pivot_tables, charts, shapes, ranges, search, errors, tracking, forms.
-            task (required): What the specialized task should accomplish. For edit/change/restyle of an existing or selected image, instruct image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place.
-        """
-        return _rpc_call("delegate_to_specialized_calc_toolset", domain=domain, task=task)
 
     def delete_structure(self, structure_type: str, start: str, *, count: int | None = None) -> dict[str, Any]:
         """Deletes rows or columns. Use for structural changes; prefer ranges for data operations.
@@ -586,14 +573,6 @@ class _CoreProxy:
         """
         return _rpc_call("redo", steps=steps)
 
-    def specialized_workflow_finished(self, answer: str) -> dict[str, Any]:
-        """Provides a final answer to the given task and exits the specialized toolset mode.
-
-        Args:
-            answer (required): The final answer to the task. Use only standard Python types (numbers, strings, lists), no Numpy types.
-        """
-        return _rpc_call("specialized_workflow_finished", answer=answer)
-
     def undo(self, *, steps: int | None = None) -> dict[str, Any]:
         """Undo the last change(s) in the document (all document types). CAUTION: the undo stack interleaves YOUR edits with the user's own edits — call this only immediately after an edit of yours went wrong, undo exactly the steps you caused, and tell the user what you undid. Result reports undone plus can_undo/can_redo.
 
@@ -643,15 +622,6 @@ class _DrawProxy:
             design (required): Design id, name, path, or url from list_designs (e.g. Metropolis).
         """
         return _rpc_call("apply_design", design=design)
-
-    def delegate_to_specialized_draw_toolset(self, domain: str, task: str) -> dict[str, Any]:
-        """Delegates a specialized Draw task. document_research to use information that is not in the current document, and may be in (my / our) personal or business documents; web_research to research public topics. Also: shapes, tables, images, charts, forms, math, slide transitions, slide masters, templates/design, etc.
-
-        Args:
-            domain (required): The specialized domain to activate. One of: web_research, document_research, charts, shapes, forms, headers_footers, speaker_notes, slide_transitions, slide_layouts, slide_masters, python, images, tables, math.
-            task (required): What the specialized task should accomplish. For edit/change/restyle of an existing or selected image, instruct image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place.
-        """
-        return _rpc_call("delegate_to_specialized_draw_toolset", domain=domain, task=task)
 
     def delete_slide(self, page: int) -> dict[str, Any]:
         """Deletes the slide (page) at the specified index.
@@ -2135,15 +2105,6 @@ class _WriterProxy:
             clear_direct (optional): What to do with direct (hand-set) formatting on the target, ParagraphStyles only. 'style_props' (default) drops the font name/size override and the paragraph indents/alignment so the style's own values show, keeping bold/italic/colour. The name means 'let the style's properties win' for the font/size/indent the style governs — not 'clear only what this style defines'. 'none' keeps a hand-set font (historical; the style can look unchanged). 'all' drops every direct override (Ctrl+M). 'all' is not allowed with target='full_document' — that would flatten emphasis across the whole document; style each range instead. One of: none, style_props, all.
         """
         return _rpc_call("apply_style", style=style, family=family, target=target, old_content=old_content, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct)
-
-    def delegate_to_specialized_writer_toolset(self, domain: str, task: str) -> dict[str, Any]:
-        """Delegates a specialized task with a focused toolset. document_research to use information that is not in the current document, and may be in (my / our) personal or business documents; web_research to research public topics. Also: charts, fields, styles, page, textframes, embedded (active doc OLE only), shapes, indexes, bookmarks, tracking, footnotes, tables, forms, images, mail_merge, vision (extract text and structure from images when configured).
-
-        Args:
-            domain (required): The specialized domain to activate. One of: styles, page, textframes, embedded, images, vision, shapes, python, charts, indexes, fields, comments, tracking, bookmarks, structural, tables, footnotes, forms, web_research, document_research, mail_merge.
-            task (required): What the specialized task should accomplish. For edit/change/restyle of an existing or selected image, instruct image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place.
-        """
-        return _rpc_call("delegate_to_specialized_writer_toolset", domain=domain, task=task)
 
     def get_document_content(self, *, scope: str | None = None, max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool | None = None) -> dict[str, Any]:
         """Get document (or selection/range) content. Result includes document_length. scope: full, selection, or range (requires start, end). CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> and apply_document_content of that markup recreates live Ruby portions.
