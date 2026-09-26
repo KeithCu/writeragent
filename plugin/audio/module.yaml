@@ -55,9 +55,6 @@ config:
     helper: "Voice for the selected provider. The list matches the Piper or Kokoro catalog for your locale."
     # Runtime options come from the voice catalog (same source as the sidebar).
     # This stub is only the XDL fallback when options_provider cannot run.
-    # Narrower than the default so Test voice fits on this row.
-    width: 136
-    inline: true
     options_provider: plugin.audio.tts_service:settings_voice_options
     options:
       - value: "alloy"
@@ -69,7 +66,9 @@ config:
       - value: "default"
         label: "default (System Default)"
 
-  # Same row as Voice. Not saved: it speaks the controls currently on screen.
+  # Own row under Voice, in the control column (x matches the selects).
+  # Sharing the Voice row narrowed that combo. Not saved: it speaks the
+  # controls currently on screen.
   test_voice:
     type: string
     default: ""
@@ -77,7 +76,7 @@ config:
     label: Test voice
     inline_no_label: true
     settings_persist: false
-    x: 254
+    x: 110
     width: 88
 
   tts_speed:
