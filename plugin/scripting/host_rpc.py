@@ -14,6 +14,9 @@ protocol is added here.
 - ``""`` — ``=PY()`` recalc: tool RPC is disabled (formula evaluation must
   stay side-effect free).
 - a domain name — allow only that domain's proxies plus ``list_open_documents``.
+- several names separated by commas — union of those domains. The inner agent
+  from ``delegate_tool_domains`` passes the delegated list this way so one
+  script can call each domain's ``writeragent_api`` tools.
 """
 
 from __future__ import annotations
@@ -39,21 +42,21 @@ _ALWAYS_ALLOWED = frozenset({"list_open_documents"})
 _NAMED_SCRIPT_TOOLS = frozenset({"get_named_python_script", "list_named_python_scripts"})
 
 
-def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | None:
-    """Return an allowlist, ``None`` (unrestricted minus blocked), or empty (disabled)."""
-    if python_tool_domain is None:
-        return None
-    if python_tool_domain == TOOL_RPC_DISABLED:
-        return frozenset()
+def domain_proxy_tool_names(python_tool_domain: str) -> frozenset[str] | None:
+    """Proxy tool names for one specialized domain, without ``list_open_documents``.
+
+    ``None`` means ``writeragent_api`` is not in this build (LibrePy). An empty
+    set means the name is not a ``DOMAIN_TOOLS`` key. Specialized ``shapes``
+    maps to key ``shape`` (same singularization ``generate_tool_proxies`` uses
+    for ``footnotes`` → ``footnote`` and ``indexes`` → ``index``).
+    """
     try:
         from plugin.scripting.writeragent_api import DOMAIN_TOOLS
     except ImportError:
-        # LibrePy omits the generated proxy; there is nothing to allowlist.
-        return frozenset()
+        return None
 
     names = DOMAIN_TOOLS.get(python_tool_domain)
     if names is None:
-        # generate_tool_proxies singularizes "footnotes" → "footnote", "indexes" → "index".
         if python_tool_domain == "indexes":
             singular = "index"
         elif python_tool_domain.endswith("s") and python_tool_domain not in ("images", "styles", "forms"):
@@ -61,7 +64,32 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
         else:
             singular = python_tool_domain
         names = DOMAIN_TOOLS.get(singular)
-    return frozenset(names or ()) | _ALWAYS_ALLOWED
+    return frozenset(names or ())
+
+
+def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | None:
+    """Return an allowlist, ``None`` (unrestricted minus blocked), or empty (disabled).
+
+    A comma-separated list is the union of each domain (inner
+    ``delegate_tool_domains``). Whitespace around commas is ignored.
+    """
+    if python_tool_domain is None:
+        return None
+    if python_tool_domain == TOOL_RPC_DISABLED:
+        return frozenset()
+
+    parts = [part.strip() for part in python_tool_domain.split(",") if part.strip()]
+    if not parts:
+        return frozenset()
+
+    allowed: set[str] = set()
+    for part in parts:
+        names = domain_proxy_tool_names(part)
+        if names is None:
+            # LibrePy omits the generated proxy; there is nothing to allowlist.
+            return frozenset()
+        allowed |= names
+    return frozenset(allowed) | _ALWAYS_ALLOWED
 
 
 def execute_tool(

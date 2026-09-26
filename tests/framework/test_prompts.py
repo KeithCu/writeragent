@@ -609,6 +609,8 @@ def test_python_specialized_sub_agent_hint_writer():
     assert "page-scale absolute positions in HMM" in hint
     assert "top-left" in hint
     assert "does not receive page size" in hint
+    assert "for-loop" in hint
+    assert "wa.shape.upsert" in hint
 
 
 def test_python_specialized_sub_agent_hint_calc():
@@ -624,6 +626,8 @@ def test_python_specialized_sub_agent_hint_calc():
     assert "does not place" in hint
     assert "page-scale absolute positions in HMM" in hint
     assert "does not receive page size" in hint
+    assert "for-loop" in hint
+    assert "wa.shape.upsert" in hint
 
 
 def test_document_research_multi_file_delegation_in_prompts():

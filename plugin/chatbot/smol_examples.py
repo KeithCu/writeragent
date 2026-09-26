@@ -11,7 +11,8 @@
 - **brainstorming** — design exploration (`reply_to_user`, `save_design_spec`; leave with ``brainstorming_finished=true``).
 - **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
 - **web_research** — web sub-agent (`final_answer`).
-- **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``), footnotes via ``delegate_tool_domains``, and a ring of shapes (compute, then ``delegate_tool_domains`` with ``domains`` + ``task``, then finish). Hand-written here, not from ``generate_smol_examples.py``.
+- **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``), footnotes via ``delegate_tool_domains``, and a ring of shapes (``delegate_tool_domains`` whose task tells the inner agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish). Hand-written here, not from ``generate_smol_examples.py``.
+- **``domain_tools:shapes``** — inner agent after that hop: one ``run_venv_python_script`` with the for-loop, then ``specialized_workflow_finished``. Not the outer ``*:python`` block (that block calls ``delegate_tool_domains``, which the inner list does not include).
 - **``*:images``** — edit selected image via ``image_generate(source_image='selection')``.
 - **All other keys** — shared delegate demo (`specialized_workflow_finished`).
 
@@ -210,15 +211,8 @@ Task: "Use python to place a ring of 8 blue circles."
 
 Action:
 {
-  "name": "run_venv_python_script",
-  "arguments": {"code": "cx, cy, r, d = 10500, 14000, 7000, 1600\\nangles = np.linspace(0, 2 * np.pi, 8, endpoint=False)\\nresult = [[float(cx + np.cos(a) * r), float(cy + np.sin(a) * r), d] for a in angles]\\n"}
-}
-Observation: {"status": "ok", "result": [[17500.0, 14000.0, 1600], [15449.7, 18949.7, 1600], [10500.0, 21000.0, 1600], [5550.3, 18949.7, 1600], [3500.0, 14000.0, 1600], [5550.3, 9050.3, 1600], [10500.0, 7000.0, 1600], [15449.7, 9050.3, 1600]], "stdout": "", "stderr": ""}
-
-Action:
-{
   "name": "delegate_tool_domains",
-  "arguments": {"domains": ["shapes"], "task": "Create a ring of 8 blue circles at these absolute page positions (x, y, diameter), all in HMM (1/100 mm). Origin is the top-left of the page, not (0,0) as a center. Page center used for the layout is about (10500, 14000), radius 7000 HMM, each circle 1600 HMM across, fill blue. Use those absolute positions; do not recenter the ring on the origin."}
+  "arguments": {"domains": ["shapes"], "task": "Place a ring of 8 blue circles with one run_venv_python_script. import writeragent as wa and use a Python for-loop that calls wa.shape.upsert for each circle. Page-scale absolute positions in HMM (1/100 mm). Origin is the top-left of the page, not (0,0) as a center. Page center about (10500, 14000), radius 7000 HMM, each circle 1600 HMM across, fill blue. Do not call a per-shape LLM tool."}
 }
 Observation: {"status": "ok", "domains": ["shapes"], "result": "Placed 8 blue circles in a ring."}
 
@@ -229,6 +223,24 @@ Action:
 }
 """
 )
+
+# Inner agent after delegate_tool_domains(domains=["shapes"]).
+# One script loops the allowlisted shape API; per-shape LLM tools are not on this list.
+INNER_SHAPES_SCRIPT_EXAMPLES = """Task: "Place a ring of 8 blue circles. Page-scale absolute positions in HMM (1/100 mm). Origin is the top-left of the page, not (0,0). Center about (10500, 14000), radius 7000 HMM, each circle 1600 HMM across, fill blue. Use one script for-loop."
+
+Action:
+{
+  "name": "run_venv_python_script",
+  "arguments": {"code": "import writeragent as wa\\ncx, cy, r, d = 10500, 14000, 7000, 1600\\nangles = np.linspace(0, 2 * np.pi, 8, endpoint=False)\\nfor a in angles:\\n    wa.shape.upsert('create', shape_type='ellipse', x=int(cx + np.cos(a) * r - d / 2), y=int(cy + np.sin(a) * r - d / 2), width=d, height=d, fill_color='blue')\\nresult = 'placed 8'\\n"}
+}
+Observation: {"status": "ok", "result": "placed 8", "stdout": "", "stderr": ""}
+
+Action:
+{
+  "name": "specialized_workflow_finished",
+  "arguments": {"answer": "Placed a ring of 8 blue circles with one script looping wa.shape.upsert."}
+}
+"""
 
 
 # Images specialist: edit-in-place uses image_generate(source_image='selection')
@@ -327,8 +339,9 @@ def get_examples_block(key: str) -> str:
     Specialized keys (``writer:shapes``, ``document_research:calc``, …) share
     ``DELEGATE_GENERIC_EXAMPLES_BLOCK`` so the DONE tool is always
     ``specialized_workflow_finished``. Keys ending in ``:python`` use
-    ``PYTHON_SPECIALIZED_EXAMPLES``. Keys ending in ``:images`` use
-    ``IMAGES_SPECIALIZED_EXAMPLES``.
+    ``PYTHON_SPECIALIZED_EXAMPLES`` (outer agent). ``domain_tools:shapes`` uses
+    ``INNER_SHAPES_SCRIPT_EXAMPLES`` (inner agent after ``delegate_tool_domains``).
+    Keys ending in ``:images`` use ``IMAGES_SPECIALIZED_EXAMPLES``.
     """
     if key == "librarian":
         return LIBRARIAN_EXAMPLES
@@ -342,6 +355,8 @@ def get_examples_block(key: str) -> str:
         return PPT_MASTER_EXAMPLES
     if key == "web_research":
         return WEB_RESEARCH_EXAMPLES_BLOCK
+    if key == "domain_tools:shapes":
+        return INNER_SHAPES_SCRIPT_EXAMPLES
     if key.endswith(":python"):
         return PYTHON_SPECIALIZED_EXAMPLES
     if key.endswith(":images"):

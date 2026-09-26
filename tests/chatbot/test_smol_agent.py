@@ -203,7 +203,10 @@ class TestToolcallingPromptExamples:
         assert "14000" in ring
         assert "HMM" in ring
         assert "top-left" in ring
-        assert ring.index("delegate_tool_domains") < ring.index("specialized_workflow_finished")
+        assert ring.index("delegate_tool_domains") < ring.index("run_venv_python_script")
+        assert ring.index("run_venv_python_script") < ring.index("specialized_workflow_finished")
+        assert "wa.shape.upsert" in ring
+        assert "for-loop" in ring
         assert "via the shapes domain" in ring
 
     def test_specialized_agent_prompt_examples_use_finish_tool_name(self):

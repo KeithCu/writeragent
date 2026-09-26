@@ -43,6 +43,24 @@ def test_resolve_allowed_tools_plural_domain_name():
     assert "list_open_documents" in allowed
 
 
+def test_resolve_allowed_tools_shapes_and_multi_domain_union():
+    """Inner delegate_tool_domains passes specialized names, including a comma-separated union."""
+    shapes = resolve_allowed_tools("shapes")
+    assert shapes is not None
+    assert "shape_upsert" in shapes
+    assert "shape_summary" in shapes
+    assert "footnotes_insert" not in shapes
+    assert "list_open_documents" in shapes
+
+    union = resolve_allowed_tools("shapes, footnotes")
+    assert union is not None
+    assert "shape_upsert" in union
+    assert "footnotes_insert" in union
+    assert "sort_range" not in union
+    assert "list_open_documents" in union
+    assert union == shapes | resolve_allowed_tools("footnotes")
+
+
 def test_execute_tool_blocks_recursive_venv_script():
     try:
         execute_tool("run_venv_python_script", {"code": "result = 1"})
