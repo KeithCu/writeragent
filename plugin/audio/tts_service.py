@@ -956,7 +956,7 @@ def _notify_tts_status(message: str, on_status: Callable[[str], None] | None) ->
 
 # The kokoro-onnx "model-files" release (kokoro-v0_19.onnx + voices.bin) is
 # English-only. Settings lists multilingual ids such as jf_alpha that exist in
-# voices-v1.0.bin; with the old pack the speak script substituted af_bella and
+# voices-v1.0.bin; with the old pack the speak script substituted af_sky and
 # still passed the requested lang, so Japanese and other languages sounded wrong.
 # Default cache names are the v1.0 files from "model-files-v1.1" (the release
 # the kokoro-onnx examples download). A cache that only has the old filenames
@@ -1255,7 +1255,7 @@ def _kokoro_oneshot_to_file(
 
     ``KOKORO_ONNX_SCRIPT`` phonemizes non-English text with Misaki
     (``is_phonemes=True``). A voices file that lacks the requested id still
-    speaks via ``af_bella``; that substitution is logged and does not fail.
+    speaks via ``af_sky``; that substitution is logged and does not fail.
     """
     if _playback_blocked(generation):
         return None

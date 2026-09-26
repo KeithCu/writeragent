@@ -62,8 +62,8 @@ config:
     options:
       - value: "alloy"
         label: "alloy (OpenAI Neutral)"
-      - value: "af_bella"
-        label: "af_bella (Kokoro US Female - Bella)"
+      - value: "af_sky"
+        label: "af_sky (Kokoro US Female - Sky)"
       - value: "en_US-lessac-medium"
         label: "en_US-lessac-medium (US English Female - Lessac)"
       - value: "default"
@@ -102,7 +102,7 @@ config:
 
   tts_voice_kokoro:
     type: string
-    default: "af_bella"
+    default: "af_sky"
     internal: true
 
   tts_voice_piper:

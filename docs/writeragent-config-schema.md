@@ -71,9 +71,9 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `tts_sentence_mode` | `boolean` | `true` |  | Synthesize the next sentences while the current one plays, so a short sentence is not followed by a gap. Stop discards clips that are not playing yet. Turn off to speak the whole reply as one clip. |
 | `tts_provider` | `string` | `"system"` |  | Choose whether to use built-in OS speech, a local neural engine, or your API endpoint. Options: system (OS Native (say / SAPI / spd-say)), kokoro (Kokoro (Local Neural, ONNX CPU)), piper (Piper (Local Fast Neural, CPU)), endpoint (Current Chat Endpoint (/audio/speech)) |
 | `tts_model` | `string` | `""` |  | Model for speech synthesis (used when TTS Provider is Current Chat Endpoint). |
-| `tts_voice` | `string` | `"alloy"` |  | Voice for the selected provider. The list matches the Piper or Kokoro catalog for your locale. Options: alloy (alloy (OpenAI Neutral)), af_bella (af_bella (Kokoro US Female - Bella)), en_US-lessac-medium (en_US-lessac-medium (US English Female - Lessac)), default (default (System Default)) |
+| `tts_voice` | `string` | `"alloy"` |  | Voice for the selected provider. The list matches the Piper or Kokoro catalog for your locale. Options: alloy (alloy (OpenAI Neutral)), af_sky (af_sky (Kokoro US Female - Sky)), en_US-lessac-medium (en_US-lessac-medium (US English Female - Lessac)), default (default (System Default)) |
 | `tts_speed` | `string` | `"1.0x"` |  | Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom down to 0.25x). Options: 1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x |
-| `tts_voice_kokoro` | `string` | `"af_bella"` |  | Internal |
+| `tts_voice_kokoro` | `string` | `"af_sky"` |  | Internal |
 | `tts_voice_piper` | `string` | `"en_US-lessac-medium"` |  | Internal |
 | `tts_voice_openai` | `string` | `"alloy"` |  | Internal |
 | `tts_voice_system` | `string` | `"default"` |  | Internal |
