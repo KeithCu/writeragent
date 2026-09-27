@@ -11,6 +11,11 @@ Eval tools use ``bypass_thread_guard=True`` because ``_lo_thread`` is not
 ``threading.main_thread()``. Do not route through ``execute_on_main_thread``
 (no VCL pump here → deadlock, same family as issue #402). Do not set
 ``WRITERAGENT_TESTING=1`` (QueueExecutor would go inline on the wrong thread).
+
+``get_ctx()`` is pinned to the remote office context for the life of the
+backend (``set_fallback_ctx``). Each queued ``call`` activates that caller's
+document on ``_lo_desktop`` so ``host_rpc`` / ``get_active_document`` see it.
+The warm-venv ``_io_lock`` still serializes a whole script.
 """
 from __future__ import annotations
 
@@ -40,6 +45,10 @@ _lo_proc = None  # headless soffice process, for cleanup
 _lo_user_dir: str | None = None
 # Thread-local on the LO worker: current caller's thread id for acquire_document().
 _caller_tid_ctx = threading.local()
+# Previous ``uno_context._fallback_ctx`` so ``stop`` can put ``get_ctx()`` back.
+# ``None`` is a real previous value (no fallback); the sentinel means "not installed".
+_FALLBACK_UNSET: Any = object()
+_lo_saved_fallback: Any = _FALLBACK_UNSET
 
 FACTORY_URLS = {
     "writer": "private:factory/swriter",
@@ -57,6 +66,68 @@ def _caller_tid() -> int:
     if _lo_thread is not None and threading.get_ident() == _lo_thread.ident:
         return getattr(_caller_tid_ctx, "tid", None) or threading.get_ident()
     return threading.get_ident()
+
+
+def _install_eval_fallback_ctx(ctx: Any) -> None:
+    """Point ``get_ctx()`` at the remote office context.
+
+    What was wrong: ``plugin.main.bootstrap`` stores the pipe context on the
+    service registry and on ``QueueExecutor``, but it does not call
+    ``set_fallback_ctx``. ``get_ctx()`` then returns
+    ``uno.getComponentContext()``, the local pyuno context. ``host_rpc``
+    shape calls use that context, so they miss the headless desktop (and can
+    hit the no-VCL Desktop crash, issue #768).
+
+    Why this fixes it: the same ``set_fallback_ctx`` used by ``main_core`` and
+    ``testing_runner`` now holds ``_lo_ctx`` until ``stop`` restores whatever
+    was there before, so a later test in this process is not stuck on a dead pipe.
+    """
+    global _lo_saved_fallback
+    from plugin.framework import uno_context
+    from plugin.framework.uno_context import set_fallback_ctx
+
+    if _lo_saved_fallback is _FALLBACK_UNSET:
+        _lo_saved_fallback = uno_context._fallback_ctx
+    set_fallback_ctx(ctx)
+
+
+def _restore_eval_fallback_ctx() -> None:
+    """Undo ``_install_eval_fallback_ctx`` if this backend installed one."""
+    global _lo_saved_fallback
+    if _lo_saved_fallback is _FALLBACK_UNSET:
+        return
+    from plugin.framework.uno_context import set_fallback_ctx
+
+    saved = _lo_saved_fallback
+    _lo_saved_fallback = _FALLBACK_UNSET
+    set_fallback_ctx(saved)
+
+
+def _pin_caller_current_component() -> None:
+    """Make ``Desktop.getCurrentComponent()`` this caller's document.
+
+    What was wrong: ``host_rpc.execute_tool`` (venv ``wa.shape`` RPC) ignores
+    the eval ``ToolContext`` and calls ``get_active_document(get_ctx())``.
+    That is the desktop's current component. The last
+    ``loadComponentFromURL`` becomes current, including another agent's
+    hidden factory doc, so the shape is written into the wrong document.
+
+    Why this fixes it: ``_lo_queue`` has one consumer. Activating
+    ``_lo_docs[caller_tid]`` before the callable runs keeps that component
+    stable until the task returns, including a nested host RPC on this
+    thread. Hidden docs often have no container window; ``setActiveFrame``
+    is what updates the current component (same call as the UNO harness keeper).
+    """
+    if _lo_desktop is None:
+        return
+    doc = _lo_docs.get(_caller_tid())
+    if doc is None:
+        return
+    controller = doc.getCurrentController()
+    frame = controller.getFrame() if controller is not None else None
+    if frame is None:
+        raise RuntimeError("caller document has no frame; cannot pin Desktop current component")
+    _lo_desktop.setActiveFrame(frame)
 
 
 def _bootstrap_headless():
@@ -152,6 +223,9 @@ class LOBackend:
         _lo_ctx = _bootstrap_headless()
         smgr = _lo_ctx.getServiceManager()
         _lo_desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", _lo_ctx)
+        # After the remote context exists, before plugin bootstrap, so any
+        # get_ctx() during startup is the office context rather than local pyuno.
+        _install_eval_fallback_ctx(_lo_ctx)
 
         try:
             from plugin.main import bootstrap
@@ -159,7 +233,10 @@ class LOBackend:
             bootstrap(_lo_ctx)
         except Exception:
             # Bootstrap can fail (missing _manifest) after soffice is already up.
-            cls._cleanup()
+            try:
+                cls._cleanup()
+            finally:
+                _restore_eval_fallback_ctx()
             raise
 
         _lo_thread = threading.Thread(target=cls._worker_loop, daemon=True)
@@ -183,6 +260,8 @@ class LOBackend:
         from plugin.framework.thread_guard import set_designated_main_thread
 
         set_designated_main_thread(None)
+        # Remote context is gone with the pipe. Put get_ctx() back.
+        _restore_eval_fallback_ctx()
         if _lo_user_dir:
             try:
                 shutil.rmtree(_lo_user_dir, ignore_errors=True)
@@ -201,6 +280,9 @@ class LOBackend:
         def _task():
             _caller_tid_ctx.tid = caller_tid
             try:
+                # After the caller id is stashed, before the callable, so nested
+                # host_rpc on this thread still sees this document.
+                _pin_caller_current_component()
                 result_box.append((True, func(*args, **kwargs)))
             except Exception as e:
                 result_box.append((False, e))

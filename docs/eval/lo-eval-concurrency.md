@@ -1,10 +1,12 @@
 # Concurrent headless LO eval in one process
 
-**Status:** LoLane agent pool **landed**. `run_eval.py` and `run_eval_multi.py` take `--lo-workers` (default **4**, hard cap **5**). One Python process, one headless soffice, one URP bridge, one `_lo_thread`. Up to that many LO example bodies run at once so LLM waits overlap; `LOBackend.call` is still the only UNO critical section. `_lo_docs` stays keyed by caller thread id. The N=2 / N=4 text proof is #933 (`prove_lo_multi_doc.py`, PASS).
+**Status:** LoLane agent pool **landed**. `run_eval.py` and `run_eval_multi.py` take `--lo-workers` (default **4**, hard cap **5**). One Python process, one headless soffice, one URP bridge, one `_lo_thread`. Up to that many LO example bodies run at once so LLM waits overlap; `LOBackend.call` is still the only UNO critical section. `_lo_docs` stays keyed by caller thread id. The N=2 / N=4 text proof is #933 (`prove_lo_multi_doc.py`).
 
-**Still open:** flag-path `get_ctx()` is not `_lo_ctx`; Desktop current component is not pinned per `LOBackend.call`; the warm venv worker’s `_io_lock` still holds the pipe for a whole script. A green pool is not evidence that two flag scripts stay on the right documents. Headed eval-2 / AFC is a different process model. Do not raise the pool past 5 until the UNO queue is shown idle at the cap.
+**get_ctx + current-component pin landed.** `LOBackend.start` calls `set_fallback_ctx(_lo_ctx)` after the pipe context exists, and `stop` restores the previous fallback. Each queued `LOBackend.call` sets `_lo_desktop`'s active frame to `_lo_docs[caller_tid]` when that slot exists, before the callable runs. The N=2 flag sketch is `prove_lo_flag_pin.py` (host RPC shape into A's Writer doc while B `setString`s during A's sleep).
 
-**Tree:** `master` after the LoLane pool (research #932, document isolation #933, `python_shapes_flag` as the only `backend=lo` row).
+**Still open:** the warm venv worker’s `_io_lock` still holds the pipe for a whole script, so two `run_venv_python_script` flag bodies do not overlap their UNO. The sketch calls `host_rpc.execute_tool` directly and does not take that lock. Headed eval-2 / AFC is a different process model. Do not raise the pool past 5 until the UNO queue is shown idle at the cap. A second soffice is still out of scope.
+
+**Tree:** `master` after the LoLane pool (research #932, document isolation #933, pool #934, `python_shapes_flag` as the only `backend=lo` row).
 
 This is headless eval-1 (`--accept=pipe`, private `UserInstallation`, tools running in the client process). It is a different process model from the headed eval-2 / AFC matrix, where the extension runs inside the GUI office. Do not read one as evidence for the other.
 
@@ -12,7 +14,7 @@ This is headless eval-1 (`--accept=pipe`, private `UserInstallation`, tools runn
 
 1. **Do this first.** Keep `LOBackend` (one soffice, one URP connection, one `_lo_thread`). Stop putting the whole LO example — including `LlmClient.request_with_tools` — on a single `LoLane` thread. Run a pool of 2–5 agent threads. Each thread is one example. `LOBackend.call` remains the only UNO critical section. **Landed:** `LoLane(workers=...)`, default 4, clamp 1..5, `--lo-workers` on both eval CLIs. `workers=1` is the old FIFO body.
 2. **Prove documents stay apart before any flag work.** N=2, then N=4, with plain Writer text (`setString` / `get_content`). The document map in `tools_lo` is already keyed by caller thread id; the lane is what collapses every LO example onto one id today.
-3. **Then one flag-shaped script beside a second document.** `run_venv_python_script` and `host_rpc.execute_tool` do not use the eval `ToolContext` document. They call `get_active_document(get_ctx())`, which is `Desktop.getCurrentComponent()`. That is the thing most likely to write shapes into the wrong doc. Fixing that is a small pin (activate this caller’s doc at the start of each `LOBackend.call`, and point `get_ctx()` at `_lo_ctx`). It is not a second soffice.
+3. **Flag host RPC sees this caller’s document.** **Landed.** `run_venv_python_script` and `host_rpc.execute_tool` still do not use the eval `ToolContext` document. They call `get_active_document(get_ctx())`, which is `Desktop.getCurrentComponent()`. `LOBackend.start` points `get_ctx()` at `_lo_ctx`, and each queued `call` activates `_lo_docs[caller_tid]` first. That is not a second soffice. Two full flag scripts still serialize on the venv `_io_lock` (still open).
 4. **Leave multiprocess and a second soffice until that pool misbehaves.** One office already serializes document-model work on the solar mutex. A second process does not make the LLM any more overlapped than N agents on one pipe, and it multiplies profiles, acceptors, and cleanup.
 5. **Do not aim at 20-wide for v1.** Two to five concurrent LLM waits is where the wall-clock win is. The non-LLM parts (UNO queue, one warm venv pipe, one office mutex) stay serial either way.
 
@@ -33,7 +35,8 @@ model / string threads                eval-lo-lane-N (pool)                _lo_t
 | Piece | Where | What it holds |
 | --- | --- | --- |
 | `LoLane` | `scripts/prompt_optimization/eval_scheduler.py` | Every example whose resolved backend is `lo`. A pool of agent threads (default 4, clamp 1..5). The callable is the full `run_eval_on_examples_llm` body (`_one` → `run_llm_chat_eval`), so each worker sits in HTTP while another worker’s `LOBackend.call` can use `_lo_thread`. `workers=1` is single-thread FIFO for those bodies. |
-| `LOBackend._lo_thread` | `scripts/prompt_optimization/tools_lo.py` | Only `LOBackend.call` work: `prepare_example`, `execute_lo_tool`, export. `call` runs inline if the caller already is `_lo_thread`; otherwise it queues and waits. |
+| `LOBackend._lo_thread` | `scripts/prompt_optimization/tools_lo.py` | Only `LOBackend.call` work: `prepare_example`, `execute_lo_tool`, export. `call` runs inline if the caller already is `_lo_thread`; otherwise it queues and waits. Each queued task activates `_lo_docs[caller_tid]` on `_lo_desktop` when that slot exists, before the callable. |
+| `set_fallback_ctx(_lo_ctx)` | `LOBackend.start` → `plugin/framework/uno_context.py` | `get_ctx()` is the remote office context, not local pyuno. `stop` restores the previous fallback. Same API as `main_core` / `testing_runner`. |
 | `set_designated_main_thread(_lo_thread)` | `LOBackend.start` → `plugin/framework/thread_guard.py` | One designated UNO thread for the process. `on_main_thread()` is that thread, not `threading.main_thread()`. |
 | `bypass_thread_guard=True` | `tools_lo` → `ToolRegistry.execute` | Eval tools call `tool.execute` on `_lo_thread` directly. They do not go through `execute_on_main_thread`. That path needs a VCL `AsyncCallback` pump; this harness has none, and blocking on it deadlocks (same family as #402). |
 | `WRITERAGENT_EVAL_HARNESS=1` | `LOBackend.start` | Skips menu-icon preload and core menu registration in `plugin/main.py` `bootstrap`. Those call `get_desktop()` in this process and can segfault soffice. |
@@ -109,9 +112,9 @@ These are the breakages to design the proof around. They are all single-process,
 
 **Flag / venv path does use the current component.** `plugin/scripting/host_rpc.py` `execute_tool` builds a new `ToolContext` from `get_active_document(get_ctx())`, then `get_tools().execute(...)`. It ignores the document `RunVenvPythonScript` was given. `RunVenvPythonScript.execute` (`plugin/calc/python/venv.py`) does pass `ctx.ctx` into `run_code_in_user_venv`, but the child’s `wa.shape` RPC comes back through `execute_tool`, not through that `ToolContext`.
 
-**`get_ctx()` is not `_lo_ctx` in this harness.** `plugin/main.py` `bootstrap` stores the remote context on the service registry and on `QueueExecutor.set_context`. It does not call `set_fallback_ctx`. That call exists in `main_core.py` and `testing_runner.py` only. `get_ctx()` then returns `uno.getComponentContext()`, the local pyuno context, unless a fallback was stored. Shape RPC that trusts `get_ctx()` is aimed at the wrong context even for **one** document. The N=2 text proof can pass while the flag still writes nowhere or into a crash. The N=2 flag proof has to check the exported `.odt` of each doc. The smallest pin, when someone implements this, is: `set_fallback_ctx(_lo_ctx)` at `LOBackend.start`, and at the start of each queued task set the desktop’s current component to `_lo_docs[caller_tid]` before any tool or host RPC runs. Because the queue is single-consumer, that component stays stable until the task returns.
+**`get_ctx()` and the current component are pinned.** `plugin/main.py` `bootstrap` stores the remote context on the service registry and on `QueueExecutor.set_context`. It still does not call `set_fallback_ctx` (that call lives in `main_core.py` and `testing_runner.py`). `LOBackend.start` now does, with `_lo_ctx`, and `stop` puts the previous fallback back. Without that, `get_ctx()` returns `uno.getComponentContext()`, the local pyuno context, and shape RPC misses the headless desktop. Each queued `LOBackend.call` then calls `_lo_desktop.setActiveFrame` on `_lo_docs[caller_tid]` when that document exists, after the caller id is stashed and before the callable. The queue is single-consumer, so the component stays stable until the task returns, including a nested `host_rpc.execute_tool`. The N=2 flag sketch checks the exported `.odt`, not only the live model.
 
-**One warm venv worker.** `PythonWorkerManager.get` is one child per `(pool, interpreter)`, and `execute` holds `_io_lock` for the whole script (`plugin/scripting/venv_worker.py`). Host RPC on that same stack calls `execute_on_main_thread`. On `_lo_thread` that inlines (`_may_run_marshal_inline`), so a script’s shape calls run on the UNO thread before the script returns. Two flag scripts therefore run one after another, and each holds `_lo_thread` for the whole script, not just for one shape call. Their **LLM rounds still overlap**. Do not move the venv read onto a second thread while `_lo_thread` is inside another script: the child’s tool RPC would block on the UNO queue while the UNO thread blocks on the pipe (`_io_lock` plus a single stdout). `run_venv_python_script` is in `_BLOCKED_FROM_VENV` for the same re-entry reason.
+**One warm venv worker (still open).** `PythonWorkerManager.get` is one child per `(pool, interpreter)`, and `execute` holds `_io_lock` for the whole script (`plugin/scripting/venv_worker.py`). Host RPC on that same stack calls `execute_on_main_thread`. On `_lo_thread` that inlines (`_may_run_marshal_inline`), so a script’s shape calls run on the UNO thread before the script returns. Two flag scripts therefore run one after another, and each holds `_lo_thread` for the whole script, not just for one shape call. Their **LLM rounds still overlap**. The current-component pin does not remove this lock. `prove_lo_flag_pin.py` calls `host_rpc.execute_tool` itself so the sketch does not take `_io_lock`. Do not move the venv read onto a second thread while `_lo_thread` is inside another script: the child’s tool RPC would block on the UNO queue while the UNO thread blocks on the pipe (`_io_lock` plus a single stdout). `run_venv_python_script` is in `_BLOCKED_FROM_VENV` for the same re-entry reason.
 
 `RunVenvPythonScript.is_async` is true, but `ToolBase` has no `timeout`, and `_get_tool_timeout` defaults to 0, so `_execute_with_timeout` stays inline. A future timeout would `run_in_background` the script off `_lo_thread` and then the host RPC would try `AsyncCallback` from a tagged worker. In this harness that callback is the headless miss path (`QueueExecutor` warns and either refuses or runs UNO on the caller). Leave the script on `_lo_thread`.
 
@@ -147,12 +150,13 @@ Run the 20-model string board the way #931 already does. For native LO rows, a p
 
 ## Experiment Keith can run next
 
-No full matrix. The text proof is `scripts/prompt_optimization/prove_lo_multi_doc.py`: one `LOBackend`, N agent threads (default 2), no OpenRouter, no second soffice. It does not go through `LoLane`. N=2 and N=4 passed on master (#933) before the pool landed; the harness pool is the follow-up that uses that isolation. Do not set `WRITERAGENT_TESTING=1`. A green run is headless only; it is not evidence about headed AFC, and it is not the flag pin.
+No full matrix. The text proof is `scripts/prompt_optimization/prove_lo_multi_doc.py`: one `LOBackend`, N agent threads (default 2), no OpenRouter, no second soffice. It does not go through `LoLane`. N=2 and N=4 passed on master (#933) before the pool landed; the harness pool is the follow-up that uses that isolation. The flag sketch is `scripts/prompt_optimization/prove_lo_flag_pin.py`. Do not set `WRITERAGENT_TESTING=1`. A green run is headless only; it is not evidence about headed AFC.
 
 ```bash
 make manifest   # once; plugin/_manifest.py is gitignored
 .venv/bin/python scripts/prompt_optimization/prove_lo_multi_doc.py
 .venv/bin/python scripts/prompt_optimization/prove_lo_multi_doc.py --n 4
+.venv/bin/python scripts/prompt_optimization/prove_lo_flag_pin.py
 ```
 
 The process exits non-zero unless the sleeps overlap, each Writer document contains only that worker’s tokens, UNO enter/exit intervals on `_lo_thread` do not overlap, and `len(_lo_docs)` is N after the first write. Enter/exit is logged inside the closure `LOBackend.call` runs, not around the agent’s queue wait.
@@ -186,11 +190,17 @@ Only after the text proof. Two threads, each calling `run_llm_chat_eval(..., bac
 
 ### N=2 flag sketch, still one soffice
 
-Only after the text proof. Thread A runs a short `run_venv_python_script` that inserts one named shape. Thread B, overlapping A’s sleep or A’s next LLM round, `setString`s a second Writer doc. Export both (A via `export_writer_odt`, B via `getString`).
+`prove_lo_flag_pin.py` (command above). `make manifest` once. Do not set `WRITERAGENT_TESTING=1`. No OpenRouter.
 
-- If B’s text is intact and A’s `.odt` has the shape, the current-component pin is doing its job (or was unnecessary because nothing else touched the desktop).
-- If A’s shape lands in B’s doc, or A’s RPC errors with no active document / a local-context failure, that matches `host_rpc.execute_tool` plus `get_ctx()` not being `_lo_ctx`. Pin current component per `LOBackend.call` and `set_fallback_ctx(_lo_ctx)` before trying N=4 flags.
-- Do not compare this to a headed AFC run of the same Ask.
+Thread A opens a Writer doc, sleeps on the agent thread, then `LOBackend.call`s `host_rpc.execute_tool("shape_upsert", ...)` to insert one named rectangle (`wa-flag-pin-shape`). That is the venv `wa.shape` lookup (`get_active_document(get_ctx())`) without holding `_io_lock`. Thread B opens a second Writer doc and, during A's sleep, `setString`s its own text. After A's shape task returns, B re-reads on B's thread and both docs are exported with `export_writer_odt`.
+
+Pass:
+
+- B's text is only B's token. A's text is only A's token.
+- A's `.odt` `content.xml` has `draw:name="wa-flag-pin-shape"`. B's `.odt` does not.
+- B's `setString` starts while A is asleep, and the UNO sections on `_lo_thread` do not overlap.
+
+The warm-venv `_io_lock` is unchanged: two real `run_venv_python_script` bodies still run one after another. Do not compare this to a headed AFC run of the same Ask.
 
 ### What not to do in the first proof
 
