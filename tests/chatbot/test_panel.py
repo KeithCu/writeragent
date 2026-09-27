@@ -8,6 +8,7 @@
 
 """Unit tests for sidebar query Enter-to-send key classification and send dispose."""
 
+import logging
 import sys
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -16,6 +17,7 @@ from plugin.framework.config_schema import _get_schema_default
 from plugin.chatbot.panel import (
     ClearButtonListener,
     QueryKeyListener,
+    QueryTextListener,
     SendButtonListener,
     StopButtonListener,
     notify_record_mouse_pressed,
@@ -258,6 +260,69 @@ class _ConsumeEvent:
         object.__setattr__(self, name, value)
 
 
+def _query_text_event(text: str) -> Any:
+    source = MagicMock()
+    source.Model.Text = text
+    event = MagicMock()
+    event.Source = source
+    return event
+
+
+class TestSlashOverlayParked:
+    """ENABLE_SLASH stays false: Ask listeners remain, overlay work does not run."""
+
+    def test_text_change_skips_overlay_and_still_dispatches(self, caplog) -> None:
+        send_listener = MagicMock()
+        listener = QueryTextListener(send_listener)
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), caplog.at_level(logging.DEBUG):
+            listener.on_text_changed(_query_text_event("/he"))
+        send_listener.slash_popup.on_query_text.assert_not_called()
+        send_listener.dispatch.assert_called_once()
+        event = send_listener.dispatch.call_args[0][0]
+        assert event.kind == SendEventKind.TEXT_UPDATED
+        assert event.data == {"has_text": True}
+        assert not any("[SLASH-OV]" in r.message and r.levelno >= logging.INFO for r in caplog.records)
+        assert not any("[SLASH-OV]" in r.message for r in caplog.records)
+
+    def test_enabled_slash_prefix_calls_overlay_and_skips_dispatch(self, caplog) -> None:
+        send_listener = MagicMock()
+        listener = QueryTextListener(send_listener)
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True), \
+             patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False), \
+             caplog.at_level(logging.DEBUG):
+            listener.on_text_changed(_query_text_event("/he"))
+        send_listener.slash_popup.on_query_text.assert_called_once_with("/he")
+        send_listener.dispatch.assert_not_called()
+        assert not any("[SLASH-OV]" in r.message and r.levelno >= logging.INFO for r in caplog.records)
+
+    def test_enabled_plain_text_dispatches(self) -> None:
+        send_listener = MagicMock()
+        listener = QueryTextListener(send_listener)
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True):
+            listener.on_text_changed(_query_text_event("hello"))
+        send_listener.slash_popup.on_query_text.assert_called_once_with("hello")
+        send_listener.dispatch.assert_called_once()
+        event = send_listener.dispatch.call_args[0][0]
+        assert event.kind == SendEventKind.TEXT_UPDATED
+        assert event.data == {"has_text": True}
+
+    def test_disabled_enter_skips_handle_key_and_still_sends(self, caplog) -> None:
+        send_listener = MagicMock()
+        send_listener.slash_popup.handle_key.return_value = True
+        send_model = MagicMock()
+        send_model.Enabled = True
+        send_listener.send_control.getModel.return_value = send_model
+        listener = QueryKeyListener(send_listener)
+        event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), \
+             patch("plugin.framework.config.get_config_bool", return_value=True), \
+             caplog.at_level(logging.DEBUG):
+            listener.on_key_pressed(event)
+        send_listener.slash_popup.handle_key.assert_not_called()
+        send_listener.on_action_performed.assert_called_once_with(event)
+        assert not any("[SLASH-OV]" in r.message for r in caplog.records)
+
+
 class TestQueryKeyListenerDispose:
     def test_consume_disposed_still_sends(self) -> None:
         send_listener = MagicMock()
@@ -275,7 +340,9 @@ class TestQueryKeyListenerDispose:
         send_listener.slash_popup.handle_key.return_value = True
         listener = QueryKeyListener(send_listener)
         event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
-        listener.on_key_pressed(event)
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True):
+            listener.on_key_pressed(event)
+        send_listener.slash_popup.handle_key.assert_called_once_with(1280, 0)
         send_listener.on_action_performed.assert_not_called()
         assert (event.Consume)
 

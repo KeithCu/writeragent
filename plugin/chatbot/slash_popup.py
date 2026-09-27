@@ -36,14 +36,26 @@ from plugin.framework.errors import suppress_disposed
 
 log = logging.getLogger("writeragent.slash_popup")
 
+# Slash-overlay tracing is very noisy. Set True to log these steps to the
+# debug log even when log_level is DEBUG. Stays False in tree (same pattern
+# as PANEL_RESIZE_VERBOSE_DEBUG / RICH_SCROLL_VERBOSE_DEBUG).
+SLASH_OV_VERBOSE_DEBUG = False
+
+
 def _ovlog(msg: str, *args: object, exc_info: bool = False) -> None:
     """Slash-overlay breadcrumb. Logger only — no /tmp (Bandit B108)."""
+    if not SLASH_OV_VERBOSE_DEBUG:
+        return
     text = (msg % args) if args else msg
-    log.info("[SLASH-OV] %s", text, exc_info=exc_info)
+    log.debug("[SLASH-OV] %s", text, exc_info=exc_info)
 
 
 def _ovdiag(obj: Any, label: str) -> None:
     """Peer/window geometry + visibility for headed overlay debugging."""
+    # Probes getPosSize / peers. Skip them unless the verbose flag is on;
+    # _ovlog would drop the line anyway.
+    if not SLASH_OV_VERBOSE_DEBUG:
+        return
     if obj is None:
         _ovlog("%s None", label)
         return
