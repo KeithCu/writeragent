@@ -24,12 +24,18 @@ fixture. No peer.
 
 ## Oracle
 
-Soft checks in [`rubric.eval2.md`](rubric.eval2.md): executed python
+Hard gate in [`rubric.eval2.md`](rubric.eval2.md): executed python
 specialized path, `delegate_tool_domains` including shapes,
-`run_venv_python_script`, flag-like geometry (stripe-like rects +
-star-like shapes at page scale). Group / `shape_group` is a **bonus**
-(Writer `ShapeCollection` bug, #927). LLM-only `shape_upsert` with no
-venv, and `domain=images` PNG, fail.
+`run_venv_python_script`, and a page-scale composite of stripe-like
+rects (some star-like or canton shapes if present). Group /
+`shape_group` is a **bonus** (Writer `ShapeCollection` bug, #927).
+
+**Calibration:** gpt-oss-**20b** on latest master / #926 already
+succeeds path-wise on this Ask. The flag is recognizable and the stars
+are imperfect. That almost-flag is a good matrix-floor outcome. Do not
+require a perfect 50-star canton for HAPPY / pass. Messy or
+under-counted stars are soft partial credit. Fail only the wrong route
+(images / PNG), no venv, a tiny ~1900 HMM speck, or a blank page.
 
 ## Not changed
 

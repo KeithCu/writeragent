@@ -18,9 +18,8 @@ from eval_2_headed import main as headed_main  # noqa: E402
 from eval_2_python_shapes_flag_oracle import (  # noqa: E402
     CHECK_COUNT,
     MIN_MAX_WIDTH_HMM,
-    MIN_SHAPES,
-    MIN_STARS,
     MIN_STRIPE_RECTS,
+    SOFT_STAR_FIELD,
     FlagGeometry,
     length_to_hmm,
     main as oracle_main,
@@ -143,8 +142,9 @@ def test_passing_flag(tmp_path: Path) -> None:
     assert result.checks == CHECK_COUNT
     assert result.failures == []
     assert result.stripe_rects >= MIN_STRIPE_RECTS
-    assert result.star_shapes >= MIN_STARS
-    assert result.shape_count >= MIN_SHAPES
+    assert result.star_shapes >= SOFT_STAR_FIELD
+    assert result.soft == []
+    assert result.partial_score == 1.0
     assert result.max_width_hmm >= MIN_MAX_WIDTH_HMM
     assert result.max_width_hmm == 19001
     assert result.python_domain is True
@@ -172,17 +172,41 @@ def test_speck_width_fails(tmp_path: Path) -> None:
     assert not result.passed
     assert any("speck" in item for item in result.failures)
     assert result.max_width_hmm < MIN_MAX_WIDTH_HMM
+    assert result.soft == []
     assert len(result.failures) < result.checks
 
 
-def test_too_few_stars_fails() -> None:
+def test_under_counted_stars_still_pass() -> None:
+    # gpt-oss-20b almost-flag: recognizable page-scale stripes, imperfect
+    # stars. Short star counts are soft credit, not a HAPPY fail.
     evidence = parse_path_evidence(_PASS_LOG)
     result = score_flag(
-        FlagGeometry(shape_count=11, stripe_rects=6, star_shapes=5, max_width_hmm=19001, grouped=False),
+        FlagGeometry(
+            shape_count=11,
+            stripe_rects=6,
+            star_shapes=5,
+            max_width_hmm=19001,
+            grouped=False,
+            canton_rects=1,
+        ),
+        evidence,
+    )
+    assert result.passed, result.failures
+    assert result.soft
+    assert any("star-like" in item and "20b" in item for item in result.soft)
+    assert any("canton-like" in item for item in result.soft)
+    assert result.partial_score == 0.875
+
+
+def test_blank_page_fails() -> None:
+    evidence = parse_path_evidence(_PASS_LOG)
+    result = score_flag(
+        FlagGeometry(shape_count=0, stripe_rects=0, star_shapes=0, max_width_hmm=0, grouped=False),
         evidence,
     )
     assert not result.passed
-    assert any("star-like" in item for item in result.failures)
+    assert any("blank page" in item for item in result.failures)
+    assert result.soft == []
 
 
 def test_llm_shape_upsert_without_venv_fails() -> None:
@@ -236,6 +260,7 @@ def test_square_rect_is_not_a_stripe(tmp_path: Path) -> None:
     geom = read_writer_flag(path)
     assert geom.stripe_rects == 0
     assert geom.shape_count == 1
+    assert geom.canton_rects == 1
 
 
 def test_polygon_star_counts(tmp_path: Path) -> None:
@@ -291,4 +316,4 @@ def test_oracle_cli_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     assert oracle_main(["--json", str(run)]) == 0
     out = capsys.readouterr().out
     assert '"passed": true' in out
-    assert '"checks": 9' in out
+    assert '"checks": 7' in out

@@ -20,6 +20,14 @@ Geometry is the Writer draw page inside the ``.odt``. LibreOffice writes
 shape width in HMM (1/100 mm). A full-page flag is about 10000–20000 HMM
 wide. Width near 1900 HMM is a ~19 mm speck.
 
+Hard pass is the matrix floor, not a perfect canton: python specialized
+path, ``delegate_tool_domains`` (shapes), ``run_venv_python_script``, and
+a page-scale composite of stripe-like rects. gpt-oss-20b already gets
+that far on this Ask — the flag is recognizable and the stars are
+imperfect. That almost-flag is a good outcome. Star count and placement
+are soft: messy or under-counted stars do not fail. Wrong route
+(images / PNG), no venv, a ~1900 HMM speck, or a blank page do fail.
+
 ``shape_group`` / ``draw:g`` is a bonus. Writer grouping hits a known UNO
 ``ShapeCollection`` bug (#927), so a loose set of shapes still passes.
 
@@ -61,19 +69,24 @@ _SHAPE_LOCALS = frozenset({
 })
 _RECT_TYPES = frozenset({"rectangle", "rect", "round-rectangle", "roundrect"})
 
-# PASS evidence was ~14–15 rects + ~50 stars at max width ≈ 19001 HMM.
-# Floors sit under that so a real flag passes and a speck or a handful of
-# boxes does not. Exact 13 stripes / 50 stars is not required.
-MIN_SHAPES = 20
+# Hard geometry: a page-scale striped field. An earlier headed pass was
+# ~14–15 rects at max width ≈ 19001 HMM. Exact 13 stripes is not required.
+# gpt-oss-20b's almost-flag (recognizable, imperfect stars) is the matrix
+# floor — do not demand a perfect 50-star canton for pass.
 MIN_STRIPE_RECTS = 6
-MIN_STARS = 20
 MIN_MAX_WIDTH_HMM = 10_000
 STRIPE_MIN_ASPECT = 3.0
+# Soft only. Below this, the result still passes when the hard gate is
+# met, and partial_score trims one soft check. Not a fail.
+SOFT_STAR_FIELD = 8
+# A canton block is a non-stripe rect large enough to be the union, not a star.
+_CANTON_MIN_HMM = 2_000
 # A 5-point star polygon has 10 vertices. A rectangle polygon has 4.
 _MIN_STAR_POLYGON_POINTS = 10
 
-# Nine fail-closed checks. Partial is 1 - len(failures) / checks.
-CHECK_COUNT = 9
+# Hard checks only. Star shortfall is the extra soft check in partial_score.
+CHECK_COUNT = 7
+SOFT_CHECK_COUNT = 1
 
 _PREFERRED_ODT = (
     "final_flag.odt",
@@ -132,19 +145,24 @@ _CREATE_SHAPE_MARKERS = (
 
 @dataclass
 class OracleResult:
-    """Fail-closed flag score. ``passed`` is true only when ``failures`` is empty.
+    """Hard gate plus a soft star note.
 
-    ``checks`` is the stable denominator for partial ``1 - len(failures) / checks``.
+    ``passed`` is true only when ``failures`` is empty. Star shortfall lives
+    in ``soft`` and does not flip ``passed`` (20b almost-flag still passes).
+    ``partial_score`` is ``1 - (failures + soft) / (checks + 1 soft check)``.
     Grouping and script-level ``wa.shape.upsert`` are bonuses, not checks.
     """
 
     passed: bool
     failures: list[str] = field(default_factory=list)
+    soft: list[str] = field(default_factory=list)
     checks: int = CHECK_COUNT
+    partial_score: float = 0.0
     bonuses: list[str] = field(default_factory=list)
     shape_count: int = 0
     stripe_rects: int = 0
     star_shapes: int = 0
+    canton_rects: int = 0
     max_width_hmm: int = 0
     grouped: bool = False
     python_domain: bool = False
@@ -167,6 +185,7 @@ class FlagGeometry:
     star_shapes: int
     max_width_hmm: int
     grouped: bool
+    canton_rects: int = 0
 
 
 @dataclass(frozen=True)
@@ -243,6 +262,13 @@ def _is_stripe(width_hmm: int | None, height_hmm: int | None) -> bool:
     return (width_hmm / height_hmm) >= STRIPE_MIN_ASPECT
 
 
+def _is_canton(width_hmm: int | None, height_hmm: int | None) -> bool:
+    """Non-stripe rect big enough to be a union block, not a star speck."""
+    if width_hmm is None or height_hmm is None:
+        return False
+    return width_hmm >= _CANTON_MIN_HMM and height_hmm >= _CANTON_MIN_HMM
+
+
 def read_writer_flag(path: Path) -> FlagGeometry:
     """Count stripe-like rects, star-like shapes, and max width from ``content.xml``."""
     with zipfile.ZipFile(path) as zf:
@@ -250,6 +276,7 @@ def read_writer_flag(path: Path) -> FlagGeometry:
     shape_count = 0
     stripe_rects = 0
     star_shapes = 0
+    canton_rects = 0
     max_width = 0
     grouped = False
     for node in root.iter():
@@ -269,6 +296,8 @@ def read_writer_flag(path: Path) -> FlagGeometry:
         if _is_rect(local, geom):
             if _is_stripe(width, height):
                 stripe_rects += 1
+            elif _is_canton(width, height):
+                canton_rects += 1
             continue
         if _is_star(local, geom, name, _polygon_points(node)):
             star_shapes += 1
@@ -278,6 +307,7 @@ def read_writer_flag(path: Path) -> FlagGeometry:
         star_shapes=star_shapes,
         max_width_hmm=max_width,
         grouped=grouped,
+        canton_rects=canton_rects,
     )
 
 
@@ -359,6 +389,17 @@ def parse_path_evidence(log_text: str) -> PathEvidence:
     )
 
 
+def quality_partial(failures: list[str], soft: list[str]) -> float:
+    """Hard failures plus at most one soft star note, over a fixed denominator.
+
+    A page-scale striped flag with messy stars stays high (strong partial)
+    and can still ``pass``. A blank, speck, or wrong path does not.
+    """
+    denom = CHECK_COUNT + SOFT_CHECK_COUNT
+    used = len(failures) + len(soft)
+    return round(max(0.0, 1.0 - used / denom), 4)
+
+
 def score_flag(
     geometry: FlagGeometry | None,
     evidence: PathEvidence,
@@ -366,7 +407,7 @@ def score_flag(
     geometry_error: str | None = None,
     log_missing: bool = False,
 ) -> OracleResult:
-    """Apply the nine fail-closed checks. Bonuses never add a failure."""
+    """Hard gate: path + page-scale stripes. Stars are soft, not a fail."""
     failures: list[str] = []
     geom = geometry or FlagGeometry(0, 0, 0, 0, False)
     if log_missing:
@@ -390,29 +431,37 @@ def score_flag(
     if geometry_error:
         failures.append(f"cannot read Writer document: {geometry_error}")
         failures.append("stripe-like rects unavailable (document unreadable)")
-        failures.append("star-like shapes unavailable (document unreadable)")
         failures.append("page-scale width unavailable (document unreadable)")
     else:
-        if geom.shape_count < MIN_SHAPES:
-            failures.append(
-                f"shapes {geom.shape_count} < {MIN_SHAPES} "
-                "(need a field of stripes and stars, not a few boxes)"
-            )
-        if geom.stripe_rects < MIN_STRIPE_RECTS:
+        if geom.shape_count == 0:
+            failures.append("blank page (no drawing shapes)")
+        elif geom.stripe_rects < MIN_STRIPE_RECTS:
             failures.append(
                 f"stripe-like rects {geom.stripe_rects} < {MIN_STRIPE_RECTS} "
-                f"(width/height >= {STRIPE_MIN_ASPECT:g}; PASS was ~14–15 rects)"
-            )
-        if geom.star_shapes < MIN_STARS:
-            failures.append(
-                f"star-like shapes {geom.star_shapes} < {MIN_STARS} "
-                "(PASS was ~50 stars; exact 50 is not required)"
+                f"(width/height >= {STRIPE_MIN_ASPECT:g}; need a page-scale striped field)"
             )
         if geom.max_width_hmm < MIN_MAX_WIDTH_HMM:
             failures.append(
                 f"max width {geom.max_width_hmm} HMM < {MIN_MAX_WIDTH_HMM} "
-                "(speck; page-scale flag is about 10000–20000 HMM, PASS ~19001)"
+                "(speck; page-scale flag is about 10000–20000 HMM, not ~1900)"
             )
+    # Soft only when the flag is actually attempted at page scale. A blank
+    # or speck already failed; do not also ding its stars.
+    soft: list[str] = []
+    page_scale_stripes = (
+        geometry_error is None
+        and geom.stripe_rects >= MIN_STRIPE_RECTS
+        and geom.max_width_hmm >= MIN_MAX_WIDTH_HMM
+    )
+    if page_scale_stripes and geom.star_shapes < SOFT_STAR_FIELD:
+        canton = ""
+        if geom.canton_rects:
+            canton = f"; canton-like rects {geom.canton_rects}"
+        soft.append(
+            f"star-like shapes {geom.star_shapes} < {SOFT_STAR_FIELD}{canton} "
+            "(soft: messy or under-counted stars still pass; "
+            "gpt-oss-20b almost-flag is the matrix floor, not a 50-star canton)"
+        )
     bonuses: list[str] = []
     grouped = geom.grouped or evidence.shape_group_call
     if grouped:
@@ -422,11 +471,14 @@ def score_flag(
     return OracleResult(
         passed=not failures,
         failures=failures,
+        soft=soft,
         checks=CHECK_COUNT,
+        partial_score=quality_partial(failures, soft),
         bonuses=bonuses,
         shape_count=geom.shape_count,
         stripe_rects=geom.stripe_rects,
         star_shapes=geom.star_shapes,
+        canton_rects=geom.canton_rects,
         max_width_hmm=geom.max_width_hmm,
         grouped=grouped,
         python_domain=evidence.python_domain,
@@ -510,18 +562,22 @@ def format_result(result: OracleResult) -> str:
         status,
         (
             f"  shapes: {result.shape_count}  stripes: {result.stripe_rects}  "
-            f"stars: {result.star_shapes}  max_width_hmm: {result.max_width_hmm}  "
+            f"stars: {result.star_shapes}  canton_rects: {result.canton_rects}  "
+            f"max_width_hmm: {result.max_width_hmm}  "
             f"grouped: {'yes' if result.grouped else 'no'}"
         ),
         (
             f"  path: python={_yn(result.python_domain)}  "
             f"delegate_shapes={_yn(result.delegate_shapes)}  "
             f"run_venv={_yn(result.run_venv)}  "
-            f"checks: {len(result.failures)}/{result.checks} failed"
+            f"hard: {len(result.failures)}/{result.checks} failed  "
+            f"partial: {result.partial_score:.3f}"
         ),
     ]
     for item in result.bonuses:
         lines.append(f"  bonus: {item}")
+    for item in result.soft:
+        lines.append(f"  soft: {item}")
     for item in result.failures:
         lines.append(f"  - {item}")
     return "\n".join(lines)

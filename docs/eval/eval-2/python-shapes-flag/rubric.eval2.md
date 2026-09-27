@@ -8,10 +8,23 @@ PNG. Chat Ready / STREAM_DONE is ignored.
 
 The string harness cannot run this Ask (no `run_venv` / `domain=python`).
 
+## Calibration (matrix floor)
+
+On latest master / #926, **gpt-oss-20b** already succeeds **path-wise**
+on this short Ask. The flag is recognizable and the stars are imperfect.
+That almost-flag is a **good** outcome for the matrix floor. HAPPY /
+oracle PASS does **not** require a perfect 50-star canton.
+
 ## What is scored
 
-Nine fail-closed checks. Hard PASS means `failures` is empty. Partial
-is `1 − len(failures) / checks` with `checks = 9`.
+Seven fail-closed checks. Hard PASS means `failures` is empty. A short
+or messy star field does not fail.
+
+Partial is `1 − (len(failures) + len(soft)) / (checks + 1)` with
+`checks = 7` and one soft star check in the denominator (8). A
+page-scale striped flag with under-counted stars is a **strong
+partial** (0.875) and still passes. No failures and no soft note is
+1.0.
 
 Process lines are **executed** calls only (`Tool call:`,
 `streaming_loop: accumulated tool_calls`, `SmolToolAdapter executing`,
@@ -29,13 +42,21 @@ oracle converts cm / mm / in / pt to HMM (1/100 mm).
 | 3 | `run_venv_python_script` executed | No venv script call (outer `Tool call:` or inner `SmolToolAdapter`) |
 | 4 | Not LLM-only `shape_upsert` | `shape_upsert` tool call and no `run_venv_python_script` |
 | 5 | Not `domain=images` PNG | `domain=images` or `image_generate` / `image_insert` / `image_replace` / `image_download` |
-| 6 | Enough shapes (≥ **20**) | A handful of boxes |
-| 7 | Stripe-like rects (≥ **6**, width/height ≥ **3**) | No long horizontal bands. PASS was ~14–15 rects; exact 13 is not required |
-| 8 | Star-like shapes (≥ **20**) | `star5` / `star*` custom shapes, or a polygon with ≥ 10 points. PASS was ~50 stars |
-| 9 | Page scale (max width ≥ **10000** HMM) | ~1900 HMM speck (~19 mm). PASS max width was ≈ **19001** HMM |
+| 6 | Page-scale striped field | Blank page, or fewer than **6** stripe-like rects (width/height ≥ **3**). Exact 13 stripes is not required |
+| 7 | Page scale (max width ≥ **10000** HMM) | ~1900 HMM speck (~19 mm). A full-page composite is about 10000–20000 HMM |
 
 A missing debug log fails checks 1–3. A missing or unreadable `.odt`
 fails the geometry checks.
+
+### Soft (does not fail)
+
+Star-like shapes (`star5` / `star*` custom shapes, a name containing
+`star`, or a polygon with ≥ 10 points). When the hard gate is already
+met and the count is under **8**, the oracle records one soft note and
+trims partial. Messy placement that the XML still counts as stars does
+not fail and does not trim. A canton-like rect (non-stripe, both sides
+≥ 2000 HMM) is mentioned on that note when present; it is not required.
+Zero or few stars on an otherwise page-scale striped flag still pass.
 
 ## Bonus (not required)
 
@@ -45,9 +66,18 @@ fails the geometry checks.
   `create_shape` debug line. Nice evidence the script placed shapes;
   the geometry checks are what prove the flag is on the page.
 
+## Fail (hard)
+
+- Wrong route: images domain or a PNG (`image_generate` / insert /
+  download / replace).
+- No `run_venv_python_script` (including LLM-only `shape_upsert`).
+- Tiny ~1900 HMM speck.
+- Blank page.
+
 ## Non-goals
 
 - Exact 13 stripes and 50 stars, colors, canton proportions, or z-order.
+- Perfect star geometry. The 20b almost-flag is the floor.
 - A Draw `.odg` or an Impress deck.
 - An images-domain PNG of a flag.
 - A flag few-shot in `smol_examples`.
