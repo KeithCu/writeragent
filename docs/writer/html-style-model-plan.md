@@ -214,17 +214,19 @@ FODT fixes probe B (write→read style **name** recovery). It does **not** repla
 
 StarWriter HTML import does not understand `data-lo-style`. Write path:
 
-1. **Collect:** Scan block elements for `data-lo-style="…"` **in document order**; build a list of compact tokens (one entry per block tag, `None` when attribute absent).
+1. **Collect:** Scan block elements for `data-lo-style="…"` **in document order**; build a list of compact tokens (one entry per block tag, `None` when attribute absent). A block's first child block (`<blockquote><p>`, `<li><p>`) is the same Writer paragraph: it shares the parent's slot and its own style wins; later sibling blocks get their own slots. Counting both desynced every later style.
 
 2. **Strip:** Remove `data-lo-style` attributes from HTML before `insertDocumentFromURL` (StarWriter filter unchanged).
 
 3. **Import:** Existing HTML import path (`_insert_mixed_or_plain_html`, etc.).
 
-4. **Resolve & apply:** For each compact token, resolve to UNO `ParaStyleName` via document paragraph style list (exact match first, then match where `compact_lo_style_name(style_name) == token`). Call `apply_paragraph_style_preserving_direct_char(doc, cursor, uno_name)`. Reuse this helper — it already preserves direct Char* overrides when changing `ParaStyleName`.
+4. **Resolve & apply:** Only the imported paragraphs are styled: a cursor parked at the insert point ends up after the import, and the apply stops at the first paragraph that does not start before it. Leftover tokens used to style the text after the import — in review mode the old text a `full_document` had just deleted, whose Delete then became a Format change that "Accept all" kept. For each compact token, resolve to UNO `ParaStyleName` via document paragraph style list (exact match first, then match where `compact_lo_style_name(style_name) == token`). Call `apply_paragraph_style_preserving_direct_char(doc, cursor, uno_name)`. Reuse this helper — it already preserves direct Char* overrides when changing `ParaStyleName`.
 
 5. **Overrides:** Inline `style="..."` on spans continues to map to direct character formatting (StarWriter import + preserve helper).
 
 6. **Fallback:** Unknown style name → `Standard` (or skip apply and log).
+
+**Review mode (`full_document`):** the deleted text stays in place, and an import at its start takes the first old paragraph's character formatting as direct formatting (an 18pt bold opening heading spread over the whole document). `replace_full_document` therefore opens an empty paragraph before the deleted text, imports there, and drops that paragraph if it is left over empty.
 
 **Hook points:** Named-style application runs on `replace_full_document` and on `insert_content_at_position` for `beginning` / `end` (after absorb prep so neighbor text is not restyled — see UNO-verified notes in `html_import._ensure_empty_absorb_for_styled_insert`). `selection` / `search` (`replace_single_range_with_content`) still insert the content but **skip** style application: those paths split or merge into the cursor's existing paragraph. For styling existing text use `apply_style`. (Styled `selection`/`search` is a later follow-up.)
 

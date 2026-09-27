@@ -242,3 +242,86 @@ def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
     assert frag.call_args.args[1] == "漢字"
     assert paint.call_args.args[1] == [("漢字", "かんじ", True, 0)]
     assert paint.call_args.kwargs["skip_chars"] == 7
+
+
+def test_nested_blocks_share_one_style_slot():
+    """<blockquote><p> and <li><p> are ONE Writer paragraph: two slots shifted every later style
+    ("2. DO DIREITO" lost its heading) and the leftover ones hit old text (relatos #35/#40)."""
+    from plugin.writer.html_import import _extract_block_lo_styles
+
+    html = ('<h1 data-lo-style="Heading1">T</h1>'
+            '<blockquote><p data-lo-style="Quotations">q</p></blockquote>'
+            '<ul><li><p data-lo-style="Standard">a</p></li><li><p data-lo-style="Standard">b</p></li></ul>'
+            '<h2 data-lo-style="Heading2">D</h2>')
+    clean, styles = _extract_block_lo_styles(html)
+    assert styles == ["Heading1", "Quotations", "Standard", "Standard", "Heading2"]
+    assert "data-lo-style" not in clean
+
+
+def test_second_block_inside_a_block_gets_its_own_slot():
+    from plugin.writer.html_import import _extract_block_lo_styles
+
+    _clean, styles = _extract_block_lo_styles(
+        '<li data-lo-style="List"><p>a</p><p data-lo-style="Standard">b</p></li><p data-lo-style="Standard">c</p>')
+    assert styles == ["List", "Standard", "Standard"]
+
+
+def test_block_styles_stop_at_the_end_of_the_import():
+    """More styles than imported paragraphs must not style the text after the import (the old
+    text a full_document had just deleted: its Delete turned into a Format change)."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer import html_import
+
+    paras = []
+    for idx in range(4):
+        para = MagicMock()
+        para.supportsService.return_value = True
+        para.getStart.return_value = idx
+        paras.append(para)
+    text = MagicMock()
+    enum = text.createEnumeration.return_value
+    enum.hasMoreElements.side_effect = [True] * len(paras) + [False]
+    enum.nextElement.side_effect = paras
+    end = 2  # the parked cursor sits where paragraph 2 starts
+    text.compareRegionStarts.side_effect = lambda a, b: 1 if a < b else (0 if a == b else -1)
+    with patch.object(html_import.format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
+        html_import._apply_block_lo_styles(MagicMock(), text, 0, ["Heading1", "Standard", "Standard", "Heading2"], end=end)
+    assert apply.call_count == 2
+
+
+def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
+    """Imported at the start of the deleted text, the new paragraphs took its character formatting
+    (an 18pt bold opening heading spread over the whole document)."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    model.getPropertyValue.return_value = True  # RecordChanges
+    text = model.getText.return_value
+    leftover = text.createTextCursorByRange.return_value
+    leftover.getString.return_value = ""
+    with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
+         patch.object(html_import.format_mod, "_deletion_author"):
+        html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+    cursor = text.createTextCursor.return_value
+    text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+    cursor.goLeft.assert_called_once_with(1, False)
+    imp.assert_called_once()
+    leftover.goLeft.assert_called_once_with(1, True)
+    leftover.setString.assert_called_once_with("")
+
+
+def test_full_document_without_review_imports_in_place():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    model.getPropertyValue.return_value = False
+    with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
+         patch.object(html_import.format_mod, "_deletion_author"):
+        html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+    model.getText.return_value.insertControlCharacter.assert_not_called()
+    imp.assert_called_once()

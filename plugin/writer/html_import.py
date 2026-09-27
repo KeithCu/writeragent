@@ -252,14 +252,30 @@ class _BlockLoStyleExtractor(HTMLParser):
         self._table_depth = 0
         self.styles: list[str | None] = []
         self._out: list[str] = []
+        # One frame per open block: has its first child block already shared its slot?
+        self._open_blocks: list[list[bool]] = []
 
-    def _emit(self, raw: str, attrs: list[tuple[str, str | None]], is_block: bool) -> None:
+    def _emit(self, raw: str, attrs: list[tuple[str, str | None]], is_block: bool, opens: bool = False) -> None:
         if is_block and self._table_depth == 0:
             val = None
             for k, v in attrs:
                 if k == "data-lo-style":
                     val = v
-            self.styles.append(val)
+            # What was wrong: <blockquote><p> and <li><p> took two slots but make ONE Writer
+            # paragraph, so every later style landed one paragraph late ("2. DO DIREITO" lost its
+            # heading, a list item became a quote). Why this fixes it: a block's first child block
+            # is that same paragraph -- it shares the slot, and its own style wins when it has one.
+            if self._open_blocks and not self._open_blocks[-1][0]:
+                self._open_blocks[-1][0] = True
+                if val is not None or not self.styles:
+                    if self.styles:
+                        self.styles[-1] = val
+                    else:
+                        self.styles.append(val)
+            else:
+                self.styles.append(val)
+            if opens:
+                self._open_blocks.append([False])
             self._out.append(_strip_data_lo_style(raw))
         else:
             # Non-top-level / non-block: leave verbatim. In particular, a table-cell block's
@@ -275,7 +291,7 @@ class _BlockLoStyleExtractor(HTMLParser):
             return
         # BLOCK_TAGS excludes <div> (transparent container), so a wrapper does not consume a
         # positional style slot — keeps read and write symmetric on <div>.
-        self._emit(raw, attrs, tag.lower() in xhtml_post.BLOCK_TAGS)
+        self._emit(raw, attrs, tag.lower() in xhtml_post.BLOCK_TAGS, opens=True)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s/>" % tag)
@@ -284,6 +300,8 @@ class _BlockLoStyleExtractor(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag.lower() == "table" and self._table_depth > 0:
             self._table_depth -= 1
+        elif tag.lower() in xhtml_post.BLOCK_TAGS and self._table_depth == 0 and self._open_blocks:
+            self._open_blocks.pop()
         self._out.append("</%s>" % tag)
 
     def handle_data(self, data: str) -> None:
@@ -379,7 +397,7 @@ def _resolve_paragraph_style_token(model: Any, fam: Any, token: str) -> str:
 
 
 
-def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: list[str | None]) -> None:
+def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: list[str | None], end: Any = None) -> None:
     """Apply each block's data-lo-style to the inserted paragraphs (positionally), starting at
     paragraph index *start_idx*. Reuses apply_paragraph_style_preserving_direct_char so the
     named style is applied first and the import's inline char overrides survive on top.
@@ -406,6 +424,14 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: li
         if not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph")):
             continue
         if i >= start_idx:
+            # What was wrong: with more styled blocks than imported paragraphs, the leftover
+            # styles went on to the paragraphs after the import -- in review mode the old text a
+            # full_document had just deleted. A paragraph style on deleted text turns its Delete
+            # into a Format change, so "Accept all" kept the old header glued into one paragraph
+            # (relatos #35/#40, reproduced live). *end* is a cursor parked after the import:
+            # stop at the first paragraph that does not start before it.
+            if end is not None and text_obj.compareRegionStarts(el.getStart(), end) != 1:
+                break
             paras.append(el)
         i += 1
     for para_el, style in zip(paras, styles):
@@ -655,6 +681,8 @@ def _insert_mixed_or_plain_html(
     # strictly before the cursor's *paragraph* (not the cursor position) — otherwise the applied
     # styles shift by one. (For full_document the cursor is already at the paragraph start.)
     start_idx = 0
+    # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
+    imported_end = _parked_cursor(cursor) if styled else None
     if styled:
         ref = cursor.getStart()
         try:
@@ -680,7 +708,7 @@ def _insert_mixed_or_plain_html(
 
     if styled:
         try:
-            _apply_block_lo_styles(model, text_obj, start_idx, block_styles)
+            _apply_block_lo_styles(model, text_obj, start_idx, block_styles, end=imported_end)
         except Exception:
             log.debug("data-lo-style application failed", exc_info=True)
         _cursor_goto_document_end(model, cursor)
@@ -920,7 +948,24 @@ def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = 
     with format_mod._deletion_author():  # author the deletion distinctly (split by-author coloring)
         cursor.setString("")
     cursor.gotoStart(False)
+    if not _is_recording_changes(model):
+        _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
+        return
+    # What was wrong: in review mode the deleted text stays in place, and the import at its start
+    # took the character formatting of the first old paragraph as direct formatting -- a document
+    # opening with an 18pt bold heading came back 18pt bold throughout (reproduced live; the
+    # data-lo-style pass then kept it as a "hand-set" override). Why this fixes it: import into a
+    # fresh empty paragraph opened before the deleted text, then drop that paragraph if it is left
+    # over empty (the import puts its blocks before it) -- a tracked insertion swallows the break.
+    text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
+    cursor.goLeft(1, False)
+    leftover = text.createTextCursorByRange(cursor.getStart())
     _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
+    leftover.gotoEndOfParagraph(True)
+    if leftover.getString() == "":
+        leftover.collapseToStart()
+        leftover.goLeft(1, True)
+        leftover.setString("")
 
 
 
