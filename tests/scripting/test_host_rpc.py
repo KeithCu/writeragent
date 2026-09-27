@@ -53,10 +53,12 @@ def test_shape_group_proxy_docstring_says_why_to_group():
     from plugin.writer.specialized.shapes import GroupShapes as WriterGroupShapes
 
     doc = inspect.cleandoc(api.shape.group.__doc__ or "")
-    assert "select and move the composite as one" in doc
-    assert "flag, diagram, or logo" in doc
-    assert "before finishing" in doc
-    assert "loose shapes" in doc
+    assert "select and move them together" in doc
+    assert "a flag, logo, diagram, icon" in doc
+    assert "ALWAYS call this before finishing" in doc
+    assert "leaving loose parts is wrong" in doc
+    assert "Pass every related shape index" in doc
+    assert "shape_upsert (action edit)" in doc
     # Args stay the generated schema text.
     assert "indices (required): List of shape indices to group." in doc
     assert "page (optional): Page index containing the shapes." in doc
