@@ -15,12 +15,15 @@ protocol is added here.
   stay side-effect free).
 - a domain name — allow only that domain's proxies plus ``list_open_documents``.
 - several names separated by commas — union of those domains. The inner agent
-  from ``delegate_tool_domains`` passes the delegated list this way so one
-  script can call each domain's ``writeragent_api`` tools.
+  from ``delegate_tool_domains`` passes the delegated list plus ``core``
+  (``inner_script_tool_domain``) so one script can call those domains and
+  ``DOMAIN_TOOLS['core']``. ``run_venv_python_script`` is removed from every
+  allowlist so a script cannot re-enter the worker.
 """
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Callable
 
@@ -42,6 +45,35 @@ _ALWAYS_ALLOWED = frozenset({"list_open_documents"})
 _NAMED_SCRIPT_TOOLS = frozenset({"get_named_python_script", "list_named_python_scripts"})
 
 
+def _domain_tools_map() -> dict[str, list[str]] | None:
+    """``DOMAIN_TOOLS`` or ``None`` when this build has no generated proxy (LibrePy)."""
+    try:
+        from plugin.scripting.writeragent_api import DOMAIN_TOOLS
+    except ImportError:
+        return None
+    return DOMAIN_TOOLS
+
+
+def domain_proxy_namespace(python_tool_domain: str, tools: dict[str, list[str]]) -> str | None:
+    """``DOMAIN_TOOLS`` key for one specialized domain name.
+
+    Same singularization as ``generate_tool_proxies`` (``shapes`` → ``shape``,
+    ``footnotes`` → ``footnote``, ``indexes`` → ``index``). ``None`` when
+    *python_tool_domain* is not a key.
+    """
+    if python_tool_domain in tools:
+        return python_tool_domain
+    if python_tool_domain == "indexes":
+        singular = "index"
+    elif python_tool_domain.endswith("s") and python_tool_domain not in ("images", "styles", "forms"):
+        singular = python_tool_domain[:-1]
+    else:
+        singular = python_tool_domain
+    if singular in tools:
+        return singular
+    return None
+
+
 def domain_proxy_tool_names(python_tool_domain: str) -> frozenset[str] | None:
     """Proxy tool names for one specialized domain, without ``list_open_documents``.
 
@@ -50,28 +82,42 @@ def domain_proxy_tool_names(python_tool_domain: str) -> frozenset[str] | None:
     maps to key ``shape`` (same singularization ``generate_tool_proxies`` uses
     for ``footnotes`` → ``footnote`` and ``indexes`` → ``index``).
     """
-    try:
-        from plugin.scripting.writeragent_api import DOMAIN_TOOLS
-    except ImportError:
+    tools = _domain_tools_map()
+    if tools is None:
         return None
+    key = domain_proxy_namespace(python_tool_domain, tools)
+    if key is None:
+        return frozenset()
+    return frozenset(tools.get(key) or ())
 
-    names = DOMAIN_TOOLS.get(python_tool_domain)
-    if names is None:
-        if python_tool_domain == "indexes":
-            singular = "index"
-        elif python_tool_domain.endswith("s") and python_tool_domain not in ("images", "styles", "forms"):
-            singular = python_tool_domain[:-1]
-        else:
-            singular = python_tool_domain
-        names = DOMAIN_TOOLS.get(singular)
-    return frozenset(names or ())
+
+def inner_script_tool_domain(domains: list[str]) -> str:
+    """Allowlist key for the inner ``delegate_tool_domains`` script.
+
+    Delegated specialized names, then ``core``. ``core`` is not a specialized
+    domain the outer agent passes; the script may still call
+    ``DOMAIN_TOOLS['core']`` (``list_open_documents``, ``undo``, and the rest).
+    ``run_venv_python_script`` is not in ``core``. A bare domain string
+    (``"writer"``, ``"shapes"``) does not gain ``core`` — only this inner path
+    appends it — and ``None`` / ``""`` are unchanged.
+    """
+    parts: list[str] = []
+    seen: set[str] = set()
+    for name in domains:
+        if name and name not in seen and name != "core":
+            seen.add(name)
+            parts.append(name)
+    parts.append("core")
+    return ",".join(parts)
 
 
 def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | None:
     """Return an allowlist, ``None`` (unrestricted minus blocked), or empty (disabled).
 
     A comma-separated list is the union of each domain (inner
-    ``delegate_tool_domains``). Whitespace around commas is ignored.
+    ``delegate_tool_domains`` passes delegated names plus ``core``).
+    Whitespace around commas is ignored. ``run_venv_python_script`` is always
+    removed: allowing it would re-enter the warm worker.
     """
     if python_tool_domain is None:
         return None
@@ -89,7 +135,162 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
             # LibrePy omits the generated proxy; there is nothing to allowlist.
             return frozenset()
         allowed |= names
-    return frozenset(allowed) | _ALWAYS_ALLOWED
+    # Blocked even when a domain entry lists it (``DOMAIN_TOOLS['python']``).
+    # ``execute_tool`` rejects it too; keeping it off the set matches the catalog.
+    return (frozenset(allowed) | _ALWAYS_ALLOWED) - _BLOCKED_FROM_VENV
+
+
+def _method_code(method: Any) -> Any:
+    """Code object for a proxy function or bound method.
+
+    Newer CPython exposes ``__code__`` on bound methods. Older LibreOffice
+    Pythons only have it on ``__func__``.
+    """
+    code = getattr(method, "__code__", None)
+    if code is not None:
+        return code
+    func = getattr(method, "__func__", None)
+    if func is None:
+        return None
+    return getattr(func, "__code__", None)
+
+
+def _rpc_tool_name(method: Any, known: frozenset[str]) -> str | None:
+    """Tool name passed to ``_rpc_call`` inside a generated proxy method.
+
+    ``CALL_KW`` stores it as a string const. ``CALL_FUNCTION_EX`` (many
+    kwargs, as on ``shape.upsert``) stores it as a one-element tuple. Parameter
+    names are skipped when they collide with a tool name. The allowlist uses
+    that tool name; the catalog shows the Python method (``wa.shape.upsert``).
+    """
+    code = _method_code(method)
+    if code is None:
+        return None
+    found: list[str] = []
+    for const in code.co_consts:
+        if isinstance(const, str) and const in known:
+            found.append(const)
+        elif (
+            isinstance(const, tuple)
+            and len(const) == 1
+            and isinstance(const[0], str)
+            and const[0] in known
+        ):
+            found.append(const[0])
+    if not found:
+        return None
+    locals_ = set(code.co_varnames)
+    for name in found:
+        if name not in locals_:
+            return name
+    return found[0]
+
+
+def _proxy_methods_by_tool(tools: dict[str, list[str]]) -> dict[str, Any] | None:
+    """Map each ``DOMAIN_TOOLS`` name to the generated proxy method.
+
+    ``None`` when ``writeragent_api`` is not in this build (LibrePy). The
+    import sits in this function, so it must be guarded the same way as
+    ``_domain_tools_map``: LibrePy ships ``host_rpc`` and omits the proxy.
+    """
+    try:
+        import plugin.scripting.writeragent_api as api
+    except ImportError:
+        return None
+
+    known = frozenset(name for names in tools.values() for name in names)
+    found: dict[str, Any] = {}
+    for namespace in tools:
+        proxy = getattr(api, namespace, None)
+        if proxy is None:
+            continue
+        for attr in dir(proxy):
+            if attr.startswith("_"):
+                continue
+            method = getattr(proxy, attr, None)
+            if not callable(method):
+                continue
+            tool_name = _rpc_tool_name(method, known)
+            if tool_name and tool_name not in found:
+                found[tool_name] = method
+    return found
+
+
+def _format_proxy_call(namespace: str, method: Any) -> str:
+    """``wa.shape.upsert(action, *, ...)`` without the return annotation."""
+    sig = inspect.signature(method)
+    if sig.return_annotation is not inspect.Signature.empty:
+        sig = sig.replace(return_annotation=inspect.Signature.empty)
+    return f"wa.{namespace}.{method.__name__}{sig}"
+
+
+def _catalog_lead(namespaces: list[str]) -> str:
+    examples: list[str] = []
+    if "core" in namespaces:
+        examples.append("wa.core.list_open_documents()")
+    if "shape" in namespaces:
+        examples.append("wa.shape.upsert(...)")
+    example = ""
+    if examples:
+        example = " For example " + " and ".join(examples) + "."
+    return (
+        "run_venv_python_script has access to the following APIs you can call from within it. "
+        "Only the Python script may call these wa.* functions; they are not additional LLM tool names. "
+        "Inside the script, import writeragent as wa and call the listed APIs."
+        f"{example} "
+        "When the work is bulk or scripted, do that domain work in one run_venv_python_script."
+    )
+
+
+def format_script_api_catalog(domains: list[str]) -> str:
+    """Script-callable API catalog: ``core`` plus each delegated domain.
+
+    Each entry is the ``wa.<namespace>.<method>(...)`` call and the full
+    generated method docstring (description and Args). That docstring is the
+    text ``scripts/generate_tool_proxies.py`` ``_method_doc_lines`` wrote into
+    ``writeragent_api``. The venv sandbox blocks ``inspect``, ``dir``, and
+    ``__doc__``, so the inner agent cannot read this off the proxy itself.
+    Empty when the proxy module is not shipped (LibrePy).
+    """
+    tools = _domain_tools_map()
+    if tools is None:
+        return ""
+    methods = _proxy_methods_by_tool(tools)
+    if not methods:
+        # LibrePy, or proxies that did not load. Omit the catalog.
+        return ""
+    namespaces: list[str] = []
+    seen: set[str] = set()
+    for name in ("core", *domains):
+        key = domain_proxy_namespace(name, tools)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        namespaces.append(key)
+    blocks: list[str] = [_catalog_lead(namespaces), ""]
+    any_entry = False
+    for namespace in namespaces:
+        entries: list[str] = []
+        for tool_name in tools.get(namespace) or ():
+            if tool_name in _BLOCKED_FROM_VENV:
+                continue
+            method = methods.get(tool_name)
+            if method is None:
+                log.warning("script API catalog: no proxy method for %s", tool_name)
+                continue
+            # Verbatim generated docstring (description + Args), not a summary.
+            doc = inspect.cleandoc(getattr(method, "__doc__", None) or "")
+            call = _format_proxy_call(namespace, method)
+            entries.append(f"{call}\n{doc}" if doc else call)
+        if not entries:
+            continue
+        any_entry = True
+        blocks.append(f"{namespace}:")
+        blocks.append("\n\n".join(entries))
+        blocks.append("")
+    if not any_entry:
+        return ""
+    return "\n".join(blocks).rstrip() + "\n"
 
 
 def execute_tool(

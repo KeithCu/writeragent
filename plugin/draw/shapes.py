@@ -825,7 +825,13 @@ class GroupShapes(ToolDrawShapeBase):
 
     name: str | None = "shape_group"
     intent: str | None = "edit"
-    description: str = "Groups multiple shapes together on the same page."
+    description: str = (
+        "Group related shapes into one composite object so the user can select and move them together. "
+        "After you place pieces that belong to the same thing (a flag, logo, diagram, icon), "
+        "ALWAYS call this before finishing — leaving loose parts is wrong. "
+        "Pass every related shape index. "
+        "The result is one group shape you can move with shape_upsert (action edit)."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": "integer"}, "description": "List of shape indices to group."}, "page": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["indices"]}
     uno_services: list[str] | None = _DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]

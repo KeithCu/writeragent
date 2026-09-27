@@ -43,6 +43,116 @@ def test_resolve_allowed_tools_plural_domain_name():
     assert "list_open_documents" in allowed
 
 
+def test_shape_group_proxy_docstring_says_why_to_group():
+    """wa.shape.group carries the tool description, including why to group."""
+    import inspect
+
+    import plugin.scripting.writeragent_api as api
+    from plugin.calc.shapes import GroupShapes as CalcGroupShapes
+    from plugin.draw.shapes import GroupShapes
+    from plugin.writer.specialized.shapes import GroupShapes as WriterGroupShapes
+
+    doc = inspect.cleandoc(api.shape.group.__doc__ or "")
+    assert "select and move them together" in doc
+    assert "a flag, logo, diagram, icon" in doc
+    assert "ALWAYS call this before finishing" in doc
+    assert "leaving loose parts is wrong" in doc
+    assert "Pass every related shape index" in doc
+    assert "shape_upsert (action edit)" in doc
+    # Args stay the generated schema text.
+    assert "indices (required): List of shape indices to group." in doc
+    assert "page (optional): Page index containing the shapes." in doc
+    # Writer and Calc re-export Draw's class and do not own a second description.
+    assert WriterGroupShapes.description == GroupShapes.description
+    assert CalcGroupShapes.description == GroupShapes.description
+    assert GroupShapes.description in doc
+
+
+def test_format_script_api_catalog_embeds_full_proxy_docstrings():
+    """Inner catalog is the generated Args text, not a one-line summary."""
+    import inspect
+
+    import plugin.scripting.writeragent_api as api
+    from plugin.scripting.host_rpc import (
+        _domain_tools_map,
+        _proxy_methods_by_tool,
+        format_script_api_catalog,
+        inner_script_tool_domain,
+    )
+    from plugin.scripting.writeragent_api import DOMAIN_TOOLS
+
+    catalog = format_script_api_catalog(["shapes"])
+    assert catalog.startswith("run_venv_python_script has access to the following APIs")
+    assert "Only the Python script may call these wa.* functions" in catalog
+    assert "import writeragent as wa" in catalog
+    assert "wa.core.list_open_documents()" in catalog
+    assert "wa.shape.upsert(" in catalog
+    assert "wa.footnote." not in catalog
+    assert "wa.python.run_venv_python_script" not in catalog
+
+    tools = _domain_tools_map()
+    assert tools is not None
+    methods = _proxy_methods_by_tool(tools)
+    assert methods is not None
+    for tool_name in (*DOMAIN_TOOLS["core"], *DOMAIN_TOOLS["shape"]):
+        method = methods[tool_name]
+        doc = inspect.cleandoc(method.__doc__ or "")
+        assert doc
+        assert doc in catalog
+    # Rich Args from the proxy generator (#916), not a trimmed blurb.
+    assert "shape_type (optional)" in catalog
+    assert "round-rectangle" in catalog
+    assert "action (required)" in catalog
+    assert len(catalog) > 5000
+
+    both = format_script_api_catalog(["footnotes", "shapes"])
+    assert both.count("core:\n") == 1
+    assert both.count("shape:\n") == 1
+    assert both.count("footnote:\n") == 1
+    assert inspect.cleandoc(api.footnote.insert.__doc__ or "") in both
+    assert inspect.cleandoc(api.shape.upsert.__doc__ or "") in both
+    assert inner_script_tool_domain(["shapes", "footnotes"]) == "shapes,footnotes,core"
+
+
+def test_format_script_api_catalog_empty_without_proxy():
+    """LibrePy omits writeragent_api; the inner prompt then has no catalog."""
+    from unittest.mock import patch
+
+    from plugin.scripting.host_rpc import format_script_api_catalog
+
+    with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
+        assert format_script_api_catalog(["shapes"]) == ""
+    with patch("plugin.scripting.host_rpc._proxy_methods_by_tool", return_value=None):
+        assert format_script_api_catalog(["shapes"]) == ""
+
+
+def test_inner_script_allowlist_unions_core_without_widening_other_scopes():
+    """Inner DTD scripts may call core. Bare domains, None, and =PY() stay put."""
+    from plugin.scripting.host_rpc import inner_script_tool_domain
+    from plugin.scripting.writeragent_api import DOMAIN_TOOLS
+
+    allowed = resolve_allowed_tools(inner_script_tool_domain(["shapes"]))
+    assert allowed is not None
+    assert set(DOMAIN_TOOLS["core"]) <= allowed
+    assert "shape_upsert" in allowed
+    assert "footnotes_insert" not in allowed
+    assert "run_venv_python_script" not in allowed
+
+    # A domain string that is not the inner path does not pick up core.
+    writer = resolve_allowed_tools("writer")
+    assert writer is not None
+    assert "apply_document_content" in writer
+    assert "undo" not in writer
+    assert "web_research" not in writer
+    assert "list_open_documents" in writer
+
+    assert resolve_allowed_tools(None) is None
+    assert resolve_allowed_tools("") == frozenset()
+    assert resolve_allowed_tools("python") is not None
+    assert "symbolic_math" in resolve_allowed_tools("python")
+    assert "run_venv_python_script" not in resolve_allowed_tools("python")
+
+
 def test_resolve_allowed_tools_shapes_and_multi_domain_union():
     """Inner delegate_tool_domains passes specialized names, including a comma-separated union."""
     shapes = resolve_allowed_tools("shapes")

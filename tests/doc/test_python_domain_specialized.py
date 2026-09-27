@@ -325,19 +325,27 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert inner_ctx.status_callback is parent.status_callback
     assert inner_ctx.read_only_target is False
     assert inner_ctx.set_active_domain_callback is None
-    assert inner_ctx.python_tool_domain == "footnotes,shapes"
+    assert inner_ctx.python_tool_domain == "footnotes,shapes,core"
     from plugin.scripting.host_rpc import resolve_allowed_tools
+    from plugin.scripting.writeragent_api import DOMAIN_TOOLS
 
     allowed = resolve_allowed_tools(inner_ctx.python_tool_domain)
     assert allowed is not None
+    assert set(DOMAIN_TOOLS["core"]) <= allowed
     assert "shape_upsert" in allowed
     assert "footnotes_insert" in allowed
     assert "list_open_documents" in allowed
+    assert "undo" in allowed
+    assert "run_venv_python_script" not in allowed
     instructions = mock_build.call_args.kwargs["instructions"]
     assert "footnotes" in instructions
     assert "shapes" in instructions
     assert "wa.shape.upsert" in instructions
     assert "for-loop" in instructions
+    assert "run_venv_python_script has access to the following APIs" in instructions
+    assert "wa.core.list_open_documents" in instructions
+    assert "action (required)" in instructions
+    assert "shape_type (optional)" in instructions
     assert mock_build.call_args.kwargs["final_answer_tool_name"] == "specialized_workflow_finished"
     examples_key_block = mock_build.call_args.kwargs["examples_block"]
     # Inner block is the script loop, not the outer *:python few-shot (that one calls DTD).
@@ -379,8 +387,10 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     assert "Document canvas (Writer)" in instructions
     assert "210.0 x 297.0 mm" in instructions
     assert "wa.shape.upsert" in instructions
+    assert "shape_type (optional)" in instructions
+    assert "run_venv_python_script has access to the following APIs" in instructions
     shapes_ctx = mock_build.call_args[0][0]
-    assert shapes_ctx.python_tool_domain == "shapes"
+    assert shapes_ctx.python_tool_domain == "shapes,core"
 
     mock_canvas.reset_mock()
     run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
@@ -388,7 +398,11 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     footnotes_instructions = mock_build.call_args.kwargs["instructions"]
     assert "Document canvas" not in footnotes_instructions
     assert "wa.shape.upsert" not in footnotes_instructions
-    assert mock_build.call_args[0][0].python_tool_domain == "footnotes"
+    assert "wa.footnote.insert" in footnotes_instructions
+    assert "insert_after (optional)" in footnotes_instructions
+    assert "wa.core.list_open_documents" in footnotes_instructions
+    assert "Those shape mutators are not LLM tools" not in footnotes_instructions
+    assert mock_build.call_args[0][0].python_tool_domain == "footnotes,core"
 
 
 @patch("plugin.doc.python_domain_specialized.build_toolcalling_agent")
@@ -416,7 +430,7 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     assert by_name["sort_range"].inputs["range"]["type"] == "array"
     assert "shape_upsert" not in names
     inner_ctx = mock_build.call_args[0][0]
-    assert inner_ctx.python_tool_domain == "sheets,ranges"
+    assert inner_ctx.python_tool_domain == "sheets,ranges,core"
     from plugin.scripting.host_rpc import resolve_allowed_tools
 
     allowed = resolve_allowed_tools(inner_ctx.python_tool_domain)
@@ -424,6 +438,12 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     assert "list_sheets" in allowed
     assert "sort_range" in allowed
     assert "shape_upsert" not in allowed
+    assert "undo" in allowed
+    assert "run_venv_python_script" not in allowed
+    calc_instructions = mock_build.call_args.kwargs["instructions"]
+    assert "wa.sheet.list_sheets" in calc_instructions
+    assert "wa.core.undo" in calc_instructions
+    assert "wa.shape.upsert" not in calc_instructions
 
 
 def test_gather_domain_tools_marshals_off_main_thread():

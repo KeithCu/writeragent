@@ -67,7 +67,7 @@ Calc chat uses `DEFAULT_CALC_CHAT_SYSTEM_PROMPT` (defined in [`plugin/framework/
 
 ## 1.4 Python specialized agent (two levels)
 
-The python specialized loop is shared with Writer and Draw (`specialized_cross_cutting`). Calc chat does not list `domain="python"` on `delegate_to_specialized_calc_toolset` (sheet compute stays `=PY()` / `write_formula_range`). If that loop does run, the outer agent still does venv and symbolic work itself, and calls `delegate_tool_domains(domains, task)` for Calc domains such as sheets, ranges, and charts. The inner agent gets `run_venv_python_script` allowlisted to those domains (shapes mutators are script API calls, not inner LLM tools). See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels). `=PY()` keeps `python_tool_domain=""` so formula recalc cannot call document tools.
+The python specialized loop is shared with Writer and Draw (`specialized_cross_cutting`). Calc chat does not list `domain="python"` on `delegate_to_specialized_calc_toolset` (sheet compute stays `=PY()` / `write_formula_range`). If that loop does run, the outer agent still does venv and symbolic work itself, and calls `delegate_tool_domains(domains, task)` for Calc domains such as sheets, ranges, and charts. The inner agent gets `run_venv_python_script` allowlisted to those domains plus `DOMAIN_TOOLS["core"]`, and its instructions list the full script API catalog (names and Args). Shapes mutators are script API calls, not inner LLM tools. See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels). `=PY()` keeps `python_tool_domain=""` so formula recalc cannot call document tools.
 
 ---
 

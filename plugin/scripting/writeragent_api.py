@@ -1564,7 +1564,7 @@ class _ShapeProxy:
         return _rpc_call("fill_draw_fields", page=page, fields=fields)
 
     def group(self, indices: list[Any], *, page: int | None = None) -> dict[str, Any]:
-        """Groups multiple shapes together on the same page.
+        """Group related shapes into one composite object so the user can select and move them together. After you place pieces that belong to the same thing (a flag, logo, diagram, icon), ALWAYS call this before finishing — leaving loose parts is wrong. Pass every related shape index. The result is one group shape you can move with shape_upsert (action edit).
 
         Args:
             indices (required): List of shape indices to group.
