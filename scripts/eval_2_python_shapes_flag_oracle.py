@@ -9,10 +9,16 @@ shapes. Pass/fail is the saved Writer document plus the run-stamp
 ``writeragent_debug.log``. Chat Ready / STREAM_DONE is never consulted.
 
 Process evidence is taken from executed tool calls (``Tool call:``,
-``streaming_loop: accumulated tool_calls``, ``SmolToolAdapter executing``).
-Few-shot text that merely mentions ``delegate_tool_domains`` or
-``wa.shape.upsert`` does not count — those strings are in the python
-shapes prompt and show up in logged request bodies.
+``streaming_loop: accumulated tool_calls``, ``SmolToolAdapter executing``,
+``tool-async-``, and ``=== Sync response:`` ``tool_calls``). Few-shot
+text that merely mentions ``delegate_tool_domains`` or ``wa.shape.upsert``
+does not count — those strings are in the python shapes prompt and show
+up in logged request ``"content"`` bodies. A nested ``delegate_tool_domains``
+often has empty args on the Smol / tool-async line; that still counts as
+shapes when an executed payload shows ``domains`` including shapes, or
+when no executed payload names another domain and a ``run_venv_python_script``
+after that call places shapes (``wa.shape.upsert``). A footnotes-only
+delegation does not.
 
 Geometry is the Writer draw page inside the ``.odt``. LibreOffice writes
 ``svg:width`` / ``svg:height`` in inches on a Writer save (19001 HMM →
@@ -131,10 +137,28 @@ _SMOL_EXEC_RE = re.compile(
     r"SmolToolAdapter executing (?:async|sync) tool '([^']+)'",
 )
 _TOOL_ASYNC_RE = re.compile(r"tool-async-([A-Za-z_][\w]*)")
+_SYNC_RESPONSE_MARK = "=== Sync response:"
+# Request few-shot lives on logged ``"content"`` lines. Reasoning is the
+# model's prose, not the call. An arguments line in a sync response does
+# not carry those keys (indent=2 puts them on their own lines). Skipping
+# them keeps the shapes example from counting.
+_PROSE_KEY_RE = re.compile(
+    r"""["'](?:content|reasoning|reasoning_details|refusal)["']\s*:""",
+)
 _SHAPES_DOMAIN_RE = re.compile(
     r"""["']domains["']\s*:\s*\[[^\]]*["']shapes["']""",
     re.IGNORECASE,
 )
+_DOMAINS_LIST_RE = re.compile(
+    r"""["']domains["']\s*:\s*\[[^\]]*\]""",
+    re.IGNORECASE,
+)
+_SYNC_SKIP_KEYS = frozenset({
+    "content",
+    "reasoning",
+    "reasoning_details",
+    "refusal",
+})
 _PYTHON_DOMAIN_RE = re.compile(
     r"""["']domain["']\s*:\s*["']python["']""",
     re.IGNORECASE,
@@ -217,6 +241,22 @@ class PathEvidence:
     images_path: bool
     script_placement: bool
     shape_group_call: bool
+
+
+@dataclass(frozen=True)
+class _LoggedCall:
+    """One executed tool call found in a debug log.
+
+    ``pos`` is a character offset. ``from_sync`` is a ``=== Sync response:``
+    ``tool_calls`` entry. The worker logs that JSON before the main thread
+    flushes ``SmolToolAdapter``, so those args can sit above the Smol line
+    in the file and are still the call that ran.
+    """
+
+    name: str
+    args: str
+    pos: int
+    from_sync: bool
 
 
 def length_to_hmm(raw: str) -> int | None:
@@ -329,29 +369,268 @@ def read_writer_flag(path: Path) -> FlagGeometry:
     )
 
 
-def _calls_from_log(log_text: str) -> list[tuple[str, str]]:
+def _extract_json_object(text: str, start: int) -> tuple[str, int] | None:
+    """Brace-match one JSON object at or after ``start``, respecting strings."""
+    begin = text.find("{", start)
+    if begin < 0:
+        return None
+    depth = 0
+    in_str = False
+    escaped = False
+    for index in range(begin, len(text)):
+        ch = text[index]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[begin:index + 1], begin
+    return None
+
+
+def _append_sync_tool_calls(node: object, out: list[_LoggedCall], pos: int) -> None:
+    """Collect ``tool_calls`` objects. Skip message content and reasoning.
+
+    Those fields are where a sync response quotes prose. The executed call
+    is the ``function`` name plus arguments. Request-body few-shot is not
+    inside this object; it is logged on the earlier ``Messages`` record.
+    """
+    if isinstance(node, dict):
+        raw_calls = node.get("tool_calls")
+        if isinstance(raw_calls, list):
+            for item in raw_calls:
+                if not isinstance(item, dict):
+                    continue
+                fn = item.get("function")
+                if not isinstance(fn, dict):
+                    continue
+                name = fn.get("name")
+                if not isinstance(name, str) or not name:
+                    continue
+                raw_args = fn.get("arguments")
+                if isinstance(raw_args, str):
+                    arg_text = raw_args
+                elif raw_args is None:
+                    arg_text = ""
+                else:
+                    arg_text = json.dumps(raw_args, ensure_ascii=False)
+                out.append(_LoggedCall(name, arg_text, pos, True))
+        for key, val in node.items():
+            if not isinstance(key, str) or key in _SYNC_SKIP_KEYS or key == "tool_calls":
+                continue
+            _append_sync_tool_calls(val, out, pos)
+    elif isinstance(node, list):
+        for item in node:
+            _append_sync_tool_calls(item, out, pos)
+
+
+def _sync_response_calls(log_text: str) -> list[_LoggedCall]:
+    """Tool calls the nested smol model actually emitted (sync path).
+
+    Specialized agents use ``request_with_tools`` with ``stream=False``.
+    That logs ``=== Sync response:`` plus the assistant ``tool_calls``,
+    then ``SmolToolAdapter`` runs the tool and logs only the name.
+    """
+    calls: list[_LoggedCall] = []
+    start = 0
+    while True:
+        idx = log_text.find(_SYNC_RESPONSE_MARK, start)
+        if idx < 0:
+            break
+        extracted = _extract_json_object(log_text, idx + len(_SYNC_RESPONSE_MARK))
+        if extracted is None:
+            start = idx + len(_SYNC_RESPONSE_MARK)
+            continue
+        payload, payload_at = extracted
+        start = payload_at + len(payload)
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        _append_sync_tool_calls(data, calls, payload_at)
+    return calls
+
+
+def _calls_from_log(log_text: str) -> list[_LoggedCall]:
     """Tool name + raw arguments from lines that record an executed call.
 
     Request-body few-shot examples live in ``"content"`` lines and are
     skipped. ``accumulated tool_calls`` is the model actually emitting a
     call; ``Tool call:`` / ``SmolToolAdapter`` / ``tool-async-`` are the
-    host running it.
+    host running it. Sync-response ``tool_calls`` supply the arguments the
+    Smol line does not include.
     """
-    calls: list[tuple[str, str]] = []
-    for line in log_text.splitlines():
+    calls: list[_LoggedCall] = []
+    offset = 0
+    for line in log_text.splitlines(keepends=True):
         tool_match = _TOOL_CALL_RE.search(line)
         if tool_match is not None:
-            calls.append((tool_match.group(1), tool_match.group(2)))
+            calls.append(_LoggedCall(tool_match.group(1), tool_match.group(2), offset + tool_match.start(), False))
         if "accumulated tool_calls" in line:
             for name, args in _ACCUM_CALL_RE.findall(line):
-                calls.append((name, args))
+                calls.append(_LoggedCall(name, args, offset, False))
         smol_match = _SMOL_EXEC_RE.search(line)
         if smol_match is not None:
-            calls.append((smol_match.group(1), ""))
+            calls.append(_LoggedCall(smol_match.group(1), "", offset + smol_match.start(), False))
         if "tool-async-" in line:
             for name in _TOOL_ASYNC_RE.findall(line):
-                calls.append((name, ""))
+                at = line.find(f"tool-async-{name}")
+                calls.append(_LoggedCall(name, "", offset + max(at, 0), False))
+        offset += len(line)
+    calls.extend(_sync_response_calls(log_text))
     return calls
+
+
+def _dtd_exec_pos(log_text: str) -> int | None:
+    """First Smol / tool-async execution of ``delegate_tool_domains``."""
+    pos: int | None = None
+    for match in _SMOL_EXEC_RE.finditer(log_text):
+        if match.group(1) == "delegate_tool_domains":
+            pos = match.start()
+            break
+    for match in _TOOL_ASYNC_RE.finditer(log_text):
+        if match.group(1) != "delegate_tool_domains":
+            continue
+        if pos is None or match.start() < pos:
+            pos = match.start()
+    return pos
+
+
+def _is_run_venv_exec_line(line: str) -> bool:
+    smol_match = _SMOL_EXEC_RE.search(line)
+    if smol_match is not None and smol_match.group(1) == "run_venv_python_script":
+        return True
+    if "tool-async-run_venv_python_script" in line:
+        return True
+    tool_match = _TOOL_CALL_RE.search(line)
+    if tool_match is not None and tool_match.group(1) == "run_venv_python_script":
+        return True
+    return "accumulated tool_calls" in line and "run_venv_python_script" in line
+
+
+def _line_carries_call_payload(line: str) -> bool:
+    """True for a logged call body, not prose that happens to mention domains."""
+    if "Tool call:" in line or "accumulated tool_calls" in line or "Calling tool:" in line:
+        return True
+    return '"arguments"' in line or "'arguments'" in line
+
+
+def _domain_markers_outside_content(log_text: str) -> tuple[bool, bool]:
+    """``(shapes, other)`` from executed payloads, not request ``content``.
+
+    A line that is only a ``"content"`` value is the python-domain few-shot
+    (or a later replay of that prompt). Arguments and ``Tool call:`` lines
+    are the host's record of a call. Indent=2 sync responses put ``content``
+    and ``arguments`` on different lines, so skipping content lines keeps
+    the few-shot out without dropping the tool-call payload.
+    """
+    shapes = False
+    other = False
+    for line in log_text.splitlines():
+        if _PROSE_KEY_RE.search(line) or not _line_carries_call_payload(line):
+            continue
+        decoded = _unescape_args(line)
+        if _SHAPES_DOMAIN_RE.search(decoded):
+            shapes = True
+        elif _DOMAINS_LIST_RE.search(decoded):
+            other = True
+    return shapes, other
+
+
+def _upsert_after_dtd(log_text: str, dtd_pos: int) -> bool:
+    """Executed ``run_venv`` after DTD, plus ``wa.shape.upsert`` not in content.
+
+    Both have to show up after the Smol / tool-async line. The shapes
+    few-shot is a ``"content"`` line and is ignored even when the next
+    request dumps it below the execution.
+    """
+    tail = log_text[dtd_pos:]
+    newline = tail.find("\n")
+    if newline < 0:
+        return False
+    saw_venv = False
+    saw_upsert = False
+    for line in tail[newline + 1:].splitlines():
+        if _PROSE_KEY_RE.search(line):
+            continue
+        decoded = _unescape_args(line)
+        if _is_run_venv_exec_line(line):
+            saw_venv = True
+            if "wa.shape.upsert" in decoded:
+                saw_upsert = True
+        elif "wa.shape.upsert" in decoded:
+            saw_upsert = True
+    return saw_venv and saw_upsert
+
+
+def _empty_dtd_counts_as_shapes(log_text: str, calls: list[_LoggedCall]) -> bool:
+    """Name-only nested DTD counts as shapes only with executed shapes evidence.
+
+    What was wrong: ``SmolToolAdapter executing … 'delegate_tool_domains'``
+    and ``tool-async-delegate_tool_domains`` were stored as ``(name, "")``.
+    The shapes check searched those empty args, so a host that really ran
+    the nested delegation (Gemini 3.5 Flash Lite stamp 20260927-0019) failed
+    with only "missing delegate_tool_domains with domains including shapes"
+    while python, ``run_venv``, and a 13-stripe page were already yes.
+
+    How: the nested agent is sync. The worker logs arguments on
+    ``=== Sync response:`` ``tool_calls`` (often above the Smol line) or
+    not at all when the adapter line is the only execution record.
+
+    Why this fixes it: arguments on that sync payload count. When the
+    adapter line is all we have, shapes counts if a non-content executed
+    payload shows ``domains`` including shapes. If no executed payload
+    names a domain list, shapes also counts when an executed
+    ``run_venv_python_script`` after that DTD places shapes
+    (``wa.shape.upsert``). An explicit domains list without shapes
+    (footnotes-only) does not, even if the prompt few-shot mentions both.
+    """
+    dtd_pos = _dtd_exec_pos(log_text)
+    has_empty = dtd_pos is not None or any(
+        call.name == "delegate_tool_domains" and not call.args.strip() for call in calls
+    )
+    if not has_empty:
+        return False
+    # Captured arguments win over a nearby shapes mention. Footnotes-only
+    # tool_calls stay false even when the prompt example or a later
+    # wa.shape.upsert line is in the same log.
+    saw_shapes_args = False
+    saw_other_args = False
+    for call in calls:
+        if call.name != "delegate_tool_domains" or not call.args.strip():
+            continue
+        if _SHAPES_DOMAIN_RE.search(_unescape_args(call.args)):
+            saw_shapes_args = True
+        else:
+            saw_other_args = True
+    if saw_shapes_args:
+        return True
+    if saw_other_args:
+        return False
+    shapes_line, other_line = _domain_markers_outside_content(log_text)
+    if shapes_line:
+        return True
+    if other_line:
+        return False
+    for call in calls:
+        if call.name != "run_venv_python_script" or "wa.shape.upsert" not in _unescape_args(call.args):
+            continue
+        # Sync-response args are the script that ran; the Smol line can flush later.
+        if call.from_sync or (dtd_pos is not None and call.pos > dtd_pos):
+            return True
+    if dtd_pos is None:
+        return False
+    return _upsert_after_dtd(log_text, dtd_pos)
 
 
 def _is_python_delegate(name: str, args: str) -> bool:
@@ -370,7 +649,8 @@ def _is_images_path(name: str, args: str) -> bool:
 
 def parse_path_evidence(log_text: str) -> PathEvidence:
     """Read process evidence from a debug log. Empty text is no evidence."""
-    calls = _calls_from_log(log_text or "")
+    text = log_text or ""
+    calls = _calls_from_log(text)
     python_domain = False
     delegate_shapes = False
     run_venv = False
@@ -378,7 +658,9 @@ def parse_path_evidence(log_text: str) -> PathEvidence:
     images_path = False
     script_placement = False
     shape_group_call = False
-    for name, args in calls:
+    for call in calls:
+        name = call.name
+        args = call.args
         decoded = _unescape_args(args)
         if _is_python_delegate(name, args):
             python_domain = True
@@ -394,7 +676,11 @@ def parse_path_evidence(log_text: str) -> PathEvidence:
             images_path = True
         if name == "shape_group" or "wa.shape.group" in decoded:
             shape_group_call = True
-    if any(marker in (log_text or "") for marker in _CREATE_SHAPE_MARKERS):
+    # Nested DTD is executed with empty args on the Smol / tool-async line.
+    # Infer shapes only from later executed evidence, not from few-shot content.
+    if not delegate_shapes and _empty_dtd_counts_as_shapes(text, calls):
+        delegate_shapes = True
+    if any(marker in text for marker in _CREATE_SHAPE_MARKERS):
         script_placement = True
     return PathEvidence(
         python_domain=python_domain,

@@ -28,8 +28,22 @@ partial** (0.875) and still passes. No failures and no soft note is
 
 Process lines are **executed** calls only (`Tool call:`,
 `streaming_loop: accumulated tool_calls`, `SmolToolAdapter executing`,
-`tool-async-`). Few-shot text that mentions the same tool names does
-not count.
+`tool-async-`, and `=== Sync response:` `tool_calls`). Few-shot text
+that mentions the same tool names does not count. That text sits on
+request `"content"` lines.
+
+Nested `delegate_tool_domains` is often only
+`SmolToolAdapter executing async tool 'delegate_tool_domains'` (or
+`tool-async-delegate_tool_domains`) with no arguments. The worker logs
+the arguments on the sync-response `tool_calls` object, which can appear
+above that Smol line. Those arguments count. When the arguments were
+not logged, the empty execution still counts as shapes if a non-content
+executed payload shows `domains` including `shapes`, or if no executed
+payload names a domain list and an executed `run_venv_python_script`
+after that call places shapes (`wa.shape.upsert`). A footnotes-only
+delegation does not pass this check. Gemini 3.5 Flash Lite stamp
+`20260927-0019` was a false red on this check alone: python, venv, and
+13 stripes were already present.
 
 Geometry is `content.xml` on the Writer draw page. LibreOffice stores
 shape sizes in inches on a Writer save (`19001` HMM → `7.4807in`). The
