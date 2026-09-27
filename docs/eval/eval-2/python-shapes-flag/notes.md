@@ -11,7 +11,7 @@ Do not lengthen it and do not add a flag few-shot.
 
 | Path | Why it is not this slot |
 |------|-------------------------|
-| OpenRouter string harness (`scripts/prompt_optimization/`) | No `run_venv_python_script` and no `domain=python`. It cannot run this Ask. |
+| OpenRouter-only `--backend string` | No honest `run_venv_python_script` / `domain=python`. It cannot run this Ask alone. |
 | `smol_examples` flag few-shot | Already rejected. The shapes example stays a generic ring of circles. |
 | [`draw-primary-deliverable/`](../draw-primary-deliverable/) | Draw process-flow map. Different problem. This slot is **Writer**. |
 
@@ -23,6 +23,10 @@ Untitled documents, not `.odg`. `--launch` opens a blank
 fixture. No peer.
 
 ## Oracle
+
+Eval-1 task `python_shapes_flag` (`backend=lo`) reuses this gate on the
+harness tool trace plus a headless Writer `.odt` export. It does not
+read `writeragent_debug.log`. Headed eval-2 below is still the human path.
 
 Hard gate in [`rubric.eval2.md`](rubric.eval2.md): executed python
 specialized path, `delegate_tool_domains` including shapes,

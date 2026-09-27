@@ -111,13 +111,21 @@ def _merge_usage(acc: dict[str, int], usage: dict[str, Any] | None) -> None:
     acc["total_tokens"] = acc.get("total_tokens", 0) + tt
 
 
-def _dispatch_lo_tool(name: str, raw_args: str, *, verbose: bool) -> str:
+def _dispatch_lo_tool(
+    name: str,
+    raw_args: str,
+    *,
+    verbose: bool,
+    python_tool_domain: str | None = None,
+) -> str:
     import tools_lo as tl
 
     args = safe_json_loads(raw_args)
     if not isinstance(args, dict):
         args = {}
-    return tl.execute_lo_tool(name, args, verbose=verbose)
+    return tl.execute_lo_tool(
+        name, args, verbose=verbose, python_tool_domain=python_tool_domain
+    )
 
 
 def _parse_tool_call(tc: Any) -> tuple[str, str, str]:
@@ -135,6 +143,7 @@ def _dispatch_world_tool(
     *,
     backend: BackendKind,
     verbose: bool,
+    python_tool_domain: str | None = None,
 ) -> str:
     if name == SPECIALIZED_FINISH:
         args = safe_json_loads(raw_args)
@@ -161,7 +170,12 @@ def _dispatch_world_tool(
             rp = result if len(result) <= 400 else result[:400] + "..."
             print(f"  [Tool->] {rp!r}", flush=True)
         return result
-    return _dispatch_lo_tool(name, raw_args or "{}", verbose=verbose)
+    return _dispatch_lo_tool(
+        name,
+        raw_args or "{}",
+        verbose=verbose,
+        python_tool_domain=python_tool_domain,
+    )
 
 
 def _eval_tools(
@@ -187,6 +201,63 @@ def _eval_tools(
     )
 
 
+def delegated_domain_schemas(
+    kind: str,
+    domains: list[str],
+    *,
+    schema_patches: dict[str, dict[str, Any]] | None = None,
+    tools_spec: str | None = None,
+    schema_density: str = "full",
+) -> list[dict[str, Any]]:
+    """Schemas for the inner hop after ``delegate_tool_domains``.
+
+    Mirrors ``gather_domain_tools``: shape mutators stay off the LLM list
+    (the script calls them), ``run_venv_python_script`` is added because a
+    shapes lookup does not return it, and ``delegate_tool_domains`` is
+    omitted so this hop cannot start another one.
+    """
+    from plugin.doc.python_domain_specialized import script_only_llm_tool_names
+
+    from eval_catalog import schema_tool_name
+
+    hidden: set[str] = set(DELEGATE_TOOL_NAMES)
+    hidden.add("delegate_tool_domains")
+    for domain in domains:
+        hidden |= set(script_only_llm_tool_names(domain))
+
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _add(row: dict[str, Any]) -> None:
+        name = schema_tool_name(row)
+        if not name or name in seen or name in hidden:
+            return
+        seen.add(name)
+        rows.append(row)
+
+    schema_kw = {
+        "schema_patches": schema_patches,
+        "tools_spec": tools_spec,
+        "schema_density": schema_density,
+    }
+    for domain in domains:
+        for row in _eval_tools(kind=kind, active_domain=domain, **schema_kw):
+            _add(row)
+    if "run_venv_python_script" not in seen or SPECIALIZED_FINISH not in seen:
+        for row in _eval_tools(kind=kind, active_domain="python", **schema_kw):
+            name = schema_tool_name(row)
+            if name in ("run_venv_python_script", SPECIALIZED_FINISH):
+                _add(row)
+    return rows
+
+
+def _unsupported_delegate(message: str) -> str:
+    return json.dumps(
+        {"status": "error", "code": "unsupported_in_eval", "message": message},
+        ensure_ascii=False,
+    )
+
+
 def _run_specialized_inner(
     *,
     kind: str,
@@ -206,8 +277,17 @@ def _run_specialized_inner(
     schema_patches: dict[str, dict[str, Any]] | None = None,
     tools_spec: str | None = None,
     schema_density: str = "full",
+    tools_override: list[dict[str, Any]] | None = None,
+    python_tool_domain: str | None = None,
+    allow_delegate_domains: bool = True,
 ) -> str:
-    """Bounded inner LlmClient loop (not SmolAgents) on the same world."""
+    """Bounded inner LlmClient loop (not SmolAgents) on the same world.
+
+    ``tools_override`` is the post-``delegate_tool_domains`` catalog (venv
+    script, shape mutators hidden). ``python_tool_domain`` is forwarded into
+    production ``run_venv_python_script`` so the script allowlist matches
+    the inner agent (``shapes,core``).
+    """
     domain = str(domain or "").strip()
     task = str(task or "").strip()
     if not domain:
@@ -220,13 +300,16 @@ def _run_specialized_inner(
         )
     # Keep specialized schemas (sort_range, shapes, …). Density + MIPRO
     # patches still apply; the outer --tools allowlist does not.
-    tools = _eval_tools(
-        kind=kind,
-        active_domain=domain,
-        schema_patches=schema_patches,
-        tools_spec=tools_spec,
-        schema_density=schema_density,
-    )
+    if tools_override is not None:
+        tools = tools_override
+    else:
+        tools = _eval_tools(
+            kind=kind,
+            active_domain=domain,
+            schema_patches=schema_patches,
+            tools_spec=tools_spec,
+            schema_density=schema_density,
+        )
     if student == "scripted":
         inner_client = client
         messages: list[dict[str, Any]] = []
@@ -244,7 +327,14 @@ def _run_specialized_inner(
                 "content": (
                     f"You are a specialized {kind} task executor for domain '{domain}'. "
                     "Use the provided tools to complete the task. "
-                    f"Call {SPECIALIZED_FINISH} when done."
+                    + (
+                        " Place shapes with one run_venv_python_script "
+                        "(import writeragent as wa; wa.shape.upsert) at page scale. "
+                        "shape_upsert is not in this tool list."
+                        if python_tool_domain
+                        else ""
+                    )
+                    + f" Call {SPECIALIZED_FINISH} when done."
                 ),
             },
             {"role": "user", "content": task},
@@ -280,7 +370,27 @@ def _run_specialized_inner(
         stop_inner = False
         for tc in tool_calls:
             name, raw_args, tid = _parse_tool_call(tc)
-            if name in DELEGATE_TOOL_NAMES:
+            if name == "delegate_tool_domains":
+                result = _dispatch_delegate_tool_domains(
+                    kind=kind,
+                    raw_args=raw_args,
+                    state=state,
+                    client=client,
+                    endpoint=endpoint,
+                    api_key=api_key,
+                    model=model,
+                    backend=backend,
+                    max_tokens=max_tokens,
+                    verbose=verbose,
+                    student=student,
+                    usage_acc=usage_acc,
+                    trace=trace,
+                    schema_patches=schema_patches,
+                    tools_spec=tools_spec,
+                    schema_density=schema_density,
+                    allow=allow_delegate_domains,
+                )
+            elif name in DELEGATE_TOOL_NAMES:
                 result = json.dumps(
                     {
                         "status": "error",
@@ -290,7 +400,12 @@ def _run_specialized_inner(
                 )
             else:
                 result = _dispatch_world_tool(
-                    state, name, raw_args, backend=backend, verbose=verbose
+                    state,
+                    name,
+                    raw_args,
+                    backend=backend,
+                    verbose=verbose,
+                    python_tool_domain=python_tool_domain,
                 )
             entry = _trace_entry(name, raw_args, result)
             entry["domain"] = domain
@@ -316,6 +431,108 @@ def _run_specialized_inner(
             "message": answer or "Specialized task finished.",
         },
         ensure_ascii=False,
+    )
+
+
+def _dispatch_delegate_tool_domains(
+    *,
+    kind: str,
+    raw_args: str,
+    state: WriterWorld | DrawWorld | CalcWorld,
+    client: Any,
+    endpoint: str,
+    api_key: str,
+    model: str,
+    backend: BackendKind,
+    max_tokens: int,
+    verbose: bool,
+    student: Literal["llm", "scripted"],
+    usage_acc: dict[str, int],
+    trace: list[dict[str, Any]],
+    schema_patches: dict[str, dict[str, Any]] | None,
+    tools_spec: str | None,
+    schema_density: str,
+    allow: bool,
+) -> str:
+    """Harness hop for ``delegate_tool_domains``.
+
+    Production ``DelegateToolDomains.execute`` starts SmolAgents. That inner
+    ``run_venv_python_script`` would only show up in ``writeragent_debug.log``.
+    Eval-1 scores the harness trace, so this loop records the venv call and
+    still executes it through ``tools_lo`` / ``get_tools().execute``.
+    The string world has no honest venv or shapes — refuse instead of faking.
+    """
+    if backend != "lo":
+        return _unsupported_delegate(
+            "delegate_tool_domains requires the headless LO backend "
+            "(no string-world venv or shapes)."
+        )
+    if not allow:
+        return _unsupported_delegate("Nested delegate_tool_domains is not allowed.")
+    args = safe_json_loads(raw_args)
+    if not isinstance(args, dict):
+        args = {}
+    from plugin.doc.python_domain_specialized import (
+        normalize_domain_list,
+        validate_requested_domains,
+    )
+    from plugin.scripting.host_rpc import inner_script_tool_domain
+
+    names, names_err = normalize_domain_list(args.get("domains"))
+    if names_err or not names:
+        return json.dumps(
+            {
+                "status": "error",
+                "code": "DOMAINS_REQUIRED",
+                "message": names_err or "domains must be a non-empty list of specialized domain names.",
+            },
+            ensure_ascii=False,
+        )
+    label = {"calc": "Calc", "draw": "Draw"}.get(kind, "Writer")
+    message, code = validate_requested_domains(names, label, None)
+    if message:
+        return json.dumps(
+            {
+                "status": "error",
+                "code": code or "UNKNOWN_SPECIALIZED_DOMAIN",
+                "message": message,
+            },
+            ensure_ascii=False,
+        )
+    task = args.get("task")
+    if not isinstance(task, str) or not task.strip():
+        return json.dumps(
+            {"status": "error", "code": "TASK_REQUIRED", "message": "task is required."},
+            ensure_ascii=False,
+        )
+    tools = delegated_domain_schemas(
+        kind,
+        names,
+        schema_patches=schema_patches,
+        tools_spec=tools_spec,
+        schema_density=schema_density,
+    )
+    return _run_specialized_inner(
+        kind=kind,
+        domain=",".join(names),
+        task=task.strip(),
+        state=state,
+        client=client,
+        endpoint=endpoint,
+        api_key=api_key,
+        model=model,
+        backend=backend,
+        max_tokens=max_tokens,
+        verbose=verbose,
+        student=student,
+        usage_acc=usage_acc,
+        trace=trace,
+        schema_patches=schema_patches,
+        tools_spec=tools_spec,
+        schema_density=schema_density,
+        tools_override=tools,
+        python_tool_domain=inner_script_tool_domain(names),
+        allow_delegate_domains=False,
     )
 
 
@@ -449,6 +666,27 @@ def run_llm_chat_eval(
                 if not name:
                     result = json.dumps(
                         {"status": "error", "message": "Missing tool name"}
+                    )
+                    trace.append(_trace_entry(name, raw_args, result))
+                elif name == "delegate_tool_domains":
+                    result = _dispatch_delegate_tool_domains(
+                        kind=kind,
+                        raw_args=raw_args,
+                        state=state,
+                        client=client,
+                        endpoint=endpoint,
+                        api_key=api_key,
+                        model=model,
+                        backend=backend,
+                        max_tokens=max_tokens,
+                        verbose=verbose,
+                        student=student,
+                        usage_acc=usage_acc,
+                        trace=trace,
+                        schema_patches=schema_patches,
+                        tools_spec=tools_spec,
+                        schema_density=schema_density,
+                        allow=True,
                     )
                     trace.append(_trace_entry(name, raw_args, result))
                 elif name in DELEGATE_TOOL_NAMES:

@@ -39,7 +39,7 @@ def _stub_draw() -> Any:
     return _stub_doc("com.sun.star.drawing.DrawingDocument")
 
 
-def _prompt_for_kind(kind: str) -> str:
+def _prompt_for_kind(kind: str, note: str | None = None) -> str:
     """Same assembly as ``get_chat_system_prompt_for_document`` with ``ctx=None``."""
     from plugin.framework.prompts import get_chat_system_prompt_for_document
 
@@ -49,7 +49,19 @@ def _prompt_for_kind(kind: str) -> str:
         model = _stub_draw()
     else:
         model = _stub_writer()
-    return get_chat_system_prompt_for_document(model, EVAL_HARNESS_NOTE, ctx=None)
+    return get_chat_system_prompt_for_document(model, note if note is not None else EVAL_HARNESS_NOTE, ctx=None)
+
+
+# The string-harness note forbids domain=python (=PY rows). The flag is the
+# one task that must take that path, on headless LO.
+FLAG_HARNESS_NOTE = (
+    "[Eval harness] This row is headless LibreOffice, not the string simulator. "
+    'Call delegate_to_specialized_writer_toolset with domain="python". '
+    "That agent must call delegate_tool_domains with domains including shapes, "
+    "then one run_venv_python_script that places shapes with wa.shape.upsert "
+    "at page scale (about 10000–20000 HMM wide). "
+    "Do not use domain=images or LLM-only shape_upsert."
+)
 
 
 def get_writer_eval_chat_system_prompt() -> str:
@@ -67,6 +79,8 @@ def get_draw_eval_chat_system_prompt() -> str:
 def get_eval_system_prompt(task_id: str = "") -> str:
     from dataset import task_kind
 
+    if task_id == "python_shapes_flag":
+        return _prompt_for_kind("writer", FLAG_HARNESS_NOTE)
     return _prompt_for_kind(task_kind(task_id))
 
 

@@ -3,10 +3,14 @@
 WriterAgent-native. There is no gold rubric. The Ask is the one line in
 [`prompt.writeragent.txt`](prompt.writeragent.txt). This variant scores
 the **saved Writer document** (`.odt`) and the run-stamp
-`writeragent_debug.log`. Do **not** score a Draw `.odg` or an images
+`writeragent_debug.log`. Eval-1 task `python_shapes_flag` reuses these
+checks on the harness tool trace plus a headless `storeToURL` `.odt`
+(`log_missing` stays false). Do **not** score a Draw `.odg` or an images
 PNG. Chat Ready / STREAM_DONE is ignored.
 
-The string harness cannot run this Ask (no `run_venv` / `domain=python`).
+OpenRouter-only `--backend string` cannot run this Ask (no honest
+`run_venv_python_script` / `domain=python`). The mixed pack uses
+`--backend auto`, which sends this row to headless LO.
 
 ## Calibration (matrix floor)
 

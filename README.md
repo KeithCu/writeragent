@@ -108,7 +108,7 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ## Benchmarks & Evaluation
 
-WriterAgent's **LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. The **2026-09-11 snapshot** uses the **17-task string harness** — it emulates document and tool behavior without running LibreOffice (OpenRouter, live token pricing). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
+WriterAgent's **LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. The **2026-09-11 snapshot** uses the **17-task string harness** — it emulates document and tool behavior without running LibreOffice (OpenRouter, live token pricing). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md). The table below still names `openai/gpt-5.6-luna` and `deepseek/deepseek-v4-flash-0731`. Those ids have left the live eval-1 catalog; gold generation defaults to `openai/gpt-6-luna`, and DeepSeek Flash is `deepseek/deepseek-v4.1-flash` only.
 
 ![Cost–quality Pareto fronts](docs/eval/pareto-fronts.svg)
 

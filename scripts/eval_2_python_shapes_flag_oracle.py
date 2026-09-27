@@ -639,11 +639,21 @@ def _is_python_delegate(name: str, args: str) -> bool:
     return _PYTHON_DOMAIN_RE.search(_unescape_args(args)) is not None
 
 
+_IMAGES_DOMAINS_RE = re.compile(
+    r"""["']domains["']\s*:\s*\[[^\]]*["']images["']""",
+    re.IGNORECASE,
+)
+
+
 def _is_images_path(name: str, args: str) -> bool:
+    decoded = _unescape_args(args)
     if name in _IMAGE_TOOL_NAMES:
         return True
     if name.startswith("delegate_to_specialized_") and name.endswith("_toolset"):
-        return _IMAGES_DOMAIN_RE.search(_unescape_args(args)) is not None
+        return _IMAGES_DOMAIN_RE.search(decoded) is not None
+    # delegate_tool_domains(domains=["images"]) is the same wrong route.
+    if name == "delegate_tool_domains" and _IMAGES_DOMAINS_RE.search(decoded):
+        return True
     return False
 
 
@@ -682,6 +692,51 @@ def parse_path_evidence(log_text: str) -> PathEvidence:
         delegate_shapes = True
     if any(marker in text for marker in _CREATE_SHAPE_MARKERS):
         script_placement = True
+    return PathEvidence(
+        python_domain=python_domain,
+        delegate_shapes=delegate_shapes,
+        run_venv=run_venv,
+        llm_shape_upsert=llm_shape_upsert,
+        images_path=images_path,
+        script_placement=script_placement,
+        shape_group_call=shape_group_call,
+    )
+
+
+def evidence_from_eval_trace(trace: list[dict[str, object]] | None) -> PathEvidence:
+    """Path checks from the eval-1 harness trace, not ``writeragent_debug.log``.
+
+    Each entry is one executed tool call (``name`` + JSON ``arguments``),
+    including nested specialized rounds. Few-shot text never appears here,
+    so the headed log's content-line filter is unnecessary. A missing trace
+    is empty evidence; the caller decides whether that fails closed.
+    """
+    python_domain = False
+    delegate_shapes = False
+    run_venv = False
+    llm_shape_upsert = False
+    images_path = False
+    script_placement = False
+    shape_group_call = False
+    for entry in trace or []:
+        name = str(entry.get("name") or "")
+        args = entry.get("arguments")
+        blob = args if isinstance(args, str) else ""
+        decoded = _unescape_args(blob)
+        if _is_python_delegate(name, blob):
+            python_domain = True
+        if name == "delegate_tool_domains" and _SHAPES_DOMAIN_RE.search(decoded):
+            delegate_shapes = True
+        if name == "run_venv_python_script":
+            run_venv = True
+            if "wa.shape.upsert" in decoded:
+                script_placement = True
+        if name == "shape_upsert":
+            llm_shape_upsert = True
+        if _is_images_path(name, blob):
+            images_path = True
+        if name == "shape_group" or "wa.shape.group" in decoded:
+            shape_group_call = True
     return PathEvidence(
         python_domain=python_domain,
         delegate_shapes=delegate_shapes,

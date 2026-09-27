@@ -21,6 +21,7 @@ def test_parse_args_defaults_keep_full_catalog() -> None:
     assert args.schema_density == "full"
     assert args.student == "llm"
     assert args.backend == "string"
+    assert args.jobs == 1
 
 
 def test_parse_args_tools_and_schema_density() -> None:
@@ -30,3 +31,7 @@ def test_parse_args_tools_and_schema_density() -> None:
     assert args.tools == "calc_minimal"
     assert args.schema_density == "skinny"
     assert args.example == "data_sorting"
+    mixed = run_eval.parse_args(["--backend", "auto", "-j", "4", "-e", "a,b"])
+    assert mixed.backend == "auto"
+    assert mixed.jobs == 4
+    assert mixed.example == "a,b"

@@ -26,8 +26,14 @@ def test_task_kind_from_task_id() -> None:
 
 
 def test_scripts_cover_all_examples() -> None:
+    """String rows have a replay. The flag is LO-only and has no script."""
     ids = {ex["task_id"] for ex in ALL_EXAMPLES}
-    assert ids <= set(SCRIPTS)
+    string_ids = {
+        ex["task_id"] for ex in ALL_EXAMPLES if ex.get("backend", "string") != "lo"
+    }
+    assert string_ids <= set(SCRIPTS)
+    assert "python_shapes_flag" in ids
+    assert "python_shapes_flag" not in SCRIPTS
 
 
 def test_playback_order_and_stop_on_content_only() -> None:

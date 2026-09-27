@@ -118,17 +118,51 @@ Optimization and multi-model eval use **result oracles** for structural tasks (`
 
 ## Dataset
 
-`dataset.py` `ALL_EXAMPLES` is **17 tasks**: 12 Writer (the original 8 plus `style_consistency`, `smart_summarization`, `section_refactor`, `comment_management`) plus `flowchart_gen` (Draw), `data_sorting` / `tax_column` (Calc), and two Phase F `=PY` dest rows (`py_refuse_overlap`, `py_no_bulk_read`). Each has fixed `document_content` and `user_question` so runs are comparable. Kind is keyed by `task_id` (`task_kind()`), not question keywords.
+`dataset.py` `ALL_EXAMPLES` is **18 tasks**: 12 Writer (the original 8 plus `style_consistency`, `smart_summarization`, `section_refactor`, `comment_management`) plus `flowchart_gen` (Draw), `data_sorting` / `tax_column` (Calc), two Phase F `=PY` dest rows (`py_refuse_overlap`, `py_no_bulk_read`), and `python_shapes_flag` (Writer, `backend=lo`). Each has fixed `document_content` and `user_question` so runs are comparable. Kind is keyed by `task_id` (`task_kind()`), not question keywords. Rows omit `backend` to stay on the string world. The flag cannot be faked there.
 
-Hard pass is the **exported final document** plus process oracles (`oracles.py` / `process_oracles.py`). A quality LLM judge runs **after** that gate for resume, rewriting, summarization, and the two table tasks. Eval does not set sampling temperature. `gold_standards.json` is hand-written from the rubrics (no live teacher API unless `--generate-golds`). Specialized Draw/Calc tools are reached through an inner `LlmClient` loop (`domain="shapes"` / `"ranges"`), not SmolAgents.
+Hard pass is the **exported final document** plus process oracles (`oracles.py` / `process_oracles.py`). `python_shapes_flag` is the exception: hard pass is the harness trace plus exported Writer geometry (`flag_eval.py`). Under-counted stars are soft and do not fail. A quality LLM judge runs **after** that gate for resume, rewriting, summarization, and the two table tasks. Eval does not set sampling temperature. `gold_standards.json` is hand-written from the rubrics (no live teacher API unless `--generate-golds`). Specialized Draw/Calc tools are reached through an inner `LlmClient` loop (`domain="shapes"` / `"ranges"`), not SmolAgents.
 
 ## Tool subset
 
-`--backend string` (default) is an in-memory simulator (`string_eval_tools.py`). `--backend lo` is **headless UNO**: `tools_lo.py` starts `soffice --headless`, serializes all UNO onto `_lo_thread` via `LOBackend.call`, and executes production tools with `bypass_thread_guard=True`. Do not use `tests/eval_runner.py` or `make lo-start` for this path.
+`--backend string` (default) is an in-memory simulator (`string_eval_tools.py`). It **skips** rows that declare `backend=lo` (`python_shapes_flag`), so today's OpenRouter boards stay the original 17 tasks. `--backend lo` forces **headless UNO** for every selected row: `tools_lo.py` starts `soffice --headless`, serializes all UNO onto `_lo_thread` via `LOBackend.call`, and executes production tools with `bypass_thread_guard=True`. `--backend auto` honors each row's `backend` and is the mixed 18-task pack. Do not use `tests/eval_runner.py` or `make lo-start` for this path. Do not set `WRITERAGENT_TESTING=1` (that swaps in `QueueExecutor` on the wrong thread).
 
-`--student scripted` replays `scripted_student.SCRIPTS` (no `LlmClient`, no API key, result oracles + honest substring checks). `--student llm` (default) uses a live model and still needs a key. `--no-judge` skips the quality judge.
+`--student scripted` replays `scripted_student.SCRIPTS` (no `LlmClient`, no API key, result oracles + honest substring checks). The flag has **no** script. `--student llm` (default) uses a live model and still needs a key. `--no-judge` skips the quality judge.
 
-`-j N` in `run_eval_multi.py` is **ThreadPoolExecutor** over **models** (default **20**; each model still runs its 17 tasks serially). UNO is already serialized on `_lo_thread`. Do **not** `ProcessPoolExecutor` against one soffice. Scripted green runs use `-j 1`. Per-task banners include `model=` so interleaved workers are readable.
+### Mixed backends (dual lane)
+
+`--backend` used to be run-global. Each example may now set `backend` to `string` or `lo` (omitted means `string`). `auto` uses that field. `string` and `lo` still force one backend for the invocation.
+
+From t=0 the scheduler does **not** finish the string pack and then start LibreOffice:
+
+- A **string pool** (`run_eval.py -j N`, default 1) runs string rows concurrently.
+- One **LO lane** (`eval-lo-lane`) runs every `lo` row FIFO, in front of the existing `_lo_thread` / one soffice. Two LO tasks never touch UNO at once.
+- LO work is queued before the pool waits, so it is in flight while string tasks are still running. Wall clock approaches `max(string_parallel, lo_serial)`, not the sum.
+- A string row never blocks on the LO queue. Only a row whose own backend is `lo` waits there.
+
+`run_eval_multi.py -j N` is still **models** (default 20). Inside one model, string tasks stay serial. Models share **one** LO lane, so flag rows from several models queue FIFO while those models' string tasks overlap. Do **not** `ProcessPoolExecutor` against one soffice. Per-task banners include `model=`; an LO row also prints `backend=lo`.
+
+`delegate_tool_domains` on the string world returns `unsupported_in_eval`. There is no fake `run_venv_python_script`. On LO, the harness runs that hop as an inner `LlmClient` loop (not SmolAgents) so `run_venv_python_script` is on the **harness trace**, then executes it through production tools with `python_tool_domain=shapes,core`. Shape mutators stay off the inner LLM list. Headed eval-2 still scores `writeragent_debug.log`; this row does not.
+
+```bash
+# Original 17, no soffice. Comparable with the 2026-09-11 boards.
+python scripts/prompt_optimization/run_eval.py --backend string --student scripted --no-bust-cache
+
+# Same 17: auto + scripted prints a skip note for the flag (no script).
+python scripts/prompt_optimization/run_eval.py --backend auto --student scripted --no-bust-cache
+
+# Live flag only. Needs OPENROUTER_API_KEY (or equivalent) and soffice.
+python scripts/prompt_optimization/run_eval.py --backend auto -e python_shapes_flag
+
+# Full mixed pack (17 string + flag). String pool overlaps the LO lane.
+python scripts/prompt_optimization/run_eval.py --backend auto -j 4
+
+# Explicit string request for the flag is an error (cannot fake venv/shapes).
+python scripts/prompt_optimization/run_eval.py --backend string -e python_shapes_flag
+```
+
+OpenRouter-only `--backend string` still cannot run the flag alone. CI without soffice cannot execute that live row; scheduler and oracle unit tests do not need it. Do not average a mixed 18-pack with the September 2026 17-task CSV.
+
+`-j N` on `run_eval.py` is the string-pool width above. Scripted green runs use `-j 1`.
 
 DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to restrict which tools the ReAct mock sees. Live `--student llm` uses `eval_catalog.build_eval_tool_schemas` (same as `run_eval_multi`) and now accepts the same **tool-count** / **schema-density** knobs as `run_eval.py` (see below). MIPROv2 still cannot search those structural knobs — run a dropper sweep on the live harness instead.
 
@@ -136,7 +170,7 @@ DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to r
 
 Production sidebar registration is unchanged. These flags only reshape the **advertised** eval catalog.
 
-**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed 17-task run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `sort_range` / ranges-domain schemas.
+**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `sort_range` / ranges-domain schemas.
 
 | Preset | Kind | Outer tools (production names) |
 |--------|------|--------------------------------|
@@ -215,14 +249,16 @@ python merge_benchmark_results.py \
 
 ### Eval framework (summary)
 
-- **Dataset** (`dataset.py`): 17 fixed tasks (12 Writer + Draw flowchart + 2 Calc + 2 `=PY` dest) with assigned `category` (structural or creative).
+- **Dataset** (`dataset.py`): 18 fixed tasks (12 Writer + Draw flowchart + 2 Calc + 2 `=PY` dest + `python_shapes_flag` on LO) with assigned `category` (structural or creative). `--backend string` runs the first 17.
 - **Result oracles** (`oracles.py`): Structural correctness from the exported final doc (table Total, 8% tax, Revenue desc, heading order, …). Not tool-name traces.
-- **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. Used only as the quality-judge reference for resume / rewrite / summary / tables. `--generate-golds` can merge a teacher run with `--gold-model` (default `openai/gpt-5.6-luna`; not used during ranking).
+- **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. Used only as the quality-judge reference for resume / rewrite / summary / tables. `--generate-golds` can merge a teacher run with `--gold-model` (default `openai/gpt-6-luna`; not used during ranking).
 - **Program**: default `program_llm.LiveEvalStudent` injects a named slice then calls `llm_chat_eval` (same student as `run_eval_multi`). Optional `program.py` `WriterAssistant` (ReAct + mocks) behind `--student react-mock`.
 - **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables; token penalty; slice-length penalty (~2× seed). Shared via `eval_core` / `metric.py` for `run_optimize` (MIPROv2) and `run_eval_multi`.
 - **Multi-model**: `run_eval_multi.py` ranks by hard pass / agent / quality; C²/$ is secondary. `--models` is required.
 
 ### Benchmark results (2026-09-11, 17-task string harness)
+
+This table is the **string** snapshot. The live pack is 18 tasks; `python_shapes_flag` is not in these numbers. Keep comparing models with `--backend string`. A later `--backend auto` run is a different mix. The snapshot still names `openai/gpt-5.6-luna` and `deepseek/deepseek-v4-flash-0731`. Those ids have left the live catalog: gold generation defaults to `openai/gpt-6-luna`, and the DeepSeek Flash row is `deepseek/deepseek-v4.1-flash` only.
 
 Calc fill-down refresh (`data_sorting` + `tax_column`) for the full catalog after Tip A/B + harness `expand_single_formula` (#733). Other 15 tasks carried forward. Artifacts: `benchmark_results.json`, `benchmark_results_details.json`, plus `benchmark_results_calc_filldown_2026-09-11*.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`. Triage: [`docs/eval/benchmark-failure-analysis-2026-09-01.md`](../../docs/eval/benchmark-failure-analysis-2026-09-01.md).
 

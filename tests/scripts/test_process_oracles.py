@@ -79,6 +79,22 @@ def test_bulk_read_fails_no_bulk_task() -> None:
     assert any("bulk" in f for f in fails)
 
 
+def test_flag_task_allows_domain_python() -> None:
+    # =PY rows forbid domain=python. The flag requires that path, so the
+    # same trace must not zero it before the flag oracle runs.
+    trace = [
+        {
+            "name": "delegate_to_specialized_writer_toolset",
+            "arguments": json.dumps({"domain": "python", "task": "flag"}),
+            "result_status": "ok",
+            "result_chars": 10,
+            "error_code": "",
+        }
+    ]
+    assert check_process("python_shapes_flag", trace) == []
+    assert any("domain=python" in f for f in check_process("table_from_mess", trace))
+
+
 def test_domain_python_fails() -> None:
     trace = [
         {

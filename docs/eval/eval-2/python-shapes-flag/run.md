@@ -1,7 +1,9 @@
 # Run — python domain + shapes American flag
 
-Manual Writer chat trial. Not wired into `dataset.py` / `run_eval`.
-The string harness cannot run this Ask (no `run_venv` / `domain=python`).
+Manual Writer chat trial (headed). The same Ask is eval-1 task
+`python_shapes_flag` (`backend=lo`), scored from the harness trace and
+an exported `.odt` — no headed GUI and no `writeragent_debug.log` on
+that path. OpenRouter-only `--backend string` still cannot run this Ask.
 Matrix runners that already call `scripts/eval_2_headed.py --task` can
 launch this slot the same way as the other headed tasks.
 

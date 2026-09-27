@@ -41,7 +41,7 @@ oracle exist. **Stub** means fixture notes only — not headed-ready gold.
 | 8 | [`draw-primary-deliverable/`](draw-primary-deliverable/) | Draw-primary (process flow map) | Ready | `8a7b6fca-60cc-4ae3-b649-971753cbf8b9` |
 | 9 | [`reverse-tenant/`](reverse-tenant/) | Calc deliverable; Writer brief sibling | Ready | `4520f882-715a-482d-8e87-1cb3cbdfe975` |
 | 10 | [`long-writer-pack/`](long-writer-pack/) | Long Writer pack (TOC + styles + comments) | Headed-ready (native fixture) | WriterAgent-native; no in-repo gold fits |
-| 11 | [`python-shapes-flag/`](python-shapes-flag/) | Writer python domain → shapes American flag | Headed-ready | WriterAgent-native Ask; string harness cannot run it |
+| 11 | [`python-shapes-flag/`](python-shapes-flag/) | Writer python domain → shapes American flag | Headed-ready | WriterAgent-native Ask. Eval-1 `python_shapes_flag` scores it headless (trace + `.odt`). This headed path stays the human run. OpenRouter-only string cannot run it. |
 
 Headed helper: `scripts/eval_2_headed.py` writes `chatbot.max_tool_rounds`
 to **50** (AFC / Tenant / Cadaver / Long Writer pack / Draw-primary /
@@ -142,8 +142,11 @@ Draw-primary `--launch` copies **only** `Process Flow Map.odg` into
 product). The gold PDF is not staged.
 Python-shapes flag `--launch` writes a blank `American Flag.odt` into
 `$TMP/writeragent-eval2-python-shapes-flag` and opens it in Writer.
-Shapes go on that document’s draw page. The string harness cannot run
-this Ask.
+Shapes go on that document’s draw page. Headed eval-2 stays the human
+path (`writeragent_debug.log` + the saved `.odt`). The eval-1 pack
+scores the same Ask headless:
+`python scripts/prompt_optimization/run_eval.py --backend auto -e python_shapes_flag`.
+`--backend string` alone still cannot run it.
 
 Oracles: [`scripts/eval_2_ods_oracle.py`](../../scripts/eval_2_ods_oracle.py)
 (AFC workbook),

@@ -117,9 +117,13 @@ def parse_args(argv: list[str] | None = None):
     p.add_argument("-n", type=int, default=None, help="Cap examples after -e filter.")
     p.add_argument(
         "--backend",
-        choices=("string", "lo"),
+        choices=("string", "lo", "auto"),
         default="string",
-        help="Live-student document backend (default: string). Ignored for react-mock.",
+        help=(
+            "Live-student document backend (default: string). "
+            "string drops backend=lo rows (the flag). auto honors each row. "
+            "Ignored for react-mock."
+        ),
     )
     p.add_argument("--verbose", "-v", action="store_true", help="Print live-student tool calls.")
     p.add_argument(
@@ -200,6 +204,24 @@ def main(argv: list[str] | None = None) -> int:
     dspy.configure(lm=lm)
 
     filtered = filter_examples(ALL_EXAMPLES, parse_task_id_filter(args.example), args.n)
+    if args.backend == "string":
+        # The flag is not a string-world task. Leave it out of MIPRO's default pool.
+        from eval_scheduler import declared_backend
+
+        lo_ids = [ex.get("task_id", "") for ex in filtered if declared_backend(ex) == "lo"]
+        if lo_ids and args.example:
+            print(
+                f"{', '.join(lo_ids)} declares backend=lo. "
+                "Pass --backend auto or --backend lo (needs soffice).",
+                file=sys.stderr,
+            )
+            return 1
+        if lo_ids:
+            print(
+                "Omitting " + ", ".join(lo_ids) + " from this string-backend optimize run.",
+                flush=True,
+            )
+            filtered = [ex for ex in filtered if declared_backend(ex) != "lo"]
     if args.example and not filtered:
         print(
             f"No examples matched -e {args.example!r}. "
