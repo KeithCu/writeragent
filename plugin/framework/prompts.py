@@ -1177,6 +1177,46 @@ def tts_short_answers_prompt_suffix() -> str:
     return TTS_SHORT_ANSWERS_INSTRUCTION + "\n\n" + TTS_SHORT_ANSWERS_REMINDER
 
 
+def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = "", ctx: Any = None) -> str:
+    """Ambient chat prompt keyed by doc-type label — no document model / get_document_type.
+
+    Eval harnesses call this from LoLane worker threads. ``get_document_type`` is
+    ``@main_thread_only``; MagicMock stubs still entered that guard and either
+    raised (GUARD on) or warned while racing the designated UNO thread (GUARD off).
+    Same Writer/Calc/Draw assembly as ``get_chat_system_prompt_for_document`` with
+    ``ctx=None`` (no vision / peer / memory injection).
+    """
+    label = (kind or "writer").strip().lower()
+    _ensure_venv_import_policy_strings()
+    if label == "calc":
+        from plugin.calc.base import ToolCalcSpecialBase
+
+        delegation = get_specialized_delegation_tool_hint(ToolCalcSpecialBase, "Calc", ctx=ctx)
+        base = DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
+        base = base.replace("{core_directives}", CALC_CORE_DIRECTIVES)
+    elif label in ("draw", "impress"):
+        from plugin.draw.base import ToolDrawSpecialBase
+
+        delegation = get_specialized_delegation_tool_hint(ToolDrawSpecialBase, "Draw", ctx=ctx)
+        base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
+        base = base.replace("{core_directives}", DRAW_CORE_DIRECTIVES)
+        base = _apply_draw_get_image_tool_line(base)
+    else:
+        from plugin.writer.specialized_base import ToolWriterSpecialBase
+
+        delegation = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer", ctx=ctx)
+        base = DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
+        base = base.replace("{core_directives}", WRITER_CORE_DIRECTIVES)
+
+    base = base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
+    if additional_instructions and str(additional_instructions).strip():
+        base += "\n\n" + str(additional_instructions).strip()
+    short_answers = tts_short_answers_prompt_suffix()
+    if short_answers:
+        base += "\n\n" + short_answers
+    return base
+
+
 def get_chat_system_prompt_for_document(model: Any, additional_instructions: str = "", ctx: Any = None) -> str:
     """Single source of truth for chat system prompt. Use this so Writer vs Calc prompt cannot be mixed.
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.

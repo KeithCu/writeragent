@@ -4,6 +4,8 @@
 
 **get_ctx + current-component pin landed.** `LOBackend.start` calls `set_fallback_ctx(_lo_ctx)` after the pipe context exists, and `stop` restores the previous fallback. Each queued `LOBackend.call` sets `_lo_desktop`'s active frame to `_lo_docs[caller_tid]` when that slot exists, before the callable runs. The N=2 flag sketch is `prove_lo_flag_pin.py` (host RPC shape into A's Writer doc while B `setString`s during A's sleep).
 
+**Parallel URP dispose (eval-1 flag):** LoLane workers must not assemble system prompts via MagicMock → ``get_document_type`` (``@main_thread_only``). Use ``get_chat_system_prompt_for_kind``. With ``WRITERAGENT_EVAL_HARNESS=1``, QueueExecutor disables AsyncCallback so a stray ``execute_on_main_thread`` cannot poke the VCL/bridge path while ``_lo_thread`` holds the shared URP pipe (``Binary URP bridge already disposed`` under ``-j N --lo-workers N``).
+
 **Still open:** the warm venv worker’s `_io_lock` still holds the pipe for a whole script, so two `run_venv_python_script` flag bodies do not overlap their UNO. The sketch calls `host_rpc.execute_tool` directly and does not take that lock. Headed eval-2 / AFC is a different process model. Do not raise the pool past 5 until the UNO queue is shown idle at the cap. A second soffice is still out of scope.
 
 **Tree:** `master` after the LoLane pool (research #932, document isolation #933, pool #934, `python_shapes_flag` as the only `backend=lo` row).

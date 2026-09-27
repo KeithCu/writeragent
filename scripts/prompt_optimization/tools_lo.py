@@ -271,6 +271,19 @@ class LOBackend:
 
     @classmethod
     def call(cls, func, *args, **kwargs):
+        # Shared bridge across model workers: if soffice already exited, every
+        # sibling would see "Binary URP bridge already disposed". Fail clearly.
+        # ``stop`` still queues ``_cleanup`` so the worker can join.
+        cleanup_fn = cls.__dict__.get("_cleanup")
+        if (
+            _lo_proc is not None
+            and _lo_proc.poll() is not None
+            and getattr(func, "__func__", func) is not cleanup_fn
+        ):
+            raise RuntimeError(
+                f"headless soffice exited (code={_lo_proc.returncode}); "
+                "URP bridge is gone — stop the multi-model run or restart LOBackend"
+            )
         if _lo_thread is not None and threading.get_ident() == _lo_thread.ident:
             return func(*args, **kwargs)
         caller_tid = threading.get_ident()

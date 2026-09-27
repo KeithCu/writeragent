@@ -142,3 +142,30 @@ def test_each_caller_pins_its_own_document(monkeypatch: pytest.MonkeyPatch, lo_e
         assert not thread.is_alive()
     assert len(seen) == 2
     assert seen[0] is not seen[1]
+
+
+def test_call_fails_fast_when_soffice_already_exited(monkeypatch: pytest.MonkeyPatch, lo_env: None) -> None:
+    del lo_env
+    _boot(monkeypatch)
+    dead = MagicMock(name="dead_proc")
+    dead.poll.return_value = 1
+    dead.returncode = 1
+    monkeypatch.setattr(tl, "_lo_proc", dead)
+    try:
+        with pytest.raises(RuntimeError, match="headless soffice exited"):
+            tl.LOBackend.call(lambda: "nope")
+    finally:
+        # Let stop()/teardown join the worker without tripping the dead-proc gate.
+        monkeypatch.setattr(tl, "_lo_proc", None)
+
+
+def test_eval_harness_disables_async_callback(monkeypatch: pytest.MonkeyPatch, lo_env: None) -> None:
+    del lo_env
+    monkeypatch.setenv("WRITERAGENT_EVAL_HARNESS", "1")
+    from plugin.framework.queue_executor import QueueExecutor
+
+    ex = QueueExecutor()
+    ex.set_context(MagicMock(name="ctx"))
+    # Force lazy init path
+    assert ex._get_async_callback() is None
+    assert ex._initialized is True

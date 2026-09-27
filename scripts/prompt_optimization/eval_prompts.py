@@ -5,7 +5,7 @@
 """Eval-harness system prompts: production chat builder + one eval footnote.
 
 Does not query the tool registry. Schemas live in ``eval_catalog``.
-Stubs answer ``supportsService`` only — no live document / ``get_document_type``.
+Kind-keyed assembly via ``get_chat_system_prompt_for_kind`` — no live document / ``get_document_type``. MagicMock stubs remain for tests that compare against the document-model builder.
 """
 from __future__ import annotations
 
@@ -40,16 +40,17 @@ def _stub_draw() -> Any:
 
 
 def _prompt_for_kind(kind: str, note: str | None = None) -> str:
-    """Same assembly as ``get_chat_system_prompt_for_document`` with ``ctx=None``."""
-    from plugin.framework.prompts import get_chat_system_prompt_for_document
+    """Same assembly as production chat, keyed by kind — no MagicMock / get_document_type.
 
-    if kind == "calc":
-        model = _stub_calc()
-    elif kind == "draw":
-        model = _stub_draw()
-    else:
-        model = _stub_writer()
-    return get_chat_system_prompt_for_document(model, note if note is not None else EVAL_HARNESS_NOTE, ctx=None)
+    LoLane workers call this off ``_lo_thread``. The old MagicMock stub still
+    entered ``@main_thread_only`` ``get_document_type`` (GUARD on → raise;
+    GUARD off → warn while real UNO may be in flight on the shared bridge).
+    """
+    from plugin.framework.prompts import get_chat_system_prompt_for_kind
+
+    return get_chat_system_prompt_for_kind(
+        kind, note if note is not None else EVAL_HARNESS_NOTE, ctx=None
+    )
 
 
 # The string-harness note forbids domain=python (=PY rows). The flag is the
