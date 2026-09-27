@@ -41,7 +41,7 @@ Do **not** harvest `max_context_length` (LM Studio trained max ≠ loaded window
 | DeepSeek V4 Flash | 163840 | `together`: `deepseek-ai/DeepSeek-V4-Flash-0731` |
 | MiniMax M3 | 1000000 | `together`: `MiniMaxAI/MiniMax-M3` |
 | GPT-OSS 120B | 131072 | `together` / `openrouter` (`…:nitro`) / `groq` |
-| GPT-OSS 20B | 128000 | `together` / `groq` |
+| GPT-OSS 20B | 128000 | `together` / `openrouter` / `groq` |
 | Mistral Large 3 | 262144 | `openrouter` / `mistral` |
 | Gemini 3.1 Flash Lite Preview / Lite / Pro | 1048576 | `google` + `openrouter` |
 | GLM 5.2 | 200000 | `zai`: `glm-5.2` |
