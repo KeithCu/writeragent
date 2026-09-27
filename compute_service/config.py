@@ -22,27 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-_DEFAULT_HOST = "127.0.0.1"
-_DEFAULT_PORT = 8000
-_DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024
-_DEFAULT_TIMEOUT_SEC = 30
-_MAX_TIMEOUT_SEC = 600
-_DEFAULT_THREADS = 2
-_DEFAULT_WORKERS = 1
-_DEFAULT_WORKER_MAX_TASKS = 500
-_DEFAULT_SHARED_KERNEL_TTL_SEC = 3600.0
-_DEFAULT_IDLE_WORKER_TTL_SEC = 3600.0
-_DEFAULT_OCR_WORKERS = 0
-_DEFAULT_OCR_TIMEOUT_SEC = 60
-_DEFAULT_OCR_MAX_TASKS = 100
-_DEFAULT_MAX_CODE_CHARS = 262144
-_DEFAULT_MAX_INFLIGHT_PER_SESSION = 2
-_MIN_MAX_CODE_CHARS = 64
-
-_DEFAULT_LOG_LEVEL = "INFO"
-_VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "WARN", "ERROR", "CRITICAL"})
-
-_LOOPBACK_HOSTS = frozenset({"", "127.0.0.1", "::1", "localhost"})
+MIN_MAX_CODE_CHARS = 64
+VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "WARN", "ERROR", "CRITICAL"})
+LOOPBACK_HOSTS = frozenset({"", "127.0.0.1", "::1", "localhost"})
 
 
 def normalize_log_level(level: str) -> str:
@@ -53,6 +35,16 @@ def normalize_log_level(level: str) -> str:
 
 class ConfigError(ValueError):
     """Invalid compute-service configuration."""
+
+
+def _as_path_tuple(value: Any) -> tuple[str, ...]:
+    if value is None or value == "":
+        return ()
+    if isinstance(value, str):
+        return tuple(part.strip() for part in value.split(os.pathsep) if part.strip())
+    if isinstance(value, (list, tuple)):
+        return tuple(str(part).strip() for part in value if str(part).strip())
+    raise ConfigError(f"ocr_allow_paths must be a list or {os.pathsep}-separated string")
 
 
 def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[str]) -> bool:
@@ -85,78 +77,40 @@ def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[s
 class ComputeSettings:
     """Immutable process settings for one compute-service instance."""
 
-    host: str = _DEFAULT_HOST
-    port: int = _DEFAULT_PORT
+    host: str = "127.0.0.1"
+    port: int = 8000
     api_key: str = ""
-    max_body_bytes: int = _DEFAULT_MAX_BODY_BYTES
-    default_timeout_sec: int = _DEFAULT_TIMEOUT_SEC
-    max_timeout_sec: int = _MAX_TIMEOUT_SEC
-    threads: int = _DEFAULT_THREADS
-    workers: int = _DEFAULT_WORKERS
-    worker_max_tasks: int = _DEFAULT_WORKER_MAX_TASKS
-    shared_kernel_ttl_sec: float = _DEFAULT_SHARED_KERNEL_TTL_SEC
-    idle_worker_ttl_sec: float = _DEFAULT_IDLE_WORKER_TTL_SEC
-    ocr_workers: int = _DEFAULT_OCR_WORKERS
-    ocr_timeout_sec: int = _DEFAULT_OCR_TIMEOUT_SEC
-    ocr_max_tasks: int = _DEFAULT_OCR_MAX_TASKS
-    max_code_chars: int = _DEFAULT_MAX_CODE_CHARS
-    max_inflight: int = 0  # 0 → computed in __init__ as max(threads, workers) * 2
-    max_inflight_per_session: int = _DEFAULT_MAX_INFLIGHT_PER_SESSION
+    max_body_bytes: int = 32 * 1024 * 1024
+    default_timeout_sec: int = 30
+    max_timeout_sec: int = 600
+    threads: int = 2
+    workers: int = 2
+    worker_max_tasks: int = 500
+    shared_kernel_ttl_sec: float = 3600.0
+    idle_worker_ttl_sec: float = 3600.0
+    ocr_workers: int = 0
+    ocr_timeout_sec: int = 60
+    ocr_max_tasks: int = 100
+    max_code_chars: int = 262144
+    max_inflight: int = 0  # 0 → computed in __post_init__ as max(threads, workers) * 2
+    max_inflight_per_session: int = 2
     ocr_allow_paths: tuple[str, ...] = ()
-    log_level: str = _DEFAULT_LOG_LEVEL
+    log_level: str = "INFO"
     # Future: map authenticated principals to named profiles. Today always "default".
     default_principal: str = "default"
 
-    def __init__(
-        self,
-        host: str = _DEFAULT_HOST,
-        port: int = _DEFAULT_PORT,
-        api_key: str = "",
-        max_body_bytes: int = _DEFAULT_MAX_BODY_BYTES,
-        default_timeout_sec: int = _DEFAULT_TIMEOUT_SEC,
-        max_timeout_sec: int = _MAX_TIMEOUT_SEC,
-        threads: int | None = None,
-        max_threads: int | None = None,
-        workers: int | None = None,
-        max_workers: int | None = None,
-        worker_max_tasks: int = _DEFAULT_WORKER_MAX_TASKS,
-        shared_kernel_ttl_sec: float = _DEFAULT_SHARED_KERNEL_TTL_SEC,
-        idle_worker_ttl_sec: float = _DEFAULT_IDLE_WORKER_TTL_SEC,
-        ocr_workers: int = _DEFAULT_OCR_WORKERS,
-        ocr_timeout_sec: int = _DEFAULT_OCR_TIMEOUT_SEC,
-        ocr_max_tasks: int = _DEFAULT_OCR_MAX_TASKS,
-        max_code_chars: int = _DEFAULT_MAX_CODE_CHARS,
-        max_inflight: int | None = None,
-        max_inflight_per_session: int = _DEFAULT_MAX_INFLIGHT_PER_SESSION,
-        ocr_allow_paths: tuple[str, ...] | list[str] = (),
-        log_level: str = _DEFAULT_LOG_LEVEL,
-        default_principal: str = "default",
-    ) -> None:
-        eff_threads = _DEFAULT_THREADS if threads is None and max_threads is None else (threads if max_threads is None else max_threads)
-        eff_workers = _DEFAULT_WORKERS if workers is None and max_workers is None else (workers if max_workers is None else max_workers)
-        object.__setattr__(self, "host", host)
-        object.__setattr__(self, "port", port)
-        object.__setattr__(self, "api_key", api_key)
-        object.__setattr__(self, "max_body_bytes", max_body_bytes)
-        object.__setattr__(self, "default_timeout_sec", default_timeout_sec)
-        object.__setattr__(self, "max_timeout_sec", max_timeout_sec)
-        object.__setattr__(self, "threads", eff_threads)
-        object.__setattr__(self, "workers", eff_workers)
-        object.__setattr__(self, "worker_max_tasks", worker_max_tasks)
-        object.__setattr__(self, "shared_kernel_ttl_sec", float(shared_kernel_ttl_sec))
-        object.__setattr__(self, "idle_worker_ttl_sec", float(idle_worker_ttl_sec))
-        object.__setattr__(self, "ocr_workers", ocr_workers)
-        object.__setattr__(self, "ocr_timeout_sec", ocr_timeout_sec)
-        object.__setattr__(self, "ocr_max_tasks", ocr_max_tasks)
-        object.__setattr__(self, "max_code_chars", int(max_code_chars))
-        thread_n = _DEFAULT_THREADS if eff_threads is None else int(eff_threads)
-        worker_n = _DEFAULT_WORKERS if eff_workers is None else int(eff_workers)
-        computed_inflight = max(thread_n, worker_n) * 2
-        object.__setattr__(self, "max_inflight", computed_inflight if max_inflight is None else int(max_inflight))
-        object.__setattr__(self, "max_inflight_per_session", int(max_inflight_per_session))
-        object.__setattr__(self, "ocr_allow_paths", tuple(str(p) for p in ocr_allow_paths if str(p).strip()))
-        object.__setattr__(self, "log_level", log_level)
-        object.__setattr__(self, "default_principal", default_principal)
+    def __post_init__(self) -> None:
+        if self.threads is None:
+            object.__setattr__(self, "threads", 2)
+        if self.workers is None:
+            object.__setattr__(self, "workers", 2)
+        if self.max_inflight is None or self.max_inflight == 0:
+            object.__setattr__(self, "max_inflight", max(self.threads, self.workers) * 2)
+        object.__setattr__(self, "ocr_allow_paths", _as_path_tuple(self.ocr_allow_paths))
+        object.__setattr__(self, "shared_kernel_ttl_sec", float(self.shared_kernel_ttl_sec))
+        object.__setattr__(self, "idle_worker_ttl_sec", float(self.idle_worker_ttl_sec))
+        object.__setattr__(self, "log_level", normalize_log_level(self.log_level))
+        self.validate()
 
     @property
     def max_threads(self) -> int:
@@ -174,7 +128,7 @@ class ComputeSettings:
 
     @property
     def is_loopback_bind(self) -> bool:
-        return self.host in _LOOPBACK_HOSTS
+        return self.host in LOOPBACK_HOSTS
 
     def validate(self) -> None:
         if not (1 <= self.port <= 65535):
@@ -197,8 +151,8 @@ class ComputeSettings:
             raise ConfigError("ocr_timeout_sec must be >= 1")
         if self.ocr_max_tasks < 1:
             raise ConfigError("ocr_max_tasks must be >= 1")
-        if self.max_code_chars < _MIN_MAX_CODE_CHARS:
-            raise ConfigError(f"max_code_chars must be >= {_MIN_MAX_CODE_CHARS}")
+        if self.max_code_chars < MIN_MAX_CODE_CHARS:
+            raise ConfigError(f"max_code_chars must be >= {MIN_MAX_CODE_CHARS}")
         if self.max_inflight < 1:
             raise ConfigError("max_inflight must be >= 1")
         if self.max_inflight_per_session < 1:
@@ -207,28 +161,26 @@ class ComputeSettings:
             raise ConfigError("shared_kernel_ttl_sec must be >= 0")
         if self.idle_worker_ttl_sec < 0:
             raise ConfigError("idle_worker_ttl_sec must be >= 0")
-        if self.log_level.upper() not in _VALID_LOG_LEVELS:
-            raise ConfigError(f"Invalid log_level: {self.log_level!r} (must be one of {sorted(_VALID_LOG_LEVELS)})")
+        if self.log_level.upper() not in VALID_LOG_LEVELS:
+            raise ConfigError(f"Invalid log_level: {self.log_level!r} (must be one of {sorted(VALID_LOG_LEVELS)})")
         # No API key ⇒ no auth (dev/test). Verification runs only when a key is set.
 
 
-def _as_path_tuple(value: Any) -> tuple[str, ...]:
-    if value is None or value == "":
-        return ()
-    if isinstance(value, str):
-        return tuple(part.strip() for part in value.split(os.pathsep) if part.strip())
-    if isinstance(value, (list, tuple)):
-        return tuple(str(part).strip() for part in value if str(part).strip())
-    raise ConfigError(f"ocr_allow_paths must be a list or {os.pathsep}-separated string")
+DEFAULT_SETTINGS = ComputeSettings()
 
 
-def _as_int(value: Any, *, field: str, default: int) -> int:
-    if value is None or value == "":
-        return default
+def _as_int(value: Any, *, field: str) -> int:
     try:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"Invalid integer for {field}: {value!r}") from exc
+
+
+def _as_float(value: Any, *, field: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{field} must be a number: {value!r}") from exc
 
 
 def _read_key_file(path: str | Path) -> str:
@@ -350,10 +302,16 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
             out[key] = raw[key]
     if "session_ttl_sec" in out and "shared_kernel_ttl_sec" not in out:
         out["shared_kernel_ttl_sec"] = out.pop("session_ttl_sec")
+    else:
+        out.pop("session_ttl_sec", None)
     if "max_threads" in out and "threads" not in out:
-        out["threads"] = out["max_threads"]
+        out["threads"] = out.pop("max_threads")
+    else:
+        out.pop("max_threads", None)
     if "max_workers" in out and "workers" not in out:
-        out["workers"] = out["max_workers"]
+        out["workers"] = out.pop("max_workers")
+    else:
+        out.pop("max_workers", None)
     return out
 
 
@@ -376,27 +334,7 @@ def load_settings(
     """Resolve settings from defaults → JSON → env → explicit CLI overrides."""
     env = os.environ if environ is None else environ
 
-    values: dict[str, Any] = {
-        "host": _DEFAULT_HOST,
-        "port": _DEFAULT_PORT,
-        "api_key": "",
-        "max_body_bytes": _DEFAULT_MAX_BODY_BYTES,
-        "default_timeout_sec": _DEFAULT_TIMEOUT_SEC,
-        "max_timeout_sec": _MAX_TIMEOUT_SEC,
-        "threads": _DEFAULT_THREADS,
-        "workers": _DEFAULT_WORKERS,
-        "worker_max_tasks": _DEFAULT_WORKER_MAX_TASKS,
-        "shared_kernel_ttl_sec": _DEFAULT_SHARED_KERNEL_TTL_SEC,
-        "idle_worker_ttl_sec": _DEFAULT_IDLE_WORKER_TTL_SEC,
-        "ocr_workers": _DEFAULT_OCR_WORKERS,
-        "ocr_timeout_sec": _DEFAULT_OCR_TIMEOUT_SEC,
-        "ocr_max_tasks": _DEFAULT_OCR_MAX_TASKS,
-        "max_code_chars": _DEFAULT_MAX_CODE_CHARS,
-        "max_inflight": None,
-        "max_inflight_per_session": _DEFAULT_MAX_INFLIGHT_PER_SESSION,
-        "ocr_allow_paths": (),
-        "log_level": _DEFAULT_LOG_LEVEL,
-    }
+    values: dict[str, Any] = {}
 
     resolved_config = config_path or env.get("PYTHON_COMPUTE_CONFIG") or ""
     if resolved_config:
@@ -479,77 +417,54 @@ def load_settings(
         values["ocr_max_tasks"] = ocr_max_tasks
 
     # Secret resolution: CLI key-file > env key > env key-file > JSON key-file.
-    api_key = ""
     chosen_key_file = api_key_file or env_key_file or json_key_file or None
     if api_key_file:
-        api_key = _read_key_file(api_key_file)
+        values["api_key"] = _read_key_file(api_key_file)
     elif env_key:
-        api_key = env_key
+        values["api_key"] = env_key
     elif chosen_key_file:
-        api_key = _read_key_file(chosen_key_file)
+        values["api_key"] = _read_key_file(chosen_key_file)
 
-    def _as_float(val: Any, field: str, default: float) -> float:
-        if val is None or val == "":
-            return default
-        try:
-            return float(val)
-        except (TypeError, ValueError) as exc:
-            raise ConfigError(f"{field} must be a number: {val}") from exc
+    for int_field in (
+        "port",
+        "max_body_bytes",
+        "default_timeout_sec",
+        "max_timeout_sec",
+        "threads",
+        "workers",
+        "worker_max_tasks",
+        "ocr_workers",
+        "ocr_timeout_sec",
+        "ocr_max_tasks",
+        "max_code_chars",
+        "max_inflight_per_session",
+    ):
+        if int_field in values:
+            values[int_field] = _as_int(values[int_field], field=int_field)
 
-    settings = ComputeSettings(
-        host=str(values["host"] or _DEFAULT_HOST),
-        port=_as_int(values["port"], field="port", default=_DEFAULT_PORT),
-        api_key=api_key,
-        max_body_bytes=_as_int(
-            values["max_body_bytes"], field="max_body_bytes", default=_DEFAULT_MAX_BODY_BYTES
-        ),
-        default_timeout_sec=_as_int(
-            values["default_timeout_sec"],
-            field="default_timeout_sec",
-            default=_DEFAULT_TIMEOUT_SEC,
-        ),
-        max_timeout_sec=_as_int(
-            values["max_timeout_sec"], field="max_timeout_sec", default=_MAX_TIMEOUT_SEC
-        ),
-        threads=_as_int(
-            values["threads"], field="threads", default=_DEFAULT_THREADS
-        ),
-        workers=_as_int(
-            values["workers"], field="workers", default=_DEFAULT_WORKERS
-        ),
-        worker_max_tasks=_as_int(
-            values["worker_max_tasks"], field="worker_max_tasks", default=_DEFAULT_WORKER_MAX_TASKS
-        ),
-        shared_kernel_ttl_sec=_as_float(
-            values.get("shared_kernel_ttl_sec"), field="shared_kernel_ttl_sec", default=_DEFAULT_SHARED_KERNEL_TTL_SEC
-        ),
-        idle_worker_ttl_sec=_as_float(
-            values.get("idle_worker_ttl_sec"), field="idle_worker_ttl_sec", default=_DEFAULT_IDLE_WORKER_TTL_SEC
-        ),
-        ocr_workers=_as_int(
-            values["ocr_workers"], field="ocr_workers", default=_DEFAULT_OCR_WORKERS
-        ),
-        ocr_timeout_sec=_as_int(
-            values["ocr_timeout_sec"], field="ocr_timeout_sec", default=_DEFAULT_OCR_TIMEOUT_SEC
-        ),
-        ocr_max_tasks=_as_int(
-            values["ocr_max_tasks"], field="ocr_max_tasks", default=_DEFAULT_OCR_MAX_TASKS
-        ),
-        max_code_chars=_as_int(
-            values.get("max_code_chars"), field="max_code_chars", default=_DEFAULT_MAX_CODE_CHARS
-        ),
-        max_inflight=(
-            None
-            if values.get("max_inflight") is None or values.get("max_inflight") == ""
-            else _as_int(values.get("max_inflight"), field="max_inflight", default=1)
-        ),
-        max_inflight_per_session=_as_int(
-            values.get("max_inflight_per_session"),
-            field="max_inflight_per_session",
-            default=_DEFAULT_MAX_INFLIGHT_PER_SESSION,
-        ),
-        ocr_allow_paths=_as_path_tuple(values.get("ocr_allow_paths")),
-        log_level=normalize_log_level(str(values["log_level"] or _DEFAULT_LOG_LEVEL)),
-    )
-    settings.validate()
-    return settings
+    for float_field in ("shared_kernel_ttl_sec", "idle_worker_ttl_sec"):
+        if float_field in values:
+            values[float_field] = _as_float(values[float_field], field=float_field)
+
+    if "max_inflight" in values:
+        if values["max_inflight"] is None or values["max_inflight"] == "":
+            values.pop("max_inflight")
+        else:
+            values["max_inflight"] = _as_int(values["max_inflight"], field="max_inflight")
+
+    if "ocr_allow_paths" in values:
+        values["ocr_allow_paths"] = _as_path_tuple(values["ocr_allow_paths"])
+
+    if "host" in values:
+        if not values["host"]:
+            values.pop("host")
+        else:
+            values["host"] = str(values["host"])
+
+    if "log_level" in values:
+        if not values["log_level"]:
+            values.pop("log_level")
+        else:
+            values["log_level"] = normalize_log_level(str(values["log_level"]))
+
+    return ComputeSettings(**values)

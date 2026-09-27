@@ -18,6 +18,7 @@ import pytest
 from compute_service.config import ComputeSettings
 from compute_service.formula_pool import (
     FormulaProcessPool,
+    get_formula_pool,
     shutdown_formula_pool,
 )
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
@@ -36,6 +37,30 @@ def cleanup_formula_pool():
 
 
 class TestFormulaPoolSupervisor:
+    def test_default_pool_workers(self) -> None:
+        pool = FormulaProcessPool(default_timeout_sec=15)
+        try:
+            assert pool.is_enabled()
+            assert len(pool.workers) == 2
+        finally:
+            pool.shutdown()
+
+    def test_get_formula_pool_default_workers(self) -> None:
+        pool = get_formula_pool()
+        assert pool.is_enabled()
+        assert len(pool.workers) == 2
+
+    def test_pool_from_settings(self) -> None:
+        cfg = ComputeSettings(workers=1, worker_max_tasks=42, default_timeout_sec=15)
+        pool = FormulaProcessPool(settings=cfg)
+        try:
+            assert pool.is_enabled()
+            assert len(pool.workers) == 1
+            assert pool.max_tasks == 42
+            assert pool.default_timeout_sec == 15
+        finally:
+            pool.shutdown()
+
     def test_pool_lifecycle(self) -> None:
         pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
         try:
@@ -510,7 +535,7 @@ class TestFormulaHttpEndpoint:
             host="127.0.0.1",
             port=port,
             api_key="formula-secret",
-            max_threads=2,
+            threads=2,
         )
         app = create_wsgi_app(settings)
         server = WSGIDualStackServer("127.0.0.1", port, max_threads=2)

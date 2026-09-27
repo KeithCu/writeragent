@@ -31,18 +31,28 @@ class VisionProcessPool(BaseProcessPool):
 
     def __init__(
         self,
-        num_workers: int = 1,
-        default_timeout_sec: int = 60,
-        max_tasks: int = 100,
-        idle_worker_ttl_sec: float | None = 3600.0,
+        settings: ComputeSettings | int | None = None,
+        num_workers: int | None = None,
+        default_timeout_sec: int | None = None,
+        max_tasks: int | None = None,
+        idle_worker_ttl_sec: float | None = None,
     ) -> None:
+        if isinstance(settings, int):
+            num_workers = settings
+            settings = None
+        cfg = settings if isinstance(settings, ComputeSettings) else ComputeSettings()
+        eff_num_workers = cfg.ocr_workers if num_workers is None else num_workers
+        eff_timeout = cfg.ocr_timeout_sec if default_timeout_sec is None else default_timeout_sec
+        eff_max_tasks = cfg.ocr_max_tasks if max_tasks is None else max_tasks
+        eff_idle_ttl = cfg.idle_worker_ttl_sec if idle_worker_ttl_sec is None else idle_worker_ttl_sec
+
         super().__init__(
             script_path=_WORKER_SCRIPT,
-            num_workers=num_workers,
-            default_timeout_sec=default_timeout_sec,
-            max_tasks=max_tasks,
+            num_workers=eff_num_workers,
+            default_timeout_sec=eff_timeout,
+            max_tasks=eff_max_tasks,
             worker_name="Vision worker",
-            idle_worker_ttl_sec=idle_worker_ttl_sec,
+            idle_worker_ttl_sec=eff_idle_ttl,
         )
 
     def execute(
@@ -127,15 +137,7 @@ def get_vision_pool(settings: ComputeSettings | None = None) -> VisionProcessPoo
     global _GLOBAL_VISION_POOL
     with _GLOBAL_VISION_POOL_LOCK:
         if _GLOBAL_VISION_POOL is None:
-            if settings is not None:
-                _GLOBAL_VISION_POOL = VisionProcessPool(
-                    num_workers=settings.ocr_workers,
-                    default_timeout_sec=settings.ocr_timeout_sec,
-                    max_tasks=settings.ocr_max_tasks,
-                    idle_worker_ttl_sec=settings.idle_worker_ttl_sec,
-                )
-            else:
-                _GLOBAL_VISION_POOL = VisionProcessPool(num_workers=1)
+            _GLOBAL_VISION_POOL = VisionProcessPool(settings=settings)
         return _GLOBAL_VISION_POOL
 
 

@@ -514,10 +514,18 @@ class TestComputeSettings:
         s = load_settings(environ={"PYTHON_COMPUTE_MAX_THREADS": "8", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.threads == 8
         assert s.max_threads == 8
-        assert s.workers == 1  # default
+        assert s.workers == 2  # default
         s2 = load_settings(threads=4, workers=3, environ={"PYTHON_COMPUTE_MAX_THREADS": "8", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s2.threads == 4
         assert s2.workers == 3
+
+    def test_workers_default(self) -> None:
+        s = load_settings(environ={})
+        assert s.workers == 2
+        assert s.max_workers == 2
+        direct = ComputeSettings()
+        assert direct.workers == 2
+        assert direct.max_workers == 2
 
     def test_workers_env_and_cli(self) -> None:
         s = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})

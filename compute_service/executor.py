@@ -20,15 +20,12 @@ if _PROJECT_ROOT not in sys.path:
 
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
+from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 
 # Per-session locks so concurrent shared-kernel requests do not race LocalPythonExecutor.
 _SESSION_RUN_LOCKS: dict[str, threading.Lock] = {}
 _SESSION_RUN_LOCKS_GUARD = threading.Lock()
-
-# Service-owned defaults — never fall back to writeragent module.yaml / writeragent.json.
-_MAX_TIMEOUT_SEC = 600
-_DEFAULT_TIMEOUT_SEC = 30
 
 
 def _session_lock(session_id: str) -> threading.Lock:
@@ -43,8 +40,8 @@ def _session_lock(session_id: str) -> threading.Lock:
 def clamp_timeout_sec(
     timeout_sec: float | int | None,
     *,
-    default_timeout_sec: int = _DEFAULT_TIMEOUT_SEC,
-    max_timeout_sec: int = _MAX_TIMEOUT_SEC,
+    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
+    max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec,
 ) -> int:
     if timeout_sec is None:
         return default_timeout_sec
@@ -58,8 +55,8 @@ def clamp_timeout_sec(
 def timeout_ms_to_sec(
     timeout_ms: Any,
     *,
-    default_timeout_sec: int = _DEFAULT_TIMEOUT_SEC,
-    max_timeout_sec: int = _MAX_TIMEOUT_SEC,
+    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
+    max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec,
 ) -> int:
     if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)):
         return default_timeout_sec
@@ -81,8 +78,8 @@ def execute_code(
     *,
     mode: str = "isolated",
     init_script: str | None = None,
-    default_timeout_sec: int = _DEFAULT_TIMEOUT_SEC,
-    max_timeout_sec: int = _MAX_TIMEOUT_SEC,
+    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
+    max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec,
 ) -> dict[str, Any]:
     """Execute *code* under AST sandboxing; return §8-shaped dumb-JSON payload."""
     # Always pass an explicit timeout so the sandbox never consults WriterAgent defaults.

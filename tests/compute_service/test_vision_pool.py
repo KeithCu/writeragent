@@ -16,7 +16,11 @@ import pytest
 
 from compute_service.config import ComputeSettings
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
-from compute_service.vision_pool import VisionProcessPool, shutdown_vision_pool
+from compute_service.vision_pool import (
+    VisionProcessPool,
+    get_vision_pool,
+    shutdown_vision_pool,
+)
 
 
 def get_free_port() -> int:
@@ -38,6 +42,19 @@ def cleanup_vision_pool():
 
 
 class TestVisionPoolSupervisor:
+    def test_default_pool_uses_config_defaults(self) -> None:
+        pool = VisionProcessPool()
+        try:
+            assert not pool.is_enabled()
+            assert len(pool.workers) == 0
+        finally:
+            pool.shutdown()
+
+    def test_get_vision_pool_defaults(self) -> None:
+        pool = get_vision_pool()
+        assert not pool.is_enabled()
+        assert len(pool.workers) == 0
+
     def test_pool_lifecycle(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
         try:

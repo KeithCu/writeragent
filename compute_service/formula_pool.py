@@ -47,25 +47,36 @@ class FormulaProcessPool(BaseProcessPool):
 
     def __init__(
         self,
-        num_workers: int = 1,
-        default_timeout_sec: int = 30,
-        max_tasks: int = 500,
-        shared_kernel_ttl_sec: float = 3600.0,
-        idle_worker_ttl_sec: float | None = 3600.0,
+        settings: ComputeSettings | int | None = None,
+        num_workers: int | None = None,
+        default_timeout_sec: int | None = None,
+        max_tasks: int | None = None,
+        shared_kernel_ttl_sec: float | None = None,
+        idle_worker_ttl_sec: float | None = None,
     ) -> None:
+        if isinstance(settings, int):
+            num_workers = settings
+            settings = None
+        cfg = settings if isinstance(settings, ComputeSettings) else ComputeSettings()
+        eff_num_workers = cfg.workers if num_workers is None else num_workers
+        eff_timeout = cfg.default_timeout_sec if default_timeout_sec is None else default_timeout_sec
+        eff_max_tasks = cfg.worker_max_tasks if max_tasks is None else max_tasks
+        eff_shared_ttl = cfg.shared_kernel_ttl_sec if shared_kernel_ttl_sec is None else shared_kernel_ttl_sec
+        eff_idle_ttl = cfg.idle_worker_ttl_sec if idle_worker_ttl_sec is None else idle_worker_ttl_sec
+
         super().__init__(
             script_path=_WORKER_SCRIPT,
-            num_workers=num_workers,
-            default_timeout_sec=default_timeout_sec,
-            max_tasks=max_tasks,
+            num_workers=eff_num_workers,
+            default_timeout_sec=eff_timeout,
+            max_tasks=eff_max_tasks,
             worker_name="Formula worker",
-            idle_worker_ttl_sec=idle_worker_ttl_sec,
+            idle_worker_ttl_sec=eff_idle_ttl,
             max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES,
         )
         self._active_sessions: dict[str, BaseProcessWorker] = {}
         self._worker_sessions: dict[BaseProcessWorker, set[str]] = {}
         self._session_last_activity: dict[str, float] = {}
-        self.shared_kernel_ttl_sec = shared_kernel_ttl_sec
+        self.shared_kernel_ttl_sec = eff_shared_ttl
         self._session_reaper_thread: threading.Thread | None = None
 
         if self.shared_kernel_ttl_sec > 0:
@@ -360,17 +371,7 @@ def get_formula_pool(settings: ComputeSettings | None = None) -> FormulaProcessP
     global _GLOBAL_FORMULA_POOL
     with _GLOBAL_FORMULA_POOL_LOCK:
         if _GLOBAL_FORMULA_POOL is None:
-            if settings is not None:
-                num_w = getattr(settings, "workers", None) or getattr(settings, "max_workers", None) or 2
-                _GLOBAL_FORMULA_POOL = FormulaProcessPool(
-                    num_workers=num_w,
-                    default_timeout_sec=settings.default_timeout_sec,
-                    max_tasks=settings.worker_max_tasks,
-                    shared_kernel_ttl_sec=settings.shared_kernel_ttl_sec,
-                    idle_worker_ttl_sec=settings.idle_worker_ttl_sec,
-                )
-            else:
-                _GLOBAL_FORMULA_POOL = FormulaProcessPool(num_workers=1)
+            _GLOBAL_FORMULA_POOL = FormulaProcessPool(settings=settings)
         return _GLOBAL_FORMULA_POOL
 
 

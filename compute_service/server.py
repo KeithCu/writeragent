@@ -29,7 +29,13 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from compute_service import __version__
-from compute_service.config import ComputeSettings, ConfigError, load_settings, ocr_path_is_allowed
+from compute_service.config import (
+    DEFAULT_SETTINGS,
+    ComputeSettings,
+    ConfigError,
+    load_settings,
+    ocr_path_is_allowed,
+)
 
 log = logging.getLogger("compute_service")
 
@@ -1006,7 +1012,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         dest="threads",
         type=int,
         default=None,
-        help="Number of HTTP server listener threads (default: 2)",
+        help=f"Number of HTTP server listener threads (default: {DEFAULT_SETTINGS.threads})",
     )
     parser.add_argument(
         "--workers",
@@ -1014,35 +1020,35 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         dest="workers",
         type=int,
         default=None,
-        help="Number of formula worker subprocesses (default: 1)",
+        help=f"Number of formula worker subprocesses (default: {DEFAULT_SETTINGS.workers})",
     )
     parser.add_argument(
         "--worker-max-tasks",
         dest="worker_max_tasks",
         type=int,
         default=None,
-        help="Recycle formula worker process after N tasks (default: 500)",
+        help=f"Recycle formula worker process after N tasks (default: {DEFAULT_SETTINGS.worker_max_tasks})",
     )
     parser.add_argument(
         "--ocr-workers",
         dest="ocr_workers",
         type=int,
         default=None,
-        help="Dedicated OCR/Vision worker subprocesses (default: 0, 0 to disable)",
+        help=f"Dedicated OCR/Vision worker subprocesses (default: {DEFAULT_SETTINGS.ocr_workers}, 0 to disable)",
     )
     parser.add_argument(
         "--ocr-timeout",
         dest="ocr_timeout_sec",
         type=int,
         default=None,
-        help="Execution timeout for vision tasks in seconds (default: 60)",
+        help=f"Execution timeout for vision tasks in seconds (default: {DEFAULT_SETTINGS.ocr_timeout_sec})",
     )
     parser.add_argument(
         "--ocr-max-tasks",
         dest="ocr_max_tasks",
         type=int,
         default=None,
-        help="Recycle OCR worker process after N tasks (default: 100)",
+        help=f"Recycle OCR worker process after N tasks (default: {DEFAULT_SETTINGS.ocr_max_tasks})",
     )
     parser.add_argument(
         "--api-key-file",
