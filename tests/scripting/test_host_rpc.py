@@ -43,6 +43,29 @@ def test_resolve_allowed_tools_plural_domain_name():
     assert "list_open_documents" in allowed
 
 
+def test_shape_group_proxy_docstring_says_why_to_group():
+    """wa.shape.group carries the tool description, including why to group."""
+    import inspect
+
+    import plugin.scripting.writeragent_api as api
+    from plugin.calc.shapes import GroupShapes as CalcGroupShapes
+    from plugin.draw.shapes import GroupShapes
+    from plugin.writer.specialized.shapes import GroupShapes as WriterGroupShapes
+
+    doc = inspect.cleandoc(api.shape.group.__doc__ or "")
+    assert "select and move the composite as one" in doc
+    assert "flag, diagram, or logo" in doc
+    assert "before finishing" in doc
+    assert "loose shapes" in doc
+    # Args stay the generated schema text.
+    assert "indices (required): List of shape indices to group." in doc
+    assert "page (optional): Page index containing the shapes." in doc
+    # Writer and Calc re-export Draw's class and do not own a second description.
+    assert WriterGroupShapes.description == GroupShapes.description
+    assert CalcGroupShapes.description == GroupShapes.description
+    assert GroupShapes.description in doc
+
+
 def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     """Inner catalog is the generated Args text, not a one-line summary."""
     import inspect
