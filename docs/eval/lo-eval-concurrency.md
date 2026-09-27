@@ -146,7 +146,15 @@ Run the 20-model string board the way #931 already does. For native LO rows, a p
 
 ## Experiment Keith can run next
 
-No full matrix. No harness rewrite required to learn the answer. A throwaway script (or an `@pytest.mark.integration` test later) that uses `LOBackend` as it stands is enough. Do not set `WRITERAGENT_TESTING=1`.
+No full matrix. No harness rewrite. The text proof is `scripts/prompt_optimization/prove_lo_multi_doc.py`: one `LOBackend`, N agent threads (default 2), no OpenRouter, no second soffice. Do not set `WRITERAGENT_TESTING=1`. A green run is headless only; it is not evidence about headed AFC.
+
+```bash
+make manifest   # once; plugin/_manifest.py is gitignored
+.venv/bin/python scripts/prompt_optimization/prove_lo_multi_doc.py
+.venv/bin/python scripts/prompt_optimization/prove_lo_multi_doc.py --n 4
+```
+
+The process exits non-zero unless the sleeps overlap, each Writer document contains only that worker’s tokens, UNO enter/exit intervals on `_lo_thread` do not overlap, and `len(_lo_docs)` is N after the first write. Enter/exit is logged inside the closure `LOBackend.call` runs, not around the agent’s queue wait.
 
 ### N=2 text, no API
 
@@ -169,7 +177,7 @@ If the strings cross, stop. The bug is current-component or a shared doc slot, a
 
 ### N=4 text, no API
 
-Same script, four tokens, four threads. Pass criteria are the same, with all four sleeps overlapping and four distinct documents. This is the “small pool” check. If N=2 passes and N=4 fails, the failure is office load or dispose, not the locking model.
+Same script, four tokens, four threads (`--n 4`). Pass criteria are the same, with all four sleeps overlapping and four distinct documents. This is the “small pool” check. If N=2 passes and N=4 fails, the failure is office load or dispose, not the locking model.
 
 ### N=2 with a real short model call
 
