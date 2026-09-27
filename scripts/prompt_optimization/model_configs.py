@@ -33,9 +33,11 @@ class ModelConfig:
     notes: Optional[str] = None
 
 
-# Prices and context_length from OpenRouter GET /api/v1/models (2026-08-31).
-# Default sweep is US/small-leaning plus China pack; gold-only is excluded
-# from get_default_models() but stays in MODELS for --gold-model.
+# Prices and context_length from OpenRouter GET /api/v1/models.
+# gpt-6-luna, deepseek-v4.1-flash, MiMo, Ternary Bonsai, and Command A+
+# were checked 2026-09-27 (pricing.prompt / pricing.completion × 1e6).
+# Other rows keep the prior fetch. Default sweep is the whole MODELS list;
+# gold-only ids, if any, stay in MODELS but leave get_default_models().
 MODELS: list[ModelConfig] = [
     ModelConfig(
         openrouter_id="openai/gpt-oss-120b",
@@ -54,12 +56,12 @@ MODELS: list[ModelConfig] = [
         notes="OpenAI open-weight 21B MoE (3.6B active); cheap small sibling of 120B.",
     ),
     ModelConfig(
-        openrouter_id="openai/gpt-5.6-luna",
-        display_name="OpenAI: GPT-5.6 Luna",
+        openrouter_id="openai/gpt-6-luna",
+        display_name="OpenAI: GPT-6 Luna",
         context_window_tokens=1_050_000,
-        input_cost_per_million=0.2,
-        output_cost_per_million=1.2,
-        notes="OpenAI GPT-5.6 fast/cheap tier for latency-sensitive agent work.",
+        input_cost_per_million=0.1,
+        output_cost_per_million=0.5,
+        notes="OpenAI GPT-6 Luna; replaces GPT-5.6 Luna in this catalog.",
     ),
     ModelConfig(
         openrouter_id="google/gemini-3.5-flash-lite",
@@ -206,20 +208,12 @@ MODELS: list[ModelConfig] = [
         notes="MiniMax multimodal 1M-context agent/coding model; replaces M2.7.",
     ),
     ModelConfig(
-        openrouter_id="deepseek/deepseek-v4-flash-0731",
-        display_name="DeepSeek: DeepSeek V4 Flash 0731",
-        context_window_tokens=1_310_720,
-        input_cost_per_million=0.065,
-        output_cost_per_million=0.18,
-        notes="DeepSeek 284B/13B-active MoE Flash; replaces V3.2.",
-    ),
-    ModelConfig(
         openrouter_id="deepseek/deepseek-v4.1-flash",
         display_name="DeepSeek: DeepSeek V4.1 Flash",
         context_window_tokens=1_048_576,
-        input_cost_per_million=0.15,
-        output_cost_per_million=0.6,
-        notes="DeepSeek V4.1 Flash; newer Flash tier vs V4 Flash 0731.",
+        input_cost_per_million=0.035,
+        output_cost_per_million=0.29,
+        notes="DeepSeek V4.1 Flash. V4 Flash 0731 is no longer in this catalog.",
     ),
     ModelConfig(
         openrouter_id="nvidia/nemotron-3-ultra-550b-a55b",
@@ -237,13 +231,45 @@ MODELS: list[ModelConfig] = [
         output_cost_per_million=0.4,
         notes="NVIDIA Nemotron 3 Super 120B; paid OpenRouter id (not :free).",
     ),
+    ModelConfig(
+        openrouter_id="xiaomi/mimo-v2.6-flash",
+        display_name="Xiaomi: MiMo-V2.6-Flash",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=0.14,
+        output_cost_per_million=0.28,
+        notes="Xiaomi MiMo-V2.6-Flash. Not the UltraSpeed variant.",
+    ),
+    ModelConfig(
+        openrouter_id="xiaomi/mimo-v2.6-pro",
+        display_name="Xiaomi: MiMo-V2.6-Pro",
+        context_window_tokens=1_050_000,
+        input_cost_per_million=0.435,
+        output_cost_per_million=0.87,
+        notes="Xiaomi MiMo-V2.6-Pro. Not the UltraSpeed variant.",
+    ),
+    ModelConfig(
+        openrouter_id="prism-ml/ternary-bonsai-2-27b",
+        display_name="PrismML: Ternary Bonsai 2 27B",
+        context_window_tokens=262_144,
+        input_cost_per_million=0.075,
+        output_cost_per_million=0.5,
+        notes="PrismML Ternary Bonsai 2 27B.",
+    ),
+    ModelConfig(
+        openrouter_id="cohere/command-a-plus",
+        display_name="Cohere: Command A+",
+        context_window_tokens=192_000,
+        input_cost_per_million=0.3,
+        output_cost_per_million=1.5,
+        notes="Cohere Command A+. Not Command A (non-plus).",
+    ),
 ]
 
 # Smoke / optimize / run_eval.py student. :nitro is OpenRouter routing
 # (same slug as plugin.framework.default_models); pricing uses gpt-oss-120b.
 DEFAULT_EVAL_STUDENT_MODEL = "openai/gpt-oss-120b:nitro"
 # Teacher for --generate-golds (catalog model; not Sonnet).
-DEFAULT_GOLD_MODEL = "openai/gpt-5.6-luna"
+DEFAULT_GOLD_MODEL = "openai/gpt-6-luna"
 
 # Model IDs that are only used for gold generation, not in default multi-eval sweep.
 GOLD_ONLY_MODEL_IDS: frozenset[str] = frozenset()

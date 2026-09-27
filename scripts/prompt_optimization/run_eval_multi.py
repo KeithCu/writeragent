@@ -634,7 +634,7 @@ def parse_args(argv: list[str] | None = None):
         "--generate-golds",
         action="store_true",
         help=(
-            "Generate gold answers with --gold-model (default GPT-5.6 Luna). "
+            f"Generate gold answers with --gold-model (default {DEFAULT_GOLD_MODEL}). "
             "Writes/merges gold_standards.json. By default only one example per run — use -e TASK_ID or -n 1; "
             "for several in one invocation pass --yes-multi-gold."
         ),

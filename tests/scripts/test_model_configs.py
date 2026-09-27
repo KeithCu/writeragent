@@ -22,7 +22,7 @@ from model_configs import (  # noqa: E402
 EXPECTED_DEFAULT_IDS = [
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
-    "openai/gpt-5.6-luna",
+    "openai/gpt-6-luna",
     "google/gemini-3.5-flash-lite",
     "google/gemma-4-31b-it",
     "google/gemma-4-26b-a4b-it",
@@ -41,10 +41,13 @@ EXPECTED_DEFAULT_IDS = [
     "mistralai/mistral-small-2603",
     "bytedance-seed/seed-2.0-mini",
     "minimax/minimax-m3",
-    "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
     "nvidia/nemotron-3-ultra-550b-a55b",
     "nvidia/nemotron-3-super-120b-a12b",
+    "xiaomi/mimo-v2.6-flash",
+    "xiaomi/mimo-v2.6-pro",
+    "prism-ml/ternary-bonsai-2-27b",
+    "cohere/command-a-plus",
 ]
 
 EXPECTED_GOLD_ONLY_IDS: list[str] = []
@@ -73,6 +76,11 @@ DROPPED_SLUGS = [
     "qwen/qwen3-coder-next",
     "anthropic/claude-sonnet-4.6",
     "anthropic/claude-sonnet-5",
+    "openai/gpt-5.6-luna",
+    "openai/gpt-6-luna-pro",
+    "deepseek/deepseek-v4-flash-0731",
+    "xiaomi/mimo-v2.6-pro-ultraspeed",
+    "cohere/command-a",
 ]
 
 
@@ -98,7 +106,7 @@ def test_default_eval_student_model_is_in_catalog() -> None:
     assert resolved in MODEL_BY_ID
     assert resolved not in GOLD_ONLY_MODEL_IDS
     assert DEFAULT_GOLD_MODEL in MODEL_BY_ID
-    assert DEFAULT_GOLD_MODEL == "openai/gpt-5.6-luna"
+    assert DEFAULT_GOLD_MODEL == "openai/gpt-6-luna"
 
 
 def test_model_config_fields_are_populated() -> None:
@@ -111,4 +119,13 @@ def test_model_config_fields_are_populated() -> None:
         assert model.output_cost_per_million >= 0
         assert model.notes
         assert ":" not in model.openrouter_id.split("/", 1)[-1]
+    luna = MODEL_BY_ID["openai/gpt-6-luna"]
+    assert luna.display_name == "OpenAI: GPT-6 Luna"
+    assert luna.context_window_tokens == 1_050_000
+    assert luna.input_cost_per_million == 0.1
+    assert luna.output_cost_per_million == 0.5
+    flash = MODEL_BY_ID["deepseek/deepseek-v4.1-flash"]
+    assert flash.context_window_tokens == 1_048_576
+    assert flash.input_cost_per_million == 0.035
+    assert flash.output_cost_per_million == 0.29
 

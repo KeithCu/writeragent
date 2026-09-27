@@ -251,14 +251,14 @@ python merge_benchmark_results.py \
 
 - **Dataset** (`dataset.py`): 18 fixed tasks (12 Writer + Draw flowchart + 2 Calc + 2 `=PY` dest + `python_shapes_flag` on LO) with assigned `category` (structural or creative). `--backend string` runs the first 17.
 - **Result oracles** (`oracles.py`): Structural correctness from the exported final doc (table Total, 8% tax, Revenue desc, heading order, …). Not tool-name traces.
-- **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. Used only as the quality-judge reference for resume / rewrite / summary / tables. `--generate-golds` can merge a teacher run with `--gold-model` (default `openai/gpt-5.6-luna`; not used during ranking).
+- **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. Used only as the quality-judge reference for resume / rewrite / summary / tables. `--generate-golds` can merge a teacher run with `--gold-model` (default `openai/gpt-6-luna`; not used during ranking).
 - **Program**: default `program_llm.LiveEvalStudent` injects a named slice then calls `llm_chat_eval` (same student as `run_eval_multi`). Optional `program.py` `WriterAssistant` (ReAct + mocks) behind `--student react-mock`.
 - **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables; token penalty; slice-length penalty (~2× seed). Shared via `eval_core` / `metric.py` for `run_optimize` (MIPROv2) and `run_eval_multi`.
 - **Multi-model**: `run_eval_multi.py` ranks by hard pass / agent / quality; C²/$ is secondary. `--models` is required.
 
 ### Benchmark results (2026-09-11, 17-task string harness)
 
-This table is the **string** snapshot. The live pack is 18 tasks; `python_shapes_flag` is not in these numbers. Keep comparing models with `--backend string`. A later `--backend auto` run is a different mix.
+This table is the **string** snapshot. The live pack is 18 tasks; `python_shapes_flag` is not in these numbers. Keep comparing models with `--backend string`. A later `--backend auto` run is a different mix. The snapshot still names `openai/gpt-5.6-luna` and `deepseek/deepseek-v4-flash-0731`. Those ids have left the live catalog: gold generation defaults to `openai/gpt-6-luna`, and the DeepSeek Flash row is `deepseek/deepseek-v4.1-flash` only.
 
 Calc fill-down refresh (`data_sorting` + `tax_column`) for the full catalog after Tip A/B + harness `expand_single_formula` (#733). Other 15 tasks carried forward. Artifacts: `benchmark_results.json`, `benchmark_results_details.json`, plus `benchmark_results_calc_filldown_2026-09-11*.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`. Triage: [`docs/eval/benchmark-failure-analysis-2026-09-01.md`](../../docs/eval/benchmark-failure-analysis-2026-09-01.md).
 
