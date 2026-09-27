@@ -149,6 +149,151 @@ def test_few_shot_text_is_not_execution() -> None:
     assert evidence.script_placement is False
 
 
+# Gemini 3.5 Flash Lite stamp 20260927-0019 shape: nested DTD is only a
+# SmolToolAdapter line (empty args). The host then ran run_venv and placed
+# shapes. The request "content" few-shot must not be what makes this pass.
+_NESTED_EMPTY_DTD_LOG = "\n".join((
+    "=== Tool-calling loop START (max 50 rounds) ===",
+    "Tool loop round 0: sending 2 messages to API...",
+    'Tool call: delegate_to_specialized_writer_toolset('
+    '{"domain": "python", "task": "American flag with shapes"})',
+    _FEW_SHOT_ONLY,
+    "SmolToolAdapter executing async tool 'delegate_tool_domains' on worker",
+    "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
+    "run_venv script: import writeragent as wa",
+    "wa.shape.upsert('create', shape_type='rectangle', width=19001, height=1000)",
+    "create_shape snapshot [after_page_add]: size=(19001x1200)",
+    "Tool loop round 1: sending 4 messages to API...",
+))
+_SYNC_SHAPES_DTD_LOG = "\n".join((
+    'Tool call: delegate_to_specialized_writer_toolset('
+    '{"domain": "python", "task": "American flag with shapes"})',
+    "=== Sync response: {",
+    '  "choices": [',
+    "    {",
+    '      "message": {',
+    '        "role": "assistant",',
+    '        "content": null,',
+    '        "tool_calls": [',
+    "          {",
+    '            "function": {',
+    '              "name": "delegate_tool_domains",',
+    '              "arguments": "{\\"domains\\": [\\"shapes\\"], \\"task\\": \\"flag\\"}"',
+    "            }",
+    "          }",
+    "        ]",
+    "      }",
+    "    }",
+    "  ]",
+    "}",
+    "SmolToolAdapter executing async tool 'delegate_tool_domains' on worker",
+    _FEW_SHOT_ONLY,
+))
+_FOOTNOTES_ONLY_DTD_LOG = "\n".join((
+    'Tool call: delegate_to_specialized_writer_toolset('
+    '{"domain": "python", "task": "add a footnote"})',
+    "=== Sync response: {",
+    '  "choices": [',
+    "    {",
+    '      "message": {',
+    '        "role": "assistant",',
+    '        "content": null,',
+    '        "tool_calls": [',
+    "          {",
+    '            "function": {',
+    '              "name": "delegate_tool_domains",',
+    '              "arguments": "{\\"domains\\": [\\"footnotes\\"], \\"task\\": \\"cite the source\\"}"',
+    "            }",
+    "          }",
+    "        ]",
+    "      }",
+    "    }",
+    "  ]",
+    "}",
+    "SmolToolAdapter executing async tool 'delegate_tool_domains' on worker",
+    "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
+    "wa.shape.upsert('create', shape_type='rectangle', width=19001, height=1000)",
+    _FEW_SHOT_ONLY,
+))
+
+
+def test_nested_smol_dtd_empty_args_counts_when_script_places_shapes() -> None:
+    # Stamp 0019 failed only this check. python and run_venv were already
+    # yes, and the page had 13 stripes. Few-shot content is in the log and
+    # is not the evidence.
+    evidence = parse_path_evidence(_NESTED_EMPTY_DTD_LOG)
+    assert evidence.python_domain is True
+    assert evidence.delegate_shapes is True
+    assert evidence.run_venv is True
+    assert evidence.script_placement is True
+    result = score_flag(
+        FlagGeometry(
+            shape_count=13,
+            stripe_rects=13,
+            star_shapes=0,
+            max_width_hmm=19001,
+            grouped=False,
+        ),
+        evidence,
+    )
+    assert result.passed, result.failures
+    assert not any("delegate_tool_domains" in item for item in result.failures)
+
+
+def test_sync_response_tool_call_args_count_for_nested_dtd() -> None:
+    # Worker logs arguments on === Sync response tool_calls, then the main
+    # thread logs SmolToolAdapter with the name only. Braces inside the
+    # arguments string must not break the JSON extract.
+    evidence = parse_path_evidence(_SYNC_SHAPES_DTD_LOG)
+    assert evidence.python_domain is True
+    assert evidence.delegate_shapes is True
+    assert evidence.run_venv is False
+
+
+def test_tool_async_empty_dtd_counts_when_later_venv_upserts() -> None:
+    log = "\n".join((
+        'Tool call: delegate_to_specialized_writer_toolset({"domain": "python", "task": "flag"})',
+        "thread='tool-async-delegate_tool_domains'",
+        "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
+        'Tool call: run_venv_python_script("import writeragent as wa\\nwa.shape.upsert(\'create\')")',
+    ))
+    evidence = parse_path_evidence(log)
+    assert evidence.delegate_shapes is True
+    assert evidence.run_venv is True
+    assert evidence.script_placement is True
+
+
+def test_empty_dtd_and_content_few_shot_do_not_count_as_shapes() -> None:
+    # Executed DTD with no domains payload, and wa.shape.upsert only inside
+    # request content. A math script is not a shapes delegation.
+    log = "\n".join((
+        "SmolToolAdapter executing async tool 'delegate_tool_domains' on worker",
+        "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
+        'Tool call: run_venv_python_script("print(1)")',
+        _FEW_SHOT_ONLY,
+    ))
+    evidence = parse_path_evidence(log)
+    assert evidence.delegate_shapes is False
+    assert evidence.run_venv is True
+    assert evidence.script_placement is False
+
+
+def test_footnotes_only_dtd_does_not_count_as_shapes() -> None:
+    # Explicit domains=["footnotes"] must not pass on the shapes few-shot
+    # or on a later wa.shape.upsert line. The rubric fail is "ran without
+    # shapes in domains".
+    evidence = parse_path_evidence(_FOOTNOTES_ONLY_DTD_LOG)
+    assert evidence.python_domain is True
+    assert evidence.delegate_shapes is False
+    assert evidence.run_venv is True
+    result = score_flag(
+        FlagGeometry(shape_count=13, stripe_rects=13, star_shapes=20, max_width_hmm=19001, grouped=False),
+        evidence,
+    )
+    assert not result.passed
+    assert any("delegate_tool_domains" in item for item in result.failures)
+
+
 def test_passing_flag(tmp_path: Path) -> None:
     run = _run(tmp_path / "stamp", _PASS_LOG)
     result = score_artifact(run)
