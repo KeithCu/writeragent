@@ -4,9 +4,10 @@
 
 No new yaml knobs. Everyday chat stays at the schema default (15).
 Schema max is 200 so a trial can temporarily set 80 or 200 without clamp.
-AFC / Tenant / Cadaver / Long Writer pack / Draw-primary still write
-**50**. GMP Change Control, Writer→Calc Floorstand, Reverse Tenant
-(Theatre CBA), and Calc-primary model write **150**.
+AFC / Tenant / Cadaver / Long Writer pack / Draw-primary /
+python-shapes-flag still write **50**. GMP Change Control, Writer→Calc
+Floorstand, Reverse Tenant (Theatre CBA), and Calc-primary model write
+**150**.
 
 ``--launch`` (default ``--task afc``) copies only the Population ODS into a
 clean trial directory (default ``$TMP/writeragent-eval2-afc``) so
@@ -52,6 +53,15 @@ peer.
 into ``$TMP/writeragent-eval2-draw`` and opens that canvas. The gold
 PDF is **not** the write target. Writer is optional/absent.
 
+``--task python-shapes-flag --launch`` writes a blank ``American Flag.odt``
+into ``$TMP/writeragent-eval2-python-shapes-flag`` and opens that Writer
+document. Shapes go on its draw page. No research fixture. The string
+harness cannot run this Ask (no ``run_venv`` / ``domain=python``).
+On Enter / Ctrl-C the stamp also receives a copy of that ``.odt`` as
+``final_flag.odt``. Save in Writer first so the file includes
+LibreOffice's ``Thumbnails/thumbnail.png``. ``--score`` copies that
+thumbnail to ``preview.png`` in the stamp.
+
 Do not open ``fixtures/`` or the task folder.
 
 ``--launch`` copies the live LO-user ``writeragent_debug.log`` when the
@@ -73,6 +83,7 @@ Usage:
   .venv/bin/python scripts/eval_2_headed.py --task reverse-tenant --launch
   .venv/bin/python scripts/eval_2_headed.py --task long-writer-pack --launch
   .venv/bin/python scripts/eval_2_headed.py --task draw-primary --launch
+  .venv/bin/python scripts/eval_2_headed.py --task python-shapes-flag --launch
   .venv/bin/python scripts/eval_2_headed.py -- soffice --calc workbook.ods
   .venv/bin/python scripts/eval_2_headed.py --score path/to/final_workbook.ods
   .venv/bin/python scripts/eval_2_headed.py --task tenant-retention --score path/to/final_memo.odt
@@ -83,6 +94,7 @@ Usage:
   .venv/bin/python scripts/eval_2_headed.py --task reverse-tenant --score path/to/final_workbook.ods
   .venv/bin/python scripts/eval_2_headed.py --task long-writer-pack --score path/to/final_pack.odt
   .venv/bin/python scripts/eval_2_headed.py --task draw-primary --score path/to/final_drawing.odg
+  .venv/bin/python scripts/eval_2_headed.py --task python-shapes-flag --score path/to/runs/<stamp>/
 """
 from __future__ import annotations
 
@@ -119,6 +131,7 @@ _CALC_PRIMARY_DIR = REPO_ROOT / "docs" / "eval" / "eval-2" / "calc-primary-model
 _REVERSE_DIR = REPO_ROOT / "docs" / "eval" / "eval-2" / "reverse-tenant"
 _LONG_DIR = REPO_ROOT / "docs" / "eval" / "eval-2" / "long-writer-pack"
 _DRAW_DIR = REPO_ROOT / "docs" / "eval" / "eval-2" / "draw-primary-deliverable"
+_PYTHON_SHAPES_DIR = REPO_ROOT / "docs" / "eval" / "eval-2" / "python-shapes-flag"
 POPULATION_ODS_NAME = "Population v2.ods"
 LETTER_ODT_NAME = "Current Renewal Letter.odt"
 SURVEY_XLSX_NAME = "Exit Survey Feedback.xlsx"
@@ -144,6 +157,9 @@ LONG_FACTS_ODT_NAME = "Northhaven Library Program Facts.odt"
 LONG_DECISIONS_ODT_NAME = "Northhaven Decision Log.odt"
 LONG_PACK_NAME = "Northhaven Civic Library Capital Brief.odt"
 DRAW_PRIMARY_ODG_NAME = "Process Flow Map.odg"
+PYTHON_SHAPES_ODT_NAME = "American Flag.odt"
+# Stamp copy. --score copies Thumbnails/thumbnail.png out as preview.png.
+PYTHON_SHAPES_STAMP_ODT = "final_flag.odt"
 # Form-920 Section 1 blanks. Labels sit to the left so get_draw_tree
 # can attach label_hint. Names stay stable for fill_draw_fields / oracle.
 GMP_FILLABLE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -190,6 +206,7 @@ DEFAULT_CALC_PRIMARY_TRIAL_DIR_NAME = "writeragent-eval2-calc-primary"
 DEFAULT_REVERSE_TRIAL_DIR_NAME = "writeragent-eval2-reverse-tenant"
 DEFAULT_LONG_TRIAL_DIR_NAME = "writeragent-eval2-long-writer"
 DEFAULT_DRAW_TRIAL_DIR_NAME = "writeragent-eval2-draw"
+DEFAULT_PYTHON_SHAPES_TRIAL_DIR_NAME = "writeragent-eval2-python-shapes-flag"
 TASK_AFC = "afc"
 TASK_TENANT = "tenant-retention"
 TASK_CADAVER = "cadaver-proposal"
@@ -199,6 +216,7 @@ TASK_CALC_PRIMARY = "calc-primary-model"
 TASK_REVERSE = "reverse-tenant"
 TASK_LONG = "long-writer-pack"
 TASK_DRAW = "draw-primary"
+TASK_PYTHON_SHAPES = "python-shapes-flag"
 TASK_CHOICES = (
     TASK_AFC,
     TASK_TENANT,
@@ -209,6 +227,7 @@ TASK_CHOICES = (
     TASK_REVERSE,
     TASK_LONG,
     TASK_DRAW,
+    TASK_PYTHON_SHAPES,
 )
 
 
@@ -347,6 +366,7 @@ def task_doc_dir(task: str) -> Path:
         TASK_REVERSE: _REVERSE_DIR,
         TASK_LONG: _LONG_DIR,
         TASK_DRAW: _DRAW_DIR,
+        TASK_PYTHON_SHAPES: _PYTHON_SHAPES_DIR,
     }[task]
 
 
@@ -372,6 +392,7 @@ def default_eval2_trial_dir(task: str = TASK_AFC) -> Path:
         TASK_REVERSE: DEFAULT_REVERSE_TRIAL_DIR_NAME,
         TASK_LONG: DEFAULT_LONG_TRIAL_DIR_NAME,
         TASK_DRAW: DEFAULT_DRAW_TRIAL_DIR_NAME,
+        TASK_PYTHON_SHAPES: DEFAULT_PYTHON_SHAPES_TRIAL_DIR_NAME,
     }
     name = names.get(task, DEFAULT_TRIAL_DIR_NAME)
     return Path(tempfile.gettempdir()) / name
@@ -388,6 +409,7 @@ def _task_dirs() -> tuple[Path, ...]:
         _REVERSE_DIR.resolve(),
         _LONG_DIR.resolve(),
         _DRAW_DIR.resolve(),
+        _PYTHON_SHAPES_DIR.resolve(),
     )
 
 
@@ -855,6 +877,46 @@ def stage_draw_primary_trial(dest_dir: Path) -> Path:
     return copied[0]
 
 
+def stage_python_shapes_flag_trial(dest_dir: Path) -> Path:
+    """Blank Writer canvas only. Prompt / rubric stay outside the trial dir.
+
+    No research fixture: the agent draws the flag on this document's draw
+    page. Opening the task folder would let folder listing see the rubric.
+    """
+    dest_dir = dest_dir.resolve()
+    marker = _PYTHON_SHAPES_DIR / "prompt.writeragent.txt"
+    if _is_protected_trial_dest(dest_dir, marker):
+        raise ValueError(
+            f"refusing to stage into protected path {dest_dir} "
+            "(task tree, fixture folder, or filesystem/temp root)"
+        )
+    _wipe_dir(dest_dir)
+    return write_blank_writer_odt(dest_dir / PYTHON_SHAPES_ODT_NAME)
+
+
+def snapshot_trial_document(src: Path, dest_dir: Path, dest_name: str) -> Path | None:
+    """Copy the headed trial document into the stamp dir.
+
+    That file is what ``--score`` reads, including the page thumbnail
+    LibreOffice stored inside it. Missing or unreadable sources warn and
+    return None so config restore still runs.
+    """
+    if not src.is_file():
+        print(f"Warning: trial document missing, no preview source: {src}", file=sys.stderr)
+        return None
+    try:
+        dest_dir = dest_dir.expanduser()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / dest_name
+        if dest.resolve() != src.resolve():
+            shutil.copy2(src, dest)
+    except OSError as exc:
+        print(f"Warning: could not snapshot trial document: {exc}", file=sys.stderr)
+        return None
+    print(f"Saved {src.name} -> {dest}")
+    return dest
+
+
 def launch_office(mode: str, fixture: Path | None) -> None:
     soffice = shutil.which("soffice")
     if soffice is None:
@@ -905,7 +967,8 @@ def main(argv: list[str] | None = None) -> int:
             "tenant-retention / cadaver-proposal / long-writer-pack are Writer; "
             "gmp-change-control is Writer+Draw; writer-calc-peer-write is "
             "Writer+Calc; reverse-tenant is Calc (Writer brief is a read); "
-            "calc-primary-model is Calc; draw-primary is Draw."
+            "calc-primary-model is Calc; draw-primary is Draw; "
+            "python-shapes-flag is Writer (python domain → shapes)."
         ),
     )
     parser.add_argument(
@@ -916,7 +979,8 @@ def main(argv: list[str] | None = None) -> int:
             "calc-primary-model, Writer for tenant-retention / "
             "cadaver-proposal / long-writer-pack, Writer+Draw for "
             "gmp-change-control, Writer+Calc for writer-calc-peer-write, "
-            "Writer brief + Calc for reverse-tenant, Draw for draw-primary)"
+            "Writer brief + Calc for reverse-tenant, Draw for draw-primary, "
+            "blank Writer for python-shapes-flag)"
         ),
     )
     parser.add_argument(
@@ -932,8 +996,9 @@ def main(argv: list[str] | None = None) -> int:
             f"$TMP/{DEFAULT_FLOORSTAND_TRIAL_DIR_NAME}, "
             f"$TMP/{DEFAULT_CALC_PRIMARY_TRIAL_DIR_NAME}, "
             f"$TMP/{DEFAULT_REVERSE_TRIAL_DIR_NAME}, "
-            f"$TMP/{DEFAULT_LONG_TRIAL_DIR_NAME}, or "
-            f"$TMP/{DEFAULT_DRAW_TRIAL_DIR_NAME})"
+            f"$TMP/{DEFAULT_LONG_TRIAL_DIR_NAME}, "
+            f"$TMP/{DEFAULT_DRAW_TRIAL_DIR_NAME}, or "
+            f"$TMP/{DEFAULT_PYTHON_SHAPES_TRIAL_DIR_NAME})"
         ),
     )
     parser.add_argument(
@@ -972,6 +1037,8 @@ def main(argv: list[str] | None = None) -> int:
             from eval_2_long_writer_oracle import main as score_main
         elif args.task == TASK_DRAW:
             from eval_2_draw_oracle import main as score_main
+        elif args.task == TASK_PYTHON_SHAPES:
+            from eval_2_python_shapes_flag_oracle import main as score_main
         elif args.task == TASK_CADAVER:
             from eval_2_cadaver_oracle import main as score_main
         elif args.task == TASK_TENANT or suffix in {".odt", ".docx"}:
@@ -993,6 +1060,7 @@ def main(argv: list[str] | None = None) -> int:
             exit_code = subprocess.call(command)
         elif args.launch:
             trial_dir = args.trial_dir or default_eval2_trial_dir(args.task)
+            preview_src: Path | None = None
             try:
                 if args.task == TASK_TENANT:
                     trial_doc = stage_tenant_trial(trial_dir)
@@ -1055,6 +1123,17 @@ def main(argv: list[str] | None = None) -> int:
                         "Gold PDF is not the write target. Writer is optional/absent."
                     )
                     launch_office("draw", trial_doc)
+                elif args.task == TASK_PYTHON_SHAPES:
+                    trial_doc = stage_python_shapes_flag_trial(trial_dir)
+                    preview_src = trial_doc
+                    staged = ", ".join(sorted(p.name for p in trial_doc.parent.iterdir()))
+                    print(f"Staged clean trial dir {trial_doc.parent} ({staged})")
+                    print(
+                        "Pre-open: blank Writer. Paste the Ask in the Writer sidebar. "
+                        "Shapes go on this document's draw page. "
+                        "Save in Writer before Enter so the stamp keeps final_flag.odt."
+                    )
+                    launch_office("writer", trial_doc)
                 else:
                     trial_ods = stage_clean_trial_ods(
                         find_afc_population_ods(),
@@ -1067,7 +1146,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             _wait_for_finish(rounds)
             # Copy before the next trial's LO restart resets the live log.
-            snapshot_debug_log(resolve_headed_run_dir(args.task, args.run_dir))
+            run_dir = resolve_headed_run_dir(args.task, args.run_dir)
+            snapshot_debug_log(run_dir)
+            if preview_src is not None:
+                snapshot_trial_document(preview_src, run_dir, PYTHON_SHAPES_STAMP_ODT)
         else:
             _wait_for_finish(rounds)
     print(f"Restored previous {MAX_TOOL_ROUNDS_KEY} in {config_path}")

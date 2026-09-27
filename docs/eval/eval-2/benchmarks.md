@@ -21,7 +21,7 @@ Keep the stores separate. Do **not** fold headed stamps into
 
 | Axis | String pack | Eval-2 (sibling) |
 |---|---|---|
-| Tasks | 17 short Writer/Calc/Draw worlds | 9 Ready / Headed-ready siblings (slot 7 PARKED) |
+| Tasks | 17 short Writer/Calc/Draw worlds | 10 Ready / Headed-ready siblings (slot 7 PARKED; python-shapes flag is native, not on the scoreboard until a stamp exists) |
 | Hard | `hard_pass_rate` (substring + result + process oracles) | **Product HAPPY** (oracle PASS when that is the hard gate — AFC after the smoother) |
 | Partial | correctness / quality | **Oracle partial** (`1 − failures/checks`; AFC S/R, husks) |
 | Cost | C²/$ = metric² ÷ avg $/task | C²/$ = `partial_score`² ÷ USD among HAPPY |
