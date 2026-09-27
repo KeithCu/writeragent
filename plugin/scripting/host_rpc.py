@@ -186,9 +186,17 @@ def _rpc_tool_name(method: Any, known: frozenset[str]) -> str | None:
     return found[0]
 
 
-def _proxy_methods_by_tool(tools: dict[str, list[str]]) -> dict[str, Any]:
-    """Map each ``DOMAIN_TOOLS`` name to the generated proxy method."""
-    import plugin.scripting.writeragent_api as api
+def _proxy_methods_by_tool(tools: dict[str, list[str]]) -> dict[str, Any] | None:
+    """Map each ``DOMAIN_TOOLS`` name to the generated proxy method.
+
+    ``None`` when ``writeragent_api`` is not in this build (LibrePy). The
+    import sits in this function, so it must be guarded the same way as
+    ``_domain_tools_map``: LibrePy ships ``host_rpc`` and omits the proxy.
+    """
+    try:
+        import plugin.scripting.writeragent_api as api
+    except ImportError:
+        return None
 
     known = frozenset(name for names in tools.values() for name in names)
     found: dict[str, Any] = {}
@@ -248,6 +256,9 @@ def format_script_api_catalog(domains: list[str]) -> str:
     if tools is None:
         return ""
     methods = _proxy_methods_by_tool(tools)
+    if not methods:
+        # LibrePy, or proxies that did not load. Omit the catalog.
+        return ""
     namespaces: list[str] = []
     seen: set[str] = set()
     for name in ("core", *domains):

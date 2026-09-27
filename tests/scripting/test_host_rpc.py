@@ -68,6 +68,7 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     tools = _domain_tools_map()
     assert tools is not None
     methods = _proxy_methods_by_tool(tools)
+    assert methods is not None
     for tool_name in (*DOMAIN_TOOLS["core"], *DOMAIN_TOOLS["shape"]):
         method = methods[tool_name]
         doc = inspect.cleandoc(method.__doc__ or "")
@@ -86,6 +87,18 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     assert inspect.cleandoc(api.footnote.insert.__doc__ or "") in both
     assert inspect.cleandoc(api.shape.upsert.__doc__ or "") in both
     assert inner_script_tool_domain(["shapes", "footnotes"]) == "shapes,footnotes,core"
+
+
+def test_format_script_api_catalog_empty_without_proxy():
+    """LibrePy omits writeragent_api; the inner prompt then has no catalog."""
+    from unittest.mock import patch
+
+    from plugin.scripting.host_rpc import format_script_api_catalog
+
+    with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
+        assert format_script_api_catalog(["shapes"]) == ""
+    with patch("plugin.scripting.host_rpc._proxy_methods_by_tool", return_value=None):
+        assert format_script_api_catalog(["shapes"]) == ""
 
 
 def test_inner_script_allowlist_unions_core_without_widening_other_scopes():
