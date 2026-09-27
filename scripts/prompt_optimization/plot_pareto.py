@@ -51,7 +51,8 @@ LABEL_OFFSETS = (
 )
 
 FOOTNOTE = (
-    "Source: OpenRouter string-harness run (selective refresh 2026-09-11). "
+    "Source: OpenRouter eval-1 board (2026-09-27 partial dual-lane; tip b48b43d6). "
+    "17-task string + python_shapes_flag where available (11/26 flag rows). "
     "Each point is labeled with model name and average correctness."
 )
 
@@ -82,6 +83,9 @@ SHORT_NAMES: dict[str, str] = {
     "openai/gpt-oss-120b": "GPT-OSS 120B",
     "openai/gpt-oss-20b": "GPT-OSS 20B",
     "openai/gpt-5.6-luna": "Luna 5.6",
+    "openai/gpt-6-luna": "Luna 6",
+    "cohere/command-a-plus": "Command A+",
+    "prism-ml/ternary-bonsai-2-27b": "Ternary Bonsai 2",
     "google/gemma-4-31b-it": "Gemma 4 31B",
     "google/gemma-4-26b-a4b-it": "Gemma 4 26B",
     "google/gemini-3.5-flash-lite": "Gemini 3.5 Lite",
@@ -228,7 +232,7 @@ def write_pareto_fronts_svg(summaries: list[dict[str, Any]], out_path: Path) -> 
     _annotate_all_labels(ax, rows)
     _style_cost_quality_axes(
         ax,
-        title="WriterAgent 17-task cost–quality Pareto fronts (nondominated sorting)",
+        title="WriterAgent eval-1 cost–quality Pareto fronts (2026-09-27 partial dual-lane)",
     )
     ax.legend(frameon=False, loc="lower right", title="Front")
     fig.text(0.01, 0.01, FOOTNOTE, fontsize=7, color="#5f6368")
@@ -288,7 +292,7 @@ def write_pareto_distance_svg(summaries: list[dict[str, Any]], out_path: Path) -
     _annotate_all_labels(ax, rows)
     _style_cost_quality_axes(
         ax,
-        title="WriterAgent 17-task distance to F1 frontier",
+        title="WriterAgent eval-1 distance to F1 frontier (2026-09-27 partial dual-lane)",
     )
     cbar = fig.colorbar(scatter, ax=ax, pad=0.02)
     cbar.set_label("Distance to F1 (normalized log-cost × correctness)")

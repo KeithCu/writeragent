@@ -124,7 +124,7 @@ Hard pass is the **exported final document** plus process oracles (`oracles.py` 
 
 ## Tool subset
 
-`--backend string` (default) is an in-memory simulator (`string_eval_tools.py`). It **skips** rows that declare `backend=lo` (`python_shapes_flag`), so today's OpenRouter boards stay the original 17 tasks. `--backend lo` forces **headless UNO** for every selected row: `tools_lo.py` starts `soffice --headless`, serializes all UNO onto `_lo_thread` via `LOBackend.call`, and executes production tools with `bypass_thread_guard=True`. `--backend auto` honors each row's `backend` and is the mixed 18-task pack. Do not use `tests/eval_runner.py` or `make lo-start` for this path. Do not set `WRITERAGENT_TESTING=1` (that swaps in `QueueExecutor` on the wrong thread).
+Eval-1 is **not string-only**. `--backend string` (default) is an in-memory simulator (`string_eval_tools.py`). It **skips** rows that declare `backend=lo` (`python_shapes_flag`), so a pure-string board stays 17 tasks. `--backend lo` forces **native headless UNO** for every selected row: `tools_lo.py` starts `soffice --headless`, serializes all UNO onto `_lo_thread` via `LOBackend.call`, and executes production tools with `bypass_thread_guard=True`. `--backend auto` honors each row's `backend` and is the mixed 18-task pack (dual-lane). Task 18 needs native; headed eval-2 is a separate suite — do not treat native LO as eval-2-only. Do not use `tests/eval_runner.py` or `make lo-start` for this path. Do not set `WRITERAGENT_TESTING=1` (that swaps in `QueueExecutor` on the wrong thread).
 
 `--student scripted` replays `scripted_student.SCRIPTS` (no `LlmClient`, no API key, result oracles + honest substring checks). The flag has **no** script. `--student llm` (default) uses a live model and still needs a key. `--no-judge` skips the quality judge.
 
@@ -257,40 +257,49 @@ python merge_benchmark_results.py \
 - **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables; token penalty; slice-length penalty (~2× seed). Shared via `eval_core` / `metric.py` for `run_optimize` (MIPROv2) and `run_eval_multi`.
 - **Multi-model**: `run_eval_multi.py` ranks by hard pass / agent / quality; C²/$ is secondary. `--models` is required.
 
-### Benchmark results (2026-09-11, 17-task string harness)
+### Benchmark results (string snapshot → 18-task dual-lane refresh)
 
-This table is the **string** snapshot. The live pack is 18 tasks; `python_shapes_flag` is not in these numbers. Keep comparing models with `--backend string`. A later `--backend auto` run is a different mix. The snapshot still names `openai/gpt-5.6-luna` and `deepseek/deepseek-v4-flash-0731`. Those ids have left the live catalog: gold generation defaults to `openai/gpt-6-luna`, and the DeepSeek Flash row is `deepseek/deepseek-v4.1-flash` only.
+Eval-1 backends: **`string`** = in-memory; **`lo`** = native headless UNO; **`auto`** = per-task dual-lane mix. Task 18 (`python_shapes_flag`) needs native — not eval-2-only.
 
-Calc fill-down refresh (`data_sorting` + `tax_column`) for the full catalog after Tip A/B + harness `expand_single_formula` (#733). Other 15 tasks carried forward. Artifacts: `benchmark_results.json`, `benchmark_results_details.json`, plus `benchmark_results_calc_filldown_2026-09-11*.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`. Triage: [`docs/eval/benchmark-failure-analysis-2026-09-01.md`](../../docs/eval/benchmark-failure-analysis-2026-09-01.md).
+### 2026-09-27 board refresh (partial dual-lane)
 
-Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squared ÷ avg $/task (`intelligence_per_dollar_metric`). **Quality** = LLM judge average among judged creative/table passes only (`—` if none judged). Models with `n_err` > 0 kept when errors are model-side (empty response, tool-loop limit), not infra/harness.
+Tip artifacts from `b48b43d6`. Catalog: **add** `openai/gpt-6-luna`, `cohere/command-a-plus`, `prism-ml/ternary-bonsai-2-27b`; **drop** `openai/gpt-5.6-luna`, `deepseek/deepseek-v4-flash-0731`. MiMo (`xiaomi/mimo-v2.6-flash`, `xiaomi/mimo-v2.6-pro`) omitted — aborted string runs, not restarted.
+
+Task 18 (`python_shapes_flag`) is on the **native** lane (`--backend auto`). This board is **partial for flag-18**: **11/26** models have flag rows spliced (hard_pass only for `openai/gpt-oss-120b` and `meta/muse-spark-1.3-contributor`; others fail honestly — do not invent scores). `cohere/command-a-plus` and `prism-ml/ternary-bonsai-2-27b` boarded at **n=17** (string only, no flag yet). Follow-up expected when the serial remainder finishes.
+
+Pareto SVGs regenerated from this JSON: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg), [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg).
+
+Calc fill-down base (`data_sorting` + `tax_column`) from 2026-09-11 after Tip A/B + harness `expand_single_formula` (#733). Artifacts: `benchmark_results.json`, `benchmark_results_details.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`. Triage: [`docs/eval/benchmark-failure-analysis-2026-09-01.md`](../../docs/eval/benchmark-failure-analysis-2026-09-01.md).
+
+Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squared ÷ avg $/task (`intelligence_per_dollar_metric`). **Quality** = LLM judge average among judged creative/table passes only (`—` if none judged). Models with `n_err` > 0 kept when errors are model-side (empty response, tool-loop limit), not infra/harness. **n** is 18 when flag is spliced, else 17.
 
 | Rank | Model | Hard pass | Agent | Correctness | Quality | Tokens/task | $/task | C²/$ | n_err |
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
-| 1 | deepseek/deepseek-v4-flash-0731 | 1.000 | 1.000 | 0.987 | 0.96 | 44552 | 0.00350 | 154.4 | 0 |
-| 2 | meta/muse-glimmer-30b | 1.000 | 1.000 | 0.987 | 0.96 | 26143 | 0.00982 | 53.6 | 0 |
-| 3 | x-ai/grok-4.6 | 1.000 | 1.000 | 0.982 | 0.94 | 22031 | 0.04837 | 12.0 | 0 |
-| 4 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.979 | 0.93 | 25434 | 0.00270 | 194.2 | 0 |
-| 5 | openai/gpt-oss-120b | 1.000 | 1.000 | 0.971 | 0.90 | 13525 | 0.00064 | 1092.9 | 0 |
-| 6 | google/gemma-4-31b-it | 0.941 | 0.941 | 0.918 | 0.90 | 16144 | 0.00154 | 404.0 | 0 |
-| 7 | bytedance-seed/seed-2.0-mini | 0.941 | 0.941 | 0.918 | 0.90 | 23135 | 0.00380 | 127.2 | 0 |
-| 8 | openai/gpt-5.6-luna | 0.941 | 0.941 | 0.916 | 0.90 | 17901 | 0.00400 | 139.0 | 0 |
-| 9 | poolside/laguna-xs-2.1 | 0.941 | 0.941 | 0.885 | 0.81 | 22171 | 0.00136 | 328.6 | 0 |
-| 10 | deepseek/deepseek-v4.1-flash | 0.882 | 0.882 | 0.935 | 0.97 | 45666 | 0.00833 | 53.0 | 2 |
-| 11 | qwen/qwen3.8-27b | 0.882 | 0.882 | 0.922 | 0.92 | 42008 | 0.02359 | 15.2 | 1 |
-| 12 | inception/mercury-2.5-preview | 0.882 | 0.882 | 0.869 | 0.95 | 32048 | 0.00909 | 36.3 | 0 |
-| 13 | z-ai/glm-5.3-flash | 0.882 | 0.882 | 0.854 | 0.90 | 40501 | 0.00394 | 107.5 | 0 |
-| 14 | ibm-granite/granite-4.2-8b | 0.824 | 0.824 | 0.861 | 0.93 | 69261 | 0.00772 | 24.5 | 1 |
-| 15 | nvidia/nemotron-3-ultra-550b-a55b | 0.824 | 0.824 | 0.821 | 0.74 | 55758 | 0.05576 | 4.5 | 2 |
-| 16 | openai/gpt-oss-20b | 0.824 | 0.824 | 0.805 | 0.89 | 16666 | 0.00071 | 627.9 | 0 |
-| 17 | qwen/qwen3.8-flash | 0.824 | 0.824 | 0.805 | 0.89 | 47587 | 0.00793 | 32.0 | 1 |
-| 18 | minimax/minimax-m3 | 0.765 | 0.765 | 0.820 | 0.94 | 59174 | 0.02098 | 16.9 | 1 |
-| 19 | upstage/solar-pro4 | 0.765 | 0.765 | 0.741 | 0.90 | 21216 | 0.00067 | 483.4 | 0 |
-| 20 | google/gemma-4-26b-a4b-it | 0.765 | 0.765 | 0.739 | 0.89 | 19147 | 0.00142 | 234.6 | 0 |
-| 21 | nvidia/nemotron-3-super-120b-a12b | 0.706 | 0.765 | 0.904 | 0.91 | 80850 | 0.01069 | 23.7 | 3 |
-| 22 | poolside/laguna-s-2.1 | 0.706 | 0.706 | 0.759 | 0.90 | 21103 | 0.00214 | 158.5 | 2 |
-| 23 | google/gemini-3.5-flash-lite | 0.706 | 0.706 | 0.747 | 0.93 | 15806 | 0.00542 | 72.6 | 0 |
-| 24 | mistralai/mistral-small-2603 | 0.647 | 0.647 | 0.629 | 0.85 | 27441 | 0.00421 | 56.9 | 0 |
-| 25 | nvidia/nemotron-3.5-lightning | 0.412 | 0.412 | 0.374 | 0.68 | 32346 | 0.00268 | 24.1 | 0 |
+| 1 | openai/gpt-oss-120b | 1.000 | 1.000 | 0.972 | 0.90 | 14290 | 0.00081 | 845.1 | 0 |
+| 2 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.980 | 0.93 | 51153 | 0.00588 | 79.6 | 0 |
+| 3 | x-ai/grok-4.6 | 0.944 | 0.944 | 0.969 | 0.94 | 29027 | 0.07547 | 6.9 | 0 |
+| 4 | meta/muse-glimmer-30b | 0.944 | 0.944 | 0.974 | 0.96 | 30699 | 0.01335 | 35.2 | 0 |
+| 5 | bytedance-seed/seed-2.0-mini | 0.941 | 0.941 | 0.918 | 0.90 | 23135 | 0.00335 | 144.1 | 0 |
+| 6 | poolside/laguna-xs-2.1 | 0.941 | 0.941 | 0.885 | 0.81 | 22171 | 0.00153 | 293.0 | 0 |
+| 7 | google/gemma-4-31b-it | 0.889 | 0.889 | 0.908 | 0.90 | 16989 | 0.00217 | 272.6 | 0 |
+| 8 | deepseek/deepseek-v4.1-flash | 0.882 | 0.882 | 0.935 | 0.97 | 45666 | 0.00335 | 132.0 | 2 |
+| 9 | z-ai/glm-5.3-flash | 0.882 | 0.882 | 0.854 | 0.90 | 40501 | 0.00410 | 103.2 | 0 |
+| 10 | qwen/qwen3.8-27b | 0.882 | 0.882 | 0.922 | 0.92 | 42009 | 0.03124 | 11.5 | 1 |
+| 11 | openai/gpt-6-luna | 0.833 | 0.833 | 0.866 | 0.93 | 22574 | 0.00361 | 120.5 | 0 |
+| 12 | inception/mercury-2.5-preview | 0.833 | 0.833 | 0.863 | 0.95 | 36889 | 0.01199 | 24.6 | 0 |
+| 13 | qwen/qwen3.8-flash | 0.824 | 0.824 | 0.805 | 0.89 | 47588 | 0.00942 | 27.0 | 1 |
+| 14 | nvidia/nemotron-3-ultra-550b-a55b | 0.824 | 0.824 | 0.821 | 0.74 | 55758 | 0.05576 | 4.5 | 2 |
+| 15 | ibm-granite/granite-4.2-8b | 0.824 | 0.824 | 0.861 | 0.93 | 69262 | 0.00745 | 25.4 | 1 |
+| 16 | openai/gpt-oss-20b | 0.778 | 0.778 | 0.802 | 0.89 | 17516 | 0.00079 | 544.0 | 0 |
+| 17 | minimax/minimax-m3 | 0.765 | 0.765 | 0.820 | 0.94 | 59175 | 0.02574 | 13.8 | 1 |
+| 18 | upstage/solar-pro4 | 0.765 | 0.765 | 0.741 | 0.90 | 21216 | 0.00092 | 351.2 | 0 |
+| 19 | google/gemma-4-26b-a4b-it | 0.722 | 0.722 | 0.739 | 0.89 | 20336 | 0.00225 | 141.6 | 0 |
+| 20 | nvidia/nemotron-3-super-120b-a12b | 0.706 | 0.765 | 0.904 | 0.91 | 80850 | 0.01069 | 23.7 | 3 |
+| 21 | poolside/laguna-s-2.1 | 0.706 | 0.706 | 0.759 | 0.90 | 21104 | 0.00218 | 155.0 | 2 |
+| 22 | google/gemini-3.5-flash-lite | 0.667 | 0.667 | 0.747 | 0.93 | 15921 | 0.01003 | 38.9 | 0 |
+| 23 | mistralai/mistral-small-2603 | 0.647 | 0.647 | 0.629 | 0.85 | 27442 | 0.00597 | 40.2 | 0 |
+| 24 | cohere/command-a-plus | 0.647 | 0.647 | 0.687 | 0.94 | 71486 | 0.03431 | 5.0 | 5 |
+| 25 | prism-ml/ternary-bonsai-2-27b | 0.529 | 0.529 | 0.585 | 0.97 | 29085 | 0.00404 | 38.3 | 7 |
+| 26 | nvidia/nemotron-3.5-lightning | 0.389 | 0.389 | 0.395 | 0.68 | 33449 | 0.00328 | 19.5 | 0 |
 
 Re-run: `make run_eval EVAL_ARGS="--models … -j 20"` or edit `model_configs.py`. User-facing summary: [`docs/eval/benchmarks.md`](../../docs/eval/benchmarks.md).
