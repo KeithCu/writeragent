@@ -337,6 +337,11 @@ class WriterAgentConfig:
     extend_selection_system_prompt: str = ""
     edit_selection_system_prompt: str = ""
     audio_support_map: Dict[str, bool] = dataclasses.field(default_factory=dict)
+    # Learned vision yes/no per "endpoint@model", same role as audio_support_map.
+    # This key was read and written by has_native_vision but never declared, so
+    # get_config raised CONFIG_KEY_NOT_FOUND ("Missing config key 'vision_support_map'")
+    # on every chat send and set_native_vision_support could not persist.
+    vision_support_map: Dict[str, bool] = dataclasses.field(default_factory=dict)
     calc_prompt_max_tokens: int = 4096
     # When True, treat endpoint as OpenRouter (e.g. custom proxy) even if the URL lacks openrouter.ai.
     is_openrouter: bool = False

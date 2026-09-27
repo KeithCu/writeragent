@@ -1013,16 +1013,35 @@ def set_image_model(val: Any, update_lru: bool = True) -> None:
         update_lru_history(val_str, "image_model_lru", get_current_endpoint())
 
 
+def _model_in_vision_list(provider: str, vision_list: list[str], model_id: str) -> bool:
+    """True when provider metadata lists this id as accepting image input."""
+    if provider == "openrouter":
+        from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
+
+        return any(openrouter_model_ids_equivalent(v_id, model_id) for v_id in vision_list)
+    return model_id in vision_list
+
+
+def _remember_vision_support(model_id: str, endpoint: str, supported: bool) -> None:
+    """Persist a modalities answer. A write failure must not change the answer."""
+    try:
+        set_native_vision_support(model_id, endpoint, supported)
+    except Exception as e:
+        log.debug("has_native_vision persist failed: %s", e)
+
+
 def has_native_vision(model_id: Any, endpoint: Any) -> bool:
     """Check if the model supports native multimodal vision input.
 
     Priority order:
-    1. Persistent User Config Cache ("vision_support_map")
-    2. Static default models list (ModelCapability.VISION)
-    3. Dynamic provider metadata:
-       - OpenRouter/Together: check input_modalities vision cache.
-       - Ollama: query POST /api/show for capabilities list.
-    4. Keyword heuristics as a last resort.
+    1. Persistent user config (``vision_support_map``), including an explicit False.
+    2. Static default models list (``ModelCapability.VISION``). Defaults only —
+       uncatalogued ids are not added there.
+    3. Provider metadata:
+       - OpenRouter/Together: ``input_modalities`` contains ``image``. The sidebar
+         does not GET ``/v1/models`` for these hosts (the lists are huge). On a
+         process-cache miss this function fetches once, then remembers the answer.
+       - Ollama: ``POST /api/show`` capabilities list.
     """
     if not model_id:
         return False
@@ -1041,30 +1060,39 @@ def has_native_vision(model_id: Any, endpoint: Any) -> bool:
 
     # 2. Static Default Models check
     caps = get_model_capability(model_id_str, endpoint_str)
-    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
+    log.debug(
+        "has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s",
+        model_id_str,
+        endpoint_str,
+        caps,
+        bool(caps & ModelCapability.VISION),
+    )
     if caps & ModelCapability.VISION:
         return True
 
     provider = get_provider_from_endpoint(endpoint_str)
 
     # 3. Dynamic provider metadata
-    # 3a. OpenRouter / Together (v1/models cache check)
+    # 3a. OpenRouter / Together. Combobox population skips these hosts so the
+    # dropdown stays LRU + defaults. Vision still needs architecture.input_modalities.
+    # fetch_available_models memoizes the GET for the process, including a failed
+    # lookup stored as None, so a miss here is one network call — not one per send.
     if provider in ("openrouter", "together"):
         is_owu = get_config_bool_safe("is_openwebui")
         suffix = get_api_version_suffix(endpoint_str, is_openwebui=is_owu)
         url = f"{endpoint_str}{suffix}/models"
         cache_key = _model_fetch_cache_key(url, endpoint_str)
         vision_list = _model_fetch_vision_cache.get(cache_key)
+        if vision_list is None:
+            fetch_available_models(endpoint_str)
+            vision_list = _model_fetch_vision_cache.get(cache_key)
         if vision_list is not None:
-            if provider == "openrouter":
-                from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
-                if any(openrouter_model_ids_equivalent(v_id, model_id_str) for v_id in vision_list):
-                    return True
-            else:
-                if model_id_str in vision_list:
-                    return True
+            supported = _model_in_vision_list(provider, vision_list, model_id_str)
+            _remember_vision_support(model_id_str, endpoint_str, supported)
+            log.debug("has_native_vision: modalities model=%r vision=%s", model_id_str, supported)
+            return supported
 
-    # 3b. Ollama (query POST /api/show)
+    # 3b. Ollama (query POST /api/show). None means the probe did not answer.
     if provider == "ollama":
         try:
             res = query_ollama_model_capabilities(endpoint_str, model_id_str)

@@ -46,7 +46,7 @@ Status as of PR #364 and related multimodal work. Code paths below are live; do 
 
 | Item | Location | Notes |
 |------|----------|-------|
-| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` cache → `DEFAULT_MODELS` `ModelCapability.VISION` → OpenRouter/Together `input_modalities` cache → Ollama `POST /api/show` → **no name heuristics yet** (returns `False` if nothing matches) |
+| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` (explicit False wins) → `DEFAULT_MODELS` `ModelCapability.VISION` (defaults only) → OpenRouter/Together `input_modalities`. A process-cache miss GETs `/v1/models` once and persists the answer. Ollama uses `POST /api/show`. No name heuristics. |
 | `set_native_vision_support(model_id, endpoint, supported)` | same | Persists to `vision_support_map` |
 | `query_ollama_model_capabilities` | same | Cached Ollama `/api/show` probe (shared cache also keeps runtime `num_ctx` for the #570 crash sentence; never trained `model_info["*.context_length"]`) |
 | Vision models in catalog | [`default_models.py`](../../plugin/framework/default_models.py) | e.g. Gemini 3.1 Flash Lite, Mistral Large 3 declare `ModelCapability.VISION` |
@@ -181,7 +181,7 @@ Unit tests cover `_render_page_png` error paths only ([`test_get_image_render.py
 ### 8. Minor code-quality (low)
 
 - **`filter_get_image_for_text_only_model`** lives in [`vision_availability.py`](../../plugin/vision/vision_availability.py) (OCR/venv gating) but gates a core Writer tool on chat model capability. Consider `model_fetcher.py` or a small `multimodal_availability.py` — cosmetic only.
-- **`has_native_vision` name heuristics:** Original plan listed keyword fallback as tier 4; current implementation returns `False` when cache, catalog, and provider metadata all miss. Add heuristics only if needed (mirror audio pattern, keep predicate small).
+- **`has_native_vision` metadata:** Uncatalogued ids (for example `google/gemini-3.8-flash`) are vision-capable when OpenRouter/Together `architecture.input_modalities` includes `image`. The sidebar still skips that GET so the combobox stays LRU + defaults; the capability check fetches once per process and writes `vision_support_map`. Do not add a `DEFAULT_MODELS` row per model id.
 
 ---
 
@@ -192,9 +192,8 @@ Priority order for `has_native_vision(model_id, endpoint)`:
 1. **Persistent user config cache** — `vision_support_map` (`{ "endpoint@model": true/false }`).
 2. **Static catalog** — `DEFAULT_MODELS` entries with `ModelCapability.VISION`.
 3. **Dynamic provider metadata:**
-   - OpenRouter / Together: `architecture.input_modalities` containing `"image"` from `/v1/models` (process cache `_model_fetch_vision_cache`).
+   - OpenRouter / Together: `architecture.input_modalities` containing `"image"` from `/v1/models`. The sidebar does not fetch that list. `has_native_vision` does, once per process, when `_model_fetch_vision_cache` has no entry, then calls `set_native_vision_support` so the next process hits step 1. OpenRouter ids match with `openrouter_model_ids_equivalent` (`:nitro` and the base slug are the same model).
    - Ollama: `POST /api/show` → `capabilities` contains `"vision"`.
-4. **Name-based heuristics** — planned as last resort; **not implemented yet**.
 
 ---
 
