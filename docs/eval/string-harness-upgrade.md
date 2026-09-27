@@ -1,13 +1,17 @@
 # String-harness upgrade (no LO)
 
-**Status:** 17-task `--backend string` ranking pack. Core schemas from
-headless ``ToolRegistry.get_schemas``. Specialized work is a bounded
-inner ``LlmClient`` loop (``delegate_to_specialized_*`` with
-``active_domain`` ``shapes`` / ``ranges``), not SmolAgents. Worlds,
-process/`=PY` score, quality judge after the hard gate, and
-required ``--models`` are shipped. Eval does not set sampling
-temperature. Multi-turn and ``--backend lo`` ranking remain out of
-scope.
+**Status:** The live pack is **18 tasks**. `--backend string` (default)
+still ranks the original 17 on the in-memory world and skips
+`python_shapes_flag`. `--backend auto` mixes that headless-LO row with
+the string pool: both lanes start together (string threads + one FIFO
+LO lane, one soffice). Wall clock approaches
+`max(string_parallel, lo_serial)`. The 2026-09-11 boards stay this
+17-task string snapshot. OpenRouter-only string cannot run the flag.
+Headed eval-2 remains the human path for the same Ask. LO ranking of
+the original 17, and multi-turn chat, stay out of scope.
+
+The body below is the string-world plan that shipped (schemas, worlds,
+process score). The mixed scheduler lives in `eval_scheduler.py`.
 
 Plan for making `--backend string` a real WriterAgent eval: same core
 tool catalog as chat, document worlds that can tell the truth, and a

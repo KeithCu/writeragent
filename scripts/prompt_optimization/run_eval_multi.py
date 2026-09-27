@@ -11,7 +11,8 @@ Usage:
   export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY / WRITERAGENT_API_KEY
   cd scripts/prompt_optimization
   python run_eval_multi.py
-  python run_eval_multi.py --backend lo  # LibreOffice instead of string simulator
+  python run_eval_multi.py --backend lo    # force headless LibreOffice
+  python run_eval_multi.py --backend auto  # per-task; string pool overlaps one LO lane
   python run_eval_multi.py --models openai/gpt-oss-120b,openai/gpt-4o-mini
   python run_eval_multi.py -n 2
   python run_eval_multi.py -j 20  # 20 models in parallel (default)
@@ -35,6 +36,7 @@ from eval_auth import (
 )
 from eval_catalog import add_eval_tool_sweep_arguments
 from eval_core import ExampleEval, example_passed, run_eval_on_examples_llm
+from eval_scheduler import CLI_BACKENDS, pack_needs_lo, resolve_backend, select_pack
 from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
 from model_configs import (
     DEFAULT_GOLD_MODEL,
@@ -406,6 +408,8 @@ def _run_one_model(
     repeats: int = 1,
     tools_spec: str | None = None,
     schema_density: str = "full",
+    lo_lane: Any = None,
+    task_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run eval for one model (used in a worker process). Returns summary dict."""
     from dataset import ALL_EXAMPLES, to_dspy_examples
@@ -413,10 +417,14 @@ def _run_one_model(
 
     _tools_lo.VERBOSE = verbose
     examples = to_dspy_examples(ALL_EXAMPLES, with_inputs=True)
-    if example_arg:
-        examples = [ex for ex in examples if getattr(ex, "task_id", "") == example_arg]
-    if n is not None:
-        examples = examples[:n]
+    if task_ids is not None:
+        by_id = {getattr(ex, "task_id", ""): ex for ex in examples}
+        examples = [by_id[tid] for tid in task_ids if tid in by_id]
+    else:
+        if example_arg:
+            examples = [ex for ex in examples if getattr(ex, "task_id", "") == example_arg]
+        if n is not None:
+            examples = examples[:n]
     cfg = _model_config_for_id(model_id, allow_unknown=allow_unknown)
     model = _model_id_for_llm_client(model_id)
     jm = _model_id_for_llm_client(judge_model_id) if judge_model_id else None
@@ -439,6 +447,7 @@ def _run_one_model(
         no_judge=no_judge or student == "scripted",
         tools_spec=tools_spec,
         schema_density=schema_density,
+        lo_lane=lo_lane,
     )
     if repeats > 1:
         extra: list[ExampleEval] = []
@@ -461,6 +470,7 @@ def _run_one_model(
                     no_judge=no_judge or student == "scripted",
                     tools_spec=tools_spec,
                     schema_density=schema_density,
+                    lo_lane=lo_lane,
                 )
             )
         results = results + extra
@@ -646,11 +656,12 @@ def parse_args(argv: list[str] | None = None):
     )
     p.add_argument(
         "--backend",
-        choices=("string", "lo"),
+        choices=CLI_BACKENDS,
         default="string",
         help=(
-            "Document backend: 'string' (in-memory HTML, default) or "
-            "'lo' (headless Writer/Draw/Calc)."
+            "Document backend: 'string' (default; skips backend=lo rows), "
+            "'lo' (force headless LibreOffice), or 'auto' (per-task; "
+            "string work uses -j model workers, LO tasks share one FIFO lane)."
         ),
     )
     p.add_argument(
@@ -723,6 +734,18 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     if args.n is not None:
         examples = examples[: args.n]
+    selected = select_pack(
+        examples,
+        cli_backend=args.backend,
+        explicit=bool(args.example),
+        student=args.student,
+    )
+    if selected.error:
+        print(selected.error, file=sys.stderr)
+        return 1
+    for note in selected.notes:
+        print(note, flush=True)
+    examples = selected.examples
 
     _tools_lo.VERBOSE = args.verbose
 
@@ -747,7 +770,8 @@ def main(argv: list[str] | None = None) -> int:
 
         gold_map: dict[str, str] = {}
         details: list[dict[str, Any]] = []
-        if args.backend == "lo":
+        needs_lo_gold = pack_needs_lo(examples, args.backend)
+        if needs_lo_gold:
             _tools_lo.LOBackend.start()
         try:
             for i, ex in enumerate(examples):
@@ -760,7 +784,7 @@ def main(argv: list[str] | None = None) -> int:
                     endpoint=api_base,
                     api_key=api_key,
                     model=gm,
-                    backend=args.backend,
+                    backend=resolve_backend(ex, args.backend),
                     verbose=args.verbose,
                     task_id=tid,
                     tools_spec=args.tools,
@@ -788,7 +812,7 @@ def main(argv: list[str] | None = None) -> int:
                     flush=True,
                 )
         finally:
-            if args.backend == "lo":
+            if needs_lo_gold:
                 _tools_lo.LOBackend.stop()
 
         out_p = SCRIPT_DIR / "gold_standards.json"
@@ -832,10 +856,18 @@ def main(argv: list[str] | None = None) -> int:
         repeats=max(1, args.repeats),
         tools_spec=args.tools,
         schema_density=args.schema_density,
+        lo_lane=None,
+        task_ids=[getattr(ex, "task_id", "") for ex in examples],
     )
 
-    if args.backend == "lo":
+    needs_lo = pack_needs_lo(examples, args.backend)
+    lo_lane = None
+    if needs_lo:
+        from eval_scheduler import LoLane
+
         _tools_lo.LOBackend.start()
+        lo_lane = LoLane()
+        worker_kw["lo_lane"] = lo_lane
     try:
         if jobs <= 1:
             for model_id in model_ids:
@@ -936,7 +968,9 @@ def main(argv: list[str] | None = None) -> int:
                             annotate_pareto_status(model_summaries)
                             _write_results(out_path, model_summaries)
     finally:
-        if args.backend == "lo":
+        if lo_lane is not None:
+            lo_lane.close()
+        if needs_lo:
             _tools_lo.LOBackend.stop()
 
     if not model_summaries:

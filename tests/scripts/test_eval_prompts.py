@@ -11,11 +11,13 @@ from plugin.framework.prompts import (
 )
 from scripts.prompt_optimization.eval_prompts import (
     EVAL_HARNESS_NOTE,
+    FLAG_HARNESS_NOTE,
     _stub_calc,
     _stub_draw,
     _stub_writer,
     get_calc_eval_chat_system_prompt,
     get_draw_eval_chat_system_prompt,
+    get_eval_system_prompt,
     get_writer_eval_chat_system_prompt,
     replace_prompt_slice,
 )
@@ -33,6 +35,15 @@ def test_writer_eval_prompt_equals_production_plus_note() -> None:
     assert "delegate_to_specialized_writer_toolset" in eval_p
     assert "APPLY_DOCUMENT_CONTENT" in eval_p or "HTML" in eval_p
     assert "Only get_document_content" not in eval_p
+
+
+def test_flag_prompt_requires_python_domain() -> None:
+    prompt = get_eval_system_prompt("python_shapes_flag")
+    assert FLAG_HARNESS_NOTE in prompt
+    assert "Do not call domain=python." not in prompt
+    assert 'domain="python"' in prompt
+    assert get_eval_system_prompt("table_from_mess") != prompt
+    assert EVAL_HARNESS_NOTE in get_eval_system_prompt("table_from_mess")
 
 
 def test_calc_draw_eval_prompts_use_production_builder() -> None:

@@ -1,9 +1,11 @@
 """
 Fixed examples for prompt optimization / eval (scripts/prompt_optimization/).
 
-ALL_EXAMPLES is 17 tasks: 12 Writer (including style_consistency, smart_summarization,
+ALL_EXAMPLES is 18 tasks: 12 Writer (including style_consistency, smart_summarization,
 section_refactor, comment_management) + flowchart_gen (Draw) + data_sorting / tax_column
-(Calc) + two Phase F =PY dest rows (refuse overlap, no bulk read).
+(Calc) + two Phase F =PY dest rows (refuse overlap, no bulk read) + python_shapes_flag
+(Writer, backend=lo). Rows omit ``backend`` to stay on the string world. The flag
+cannot run there (no run_venv / domain=python).
 Structural tasks are scored from the exported final document (oracles + honest substring
 checks). A quality judge runs after the hard gate for resume, rewriting, summarization,
 and the two table tasks. See docs/eval/eval-dev-plan.md.
@@ -443,11 +445,34 @@ PY_NO_BULK_READ = {
     "rubric": _PY_RUBRIC,
 }
 
+# American flag via python domain → shapes. Blank Writer page. The Ask is the
+# one line in docs/eval/eval-2/python-shapes-flag/prompt.writeragent.txt.
+# backend=lo: headless UNO. Do not add a string-world script for this row.
+PYTHON_SHAPES_FLAG_ASK = "use the python domain to make an American flag using shapes"
+PYTHON_SHAPES_FLAG = {
+    "document_content": "",
+    "user_question": PYTHON_SHAPES_FLAG_ASK,
+    "task_id": "python_shapes_flag",
+    "expected_contains": [],
+    "reject_contains": [],
+    "is_non_trivial": True,
+    "category": "structural",
+    "backend": "lo",
+    "rubric": (
+        "Headless Writer. Trace must show delegate domain=python, "
+        "delegate_tool_domains including shapes, and run_venv_python_script "
+        "(not images, not LLM-only shape_upsert). Exported .odt must be a "
+        "page-scale striped field. Under-counted stars are soft. "
+        "No writeragent_debug.log."
+    ),
+}
+
 ALL_EXAMPLES.append(FLOWCHART_GEN)
 ALL_EXAMPLES.append(DATA_SORTING)
 ALL_EXAMPLES.append(TAX_COLUMN)
 ALL_EXAMPLES.append(PY_REFUSE_OVERLAP)
 ALL_EXAMPLES.append(PY_NO_BULK_READ)
+ALL_EXAMPLES.append(PYTHON_SHAPES_FLAG)
 
 
 
@@ -489,6 +514,7 @@ def to_eval_examples(examples=None):
                 is_non_trivial=ex.get("is_non_trivial", False),
                 category=ex.get("category", "structural"),
                 use_quality_judge=ex.get("use_quality_judge", False),
+                backend=ex.get("backend", "string"),
             )
         )
     return out
@@ -532,6 +558,7 @@ def to_dspy_examples(examples=None, with_inputs=True):
             is_non_trivial=ex.get("is_non_trivial", False),
             category=ex.get("category", "structural"),
             use_quality_judge=ex.get("use_quality_judge", False),
+            backend=ex.get("backend", "string"),
         ).with_inputs("document_content", "user_question", "task_id") if with_inputs else dspy.Example(**ex)
         out.append(e)
     return out

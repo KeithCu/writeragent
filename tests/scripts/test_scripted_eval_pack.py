@@ -22,6 +22,7 @@ if str(_REPO) not in sys.path:
 
 from dataset import ALL_EXAMPLES, to_eval_examples  # noqa: E402
 from eval_core import example_passed, run_eval_on_examples_llm  # noqa: E402
+from eval_scheduler import select_pack  # noqa: E402
 from scripted_student import SCRIPTS  # noqa: E402
 
 _RUN_EVAL = _PO / "run_eval.py"
@@ -33,7 +34,7 @@ _LO_CMD = (
 
 def test_scripts_cover_expanded_pack() -> None:
     ids = {ex["task_id"] for ex in ALL_EXAMPLES}
-    assert len(ids) >= 17
+    assert len(ids) == 18
     assert {
         "style_consistency",
         "smart_summarization",
@@ -41,14 +42,31 @@ def test_scripts_cover_expanded_pack() -> None:
         "comment_management",
         "py_refuse_overlap",
         "py_no_bulk_read",
+        "python_shapes_flag",
     } <= ids
     assert "py_unique_beside" not in ids
     assert "py_inplace_reframe" not in ids
-    assert ids <= set(SCRIPTS)
+    string_ids = {
+        ex["task_id"] for ex in ALL_EXAMPLES if ex.get("backend", "string") != "lo"
+    }
+    assert string_ids <= set(SCRIPTS)
+    assert "python_shapes_flag" not in SCRIPTS
+    flag = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "python_shapes_flag")
+    assert flag.get("backend") == "lo"
 
 
 def test_scripted_string_pack_all_pass() -> None:
-    examples = to_eval_examples(ALL_EXAMPLES)
+    # --backend string drops the flag. Replay only the rows this mode runs.
+    selected = select_pack(
+        to_eval_examples(ALL_EXAMPLES),
+        cli_backend="string",
+        explicit=False,
+        student="scripted",
+    )
+    assert selected.error is None
+    examples = selected.examples
+    assert len(examples) == 17
+    assert all(getattr(ex, "task_id", "") != "python_shapes_flag" for ex in examples)
     results = run_eval_on_examples_llm(
         examples,
         endpoint="https://openrouter.ai/api/v1",
@@ -150,6 +168,17 @@ def test_scripted_lo_pack_all_pass() -> None:
     )
     out = (proc.stdout or "") + "\n" + (proc.stderr or "")
     assert proc.returncode == 0, out
-    # =PY dest rows are string-harness only; LO pack stays the original 15.
-    n = len([ex for ex in ALL_EXAMPLES if not str(ex.get("task_id", "")).startswith("py_")])
+    # =PY dest rows are string-harness only. The flag has no script, so the
+    # LO scripted pack stays the original non-py tasks (select_pack drops it).
+    selected = select_pack(
+        to_eval_examples(ALL_EXAMPLES),
+        cli_backend="lo",
+        explicit=False,
+        student="scripted",
+    )
+    n = len(selected.examples)
+    assert "python_shapes_flag" not in {
+        getattr(ex, "task_id", "") for ex in selected.examples
+    }
     assert f"Scripted result pass: {n}/{n}" in out, out
+    assert "Skipping python_shapes_flag" in out

@@ -10,9 +10,11 @@ Shows per-example: task_id, expected/reject checks, correctness, tokens, score, 
 Usage:
   export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY
   cd scripts/prompt_optimization
-  python run_eval.py                    # run all examples
+  python run_eval.py                    # 17 string tasks (skips backend=lo)
+  python run_eval.py --backend auto     # 18-task pack; string pool overlaps the LO lane
+  python run_eval.py --backend auto -e python_shapes_flag   # flag only (key + soffice)
   python run_eval.py --backend lo --student scripted   # headless LO, no API key
-  python run_eval.py --example table_from_mess   # run one task_id
+  python run_eval.py --example table_from_mess   # one task_id (comma-separated ok)
   python run_eval.py -n 2               # run first 2 examples only
   python run_eval.py -v                 # verbose: print every tool call
   python run_eval.py --compare-with optimized_writer_prompt.json   # run both prompts, report diff
@@ -36,6 +38,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from dataset import ALL_EXAMPLES, to_eval_examples
 from eval_catalog import add_eval_tool_sweep_arguments
 from eval_core import example_passed, run_eval_on_examples_llm, summarize_results
+from eval_scheduler import CLI_BACKENDS, pack_needs_lo, select_pack
 from model_configs import DEFAULT_EVAL_STUDENT_MODEL
 import tools_lo
 
@@ -58,19 +61,35 @@ def parse_args(argv: list[str] | None = None):
     p.add_argument("--model", "-m", default=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL))
     p.add_argument("--api-base", default=os.environ.get("OPENAI_API_BASE", DEFAULT_API_BASE))
     p.add_argument("--api-key", "-k", default=os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY", ""))
-    p.add_argument("--example", "-e", metavar="TASK_ID", help="Run only this task_id (e.g. table_from_mess).")
+    p.add_argument(
+        "--example",
+        "-e",
+        metavar="TASK_ID",
+        help="Comma-separated task_id filter (e.g. table_from_mess or python_shapes_flag).",
+    )
     p.add_argument("-n", type=int, default=None, help="Run only first N examples.")
+    p.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=1,
+        help=(
+            "String-pool width (default 1, serial). LO tasks use one FIFO lane "
+            "and overlap this pool. Use 1 for a smoke."
+        ),
+    )
     p.add_argument("--verbose", "-v", action="store_true", help="Print every tool call as it runs.")
     p.add_argument("--compare-with", metavar="JSON", help="Compare: run with current prompt, then with prompt from JSON file, report both scores.")
     p.add_argument("--debug-usage", action="store_true", help="Print raw get_lm_usage() when tokens=0 to debug token extraction.")
     p.add_argument("--no-bust-cache", action="store_true", help="Disable cache-busting (default: enabled for accurate token counts with OpenRouter).")
     p.add_argument(
         "--backend",
-        choices=("string", "lo"),
+        choices=CLI_BACKENDS,
         default="string",
         help=(
-            "Document backend: 'string' (in-memory HTML, default, no LibreOffice) or "
-            "'lo' (headless Writer/Draw/Calc via tools_lo)."
+            "Document backend: 'string' (default; in-memory, skips backend=lo rows), "
+            "'lo' (force headless LibreOffice), or 'auto' (per-task backend; "
+            "string pool overlaps the single LO lane)."
         ),
     )
     p.add_argument(
@@ -107,20 +126,26 @@ def main(argv: list[str] | None = None):
         print(f"Model: {model} @ {api_base}  backend={args.backend}\n")
 
     examples = to_eval_examples(ALL_EXAMPLES)
-    # Phase F =PY dest rows are string-world only (process oracles + formula dest).
-    if args.backend == "lo" and not args.example:
-        examples = [
-            ex
-            for ex in examples
-            if not str(getattr(ex, "task_id", "")).startswith("py_")
-        ]
     if args.example:
-        examples = [ex for ex in examples if getattr(ex, "task_id", "") == args.example]
+        wanted = {part.strip() for part in args.example.split(",") if part.strip()}
+        examples = [ex for ex in examples if getattr(ex, "task_id", "") in wanted]
         if not examples:
             print(f"No example with task_id={args.example!r}. Valid: {[getattr(e, 'task_id', '') for e in to_eval_examples(ALL_EXAMPLES)]}")
             return 1
     if args.n is not None:
         examples = examples[: args.n]
+    selected = select_pack(
+        examples,
+        cli_backend=args.backend,
+        explicit=bool(args.example),
+        student=args.student,
+    )
+    if selected.error:
+        print(selected.error, file=sys.stderr)
+        return 1
+    for note in selected.notes:
+        print(note, flush=True)
+    examples = selected.examples
 
     tools_lo.VERBOSE = args.verbose
     n = len(examples)
@@ -130,8 +155,13 @@ def main(argv: list[str] | None = None):
         print(f"Running {n} example(s). Each can take 15–60+ seconds (multiple API calls). Total often 2–10 min.\n")
     sys.stdout.flush()
 
-    if args.backend == "lo":
+    needs_lo = pack_needs_lo(examples, args.backend)
+    lo_lane = None
+    if needs_lo:
+        from eval_scheduler import LoLane
+
         tools_lo.LOBackend.start()
+        lo_lane = LoLane()
     try:
         if args.compare_with:
             # Compare mode: run both prompts and report
@@ -164,6 +194,8 @@ def main(argv: list[str] | None = None):
                 no_judge=args.no_judge or args.student == "scripted",
                 tools_spec=args.tools,
                 schema_density=args.schema_density,
+                string_jobs=args.jobs,
+                lo_lane=lo_lane,
             )
             summary_a = summarize_results(results_a)
 
@@ -184,6 +216,8 @@ def main(argv: list[str] | None = None):
                 no_judge=args.no_judge or args.student == "scripted",
                 tools_spec=args.tools,
                 schema_density=args.schema_density,
+                string_jobs=args.jobs,
+                lo_lane=lo_lane,
             )
             summary_b = summarize_results(results_b)
 
@@ -220,6 +254,8 @@ def main(argv: list[str] | None = None):
             no_judge=args.no_judge or args.student == "scripted",
             tools_spec=args.tools,
             schema_density=args.schema_density,
+            string_jobs=args.jobs,
+            lo_lane=lo_lane,
         )
         summary = summarize_results(results)
         if results:
@@ -243,7 +279,9 @@ def main(argv: list[str] | None = None):
                     )
         return 0
     finally:
-        if args.backend == "lo":
+        if lo_lane is not None:
+            lo_lane.close()
+        if needs_lo:
             tools_lo.LOBackend.stop()
 
 

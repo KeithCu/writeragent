@@ -566,8 +566,17 @@ def normalize_lo_tool(
     return prod, params
 
 
-def _execute_lo_tool_impl(name: str, args: dict[str, Any]) -> str:
-    """Run one production tool on the LO thread. Used by unit tests with mocks."""
+def _execute_lo_tool_impl(
+    name: str,
+    args: dict[str, Any],
+    python_tool_domain: str | None = None,
+) -> str:
+    """Run one production tool on the LO thread. Used by unit tests with mocks.
+
+    ``python_tool_domain`` is the inner ``delegate_tool_domains`` allowlist
+    (``shapes,core``). ``run_venv_python_script`` forwards it so ``wa.shape``
+    is permitted. Leave it unset for ordinary tool calls.
+    """
     from plugin.main import get_tools
 
     kind = LOBackend.current_kind()
@@ -581,16 +590,24 @@ def _execute_lo_tool_impl(name: str, args: dict[str, Any]) -> str:
             headers, used = None, None
     prod, params = normalize_lo_tool(name, args, kind=kind, headers=headers, used_range=used)
     ctx = _tool_ctx(doc, kind)
+    if python_tool_domain:
+        ctx.python_tool_domain = python_tool_domain
     res = get_tools().execute(prod, ctx, bypass_thread_guard=True, **params)
     if not isinstance(res, dict):
         res = {"status": "ok", "result": res}
     return json.dumps(res, ensure_ascii=False)
 
 
-def execute_lo_tool(name: str, args: dict[str, Any], *, verbose: bool = False) -> str:
+def execute_lo_tool(
+    name: str,
+    args: dict[str, Any],
+    *,
+    verbose: bool = False,
+    python_tool_domain: str | None = None,
+) -> str:
     if verbose:
         print(f"  [Tool] {name} {args}", flush=True)
-    out = LOBackend.call(_execute_lo_tool_impl, name, args)
+    out = LOBackend.call(_execute_lo_tool_impl, name, args, python_tool_domain)
     if verbose:
         print(f"  [Tool->] {out[:500]!r}{'...' if len(out) > 500 else ''}", flush=True)
     return out
@@ -630,6 +647,30 @@ def get_calc_export() -> str:
             "row_count": len(grid),
         }
         return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    return LOBackend.call(_do)
+
+
+def export_writer_odt() -> str:
+    """Save the caller's Writer document to a temp ``.odt`` and return the path.
+
+    Geometry scoring reads ``content.xml`` (HMM / inch sizes). HTML export
+    does not carry draw-page shapes. Caller deletes the file.
+    """
+
+    def _do() -> str:
+        import uno
+        from com.sun.star.beans import PropertyValue
+
+        doc = LOBackend.acquire_document("writer")
+        fd, path = tempfile.mkstemp(suffix=".odt", prefix="wa-eval-flag-")
+        os.close(fd)
+        url = uno.systemPathToFileUrl(os.path.abspath(path))
+        filt = PropertyValue()
+        filt.Name = "FilterName"
+        filt.Value = "writer8"
+        doc.storeToURL(url, (filt,))
+        return path
 
     return LOBackend.call(_do)
 

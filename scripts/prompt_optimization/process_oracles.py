@@ -114,7 +114,9 @@ def check_process(
     """Return process-failure strings (empty means the trace passed)."""
     items = list(trace or [])
     fails: list[str] = []
-    if _trace_has_domain_python(items):
+    # =PY rows forbid domain=python (formula dest, not a venv agent). The flag
+    # row is the opposite: it only passes when the trace took that path.
+    if task_id != "python_shapes_flag" and _trace_has_domain_python(items):
         fails.append("domain=python is not allowed")
     if task_id not in PY_TASK_IDS:
         return fails

@@ -623,12 +623,18 @@ def run_eval_on_examples_llm(
     no_judge: bool = False,
     tools_spec: str | None = None,
     schema_density: str = "full",
+    string_jobs: int = 1,
+    lo_lane: Any = None,
 ) -> List[ExampleEval]:
     """
     Run benchmarks with ``LlmClient`` + tool loop (same tool names as production chat).
 
-    - ``backend`` ``string``: in-memory HTML via ``StringDocState`` (default, no LibreOffice).
-    - ``backend`` ``lo``: headless Writer/Draw/Calc + ``tools_lo`` (start/stop LO outside this function).
+    - ``backend`` ``string``: every row on the in-memory world (default).
+    - ``backend`` ``lo``: every row on headless Writer/Draw/Calc + ``tools_lo``.
+    - ``backend`` ``auto``: each row's ``backend`` field (default ``string``).
+      String rows use a pool of ``string_jobs``; LO rows share ``lo_lane``
+      (or a lane created here) and overlap the string pool. Start/stop
+      soffice outside this function when any row resolves to ``lo``.
     - ``student`` ``scripted``: replay ``scripted_student.SCRIPTS`` (no LlmClient, no key, result oracles).
     - ``no_judge``: skip LLM judge even when ``judge_model`` is set.
     - ``judge_model``: OpenAI-compatible model id for LLM judge (preferred over ``judge_lm``).
@@ -641,12 +647,15 @@ def run_eval_on_examples_llm(
 
     from llm_chat_eval import run_llm_chat_eval
 
-    results: list[ExampleEval] = []
     examples = list(examples)
     n = len(examples)
 
-    for i, ex in enumerate(examples):
+    def _one(i: int, ex: Any, task_backend: str) -> ExampleEval:
         task_id = getattr(ex, "task_id", "") or f"example_{i}"
+        rounds = max_tool_rounds
+        if task_id == "python_shapes_flag":
+            # Headed eval-2 uses 50 for this Ask. Do not change the chat default.
+            rounds = max(int(max_tool_rounds), 50)
         category = getattr(ex, "category", "structural")
         doc = getattr(ex, "document_content", "")
         question = getattr(ex, "user_question", "")
@@ -654,7 +663,10 @@ def run_eval_on_examples_llm(
         gold = getattr(ex, "gold_document", "")
 
         if not quiet:
-            print(_eval_task_banner(i, n, task_id, model), flush=True)
+            banner = _eval_task_banner(i, n, task_id, model)
+            if task_backend == "lo":
+                banner += "  backend=lo"
+            print(banner, flush=True)
             print(f"  Q: {question[:80]}{'...' if len(question) > 80 else ''}")
             if student == "scripted":
                 print("  Scripted student (no API)...", flush=True)
@@ -675,8 +687,8 @@ def run_eval_on_examples_llm(
                 endpoint=endpoint,
                 api_key=api_key,
                 model=gm,
-                backend=backend,  # type: ignore[arg-type]
-                max_tool_rounds=max_tool_rounds,
+                backend=task_backend,  # type: ignore[arg-type]
+                max_tool_rounds=rounds,
                 bust_cache=False,
                 verbose=verbose,
                 student=student,
@@ -704,8 +716,8 @@ def run_eval_on_examples_llm(
                 endpoint=endpoint,
                 api_key=api_key,
                 model=model,
-                backend=backend,  # type: ignore[arg-type]
-                max_tool_rounds=max_tool_rounds,
+                backend=task_backend,  # type: ignore[arg-type]
+                max_tool_rounds=rounds,
                 bust_cache=False,
                 verbose=verbose,
                 student=student,
@@ -726,6 +738,16 @@ def run_eval_on_examples_llm(
             correctness, missing, found_reject, oracle_failures = _correctness_breakdown(
                 ex, final
             )
+            soft_notes: list[str] = []
+            if task_id == "python_shapes_flag":
+                # Trace + exported .odt. Not the headed debug log, and not HTML.
+                from flag_eval import score_flag_example
+
+                scored = score_flag_example(trace, backend=task_backend)
+                oracle_failures = scored.failures
+                correctness = scored.partial_score
+                final = scored.summary
+                soft_notes = scored.soft
             from process_oracles import agent_score_from_failures, check_process
 
             process_failures = check_process(task_id, trace)
@@ -818,16 +840,17 @@ def run_eval_on_examples_llm(
                 print(
                     f"  correctness={effective_correctness:.2f}  tokens={total_tok}  score={metric_score:.3f}"
                 )
-                if missing or found_reject or oracle_failures or process_failures:
+                if missing or found_reject or oracle_failures or process_failures or soft_notes:
                     print(
                         f"  missing_expected={missing}  found_reject={found_reject}  "
                         f"oracle={oracle_failures}  process={process_failures}  "
                         f"agent_score={agent_score}"
                     )
+                    if soft_notes:
+                        print(f"  soft={soft_notes}")
                 print(f"  doc snippet: {snippet!r}")
 
-            results.append(
-                ExampleEval(
+            row = ExampleEval(
                     task_id=task_id,
                     correctness=effective_correctness,
                     missing_expected=missing,
@@ -858,13 +881,11 @@ def run_eval_on_examples_llm(
                     document_score=document_score,
                     judge_error=judge_error,
                 )
-            )
         except Exception as e:
             error = str(e)
             if not quiet:
                 print(f"  ERROR: {error}")
-            results.append(
-                ExampleEval(
+            row = ExampleEval(
                     task_id=task_id,
                     correctness=0.0,
                     missing_expected=[],
@@ -880,10 +901,26 @@ def run_eval_on_examples_llm(
                     agent_score=0.0,
                     trace=[],
                 )
-            )
         if not quiet:
             print()
-    return results
+        return row
+
+    from eval_scheduler import resolve_backend, run_dual_lane
+
+    jobs = [
+        (
+            resolve_backend(ex, backend),
+            lambda i=i, ex=ex, task_backend=resolve_backend(ex, backend): _one(
+                i, ex, task_backend
+            ),
+        )
+        for i, ex in enumerate(examples)
+    ]
+    # One string worker and no LO row: keep the historical serial loop so
+    # banners and result order match the 17-task ranking path.
+    if string_jobs <= 1 and all(b == "string" for b, _fn in jobs):
+        return [_one(i, ex, "string") for i, ex in enumerate(examples)]
+    return run_dual_lane(jobs, string_workers=string_jobs, lo_lane=lo_lane)
 
 
 def summarize_results(results: Iterable[ExampleEval]) -> dict:

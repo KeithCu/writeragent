@@ -22,6 +22,7 @@ from eval_2_python_shapes_flag_oracle import (  # noqa: E402
     PREVIEW_PNG_NAME,
     SOFT_STAR_FIELD,
     FlagGeometry,
+    evidence_from_eval_trace,
     length_to_hmm,
     main as oracle_main,
     parse_path_evidence,
@@ -504,6 +505,39 @@ def test_venv_args_wa_shape_upsert_is_bonus() -> None:
     assert evidence.run_venv is True
     assert evidence.script_placement is True
     assert evidence.llm_shape_upsert is False
+
+
+def test_eval_trace_is_path_evidence_without_debug_log() -> None:
+    trace = [
+        {
+            "name": "delegate_to_specialized_writer_toolset",
+            "arguments": '{"domain": "python", "task": "American flag"}',
+        },
+        {
+            "name": "delegate_tool_domains",
+            "arguments": '{"domains": ["shapes"], "task": "flag"}',
+        },
+        {
+            "name": "run_venv_python_script",
+            "arguments": "import writeragent as wa\nwa.shape.upsert('create')",
+        },
+    ]
+    evidence = evidence_from_eval_trace(trace)
+    assert evidence.python_domain is True
+    assert evidence.delegate_shapes is True
+    assert evidence.run_venv is True
+    assert evidence.script_placement is True
+    assert evidence.images_path is False
+    assert evidence.llm_shape_upsert is False
+    images = evidence_from_eval_trace(
+        [{"name": "delegate_tool_domains", "arguments": '{"domains": ["images"]}'}]
+    )
+    assert images.images_path is True
+    assert evidence_from_eval_trace(None).python_domain is False
+    # A few-shot content blob is not a harness trace entry.
+    assert evidence_from_eval_trace(
+        [{"name": "get_document_content", "arguments": _FEW_SHOT_ONLY}]
+    ).delegate_shapes is False
 
 
 def test_oracle_cli_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
