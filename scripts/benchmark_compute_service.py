@@ -124,10 +124,14 @@ class ManagedBenchmarkServer:
         self.port = _get_free_port()
         self.max_threads = max_threads
         self.workers = workers
+        # ComputeSettings is a dataclass whose field is ``threads``.
+        # ``max_threads`` is a read-only alias property, so passing it as a
+        # constructor keyword raises TypeError. The listener still uses
+        # ``max_threads`` (WSGIDualStackServer); map it onto ``threads`` here.
         self.settings = ComputeSettings(
             host="127.0.0.1",
             port=self.port,
-            max_threads=self.max_threads,
+            threads=self.max_threads,
             workers=self.workers,
             log_level="WARN",
         )
