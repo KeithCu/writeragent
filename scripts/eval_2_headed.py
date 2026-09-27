@@ -57,6 +57,10 @@ PDF is **not** the write target. Writer is optional/absent.
 into ``$TMP/writeragent-eval2-python-shapes-flag`` and opens that Writer
 document. Shapes go on its draw page. No research fixture. The string
 harness cannot run this Ask (no ``run_venv`` / ``domain=python``).
+On Enter / Ctrl-C the stamp also receives a copy of that ``.odt`` as
+``final_flag.odt`` so a later preview PNG can be rendered. Save in
+Writer first. The PNG step is post-process
+(``scripts/eval_2_flag_preview.py``) and is not part of pass/fail.
 
 Do not open ``fixtures/`` or the task folder.
 
@@ -64,7 +68,8 @@ Do not open ``fixtures/`` or the task folder.
 trial ends (Enter / Ctrl-C). Pass ``--run-dir`` to write it under that
 stamp; otherwise a ``YYYYMMDD-HHMM`` folder is created under the task
 ``runs/`` dir. Mid-stall, before restarting LO, use
-``scripts/save_eval2_debug_log.py DEST_DIR``.
+``scripts/save_eval2_debug_log.py DEST_DIR``. Eval-2 has no PNG export
+helper; the saved Writer/Draw document in the stamp is the render source.
 
 Usage:
   .venv/bin/python scripts/eval_2_headed.py
@@ -154,6 +159,8 @@ LONG_DECISIONS_ODT_NAME = "Northhaven Decision Log.odt"
 LONG_PACK_NAME = "Northhaven Civic Library Capital Brief.odt"
 DRAW_PRIMARY_ODG_NAME = "Process Flow Map.odg"
 PYTHON_SHAPES_ODT_NAME = "American Flag.odt"
+# Stamp copy the oracle prefers. Preview PNG is a later post-process.
+PYTHON_SHAPES_STAMP_ODT = "final_flag.odt"
 # Form-920 Section 1 blanks. Labels sit to the left so get_draw_tree
 # can attach label_hint. Names stay stable for fill_draw_fields / oracle.
 GMP_FILLABLE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -888,6 +895,29 @@ def stage_python_shapes_flag_trial(dest_dir: Path) -> Path:
     return write_blank_writer_odt(dest_dir / PYTHON_SHAPES_ODT_NAME)
 
 
+def snapshot_trial_document(src: Path, dest_dir: Path, dest_name: str) -> Path | None:
+    """Copy the headed trial document into the stamp dir.
+
+    That file is enough to render a board thumbnail later. Missing or
+    unreadable sources warn and return None so config restore still runs.
+    PNG export is not done here.
+    """
+    if not src.is_file():
+        print(f"Warning: trial document missing, no preview source: {src}", file=sys.stderr)
+        return None
+    try:
+        dest_dir = dest_dir.expanduser()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / dest_name
+        if dest.resolve() != src.resolve():
+            shutil.copy2(src, dest)
+    except OSError as exc:
+        print(f"Warning: could not snapshot trial document: {exc}", file=sys.stderr)
+        return None
+    print(f"Saved preview source {src.name} -> {dest} (PNG export is post-process, not scored)")
+    return dest
+
+
 def launch_office(mode: str, fixture: Path | None) -> None:
     soffice = shutil.which("soffice")
     if soffice is None:
@@ -1031,6 +1061,7 @@ def main(argv: list[str] | None = None) -> int:
             exit_code = subprocess.call(command)
         elif args.launch:
             trial_dir = args.trial_dir or default_eval2_trial_dir(args.task)
+            preview_src: Path | None = None
             try:
                 if args.task == TASK_TENANT:
                     trial_doc = stage_tenant_trial(trial_dir)
@@ -1095,11 +1126,13 @@ def main(argv: list[str] | None = None) -> int:
                     launch_office("draw", trial_doc)
                 elif args.task == TASK_PYTHON_SHAPES:
                     trial_doc = stage_python_shapes_flag_trial(trial_dir)
+                    preview_src = trial_doc
                     staged = ", ".join(sorted(p.name for p in trial_doc.parent.iterdir()))
                     print(f"Staged clean trial dir {trial_doc.parent} ({staged})")
                     print(
                         "Pre-open: blank Writer. Paste the Ask in the Writer sidebar. "
-                        "Shapes go on this document's draw page."
+                        "Shapes go on this document's draw page. "
+                        "Save in Writer before Enter so the stamp keeps final_flag.odt."
                     )
                     launch_office("writer", trial_doc)
                 else:
@@ -1114,7 +1147,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             _wait_for_finish(rounds)
             # Copy before the next trial's LO restart resets the live log.
-            snapshot_debug_log(resolve_headed_run_dir(args.task, args.run_dir))
+            run_dir = resolve_headed_run_dir(args.task, args.run_dir)
+            snapshot_debug_log(run_dir)
+            if preview_src is not None:
+                snapshot_trial_document(preview_src, run_dir, PYTHON_SHAPES_STAMP_ODT)
         else:
             _wait_for_finish(rounds)
     print(f"Restored previous {MAX_TOOL_ROUNDS_KEY} in {config_path}")

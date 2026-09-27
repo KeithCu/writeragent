@@ -38,6 +38,7 @@ from eval_2_headed import (  # noqa: E402
     LONG_PACK_NAME,
     MAX_TOOL_ROUNDS_KEY,
     PYTHON_SHAPES_ODT_NAME,
+    PYTHON_SHAPES_STAMP_ODT,
     POPULATION_ODS_NAME,
     RAW_DATA_ODS_NAME,
     ROSTER_XLSX_NAME,
@@ -526,6 +527,36 @@ def test_launch_exit_snapshots_debug_log_into_run_dir(
     assert dest.is_file()
     assert dest.read_text(encoding="utf-8") == "Tool loop round 1: sending\n"
     assert "Restored previous" in capsys.readouterr().out
+    assert MAX_TOOL_ROUNDS_KEY not in json.loads(config.read_text(encoding="utf-8"))
+
+
+def test_python_shapes_launch_copies_odt_into_stamp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "writeragent.json"
+    config.write_text("{}\n", encoding="utf-8")
+    run_dir = tmp_path / "runs" / "stamp"
+    trial_dir = tmp_path / "trial"
+    monkeypatch.setattr("eval_2_debug_log.debug_log_candidates", lambda: [tmp_path / "absent.log"])
+    monkeypatch.setattr("eval_2_headed.launch_office", lambda mode, fixture: None)
+    monkeypatch.setattr("eval_2_headed._wait_for_finish", lambda rounds=50: None)
+    assert headed_main([
+        "--config",
+        str(config),
+        "--task",
+        TASK_PYTHON_SHAPES,
+        "--launch",
+        "--trial-dir",
+        str(trial_dir),
+        "--run-dir",
+        str(run_dir),
+    ]) == 0
+    staged = trial_dir / PYTHON_SHAPES_ODT_NAME
+    stamped = run_dir / PYTHON_SHAPES_STAMP_ODT
+    assert staged.is_file()
+    assert stamped.is_file()
+    assert stamped.read_bytes() == staged.read_bytes()
+    assert "preview source" in capsys.readouterr().out
     assert MAX_TOOL_ROUNDS_KEY not in json.loads(config.read_text(encoding="utf-8"))
 
 

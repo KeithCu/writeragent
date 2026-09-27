@@ -24,6 +24,7 @@ from eval_2_python_shapes_flag_oracle import (  # noqa: E402
     length_to_hmm,
     main as oracle_main,
     parse_path_evidence,
+    parse_tool_rounds,
     read_writer_flag,
     resolve_flag_artifact,
     score_artifact,
@@ -36,14 +37,18 @@ _ASK = "use the python domain to make an American flag using shapes"
 
 # Executed calls only. A logged few-shot "content" line must not count.
 _PASS_LOG = "\n".join((
+    "=== Tool-calling loop START (max 50 rounds) ===",
+    "Tool loop round 0: sending 2 messages to API...",
     "Tool call: delegate_to_specialized_writer_toolset("
     '{"domain": "python", "task": "American flag with shapes"})',
+    "Tool loop round 1: sending 4 messages to API...",
     "streaming_loop: accumulated tool_calls tool_calls=["
     '{"index": 0, "type": "function", "function": '
     '{"name": "delegate_tool_domains", "arguments": '
     '"{\\"domains\\": [\\"shapes\\"], \\"task\\": \\"flag\\"}"}}]',
     "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
     "create_shape snapshot [after_page_add]: size=(19001x1200)",
+    "Tool loop round 2: sending 6 messages to API...",
 ))
 _FEW_SHOT_ONLY = (
     '"content": "example Action {\\"name\\": \\"delegate_tool_domains\\", '
@@ -152,6 +157,9 @@ def test_passing_flag(tmp_path: Path) -> None:
     assert result.run_venv is True
     assert result.script_placement is True
     assert result.grouped is False
+    assert result.tool_rounds_used == 3
+    assert result.tool_rounds_budget == 50
+    assert not (run / "preview.png").exists()
 
 
 def test_group_is_bonus_not_required(tmp_path: Path) -> None:
@@ -196,6 +204,27 @@ def test_under_counted_stars_still_pass() -> None:
     assert any("star-like" in item and "20b" in item for item in result.soft)
     assert any("canton-like" in item for item in result.soft)
     assert result.partial_score == 0.875
+    assert result.checks == CHECK_COUNT
+
+
+def test_tool_rounds_are_recorded_not_scored(tmp_path: Path) -> None:
+    # A long earlier loop must not fail the run. The last START wins when
+    # the sidebar re-enters. DEBUG round lines may be absent; that stays None.
+    earlier = "\n".join((
+        "=== Tool-calling loop START (max 15 rounds) ===",
+        "Tool loop round 40: sending 80 messages to API...",
+    ))
+    used, budget = parse_tool_rounds(earlier + "\n" + _PASS_LOG)
+    assert used == 3
+    assert budget == 50
+    assert parse_tool_rounds("=== Tool-calling loop START (max 50 rounds) ===") == (None, 50)
+    run = _run(tmp_path / "rounds", earlier + "\n" + _PASS_LOG, stars=5)
+    result = score_artifact(run)
+    assert result.passed, result.failures
+    assert result.tool_rounds_used == 3
+    assert result.tool_rounds_budget == 50
+    assert result.partial_score == 0.875
+    assert result.checks == CHECK_COUNT
 
 
 def test_blank_page_fails() -> None:
@@ -317,3 +346,5 @@ def test_oracle_cli_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     out = capsys.readouterr().out
     assert '"passed": true' in out
     assert '"checks": 7' in out
+    assert '"tool_rounds_used": 3' in out
+    assert '"tool_rounds_budget": 50' in out

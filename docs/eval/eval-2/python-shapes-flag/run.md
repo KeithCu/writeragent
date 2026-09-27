@@ -46,15 +46,28 @@ Ctrl-C. Save the Writer document beside that log:
 |------|----------|
 | `prompt_used.txt` | Exact text sent (the one-line Ask) |
 | `thinking_and_tools.md` | Model thinking plus tool calls |
-| `final_flag.odt` | Writer doc after the agent finished (the staged trial-dir file, or the Untitled doc if that is what was open) |
-| `writeragent_debug.log` | Full debug log from the stamp (process checks read this) |
+| `final_flag.odt` | Writer doc. `--launch` copies the trial `American Flag.odt` here on Enter. Save in Writer first. This file is the preview source |
+| `writeragent_debug.log` | Full debug log from the stamp (process checks, and outer tool-round counts) |
 | `notes.txt` | Observer notes: wrong path, speck geometry, images PNG |
+| `preview.png` | Post-process only. Not required to score |
 
 Then score the run directory (document + log). Ready / STREAM_DONE is
-ignored — a title with no shapes fails:
+ignored — a title with no shapes fails. A missing PNG does not fail:
 
 ```bash
 .venv/bin/python scripts/eval_2_headed.py --task python-shapes-flag --score docs/eval/eval-2/python-shapes-flag/runs/<stamp>/
 ```
 
-See [`rubric.eval2.md`](rubric.eval2.md).
+Export one board thumbnail per stamp afterwards (eval-2 has no PNG
+helper; this shells out to soffice when it is on PATH):
+
+```bash
+.venv/bin/python scripts/eval_2_flag_preview.py docs/eval/eval-2/python-shapes-flag/runs/<stamp>/
+```
+
+TODO: gallery step collects `runs/*/preview.png` (one image per
+model×run). Do not fold that image into the oracle.
+
+See [`rubric.eval2.md`](rubric.eval2.md). Soft star geometry stays the
+partial (gpt-oss-20b almost-flag). Tool-round count is recorded from
+the debug log and is not a check.

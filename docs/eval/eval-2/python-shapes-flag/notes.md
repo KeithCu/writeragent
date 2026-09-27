@@ -37,6 +37,31 @@ require a perfect 50-star canton for HAPPY / pass. Messy or
 under-counted stars are soft partial credit. Fail only the wrong route
 (images / PNG), no venv, a tiny ~1900 HMM speck, or a blank page.
 
+Outer tool-loop rounds are a **recorded metric**, not a check. The
+debug log’s last `Tool-calling loop START (max N rounds)` is the budget.
+`Tool loop round N` lines (DEBUG, 0-based) after that START are the
+rounds used. A missing line stays unset and does not fail.
+
+## Board pictures (post-process)
+
+One preview image per model×run, separate from pass/fail. Each stamp
+keeps the saved Writer document (`final_flag.odt`, copied from the
+trial `American Flag.odt` on Enter) plus `writeragent_debug.log`. That
+`.odt` is enough to render later.
+
+Eval-2 has **no** PNG export helper. Headed autopsy shots were manual.
+`plugin/writer/get_image.py` (`_render_draw_page_png`) needs a live UNO
+document and is not this step.
+
+After scoring, export the thumbnail:
+
+```bash
+.venv/bin/python scripts/eval_2_flag_preview.py docs/eval/eval-2/python-shapes-flag/runs/<stamp>/
+```
+
+That writes `preview.png` in the stamp. A gallery is
+`runs/*/preview.png`. The oracle does not look for the PNG.
+
 ## Not changed
 
 - String-harness dataset, prompts, and few-shots

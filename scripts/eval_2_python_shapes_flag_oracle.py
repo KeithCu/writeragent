@@ -31,6 +31,12 @@ are soft: messy or under-counted stars do not fail. Wrong route
 ``shape_group`` / ``draw:g`` is a bonus. Writer grouping hits a known UNO
 ``ShapeCollection`` bug (#927), so a loose set of shapes still passes.
 
+A preview PNG is not a check. The stamp's saved ``.odt`` is the render
+source; ``scripts/eval_2_flag_preview.py`` exports one image per run
+afterwards. Outer tool-loop rounds from the debug log
+(``Tool-calling loop START`` / ``Tool loop round N``) are recorded on
+the result and do not change pass/fail. Eval-2 has no PNG export helper.
+
 Usage:
   .venv/bin/python scripts/eval_2_python_shapes_flag_oracle.py path/to/final_flag.odt
   .venv/bin/python scripts/eval_2_python_shapes_flag_oracle.py path/to/runs/<stamp>/
@@ -47,7 +53,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from eval_2_debug_log import DEBUG_LOG_FILENAME
-from eval_2_headed import PYTHON_SHAPES_ODT_NAME
+from eval_2_headed import PYTHON_SHAPES_ODT_NAME, PYTHON_SHAPES_STAMP_ODT
 
 _DRAW_NS = "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
 _SVG_NS = "urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"
@@ -89,7 +95,7 @@ CHECK_COUNT = 7
 SOFT_CHECK_COUNT = 1
 
 _PREFERRED_ODT = (
-    "final_flag.odt",
+    PYTHON_SHAPES_STAMP_ODT,
     PYTHON_SHAPES_ODT_NAME,
 )
 
@@ -109,6 +115,9 @@ _HMM_PER_UNIT = {
     "": 1.0,
 }
 
+_LOOP_START_RE = re.compile(r"Tool-calling loop START \(max (\d+) rounds\)")
+# plugin/chatbot/tool_loop.py log.debug — 0-based outer chat rounds.
+_LOOP_ROUND_RE = re.compile(r"Tool loop round (\d+):")
 _TOOL_CALL_RE = re.compile(r"Tool call:\s*([A-Za-z_][\w]*)\((.*)\)\s*$")
 _ACCUM_CALL_RE = re.compile(
     r'"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*"((?:\\.|[^"\\])*)"',
@@ -171,6 +180,9 @@ class OracleResult:
     llm_shape_upsert: bool = False
     images_path: bool = False
     script_placement: bool = False
+    # Outer chat loop only. None when the log has no such lines. Not a check.
+    tool_rounds_used: int | None = None
+    tool_rounds_budget: int | None = None
 
     def to_json(self) -> dict[str, object]:
         return asdict(self)
@@ -389,6 +401,27 @@ def parse_path_evidence(log_text: str) -> PathEvidence:
     )
 
 
+def parse_tool_rounds(log_text: str) -> tuple[int | None, int | None]:
+    """Outer tool-loop budget and rounds used. Not a pass/fail input.
+
+    ``Tool-calling loop START (max N rounds)`` is INFO. ``Tool loop round
+    N`` is DEBUG and 0-based, so used is max index + 1. A later START
+    (sidebar re-entry) drops earlier rounds. Missing lines stay None.
+    """
+    if not log_text:
+        return None, None
+    starts = list(_LOOP_START_RE.finditer(log_text))
+    if not starts:
+        indexes = [int(match.group(1)) for match in _LOOP_ROUND_RE.finditer(log_text)]
+        used = (max(indexes) + 1) if indexes else None
+        return used, None
+    last = starts[-1]
+    budget = int(last.group(1))
+    indexes = [int(match.group(1)) for match in _LOOP_ROUND_RE.finditer(log_text[last.end():])]
+    used = (max(indexes) + 1) if indexes else None
+    return used, budget
+
+
 def quality_partial(failures: list[str], soft: list[str]) -> float:
     """Hard failures plus at most one soft star note, over a fixed denominator.
 
@@ -548,12 +581,17 @@ def score_artifact(path: Path | str) -> OracleResult:
             log_missing = True
             log_text = ""
     evidence = parse_path_evidence(log_text)
-    return score_flag(
+    result = score_flag(
         geometry,
         evidence,
         geometry_error=geometry_error,
         log_missing=log_missing,
     )
+    # Recorded after the hard gate so a round count cannot add a failure.
+    used, budget = parse_tool_rounds(log_text)
+    result.tool_rounds_used = used
+    result.tool_rounds_budget = budget
+    return result
 
 
 def format_result(result: OracleResult) -> str:
@@ -573,6 +611,11 @@ def format_result(result: OracleResult) -> str:
             f"hard: {len(result.failures)}/{result.checks} failed  "
             f"partial: {result.partial_score:.3f}"
         ),
+        (
+            "  tool_rounds: "
+            f"{_rounds_label(result.tool_rounds_used, result.tool_rounds_budget)} "
+            "(recorded, not scored)"
+        ),
     ]
     for item in result.bonuses:
         lines.append(f"  bonus: {item}")
@@ -585,6 +628,14 @@ def format_result(result: OracleResult) -> str:
 
 def _yn(flag: bool) -> str:
     return "yes" if flag else "no"
+
+
+def _rounds_label(used: int | None, budget: int | None) -> str:
+    if used is None and budget is None:
+        return "n/a"
+    used_text = "?" if used is None else str(used)
+    budget_text = "?" if budget is None else str(budget)
+    return f"{used_text}/{budget_text}"
 
 
 def main(argv: list[str] | None = None) -> int:
