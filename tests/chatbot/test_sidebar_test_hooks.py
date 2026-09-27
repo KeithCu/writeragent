@@ -12,6 +12,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -234,7 +235,10 @@ def test_slash_popup_hooks_read_state_and_consume_enter(fake_listener: _FakeList
     assert state["items"] == ["help", "clear"]
     assert state["selected"] == "help"
     assert state["available"] is True
-    press_query_key(1280, listener=fake_listener)
+    # Parked ENABLE_SLASH skips handle_key, so Enter falls through to Send.
+    # Match panel.py QueryKeyListener: enable slash so Enter is consumed.
+    with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True):
+        press_query_key(1280, listener=fake_listener)
     assert not any(isinstance(e, tuple) and e and e[0] == "action" for e in fake_listener.events)
 
 
