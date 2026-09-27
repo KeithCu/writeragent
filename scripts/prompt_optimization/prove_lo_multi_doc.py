@@ -14,7 +14,7 @@ sleep that stands in for an LLM wait stays on the agent thread, outside
 No LoLane rewrite, no second process, no OpenRouter. Headless only — a green
 run says nothing about headed AFC.
 
-Usage (from the repo root):
+Usage (from the repo root; ``make manifest`` once so ``plugin/_manifest.py`` exists):
 
   .venv/bin/python scripts/prompt_optimization/prove_lo_multi_doc.py
   .venv/bin/python scripts/prompt_optimization/prove_lo_multi_doc.py --n 4
@@ -27,11 +27,13 @@ import sys
 import threading
 import time
 import traceback
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent

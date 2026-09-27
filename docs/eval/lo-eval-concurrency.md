@@ -149,6 +149,7 @@ Run the 20-model string board the way #931 already does. For native LO rows, a p
 No full matrix. No harness rewrite. The text proof is `scripts/prompt_optimization/prove_lo_multi_doc.py`: one `LOBackend`, N agent threads (default 2), no OpenRouter, no second soffice. Do not set `WRITERAGENT_TESTING=1`. A green run is headless only; it is not evidence about headed AFC.
 
 ```bash
+make manifest   # once; plugin/_manifest.py is gitignored
 .venv/bin/python scripts/prompt_optimization/prove_lo_multi_doc.py
 .venv/bin/python scripts/prompt_optimization/prove_lo_multi_doc.py --n 4
 ```
