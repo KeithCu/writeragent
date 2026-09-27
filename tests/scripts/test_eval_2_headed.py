@@ -37,6 +37,7 @@ from eval_2_headed import (  # noqa: E402
     LONG_FACTS_ODT_NAME,
     LONG_PACK_NAME,
     MAX_TOOL_ROUNDS_KEY,
+    PYTHON_SHAPES_ODT_NAME,
     POPULATION_ODS_NAME,
     RAW_DATA_ODS_NAME,
     ROSTER_XLSX_NAME,
@@ -47,6 +48,7 @@ from eval_2_headed import (  # noqa: E402
     TASK_DRAW,
     TASK_GMP,
     TASK_LONG,
+    TASK_PYTHON_SHAPES,
     TASK_REVERSE,
     TASK_TENANT,
     TASK_WRITER_CALC,
@@ -59,6 +61,7 @@ from eval_2_headed import (  # noqa: E402
     _FLOORSTAND_DIR,
     _GMP_DIR,
     _LONG_DIR,
+    _PYTHON_SHAPES_DIR,
     _REVERSE_DIR,
     _TENANT_DIR,
     apply_max_tool_rounds,
@@ -77,6 +80,7 @@ from eval_2_headed import (  # noqa: E402
     stage_floorstand_trial,
     stage_gmp_trial,
     stage_long_writer_trial,
+    stage_python_shapes_flag_trial,
     stage_reverse_tenant_trial,
     stage_tenant_trial,
     task_max_tool_rounds,
@@ -248,6 +252,9 @@ def test_default_eval2_trial_dir_is_tmp_subdir() -> None:
     draw = default_eval2_trial_dir(TASK_DRAW)
     assert draw.name == "writeragent-eval2-draw"
     assert draw.parent == Path(tempfile.gettempdir())
+    flag = default_eval2_trial_dir(TASK_PYTHON_SHAPES)
+    assert flag.name == "writeragent-eval2-python-shapes-flag"
+    assert flag.parent == Path(tempfile.gettempdir())
 
 
 def test_task_max_tool_rounds_gmp_is_150() -> None:
@@ -255,6 +262,7 @@ def test_task_max_tool_rounds_gmp_is_150() -> None:
     assert task_max_tool_rounds(TASK_CADAVER) == EVAL_2_MAX_TOOL_ROUNDS
     assert task_max_tool_rounds(TASK_LONG) == EVAL_2_MAX_TOOL_ROUNDS
     assert task_max_tool_rounds(TASK_DRAW) == EVAL_2_MAX_TOOL_ROUNDS
+    assert task_max_tool_rounds(TASK_PYTHON_SHAPES) == EVAL_2_MAX_TOOL_ROUNDS
     assert task_max_tool_rounds(TASK_GMP) == EVAL_2_GMP_MAX_TOOL_ROUNDS
     assert task_max_tool_rounds(TASK_WRITER_CALC) == EVAL_2_GMP_MAX_TOOL_ROUNDS
     assert task_max_tool_rounds(TASK_REVERSE) == EVAL_2_GMP_MAX_TOOL_ROUNDS
@@ -458,6 +466,28 @@ def test_stage_draw_primary_trial_contains_only_canvas(tmp_path: Path) -> None:
 def test_stage_draw_primary_trial_refuses_real_task_dir() -> None:
     with pytest.raises(ValueError, match="protected"):
         stage_draw_primary_trial(_DRAW_DIR)
+
+
+def test_stage_python_shapes_flag_trial_is_blank_writer_only(tmp_path: Path) -> None:
+    dest = tmp_path / "trial"
+    dest.mkdir()
+    (dest / "prompt.writeragent.txt").write_text("PROMPT-LEAK", encoding="utf-8")
+    (dest / "rubric.eval2.md").write_text("RUBRIC-LEAK", encoding="utf-8")
+    doc = stage_python_shapes_flag_trial(dest)
+    names = sorted(p.name for p in dest.iterdir())
+    assert names == [PYTHON_SHAPES_ODT_NAME]
+    assert doc == dest / PYTHON_SHAPES_ODT_NAME
+    assert doc.is_file()
+    assert not any(
+        "PROMPT-LEAK" in p.read_text(encoding="utf-8", errors="ignore")
+        for p in dest.iterdir()
+        if p.suffix in {".txt", ".md"}
+    )
+
+
+def test_stage_python_shapes_flag_trial_refuses_real_task_dir() -> None:
+    with pytest.raises(ValueError, match="protected"):
+        stage_python_shapes_flag_trial(_PYTHON_SHAPES_DIR)
 
 
 def test_default_eval2_run_dir_uses_task_runs_stamp() -> None:

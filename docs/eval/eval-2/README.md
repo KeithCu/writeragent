@@ -41,11 +41,12 @@ oracle exist. **Stub** means fixture notes only — not headed-ready gold.
 | 8 | [`draw-primary-deliverable/`](draw-primary-deliverable/) | Draw-primary (process flow map) | Ready | `8a7b6fca-60cc-4ae3-b649-971753cbf8b9` |
 | 9 | [`reverse-tenant/`](reverse-tenant/) | Calc deliverable; Writer brief sibling | Ready | `4520f882-715a-482d-8e87-1cb3cbdfe975` |
 | 10 | [`long-writer-pack/`](long-writer-pack/) | Long Writer pack (TOC + styles + comments) | Headed-ready (native fixture) | WriterAgent-native; no in-repo gold fits |
+| 11 | [`python-shapes-flag/`](python-shapes-flag/) | Writer python domain → shapes American flag | Headed-ready | WriterAgent-native Ask; string harness cannot run it |
 
 Headed helper: `scripts/eval_2_headed.py` writes `chatbot.max_tool_rounds`
-to **50** (AFC / Tenant / Cadaver / Long Writer pack / Draw-primary) or
-**150** (GMP Change Control / Writer→Calc Floorstand / Reverse Tenant /
-Calc-primary model) and restores when done. Everyday default stays
+to **50** (AFC / Tenant / Cadaver / Long Writer pack / Draw-primary /
+python-shapes flag) or **150** (GMP Change Control / Writer→Calc
+Floorstand / Reverse Tenant / Calc-primary model) and restores when done. Everyday default stays
 **15**. Schema **max is 200** so a trial can temporarily set 80 or 200
 without clamp.
 Do not hand-edit `writeragent.json`. Do not open `fixtures/` or the task
@@ -104,6 +105,10 @@ Slot **7 stays PARKED** and is **not wired** into `--task` / `--launch` /
 # Draw-primary / Process Flow Map
 .venv/bin/python scripts/eval_2_headed.py --task draw-primary --launch
 .venv/bin/python scripts/eval_2_headed.py --task draw-primary --score docs/eval/eval-2/draw-primary-deliverable/runs/<stamp>/final_drawing.odg
+
+# Writer / python domain → shapes American flag
+.venv/bin/python scripts/eval_2_headed.py --task python-shapes-flag --launch
+.venv/bin/python scripts/eval_2_headed.py --task python-shapes-flag --score docs/eval/eval-2/python-shapes-flag/runs/<stamp>/
 ```
 
 AFC `--launch` still copies **only** `Population v2.ods` into
@@ -135,6 +140,10 @@ Long Writer `--launch` copies the two native research ODTs into
 Draw-primary `--launch` copies **only** `Process Flow Map.odg` into
 `$TMP/writeragent-eval2-draw` and opens that canvas (Draw is the
 product). The gold PDF is not staged.
+Python-shapes flag `--launch` writes a blank `American Flag.odt` into
+`$TMP/writeragent-eval2-python-shapes-flag` and opens it in Writer.
+Shapes go on that document’s draw page. The string harness cannot run
+this Ask.
 
 Oracles: [`scripts/eval_2_ods_oracle.py`](../../scripts/eval_2_ods_oracle.py)
 (AFC workbook),
@@ -153,7 +162,9 @@ Oracles: [`scripts/eval_2_ods_oracle.py`](../../scripts/eval_2_ods_oracle.py)
 [`scripts/eval_2_long_writer_oracle.py`](../../scripts/eval_2_long_writer_oracle.py)
 (Writer pack: TOC / styles / comments), and
 [`scripts/eval_2_draw_oracle.py`](../../scripts/eval_2_draw_oracle.py)
-(Draw process map). Rubrics:
+(Draw process map), and
+[`scripts/eval_2_python_shapes_flag_oracle.py`](../../scripts/eval_2_python_shapes_flag_oracle.py)
+(Writer python domain → shapes flag). Rubrics:
 [`afc-sample-83d10b06/rubric.eval2.md`](afc-sample-83d10b06/rubric.eval2.md),
 [`tenant-retention-ed2bc14c/rubric.eval2.md`](tenant-retention-ed2bc14c/rubric.eval2.md),
 [`cadaver-proposal-61b0946a/rubric.eval2.md`](cadaver-proposal-61b0946a/rubric.eval2.md),
@@ -162,5 +173,6 @@ Oracles: [`scripts/eval_2_ods_oracle.py`](../../scripts/eval_2_ods_oracle.py)
 [`calc-primary-model/rubric.eval2.md`](calc-primary-model/rubric.eval2.md),
 [`reverse-tenant/rubric.eval2.md`](reverse-tenant/rubric.eval2.md),
 [`long-writer-pack/rubric.eval2.md`](long-writer-pack/rubric.eval2.md),
-[`draw-primary-deliverable/rubric.eval2.md`](draw-primary-deliverable/rubric.eval2.md).
+[`draw-primary-deliverable/rubric.eval2.md`](draw-primary-deliverable/rubric.eval2.md),
+[`python-shapes-flag/rubric.eval2.md`](python-shapes-flag/rubric.eval2.md).
 Slot 7 stays PARKED; no CLI scorer.

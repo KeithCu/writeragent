@@ -22,6 +22,7 @@ _READY = (
     "draw-primary-deliverable",
     "reverse-tenant",
     "long-writer-pack",
+    "python-shapes-flag",
 )
 _STUBS = (
     "writer-headed-template",
