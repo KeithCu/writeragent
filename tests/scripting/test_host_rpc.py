@@ -43,6 +43,78 @@ def test_resolve_allowed_tools_plural_domain_name():
     assert "list_open_documents" in allowed
 
 
+def test_format_script_api_catalog_embeds_full_proxy_docstrings():
+    """Inner catalog is the generated Args text, not a one-line summary."""
+    import inspect
+
+    import plugin.scripting.writeragent_api as api
+    from plugin.scripting.host_rpc import (
+        _domain_tools_map,
+        _proxy_methods_by_tool,
+        format_script_api_catalog,
+        inner_script_tool_domain,
+    )
+    from plugin.scripting.writeragent_api import DOMAIN_TOOLS
+
+    catalog = format_script_api_catalog(["shapes"])
+    assert catalog.startswith("run_venv_python_script has access to the following APIs")
+    assert "Only the Python script may call these wa.* functions" in catalog
+    assert "import writeragent as wa" in catalog
+    assert "wa.core.list_open_documents()" in catalog
+    assert "wa.shape.upsert(" in catalog
+    assert "wa.footnote." not in catalog
+    assert "wa.python.run_venv_python_script" not in catalog
+
+    tools = _domain_tools_map()
+    assert tools is not None
+    methods = _proxy_methods_by_tool(tools)
+    for tool_name in (*DOMAIN_TOOLS["core"], *DOMAIN_TOOLS["shape"]):
+        method = methods[tool_name]
+        doc = inspect.cleandoc(method.__doc__ or "")
+        assert doc
+        assert doc in catalog
+    # Rich Args from the proxy generator (#916), not a trimmed blurb.
+    assert "shape_type (optional)" in catalog
+    assert "round-rectangle" in catalog
+    assert "action (required)" in catalog
+    assert len(catalog) > 5000
+
+    both = format_script_api_catalog(["footnotes", "shapes"])
+    assert both.count("core:\n") == 1
+    assert both.count("shape:\n") == 1
+    assert both.count("footnote:\n") == 1
+    assert inspect.cleandoc(api.footnote.insert.__doc__ or "") in both
+    assert inspect.cleandoc(api.shape.upsert.__doc__ or "") in both
+    assert inner_script_tool_domain(["shapes", "footnotes"]) == "shapes,footnotes,core"
+
+
+def test_inner_script_allowlist_unions_core_without_widening_other_scopes():
+    """Inner DTD scripts may call core. Bare domains, None, and =PY() stay put."""
+    from plugin.scripting.host_rpc import inner_script_tool_domain
+    from plugin.scripting.writeragent_api import DOMAIN_TOOLS
+
+    allowed = resolve_allowed_tools(inner_script_tool_domain(["shapes"]))
+    assert allowed is not None
+    assert set(DOMAIN_TOOLS["core"]) <= allowed
+    assert "shape_upsert" in allowed
+    assert "footnotes_insert" not in allowed
+    assert "run_venv_python_script" not in allowed
+
+    # A domain string that is not the inner path does not pick up core.
+    writer = resolve_allowed_tools("writer")
+    assert writer is not None
+    assert "apply_document_content" in writer
+    assert "undo" not in writer
+    assert "web_research" not in writer
+    assert "list_open_documents" in writer
+
+    assert resolve_allowed_tools(None) is None
+    assert resolve_allowed_tools("") == frozenset()
+    assert resolve_allowed_tools("python") is not None
+    assert "symbolic_math" in resolve_allowed_tools("python")
+    assert "run_venv_python_script" not in resolve_allowed_tools("python")
+
+
 def test_resolve_allowed_tools_shapes_and_multi_domain_union():
     """Inner delegate_tool_domains passes specialized names, including a comma-separated union."""
     shapes = resolve_allowed_tools("shapes")

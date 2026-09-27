@@ -13,14 +13,17 @@ does not receive specialized domain tools. When it needs them it calls
 ``delegate_tool_domains`` with ``domains`` + ``task``.
 
 The inner agent gets ``run_venv_python_script`` with ``python_tool_domain`` set
-to those domains, so one script can loop ``writeragent_api`` (``wa.shape.upsert``)
-instead of one LLM call per shape. Shapes mutators stay off the inner LLM list
-(``shape_summary`` remains for a check). Other domains still pass their
-``ToolBase`` tools. ``specialized_workflow_finished`` is always included.
+to those domains plus ``core``, so one script can loop ``writeragent_api``
+(``wa.shape.upsert``, ``wa.core.list_open_documents``, and the rest of the
+catalog). The inner instructions include that catalog (full proxy docstrings
+and Args). The venv sandbox blocks ``inspect`` / ``dir`` / ``__doc__``, so the
+model cannot read the signatures itself. Shapes mutators stay off the inner
+LLM list (``shape_summary`` remains for a check). Other domains still pass
+their ``ToolBase`` tools. ``specialized_workflow_finished`` is always included.
 
 The gateway parameter ``python_tool_domain`` stays commented out. This module
-sets the same host-only allowlist on the inner ``ToolContext``, not on the
-outer gateway.
+sets the host-only allowlist on the inner ``ToolContext``, not on the outer
+gateway.
 """
 
 from __future__ import annotations
@@ -250,10 +253,13 @@ def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
     calls it when ``USE_SUB_AGENT`` is off, which would clear the outer python
     session while the inner agent is only finishing its own task.
 
-    ``python_tool_domain`` is the delegated names (comma-separated when several).
+    ``python_tool_domain`` is the delegated names plus ``core`` (comma-separated).
     ``RunVenvPythonScript`` forwards it to the worker so script RPC is allowlisted
-    to those ``writeragent_api`` domains (``shapes`` → ``shape``).
+    to those ``writeragent_api`` domains (``shapes`` → ``shape``) and
+    ``DOMAIN_TOOLS['core']``. ``run_venv_python_script`` stays off that set.
     """
+    from plugin.scripting.host_rpc import inner_script_tool_domain
+
     return ToolContext(
         doc=parent_ctx.doc,
         ctx=parent_ctx.ctx,
@@ -268,7 +274,7 @@ def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
         chat_append_callback=getattr(parent_ctx, "chat_append_callback", None),
         send_cancellation=getattr(parent_ctx, "send_cancellation", None),
         uno_services_supported=getattr(parent_ctx, "uno_services_supported", None),
-        python_tool_domain=",".join(domains),
+        python_tool_domain=inner_script_tool_domain(domains),
     )
 
 
@@ -348,12 +354,13 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
     domain_list = ", ".join(domains)
     hints = _domain_loop_hints(parent_ctx, domains, label)
     # Shapes mutators are not on this tool list. One script loops the API.
+    # The catalog (below) is what every delegated domain may call from that script.
     script_hint = ""
     if "shapes" in domains:
         script_hint = (
             " When placing many shapes, write one run_venv_python_script"
-            " (import writeragent as wa, or writeragent_api) with a Python for-loop"
-            " that calls wa.shape.upsert(...). Do not call a per-shape LLM tool for each shape."
+            " with a Python for-loop that calls wa.shape.upsert(...)."
+            " Those shape mutators are not LLM tools."
             " shape_summary can verify."
         )
     instructions = (
@@ -363,6 +370,12 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         " Call specialized_workflow_finished with a compact summary when done."
         f"{hints}"
     )
+    # Full Args from writeragent_api, not a summary. Sandbox blocks reflection.
+    from plugin.scripting.host_rpc import format_script_api_catalog
+
+    catalog = format_script_api_catalog(domains)
+    if catalog:
+        instructions = f"{instructions}\n\n{catalog}"
     # Not the outer ``*:python`` block: that few-shot calls delegate_tool_domains,
     # which this inner list does not include. Shapes uses the venv for-loop block.
     if "shapes" in domains:
