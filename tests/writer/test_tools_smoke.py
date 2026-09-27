@@ -135,6 +135,8 @@ class TestWriterToolsSmoke:
             "indexes_list_cites",
             "indexes_update_all",
             "indexes_refresh_toc_entry",
+            "indexes_insert_toc_entry",
+            "indexes_delete_toc_entry",
         ):
             assert (name) in (names), f"expected indexes tool {name!r}"
         for name in (
