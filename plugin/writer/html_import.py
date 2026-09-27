@@ -16,11 +16,16 @@ base run. Not a text field — do not use ``TextField.Ruby``.
 
 from __future__ import annotations
 
+import contextlib
 import html as html_mod
 import logging
 import re
+import uuid
 from html.parser import HTMLParser
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from plugin.doc.text_helpers import normalize_linebreaks as _normalize
 from plugin.framework.errors import ToolExecutionError
@@ -247,61 +252,86 @@ class _BlockLoStyleExtractor(HTMLParser):
 
     _table_depth: int
 
+    # Paragraph-level blocks cannot contain blocks: a new one closes the open one (<p>a<p>b).
+    _PARA_LEVEL: ClassVar[frozenset[str]] = frozenset({"p", "pre", "h1", "h2", "h3", "h4", "h5", "h6"})
+
     def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
         self._table_depth = 0
         self.styles: list[str | None] = []
         self._out: list[str] = []
-        # One frame per open block: has its first child block already shared its slot?
-        self._open_blocks: list[list[bool]] = []
+        # Open block-level elements: [tag, first child block already shared this slot?], or
+        # [tag, None] for a transparent <div> (no slot of its own).
+        self._open: list[list[Any]] = []
 
-    def _emit(self, raw: str, attrs: list[tuple[str, str | None]], is_block: bool, opens: bool = False) -> None:
-        if is_block and self._table_depth == 0:
-            val = None
-            for k, v in attrs:
-                if k == "data-lo-style":
-                    val = v
-            # What was wrong: <blockquote><p> and <li><p> took two slots but make ONE Writer
-            # paragraph, so every later style landed one paragraph late ("2. DO DIREITO" lost its
-            # heading, a list item became a quote). Why this fixes it: a block's first child block
-            # is that same paragraph -- it shares the slot, and its own style wins when it has one.
-            if self._open_blocks and not self._open_blocks[-1][0]:
-                self._open_blocks[-1][0] = True
-                if val is not None or not self.styles:
-                    if self.styles:
-                        self.styles[-1] = val
-                    else:
-                        self.styles.append(val)
-            else:
-                self.styles.append(val)
-            if opens:
-                self._open_blocks.append([False])
-            self._out.append(_strip_data_lo_style(raw))
+    @staticmethod
+    def _style_of(attrs: list[tuple[str, str | None]]) -> str | None:
+        val = None
+        for k, v in attrs:
+            if k == "data-lo-style":
+                val = v
+        return val
+
+    def _is_block(self, tag: str, attrs: list[tuple[str, str | None]]) -> bool:
+        # A <div> is a transparent container -- except the one the read path gives a
+        # data-lo-style: LibreOffice exports a paragraph holding a frame (an image) as
+        # <div class="paragraph-X">, and that div is one Writer paragraph on import too.
+        return tag in xhtml_post.BLOCK_TAGS or (tag == "div" and self._style_of(attrs) is not None)
+
+    def _slot(self, val: str | None) -> None:
+        # What was wrong: <blockquote><p> and <li><p> took two slots but make ONE Writer
+        # paragraph, so every later style landed one paragraph late ("2. DO DIREITO" lost its
+        # heading, a list item became a quote). Why this fixes it: a block's first child block
+        # is that same paragraph -- it shares the slot, and its own style wins when it has one.
+        parent = self._open[-1] if self._open else None
+        if parent is not None and parent[1] is False and self.styles:
+            parent[1] = True
+            if val is not None:
+                self.styles[-1] = val
         else:
-            # Non-top-level / non-block: leave verbatim. In particular, a table-cell block's
-            # data-lo-style is left for the import to ignore (v1 doesn't apply cell styles),
-            # rather than silently stripped without being applied.
-            self._out.append(raw)
+            self.styles.append(val)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s>" % tag)
-        if tag.lower() == "table":
+        t = tag.lower()
+        if t == "table":
             self._table_depth += 1
             self._out.append(raw)
             return
-        # BLOCK_TAGS excludes <div> (transparent container), so a wrapper does not consume a
-        # positional style slot — keeps read and write symmetric on <div>.
-        self._emit(raw, attrs, tag.lower() in xhtml_post.BLOCK_TAGS, opens=True)
+        if self._table_depth or (t not in xhtml_post.BLOCK_TAGS and t != "div"):
+            # Inline tags, and blocks inside a table (their data-lo-style is left for the import to
+            # ignore -- v1 doesn't apply cell styles), stay verbatim.
+            self._out.append(raw)
+            return
+        if not self._is_block(t, attrs):
+            self._open.append([t, None])  # transparent div
+            self._out.append(raw)
+            return
+        while self._open and self._open[-1][0] in self._PARA_LEVEL:
+            self._open.pop()
+        self._slot(self._style_of(attrs))
+        self._open.append([t, False])
+        self._out.append(_strip_data_lo_style(raw))
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s/>" % tag)
-        self._emit(raw, attrs, tag.lower() in xhtml_post.BLOCK_TAGS)
+        t = tag.lower()
+        if self._table_depth == 0 and self._is_block(t, attrs):
+            self._slot(self._style_of(attrs))
+            self._out.append(_strip_data_lo_style(raw))
+        else:
+            self._out.append(raw)
 
     def handle_endtag(self, tag: str) -> None:
-        if tag.lower() == "table" and self._table_depth > 0:
+        t = tag.lower()
+        if t == "table" and self._table_depth > 0:
             self._table_depth -= 1
-        elif tag.lower() in xhtml_post.BLOCK_TAGS and self._table_depth == 0 and self._open_blocks:
-            self._open_blocks.pop()
+        elif self._table_depth == 0 and (t in xhtml_post.BLOCK_TAGS or t == "div"):
+            # Pop up to and including the matching open element (tolerates an omitted </p>).
+            for idx in range(len(self._open) - 1, -1, -1):
+                if self._open[idx][0] == t:
+                    del self._open[idx:]
+                    break
         self._out.append("</%s>" % tag)
 
     def handle_data(self, data: str) -> None:
@@ -548,6 +578,175 @@ def _parked_cursor(cursor: Any) -> Any:
     return cursor.getText().createTextCursorByRange(cursor.getEnd())
 
 
+
+# --- images that come back without their data ------------------------------------------------
+# get_document_content leaves image data out (include_images=false), so a picture comes back as
+# its frame's wrapper -- <div ... id="Name"> for paragraph/character/page anchors, <span ...
+# id="Name"> inside a line -- around <img src="">, and a floating frame is followed by a
+# clear:both <div>. Imported as is, the picture was lost: the edit deleted the original with the
+# old text and the import made nothing (a signature vanished on "Accept all"), and the clear:both
+# <div> became an extra empty paragraph that shifted the next data-lo-style by one.
+_IMAGE_PLACEHOLDER_RE = re.compile(
+    r'<(div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*<img\b[^>]*\bsrc=""[^>]*>\s*</\1>'
+    r'(?:\s*<div style="clear:both;[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?',
+    re.IGNORECASE)
+_EMPTY_IMG_RE = re.compile(r'<img\b[^>]*\bsrc=""', re.IGNORECASE)
+
+# Frame properties copied onto the restored picture (read with try: not all exist on every frame).
+_KEPT_IMAGE_PROPS = (
+    "HoriOrient", "HoriOrientPosition", "HoriOrientRelation", "VertOrient", "VertOrientPosition",
+    "VertOrientRelation", "TextWrap", "SurroundContour", "LeftMargin", "RightMargin", "TopMargin",
+    "BottomMargin", "Title", "Description", "GraphicCrop", "Opaque",
+)
+
+
+class _KeptImage(NamedTuple):
+    marker: str
+    name: str
+    original: Any
+    graphic: Any
+    anchor: Any
+    size: Any
+    props: dict[str, Any]
+
+
+def _swap_image_placeholders(model: Any, content: str) -> tuple[str, list[_KeptImage]]:
+    """Swap each data-less image wrapper that names a picture of *model* for a text marker.
+
+    Runs BEFORE the edit deletes anything: the picture is read now, while it still exists (with
+    review off, deleting its paragraph disposes of it). Raises ToolExecutionError -- nothing
+    changed yet -- when an image has no data and names no picture here, instead of losing it.
+    """
+    if not content or 'src=""' not in content:
+        return content, []
+    try:
+        graphics = model.getGraphicObjects()
+    except Exception:
+        graphics = None
+    kept: list[_KeptImage] = []
+    missing: list[str] = []
+    nonce = uuid.uuid4().hex[:8]
+
+    def _swap(match: re.Match[str]) -> str:
+        name = html_mod.unescape(match.group(2))
+        try:
+            obj = graphics.getByName(name) if graphics is not None and graphics.hasByName(name) else None
+        except Exception:
+            obj = None
+        if obj is None:
+            missing.append(name)
+            return match.group(0)
+        props: dict[str, Any] = {}
+        for prop in _KEPT_IMAGE_PROPS:
+            try:
+                props[prop] = obj.getPropertyValue(prop)
+            except Exception:
+                pass
+        marker = "wa%simg%d" % (nonce, len(kept))
+        kept.append(_KeptImage(marker, name, obj, obj.getPropertyValue("Graphic"),
+                               obj.getPropertyValue("AnchorType"), obj.getSize(), props))
+        return marker
+
+    swapped = _IMAGE_PLACEHOLDER_RE.sub(_swap, content)
+    if missing or _EMPTY_IMG_RE.search(swapped):
+        named = (" It names %s, which this document does not have." % ", ".join(repr(n) for n in missing)
+                 if missing else "")
+        raise ToolExecutionError(
+            "The content has an image without its data (src=\"\"), so it would be lost.%s Keep the "
+            "image's wrapper exactly as get_document_content returned it (<div ... id=\"Name\"> or "
+            "<span ... id=\"Name\">) so the tool puts that picture back, leave the image out to "
+            "delete it, or read with include_images=true to copy it from another document." % named)
+    return swapped, kept
+
+
+def _deleted_by_the_edit(model: Any, original: Any) -> bool:
+    """True when the edit removed *original*: disposed (review off), or its anchor -- for a
+    paragraph anchor, the paragraph's break -- inside a pending tracked deletion (review on).
+    Anything else is still in place and must not be duplicated, e.g. a search replace of the
+    text of the paragraph a picture is anchored to."""
+    try:
+        anchor = original.getAnchor()
+    except Exception:
+        return True
+    if not _is_recording_changes(model):
+        return False
+    point = anchor
+    if getattr(original.getPropertyValue("AnchorType"), "value", "") == "AT_PARAGRAPH":
+        # A paragraph-anchored picture goes only when its paragraph goes: when the break that
+        # ends it is deleted. A search replace deletes the paragraph's text, not the paragraph.
+        try:
+            point = anchor.getText().createTextCursorByRange(anchor.getStart())
+            point.gotoEndOfParagraph(False)
+            if not point.goRight(1, True):
+                return False  # the last paragraph has no break: it stays
+        except Exception:
+            return False
+    try:
+        redlines = model.getRedlines()
+        total = int(redlines.getCount())
+        enum = redlines.createEnumeration()
+    except Exception:
+        return False
+    for _unused in range(total):
+        if enum.hasMoreElements() is not True:
+            break
+        redline = enum.nextElement()
+        try:
+            if redline.getPropertyValue("RedlineType") != "Delete":
+                continue
+            start = redline.getPropertyValue("RedlineStart")
+            end = redline.getPropertyValue("RedlineEnd")
+            text = start.getText()
+            # compareRegionStarts(a, b): 1 when a starts before b, 0 when equal.
+            if text.compareRegionStarts(start, point) >= 0 and text.compareRegionEnds(point, end) >= 0:
+                return True
+        except Exception:
+            continue  # another text object, or not comparable
+    return False
+
+
+def _restore_image_placeholders(model: Any, kept: list[_KeptImage]) -> None:
+    """Put a copy of each kept picture where its marker landed, and remove the marker."""
+    for image in kept:
+        search = model.createSearchDescriptor()
+        search.SearchString = image.marker
+        search.SearchCaseSensitive = True
+        found = model.findFirst(search)
+        if found is None:
+            log.warning("kept image %r: marker not found after the import", image.name)
+            continue
+        text = found.getText()
+        if getattr(image.anchor, "value", "") == "AT_PAGE" or not _deleted_by_the_edit(model, image.original):
+            # The original is still where it was (page-anchored, or outside what the edit
+            # replaced): drop the marker instead of adding a duplicate.
+            found.setString("")
+            continue
+        picture = model.createInstance("com.sun.star.text.TextGraphicObject")
+        picture.Graphic = image.graphic
+        picture.AnchorType = image.anchor
+        picture.setSize(image.size)
+        # Known LibreOffice limit (checked live, recorded or not): with review on, a picture in a
+        # cell of a table this edit inserts keeps "Reject all" from removing that table. Accept is
+        # right; Reject leaves the new table behind. Without the picture it would be lost instead.
+        text.insertTextContent(found, picture, True)  # True: the marker text is replaced
+        for prop, value in image.props.items():
+            try:
+                picture.setPropertyValue(prop, value)
+            except Exception:
+                log.debug("kept image %r: could not restore %s", image.name, prop, exc_info=True)
+        with contextlib.suppress(Exception):
+            picture.setName(image.name)  # taken while the original is a pending deletion
+
+
+@contextlib.contextmanager
+def _keep_placeholder_images(model: Any, content: str) -> Iterator[str]:
+    """Yield *content* with data-less images swapped for markers; put the pictures back after."""
+    swapped, kept = _swap_image_placeholders(model, content)
+    yield swapped
+    if kept:
+        _restore_image_placeholders(model, kept)
+
+
 def _cursor_goto_document_end(model: Any, cursor: Any) -> None:
     """Move *cursor* to the end of the document body (``model.getText()``)."""
     end_c = model.getText().createTextCursor()
@@ -725,7 +924,8 @@ def insert_html_at_cursor(
     apply_styles: bool = True,
 ) -> None:
     """Insert HTML or plain text at *cursor* (public API for tools)."""
-    _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_svc=config_svc, apply_styles=apply_styles)
+    with _keep_placeholder_images(model, unescaped_content) as content:
+        _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc, apply_styles=apply_styles)
 
 
 
@@ -814,6 +1014,13 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
 
 
 def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, config_svc: Any = None) -> None:
+    """Insert inline *content* at a collapsed *cursor* (data-less images kept, see
+    ``_keep_placeholder_images``)."""
+    with _keep_placeholder_images(model, content) as swapped:
+        _insert_inline_at_cursor(model, ctx, cursor, swapped, config_svc)
+
+
+def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str, config_svc: Any = None) -> None:
     """Insert inline *content* at a collapsed *cursor* without splitting its paragraph.
 
     ``insert_html_at_cursor`` routes plain text through ``_ensure_html_linebreaks``, which
@@ -854,6 +1061,11 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
+    with _keep_placeholder_images(model, content) as swapped:
+        _insert_content_at_position(model, ctx, swapped, position, config_svc)
+
+
+def _insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
     content = html_mod.unescape(content)
 
     text = model.getText()
@@ -939,6 +1151,11 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
 
 def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None) -> None:
     """Clear the document and insert *content*."""
+    with _keep_placeholder_images(model, content) as swapped:
+        _replace_full_document(model, ctx, swapped, config_svc)
+
+
+def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None) -> None:
     content = html_mod.unescape(content)
 
     text = model.getText()
@@ -989,6 +1206,13 @@ def replace_single_range_with_content(
     model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None
 ) -> None:
     """Replace the given text range with rendered *content* (HTML path)."""
+    with _keep_placeholder_images(model, content) as swapped:
+        _replace_single_range_with_content(model, text_range, swapped, ctx, config_svc)
+
+
+def _replace_single_range_with_content(
+    model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None
+) -> None:
     prepared = html_mod.unescape(content)
     text_obj = text_range.getText()
 

@@ -325,3 +325,154 @@ def test_full_document_without_review_imports_in_place():
         html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
     model.getText.return_value.insertControlCharacter.assert_not_called()
     imp.assert_called_once()
+
+
+def test_styled_div_is_a_slot_and_plain_div_is_not():
+    from plugin.writer.html_import import _extract_block_lo_styles
+
+    _clean, styles = _extract_block_lo_styles(
+        '<div data-lo-style="Standard">Pelotas.</div><div><p data-lo-style="Standard">Adv</p></div>')
+    assert styles == ["Standard", "Standard"]
+
+
+def test_omitted_paragraph_end_tag_does_not_nest_the_next_block():
+    from plugin.writer.html_import import _extract_block_lo_styles
+
+    _clean, styles = _extract_block_lo_styles(
+        '<p data-lo-style="Standard">a<p data-lo-style="Heading2">b</p>')
+    assert styles == ["Standard", "Heading2"]
+
+
+# --- data-less images kept (get_document_content leaves the picture data out) ------------------
+
+_FRAME = ('<div data-lo-style="Standard"><div style="float:left" class="graphic-fr1" id="Assinatura">'
+          '<img style="height:1cm" alt="" src=""/></div><div style="clear:both; line-height:0;">&nbsp;</div>'
+          'Pelotas.</div>')
+
+
+def _graphics_doc(*names):
+    from unittest.mock import MagicMock
+
+    model = MagicMock()
+    graphics = model.getGraphicObjects.return_value
+    graphics.hasByName.side_effect = lambda name: name in names
+    return model
+
+
+def test_swap_image_placeholders_turns_each_named_frame_into_a_marker():
+    from plugin.writer.html_import import _swap_image_placeholders
+
+    model = _graphics_doc("Assinatura", "Selo")
+    content = _FRAME + '<p>Texto <span class="graphic-fr2" id="Selo"><img src=""/></span> depois.</p>'
+    swapped, kept = _swap_image_placeholders(model, content)
+    assert [k.name for k in kept] == ["Assinatura", "Selo"]
+    assert "<img" not in swapped and "clear:both" not in swapped  # no stray empty paragraph either
+    assert swapped.count(kept[0].marker) == 1 and "Pelotas." in swapped
+
+
+def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
+    """Losing a signature silently is worse than failing before anything changed."""
+    import pytest
+
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.html_import import _swap_image_placeholders
+
+    with pytest.raises(ToolExecutionError, match="'Assinatura'"):
+        _swap_image_placeholders(_graphics_doc(), _FRAME)
+    with pytest.raises(ToolExecutionError, match="without its data"):
+        _swap_image_placeholders(_graphics_doc(), '<p>Novo <img src=""/> texto</p>')
+
+
+def test_swap_image_placeholders_leaves_other_content_alone():
+    from unittest.mock import MagicMock
+
+    from plugin.writer.html_import import _swap_image_placeholders
+
+    model = MagicMock()
+    content = '<p>Sem imagem</p><img src="data:image/png;base64,AAAA"/>'
+    assert _swap_image_placeholders(model, content) == (content, [])
+    model.getGraphicObjects.assert_not_called()
+
+
+def _kept(anchor="AT_PARAGRAPH"):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from plugin.writer.html_import import _KeptImage
+
+    return _KeptImage("waXimg0", "Assinatura", MagicMock(), MagicMock(), SimpleNamespace(value=anchor),
+                      MagicMock(), {"TextWrap": 1})
+
+
+def test_restore_puts_a_copy_where_the_marker_is_when_the_original_went():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    found = model.findFirst.return_value
+    with patch.object(html_import, "_deleted_by_the_edit", return_value=True):
+        html_import._restore_image_placeholders(model, [_kept()])
+    picture = model.createInstance.return_value
+    found.getText.return_value.insertTextContent.assert_called_once_with(found, picture, True)
+    picture.setPropertyValue.assert_called_with("TextWrap", 1)
+
+
+def test_restore_only_drops_the_marker_when_the_original_stayed():
+    """A search replace of a paragraph's text keeps the paragraph and its picture: no duplicate."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer import html_import
+
+    for anchor, deleted in (("AT_PARAGRAPH", False), ("AT_PAGE", True)):
+        model = MagicMock()
+        found = model.findFirst.return_value
+        with patch.object(html_import, "_deleted_by_the_edit", return_value=deleted):
+            html_import._restore_image_placeholders(model, [_kept(anchor)])
+        found.setString.assert_called_once_with("")
+        found.getText.return_value.insertTextContent.assert_not_called()
+
+
+def test_deleted_by_the_edit():
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import
+
+    gone = MagicMock()
+    gone.getAnchor.side_effect = RuntimeError("disposed")
+    assert html_import._deleted_by_the_edit(MagicMock(), gone) is True
+
+    model = MagicMock()
+    model.getPropertyValue.return_value = False  # review off: alive means still there
+    assert html_import._deleted_by_the_edit(model, MagicMock()) is False
+
+    # Review on: an inline picture whose anchor sits inside a pending Delete went with it.
+    model = MagicMock()
+    model.getPropertyValue.return_value = True
+    original = MagicMock()
+    original.getPropertyValue.return_value = SimpleNamespace(value="AS_CHARACTER")
+    text = MagicMock()
+    delete = MagicMock()
+    delete.getPropertyValue.side_effect = lambda name: (
+        "Delete" if name == "RedlineType" else SimpleNamespace(getText=lambda: text))
+    text.compareRegionStarts.return_value = 1
+    text.compareRegionEnds.return_value = 1
+    model.getRedlines.return_value.getCount.return_value = 1
+    enum = model.getRedlines.return_value.createEnumeration.return_value
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.side_effect = [delete]
+    assert html_import._deleted_by_the_edit(model, original) is True
+
+
+def test_full_document_refuses_before_deleting_anything():
+    import pytest
+    from unittest.mock import patch
+
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import
+
+    model = _graphics_doc()
+    with patch.object(html_import, "_replace_full_document") as replace, pytest.raises(ToolExecutionError):
+        html_import.replace_full_document(model, None, _FRAME)
+    replace.assert_not_called()

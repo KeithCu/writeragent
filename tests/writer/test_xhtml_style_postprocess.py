@@ -362,3 +362,15 @@ def test_xhtml_hot_sinks_off_cover_all() -> None:
     assert not any(f.endswith("._SemanticTransformer.result") for f in fqns), '_SemanticTransformer.result'
     assert not any(f.endswith("._strip_class_names") for f in fqns), '_strip_class_names'
     assert not any(f.endswith(".xhtml_to_semantic_html") for f in fqns), 'xhtml_to_semantic_html'
+
+
+def test_paragraph_div_holding_a_frame_gets_its_style():
+    """LibreOffice exports a paragraph that holds a frame (an image) as <div class="paragraph-X">.
+    It is one Writer paragraph, so it gets data-lo-style like a <p>; the frame's own <div> stays."""
+    xhtml = ('<html><head><style>.paragraph-Standard { }</style></head><body>'
+             '<div class="paragraph-Standard"><div class="graphic-fr1" id="Assinatura">'
+             '<img src=""/></div>Pelotas.</div><div style="margin:0">x</div></body></html>')
+    out = xhtml_to_semantic_html(xhtml)
+    assert '<div data-lo-style="Standard">' in out, out
+    assert 'class="graphic-fr1" id="Assinatura"' in out, out
+    assert '<div style="margin:0">' in out, out

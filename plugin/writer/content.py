@@ -190,7 +190,7 @@ class GetDocumentContent(ToolBase):
             "max_chars": {"type": "integer", "description": "Maximum characters to return."},
             "start": {"type": "integer", "description": "Start character offset (0-based). Required for scope 'range'."},
             "end": {"type": "integer", "description": "End character offset (exclusive). Required for scope 'range'."},
-            "include_images": {"type": "boolean", "description": "Include embedded image data (base64) in export. Default false."},
+            "include_images": {"type": "boolean", "description": "Include embedded image data (base64) in export. Default false: an image comes back as its wrapper with the picture's name (<div|span ... id=\"Name\"><img src=\"\"/></...>); keep that wrapper in apply_document_content content to keep the picture there, drop it to delete the picture."},
         },
         "required": [],
     }
