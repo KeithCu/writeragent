@@ -556,7 +556,7 @@ def test_python_shapes_launch_copies_odt_into_stamp(
     assert staged.is_file()
     assert stamped.is_file()
     assert stamped.read_bytes() == staged.read_bytes()
-    assert "preview source" in capsys.readouterr().out
+    assert f"Saved {PYTHON_SHAPES_ODT_NAME}" in capsys.readouterr().out
     assert MAX_TOOL_ROUNDS_KEY not in json.loads(config.read_text(encoding="utf-8"))
 
 

@@ -42,25 +42,14 @@ debug log’s last `Tool-calling loop START (max N rounds)` is the budget.
 `Tool loop round N` lines (DEBUG, 0-based) after that START are the
 rounds used. A missing line stays unset and does not fail.
 
-## Board pictures (post-process)
+## Board picture
 
-One preview image per model×run, separate from pass/fail. Each stamp
-keeps the saved Writer document (`final_flag.odt`, copied from the
-trial `American Flag.odt` on Enter) plus `writeragent_debug.log`. That
-`.odt` is enough to render later.
-
-Eval-2 has **no** PNG export helper. Headed autopsy shots were manual.
-`plugin/writer/get_image.py` (`_render_draw_page_png`) needs a live UNO
-document and is not this step.
-
-After scoring, export the thumbnail:
-
-```bash
-.venv/bin/python scripts/eval_2_flag_preview.py docs/eval/eval-2/python-shapes-flag/runs/<stamp>/
-```
-
-That writes `preview.png` in the stamp. A gallery is
-`runs/*/preview.png`. The oracle does not look for the PNG.
+`--score` copies `Thumbnails/thumbnail.png` out of the saved Writer
+`.odt` to `preview.png` in the stamp. LibreOffice writes that thumbnail
+on save, so each model entry gets a picture from the same file the
+oracle already reads. A hand-built zip with no thumbnail leaves
+`preview` unset. The hard gate stays the python path and the page-scale
+stripes.
 
 ## Not changed
 

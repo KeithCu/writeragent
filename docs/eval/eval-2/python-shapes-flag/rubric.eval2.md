@@ -58,31 +58,16 @@ not fail and does not trim. A canton-like rect (non-stripe, both sides
 ≥ 2000 HMM) is mentioned on that note when present; it is not required.
 Zero or few stars on an otherwise page-scale striped flag still pass.
 
-## Recorded, not scored
+## Alongside pass/fail
 
 - **Tool rounds.** Last `Tool-calling loop START (max N rounds)` in
   `writeragent_debug.log`, and `Tool loop round N` (DEBUG, 0-based)
   after that line. Reported as `tool_rounds_used` / `tool_rounds_budget`.
   Absent lines stay unset. They do not change PASS or partial.
-- **Preview PNG.** Not a check. See board pictures below.
-
-## Board pictures (post-process)
-
-The results board gets one picture per model entry. Produce it **after**
-scoring, not inside the hard oracle.
-
-The stamp’s saved Writer document (`final_flag.odt`) is the render
-source. Eval-2 has no PNG export helper (`get_image` /
-`_render_draw_page_png` is live UNO, not this pipeline).
-
-```bash
-.venv/bin/python scripts/eval_2_flag_preview.py docs/eval/eval-2/python-shapes-flag/runs/<stamp>/
-```
-
-writes `preview.png` beside the `.odt` (one image per model×run). A
-thumbnail gallery collects `runs/*/preview.png`. A missing PNG does not
-fail the oracle. The 20b almost-flag still passes on soft star geometry;
-the picture is how the board shows that flag.
+- **Preview PNG.** `--score` copies `Thumbnails/thumbnail.png` from the
+  saved `.odt` to `preview.png` in the run directory. That is the board
+  picture (one per model×run). LibreOffice writes the thumbnail on save.
+  A file with no thumbnail leaves `preview` unset and does not add a failure.
 
 ## Bonus (not required)
 

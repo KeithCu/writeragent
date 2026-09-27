@@ -58,9 +58,9 @@ into ``$TMP/writeragent-eval2-python-shapes-flag`` and opens that Writer
 document. Shapes go on its draw page. No research fixture. The string
 harness cannot run this Ask (no ``run_venv`` / ``domain=python``).
 On Enter / Ctrl-C the stamp also receives a copy of that ``.odt`` as
-``final_flag.odt`` so a later preview PNG can be rendered. Save in
-Writer first. The PNG step is post-process
-(``scripts/eval_2_flag_preview.py``) and is not part of pass/fail.
+``final_flag.odt``. Save in Writer first so the file includes
+LibreOffice's ``Thumbnails/thumbnail.png``. ``--score`` copies that
+thumbnail to ``preview.png`` in the stamp.
 
 Do not open ``fixtures/`` or the task folder.
 
@@ -68,8 +68,7 @@ Do not open ``fixtures/`` or the task folder.
 trial ends (Enter / Ctrl-C). Pass ``--run-dir`` to write it under that
 stamp; otherwise a ``YYYYMMDD-HHMM`` folder is created under the task
 ``runs/`` dir. Mid-stall, before restarting LO, use
-``scripts/save_eval2_debug_log.py DEST_DIR``. Eval-2 has no PNG export
-helper; the saved Writer/Draw document in the stamp is the render source.
+``scripts/save_eval2_debug_log.py DEST_DIR``.
 
 Usage:
   .venv/bin/python scripts/eval_2_headed.py
@@ -159,7 +158,7 @@ LONG_DECISIONS_ODT_NAME = "Northhaven Decision Log.odt"
 LONG_PACK_NAME = "Northhaven Civic Library Capital Brief.odt"
 DRAW_PRIMARY_ODG_NAME = "Process Flow Map.odg"
 PYTHON_SHAPES_ODT_NAME = "American Flag.odt"
-# Stamp copy the oracle prefers. Preview PNG is a later post-process.
+# Stamp copy. --score copies Thumbnails/thumbnail.png out as preview.png.
 PYTHON_SHAPES_STAMP_ODT = "final_flag.odt"
 # Form-920 Section 1 blanks. Labels sit to the left so get_draw_tree
 # can attach label_hint. Names stay stable for fill_draw_fields / oracle.
@@ -898,9 +897,9 @@ def stage_python_shapes_flag_trial(dest_dir: Path) -> Path:
 def snapshot_trial_document(src: Path, dest_dir: Path, dest_name: str) -> Path | None:
     """Copy the headed trial document into the stamp dir.
 
-    That file is enough to render a board thumbnail later. Missing or
-    unreadable sources warn and return None so config restore still runs.
-    PNG export is not done here.
+    That file is what ``--score`` reads, including the page thumbnail
+    LibreOffice stored inside it. Missing or unreadable sources warn and
+    return None so config restore still runs.
     """
     if not src.is_file():
         print(f"Warning: trial document missing, no preview source: {src}", file=sys.stderr)
@@ -914,7 +913,7 @@ def snapshot_trial_document(src: Path, dest_dir: Path, dest_name: str) -> Path |
     except OSError as exc:
         print(f"Warning: could not snapshot trial document: {exc}", file=sys.stderr)
         return None
-    print(f"Saved preview source {src.name} -> {dest} (PNG export is post-process, not scored)")
+    print(f"Saved {src.name} -> {dest}")
     return dest
 
 

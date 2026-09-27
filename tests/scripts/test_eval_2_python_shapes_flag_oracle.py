@@ -19,6 +19,7 @@ from eval_2_python_shapes_flag_oracle import (  # noqa: E402
     CHECK_COUNT,
     MIN_MAX_WIDTH_HMM,
     MIN_STRIPE_RECTS,
+    PREVIEW_PNG_NAME,
     SOFT_STAR_FIELD,
     FlagGeometry,
     length_to_hmm,
@@ -55,6 +56,11 @@ _FEW_SHOT_ONLY = (
     '\\"arguments\\": {\\"domains\\": [\\"shapes\\"]}} '
     'run_venv_python_script wa.shape.upsert"'
 )
+# Stand-in for LibreOffice's Thumbnails/thumbnail.png (1x1 PNG).
+_TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de"
+    "0000000c49444154789c63f8cfc0000003010100c9fe92ef0000000049454e44ae426082"
+)
 
 
 def _odt(
@@ -67,6 +73,7 @@ def _odt(
     star: str = "0.3157in",
     group: bool = False,
     extra: str = "",
+    thumbnail: bytes | None = None,
 ) -> Path:
     parts: list[str] = []
     for idx in range(stripes):
@@ -107,6 +114,8 @@ def _odt(
         zf.writestr("mimetype", "application/vnd.oasis.opendocument.text", compress_type=zipfile.ZIP_STORED)
         zf.writestr("META-INF/manifest.xml", manifest)
         zf.writestr("content.xml", content)
+        if thumbnail is not None:
+            zf.writestr("Thumbnails/thumbnail.png", thumbnail)
     return path
 
 
@@ -159,7 +168,19 @@ def test_passing_flag(tmp_path: Path) -> None:
     assert result.grouped is False
     assert result.tool_rounds_used == 3
     assert result.tool_rounds_budget == 50
-    assert not (run / "preview.png").exists()
+    assert result.preview_png is None
+
+
+def test_score_copies_libreoffice_thumbnail(tmp_path: Path) -> None:
+    # Writer save stores Thumbnails/thumbnail.png. --score copies it out.
+    # The copy is the board picture; star shortfall stays a soft pass.
+    run = _run(tmp_path / "stamp", _PASS_LOG, stars=5, thumbnail=_TINY_PNG)
+    result = score_artifact(run)
+    preview = run / PREVIEW_PNG_NAME
+    assert result.passed, result.failures
+    assert result.partial_score == 0.875
+    assert preview.read_bytes() == _TINY_PNG
+    assert result.preview_png == str(preview)
 
 
 def test_group_is_bonus_not_required(tmp_path: Path) -> None:

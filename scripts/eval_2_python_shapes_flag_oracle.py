@@ -31,11 +31,12 @@ are soft: messy or under-counted stars do not fail. Wrong route
 ``shape_group`` / ``draw:g`` is a bonus. Writer grouping hits a known UNO
 ``ShapeCollection`` bug (#927), so a loose set of shapes still passes.
 
-A preview PNG is not a check. The stamp's saved ``.odt`` is the render
-source; ``scripts/eval_2_flag_preview.py`` exports one image per run
-afterwards. Outer tool-loop rounds from the debug log
-(``Tool-calling loop START`` / ``Tool loop round N``) are recorded on
-the result and do not change pass/fail. Eval-2 has no PNG export helper.
+A preview PNG is the page thumbnail LibreOffice already stored in the
+saved ``.odt`` (``Thumbnails/thumbnail.png``). ``--score`` copies it to
+``preview.png`` beside that file so each model entry has a picture.
+A missing thumbnail does not add a failure. Outer tool-loop rounds from
+the debug log (``Tool-calling loop START`` / ``Tool loop round N``) are
+recorded on the result and do not change pass/fail.
 
 Usage:
   .venv/bin/python scripts/eval_2_python_shapes_flag_oracle.py path/to/final_flag.odt
@@ -93,6 +94,10 @@ _MIN_STAR_POLYGON_POINTS = 10
 # Hard checks only. Star shortfall is the extra soft check in partial_score.
 CHECK_COUNT = 7
 SOFT_CHECK_COUNT = 1
+
+_ODF_THUMBNAIL = "Thumbnails/thumbnail.png"
+PREVIEW_PNG_NAME = "preview.png"
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 _PREFERRED_ODT = (
     PYTHON_SHAPES_STAMP_ODT,
@@ -183,6 +188,7 @@ class OracleResult:
     # Outer chat loop only. None when the log has no such lines. Not a check.
     tool_rounds_used: int | None = None
     tool_rounds_budget: int | None = None
+    preview_png: str | None = None
 
     def to_json(self) -> dict[str, object]:
         return asdict(self)
@@ -422,6 +428,31 @@ def parse_tool_rounds(log_text: str) -> tuple[int | None, int | None]:
     return used, budget
 
 
+def extract_preview_png(doc: Path) -> Path | None:
+    """Copy the page thumbnail LibreOffice stored in the ``.odt``.
+
+    A Writer ``storeToURL`` writes ``Thumbnails/thumbnail.png``. That file
+    is the board picture for the model entry. A hand-built zip with no
+    thumbnail returns None and does not fail the score.
+    """
+    try:
+        with zipfile.ZipFile(doc) as zf:
+            match = next(
+                (name for name in zf.namelist() if name.replace("\\", "/").lower() == _ODF_THUMBNAIL.lower()),
+                None,
+            )
+            if match is None:
+                return None
+            data = zf.read(match)
+    except (OSError, zipfile.BadZipFile, KeyError):
+        return None
+    if not data.startswith(_PNG_MAGIC):
+        return None
+    dest = doc.parent / PREVIEW_PNG_NAME
+    dest.write_bytes(data)
+    return dest
+
+
 def quality_partial(failures: list[str], soft: list[str]) -> float:
     """Hard failures plus at most one soft star note, over a fixed denominator.
 
@@ -591,6 +622,9 @@ def score_artifact(path: Path | str) -> OracleResult:
     used, budget = parse_tool_rounds(log_text)
     result.tool_rounds_used = used
     result.tool_rounds_budget = budget
+    if doc is not None and doc.is_file():
+        preview = extract_preview_png(doc)
+        result.preview_png = str(preview) if preview is not None else None
     return result
 
 
@@ -616,6 +650,7 @@ def format_result(result: OracleResult) -> str:
             f"{_rounds_label(result.tool_rounds_used, result.tool_rounds_budget)} "
             "(recorded, not scored)"
         ),
+        f"  preview: {result.preview_png or 'none'}",
     ]
     for item in result.bonuses:
         lines.append(f"  bonus: {item}")
