@@ -227,45 +227,54 @@ class QueryTextListener(BaseTextListener):
         self.send_listener = send_listener
 
     def on_text_changed(self, rEvent: Any) -> None:
-        log.info("[SLASH-OV] query_text entered")
         model = getattr(rEvent.Source, "Model", None)
         if not model:
             model = rEvent.Source.getModel()
         raw = model.Text or ""
         text = raw.strip()
-        log.info("[SLASH-OV] query_text raw=%r", (raw[:40] if isinstance(raw, str) else raw))
 
-        # Overlay first. TEXT_UPDATED UpdateUI has hung before on_query_text ran.
-        # Do not getPosSize Ask here: after the TOP overlay exists it deadlocks VCL.
-        popup = getattr(self.send_listener, "slash_popup", None)
-        on_text = getattr(popup, "on_query_text", None) if popup is not None else None
-        log.info(
-            "[SLASH-OV] query_text popup=%s call_show=%s raw=%r",
-            popup is not None,
-            callable(on_text),
-            (raw[:40] if isinstance(raw, str) else raw),
-        )
-        from plugin.chatbot.slash_commands import slash_typed_prefix
-        from plugin.chatbot.slash_popup import ENABLE_SLASH
-        if callable(on_text):
-            owner = getattr(on_text, "__self__", None)
-            log.info(
-                "[SLASH-OV] query_text invoking on_query_text ENABLE_SLASH=%s id=%s",
-                bool(ENABLE_SLASH),
-                id(owner) if owner is not None else None,
+        # ENABLE_SLASH is parked. Keep this listener so Send enablement still
+        # sees TEXT_UPDATED, but do not call the overlay or emit per-keystroke
+        # [SLASH-OV] lines. Breadcrumbs go through _ovlog (silent unless
+        # SLASH_OV_VERBOSE_DEBUG).
+        from plugin.chatbot.slash_popup import ENABLE_SLASH, _ovlog
+
+        if ENABLE_SLASH:
+            from plugin.chatbot.slash_commands import slash_typed_prefix
+
+            # Overlay first. TEXT_UPDATED UpdateUI has hung before on_query_text ran.
+            # Do not getPosSize Ask here: after the TOP overlay exists it deadlocks VCL.
+            snippet = raw[:40] if isinstance(raw, str) else raw
+            _ovlog("query_text entered")
+            _ovlog("query_text raw=%r", snippet)
+            popup = getattr(self.send_listener, "slash_popup", None)
+            on_text = getattr(popup, "on_query_text", None) if popup is not None else None
+            _ovlog(
+                "query_text popup=%s call_show=%s raw=%r",
+                popup is not None,
+                callable(on_text),
+                snippet,
             )
-            try:
-                on_text(raw)
-            except Exception:
-                log.exception("[SLASH-OV] query_text on_query_text raised")
-            log.info("[SLASH-OV] query_text on_query_text returned")
-        # UpdateUI after creating/mapping a TOP overlay deadlocks VCL.
-        if ENABLE_SLASH and slash_typed_prefix(raw) is not None:
-            log.info("[SLASH-OV] query_text skip TEXT_UPDATED slash prefix")
-            return
-        log.info("[SLASH-OV] query_text before dispatch")
+            if callable(on_text):
+                owner = getattr(on_text, "__self__", None)
+                _ovlog(
+                    "query_text invoking on_query_text ENABLE_SLASH=%s id=%s",
+                    bool(ENABLE_SLASH),
+                    id(owner) if owner is not None else None,
+                )
+                try:
+                    on_text(raw)
+                except Exception:
+                    log.exception("[SLASH-OV] query_text on_query_text raised")
+                _ovlog("query_text on_query_text returned")
+            # UpdateUI after creating/mapping a TOP overlay deadlocks VCL.
+            if slash_typed_prefix(raw) is not None:
+                _ovlog("query_text skip TEXT_UPDATED slash prefix")
+                return
+            _ovlog("query_text before dispatch")
         self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(text)}))
-        log.info("[SLASH-OV] query_text after dispatch")
+        if ENABLE_SLASH:
+            _ovlog("query_text after dispatch")
 
 
 # UNO Key.RETURN / KeyModifier.SHIFT (test-friendly integer codes)
@@ -292,19 +301,24 @@ class QueryKeyListener(BaseKeyListener):
     def on_key_pressed(self, e: Any) -> None:
         # Popup Enter must not also Send. Consume only when handle_key is True
         # (MagicMock hosts in unit tests return a mock, which is not True).
-        popup = getattr(self.send_listener, "slash_popup", None)
-        handle = getattr(popup, "handle_key", None) if popup is not None else None
-        log.info(
-            "[SLASH-OV] query_key code=%s mods=%s has_handle=%s",
-            int(getattr(e, "KeyCode", -1) or -1),
-            int(getattr(e, "Modifiers", 0) or 0),
-            callable(handle),
-        )
-        if callable(handle) and handle(e.KeyCode, e.Modifiers) is True:
-            with suppress_disposed("QueryKeyListener slash Consume", logger=log):
-                if hasattr(e, "Consume"):
-                    setattr(e, "Consume", True)
-            return
+        # While ENABLE_SLASH is false, skip the overlay so keystrokes do not
+        # run slash work or emit [SLASH-OV] query_key lines. Enter-to-send stays.
+        from plugin.chatbot.slash_popup import ENABLE_SLASH, _ovlog
+
+        if ENABLE_SLASH:
+            popup = getattr(self.send_listener, "slash_popup", None)
+            handle = getattr(popup, "handle_key", None) if popup is not None else None
+            _ovlog(
+                "query_key code=%s mods=%s has_handle=%s",
+                int(getattr(e, "KeyCode", -1) or -1),
+                int(getattr(e, "Modifiers", 0) or 0),
+                callable(handle),
+            )
+            if callable(handle) and handle(e.KeyCode, e.Modifiers) is True:
+                with suppress_disposed("QueryKeyListener slash Consume", logger=log):
+                    if hasattr(e, "Consume"):
+                        setattr(e, "Consume", True)
+                return
         if not query_enter_triggers_primary_send(e.KeyCode, e.Modifiers):
             return
         try:

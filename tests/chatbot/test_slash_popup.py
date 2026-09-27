@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -305,11 +306,43 @@ def test_ask_path_printable_does_not_insert():
     assert query.text == "/"
 
 
-def test_slash_disabled_when_flag_false(monkeypatch):
+def test_slash_disabled_when_flag_false(monkeypatch, caplog):
     monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", False)
+    monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
     popup, _box = _controller()
-    popup.on_query_text("/")
+    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+        popup.on_query_text("/")
     assert popup.is_open is False
+    assert not any("[SLASH-OV]" in r.message for r in caplog.records)
+
+
+def test_ovlog_silent_when_verbose_off(caplog, monkeypatch):
+    from plugin.chatbot.slash_popup import _ovdiag, _ovlog
+
+    monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
+    probe = MagicMock()
+    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+        _ovlog("query_text entered raw=%r", "/he")
+        _ovdiag(probe, "status")
+    assert not any("[SLASH-OV]" in r.message for r in caplog.records)
+    probe.getPosSize.assert_not_called()
+    probe.getImplementationName.assert_not_called()
+
+
+def test_ovlog_emits_debug_when_verbose(caplog, monkeypatch):
+    import plugin.chatbot.slash_popup as slash_popup
+    from tests.harness.strip_bundle import module_source_contains
+
+    monkeypatch.setattr(slash_popup, "SLASH_OV_VERBOSE_DEBUG", True)
+    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+        slash_popup._ovlog("query_text entered raw=%r", "/he")
+    if not module_source_contains(slash_popup, "log.debug"):
+        return
+    matches = [r for r in caplog.records if "[SLASH-OV]" in r.message]
+    assert matches
+    assert all(r.levelno == logging.DEBUG for r in matches)
+    assert any("query_text entered" in r.message for r in matches)
+    assert not any(r.levelno >= logging.INFO and "[SLASH-OV]" in r.message for r in caplog.records)
 
 
 class _R:
