@@ -166,6 +166,18 @@ class TestPopulateComboboxWithLruFetchOptions:
         self.get_patcher.stop()
         self.set_patcher.stop()
 
+    def test_openrouter_combobox_does_not_fetch_models(self):
+        # Massive providers stay LRU + defaults. Vision lookup fetches /v1/models
+        # itself; this path must not, or the model dropdown fills with the catalog.
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
+            populate_combobox_with_lru(
+                self.ctx, ctrl, 'google/gemini-3.8-flash', 'model_lru',
+                'https://openrouter.ai/api', api_key_override='test-key',
+            )
+            mock_fetch.assert_not_called()
+
     def test_skip_remote_fetch_does_not_call_fetch(self):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0

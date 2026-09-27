@@ -275,6 +275,12 @@ class TestHasNativeVision:
         import plugin.framework.client.model_fetcher as mf
         mf._model_fetch_vision_cache.clear()
         mf._ollama_capabilities_cache.clear()
+        # A prior test may have memoized a failed OpenRouter GET as None.
+        # has_native_vision treats that as "already fetched" and will not HTTP again.
+        for cache in (mf._model_fetch_cache, mf._model_fetch_image_cache, mf._model_context_cache):
+            for key in list(cache):
+                if "openrouter.ai" in key or "together.xyz" in key:
+                    cache.pop(key, None)
 
     def test_static_default_model_has_vision(self):
         from plugin.framework.client.model_fetcher import has_native_vision
@@ -305,7 +311,8 @@ class TestHasNativeVision:
     def test_openrouter_dynamic_modality_detection(self):
         from plugin.framework.client.model_fetcher import has_native_vision, _model_fetch_vision_cache
         with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
-             patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
+             patch('plugin.framework.client.model_fetcher.get_config', return_value={}), \
+             patch('plugin.framework.client.model_fetcher.set_config'):
             
             url = 'https://openrouter.ai/api/v1/models'
             from plugin.framework.client.model_fetcher import _model_fetch_cache_key
@@ -329,30 +336,85 @@ class TestHasNativeVision:
         with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
             assert not (has_native_vision('unknown-vision-model', 'https://api.openai.com/v1'))
 
-    def test_uncatalogued_gemini_flash_is_vision_without_modality_cache(self):
-        # google/gemini-3.8-flash is not in DEFAULT_MODELS. Chat send does not
-        # fill _model_fetch_vision_cache for OpenRouter, so this used to return
-        # False and filter_get_image dropped get_image.
+    def test_openrouter_cache_miss_fetches_modalities_for_uncatalogued_gemini(self):
+        # google/gemini-3.8-flash is not a DEFAULT_MODELS row. The sidebar does
+        # not fill _model_fetch_vision_cache, so has_native_vision must GET
+        # /v1/models once and read architecture.input_modalities.
+        from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
         from plugin.framework.client.model_fetcher import has_native_vision
-        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}), \
-             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''):
-            assert (has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api'))
-            assert (has_native_vision('google/gemini-3.5-flash', 'https://openrouter.ai/api'))
-            assert (has_native_vision('google/gemini-3.8-flash:nitro', 'https://openrouter.ai/api'))
-            assert (has_native_vision('gemini-2.5-flash', 'https://generativelanguage.googleapis.com/v1beta/openai'))
-            assert (has_native_vision('gemini-flash-latest', 'https://generativelanguage.googleapis.com/v1beta/openai'))
 
-    def test_gemini_family_does_not_mark_text_only_or_embeddings(self):
-        from plugin.framework.client.model_fetcher import has_native_vision
-        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}), \
-             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''):
-            assert not (has_native_vision('gemini-1.0-pro', 'https://generativelanguage.googleapis.com/v1beta/openai'))
-            assert not (has_native_vision('gemini-pro', 'https://generativelanguage.googleapis.com/v1beta/openai'))
-            assert not (has_native_vision('gemini-embedding-001', 'https://generativelanguage.googleapis.com/v1beta/openai'))
+        catalog_ids = [resolve_model_id(row, 'openrouter') for row in DEFAULT_MODELS]
+        assert ('google/gemini-3.8-flash') not in (catalog_ids)
+
+        payload = {
+            'data': [
+                {
+                    'id': 'google/gemini-3.8-flash',
+                    'architecture': {'input_modalities': ['text', 'image', 'audio'], 'output_modalities': ['text']},
+                },
+                {
+                    'id': 'deepseek/deepseek-chat',
+                    'architecture': {'input_modalities': ['text'], 'output_modalities': ['text']},
+                },
+                {
+                    'id': 'inception/mercury-2.5',
+                    'architecture': {'input_modalities': ['text'], 'output_modalities': ['text']},
+                },
+            ]
+        }
+        saved = {}
+
+        def mock_get_config(key):
+            if key == 'vision_support_map':
+                return dict(saved)
+            return {}
+
+        def mock_set_config(key, val):
+            if key == 'vision_support_map':
+                saved.clear()
+                saved.update(val)
+
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync, \
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
+             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
+             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+            assert (has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api'))
+            assert (mock_sync.call_count) == (1)
+            assert (saved['https://openrouter.ai/api@google/gemini-3.8-flash']) is True
+            # Persisted map answers the next call; do not GET the catalog again.
+            assert (has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api'))
+            assert (mock_sync.call_count) == (1)
+            # :nitro is the same catalog row (dynamic OpenRouter suffix).
+            assert (has_native_vision('google/gemini-3.8-flash:nitro', 'https://openrouter.ai/api'))
+            assert (saved['https://openrouter.ai/api@google/gemini-3.8-flash:nitro']) is True
             assert not (has_native_vision('deepseek/deepseek-chat', 'https://openrouter.ai/api'))
+            assert (saved['https://openrouter.ai/api@deepseek/deepseek-chat']) is False
             assert not (has_native_vision('inception/mercury-2.5', 'https://openrouter.ai/api'))
 
-    def test_vision_support_map_false_overrides_gemini_family(self):
+    def test_failed_modalities_fetch_does_not_persist_false(self):
+        # A down catalog is not a text-only answer. Do not write False into
+        # vision_support_map or the next process can never recover.
+        from plugin.framework.client.model_fetcher import has_native_vision
+        saved = {}
+
+        def mock_get_config(key):
+            if key == 'vision_support_map':
+                return dict(saved)
+            return {}
+
+        def mock_set_config(key, val):
+            if key == 'vision_support_map':
+                saved.clear()
+                saved.update(val)
+
+        with patch('plugin.framework.client.requests.sync_request', side_effect=OSError('down')), \
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
+             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
+             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+            assert not (has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api'))
+            assert (saved) == ({})
+
+    def test_vision_support_map_false_skips_modalities_fetch(self):
         from plugin.framework.client.model_fetcher import has_native_vision
         cache = {'https://openrouter.ai/api@google/gemini-3.8-flash': False}
 
@@ -361,20 +423,10 @@ class TestHasNativeVision:
                 return cache
             return {}
 
-        with patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config):
+        with patch('plugin.framework.client.requests.sync_request') as mock_sync, \
+             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config):
             assert not (has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api'))
-
-    def test_openrouter_cache_miss_still_keeps_gemini_flash(self):
-        # A populated modalities list that omits the id (suffix / stale fetch)
-        # must not hide vision on a Gemini Flash model. Unrelated ids stay off.
-        from plugin.framework.client.model_fetcher import has_native_vision, _model_fetch_vision_cache, _model_fetch_cache_key
-        with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
-             patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
-            url = 'https://openrouter.ai/api/v1/models'
-            ck = _model_fetch_cache_key(url, 'https://openrouter.ai/api')
-            _model_fetch_vision_cache[ck] = ['custom-openrouter-vision-model']
-            assert (has_native_vision('google/gemini-3.8-flash:free', 'https://openrouter.ai/api'))
-            assert not (has_native_vision('some-other-model', 'https://openrouter.ai/api'))
+            mock_sync.assert_not_called()
 
     def test_vision_support_map_is_a_config_field(self):
         from plugin.framework.config_schema import WriterAgentConfig, _resolve_default, is_known_config_key
