@@ -51,8 +51,8 @@ LABEL_OFFSETS = (
 )
 
 FOOTNOTE = (
-    "Source: OpenRouter eval-1 board (2026-09-27 partial dual-lane; tip b48b43d6). "
-    "17-task string + python_shapes_flag where available (11/26 flag rows). "
+    "Source: OpenRouter eval-1 board (2026-09-27 complete 26×18 dual-lane; tip #939 / flag-18 j4 remainder). "
+    "All 26 catalog models have python_shapes_flag (n_examples=18). "
     "Each point is labeled with model name and average correctness."
 )
 
@@ -232,7 +232,7 @@ def write_pareto_fronts_svg(summaries: list[dict[str, Any]], out_path: Path) -> 
     _annotate_all_labels(ax, rows)
     _style_cost_quality_axes(
         ax,
-        title="WriterAgent eval-1 cost–quality Pareto fronts (2026-09-27 partial dual-lane)",
+        title="WriterAgent eval-1 cost–quality Pareto fronts (2026-09-27 complete 26×18)",
     )
     ax.legend(frameon=False, loc="lower right", title="Front")
     fig.text(0.01, 0.01, FOOTNOTE, fontsize=7, color="#5f6368")
@@ -292,7 +292,7 @@ def write_pareto_distance_svg(summaries: list[dict[str, Any]], out_path: Path) -
     _annotate_all_labels(ax, rows)
     _style_cost_quality_axes(
         ax,
-        title="WriterAgent eval-1 distance to F1 frontier (2026-09-27 partial dual-lane)",
+        title="WriterAgent eval-1 distance to F1 frontier (2026-09-27 complete 26×18)",
     )
     cbar = fig.colorbar(scatter, ax=ax, pad=0.02)
     cbar.set_label("Distance to F1 (normalized log-cost × correctness)")

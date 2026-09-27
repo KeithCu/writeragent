@@ -108,39 +108,39 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ## Benchmarks & Evaluation
 
-WriterAgent's **eval-1 LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. Eval-1 is **not string-only**: `--backend string` is the in-memory simulator, `--backend lo` is native headless UNO, and `--backend auto` is the per-task dual-lane mix. Task 18 (`python_shapes_flag`) needs native LO. Headed eval-2 is a separate harder suite — native LO is not eval-2-only. The table below started as the **2026-09-11 17-task string** snapshot (OpenRouter, live token pricing) and is refreshed toward an 18-task dual-lane board. Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md). Pre-refresh rows still named `openai/gpt-5.6-luna` and `deepseek/deepseek-v4-flash-0731`; those ids left the live eval-1 catalog (gold defaults to `openai/gpt-6-luna`; DeepSeek Flash is `deepseek/deepseek-v4.1-flash` only).
+WriterAgent's **eval-1 LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. Eval-1 is **not string-only**: `--backend string` is the in-memory simulator, `--backend lo` is native headless UNO, and `--backend auto` is the per-task dual-lane mix. Task 18 (`python_shapes_flag`) needs native LO. Headed eval-2 is a separate harder suite — native LO is not eval-2-only. The table below is the **2026-09-27 complete 26×18 dual-lane** board (OpenRouter, live token pricing; 17-task string base + `python_shapes_flag` for every catalog model). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md). Pre-refresh rows still named `openai/gpt-5.6-luna` and `deepseek/deepseek-v4-flash-0731`; those ids left the live eval-1 catalog (gold defaults to `openai/gpt-6-luna`; DeepSeek Flash is `deepseek/deepseek-v4.1-flash` only).
 
 ![Cost–quality Pareto fronts](docs/eval/pareto-fronts.svg)
 
 Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-distance.svg).
 
-**2026-09-27 refresh (partial):** catalog adds GPT-6 Luna, Command A+, Ternary Bonsai 2; drops GPT-5.6 Luna + deepseek-v4-flash-0731; MiMos omitted (aborted). Flag-18 native lane is **partial (11/26 models)** in this cut — full methodology and ranking: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
+**2026-09-27 refresh (complete flag-18):** catalog adds GPT-6 Luna, Command A+, Ternary Bonsai 2; drops GPT-5.6 Luna + deepseek-v4-flash-0731; MiMos omitted (aborted). All **26/26** models have `n_examples=18` (`python_shapes_flag` spliced after `-j4` remainder on #939 tip). Full methodology and ranking: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
 
 | Model | Correctness<br>avg task score (0–1) | Value<br>Correctness² ÷ $/task |
 | ----- | ----- | ----- |
 | openai/gpt-oss-120b | 0.972 | 1161 |
 | openai/gpt-oss-20b | 0.802 | 815 |
-| upstage/solar-pro4 | 0.741 | 595 |
-| poolside/laguna-xs-2.1 | 0.885 | 512 |
+| poolside/laguna-xs-2.1 | 0.884 | 407 |
+| upstage/solar-pro4 | 0.756 | 397 |
 | google/gemma-4-31b-it | 0.908 | 381 |
-| poolside/laguna-s-2.1 | 0.759 | 264 |
-| deepseek/deepseek-v4.1-flash | 0.935 | 262 |
-| bytedance-seed/seed-2.0-mini | 0.918 | 251 |
 | google/gemma-4-26b-a4b-it | 0.739 | 243 |
 | openai/gpt-6-luna | 0.866 | 208 |
-| z-ai/glm-5.3-flash | 0.854 | 178 |
+| bytedance-seed/seed-2.0-mini | 0.908 | 203 |
+| poolside/laguna-s-2.1 | 0.772 | 189 |
 | meta/muse-spark-1.3-contributor | 0.980 | 163 |
-| ibm-granite/granite-4.2-8b | 0.861 | 100 |
-| prism-ml/ternary-bonsai-2-27b | 0.585 | 85 |
-| nvidia/nemotron-3-super-120b-a12b | 0.904 | 76 |
+| z-ai/glm-5.3-flash | 0.848 | 89 |
+| prism-ml/ternary-bonsai-2-27b | 0.573 | 84 |
+| ibm-granite/granite-4.2-8b | 0.855 | 83 |
+| deepseek/deepseek-v4.1-flash | 0.932 | 83 |
 | meta/muse-glimmer-30b | 0.974 | 71 |
-| qwen/qwen3.8-flash | 0.805 | 69 |
-| mistralai/mistral-small-2603 | 0.629 | 66 |
+| qwen/qwen3.8-flash | 0.781 | 69 |
+| mistralai/mistral-small-2603 | 0.615 | 67 |
 | inception/mercury-2.5-preview | 0.863 | 62 |
 | google/gemini-3.5-flash-lite | 0.747 | 56 |
+| nvidia/nemotron-3-super-120b-a12b | 0.902 | 49 |
 | nvidia/nemotron-3.5-lightning | 0.395 | 48 |
-| qwen/qwen3.8-27b | 0.922 | 27 |
-| minimax/minimax-m3 | 0.820 | 26 |
-| cohere/command-a-plus | 0.687 | 14 |
+| cohere/command-a-plus | 0.677 | 14 |
 | x-ai/grok-4.6 | 0.969 | 12 |
-| nvidia/nemotron-3-ultra-550b-a55b | 0.821 | 12 |
+| minimax/minimax-m3 | 0.823 | 12 |
+| qwen/qwen3.8-27b | 0.913 | 8 |
+| nvidia/nemotron-3-ultra-550b-a55b | 0.831 | 5 |

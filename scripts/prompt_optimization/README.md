@@ -261,17 +261,17 @@ python merge_benchmark_results.py \
 
 Eval-1 backends: **`string`** = in-memory; **`lo`** = native headless UNO; **`auto`** = per-task dual-lane mix. Task 18 (`python_shapes_flag`) needs native — not eval-2-only.
 
-### 2026-09-27 board refresh (partial dual-lane)
+### 2026-09-27 board refresh (complete 26×18 dual-lane)
 
-Tip artifacts from `b48b43d6`. Catalog: **add** `openai/gpt-6-luna`, `cohere/command-a-plus`, `prism-ml/ternary-bonsai-2-27b`; **drop** `openai/gpt-5.6-luna`, `deepseek/deepseek-v4-flash-0731`. MiMo (`xiaomi/mimo-v2.6-flash`, `xiaomi/mimo-v2.6-pro`) omitted — aborted string runs, not restarted.
+Complete flag-18 splice after #939 tip + `-j4` remainder (`FLAG18_REMAINDER_DONE`). Catalog: **add** `openai/gpt-6-luna`, `cohere/command-a-plus`, `prism-ml/ternary-bonsai-2-27b`; **drop** `openai/gpt-5.6-luna`, `deepseek/deepseek-v4-flash-0731`. MiMo (`xiaomi/mimo-v2.6-flash`, `xiaomi/mimo-v2.6-pro`) omitted — aborted string runs, not restarted.
 
-Task 18 (`python_shapes_flag`) is on the **native** lane (`--backend auto`). This board is **partial for flag-18**: **11/26** models have flag rows spliced (hard_pass only for `openai/gpt-oss-120b` and `meta/muse-spark-1.3-contributor`; others fail honestly — do not invent scores). `cohere/command-a-plus` and `prism-ml/ternary-bonsai-2-27b` boarded at **n=17** (string only, no flag yet). Follow-up expected when the serial remainder finishes.
+Task 18 (`python_shapes_flag`) is on the **native** lane (`--backend auto`). **Flag-18 is complete: 26/26** models have `n_examples=18`. Flag hard_pass: `openai/gpt-oss-120b`, `meta/muse-spark-1.3-contributor`, `deepseek/deepseek-v4.1-flash`, `minimax/minimax-m3`, `nvidia/nemotron-3-ultra-550b-a55b`, `poolside/laguna-s-2.1`, `upstage/solar-pro4` (others fail honestly — do not invent scores).
 
 Pareto SVGs regenerated from this JSON: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg), [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg).
 
 Calc fill-down base (`data_sorting` + `tax_column`) from 2026-09-11 after Tip A/B + harness `expand_single_formula` (#733). Artifacts: `benchmark_results.json`, `benchmark_results_details.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`. Triage: [`docs/eval/benchmark-failure-analysis-2026-09-01.md`](../../docs/eval/benchmark-failure-analysis-2026-09-01.md).
 
-Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squared ÷ avg $/task (`intelligence_per_dollar_metric`). **Quality** = LLM judge average among judged creative/table passes only (`—` if none judged). Models with `n_err` > 0 kept when errors are model-side (empty response, tool-loop limit), not infra/harness. **n** is 18 when flag is spliced, else 17.
+Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squared ÷ avg $/task (`intelligence_per_dollar_metric`). **Quality** = LLM judge average among judged creative/table passes only (`—` if none judged). Models with `n_err` > 0 kept when errors are model-side (empty response, tool-loop limit), not infra/harness. **n** is **18** for every catalog model (flag spliced).
 
 | Rank | Model | Hard pass | Agent | Correctness | Quality | Tokens/task | $/task | C²/$ | n_err |
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
@@ -279,27 +279,27 @@ Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squ
 | 2 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.980 | 0.93 | 51153 | 0.00588 | 79.6 | 0 |
 | 3 | x-ai/grok-4.6 | 0.944 | 0.944 | 0.969 | 0.94 | 29027 | 0.07547 | 6.9 | 0 |
 | 4 | meta/muse-glimmer-30b | 0.944 | 0.944 | 0.974 | 0.96 | 30699 | 0.01335 | 35.2 | 0 |
-| 5 | bytedance-seed/seed-2.0-mini | 0.941 | 0.941 | 0.918 | 0.90 | 23135 | 0.00335 | 144.1 | 0 |
-| 6 | poolside/laguna-xs-2.1 | 0.941 | 0.941 | 0.885 | 0.81 | 22171 | 0.00153 | 293.0 | 0 |
-| 7 | google/gemma-4-31b-it | 0.889 | 0.889 | 0.908 | 0.90 | 16989 | 0.00217 | 272.6 | 0 |
-| 8 | deepseek/deepseek-v4.1-flash | 0.882 | 0.882 | 0.935 | 0.97 | 45666 | 0.00335 | 132.0 | 2 |
-| 9 | z-ai/glm-5.3-flash | 0.882 | 0.882 | 0.854 | 0.90 | 40501 | 0.00410 | 103.2 | 0 |
-| 10 | qwen/qwen3.8-27b | 0.882 | 0.882 | 0.922 | 0.92 | 42009 | 0.03124 | 11.5 | 1 |
-| 11 | openai/gpt-6-luna | 0.833 | 0.833 | 0.866 | 0.93 | 22574 | 0.00361 | 120.5 | 0 |
+| 5 | google/gemma-4-31b-it | 0.889 | 0.889 | 0.908 | 0.90 | 16989 | 0.00217 | 272.6 | 0 |
+| 6 | bytedance-seed/seed-2.0-mini | 0.889 | 0.889 | 0.908 | 0.90 | 27980 | 0.00406 | 106.3 | 0 |
+| 7 | poolside/laguna-xs-2.1 | 0.889 | 0.889 | 0.884 | 0.81 | 27844 | 0.00192 | 208.1 | 0 |
+| 8 | deepseek/deepseek-v4.1-flash | 0.889 | 0.889 | 0.932 | 0.97 | 143119 | 0.01048 | 37.6 | 2 |
+| 9 | openai/gpt-6-luna | 0.833 | 0.833 | 0.866 | 0.93 | 22574 | 0.00361 | 120.5 | 0 |
+| 10 | z-ai/glm-5.3-flash | 0.833 | 0.833 | 0.848 | 0.90 | 80150 | 0.00812 | 46.5 | 0 |
+| 11 | qwen/qwen3.8-27b | 0.833 | 0.833 | 0.913 | 0.92 | 135380 | 0.10069 | 3.2 | 1 |
 | 12 | inception/mercury-2.5-preview | 0.833 | 0.833 | 0.863 | 0.95 | 36889 | 0.01199 | 24.6 | 0 |
-| 13 | qwen/qwen3.8-flash | 0.824 | 0.824 | 0.805 | 0.89 | 47588 | 0.00942 | 27.0 | 1 |
-| 14 | nvidia/nemotron-3-ultra-550b-a55b | 0.824 | 0.824 | 0.821 | 0.74 | 55758 | 0.05576 | 4.5 | 2 |
-| 15 | ibm-granite/granite-4.2-8b | 0.824 | 0.824 | 0.861 | 0.93 | 69262 | 0.00745 | 25.4 | 1 |
-| 16 | openai/gpt-oss-20b | 0.778 | 0.778 | 0.802 | 0.89 | 17516 | 0.00079 | 544.0 | 0 |
-| 17 | minimax/minimax-m3 | 0.765 | 0.765 | 0.820 | 0.94 | 59175 | 0.02574 | 13.8 | 1 |
-| 18 | upstage/solar-pro4 | 0.765 | 0.765 | 0.741 | 0.90 | 21216 | 0.00092 | 351.2 | 0 |
+| 13 | nvidia/nemotron-3-ultra-550b-a55b | 0.833 | 0.833 | 0.831 | 0.74 | 150734 | 0.15073 | 1.5 | 2 |
+| 14 | openai/gpt-oss-20b | 0.778 | 0.778 | 0.802 | 0.89 | 17516 | 0.00079 | 544.0 | 0 |
+| 15 | minimax/minimax-m3 | 0.778 | 0.778 | 0.823 | 0.94 | 130584 | 0.05680 | 5.6 | 1 |
+| 16 | upstage/solar-pro4 | 0.778 | 0.778 | 0.756 | 0.90 | 33020 | 0.00144 | 201.3 | 0 |
+| 17 | qwen/qwen3.8-flash | 0.778 | 0.778 | 0.781 | 0.89 | 44944 | 0.00890 | 27.7 | 2 |
+| 18 | ibm-granite/granite-4.2-8b | 0.778 | 0.778 | 0.855 | 0.93 | 81475 | 0.00876 | 19.3 | 1 |
 | 19 | google/gemma-4-26b-a4b-it | 0.722 | 0.722 | 0.739 | 0.89 | 20336 | 0.00225 | 141.6 | 0 |
-| 20 | nvidia/nemotron-3-super-120b-a12b | 0.706 | 0.765 | 0.904 | 0.91 | 80850 | 0.01069 | 23.7 | 3 |
-| 21 | poolside/laguna-s-2.1 | 0.706 | 0.706 | 0.759 | 0.90 | 21104 | 0.00218 | 155.0 | 2 |
+| 20 | poolside/laguna-s-2.1 | 0.722 | 0.722 | 0.772 | 0.90 | 30484 | 0.00316 | 95.7 | 2 |
+| 21 | nvidia/nemotron-3-super-120b-a12b | 0.667 | 0.722 | 0.902 | 0.91 | 125605 | 0.01661 | 13.6 | 4 |
 | 22 | google/gemini-3.5-flash-lite | 0.667 | 0.667 | 0.747 | 0.93 | 15921 | 0.01003 | 38.9 | 0 |
-| 23 | mistralai/mistral-small-2603 | 0.647 | 0.647 | 0.629 | 0.85 | 27442 | 0.00597 | 40.2 | 0 |
-| 24 | cohere/command-a-plus | 0.647 | 0.647 | 0.687 | 0.94 | 71486 | 0.03431 | 5.0 | 5 |
-| 25 | prism-ml/ternary-bonsai-2-27b | 0.529 | 0.529 | 0.585 | 0.97 | 29085 | 0.00404 | 38.3 | 7 |
+| 23 | mistralai/mistral-small-2603 | 0.611 | 0.611 | 0.615 | 0.85 | 25917 | 0.00564 | 41.4 | 1 |
+| 24 | cohere/command-a-plus | 0.611 | 0.611 | 0.677 | 0.94 | 68020 | 0.03265 | 5.3 | 6 |
+| 25 | prism-ml/ternary-bonsai-2-27b | 0.500 | 0.500 | 0.573 | 0.97 | 28340 | 0.00393 | 37.4 | 8 |
 | 26 | nvidia/nemotron-3.5-lightning | 0.389 | 0.389 | 0.395 | 0.68 | 33449 | 0.00328 | 19.5 | 0 |
 
 Re-run: `make run_eval EVAL_ARGS="--models … -j 20"` or edit `model_configs.py`. User-facing summary: [`docs/eval/benchmarks.md`](../../docs/eval/benchmarks.md).

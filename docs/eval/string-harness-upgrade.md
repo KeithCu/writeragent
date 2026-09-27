@@ -20,8 +20,8 @@ for now.
 
 The body below is the string-world plan that shipped (schemas, worlds,
 process score). The mixed scheduler lives in `eval_scheduler.py`. The
-2026-09-11 boards were a 17-task string snapshot; later dual-lane
-boards splice the flag onto that base.
+2026-09-11 boards were a 17-task string snapshot; the 2026-09-27 board completes the dual-lane splice
+(flag for all 26 catalog models, `n_examples=18`).
 
 Plan that shipped: make `--backend string` a real WriterAgent eval —
 same core tool catalog as chat, honest document worlds, and a second
