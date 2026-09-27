@@ -69,6 +69,17 @@ class TestGetProviderDefaults:
         assert (mm["ids"]["together"]) == ("MiniMaxAI/MiniMax-M3")
         assert (mm["context_length"]) == (1000000)
 
+    def test_gpt_oss_20b_openrouter_id(self):
+        # Same slug as Together/Groq. Without it, an OpenRouter sidebar treats
+        # openai/gpt-oss-20b as a stray id and restashes text_model to 120b:nitro.
+        from plugin.framework.default_models import DEFAULT_MODELS
+
+        oss20 = next((m for m in DEFAULT_MODELS if m.get("display_name") == "GPT-OSS 20B"), None)
+        assert (oss20) is not None
+        assert (oss20["ids"].get("openrouter")) == ("openai/gpt-oss-20b")
+        assert (oss20["ids"].get("together")) == ("openai/gpt-oss-20b")
+        assert (oss20["ids"].get("groq")) == ("openai/gpt-oss-20b")
+
     def test_groq_default_text_model_uses_gpt_oss_120b(self):
         d = get_provider_defaults("groq")
         assert (d.get("text_model")) == ("openai/gpt-oss-120b")
