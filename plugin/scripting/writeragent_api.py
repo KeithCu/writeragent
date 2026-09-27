@@ -145,6 +145,8 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                   'image_set_properties'],
     'index': [   'indexes_add_mark',
                  'indexes_create',
+                 'indexes_delete_toc_entry',
+                 'indexes_insert_toc_entry',
                  'indexes_list',
                  'indexes_list_cites',
                  'indexes_refresh_toc_entry',
@@ -1122,6 +1124,33 @@ class _IndexProxy:
         """
         return _rpc_call("indexes_create", kind=kind, title=title, create_from_outline=create_from_outline, target=target, old_content=old_content)
 
+    def delete_toc_entry(self, old_content: str, *, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None) -> dict[str, Any]:
+        """Delete one table-of-contents entry (the whole paragraph). Identify it the same way as indexes_refresh_toc_entry: old_content matched inside the TOC only, plus optional index and occurrence. Does not call index update(), so neighboring entries, tabs, and direct formatting stay. indexes_update_all is the full rebuild and drops customized TOC formatting. The agent decides which row is obsolete; this tool does not compare the outline.
+
+        Args:
+            old_content (required): Plain text to find inside the TOC entry to delete.
+            index (optional): Document index position from indexes_list. Omit when the document has exactly one TOC.
+            occurrence (optional): 0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match.
+            dry_run (optional): Do not edit. Report text (the entry that would be removed) and an empty text_after.
+        """
+        return _rpc_call("indexes_delete_toc_entry", old_content=old_content, index=index, occurrence=occurrence, dry_run=dry_run)
+
+    def insert_toc_entry(self, content: str, *, page: str | None = None, hyperlink_url: str | None = None, position: str | None = None, old_content: str | None = None, level: int | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None) -> dict[str, Any]:
+        """Insert one new row into an existing table of contents. Does not call index update(), and does not modify neighboring entries. Clones the sibling row's Contents N paragraph style, direct character formatting, and tab stops. Set hyperlink_url to an outline target (#…|outline). Page numbers follow the sibling row: plain text after a tab (generated TOC rows store digits in the entry, not a page field). Pass page to set that text; omit it to copy the sibling's page text. position is before, after (both need old_content), or end (after the last TOC entry). indexes_update_all is the full rebuild and drops customized TOC formatting. The agent decides what is missing; this tool does not sync the outline.
+
+        Args:
+            content (required): Plain text of the new entry title. May be the full line (Title followed by a tab and the page) when page is omitted.
+            page (optional): Plain page text written after a tab. Omit to copy the sibling row's page text. Not a page-number field.
+            hyperlink_url (optional): Outline target (#…|outline) for the new row only. Omit to leave the new row unlinked.
+            position (optional): Where to insert the one row. before/after need old_content. end appends after the last TOC entry. Default end. One of: before, after, end.
+            old_content (optional): Plain text of the existing TOC entry to insert before or after. Not used when position is end.
+            level (optional): Contents N paragraph style (1-10). Omit to clone the sibling entry's style.
+            index (optional): Document index position from indexes_list. Omit when the document has exactly one TOC.
+            occurrence (optional): 0-based match inside the TOC only, when position is before or after. Omit for the first.
+            dry_run (optional): Do not edit. Report text (the sibling entry) and text_after (the row that would be inserted).
+        """
+        return _rpc_call("indexes_insert_toc_entry", content=content, page=page, hyperlink_url=hyperlink_url, position=position, old_content=old_content, level=level, index=index, occurrence=occurrence, dry_run=dry_run)
+
     def list(self) -> dict[str, Any]:
         """List document indexes (TOC, alphabetical, user, bibliography tables). type matches indexes_create kind (bibliography via getServiceName). For in-flow cites use indexes_list_cites, not this tool."""
         return _rpc_call("indexes_list")
@@ -1131,7 +1160,7 @@ class _IndexProxy:
         return _rpc_call("indexes_list_cites")
 
     def refresh_toc_entry(self, old_content: str, content: str, *, hyperlink_url: str | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None) -> dict[str, Any]:
-        """Replace one substring inside a single table-of-contents entry and, when that text sits in one outline hyperlink (#…|outline), update that URL. Does not call index update(), so other entries, tabs, page numbers, and direct formatting stay. Page numbers are left as they are. indexes_update_all is the full rebuild and drops customized TOC formatting. Pass hyperlink_url to set the outline target, including when content equals old_content. Bookmark targets are not rewritten.
+        """Replace one substring inside a single table-of-contents entry and, when that text sits in one outline hyperlink (#…|outline), update that URL. Does not call index update(), so other entries, tabs, page numbers, and direct formatting stay. Page numbers are left as they are. indexes_update_all is the full rebuild and drops customized TOC formatting. Pass hyperlink_url to set the outline target, including when content equals old_content. Bookmark targets are not rewritten. To add or remove one row, use indexes_insert_toc_entry or indexes_delete_toc_entry.
 
         Args:
             old_content (required): Substring to find inside the TOC entry.
@@ -1144,7 +1173,7 @@ class _IndexProxy:
         return _rpc_call("indexes_refresh_toc_entry", old_content=old_content, content=content, hyperlink_url=hyperlink_url, index=index, occurrence=occurrence, dry_run=dry_run)
 
     def update_all(self) -> dict[str, Any]:
-        """Refresh all document indexes (TOC, alphabetical, bibliography table). Call after inserting or editing bibliography cites so the reference list updates. A TOC refresh rebuilds every entry and drops customized direct formatting; use indexes_refresh_toc_entry to change one outline entry in place. Page numbers are not updated by that one-entry edit."""
+        """Refresh all document indexes (TOC, alphabetical, bibliography table). Call after inserting or editing bibliography cites so the reference list updates. A TOC refresh rebuilds every entry and drops customized direct formatting. To change one entry without that rebuild, use indexes_refresh_toc_entry, indexes_insert_toc_entry, or indexes_delete_toc_entry. Those tools do not call update() and do not recalculate page numbers."""
         return _rpc_call("indexes_update_all")
 
 index = _IndexProxy()

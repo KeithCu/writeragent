@@ -970,8 +970,10 @@ per match. The current search tool uses a single enclosing-paragraph `context` s
 #### 5. Index / field refresh (implemented)
 
 Document index and field refresh live as specialized tools `indexes_update_all` and
-`fields_update_all` (no duplicate alias names). Call them after structural AI edits that
-affect TOC, bibliography, dates, or cross-references.
+`fields_update_all` (no duplicate alias names). Call `indexes_update_all` after bibliography
+cite edits. A TOC rebuild drops customized formatting; one-entry
+`indexes_insert_toc_entry`, `indexes_delete_toc_entry`, and `indexes_refresh_toc_entry`
+do not call `update()`.
 
 ---
 

@@ -5,7 +5,10 @@ from plugin.writer.specialized.indexes import (
     IndexesList,
     IndexesCreate,
     IndexesAddMark,
+    IndexesDeleteTocEntry,
+    IndexesInsertTocEntry,
     IndexesListCites,
+    _compose_toc_line,
     canonicalize_bibliography_field_name,
     collect_bibliography_field_pairs,
     fields_sequence_to_dict,
@@ -297,3 +300,178 @@ def test_indexes_create_and_mark_shortened_params():
     doc.createInstance.return_value = mark_mock
     res_mark = tool_mark.execute(ctx, text="Important Term", kind="alphabetical", target="beginning")
     assert res_mark["status"] == "ok"
+
+
+def test_compose_toc_line_copies_sibling_page_digits():
+    line, page, copied = _compose_toc_line("Gamma title", None, "Alpha title\t1")
+    assert line == "Gamma title\t1"
+    assert page == "1"
+    assert copied is True
+    line, page, copied = _compose_toc_line("Gamma title", "4", "Alpha title\t1")
+    assert line == "Gamma title\t4"
+    assert page == "4"
+    assert copied is False
+    line, page, copied = _compose_toc_line("Gamma title\t9", None, "Alpha title\t1")
+    assert line == "Gamma title\t9"
+    assert page == "9"
+    assert copied is False
+
+
+class _TocPara:
+    def __init__(self, style, text):
+        self.style = style
+        self.text = text
+
+    def getString(self):
+        return self.text
+
+    def getPropertyValue(self, name):
+        if name == "ParaStyleName":
+            return self.style
+        if name == "ParaTabStops":
+            return ()
+        raise KeyError(name)
+
+
+def _one_toc_context():
+    ctx = MagicMock()
+    doc = ctx.doc
+    idx = MagicMock()
+    idx.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    indexes = MagicMock()
+    indexes.getCount.return_value = 1
+    indexes.getByIndex.return_value = idx
+    doc.getDocumentIndexes.return_value = indexes
+    idx.getPropertyValue.side_effect = lambda name: name == "IsProtected"
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    entered = {}
+
+    def enter(title):
+        entered["title"] = title
+
+    mgr.enterUndoContext.side_effect = enter
+    mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),)
+    doc.getUndoManager.return_value = mgr
+    return ctx, doc, idx, mgr
+
+
+def test_delete_toc_entry_rejects_markup_and_missing_toc():
+    tool = IndexesDeleteTocEntry()
+    ctx, _doc, idx, mgr = _one_toc_context()
+    markup = tool.execute(ctx, old_content="<b>Alpha</b>")
+    assert markup["status"] == "error"
+    assert markup["code"] == "INVALID_PARAM"
+    idx.update.assert_not_called()
+    mgr.enterUndoContext.assert_not_called()
+
+    empty = MagicMock()
+    empty.doc.getDocumentIndexes.return_value.getCount.return_value = 0
+    missing = tool.execute(empty, old_content="Alpha")
+    assert missing["status"] == "error"
+    assert "table of contents" in missing["message"]
+
+
+def test_delete_toc_entry_bad_occurrence_and_dry_run():
+    tool = IndexesDeleteTocEntry()
+    ctx, _doc, idx, mgr = _one_toc_context()
+    para = _TocPara("Contents 1", "Alpha title\t1")
+    with patch("plugin.writer.specialized.indexes.toc_match", return_value=(None, "occurrence is past the last table-of-contents match.")):
+        bad = tool.execute(ctx, old_content="Alpha", occurrence=3)
+    assert bad["status"] == "error"
+    assert bad["code"] == "NOT_FOUND"
+    assert "occurrence" in bad["message"]
+    idx.update.assert_not_called()
+
+    with patch("plugin.writer.specialized.indexes.toc_match", return_value=(para, None)), \
+         patch("plugin.writer.specialized.indexes._paragraph_element", return_value=para):
+        preview = tool.execute(ctx, old_content="Alpha title", dry_run=True)
+    assert preview["status"] == "ok"
+    assert preview["dry_run"] is True
+    assert preview["text"] == "Alpha title\t1"
+    assert preview["text_after"] == ""
+    mgr.enterUndoContext.assert_not_called()
+    idx.update.assert_not_called()
+
+
+def test_delete_toc_entry_rolls_back_when_protection_restore_fails():
+    tool = IndexesDeleteTocEntry()
+    ctx, doc, idx, mgr = _one_toc_context()
+
+    def set_prop(name, value):
+        if name == "IsProtected" and value is True:
+            raise RuntimeError("restore failed")
+
+    idx.setPropertyValue.side_effect = set_prop
+    para = _TocPara("Contents 1", "Alpha title\t1")
+    anchor = MagicMock()
+    text = MagicMock()
+    anchor.getText.return_value = text
+    idx.getAnchor.return_value = anchor
+    with patch("plugin.writer.specialized.indexes.toc_match", return_value=(para, None)), \
+         patch("plugin.writer.specialized.indexes._paragraph_element", return_value=para), \
+         patch("plugin.writer.specialized.indexes._remove_paragraph") as remove:
+        res = tool.execute(ctx, old_content="Alpha title")
+    assert res["status"] == "error"
+    assert "protection" in res["message"]
+    remove.assert_called_once()
+    mgr.undo.assert_called_once()
+    idx.update.assert_not_called()
+    doc.getUndoManager.assert_called()
+
+
+def test_delete_toc_entry_undo_unavailable_does_not_unprotect():
+    tool = IndexesDeleteTocEntry()
+    ctx, _doc, idx, mgr = _one_toc_context()
+    mgr.isLocked.return_value = True
+    para = _TocPara("Contents 1", "Alpha title\t1")
+    with patch("plugin.writer.specialized.indexes.toc_match", return_value=(para, None)), \
+         patch("plugin.writer.specialized.indexes._paragraph_element", return_value=para):
+        res = tool.execute(ctx, old_content="Alpha title")
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    idx.setPropertyValue.assert_not_called()
+    idx.update.assert_not_called()
+
+
+def test_insert_toc_entry_param_errors_and_dry_run():
+    tool = IndexesInsertTocEntry()
+    ctx, doc, idx, mgr = _one_toc_context()
+    styles = MagicMock()
+    styles.hasByName.return_value = True
+    doc.getStyleFamilies.return_value.getByName.return_value = styles
+    sibling = _TocPara("Contents 1", "Alpha title\t1")
+    markup = tool.execute(ctx, content="<b>Gamma</b>")
+    assert markup["code"] == "INVALID_PARAM"
+    both = tool.execute(ctx, content="Gamma\t2", page="3")
+    assert both["status"] == "error"
+    assert "not both" in both["message"]
+    needs_anchor = tool.execute(ctx, content="Gamma", position="before")
+    assert needs_anchor["code"] == "INVALID_PARAM"
+    bad_url = tool.execute(ctx, content="Gamma", hyperlink_url="#__RefHeading___Toc1")
+    assert bad_url["code"] == "INVALID_PARAM"
+    assert "outline" in bad_url["message"]
+    bad_level = tool.execute(ctx, content="Gamma", level=0)
+    assert bad_level["code"] == "INVALID_PARAM"
+    idx.update.assert_not_called()
+
+    with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
+        preview = tool.execute(ctx, content="Gamma title", dry_run=True)
+    assert preview["status"] == "ok"
+    assert preview["dry_run"] is True
+    assert preview["text_after"] == "Gamma title\t1"
+    assert preview["page_from_sibling"] is True
+    assert preview["position"] == "end"
+    assert preview["para_style"] == "Contents 1"
+    mgr.enterUndoContext.assert_not_called()
+
+    with patch("plugin.writer.specialized.indexes._paragraphs_in_anchor", return_value=[sibling]):
+        leveled = tool.execute(
+            ctx, content="Gamma title", page=4, level=2, dry_run=True,
+            hyperlink_url="#1.Gamma title|outline")
+    assert leveled["status"] == "ok", leveled
+    assert leveled["text_after"] == "Gamma title\t4"
+    assert leveled["page_from_sibling"] is False
+    assert leveled["para_style"] == "Contents 2"
+    assert leveled["hyperlink_url"] == "#1.Gamma title|outline"
+    idx.update.assert_not_called()

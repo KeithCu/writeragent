@@ -41,7 +41,7 @@ These use the word “bibliography” or “citation” and are **out of scope**
 |------|--------|---------------------------|
 | `indexes_create` | `kind` enum includes `"bibliography"` → `doc.createInstance("com.sun.star.text.Bibliography")`, insert at `target`, `index.update()`. | No FieldMaster settings (brackets, numbering, sort). |
 | `indexes_list` | Enumerates `doc.getDocumentIndexes()`. Prefers `XDocumentIndex.getServiceName()` so a bib table is `type=bibliography` (impl name is `SwXDocumentIndex`, same as alphabetical). Keeps `SwX*` remaps as fallback. | — |
-| `indexes_update_all` | `idx.update()` on every document index, including a bibliography table if one exists. | Enough for “refresh the list after cites change.” |
+| `indexes_update_all` | `idx.update()` on every document index, including a bibliography table if one exists. | Enough for “refresh the list after cites change.” A TOC rebuild drops customized formatting. One TOC row is `indexes_insert_toc_entry`, `indexes_delete_toc_entry`, or `indexes_refresh_toc_entry` — those do not call `update()`. |
 | `indexes_add_mark` | `kind` includes **`bibliography`**. Creates `textfield.Bibliography` and sets `Fields` (typed `[]PropertyValue` via `uno.invoke`). Identifier / Author / Title / Year / Pages / `BibiliographicType`. | Not an index mark — name stretch documented on the tool. |
 | `indexes_list_cites` | Walks `getTextFields()`, keeps bibliography text fields, returns identifier + key Fields + location. | — |
 

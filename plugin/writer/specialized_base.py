@@ -147,7 +147,9 @@ class ToolWriterChartBase(ToolWriterSpecialBase):
 class ToolWriterIndexBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "indexes"
     specialized_domain_description: ClassVar[str | None] = (
-        "Manage Table of Contents, alphabetical indexes, and native bibliography cites plus the reference table."
+        "Manage Table of Contents, alphabetical indexes, and native bibliography cites plus the reference table. "
+        "Customized TOC rows: indexes_insert_toc_entry, indexes_delete_toc_entry, and indexes_refresh_toc_entry "
+        "edit one entry and do not call update(). indexes_update_all rebuilds the TOC and drops custom formatting."
     )
 
 
