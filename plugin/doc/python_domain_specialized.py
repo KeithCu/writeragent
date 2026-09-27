@@ -358,10 +358,13 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
     script_hint = ""
     if "shapes" in domains:
         script_hint = (
-            " When placing many shapes, write one run_venv_python_script"
-            " with a Python for-loop that calls wa.shape.upsert(...)."
-            " Those shape mutators are not LLM tools."
-            " shape_summary can verify."
+            " For create/draw/diagram/composite tasks (including when the task says to write a"
+            " script that uses shapes) you MUST write one run_venv_python_script with a Python"
+            " for-loop that calls wa.shape.upsert(...) before finishing — actually place shapes"
+            " on the page. Those shape mutators are not LLM tools. Do not invent JSON geometry,"
+            " return a pasteable script/macro listing, or finish with prose alone. Use page-scale"
+            " HMM sizes: a full-page composite is typically 10000–20000 HMM wide. Width near"
+            " 1900 HMM (~19mm) is a tiny speck and is wrong. shape_summary can verify."
         )
     instructions = (
         f"You are an inner {label} agent with tools for these specialized domains: {domain_list}. "
@@ -417,13 +420,18 @@ class DelegateToolDomains(ToolBase):
     description: str = (
         "Run an inner agent for one or more specialized domains "
         "(shapes, footnotes, tables, sheets, and the other domains for this document). "
-        "The inner agent places bulk objects with one run_venv_python_script: a Python for-loop "
-        "over the allowed domain APIs (import writeragent as wa, for example wa.shape.upsert). "
-        "Call this when the task needs those domain tools. "
-        "Do venv scripts, symbolic math, and python helpers yourself when it does not. "
-        "Do not pass python in domains — this agent already has that toolset. "
-        "Pass domains (list of domain names) and task (what the inner agent should accomplish, "
-        "including that bulk shapes go through the script loop)."
+        "ALWAYS call this for create/draw/diagram/composite/layout tasks that need shapes "
+        "(or other listed domains), including when the task says 'write a script' or "
+        "'using the shapes domain tools' — never invent JSON geometry, coordinate lists, "
+        "ASCII art, or a pasteable Python/macro listing as a substitute for drawing on the page. "
+        "For draw tasks the inner agent MUST use one run_venv_python_script with a Python "
+        "for-loop over the allowed domain APIs (import writeragent as wa, for example "
+        "wa.shape.upsert); finishing without that script is wrong when the user asked to "
+        "create or draw. Do venv scripts, symbolic math, and python helpers yourself when "
+        "the task does not need those domain tools. Do not pass python in domains — this "
+        "agent already has that toolset. Pass domains (list of domain names) and task "
+        "(what the inner agent should accomplish, including that bulk shapes go through "
+        "the script loop at page-scale HMM — typically 10000–20000 HMM wide, never ~1900 HMM / ~19mm speck)."
     )
     tier: str = "specialized"
     specialized_domain: ClassVar[str | None] = _PYTHON_DOMAIN
