@@ -20,6 +20,7 @@ if str(_PO) not in sys.path:
 from dataset import ALL_EXAMPLES, PYTHON_SHAPES_FLAG_ASK, to_eval_examples  # noqa: E402
 from eval_scheduler import (  # noqa: E402
     LoLane,
+    clamp_lo_workers,
     declared_backend,
     resolve_backend,
     run_dual_lane,
@@ -98,65 +99,117 @@ def test_select_pack_lo_keeps_flag_and_drops_py_rows() -> None:
     assert [ex.task_id for ex in kept.examples] == ["py_refuse_overlap"]
 
 
-def test_lo_lane_is_fifo() -> None:
-    lane = LoLane()
-    seen: list[int] = []
+def _sleep_job(events: list[tuple[str, float]], lock: threading.Lock, name: str, seconds: float) -> str:
+    with lock:
+        events.append((name + "-start", time.monotonic()))
+    time.sleep(seconds)
+    with lock:
+        events.append((name + "-end", time.monotonic()))
+    return name
 
-    def job(n: int) -> int:
-        seen.append(n)
-        time.sleep(0.05)
-        return n
 
+def test_lo_pool_workers_two_overlap() -> None:
+    """Two LO example bodies share the pool; their sleeps stand in for HTTP."""
+    events, lock = _events()
+    lane = LoLane(workers=2)
     try:
-        first = lane.submit(lambda: job(1))
-        second = lane.submit(lambda: job(2))
-        assert first.result(timeout=2) == 1
-        assert second.result(timeout=2) == 2
-        assert seen == [1, 2]
+        first = lane.submit(lambda: _sleep_job(events, lock, "lo1", 0.2))
+        second = lane.submit(lambda: _sleep_job(events, lock, "lo2", 0.2))
+        assert first.result(timeout=2) == "lo1"
+        assert second.result(timeout=2) == "lo2"
     finally:
         lane.close()
     with pytest.raises(RuntimeError, match="closed"):
         lane.submit(lambda: None)
+    times = {name: stamp for name, stamp in events}
+    assert times["lo1-start"] < times["lo2-end"]
+    assert times["lo2-start"] < times["lo1-end"]
 
 
-def test_lanes_overlap_and_lo_stays_fifo() -> None:
+def test_lo_lane_workers_one_is_serial() -> None:
+    """workers=1 keeps the old single-thread FIFO for example bodies."""
+    events, lock = _events()
+    lane = LoLane(workers=1)
+    try:
+        first = lane.submit(lambda: _sleep_job(events, lock, "lo1", 0.05))
+        second = lane.submit(lambda: _sleep_job(events, lock, "lo2", 0.05))
+        assert first.result(timeout=2) == "lo1"
+        assert second.result(timeout=2) == "lo2"
+    finally:
+        lane.close()
+    times = {name: stamp for name, stamp in events}
+    assert times["lo2-start"] >= times["lo1-end"]
+
+
+def test_lo_workers_clamped_to_one_through_five() -> None:
+    assert clamp_lo_workers(0) == 1
+    assert clamp_lo_workers(1) == 1
+    assert clamp_lo_workers(4) == 4
+    assert clamp_lo_workers(5) == 5
+    assert clamp_lo_workers(6) == 5
+    assert clamp_lo_workers(20) == 5
+    wide = LoLane(workers=99)
+    narrow = LoLane(workers=0)
+    try:
+        assert wide.workers == 5
+        assert narrow.workers == 1
+    finally:
+        wide.close()
+        narrow.close()
+
+
+def test_lanes_overlap_string_and_lo_pool() -> None:
     events, lock = _events()
 
-    def mark(name: str) -> None:
-        with lock:
-            events.append((name, time.monotonic()))
-
-    def lo_job(name: str, seconds: float) -> str:
-        mark(name + "-start")
-        time.sleep(seconds)
-        mark(name + "-end")
-        return name
-
     def string_job() -> str:
-        mark("string-start")
+        with lock:
+            events.append(("string-start", time.monotonic()))
         time.sleep(0.2)
-        mark("string-end")
+        with lock:
+            events.append(("string-end", time.monotonic()))
         return "string"
 
     started = time.monotonic()
     results = run_dual_lane(
         [
-            ("lo", lambda: lo_job("lo1", 0.15)),
+            ("lo", lambda: _sleep_job(events, lock, "lo1", 0.15)),
             ("string", string_job),
-            ("lo", lambda: lo_job("lo2", 0.05)),
+            ("lo", lambda: _sleep_job(events, lock, "lo2", 0.15)),
         ],
         string_workers=2,
+        lo_workers=2,
     )
     wall = time.monotonic() - started
     assert results == ["lo1", "string", "lo2"]
     times = {name: stamp for name, stamp in events}
-    # String work is in flight while the first LO job is still running.
+    # String work is in flight while LO agent loops are still running.
     assert times["string-start"] < times["lo1-end"]
     assert times["lo1-start"] < times["string-end"]
-    # Second LO job waits for the first. It does not start in parallel.
+    # Pool width 2: the two LO sleeps overlap (each start before the other's end).
+    assert times["lo1-start"] < times["lo2-end"]
+    assert times["lo2-start"] < times["lo1-end"]
+    # Serial sum is 0.50s. Overlap should land near the 0.20s string sleep.
+    assert wall < 0.40
+
+
+def test_supplied_lane_width_wins_over_lo_workers() -> None:
+    """A shared lane keeps its width; lo_workers only sizes a lane we create."""
+    events, lock = _events()
+    lane = LoLane(workers=1)
+    try:
+        results = run_dual_lane(
+            [
+                ("lo", lambda: _sleep_job(events, lock, "lo1", 0.05)),
+                ("lo", lambda: _sleep_job(events, lock, "lo2", 0.05)),
+            ],
+            lo_lane=lane,
+            lo_workers=4,
+        )
+    finally:
+        lane.close()
+    assert results == ["lo1", "lo2"]
+    times = {name: stamp for name, stamp in events}
     assert times["lo2-start"] >= times["lo1-end"]
-    # Serial sum is 0.40s. Overlap should land near max(0.20, 0.20).
-    assert wall < 0.35
 
 
 def test_string_job_does_not_wait_on_lo_queue() -> None:

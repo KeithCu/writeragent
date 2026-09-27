@@ -135,11 +135,11 @@ Hard pass is the **exported final document** plus process oracles (`oracles.py` 
 From t=0 the scheduler does **not** finish the string pack and then start LibreOffice:
 
 - A **string pool** (`run_eval.py -j N`, default 1) runs string rows concurrently.
-- One **LO lane** (`eval-lo-lane`) runs every `lo` row FIFO, in front of the existing `_lo_thread` / one soffice. Two LO tasks never touch UNO at once.
-- LO work is queued before the pool waits, so it is in flight while string tasks are still running. Wall clock approaches `max(string_parallel, lo_serial)`, not the sum.
-- A string row never blocks on the LO queue. Only a row whose own backend is `lo` waits there.
+- An **LO agent pool** (`--lo-workers`, default 4, clamped to 1..5; threads `eval-lo-lane-N`) runs that many `lo` example bodies at once, in front of the existing `_lo_thread` / one soffice. LLM waits overlap. UNO stays serial: tools enter only through `LOBackend.call`. `workers=1` is the old full-example FIFO.
+- LO work is queued before the string pool waits, so it is in flight while string tasks are still running. Wall clock for native LO rows approaches the overlap of those LLM waits plus serial UNO, not a full-example FIFO.
+- A string row never blocks on the LO queue. Only a row whose own backend is `lo` waits for a free pool worker.
 
-`run_eval_multi.py -j N` is still **models** (default 20). Inside one model, string tasks stay serial. Models share **one** LO lane, so flag rows from several models queue FIFO while those models' string tasks overlap. Do **not** `ProcessPoolExecutor` against one soffice. Per-task banners include `model=`; an LO row also prints `backend=lo`.
+`run_eval_multi.py -j N` is still **models** (default 20). Inside one model, string tasks stay serial. Models share **one** LO pool (`--lo-workers`), so flag rows from several models occupy those agent threads while those models' string tasks overlap. Do **not** `ProcessPoolExecutor` against one soffice, and do not start a second soffice. Flag-path `get_ctx()` / Desktop current component / venv `_io_lock` are still a separate pin. Per-task banners include `model=`; an LO row also prints `backend=lo`.
 
 `delegate_tool_domains` on the string world returns `unsupported_in_eval`. There is no fake `run_venv_python_script`. On LO, the harness runs that hop as an inner `LlmClient` loop (not SmolAgents) so `run_venv_python_script` is on the **harness trace**, then executes it through production tools with `python_tool_domain=shapes,core`. Shape mutators stay off the inner LLM list. Headed eval-2 still scores `writeragent_debug.log`; this row does not.
 
@@ -153,7 +153,8 @@ python scripts/prompt_optimization/run_eval.py --backend auto --student scripted
 # Live flag only. Needs OPENROUTER_API_KEY (or equivalent) and soffice.
 python scripts/prompt_optimization/run_eval.py --backend auto -e python_shapes_flag
 
-# Full mixed pack (17 string + flag). String pool overlaps the LO lane.
+# Full mixed pack (17 string + flag). String pool overlaps the LO agent pool
+# (default --lo-workers 4). UNO stays on one soffice thread.
 python scripts/prompt_optimization/run_eval.py --backend auto -j 4
 
 # Explicit string request for the flag is an error (cannot fake venv/shapes).

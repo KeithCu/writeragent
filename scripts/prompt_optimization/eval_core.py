@@ -633,8 +633,11 @@ def run_eval_on_examples_llm(
     - ``backend`` ``lo``: every row on headless Writer/Draw/Calc + ``tools_lo``.
     - ``backend`` ``auto``: each row's ``backend`` field (default ``string``).
       String rows use a pool of ``string_jobs``; LO rows share ``lo_lane``
-      (or a lane created here) and overlap the string pool. Start/stop
-      soffice outside this function when any row resolves to ``lo``.
+      (an agent pool, default 4 workers, cap 5 — or a lane created here)
+      and overlap the string pool. LLM waits overlap across that pool;
+      UNO stays serial on ``_lo_thread``. Wall clock for native LO rows
+      approaches that overlap plus serial UNO, not a full-example FIFO.
+      Start/stop soffice outside this function when any row resolves to ``lo``.
     - ``student`` ``scripted``: replay ``scripted_student.SCRIPTS`` (no LlmClient, no key, result oracles).
     - ``no_judge``: skip LLM judge even when ``judge_model`` is set.
     - ``judge_model``: OpenAI-compatible model id for LLM judge (preferred over ``judge_lm``).

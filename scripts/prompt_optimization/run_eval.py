@@ -11,7 +11,7 @@ Usage:
   export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY
   cd scripts/prompt_optimization
   python run_eval.py                    # 17 string tasks (skips backend=lo)
-  python run_eval.py --backend auto     # 18-task pack; string pool overlaps the LO lane
+  python run_eval.py --backend auto     # 18-task pack; string pool overlaps the LO agent pool
   python run_eval.py --backend auto -e python_shapes_flag   # flag only (key + soffice)
   python run_eval.py --backend lo --student scripted   # headless LO, no API key
   python run_eval.py --example table_from_mess   # one task_id (comma-separated ok)
@@ -74,8 +74,19 @@ def parse_args(argv: list[str] | None = None):
         type=int,
         default=1,
         help=(
-            "String-pool width (default 1, serial). LO tasks use one FIFO lane "
-            "and overlap this pool. Use 1 for a smoke."
+            "String-pool width (default 1, serial). Does not change how many "
+            "LO examples run at once; see --lo-workers. Use 1 for a smoke."
+        ),
+    )
+    p.add_argument(
+        "--lo-workers",
+        type=int,
+        default=4,
+        help=(
+            "LO agent-pool width (default 4, clamped to 1..5). Each worker "
+            "runs one LO example body so LLM waits overlap. UNO stays serial "
+            "on one soffice thread. Wall clock for native LO rows approaches "
+            "that overlap plus serial UNO, not a full-example FIFO."
         ),
     )
     p.add_argument("--verbose", "-v", action="store_true", help="Print every tool call as it runs.")
@@ -89,7 +100,7 @@ def parse_args(argv: list[str] | None = None):
         help=(
             "Document backend: 'string' (default; in-memory, skips backend=lo rows), "
             "'lo' (force headless LibreOffice), or 'auto' (per-task backend; "
-            "string pool overlaps the single LO lane)."
+            "string pool overlaps the LO agent pool)."
         ),
     )
     p.add_argument(
@@ -161,7 +172,7 @@ def main(argv: list[str] | None = None):
         from eval_scheduler import LoLane
 
         tools_lo.LOBackend.start()
-        lo_lane = LoLane()
+        lo_lane = LoLane(workers=args.lo_workers)
     try:
         if args.compare_with:
             # Compare mode: run both prompts and report

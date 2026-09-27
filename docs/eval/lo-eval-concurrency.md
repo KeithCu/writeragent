@@ -1,15 +1,16 @@
 # Concurrent headless LO eval in one process
 
-**Status:** research note for Keith. No harness change in this PR.
-**Tree:** `master` after #931 (`eval_scheduler.py` dual-lane, `python_shapes_flag` as the only `backend=lo` row).
+**Status:** LoLane agent pool **landed**. `run_eval.py` and `run_eval_multi.py` take `--lo-workers` (default **4**, hard cap **5**). One Python process, one headless soffice, one URP bridge, one `_lo_thread`. Up to that many LO example bodies run at once so LLM waits overlap; `LOBackend.call` is still the only UNO critical section. `_lo_docs` stays keyed by caller thread id. The N=2 / N=4 text proof is #933 (`prove_lo_multi_doc.py`, PASS).
 
-**Target to try first:** one Python process, one headless soffice, **N = 2, then 4** (cap around 5) live agent loops. Each agent owns one Writer document. Their LLM waits overlap. UNO stays on the existing `_lo_thread`. A pool of 20 models or 20 tasks at once is a later question, not the first experiment.
+**Still open:** flag-path `get_ctx()` is not `_lo_ctx`; Desktop current component is not pinned per `LOBackend.call`; the warm venv worker’s `_io_lock` still holds the pipe for a whole script. A green pool is not evidence that two flag scripts stay on the right documents. Headed eval-2 / AFC is a different process model. Do not raise the pool past 5 until the UNO queue is shown idle at the cap.
+
+**Tree:** `master` after the LoLane pool (research #932, document isolation #933, `python_shapes_flag` as the only `backend=lo` row).
 
 This is headless eval-1 (`--accept=pipe`, private `UserInstallation`, tools running in the client process). It is a different process model from the headed eval-2 / AFC matrix, where the extension runs inside the GUI office. Do not read one as evidence for the other.
 
 ## Recommendation
 
-1. **Do this first.** Keep `LOBackend` (one soffice, one URP connection, one `_lo_thread`). Stop putting the whole LO example — including `LlmClient.request_with_tools` — on `LoLane`. Run a pool of 2–5 agent threads. Each thread is one example. `LOBackend.call` remains the only UNO critical section.
+1. **Do this first.** Keep `LOBackend` (one soffice, one URP connection, one `_lo_thread`). Stop putting the whole LO example — including `LlmClient.request_with_tools` — on a single `LoLane` thread. Run a pool of 2–5 agent threads. Each thread is one example. `LOBackend.call` remains the only UNO critical section. **Landed:** `LoLane(workers=...)`, default 4, clamp 1..5, `--lo-workers` on both eval CLIs. `workers=1` is the old FIFO body.
 2. **Prove documents stay apart before any flag work.** N=2, then N=4, with plain Writer text (`setString` / `get_content`). The document map in `tools_lo` is already keyed by caller thread id; the lane is what collapses every LO example onto one id today.
 3. **Then one flag-shaped script beside a second document.** `run_venv_python_script` and `host_rpc.execute_tool` do not use the eval `ToolContext` document. They call `get_active_document(get_ctx())`, which is `Desktop.getCurrentComponent()`. That is the thing most likely to write shapes into the wrong doc. Fixing that is a small pin (activate this caller’s doc at the start of each `LOBackend.call`, and point `get_ctx()` at `_lo_ctx`). It is not a second soffice.
 4. **Leave multiprocess and a second soffice until that pool misbehaves.** One office already serializes document-model work on the solar mutex. A second process does not make the LLM any more overlapped than N agents on one pipe, and it multiplies profiles, acceptors, and cleanup.
@@ -20,25 +21,25 @@ This is headless eval-1 (`--accept=pipe`, private `UserInstallation`, tools runn
 Two queues, and they serialize different things.
 
 ```
-model / string threads                eval-lo-lane                         _lo_thread
-(run_eval_multi -j, or                LoLane._loop                         LOBackend._worker_loop
- run_eval string pool)                 one whole example at a time          one UNO callable at a time
+model / string threads                eval-lo-lane-N (pool)                _lo_thread
+(run_eval_multi -j, or                LoLane workers (default 4, cap 5)    LOBackend._worker_loop
+ run_eval string pool)                 one example body per worker          one UNO callable at a time
         |                                     |                                      |
         |  string example: HTTP + mock tools  |  LO example: HTTP + tools            |  prepare / execute_lo_tool
-        |  never touches UNO                  |  blocks here for the whole task      |  get_eval_export / venv RPC
-        +------------------------------------>+  including every LLM round           +--> soffice (one pipe)
+        |  never touches UNO                  |  LLM waits overlap across workers    |  get_eval_export / venv RPC
+        +------------------------------------>+  UNO only via LOBackend.call        +--> soffice (one pipe)
 ```
 
 | Piece | Where | What it holds |
 | --- | --- | --- |
-| `LoLane` | `scripts/prompt_optimization/eval_scheduler.py` | Every example whose resolved backend is `lo`. FIFO. The callable is the full `run_eval_on_examples_llm` body (`_one` → `run_llm_chat_eval`), so the lane thread sits in HTTP. |
+| `LoLane` | `scripts/prompt_optimization/eval_scheduler.py` | Every example whose resolved backend is `lo`. A pool of agent threads (default 4, clamp 1..5). The callable is the full `run_eval_on_examples_llm` body (`_one` → `run_llm_chat_eval`), so each worker sits in HTTP while another worker’s `LOBackend.call` can use `_lo_thread`. `workers=1` is single-thread FIFO for those bodies. |
 | `LOBackend._lo_thread` | `scripts/prompt_optimization/tools_lo.py` | Only `LOBackend.call` work: `prepare_example`, `execute_lo_tool`, export. `call` runs inline if the caller already is `_lo_thread`; otherwise it queues and waits. |
 | `set_designated_main_thread(_lo_thread)` | `LOBackend.start` → `plugin/framework/thread_guard.py` | One designated UNO thread for the process. `on_main_thread()` is that thread, not `threading.main_thread()`. |
 | `bypass_thread_guard=True` | `tools_lo` → `ToolRegistry.execute` | Eval tools call `tool.execute` on `_lo_thread` directly. They do not go through `execute_on_main_thread`. That path needs a VCL `AsyncCallback` pump; this harness has none, and blocking on it deadlocks (same family as #402). |
 | `WRITERAGENT_EVAL_HARNESS=1` | `LOBackend.start` | Skips menu-icon preload and core menu registration in `plugin/main.py` `bootstrap`. Those call `get_desktop()` in this process and can segfault soffice. |
 | `WRITERAGENT_TESTING` must stay unset | `QueueExecutor._should_run_inline` | `WRITERAGENT_TESTING=1` runs marshalled work on the **caller** thread. That is the wrong thread for this harness. |
 
-`run_dual_lane` submits every LO job to the lane **before** string jobs start. String jobs use a pool of width `-j` on `run_eval.py` (default 1). A string job never waits on the LO queue. The unit contract is in `tests/scripts/test_eval_scheduler.py` (`test_lanes_overlap_and_lo_stays_fifo`): two LO sleeps stay FIFO, the string sleep overlaps the first, wall clock stays under the serial sum. That test does not start soffice.
+`run_dual_lane` submits every LO job to the pool **before** string jobs start. String jobs use a pool of width `-j` on `run_eval.py` (default 1). A string job never waits on the LO queue. The unit contract is in `tests/scripts/test_eval_scheduler.py`: with `workers=2`, two LO sleeps overlap; with `workers=1`, they stay serial; the string sleep overlaps LO and does not wait on the LO queue. That test does not start soffice.
 
 ### How much overlap exists after #931
 
@@ -47,12 +48,12 @@ The live pack is 18 tasks. `dataset.py` marks **one** row `backend=lo`: `python_
 | Invocation | Who overlaps | Who does not |
 | --- | --- | --- |
 | `--backend string` | Nothing LO. The flag row is skipped (or an error if you `-e` it). | |
-| `--backend auto` | The string pool overlaps **that one** LO example’s full wall time (LLM rounds, tools, judge). Scheduler docstring: wall clock approaches `max(string_parallel, lo_serial)`. | A second LO example waits until the first example **function** returns. Its LLM wait does not overlap the first example’s LLM wait. |
-| `--backend lo` | No string lane. Every selected row is queued on `LoLane`. | LLM waits are serial. `_lo_thread` is idle the whole time the lane thread is inside `request_with_tools`. |
-| `run_eval.py -j` | String-pool width only. | Does not add LO workers. |
-| `run_eval_multi.py -j` | Model workers (default comment in the module docstring: 20). They share **one** `LoLane` created in `main` and passed into every `_run_one_model`. | Each model’s LO examples are FIFO on that lane. `_run_one_model` does not pass `string_jobs`, so it stays 1: within a model, string rows run one after another on the model thread, overlapping the shared lane, not each other. |
+| `--backend auto` | The string pool overlaps LO example bodies. Up to `--lo-workers` of those bodies run at once, so their LLM waits overlap each other and the string pool. | UNO sections stay serial on `_lo_thread`. A sixth LO example waits for a pool slot. |
+| `--backend lo` | No string lane. Selected rows share the LO pool (default 4). LLM waits overlap. | UNO stays serial. Past the cap, example bodies queue. `_lo_thread` can run one agent’s tool call while others sit in `request_with_tools`. |
+| `run_eval.py -j` | String-pool width only. | Does not change `--lo-workers` (default 4, cap 5). |
+| `run_eval_multi.py -j` | Model workers (default comment in the module docstring: 20). They share **one** `LoLane` created in `main` (`--lo-workers`) and passed into every `_run_one_model`. | `_run_one_model` does not pass `string_jobs`, so it stays 1: within a model, string rows run one after another on the model thread, overlapping the shared pool, not each other. LO bodies from every model share those agent threads. |
 
-So dual-lane answers “string board plus one headless flag.” It does not answer “several native LO tasks at once.” Forcing `--backend lo` on a pack is the slow case: the lane holds the HTTP wait, and the UNO thread has nothing to do.
+The pool is “several native LO tasks at once,” capped at 5, still one soffice. It is not 20-wide LO. Flag `get_ctx` / current-component / venv lock stay open, so overlapping flag scripts can still write the wrong document.
 
 During a single LO example the split is already “HTTP outside the UNO queue”:
 
@@ -64,7 +65,7 @@ During a single LO example the split is already “HTTP outside the UNO queue”
 
 The idle UNO thread during those HTTP waits is the budget a pool of 2–5 agents would use.
 
-`_lo_docs` / `_lo_kinds` are keyed by caller thread id. `LOBackend.call` stores that id on a thread-local for the duration of the queued task, and `acquire_document` / `reset_document` use it. The comment in `tools_lo` says this is so parallel model threads do not share a document. With today’s `LoLane`, every LO example body runs on `eval-lo-lane`, so they all share **one** id and one document slot (close + factory per `prepare_example`). The map is ready for N callers. The lane never gives it N callers.
+`_lo_docs` / `_lo_kinds` are keyed by caller thread id. `LOBackend.call` stores that id on a thread-local for the duration of the queued task, and `acquire_document` / `reset_document` use it. The comment in `tools_lo` says this is so parallel threads do not share a document. Each in-flight pool worker is its own `eval-lo-lane-N` thread, so concurrent examples get distinct slots (close + factory per `prepare_example` on that id). #933 proved N=2 and N=4 on that map with plain Writer text. `workers=1` still uses one id at a time. The flag path does not use this map: `host_rpc.execute_tool` follows `get_active_document(get_ctx())`.
 
 ## Is pyuno safe on several threads if each thread has its own connection?
 
@@ -135,7 +136,7 @@ The connector can do it, and v1 should not.
 
 ## Why not 20 at once
 
-`run_eval_multi.py -j 20` is model parallelism for the **string** board, with LO tasks squeezed through one lane. Turning that 20 into 20 simultaneous LO agents on one soffice spends complexity on the part that is not the wait:
+`run_eval_multi.py -j 20` is model parallelism for the **string** board. Native LO rows share the agent pool (default 4, cap 5), not 20 soffice clients. Turning that 20 into 20 simultaneous LO agents on one soffice spends complexity on the part that is not the wait:
 
 - UNO edits stay serial on `_lo_thread` and on the office mutex. Twenty agents in HTTP is fine; twenty agents in `apply_document_content` or in a flag script is a queue.
 - The flag script holds the only venv pipe for the whole script. Twenty flag tasks would mostly wait on that pipe, not on the model.
@@ -146,7 +147,7 @@ Run the 20-model string board the way #931 already does. For native LO rows, a p
 
 ## Experiment Keith can run next
 
-No full matrix. No harness rewrite. The text proof is `scripts/prompt_optimization/prove_lo_multi_doc.py`: one `LOBackend`, N agent threads (default 2), no OpenRouter, no second soffice. Do not set `WRITERAGENT_TESTING=1`. A green run is headless only; it is not evidence about headed AFC.
+No full matrix. The text proof is `scripts/prompt_optimization/prove_lo_multi_doc.py`: one `LOBackend`, N agent threads (default 2), no OpenRouter, no second soffice. It does not go through `LoLane`. N=2 and N=4 passed on master (#933) before the pool landed; the harness pool is the follow-up that uses that isolation. Do not set `WRITERAGENT_TESTING=1`. A green run is headless only; it is not evidence about headed AFC, and it is not the flag pin.
 
 ```bash
 make manifest   # once; plugin/_manifest.py is gitignored
@@ -168,7 +169,7 @@ On each thread, three steps, with a timestamp log around the sleep:
 
 Pass criteria:
 
-- The two sleeps overlap (each start is before the other’s end). Same shape as `test_lanes_overlap_and_lo_stays_fifo`, but both jobs are LO callers.
+- The two sleeps overlap (each start is before the other’s end). Same shape as `test_lo_pool_workers_two_overlap`, but both jobs are real `LOBackend.call` callers.
 - Doc A’s string contains only `alpha-*`. Doc B’s string contains only `beta-*`.
 - A log line at the start and end of each queued closure shows the UNO sections do not overlap, and `_lo_thread` is the thread that runs them.
 - `len(_lo_docs)` is 2 between step 1 and process teardown (both caller ids live).

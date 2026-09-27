@@ -12,7 +12,7 @@ Usage:
   cd scripts/prompt_optimization
   python run_eval_multi.py
   python run_eval_multi.py --backend lo    # force headless LibreOffice
-  python run_eval_multi.py --backend auto  # per-task; string pool overlaps one LO lane
+  python run_eval_multi.py --backend auto  # per-task; string pool overlaps the LO agent pool
   python run_eval_multi.py --models openai/gpt-oss-120b,openai/gpt-4o-mini
   python run_eval_multi.py -n 2
   python run_eval_multi.py -j 20  # 20 models in parallel (default)
@@ -655,13 +655,26 @@ def parse_args(argv: list[str] | None = None):
         help="Number of models to run in parallel (default: 20). Use 1 for sequential.",
     )
     p.add_argument(
+        "--lo-workers",
+        type=int,
+        default=4,
+        help=(
+            "Shared LO agent-pool width across model workers (default 4, "
+            "clamped to 1..5). Each worker runs one LO example body so LLM "
+            "waits overlap. UNO stays serial on one soffice thread. Wall "
+            "clock for native LO rows approaches that overlap plus serial "
+            "UNO, not a full-example FIFO."
+        ),
+    )
+    p.add_argument(
         "--backend",
         choices=CLI_BACKENDS,
         default="string",
         help=(
             "Document backend: 'string' (default; skips backend=lo rows), "
             "'lo' (force headless LibreOffice), or 'auto' (per-task; "
-            "string work uses -j model workers, LO tasks share one FIFO lane)."
+            "string work uses -j model workers, LO tasks share one agent pool "
+            "(--lo-workers; LLM waits overlap, UNO stays serial)."
         ),
     )
     p.add_argument(
@@ -866,7 +879,7 @@ def main(argv: list[str] | None = None) -> int:
         from eval_scheduler import LoLane
 
         _tools_lo.LOBackend.start()
-        lo_lane = LoLane()
+        lo_lane = LoLane(workers=args.lo_workers)
         worker_kw["lo_lane"] = lo_lane
     try:
         if jobs <= 1:
