@@ -213,3 +213,32 @@ def test_run_merge_file_output():
     assert mail_merge_mock.SaveAsSingleFile is True
     assert mail_merge_mock.Filter == "City = 'London'"
     mail_merge_mock.execute.assert_called_once_with([])
+    doc.createInstance.assert_not_called()
+
+
+def test_database_context_and_mail_merge_are_not_document_factory_services():
+    """Writer doc.createInstance does not provide DatabaseContext or MailMerge (LO 26)."""
+    ctx, doc, comp_ctx, smgr = _create_mock_ctx()
+    doc.createInstance.side_effect = RuntimeError("unknown service")
+
+    db_ctx = MagicMock()
+    db_ctx.getElementNames.return_value = ()
+    smgr.createInstanceWithContext.return_value = db_ctx
+    listed = ListDataSources().execute(ctx)
+    assert listed["status"] == "ok", listed
+    smgr.createInstanceWithContext.assert_called_with("com.sun.star.sdb.DatabaseContext", comp_ctx)
+    doc.createInstance.assert_not_called()
+
+    doc.getURL.return_value = "file:///tmp/template.odt"
+    mail_merge_mock = MagicMock()
+    smgr.createInstanceWithContext.return_value = mail_merge_mock
+    merged = RunMerge().execute(
+        ctx,
+        data_source_name="Clients",
+        table_name="Sheet1",
+        output_type="file",
+        output_path="/tmp/output_docs",
+    )
+    assert merged["status"] == "ok", merged
+    smgr.createInstanceWithContext.assert_called_with("com.sun.star.text.MailMerge", comp_ctx)
+    doc.createInstance.assert_not_called()

@@ -51,7 +51,14 @@ def _to_file_url(path_or_url: str) -> str:
 
 
 def _get_database_context(ctx: Any) -> Any:
-    """Obtain the com.sun.star.sdb.DatabaseContext UNO service."""
+    """Obtain ``com.sun.star.sdb.DatabaseContext`` from the global service manager.
+
+    What was wrong: a fallback called ``doc.createInstance("com.sun.star.sdb.DatabaseContext")``.
+    How it happened: that service is the global single-instance
+    ``com.sun.star.comp.dba.ODatabaseContext`` (``services.rdb``). LibreOffice 26's
+    document factory raises ``ServiceNotRegisteredException: unknown service``.
+    Why this fixes it: only ``getServiceManager().createInstanceWithContext`` creates it.
+    """
     comp_ctx = None
     if hasattr(ctx, "get_ctx"):
         comp_ctx = ctx.get_ctx()
@@ -62,11 +69,6 @@ def _get_database_context(ctx: Any) -> Any:
         smgr = comp_ctx.getServiceManager()
         if hasattr(smgr, "createInstanceWithContext"):
             return smgr.createInstanceWithContext("com.sun.star.sdb.DatabaseContext", comp_ctx)
-
-    # Fallback to document service factory if component context is unavailable
-    doc = getattr(ctx, "doc", None)
-    if doc and hasattr(doc, "createInstance"):
-        return doc.createInstance("com.sun.star.sdb.DatabaseContext")
 
     return None
 
@@ -557,15 +559,14 @@ class RunMerge(ToolWriterMailMergeBase):
                 "Document must be saved or a valid document_url provided before running mail merge."
             )
 
-        # Instantiate com.sun.star.text.MailMerge
+        # MailMerge is SwXMailMerge on the global service manager, not a document-factory
+        # service. doc.createInstance raises ServiceNotRegisteredException (same class of
+        # bug as ShapeCollection / DatabaseContext).
         mail_merge = None
         if comp_ctx and hasattr(comp_ctx, "getServiceManager"):
             smgr = comp_ctx.getServiceManager()
             if hasattr(smgr, "createInstanceWithContext"):
                 mail_merge = smgr.createInstanceWithContext("com.sun.star.text.MailMerge", comp_ctx)
-
-        if not mail_merge and doc and hasattr(doc, "createInstance"):
-            mail_merge = doc.createInstance("com.sun.star.text.MailMerge")
 
         if not mail_merge:
             return self._tool_error("Failed to instantiate com.sun.star.text.MailMerge service.")
