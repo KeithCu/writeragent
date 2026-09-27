@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.draw.shapes import UpsertShape, _ENHANCED_CUSTOM_SHAPE_ENGINE, _try_writer_invalidate_and_pump
+from plugin.draw.shapes import GroupShapes, UpsertShape, _ENHANCED_CUSTOM_SHAPE_ENGINE, _try_writer_invalidate_and_pump
 
 
 class _Pos:
@@ -264,3 +264,52 @@ def test_writer_invalidate_skips_non_writer_doc() -> None:
     _try_writer_invalidate_and_pump(doc)
 
     doc.getCurrentController.assert_not_called()
+
+
+def test_shape_group_uses_service_manager_not_document_factory() -> None:
+    """ShapeCollection is a global service. Document factories reject it (LO 26).
+
+    Writer and Draw ``createInstance`` raise ServiceNotRegisteredException
+    (``unknown service: com.sun.star.drawing.ShapeCollection``). Calc returns None.
+    Writer/Calc ``shape_group`` share this Draw ``execute``.
+    """
+    from plugin.calc.shapes import GroupShapes as CalcGroupShapes
+    from plugin.writer.specialized.shapes import GroupShapes as WriterGroupShapes
+
+    for cls in (GroupShapes, WriterGroupShapes, CalcGroupShapes):
+        shapes = [MagicMock(), MagicMock()]
+        page = MagicMock()
+        page.getByIndex.side_effect = lambda i, shapes=shapes: shapes[i]
+        page.getCount.return_value = 1
+
+        doc = MagicMock()
+        doc.createInstance.side_effect = RuntimeError(
+            "unknown service: com.sun.star.drawing.ShapeCollection"
+        )
+
+        collection = MagicMock()
+        uno_ctx = MagicMock()
+        uno_ctx.ServiceManager.createInstanceWithContext.return_value = collection
+
+        tool_ctx = MagicMock()
+        tool_ctx.doc = doc
+        tool_ctx.ctx = uno_ctx
+
+        pages = MagicMock()
+        pages.getByIndex.return_value = page
+
+        with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+            bridge = bridge_cls.return_value
+            bridge.get_pages.return_value = pages
+            bridge.get_active_page.return_value = page
+            result = cls().execute(tool_ctx, indices=[0, 1])
+
+        assert result["status"] == "ok", result
+        assert result["index"] == 0
+        doc.createInstance.assert_not_called()
+        uno_ctx.ServiceManager.createInstanceWithContext.assert_called_once_with(
+            "com.sun.star.drawing.ShapeCollection",
+            uno_ctx,
+        )
+        assert [c.args[0] for c in collection.add.call_args_list] == shapes
+        page.group.assert_called_once_with(collection)

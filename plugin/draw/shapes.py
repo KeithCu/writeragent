@@ -820,6 +820,31 @@ class ConnectShapes(ToolDrawShapeBase):
         return {"status": "ok", "message": f"Connected shape {start_idx} to {end_idx}", "index": page.getCount() - 1}
 
 
+def _create_shape_collection(uno_ctx: Any) -> Any:
+    """Temporary ``XShapes`` bag for ``XDrawPage.group``.
+
+    What was wrong: ``doc.createInstance("com.sun.star.drawing.ShapeCollection")``
+    fails. LibreOffice 26 Writer and Draw raise
+    ``ServiceNotRegisteredException: unknown service: com.sun.star.drawing.ShapeCollection``.
+    Calc's document factory returns None.
+    How it happened: ``ShapeCollection`` is not a document-factory service. It is
+    the global implementation ``com.sun.star.drawing.SvxShapeCollection``
+    (LibreOffice ``services.rdb``). ``XMultiServiceFactory`` on the document only
+    creates services that factory registers.
+    Why this fixes it: the component-context service manager creates that global
+    service, and ``XDrawPage.group`` accepts it (Writer ``AT_PAGE`` shapes, Draw, Calc).
+    """
+    from plugin.framework.uno_context import get_service_manager
+
+    smgr = get_service_manager(uno_ctx)
+    if smgr is None:
+        raise RuntimeError("ServiceManager unavailable for ShapeCollection")
+    collection = smgr.createInstanceWithContext("com.sun.star.drawing.ShapeCollection", uno_ctx)
+    if collection is None:
+        raise RuntimeError("ShapeCollection service returned None")
+    return collection
+
+
 class GroupShapes(ToolDrawShapeBase):
     """Group multiple shapes together."""
 
@@ -851,8 +876,8 @@ class GroupShapes(ToolDrawShapeBase):
             return self._tool_error("At least two shape indices are required to group.")
 
         try:
-            # Create a shape collection
-            shape_collection = ctx.doc.createInstance("com.sun.star.drawing.ShapeCollection")
+            # Global svx service — document createInstance does not provide it (see helper).
+            shape_collection = _create_shape_collection(ctx.ctx)
             for i in indices:
                 shape = page.getByIndex(i)
                 shape_collection.add(shape)

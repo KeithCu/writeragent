@@ -58,5 +58,11 @@ When the user requests a `shape_type`:
 
 The tool's JSON schema summarizes CustomShape types **by category** (with a few examples each); the full set is defined by LibreOffice (see `svx/source/customshapes/EnhancedCustomShapeTypeNames.cxx` in LibreOffice core). Any valid type string from that catalog can be passed as `shape_type`.
 
+## Grouping
+
+`shape_group` (`GroupShapes` in `plugin/draw/shapes.py`, also the Writer and Calc subclasses) passes a temporary `com.sun.star.drawing.ShapeCollection` to `XDrawPage.group`. That service is the global implementation `com.sun.star.drawing.SvxShapeCollection`. Create it with the component-context service manager (`createInstanceWithContext`). Document `createInstance` does not provide it: Writer and Draw raise `ServiceNotRegisteredException`, and Calc returns None.
+
+Writer shapes must not use an as-character anchor (`XShapeGrouper` rejects those). `shape_upsert` sets `AnchorType=AT_PAGE` before `page.add`, which grouping accepts.
+
 ## Shared Visual Helpers
 Cross-document visual-object mechanics live in `plugin/doc/visual_helpers.py`. Writer, Calc, Draw, and Impress tools should reuse that module for safe UNO property access, document-kind detection, active draw-page lookup (including Writer `getDrawPage` for forms/shapes), graphic-object selection/listing, common `1/100 mm` unit conversions, color parsing (`parse_color_to_uno_int`), and Char* property batching (`apply_character_properties`). App-specific behavior still belongs in the app modules, especially Writer text-cursor image insertion and Writer page-anchored shape quirks.
