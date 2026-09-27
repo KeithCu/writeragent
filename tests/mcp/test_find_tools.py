@@ -590,3 +590,98 @@ def test_direct_flat_treats_start_center_as_no_document():
     handler.services.document.get_active_document.return_value = phantom
     names = {t["name"] for t in handler._mcp_tools_list({})["tools"]}
     assert "create_chart" in names
+
+
+# --- the catalog and the no-document gate follow OPEN documents, not focus ----
+# Twelve reports said "no WriterAgent editing tools in this session" with a
+# document open, and two more said "LibreOffice isn't open" one second after
+# list_open_documents had listed it. Both came from keying off the ACTIVE
+# document: a spreadsheet in front hid the Writer tools, and focus on the Start
+# Center (or another app) meant no active document at all.
+
+def test_gate_falls_back_to_the_single_open_document():
+    handler = _handler_real("direct_discovery", _real_registry())
+    handler.services.document.get_active_document.return_value = None
+    only_doc = MagicMock()
+    handler.services.document.open_documents.return_value = [only_doc]
+    handler.services.document.detect_doc_type.return_value = "writer"
+
+    res = handler._execute_tool_on_main("apply_document_content", {})
+    assert res.get("code") not in ("NO_DOCUMENT_OPEN", "NO_ACTIVE_DOCUMENT")
+
+
+def _titled(title):
+    d = MagicMock()
+    d.getTitle.return_value = title
+    return d
+
+
+def test_gate_names_the_candidates_when_several_are_open():
+    handler = _handler_real("direct_discovery", _real_registry())
+    handler.services.document.get_active_document.return_value = None
+    handler.services.document.open_documents.return_value = [_titled("peca1.odt"), _titled("planilha.ods")]
+
+    res = handler._execute_tool_on_main("apply_document_content", {})
+    assert res.get("code") == "NO_ACTIVE_DOCUMENT"
+    assert "document_url" in res["message"]
+    assert "peca1.odt" in res["message"] and "planilha.ods" in res["message"]
+
+
+def test_gate_never_guesses_between_two_documents_of_the_same_type():
+    """Two Writer documents, none active: a per-type count sees ONE and would edit
+    the first petition silently. The gate must count documents."""
+    handler = _handler_real("direct_discovery", _real_registry())
+    handler.services.document.get_active_document.return_value = None
+    handler.services.document.open_documents.return_value = [_titled("peca1.odt"), _titled("peca2.odt")]
+
+    res = handler._execute_tool_on_main("apply_document_content", {})
+    assert res.get("code") == "NO_ACTIVE_DOCUMENT"
+    assert "peca1.odt" in res["message"] and "peca2.odt" in res["message"]
+
+
+def test_gate_still_says_no_document_when_nothing_is_open():
+    handler = _handler_real("direct_discovery", _real_registry())
+    handler.services.document.get_active_document.return_value = None
+    handler.services.document.open_documents.return_value = []
+
+    res = handler._execute_tool_on_main("apply_document_content", {})
+    assert res.get("code") == "NO_DOCUMENT_OPEN"
+
+
+def test_catalog_covers_a_writer_open_behind_the_active_calc():
+    handler = _handler_real("direct_flat", _real_registry())
+    writer_doc = MagicMock()
+    handler.services.document.open_documents_by_type.return_value = {
+        "calc": MagicMock(), "writer": writer_doc,
+    }
+    schemas, broadened = handler._add_other_open_doc_schemas(
+        [_schema("read_cell_range")], "calc", frozenset()
+    )
+
+    assert set(broadened) == {"writer"}, "the caller needs the added types for its own filters"
+    names = {s["name"] for s in schemas}
+    assert "read_cell_range" in names, "the active document's own tools must stay"
+    assert "apply_document_content" in names, "the open Writer document's tools must appear too"
+
+
+def test_catalog_broaden_never_breaks_tools_list():
+    handler = _handler_real("direct_flat", _real_registry())
+    handler.services.document.open_documents_by_type.side_effect = RuntimeError("UNO gone")
+    original = [_schema("read_cell_range")]
+
+    assert handler._add_other_open_doc_schemas(list(original), "calc", frozenset()) == (original, {})
+
+
+def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():
+    """Writer's sidebar-only domains must stay out even when reached by broadening.
+
+    The sidebar-only set is computed per document type, so broadening past an
+    active Calc document once let brainstorm_* through.
+    """
+    handler = _handler_real("direct_flat", _real_registry())
+    writer_doc = MagicMock()
+    handler.services.document.get_active_document.return_value = None
+    handler.services.document.open_documents_by_type.return_value = {"writer": writer_doc}
+
+    names = {t["name"] for t in handler._mcp_tools_list({})["tools"]}
+    assert "brainstorm_research_web" not in names

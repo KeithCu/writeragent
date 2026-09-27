@@ -245,6 +245,17 @@ _doc_gates: dict[str, threading.Lock] = {}
 _doc_gates_guard = threading.Lock()
 
 
+def _doc_titles(docs: list[Any]) -> list[str]:
+    """Human-readable names for an error message; never raises."""
+    titles = []
+    for d in docs:
+        try:
+            titles.append(str(d.getTitle() or "") or "(untitled)")
+        except Exception:
+            titles.append("(unknown)")
+    return titles
+
+
 def _real_active_document(doc_svc: Any) -> Any:
     """The active document, or None when no real document is open.
 
@@ -685,6 +696,19 @@ class MCPProtocolHandler:
                 **doc_filter,
             )
 
+            # Filtering by the ACTIVE document alone made the Writer tools vanish
+            # whenever a spreadsheet happened to have focus, with a Writer document
+            # open right beside it -- the most reported WriterAgent failure by far
+            # ("no editing tools in this session"), and indistinguishable from the
+            # extension being down. Every tool takes document_url, so the catalog
+            # covers all OPEN document types; the active one still comes first, and
+            # a call with no document_url still targets it.
+            broadened: dict[str, Any] = {}
+            if doc is not None and not document_url:
+                schemas, broadened = self._add_other_open_doc_schemas(
+                    schemas, doc_type, exclude_tiers
+                )
+
             # A domain whose backend is not configured is hidden from the discovery catalog; the
             # flat list has to agree, or the same install advertises a capability in one exposure
             # mode and not the other. This block already runs on the main thread, which get_ctx
@@ -707,6 +731,19 @@ class MCPProtocolHandler:
                     doc_type=doc_type,
                     uno_services_supported=uno_services,
                 )
+                # The sidebar-only set is per document type, so it has to cover the
+                # types the catalog was broadened to as well -- otherwise broadening
+                # past an active Calc document smuggled Writer's sidebar-only flows
+                # (brainstorming, writing_plan) into the flat list.
+                for other_type, other_doc in broadened.items():
+                    from plugin.doc.doc_type import uno_services_for_document
+
+                    sidebar_only = sidebar_only | sidebar_only_tool_names(
+                        self.tool_registry,
+                        other_doc,
+                        doc_type=other_type,
+                        uno_services_supported=uno_services_for_document(other_doc, other_type),
+                    )
                 if sidebar_only:
                     schemas = [s for s in schemas if s.get("name") not in sidebar_only]
             return schemas
@@ -907,6 +944,49 @@ class MCPProtocolHandler:
         finally:
             _tool_semaphore.release()
 
+    def _add_other_open_doc_schemas(self, schemas: list[dict[str, Any]], active_doc_type: str | None, exclude_tiers: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Append tools for the other open document types, active type first.
+
+        Returns ``(schemas, {doc_type: doc})`` for the types that were added, so the
+        caller can apply the per-doc-type filters (sidebar-only flows) to them too.
+        Main-thread only (touches UNO). Never raises: a catalog that is merely
+        narrower is better than a tools/list that 500s.
+        """
+        try:
+            by_type = self.services.document.open_documents_by_type()
+        except Exception:
+            log.debug("tools/list broaden: could not enumerate open documents", exc_info=True)
+            return schemas, {}
+        if not isinstance(by_type, dict):
+            return schemas, {}
+        others = {k: v for k, v in by_type.items() if k != active_doc_type}
+        if not others:
+            return schemas, {}
+        from plugin.doc.doc_type import uno_services_for_document
+
+        seen = {sch.get("name") for sch in schemas}
+        for other_type, other_doc in others.items():
+            try:
+                extra = self.tool_registry.get_schemas(
+                    "mcp",
+                    doc_type=other_type,
+                    uno_services_supported=uno_services_for_document(other_doc, other_type),
+                    exclude_tiers=exclude_tiers,
+                )
+            except Exception:
+                log.debug("tools/list broaden failed for %s", other_type, exc_info=True)
+                continue
+            for sch in extra:
+                name = sch.get("name")
+                if name and name not in seen:
+                    seen.add(name)
+                    schemas.append(sch)
+        log.debug(
+            "tools/list broadened past the active %s document to also cover: %s",
+            active_doc_type, ", ".join(sorted(others)),
+        )
+        return schemas, others
+
     def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
         """Main-thread only: unknown-tool check, document resolve, ToolContext, precomputed echo.
 
@@ -937,9 +1017,37 @@ class MCPProtocolHandler:
                                 "with one of the returned url or uid values." % document_url),
                     "details": {"document_url": document_url}}
         if doc is None and getattr(tool, "requires_document", True):
-            return {"status": "error", "code": "NO_DOCUMENT_OPEN",
-                    "message": ("No document open in LibreOffice. Ask the user to open or create a document; "
-                                "list_open_documents works in this state to check what is open.")}
+            # "No document open" used to be decided by the ACTIVE document alone, so a
+            # call landing while focus sat on the Start Center (or on another app)
+            # answered "LibreOffice isn't open" one second after list_open_documents
+            # had listed the very document the caller meant -- reported twice as an
+            # intermittent, unreproducible failure. Fall back to what is actually
+            # open: unambiguous when there is one document, and when there are several
+            # say so and name them instead of denying they exist.
+            # Count DOCUMENTS, not types: with two Writer documents open and neither active,
+            # a per-type view has one entry and would silently pick the first -- possibly the
+            # wrong petition. Only a single open document is unambiguous.
+            doc_svc = self.services.document
+            try:
+                open_docs = doc_svc.open_documents()
+            except Exception:
+                open_docs = []
+            if not isinstance(open_docs, list):
+                open_docs = []  # stubbed/unavailable service -> behave as before
+            if len(open_docs) == 1:
+                doc = open_docs[0]
+                doc_type = doc_svc.detect_doc_type(doc)
+                log.debug("no active document; falling back to the single open %s document", doc_type)
+            elif open_docs:
+                return {"status": "error", "code": "NO_ACTIVE_DOCUMENT",
+                        "message": ("No document is active in LibreOffice (its window may not have focus), "
+                                    "but %d are open: %s. Call list_open_documents and pass document_url "
+                                    "(url or uid) to say which one you mean."
+                                    % (len(open_docs), ", ".join(_doc_titles(open_docs))))}
+            else:
+                return {"status": "error", "code": "NO_DOCUMENT_OPEN",
+                        "message": ("No document open in LibreOffice. Ask the user to open or create a document; "
+                                    "list_open_documents works in this state to check what is open.")}
 
         from plugin.doc.doc_type import uno_services_for_document
         from plugin.framework.tool import ToolContext

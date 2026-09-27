@@ -514,6 +514,48 @@ class DocumentService(ServiceBase):
             return "draw"
         return "writer"
 
+    def open_documents(self) -> list[Any]:
+        """Every open real document (Start Center excluded), in desktop order. Main-thread only."""
+        from plugin.framework.uno_context import get_desktop
+
+        docs = []
+        try:
+            desktop = get_desktop()
+            comps = desktop.getComponents() if desktop is not None else None
+            enum = comps.createEnumeration() if comps else None
+            while enum and enum.hasMoreElements():
+                doc = enum.nextElement()
+                try:
+                    if doc.supportsService("com.sun.star.document.OfficeDocument"):
+                        docs.append(doc)
+                except Exception:
+                    continue
+        except Exception:
+            log.debug("open_documents failed", exc_info=True)
+        return docs
+
+    def open_documents_by_type(self) -> dict[str, Any]:
+        """``{doc_type: first open document of that type}``. Main-thread only.
+
+        ONE document per type -- right for the tool catalog, which is keyed by type,
+        and wrong for anything that needs to know how many documents are open (use
+        open_documents for that).
+
+        tools/list used to be filtered by the *active* document alone, so with a
+        spreadsheet in front the Writer tools vanished from the catalog even
+        though a Writer document was open beside it -- the single most reported
+        WriterAgent failure ("no editing tools in this session"). The tools all
+        accept ``document_url``, so what is open, not what has focus, is the
+        honest basis for the catalog.
+        """
+        found: dict[str, Any] = {}
+        for doc in self.open_documents():
+            try:
+                found.setdefault(self.detect_doc_type(doc), doc)
+            except Exception:
+                continue
+        return found
+
     def is_writer(self, doc: Any) -> bool:
         return _doc_type.is_writer(doc)
 
