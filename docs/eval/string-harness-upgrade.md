@@ -3,9 +3,10 @@
 **Status:** The live pack is **18 tasks**. `--backend string` (default)
 still ranks the original 17 on the in-memory world and skips
 `python_shapes_flag`. `--backend auto` mixes that headless-LO row with
-the string pool: both lanes start together (string threads + one FIFO
-LO lane, one soffice). Wall clock approaches
-`max(string_parallel, lo_serial)`. The 2026-09-11 boards stay this
+the string pool: string threads and an LO agent pool (default 4, cap 5)
+start together, one soffice. LLM waits overlap; UNO stays serial on
+`_lo_thread`. Wall clock for native LO rows approaches that overlap
+plus serial UNO, not a full-example FIFO. The 2026-09-11 boards stay this
 17-task string snapshot. OpenRouter-only string cannot run the flag.
 Headed eval-2 remains the human path for the same Ask. LO ranking of
 the original 17, and multi-turn chat, stay out of scope.

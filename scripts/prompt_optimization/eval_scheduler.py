@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Dual-lane eval scheduler: string pool overlapping one LibreOffice lane.
+"""Dual-lane eval scheduler: string pool overlapping an LO agent pool.
 
 ``--backend`` used to be run-global. Each dataset row can now declare
 ``backend`` (``string`` or ``lo``). ``auto`` honors that declaration.
@@ -10,16 +10,23 @@
 From the moment work is submitted:
 
 - String examples run on a thread pool (``-j`` / ``string_workers``).
-- Every example that must touch UNO is queued FIFO on one lane thread.
-- The lane starts before the pool waits, so LO work is in flight while
-  string tasks are still running. Wall clock approaches
-  ``max(string_parallel, lo_serial)``, not the sum.
+- LO examples run on ``LoLane``: a pool of agent threads (default 4,
+  hard cap 5). Each thread runs one example body, including
+  ``LlmClient.request_with_tools``, so those HTTP waits overlap.
+- UNO stays serial on ``tools_lo._lo_thread`` via ``LOBackend.call``.
+  This pool does not start a second soffice, a second URP bridge, or a
+  process pool.
+- LO jobs are submitted before the string pool waits, so LO work is in
+  flight while string tasks are still running. Wall clock for native LO
+  rows approaches the overlap of LLM waits plus serial UNO, not a
+  full-example FIFO.
 - A string example never blocks on the LO queue. Only an example whose
-  own backend is ``lo`` waits for its turn on that lane.
+  own backend is ``lo`` waits for a free pool worker.
 
-One soffice stays behind ``tools_lo._lo_thread``. This lane is the task
-queue in front of it: two LO examples never run at once, even when
-several model workers submit together.
+``workers=1`` is the old single-thread FIFO for example bodies.
+``_lo_docs`` is keyed by caller thread id, so each in-flight worker
+owns a document slot. Flag-path ``get_ctx()`` / current-component /
+venv locking is a separate pin.
 """
 from __future__ import annotations
 
@@ -33,6 +40,17 @@ BACKEND_STRING = "string"
 BACKEND_LO = "lo"
 BACKEND_AUTO = "auto"
 CLI_BACKENDS = (BACKEND_STRING, BACKEND_LO, BACKEND_AUTO)
+
+# Two to five concurrent LLM waits is the v1 win. Past that, one office
+# mutex and one venv pipe dominate (docs/eval/lo-eval-concurrency.md).
+LO_WORKERS_DEFAULT = 4
+LO_WORKERS_MIN = 1
+LO_WORKERS_MAX = 5
+
+
+def clamp_lo_workers(workers: int) -> int:
+    """Pool width for LO agent threads. Hard cap is 5."""
+    return max(LO_WORKERS_MIN, min(LO_WORKERS_MAX, int(workers)))
 
 
 def example_task_id(example: Any) -> str:
@@ -156,20 +174,34 @@ def select_pack(
 
 
 class LoLane:
-    """Single FIFO worker for LO-backed examples. Safe to share across models."""
+    """Pool of agent threads for LO-backed examples. Safe to share across models.
 
-    def __init__(self) -> None:
+    Up to ``workers`` example bodies run at once (HTTP included). UNO is
+    not parallel here: tools still enter ``LOBackend.call``, which queues
+    on the single ``_lo_thread``. Width is clamped to 1..5.
+    """
+
+    def __init__(self, workers: int = LO_WORKERS_DEFAULT) -> None:
+        self.workers = clamp_lo_workers(workers)
         self._queue: queue.Queue[tuple[Callable[[], Any], Future[Any]] | None] = queue.Queue()
-        self._thread = threading.Thread(target=self._loop, name="eval-lo-lane", daemon=True)
+        self._lock = threading.Lock()
         self._closed = False
-        self._thread.start()
+        # One thread per in-flight example so ``_lo_docs`` (keyed by caller
+        # thread id) gets a distinct slot. Names stay ``eval-lo-lane-*``.
+        self._threads = [
+            threading.Thread(target=self._loop, name=f"eval-lo-lane-{index}", daemon=True)
+            for index in range(self.workers)
+        ]
+        for thread in self._threads:
+            thread.start()
 
     def submit(self, fn: Callable[[], Any]) -> Future[Any]:
-        if self._closed:
-            raise RuntimeError("LO lane is closed")
-        fut: Future[Any] = Future()
-        self._queue.put((fn, fut))
-        return fut
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("LO lane is closed")
+            fut: Future[Any] = Future()
+            self._queue.put((fn, fut))
+            return fut
 
     def _loop(self) -> None:
         while True:
@@ -183,11 +215,19 @@ class LoLane:
                 fut.set_exception(exc)
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        self._queue.put(None)
-        self._thread.join()
+        """Drain queued jobs, then join every worker.
+
+        Sentinels go on the queue after any jobs already submitted, so
+        FIFO order finishes that work before a worker sees ``None``.
+        """
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            for _worker in self._threads:
+                self._queue.put(None)
+        for thread in self._threads:
+            thread.join()
 
 
 def run_dual_lane(
@@ -195,12 +235,16 @@ def run_dual_lane(
     *,
     string_workers: int = 1,
     lo_lane: LoLane | None = None,
+    lo_workers: int = LO_WORKERS_DEFAULT,
 ) -> list[Any]:
     """Run ``jobs`` as ``(backend, fn)`` pairs. Results stay in input order.
 
-    LO callables are queued before any string callable runs, and the lane
-    thread is already alive, so the first LO job starts while string work
-    is still in flight. String callables are not joined to that queue.
+    LO callables are submitted before any string callable runs. The pool
+    is already alive, so LO agent loops start while string work is still
+    in flight. String callables are not joined to that queue.
+
+    ``lo_workers`` sizes a lane this function creates. A caller-supplied
+    ``lo_lane`` keeps its own width (one shared pool across model workers).
     """
     n = len(jobs)
     results: list[Any] = [None] * n
@@ -209,7 +253,7 @@ def run_dual_lane(
     lane = lo_lane
     own_lane = False
     if lo_indexes and lane is None:
-        lane = LoLane()
+        lane = LoLane(workers=lo_workers)
         own_lane = True
     lo_futs: list[tuple[int, Future[Any]]] = []
     try:
