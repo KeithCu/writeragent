@@ -345,6 +345,17 @@ class QueueExecutor:
         with self._init_lock:
             if self._initialized:
                 return self._async_callback_service
+            # Headless eval: one designated ``_lo_thread`` owns the URP bridge.
+            # DISPLAY=:9 (or any toolkit) can still create AsyncCallback; a poke
+            # from a LoLane worker would run UNO on the VCL/bridge callback path
+            # while ``_lo_thread`` is mid-call → "Binary URP bridge already disposed".
+            import os
+
+            if os.environ.get("WRITERAGENT_EVAL_HARNESS") == "1":
+                log.info("QueueExecutor: EVAL_HARNESS set — AsyncCallback disabled (UNO stays on designated thread)")
+                self._async_callback_service = None
+                self._initialized = True
+                return None
             try:
                 # Use the extension's self.ctx (set_context at bootstrap).
                 # uno.getComponentContext() can return a different context and
@@ -592,7 +603,11 @@ class QueueExecutor:
         svc = None if _force_marshal_mode else self._get_async_callback()
 
         if svc is None and not _force_marshal_mode:
-            if is_agent_active() or bg_task:
+            import os
+
+            # Eval harness: never run UNO on a random caller thread. Only the
+            # designated ``_lo_thread`` (``_may_run_marshal_inline``) is safe.
+            if os.environ.get("WRITERAGENT_EVAL_HARNESS") == "1" or is_agent_active() or bg_task:
                 msg = "marshal refused: AsyncCallback unavailable from background thread (fn=%s)" % fn_label
                 try:
                     raise RuntimeError(msg)
