@@ -183,6 +183,224 @@ _ORG_GOOD = json.dumps(
     }
 )
 
+_SOLAR_GOOD = json.dumps(
+{
+    "status": "ok",
+    "page": 0,
+    "tree": [
+        {
+            "type": "RectangleShape",
+            "index": 0,
+            "text": "Utility / Grid",
+            "geometry": {
+                "x": 500,
+                "y": 3500,
+                "width": 3000,
+                "height": 1400
+            }
+        },
+        {
+            "type": "RectangleShape",
+            "index": 1,
+            "text": "Meter",
+            "geometry": {
+                "x": 4200,
+                "y": 3500,
+                "width": 2800,
+                "height": 1400
+            }
+        },
+        {
+            "type": "RectangleShape",
+            "index": 2,
+            "text": "Main panel (non-backup)",
+            "geometry": {
+                "x": 4200,
+                "y": 6000,
+                "width": 3600,
+                "height": 1600
+            }
+        },
+        {
+            "type": "RectangleShape",
+            "index": 3,
+            "text": "Solar AC Disconnect",
+            "geometry": {
+                "x": 7600,
+                "y": 3500,
+                "width": 4000,
+                "height": 1400
+            }
+        },
+        {
+            "type": "RectangleShape",
+            "index": 4,
+            "text": "System controller (MID)",
+            "geometry": {
+                "x": 12200,
+                "y": 3300,
+                "width": 4200,
+                "height": 1800
+            }
+        },
+        {
+            "type": "RectangleShape",
+            "index": 5,
+            "text": "Backup subpanel",
+            "geometry": {
+                "x": 17000,
+                "y": 3400,
+                "width": 3800,
+                "height": 1600
+            }
+        },
+        {
+            "type": "RectangleShape",
+            "index": 6,
+            "text": "PV array",
+            "geometry": {
+                "x": 7600,
+                "y": 500,
+                "width": 3200,
+                "height": 1400
+            }
+        },
+        {
+            "type": "RectangleShape",
+            "index": 7,
+            "text": "Microinverters",
+            "geometry": {
+                "x": 11200,
+                "y": 500,
+                "width": 3200,
+                "height": 1400
+            }
+        },
+        {
+            "type": "RectangleShape",
+            "index": 8,
+            "text": "Combiner",
+            "geometry": {
+                "x": 14800,
+                "y": 500,
+                "width": 3000,
+                "height": 1400
+            }
+        },
+        {
+            "type": "RectangleShape",
+            "index": 9,
+            "text": "AC battery",
+            "geometry": {
+                "x": 12200,
+                "y": 6000,
+                "width": 3600,
+                "height": 1400
+            }
+        },
+        {
+            "type": "ConnectorShape",
+            "connected_start": {
+                "name": "s0",
+                "text": "Utility / Grid"
+            },
+            "connected_end": {
+                "name": "s1",
+                "text": "Meter"
+            }
+        },
+        {
+            "type": "ConnectorShape",
+            "connected_start": {
+                "name": "s1",
+                "text": "Meter"
+            },
+            "connected_end": {
+                "name": "s2",
+                "text": "Main panel (non-backup)"
+            }
+        },
+        {
+            "type": "ConnectorShape",
+            "connected_start": {
+                "name": "s1",
+                "text": "Meter"
+            },
+            "connected_end": {
+                "name": "s3",
+                "text": "Solar AC Disconnect"
+            }
+        },
+        {
+            "type": "ConnectorShape",
+            "connected_start": {
+                "name": "s3",
+                "text": "Solar AC Disconnect"
+            },
+            "connected_end": {
+                "name": "s4",
+                "text": "System controller (MID)"
+            }
+        },
+        {
+            "type": "ConnectorShape",
+            "connected_start": {
+                "name": "s4",
+                "text": "System controller (MID)"
+            },
+            "connected_end": {
+                "name": "s5",
+                "text": "Backup subpanel"
+            }
+        },
+        {
+            "type": "ConnectorShape",
+            "connected_start": {
+                "name": "s6",
+                "text": "PV array"
+            },
+            "connected_end": {
+                "name": "s7",
+                "text": "Microinverters"
+            }
+        },
+        {
+            "type": "ConnectorShape",
+            "connected_start": {
+                "name": "s7",
+                "text": "Microinverters"
+            },
+            "connected_end": {
+                "name": "s8",
+                "text": "Combiner"
+            }
+        },
+        {
+            "type": "ConnectorShape",
+            "connected_start": {
+                "name": "s8",
+                "text": "Combiner"
+            },
+            "connected_end": {
+                "name": "s4",
+                "text": "System controller (MID)"
+            }
+        },
+        {
+            "type": "ConnectorShape",
+            "connected_start": {
+                "name": "s9",
+                "text": "AC battery"
+            },
+            "connected_end": {
+                "name": "s4",
+                "text": "System controller (MID)"
+            }
+        }
+    ]
+}
+)
+
 _PY_GOOD = json.dumps(
     {
         "status": "ok",
@@ -222,6 +440,7 @@ _PY_BAD = json.dumps(
         ("tax_column", _TAX_GOOD),
         ("flowchart_gen", _FLOW_GOOD),
         ("org_chart_gen", _ORG_GOOD),
+        ("solar_sld_gen", _SOLAR_GOOD),
         ("py_refuse_overlap", _PY_GOOD),
     ],
 )
@@ -320,6 +539,59 @@ def test_good_fixtures_pass(task_id: str, doc: str) -> None:
                         {"type": "RectangleShape", "text": "Hal (Analyst)"},
                         {"type": "RectangleShape", "text": "Ivy (Lead)"},
                         {"type": "RectangleShape", "text": "Jay (Lead)"},
+                    ],
+                }
+            ),
+            "edge",
+        ),
+        (
+            "solar_sld_gen",
+            json.dumps(
+                {
+                    "status": "ok",
+                    "tree": [{"type": "RectangleShape", "text": "Utility / Grid"}],
+                }
+            ),
+            "Meter",
+        ),
+        (
+            "solar_sld_gen",
+            json.dumps(
+                {
+                    "status": "ok",
+                    "tree": [
+                        {"type": "RectangleShape", "text": "Utility / Grid"},
+                        {"type": "RectangleShape", "text": "Meter"},
+                        {"type": "RectangleShape", "text": "Main panel"},
+                        {"type": "RectangleShape", "text": "Solar AC Disconnect"},
+                        {"type": "RectangleShape", "text": "System controller (MID)"},
+                        {"type": "RectangleShape", "text": "Backup subpanel"},
+                        {"type": "RectangleShape", "text": "PV array"},
+                        {"type": "RectangleShape", "text": "Microinverters"},
+                        {"type": "RectangleShape", "text": "Combiner"},
+                        {"type": "RectangleShape", "text": "AC battery"},
+                        {"type": "RectangleShape", "text": "Enphase IQ Battery"},
+                    ],
+                }
+            ),
+            "brand",
+        ),
+        (
+            "solar_sld_gen",
+            json.dumps(
+                {
+                    "status": "ok",
+                    "tree": [
+                        {"type": "RectangleShape", "text": "Utility / Grid"},
+                        {"type": "RectangleShape", "text": "Meter"},
+                        {"type": "RectangleShape", "text": "Main panel"},
+                        {"type": "RectangleShape", "text": "Solar AC Disconnect"},
+                        {"type": "RectangleShape", "text": "System controller (MID)"},
+                        {"type": "RectangleShape", "text": "Backup subpanel"},
+                        {"type": "RectangleShape", "text": "PV array"},
+                        {"type": "RectangleShape", "text": "Microinverters"},
+                        {"type": "RectangleShape", "text": "Combiner"},
+                        {"type": "RectangleShape", "text": "AC battery"},
                     ],
                 }
             ),
@@ -812,3 +1084,80 @@ def test_judge_only_for_quality_tasks() -> None:
     assert uses_llm_judge("table_from_mess", "structural")
     assert uses_llm_judge("table_engineering", "structural")
     assert not uses_llm_judge("tax_column", "structural")
+
+
+def test_solar_sld_grouped_tree_still_scores() -> None:
+    """Production get_draw_tree may wrap the diagram in a GroupShape."""
+    doc = json.dumps(
+        {
+            "status": "ok",
+            "tree": [
+                {
+                    "type": "GroupShape",
+                    "children": json.loads(_SOLAR_GOOD)["tree"],
+                }
+            ],
+        }
+    )
+    assert check_oracle("solar_sld_gen", doc) == []
+
+
+def test_solar_sld_main_service_panel_label() -> None:
+    roles_doc = json.dumps(
+        {
+            "status": "ok",
+            "tree": [
+                {"type": "RectangleShape", "text": "Utility / Grid"},
+                {"type": "RectangleShape", "text": "Meter"},
+                {"type": "RectangleShape", "text": "Main Service Panel"},
+                {"type": "RectangleShape", "text": "Solar AC Disconnect"},
+                {"type": "RectangleShape", "text": "System controller (MID)"},
+                {"type": "RectangleShape", "text": "Backup subpanel"},
+                {"type": "RectangleShape", "text": "PV array"},
+                {"type": "RectangleShape", "text": "Microinverters"},
+                {"type": "RectangleShape", "text": "Combiner"},
+                {"type": "RectangleShape", "text": "AC battery"},
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Meter"},
+                    "connected_end": {"text": "Solar AC Disconnect"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Solar AC Disconnect"},
+                    "connected_end": {"text": "System controller (MID)"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "System controller (MID)"},
+                    "connected_end": {"text": "Backup subpanel"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Microinverters"},
+                    "connected_end": {"text": "Combiner"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Combiner"},
+                    "connected_end": {"text": "System controller (MID)"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "AC battery"},
+                    "connected_end": {"text": "System controller (MID)"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "PV array"},
+                    "connected_end": {"text": "Microinverters"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Utility / Grid"},
+                    "connected_end": {"text": "Meter"},
+                },
+            ],
+        }
+    )
+    assert check_oracle("solar_sld_gen", roles_doc) == []

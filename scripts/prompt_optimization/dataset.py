@@ -1,12 +1,12 @@
 """
 Fixed examples for prompt optimization / eval (scripts/prompt_optimization/).
 
-ALL_EXAMPLES is 19 tasks: 12 Writer (including style_consistency, smart_summarization,
-section_refactor, comment_management) + flowchart_gen / org_chart_gen (Draw) +
-data_sorting / tax_column (Calc) + two Phase F =PY dest rows (refuse overlap, no bulk
-read) + python_shapes_flag (Writer, backend=lo). Rows omit ``backend`` to stay on the
-string world. ``org_chart_gen`` and the flag declare ``backend=lo`` (native Draw /
-Writer); they cannot run on the string simulator.
+ALL_EXAMPLES is 20 tasks: 12 Writer (including style_consistency, smart_summarization,
+section_refactor, comment_management) + flowchart_gen / org_chart_gen / solar_sld_gen
+(Draw) + data_sorting / tax_column (Calc) + two Phase F =PY dest rows (refuse overlap,
+no bulk read) + python_shapes_flag (Writer, backend=lo). Rows omit ``backend`` to stay
+on the string world. ``org_chart_gen``, ``solar_sld_gen``, and the flag declare
+``backend=lo`` (native Draw / Writer); they cannot run on the string simulator.
 Structural tasks are scored from the exported final document (oracles + honest substring
 checks). A quality judge runs after the hard gate for resume, rewriting, summarization,
 and the two table tasks. See docs/eval/eval-dev-plan.md.
@@ -498,8 +498,70 @@ PYTHON_SHAPES_FLAG = {
     ),
 }
 
+
+# Solar SLD Gen — native Draw (backend=lo). Partial-home backup with Solar AC
+# Disconnect between grid/meter and the system controller (MID). Brand-scrubbed.
+SOLAR_SLD_GEN = {
+    "document_content": (
+        "Partial-home backup residential solar + AC storage (AC-coupled "
+        "microinverter architecture). Brand-scrubbed — no vendor names.\n\n"
+        "Topology:\n"
+        "- Utility → Meter → Main panel (non-backup loads).\n"
+        "- Utility/Meter → Solar AC Disconnect → System controller (MID) → "
+        "Backup subpanel → backup loads.\n"
+        "- PV modules + microinverters → Combiner → System controller PV port.\n"
+        "- AC battery → System controller battery port.\n\n"
+        "Ideal schematic layout (not unique art). Programming/shapes SLD."
+    ),
+    "user_question": (
+        "Using programming/shapes (vector rectangles, lines, text — no hand-drawn "
+        "sketch and no pixel art), draw a polished conceptual electrical "
+        "single-line diagram for this partial-home backup microinverter solar + "
+        "AC storage system.\n\n"
+        "Requirements:\n"
+        "1) Show all components with clear generic labels: Utility (or Grid), "
+        "Meter, Main panel, Solar AC Disconnect, System controller (MID), "
+        "Backup subpanel, Combiner, Microinverter(s), AC battery, PV array.\n"
+        "2) Connect topology exactly: Utility/Meter → Solar AC Disconnect → "
+        "System controller (MID) → Backup subpanel; also Utility/Meter → Main "
+        "panel for non-backup loads; microinverters on the PV array → Combiner → "
+        "controller PV; AC battery → controller battery.\n"
+        "3) Emphasize a single Solar AC Disconnect between the grid/meter and the "
+        "MID (do not bury it).\n"
+        "4) Microinverters belong on the array — not a single central string "
+        "inverter.\n"
+        "5) Layout should read source→load (utility/source toward house loads). "
+        "Main panel stays on the utility side; backup loads hang off the MID.\n"
+        "6) No brand names, SKUs, or logos (no Enphase, IQ, Envoy, Encharge, etc.).\n\n"
+        "Verify with get_draw_tree (nodes and connections)."
+    ),
+    "task_id": "solar_sld_gen",
+    "expected_contains": [
+        "Meter",
+        "Main panel",
+        "Solar AC Disconnect",
+        "Combiner",
+        "Microinverter",
+        "Backup",
+    ],
+    "reject_contains": ["Enphase", "Encharge", "Envoy"],
+    "is_non_trivial": True,
+    "category": "structural",
+    "backend": "lo",
+    "rubric": (
+        "Native Draw shapes SLD. Hard: required labels (utility/grid, meter, main "
+        "panel, Solar AC Disconnect, system controller/MID, backup subpanel, "
+        "combiner, microinverter(s), AC battery, PV array); edges "
+        "grid/meter→Solar AC Disconnect→MID→backup subpanel; micros→combiner→"
+        "controller; battery→controller; micros on array not central string "
+        "inverter; fail brand strings. Soft: readable source→load; main on "
+        "utility side; single emphasized Solar AC Disconnect. Layout not unique."
+    ),
+}
+
 ALL_EXAMPLES.append(FLOWCHART_GEN)
 ALL_EXAMPLES.append(ORG_CHART_GEN)
+ALL_EXAMPLES.append(SOLAR_SLD_GEN)
 ALL_EXAMPLES.append(DATA_SORTING)
 ALL_EXAMPLES.append(TAX_COLUMN)
 ALL_EXAMPLES.append(PY_REFUSE_OVERLAP)
@@ -514,7 +576,7 @@ def task_kind(task_id: str) -> str:
     Kind is keyed by task_id, not question keywords — flowchart_gen is Draw,
     data_sorting and tax_column are Calc, everything else is Writer.
     """
-    if task_id in ("flowchart_gen", "org_chart_gen"):
+    if task_id in ("flowchart_gen", "org_chart_gen", "solar_sld_gen"):
         return "draw"
     if task_id in (
         "data_sorting",

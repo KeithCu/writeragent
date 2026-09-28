@@ -992,6 +992,347 @@ def oracle_smart_summarization(doc: str) -> list[str]:
     return fails
 
 
+
+
+# ---------------------------------------------------------------------------
+# solar_sld_gen — partial-home backup SLD (native Draw)
+# ---------------------------------------------------------------------------
+
+_SOLAR_BRAND_FAIL = (
+    "enphase",
+    "encharge",
+    "iq system",
+    "iq battery",
+    "iq combiner",
+    "iq8",
+    "iq7",
+    "envoy",
+)
+_SOLAR_STRING_INVERTER = ("string inverter", "central inverter")
+
+# Soft floors: ~10 labeled equipment boxes, ~7 topology connectors.
+_SOLAR_BOX_FLOOR = 8
+_SOLAR_CONN_FLOOR = 6
+
+
+def _solar_role_keys(text: str) -> set[str]:
+    """Map shape text to topology roles (case-insensitive substring)."""
+    t = fold_eval_text(text or "").casefold()
+    roles: set[str] = set()
+    if "utility" in t or re.search(r"(?<![a-z])grid(?![a-z])", t):
+        roles.add("utility")
+    if "meter" in t:
+        roles.add("meter")
+    if (
+        "main panel" in t
+        or "main service panel" in t
+        or "main load" in t
+        or "load center" in t
+        or ("main" in t and "panel" in t and "subpanel" not in t and "backup" not in t)
+    ):
+        roles.add("main_panel")
+    if "solar ac disconnect" in t or (
+        "ac disconnect" in t and "solar" in t
+    ) or t.strip() in {"ac disconnect", "solar disconnect"}:
+        roles.add("ac_disconnect")
+    elif "ac disconnect" in t:
+        roles.add("ac_disconnect")
+    if (
+        "system controller" in t
+        or "microgrid interconnect" in t
+        or re.search(r"(?<![a-z])mid(?![a-z])", t)
+    ):
+        roles.add("controller")
+    if "backup subpanel" in t or "backup panel" in t or (
+        "backup" in t and "subpanel" in t
+    ) or ("backup" in t and "sub-panel" in t):
+        roles.add("backup_subpanel")
+    if "combiner" in t:
+        roles.add("combiner")
+    if "microinverter" in t or "micro-inverter" in t or "micro inverter" in t:
+        roles.add("microinverter")
+    if "ac battery" in t or (
+        "battery" in t and "dc" not in t
+    ) or re.search(r"(?<![a-z])battery(?![a-z])", t):
+        roles.add("battery")
+    if (
+        "pv array" in t
+        or "solar array" in t
+        or "pv module" in t
+        or "roof pv" in t
+        or (re.search(r"(?<![a-z])pv(?![a-z])", t) and ("array" in t or "module" in t))
+    ):
+        roles.add("pv_array")
+    elif re.search(r"(?<![a-z])pv(?![a-z])", t) and "combiner" not in t:
+        roles.add("pv_array")
+    return roles
+
+
+def _solar_is_connector(node: dict[str, Any]) -> bool:
+    typ = str(node.get("type") or "").casefold()
+    return "connector" in typ
+
+
+
+def _flatten_draw_nodes(nodes: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Walk GroupShape children so grouped production trees still score."""
+    out: list[dict[str, Any]] = []
+
+    def _walk(items: list[Any]) -> None:
+        for node in items:
+            if not isinstance(node, dict):
+                continue
+            typ = str(node.get("type") or "").casefold()
+            kids = node.get("children")
+            if "group" in typ and isinstance(kids, list):
+                _walk(kids)
+                continue
+            out.append(node)
+            if isinstance(kids, list):
+                _walk(kids)
+
+    _walk(list(nodes or []))
+    return out
+
+
+def _solar_labeled_boxes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    boxes: list[dict[str, Any]] = []
+    for node in nodes:
+        if not isinstance(node, dict) or _solar_is_connector(node):
+            continue
+        text = str(node.get("text") or "").strip()
+        if not text:
+            continue
+        if _solar_role_keys(text):
+            boxes.append(node)
+    return boxes
+
+
+def _solar_connectors(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [n for n in nodes if isinstance(n, dict) and _solar_is_connector(n)]
+
+
+def _solar_edges(
+    data: dict[str, Any], nodes: list[dict[str, Any]]
+) -> list[tuple[str, str]]:
+    """(start_text, end_text) from production connectors or DrawWorld."""
+    edges: list[tuple[str, str]] = []
+    for node in _solar_connectors(nodes):
+        start = node.get("connected_start")
+        end = node.get("connected_end")
+        if isinstance(start, dict) and isinstance(end, dict):
+            edges.append(
+                (
+                    str(start.get("text") or "").casefold(),
+                    str(end.get("text") or "").casefold(),
+                )
+            )
+    if edges:
+        return edges
+    by_idx_text: dict[int, str] = {}
+    for i, node in enumerate(nodes):
+        if isinstance(node, dict):
+            by_idx_text[i] = str(node.get("text") or "").casefold()
+            if "index" in node:
+                try:
+                    by_idx_text[int(node["index"])] = by_idx_text[i]
+                except (TypeError, ValueError):
+                    pass
+    conns = data.get("connections")
+    if isinstance(conns, list):
+        for conn in conns:
+            if not isinstance(conn, dict):
+                continue
+            try:
+                frm = int(conn.get("from_index"))
+                to = int(conn.get("to_index"))
+            except (TypeError, ValueError):
+                continue
+            edges.append((by_idx_text.get(frm, ""), by_idx_text.get(to, "")))
+    if edges:
+        return edges
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        dest = node.get("connected_end")
+        if isinstance(dest, dict):
+            edges.append(
+                (
+                    str(node.get("text") or "").casefold(),
+                    str(dest.get("text") or "").casefold(),
+                )
+            )
+    return edges
+
+
+def _solar_edge_roles(edges: list[tuple[str, str]]) -> list[tuple[set[str], set[str]]]:
+    out: list[tuple[set[str], set[str]]] = []
+    for src, dst in edges:
+        out.append((_solar_role_keys(src), _solar_role_keys(dst)))
+    return out
+
+
+def _solar_has_role_edge(
+    role_edges: list[tuple[set[str], set[str]]], src_role: str, dst_role: str
+) -> bool:
+    for src_roles, dst_roles in role_edges:
+        if src_role in src_roles and dst_role in dst_roles:
+            return True
+        # Undirected fallback: SLD lines are often direction-agnostic.
+        if src_role in dst_roles and dst_role in src_roles:
+            return True
+    return False
+
+
+def _solar_has_path(
+    role_edges: list[tuple[set[str], set[str]]],
+    start_roles: set[str],
+    end_role: str,
+    via: set[str] | None = None,
+) -> bool:
+    """BFS over undirected role graph from any start_role to end_role."""
+    adj: dict[str, set[str]] = {}
+    for src_roles, dst_roles in role_edges:
+        for s in src_roles:
+            adj.setdefault(s, set()).update(dst_roles)
+        for d in dst_roles:
+            adj.setdefault(d, set()).update(src_roles)
+    frontier = set(start_roles)
+    seen = set(frontier)
+    while frontier:
+        nxt: set[str] = set()
+        for node in frontier:
+            if node == end_role:
+                if via is None or via & seen:
+                    return True
+            for neigh in adj.get(node, ()):
+                if neigh not in seen:
+                    seen.add(neigh)
+                    nxt.add(neigh)
+        frontier = nxt
+    return end_role in seen and (via is None or bool(via & seen))
+
+
+def oracle_solar_sld_gen(doc: str) -> list[str]:
+    """Hard gate for solar_sld_gen: labels, topology edges, brands, micros.
+
+    Soft layout notes live in ``solar_sld_eval``; ``agent_score`` stays binary.
+    """
+    fails: list[str] = []
+    data = parse_json_export(doc)
+    texts: list[str] = []
+    if data:
+        _collect_texts(data, texts)
+    blob = " ".join(texts) if texts else visible_text(doc)
+    folded = fold_eval_text(blob).casefold()
+
+    # Brand scrub.
+    for brand in _SOLAR_BRAND_FAIL:
+        if brand in folded:
+            fails.append(f"brand string forbidden: {brand!r}")
+
+    # Required labels (role presence anywhere in export).
+    present_roles: set[str] = set()
+    for chunk in texts or [blob]:
+        present_roles |= _solar_role_keys(chunk)
+    # Also scan whole blob once.
+    present_roles |= _solar_role_keys(blob)
+
+    required = (
+        ("utility", "utility/grid"),
+        ("meter", "meter"),
+        ("main_panel", "main panel"),
+        ("ac_disconnect", "Solar AC Disconnect"),
+        ("controller", "system controller/MID"),
+        ("backup_subpanel", "backup subpanel"),
+        ("combiner", "combiner"),
+        ("microinverter", "microinverter(s)"),
+        ("battery", "AC battery"),
+        ("pv_array", "PV array"),
+    )
+    for role, label in required:
+        if role not in present_roles:
+            fails.append(f"solar SLD missing {label!r}")
+
+    # Central string inverter is the wrong architecture for this task.
+    for bad in _SOLAR_STRING_INVERTER:
+        if bad in folded and "microinverter" not in folded:
+            fails.append(f"central/string inverter without microinverters ({bad!r})")
+        elif bad in folded:
+            fails.append(f"central/string inverter drawn ({bad!r}); use microinverters")
+
+    nodes: list[dict[str, Any]] = []
+    if data:
+        tree = data.get("tree")
+        if isinstance(tree, list):
+            nodes = _flatten_draw_nodes([n for n in tree if isinstance(n, dict)])
+
+    boxes = _solar_labeled_boxes(nodes)
+    connectors = _solar_connectors(nodes)
+    conn_count = len(connectors)
+    if conn_count == 0 and data:
+        raw_conns = data.get("connections")
+        if isinstance(raw_conns, list):
+            conn_count = len(raw_conns)
+
+    if nodes and len(boxes) < _SOLAR_BOX_FLOOR:
+        fails.append(
+            f"solar SLD labeled boxes {len(boxes)} < {_SOLAR_BOX_FLOOR} (~10)"
+        )
+    if nodes and conn_count < _SOLAR_CONN_FLOOR:
+        fails.append(
+            f"solar SLD connectors {conn_count} < {_SOLAR_CONN_FLOOR} (~7+)"
+        )
+
+    edges = _solar_edges(data or {}, nodes)
+    edges = _solar_edges(data or {}, nodes)
+    role_edges = _solar_edge_roles(edges)
+
+    # grid/meter → Solar AC Disconnect → MID → backup subpanel
+    if not (
+        _solar_has_role_edge(role_edges, "utility", "ac_disconnect")
+        or _solar_has_role_edge(role_edges, "meter", "ac_disconnect")
+        or _solar_has_path(role_edges, {"utility", "meter"}, "ac_disconnect")
+    ):
+        fails.append("missing grid/meter→Solar AC Disconnect edge")
+    if not (
+        _solar_has_role_edge(role_edges, "ac_disconnect", "controller")
+        or _solar_has_path(
+            role_edges, {"ac_disconnect"}, "controller"
+        )
+    ):
+        fails.append("missing Solar AC Disconnect→MID edge")
+    if not (
+        _solar_has_role_edge(role_edges, "controller", "backup_subpanel")
+        or _solar_has_path(role_edges, {"controller"}, "backup_subpanel")
+    ):
+        fails.append("missing MID→backup subpanel edge")
+
+    # micros → combiner → controller
+    if not (
+        _solar_has_role_edge(role_edges, "microinverter", "combiner")
+        or _solar_has_role_edge(role_edges, "pv_array", "combiner")
+        or _solar_has_path(
+            role_edges, {"microinverter", "pv_array"}, "combiner"
+        )
+    ):
+        fails.append("missing micros/array→combiner edge")
+    if not (
+        _solar_has_role_edge(role_edges, "combiner", "controller")
+        or _solar_has_path(role_edges, {"combiner"}, "controller")
+    ):
+        fails.append("missing combiner→controller edge")
+
+    # battery → controller
+    if not (
+        _solar_has_role_edge(role_edges, "battery", "controller")
+        or _solar_has_path(role_edges, {"battery"}, "controller")
+    ):
+        fails.append("missing battery→controller edge")
+
+    return fails
+
+
 ORACLES: dict[str, Callable[[str], list[str]]] = {
     "table_from_mess": oracle_table_from_mess,
     "table_engineering": oracle_table_engineering,
@@ -1004,6 +1345,7 @@ ORACLES: dict[str, Callable[[str], list[str]]] = {
     "comment_management": oracle_comment_management,
     "flowchart_gen": oracle_flowchart_gen,
     "org_chart_gen": oracle_org_chart_gen,
+    "solar_sld_gen": oracle_solar_sld_gen,
     "data_sorting": oracle_data_sorting,
     "tax_column": oracle_tax_column,
     "py_refuse_overlap": oracle_py_dest,

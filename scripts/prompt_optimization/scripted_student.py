@@ -449,6 +449,177 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         _tools(_tc("get_draw_tree", {}, "org_tree_1")),
         _stop(),
     ],
+    "solar_sld_gen": [
+        _tools(
+            _tc(
+                "delegate_to_specialized_draw_toolset",
+                {
+                    "domain": "shapes",
+                    "task": (
+                        "Partial-home SLD: Utility→Meter→Main panel; "
+                        "Meter→Solar AC Disconnect→System controller (MID)→"
+                        "Backup subpanel; PV+microinverters→Combiner→controller; "
+                        "AC battery→controller; verify get_draw_tree."
+                    ),
+                },
+                "del_sld_1",
+            )
+        ),
+        _tools(
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Utility / Grid",
+                    "x": 500,
+                    "y": 3500,
+                    "width": 3200,
+                    "height": 1400,
+                },
+                "sld_util",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Meter",
+                    "x": 4200,
+                    "y": 3500,
+                    "width": 2800,
+                    "height": 1400,
+                },
+                "sld_meter",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Main panel\n(non-backup loads)",
+                    "x": 4200,
+                    "y": 6000,
+                    "width": 3600,
+                    "height": 1600,
+                },
+                "sld_main",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Solar AC Disconnect",
+                    "x": 7600,
+                    "y": 3500,
+                    "width": 4000,
+                    "height": 1400,
+                },
+                "sld_acd",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "System controller (MID)",
+                    "x": 12200,
+                    "y": 3300,
+                    "width": 4200,
+                    "height": 1800,
+                },
+                "sld_mid",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Backup subpanel\n(backup loads)",
+                    "x": 17000,
+                    "y": 3400,
+                    "width": 3800,
+                    "height": 1600,
+                },
+                "sld_backup",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "PV array\n(modules)",
+                    "x": 7600,
+                    "y": 500,
+                    "width": 3200,
+                    "height": 1400,
+                },
+                "sld_pv",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Microinverters",
+                    "x": 11200,
+                    "y": 500,
+                    "width": 3200,
+                    "height": 1400,
+                },
+                "sld_micro",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Combiner",
+                    "x": 14800,
+                    "y": 500,
+                    "width": 3000,
+                    "height": 1400,
+                },
+                "sld_comb",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "AC battery",
+                    "x": 12200,
+                    "y": 6000,
+                    "width": 3600,
+                    "height": 1400,
+                },
+                "sld_batt",
+            ),
+        ),
+        _tools(
+            # 0 Utility, 1 Meter, 2 Main, 3 Solar AC Disconnect, 4 MID,
+            # 5 Backup, 6 PV, 7 Microinverters, 8 Combiner, 9 AC battery
+            _tc("shape_connect", {"start": 0, "end": 1}, "sld_c1"),
+            _tc("shape_connect", {"start": 1, "end": 2}, "sld_c2"),
+            _tc("shape_connect", {"start": 1, "end": 3}, "sld_c3"),
+            _tc("shape_connect", {"start": 3, "end": 4}, "sld_c4"),
+            _tc("shape_connect", {"start": 4, "end": 5}, "sld_c5"),
+            _tc("shape_connect", {"start": 6, "end": 7}, "sld_c6"),
+            _tc("shape_connect", {"start": 7, "end": 8}, "sld_c7"),
+            _tc("shape_connect", {"start": 8, "end": 4}, "sld_c8"),
+            _tc("shape_connect", {"start": 9, "end": 4}, "sld_c9"),
+        ),
+        _tools(
+            _tc(
+                "specialized_workflow_finished",
+                {"answer": "solar SLD created"},
+                "fin_sld_1",
+            )
+        ),
+        _tools(_tc("get_draw_tree", {}, "sld_tree_1")),
+        _stop(),
+    ],
     "data_sorting": [
         _tools(
             _tc(
