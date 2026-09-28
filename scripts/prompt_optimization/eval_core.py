@@ -760,6 +760,14 @@ def run_eval_on_examples_llm(
                 soft_notes = scored.soft
                 # Keep expected_contains correctness; do not invent a partial.
                 final = scored.summary
+            elif task_id == "solar_sld_gen":
+                # Hard gate = oracles.oracle_solar_sld_gen. Layout notes soft.
+                from solar_sld_eval import score_solar_sld_example
+
+                scored = score_solar_sld_example(final, backend=task_backend)
+                oracle_failures = scored.failures
+                soft_notes = scored.soft
+                final = scored.summary
             from process_oracles import agent_score_from_failures, check_process
 
             process_failures = check_process(task_id, trace)

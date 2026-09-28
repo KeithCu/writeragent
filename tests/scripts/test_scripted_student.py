@@ -21,6 +21,7 @@ from scripted_student import SCRIPTS, ScriptedStudent  # noqa: E402
 def test_task_kind_from_task_id() -> None:
     assert task_kind("flowchart_gen") == "draw"
     assert task_kind("org_chart_gen") == "draw"
+    assert task_kind("solar_sld_gen") == "draw"
     assert task_kind("data_sorting") == "calc"
     assert task_kind("tax_column") == "calc"
     assert task_kind("table_from_mess") == "writer"

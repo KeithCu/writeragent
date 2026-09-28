@@ -36,10 +36,11 @@ def test_declared_backend_defaults_string_and_flag_is_lo() -> None:
     kinds = {ex["task_id"]: declared_backend(ex) for ex in ALL_EXAMPLES}
     assert kinds["python_shapes_flag"] == "lo"
     assert kinds["org_chart_gen"] == "lo"
+    assert kinds["solar_sld_gen"] == "lo"
     assert kinds["table_from_mess"] == "string"
     assert kinds["py_refuse_overlap"] == "string"
-    assert sum(1 for kind in kinds.values() if kind == "lo") == 2
-    assert len(ALL_EXAMPLES) == 19
+    assert sum(1 for kind in kinds.values() if kind == "lo") == 3
+    assert len(ALL_EXAMPLES) == 20
     flag = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "python_shapes_flag")
     assert flag["user_question"] == PYTHON_SHAPES_FLAG_ASK
     assert flag["document_content"] == ""
@@ -66,6 +67,7 @@ def test_select_pack_string_skips_flag_unless_explicit() -> None:
     assert len(skipped.examples) == 17
     assert "python_shapes_flag" in skipped.notes[0]
     assert "org_chart_gen" in skipped.notes[0]
+    assert "solar_sld_gen" in skipped.notes[0]
     # An explicit -e that includes the flag is an error, not a silent drop.
     mixed = select_pack(examples, cli_backend="string", explicit=True, student="llm")
     assert mixed.error
@@ -80,13 +82,14 @@ def test_select_pack_scripted_skips_flag_on_auto() -> None:
     examples = to_eval_examples(ALL_EXAMPLES)
     selected = select_pack(examples, cli_backend="auto", explicit=False, student="scripted")
     assert selected.error is None
-    # 19 pack − flag (no script). org_chart_gen has a scripted LO replay and stays.
-    assert len(selected.examples) == 18
+    # 20 pack − flag (no script). org_chart_gen + solar_sld_gen have scripted LO replays and stay.
+    assert len(selected.examples) == 19
     assert "no scripted replay" in selected.notes[0]
     assert "python_shapes_flag" in selected.notes[0]
     ids = {ex.task_id for ex in selected.examples}
     assert "python_shapes_flag" not in ids
     assert "org_chart_gen" in ids
+    assert "solar_sld_gen" in ids
     only_flag = [ex for ex in examples if ex.task_id == "python_shapes_flag"]
     refused = select_pack(only_flag, cli_backend="auto", explicit=True, student="scripted")
     assert refused.error
@@ -99,6 +102,7 @@ def test_select_pack_lo_keeps_flag_and_drops_py_rows() -> None:
     ids = [ex.task_id for ex in selected.examples]
     assert "python_shapes_flag" in ids
     assert "org_chart_gen" in ids
+    assert "solar_sld_gen" in ids
     assert "py_refuse_overlap" not in ids
     assert "py_no_bulk_read" not in ids
     # Explicit -e of a =PY row still runs it (the old non-explicit filter).
@@ -373,12 +377,12 @@ def test_string_scripted_cli_skips_flag(capsys: pytest.CaptureFixture[str]) -> N
 def test_auto_scripted_cli_skips_flag(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Flag has no scripted replay; org_chart_gen does and still needs LO.
+    """Flag has no scripted replay; org_chart/solar_sld do and still need LO.
 
-    Unit CI has no real UNO. Keep product selection (flag skipped, org_chart
-    kept), then drop LO rows before running so we smoke the string pack under
-    auto without booting soffice. Full org_chart scripted LO is the integration
-    test ``test_scripted_lo_pack_all_pass``.
+    Unit CI has no real UNO. Keep product selection (flag skipped, org_chart +
+    solar_sld kept), then drop LO rows before running so we smoke the string
+    pack under auto without booting soffice. Full org_chart/solar_sld scripted
+    LO is the integration test ``test_scripted_lo_pack_all_pass``.
     """
     import run_eval
     import tools_lo
@@ -418,4 +422,5 @@ def test_auto_scripted_cli_skips_flag(
     assert "no scripted replay" in out
     assert "python_shapes_flag" in out
     assert "org_chart_gen" in out  # noted as unit-test LO drop
+    assert "solar_sld_gen" in out
     assert "Scripted result pass: 17/17" in out
