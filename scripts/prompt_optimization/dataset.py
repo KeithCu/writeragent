@@ -501,7 +501,8 @@ PYTHON_SHAPES_FLAG = {
 
 # Solar SLD Gen — native Draw (backend=lo). Partial-home backup with Solar AC
 # Disconnect between grid/meter and the system controller (MID). Prefer generic
-# labels; brand names are allowed (not a hard fail).
+# labels; brand names are allowed (not a hard fail). TextFitToSize AUTOFIT
+# handles shape text sizing (#942) — no font-size nudge in the prompt.
 SOLAR_SLD_GEN = {
     "document_content": (
         "Partial-home backup residential solar + AC storage (AC-coupled "
@@ -512,9 +513,7 @@ SOLAR_SLD_GEN = {
         "Backup subpanel → backup loads.\n"
         "- PV modules + microinverters → Combiner → System controller PV port.\n"
         "- AC battery → System controller battery port.\n\n"
-        "Ideal schematic layout (not unique art). Programming/shapes SLD.\n"
-        "Use small readable fonts (8–10 pt) and compact labels — do not fill "
-        "boxes with huge title text."
+        "Ideal schematic layout (not unique art). Programming/shapes SLD."
     ),
     "user_question": (
         "Using programming/shapes (vector rectangles, lines, text — no hand-drawn "
@@ -522,7 +521,7 @@ SOLAR_SLD_GEN = {
         "single-line diagram for this partial-home backup microinverter solar + "
         "AC storage system.\n\n"
         "Requirements:\n"
-        "1) Show all components with clear compact labels: Utility (or Grid), "
+        "1) Show all components with clear labels: Utility (or Grid), "
         "Meter, Main panel, Solar AC Disconnect, System controller (MID), "
         "Backup subpanel, Combiner, Microinverter(s), AC battery, PV array.\n"
         "2) Connect topology exactly: Utility/Meter → Solar AC Disconnect → "
@@ -535,11 +534,7 @@ SOLAR_SLD_GEN = {
         "inverter.\n"
         "5) Layout should read source→load (utility/source toward house loads). "
         "Main panel stays on the utility side; backup loads hang off the MID.\n"
-        "6) Typography: SMALL fonts only (about 8–10 pt) on every shape. Keep "
-        "labels compact (short equipment names — one or two short lines max). "
-        "Do NOT use a huge title banner, oversized legend, or multi-paragraph "
-        "callouts inside boxes. A thin title at ~10 pt is enough if needed. "
-        "Prefer generic names; brand names are allowed but not required.\n\n"
+        "6) Prefer generic names; brand names are allowed but not required.\n\n"
         "Verify with get_draw_tree (nodes and connections)."
     ),
     "task_id": "solar_sld_gen",
@@ -561,8 +556,8 @@ SOLAR_SLD_GEN = {
         "grid/meter→Solar AC Disconnect→MID→backup subpanel; micros→combiner→"
         "controller; battery→controller; micros on array not central string "
         "inverter. Brands OK (prefer generic). Soft: readable source→load; main "
-        "on utility side; single emphasized Solar AC Disconnect; small fonts / "
-        "compact labels. Layout not unique."
+        "on utility side; single emphasized Solar AC Disconnect. Layout not "
+        "unique. Shape text sizing relies on TextFitToSize AUTOFIT (#942)."
     ),
 }
 
