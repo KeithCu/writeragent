@@ -10,57 +10,57 @@ WriterAgent includes an **eval-1 LLM Evaluation Suite** for real-world tasks in 
 | `--backend lo` | Native headless UNO for every selected row (`tools_lo.py`, one soffice). |
 | `--backend auto` | Per-task mix (honor each row's `backend`). Dual-lane: string pool overlaps one FIFO LO lane. |
 
-Task 18 (`python_shapes_flag`) **needs native** headless LO; it cannot be faked on string. Headed **eval-2** is a separate harder suite ([`eval-2/benchmarks.md`](eval-2/benchmarks.md)) — do **not** treat native LO as eval-2-only, and do **not** merge eval-2 tables into this pack.
+Tasks 18–19 (`python_shapes_flag`, `org_chart_gen`) **need native** headless LO; they cannot be faked on string. Headed **eval-2** is a separate harder suite ([`eval-2/benchmarks.md`](eval-2/benchmarks.md)) — do **not** treat native LO as eval-2-only, and do **not** merge eval-2 tables into this pack.
 
 How to run: [scripts/prompt_optimization/README.md](../../scripts/prompt_optimization/README.md). Broader plan notes: [eval-dev-plan.md](eval-dev-plan.md). String-world upgrade history: [string-harness-upgrade.md](string-harness-upgrade.md).
 
-## Snapshot ranking (2026-09-27 complete 26×18 dual-lane)
+## Snapshot ranking (2026-09-28 complete 26×19 dual-lane)
 
-**Complete 26×18 dual-lane board** on tip artifacts after #939 + flag-18 `-j4` remainder: 17-task string base + `python_shapes_flag` for every catalog model (`n_examples=18`). Eval-1 backends: `string` = in-memory; `lo` = native headless UNO; `auto` = dual-lane mix. Task 18 **needs native**; headed eval-2 is separate — native is not eval-2-only.
+**Complete 26×19 dual-lane board** on #941 tip after org_chart_gen matrix splice: prior 26×18 flag-18 board + `org_chart_gen` for every catalog model (`n_examples=19`). Eval-1 backends: `string` = in-memory; `lo` = native headless UNO; `auto` = dual-lane mix. Tasks 18–19 **need native**; headed eval-2 is separate — native is not eval-2-only.
 
-**Catalog (this refresh):** add `openai/gpt-6-luna`, `cohere/command-a-plus`, `prism-ml/ternary-bonsai-2-27b`; drop `openai/gpt-5.6-luna`, `deepseek/deepseek-v4-flash-0731`. MiMos omitted (aborted string runs). **Flag-18 is complete (26/26)** — remainder finished with `-j4` on the #939 tip (`FLAG18_REMAINDER_DONE`). Scores come from spliced artifacts only (do not invent).
+**Catalog (unchanged from flag-18 refresh):** `openai/gpt-6-luna`, `cohere/command-a-plus`, `prism-ml/ternary-bonsai-2-27b` aboard; no `openai/gpt-5.6-luna` / `deepseek/deepseek-v4-flash-0731`. MiMos omitted (aborted string runs). **Org-chart hard PASS: 19/26** (scores from matrix artifacts only — do not invent). Ternary Bonsai hang → hard=0 kept.
 
-`--backend string` still skips `python_shapes_flag`. Do not average a pure-string 17-pack with a mixed `--backend auto` 18-pack without saying so.
+`--backend string` still skips `python_shapes_flag` and `org_chart_gen`. Do not average a pure-string 17-pack with a mixed `--backend auto` 19-pack without saying so.
 
 Artifacts: [`scripts/prompt_optimization/benchmark_results.json`](../../scripts/prompt_optimization/benchmark_results.json) and `benchmark_results_details.json`. Pareto: [pareto-fronts.svg](pareto-fronts.svg), [pareto-distance.svg](pareto-distance.svg). Failure triage: [benchmark-failure-analysis-2026-09-01.md](benchmark-failure-analysis-2026-09-01.md). Nemotron Super vs Ultra: [nemotron3-super-vs-ultra-string-pack.md](nemotron3-super-vs-ultra-string-pack.md).
 
-Ranked by **hard pass → agent score → metric**. **Hard pass** = document substring + result oracles + process oracles, no API error. **Agent** = same gate including tool-process checks. **Quality** = LLM judge among creative/table passes only. Every row is **n=18** (flag included).
+Ranked by **hard pass → agent score → metric**. **Hard pass** = document substring + result oracles + process oracles, no API error. **Agent** = same gate including tool-process checks. **Quality** = LLM judge among creative/table passes only. Every row is **n=19** (flag + org chart included).
 
 | Rank | Model | Hard pass | Agent | Correctness | Quality | Tokens/task | $/task | C²/$ |
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
-| 1 | openai/gpt-oss-120b | 1.000 | 1.000 | 0.972 | 0.90 | 14290 | 0.00081 | 845.1 |
-| 2 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.980 | 0.93 | 51153 | 0.00588 | 79.6 |
-| 3 | x-ai/grok-4.6 | 0.944 | 0.944 | 0.969 | 0.94 | 29027 | 0.07547 | 6.9 |
-| 4 | meta/muse-glimmer-30b | 0.944 | 0.944 | 0.974 | 0.96 | 30699 | 0.01335 | 35.2 |
-| 5 | google/gemma-4-31b-it | 0.889 | 0.889 | 0.908 | 0.90 | 16989 | 0.00217 | 272.6 |
-| 6 | bytedance-seed/seed-2.0-mini | 0.889 | 0.889 | 0.908 | 0.90 | 27980 | 0.00406 | 106.3 |
-| 7 | poolside/laguna-xs-2.1 | 0.889 | 0.889 | 0.884 | 0.81 | 27844 | 0.00192 | 208.1 |
-| 8 | deepseek/deepseek-v4.1-flash | 0.889 | 0.889 | 0.932 | 0.97 | 143119 | 0.01048 | 37.6 |
-| 9 | openai/gpt-6-luna | 0.833 | 0.833 | 0.866 | 0.93 | 22574 | 0.00361 | 120.5 |
-| 10 | z-ai/glm-5.3-flash | 0.833 | 0.833 | 0.848 | 0.90 | 80150 | 0.00812 | 46.5 |
-| 11 | qwen/qwen3.8-27b | 0.833 | 0.833 | 0.913 | 0.92 | 135380 | 0.10069 | 3.2 |
-| 12 | inception/mercury-2.5-preview | 0.833 | 0.833 | 0.863 | 0.95 | 36889 | 0.01199 | 24.6 |
-| 13 | nvidia/nemotron-3-ultra-550b-a55b | 0.833 | 0.833 | 0.831 | 0.74 | 150734 | 0.15073 | 1.5 |
-| 14 | openai/gpt-oss-20b | 0.778 | 0.778 | 0.802 | 0.89 | 17516 | 0.00079 | 544.0 |
-| 15 | minimax/minimax-m3 | 0.778 | 0.778 | 0.823 | 0.94 | 130584 | 0.05680 | 5.6 |
-| 16 | upstage/solar-pro4 | 0.778 | 0.778 | 0.756 | 0.90 | 33020 | 0.00144 | 201.3 |
-| 17 | qwen/qwen3.8-flash | 0.778 | 0.778 | 0.781 | 0.89 | 44944 | 0.00890 | 27.7 |
-| 18 | ibm-granite/granite-4.2-8b | 0.778 | 0.778 | 0.855 | 0.93 | 81475 | 0.00876 | 19.3 |
-| 19 | google/gemma-4-26b-a4b-it | 0.722 | 0.722 | 0.739 | 0.89 | 20336 | 0.00225 | 141.6 |
-| 20 | poolside/laguna-s-2.1 | 0.722 | 0.722 | 0.772 | 0.90 | 30484 | 0.00316 | 95.7 |
-| 21 | nvidia/nemotron-3-super-120b-a12b | 0.667 | 0.722 | 0.902 | 0.91 | 125605 | 0.01661 | 13.6 |
-| 22 | google/gemini-3.5-flash-lite | 0.667 | 0.667 | 0.747 | 0.93 | 15921 | 0.01003 | 38.9 |
-| 23 | mistralai/mistral-small-2603 | 0.611 | 0.611 | 0.615 | 0.85 | 25917 | 0.00564 | 41.4 |
-| 24 | cohere/command-a-plus | 0.611 | 0.611 | 0.677 | 0.94 | 68020 | 0.03265 | 5.3 |
-| 25 | prism-ml/ternary-bonsai-2-27b | 0.500 | 0.500 | 0.573 | 0.97 | 28340 | 0.00393 | 37.4 |
-| 26 | nvidia/nemotron-3.5-lightning | 0.389 | 0.389 | 0.395 | 0.68 | 33449 | 0.00328 | 19.5 |
+| 1 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.981 | 0.93 | 56766 | 0.00653 | 64.4 |
+| 2 | meta/muse-glimmer-30b | 0.947 | 0.947 | 0.975 | 0.96 | 32858 | 0.01429 | 30.9 |
+| 3 | x-ai/grok-4.6 | 0.947 | 0.947 | 0.971 | 0.94 | 36460 | 0.09480 | 4.9 |
+| 4 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 |
+| 5 | google/gemma-4-31b-it | 0.895 | 0.895 | 0.913 | 0.90 | 17594 | 0.00224 | 261.3 |
+| 6 | bytedance-seed/seed-2.0-mini | 0.895 | 0.895 | 0.913 | 0.90 | 28592 | 0.00415 | 103.1 |
+| 7 | poolside/laguna-xs-2.1 | 0.895 | 0.895 | 0.890 | 0.81 | 28418 | 0.00196 | 203.2 |
+| 8 | qwen/qwen3.8-27b | 0.842 | 0.842 | 0.917 | 0.92 | 133087 | 0.09898 | 2.9 |
+| 9 | deepseek/deepseek-v4.1-flash | 0.842 | 0.842 | 0.883 | 0.97 | 138573 | 0.01015 | 34.8 |
+| 10 | openai/gpt-6-luna | 0.842 | 0.842 | 0.873 | 0.93 | 34348 | 0.00550 | 71.1 |
+| 11 | inception/mercury-2.5-preview | 0.842 | 0.842 | 0.870 | 0.95 | 36864 | 0.01198 | 25.0 |
+| 12 | z-ai/glm-5.3-flash | 0.842 | 0.842 | 0.856 | 0.90 | 83249 | 0.00843 | 40.2 |
+| 13 | minimax/minimax-m3 | 0.789 | 0.789 | 0.832 | 0.94 | 126882 | 0.05519 | 5.5 |
+| 14 | openai/gpt-oss-20b | 0.789 | 0.789 | 0.812 | 0.89 | 24456 | 0.00110 | 349.7 |
+| 15 | qwen/qwen3.8-flash | 0.789 | 0.789 | 0.792 | 0.89 | 49095 | 0.00972 | 22.8 |
+| 16 | nvidia/nemotron-3-ultra-550b-a55b | 0.789 | 0.789 | 0.787 | 0.74 | 145858 | 0.14586 | 1.4 |
+| 17 | upstage/solar-pro4 | 0.789 | 0.789 | 0.768 | 0.90 | 33501 | 0.00146 | 199.9 |
+| 18 | ibm-granite/granite-4.2-8b | 0.737 | 0.737 | 0.810 | 0.93 | 110856 | 0.01192 | 12.7 |
+| 19 | poolside/laguna-s-2.1 | 0.737 | 0.737 | 0.784 | 0.90 | 32409 | 0.00335 | 86.3 |
+| 20 | google/gemma-4-26b-a4b-it | 0.737 | 0.737 | 0.753 | 0.89 | 20530 | 0.00227 | 145.4 |
+| 21 | nvidia/nemotron-3-super-120b-a12b | 0.684 | 0.737 | 0.907 | 0.91 | 143994 | 0.01904 | 10.7 |
+| 22 | google/gemini-3.5-flash-lite | 0.684 | 0.684 | 0.761 | 0.93 | 16160 | 0.01018 | 39.4 |
+| 23 | cohere/command-a-plus | 0.632 | 0.632 | 0.694 | 0.94 | 66553 | 0.03195 | 5.6 |
+| 24 | mistralai/mistral-small-2603 | 0.579 | 0.579 | 0.583 | 0.85 | 24553 | 0.00534 | 39.2 |
+| 25 | prism-ml/ternary-bonsai-2-27b | 0.474 | 0.474 | 0.543 | 0.97 | 27120 | 0.00376 | 35.0 |
+| 26 | nvidia/nemotron-3.5-lightning | 0.368 | 0.421 | 0.395 | 0.68 | 34466 | 0.00338 | 17.0 |
 
 ## Key insights
 
-1. **Flag-18 complete:** All 26 catalog models have `python_shapes_flag` (`n_examples=18`). Flag hard_pass: `openai/gpt-oss-120b`, `meta/muse-spark-1.3-contributor`, `deepseek/deepseek-v4.1-flash`, `minimax/minimax-m3`, `nvidia/nemotron-3-ultra-550b-a55b`, `poolside/laguna-s-2.1`, `upstage/solar-pro4`. Other flag rows fail the oracle honestly (do not invent scores).
-2. **Catalog churn:** GPT-6 Luna replaces GPT-5.6 Luna; DeepSeek Flash is `deepseek/deepseek-v4.1-flash` only (0731 dropped). MiMo flash/pro omitted after aborted string runs.
-3. **Perfect hard pass (n=18):** Muse Spark 1.3 and `openai/gpt-oss-120b` hold 1.000. Grok / Muse Glimmer sit at 0.944 (failing flag). Command A+ / Ternary Bonsai now boarded at n=18.
-4. **C²/$:** `openai/gpt-oss-120b` still leads Value (correctness² ÷ $/task). Costs for spliced averages use catalog rates × recorded `total_tokens` (85% prompt / 15% completion when the split is unknown).
+1. **Org-chart-19 complete:** All 26 catalog models have `python_shapes_flag` + `org_chart_gen` (`n_examples=19`). Org-chart hard PASS (19): Gemma 4 31B/26B, gpt-oss-20b, Gemini 3.5 Flash Lite, GPT-6 Luna, Mercury 2.5, Muse Glimmer/Spark, Grok 4.6, Laguna XS/S, Qwen 3.8 Flash/27B, Solar Pro 4, Seed 2 Mini, GLM 5.3 Flash, MiniMax M3, Nemotron Super, Command A+. Fail (7): gpt-oss-120b, Nemotron 3.5 Lightning, Mistral Small 2603, Granite 4.2, DeepSeek V4.1F, Nemotron Ultra, Ternary Bonsai (hang → 0). Do not invent scores.
+2. **Catalog unchanged** from flag-18 refresh; MiMos still omitted.
+3. **Perfect hard pass (n=19):** only `meta/muse-spark-1.3-contributor` remains at 1.000 (`openai/gpt-oss-120b` drops to 0.947 after failing org chart). Muse Glimmer / Grok sit at 0.947.
+4. **C²/$:** `openai/gpt-oss-120b` still leads Value (correctness² ÷ $/task) despite the org-chart fail. Costs for spliced averages use catalog rates × recorded `total_tokens` (85% prompt / 15% completion when the split is unknown).
 5. **Pareto plots** regenerate from this JSON (`plot_pareto.py`); MiniMax remains on the board (one known stream-normalizer contract bug on a non-Calc task — see [stream-normalizer-delta-crash.md](stream-normalizer-delta-crash.md)).
 
 ## Scoring approach

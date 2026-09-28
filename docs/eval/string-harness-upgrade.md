@@ -1,27 +1,27 @@
 # String-harness upgrade (in-memory world)
 
-**Status:** Eval-1's live pack is **18 tasks**. Eval-1 can run **string
+**Status:** Eval-1's live pack is **19 tasks**. Eval-1 can run **string
 OR native (headless LO)** — this doc is the history of the in-memory
 world, not a claim that ranking is string-only.
 
 - `--backend string` (default) = in-memory simulator; ranks the original
-  17 and **skips** `python_shapes_flag`.
+  17 and **skips** `python_shapes_flag` / `org_chart_gen`.
 - `--backend lo` = native headless UNO for every selected row (one
   soffice). This is still **eval-1**, not eval-2.
 - `--backend auto` = per-task mix; dual-lane scheduler (string pool
   overlaps one FIFO LO lane). Wall clock approaches
   `max(string_parallel, lo_serial)`.
 
-Task 18 (`python_shapes_flag`) **needs native** LO; OpenRouter-only
-string cannot run it. Headed **eval-2** is a separate harder suite for
+Tasks 18–19 (`python_shapes_flag`, `org_chart_gen`) **need native** LO; OpenRouter-only
+string cannot run them. Headed **eval-2** is a separate harder suite for
 the same Ask — do not treat native LO as eval-2-only. Multi-turn chat
 (refresh `[DOCUMENT CONTENT]` after each user turn) stays out of scope
 for now.
 
 The body below is the string-world plan that shipped (schemas, worlds,
 process score). The mixed scheduler lives in `eval_scheduler.py`. The
-2026-09-11 boards were a 17-task string snapshot; the 2026-09-27 board completes the dual-lane splice
-(flag for all 26 catalog models, `n_examples=18`).
+2026-09-11 boards were a 17-task string snapshot; the 2026-09-28 board completes the dual-lane splice
+(flag + org_chart_gen for all 26 catalog models, `n_examples=19`).
 
 Plan that shipped: make `--backend string` a real WriterAgent eval —
 same core tool catalog as chat, honest document worlds, and a second
