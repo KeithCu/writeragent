@@ -432,8 +432,13 @@ class DrawShapes:
             raise DrawError(f"Failed to create shape: {str(e)}", code="DRAW_SHAPE_CREATION_ERROR", details={"shape_type": shape_type, "position": position, "size": size, "original_error": str(e), "error_type": type(e).__name__}) from e
 
 
-def _clamp_shape_text_autogrow(shape: Any) -> None:
-    """Keep explicit Size after setString (Writer AT_PAGE custom shapes shrink to text)."""
+def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> None:
+    """Keep explicit Size after setString; default TextFitToSize=AUTOFIT.
+
+    AutoGrow stays off so Writer AT_PAGE custom shapes do not shrink to text.
+    AUTOFIT scales font down to the shape box. Callers that pass font_size (or
+    another explicit fit/font override) skip AUTOFIT so CharHeight wins.
+    """
     for prop, value in (
         ("TextAutoGrowHeight", False),
         ("TextAutoGrowWidth", False),
@@ -442,13 +447,27 @@ def _clamp_shape_text_autogrow(shape: Any) -> None:
             shape.setPropertyValue(prop, value)
         except Exception:
             pass
+    if not apply_autofit:
+        return
+    try:
+        import sys
+
+        fit_enum = sys.modules.get("com.sun.star.drawing.TextFitToSizeType")
+        if not fit_enum:
+            from com.sun.star.drawing import TextFitToSizeType as fit_enum
+
+        shape.setPropertyValue("TextFitToSize", fit_enum.AUTOFIT)
+    except Exception:
+        pass
 
 
 def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> None:
     """Helper to apply rich formatting properties to a shape."""
     # "text" in kwargs (not truthy) so paper-form fills can write "" or keep a Name-only edit.
     if "text" in kwargs and hasattr(shape, "setString"):
-        _clamp_shape_text_autogrow(shape)
+        # Schema already exposes font_size/font_name; explicit font_size opts out of AUTOFIT.
+        apply_autofit = "font_size" not in kwargs
+        _clamp_shape_text_autogrow(shape, apply_autofit=apply_autofit)
         shape.setString("" if kwargs["text"] is None else str(kwargs["text"]))
 
     if kwargs.get("name") and hasattr(shape, "Name"):

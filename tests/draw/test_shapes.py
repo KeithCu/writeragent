@@ -8,7 +8,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.draw.shapes import GroupShapes, UpsertShape, _ENHANCED_CUSTOM_SHAPE_ENGINE, _try_writer_invalidate_and_pump
+from plugin.draw.shapes import (
+    GroupShapes,
+    UpsertShape,
+    _ENHANCED_CUSTOM_SHAPE_ENGINE,
+    _apply_shape_properties,
+    _clamp_shape_text_autogrow,
+    _try_writer_invalidate_and_pump,
+)
 
 
 class _Pos:
@@ -264,6 +271,74 @@ def test_writer_invalidate_skips_non_writer_doc() -> None:
     _try_writer_invalidate_and_pump(doc)
 
     doc.getCurrentController.assert_not_called()
+
+
+def test_clamp_shape_text_autogrow_sets_autofit_by_default() -> None:
+    """When setting text, AutoGrow stays off and TextFitToSize defaults to AUTOFIT."""
+    shape = MagicMock()
+    fit = MagicMock()
+    fit.AUTOFIT = "AUTOFIT_SENTINEL"
+    drawing_mod = MagicMock()
+    drawing_mod.TextFitToSizeType = fit
+    with patch.dict(
+        "sys.modules",
+        {
+            "com.sun.star.drawing.TextFitToSizeType": fit,
+            "com.sun.star.drawing": drawing_mod,
+            "com.sun.star": MagicMock(drawing=drawing_mod),
+        },
+    ):
+        _clamp_shape_text_autogrow(shape)
+
+    shape.setPropertyValue.assert_any_call("TextAutoGrowHeight", False)
+    shape.setPropertyValue.assert_any_call("TextAutoGrowWidth", False)
+    shape.setPropertyValue.assert_any_call("TextFitToSize", "AUTOFIT_SENTINEL")
+
+
+def test_clamp_shape_text_autogrow_skips_autofit_when_disabled() -> None:
+    shape = MagicMock()
+    _clamp_shape_text_autogrow(shape, apply_autofit=False)
+    names = [c.args[0] for c in shape.setPropertyValue.call_args_list]
+    assert names == ["TextAutoGrowHeight", "TextAutoGrowWidth"]
+
+
+def test_apply_shape_properties_text_defaults_to_autofit() -> None:
+    shape = MagicMock()
+    shape.setString = MagicMock()
+    fit = MagicMock()
+    fit.AUTOFIT = "AUTOFIT_SENTINEL"
+    drawing_mod = MagicMock()
+    drawing_mod.TextFitToSizeType = fit
+    with patch.dict(
+        "sys.modules",
+        {
+            "com.sun.star.drawing.TextFitToSizeType": fit,
+            "com.sun.star.drawing": drawing_mod,
+            "com.sun.star": MagicMock(drawing=drawing_mod),
+        },
+    ):
+        _apply_shape_properties(shape, {"text": "CEO"})
+
+    shape.setString.assert_called_once_with("CEO")
+    shape.setPropertyValue.assert_any_call("TextAutoGrowHeight", False)
+    shape.setPropertyValue.assert_any_call("TextAutoGrowWidth", False)
+    shape.setPropertyValue.assert_any_call("TextFitToSize", "AUTOFIT_SENTINEL")
+
+
+def test_apply_shape_properties_font_size_skips_autofit() -> None:
+    """Explicit font_size in schema opts out of TextFitToSize=AUTOFIT."""
+    shape = MagicMock()
+    shape.setString = MagicMock()
+    with patch("plugin.draw.shapes.apply_character_properties") as apply_chars:
+        _apply_shape_properties(shape, {"text": "CEO", "font_size": 14})
+
+    shape.setString.assert_called_once_with("CEO")
+    names = [c.args[0] for c in shape.setPropertyValue.call_args_list]
+    assert "TextAutoGrowHeight" in names
+    assert "TextAutoGrowWidth" in names
+    assert "TextFitToSize" not in names
+    apply_chars.assert_called_once()
+
 
 
 def test_shape_group_uses_service_manager_not_document_factory() -> None:
