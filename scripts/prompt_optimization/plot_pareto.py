@@ -51,7 +51,8 @@ LABEL_OFFSETS = (
 )
 
 FOOTNOTE = (
-    "Source: OpenRouter eval-1 board (2026-09-28 complete 26×19 dual-lane; org_chart_gen splice on #941 tip). "
+    "Source: OpenRouter eval-1 board (2026-09-28 complete 26×19 dual-lane; "
+    "org_chart_gen hand-scored visual overrides — 5/26 hard PASS). "
     "All 26 catalog models have python_shapes_flag + org_chart_gen (n_examples=19). "
     "Each point is labeled with model name and average correctness."
 )
