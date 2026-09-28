@@ -157,7 +157,10 @@ MODEL_LABEL_CONFIG: dict[str, tuple[int, int, str, str]] = {
     "minimax/minimax-m3": (0, 7, "center", "bottom"),
     "nvidia/nemotron-3.5-lightning": (6, 5, "left", "bottom"),
     "nvidia/nemotron-3-ultra-550b-a55b": (6, -10, "left", "top"),
-    "nvidia/nemotron-3-super-120b-a12b": (-6, 7, "right", "bottom"),
+    # DeepSeek V4.1F (cheaper) + Nemotron Super were labeling into each other;
+    # DeepSeek had no MODEL_LABEL_CONFIG entry (LABEL_OFFSETS fallback rightward).
+    "deepseek/deepseek-v4.1-flash": (-10, 8, "right", "bottom"),
+    "nvidia/nemotron-3-super-120b-a12b": (10, 8, "left", "bottom"),
     "google/gemini-3.5-flash-lite": (6, 0, "left", "center"),
     "x-ai/grok-4.6": (6, 0, "left", "center"),
     "z-ai/glm-5.3": (0, 7, "center", "bottom"),
