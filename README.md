@@ -12,14 +12,14 @@
 
 **Python, NumPy, and Agentic AI for LibreOffice (Writer, Calc, and Draw)**
 
-Run Python and scientific compute directly in spreadsheet formulas, edit documents with private local-first AI, conduct web research, generate diagrams, and automate office workflows — without cloud lock-in.
+Run Python and scientific compute offline in spreadsheet formulas, edit documents with private local-first AI — without cloud lock-in.
 
 The project is distributed as three standalone extension packages (*install only one at a time*):
 
 | Package | What's Included | Best For |
 | :--- | :--- | :--- |
-| 🤖 **[WriterAgent](docs/features.md)** (`WriterAgent.oxt`) *(Full stack)* | Everything in LibrePy and LibreHarper + AI sidebar, `=PROMPT()`, web research, Calc → Python converter, MCP server | Users wanting the complete AI assistant, spreadsheet converter, and scientific compute suite |
-| 🐍 **[LibrePy](docs/scripting/librepy-split.md)** (`LibrePy.oxt`) | Python runtime, `=PY()`, NumPy, pandas, SymPy, Monaco, Jupyter **File → Open** `.ipynb`, domain helpers, OCR | Users who want Python and Data Science in Calc/Writer without AI or API keys |
+| 🤖 **[WriterAgent](docs/features.md)** (`WriterAgent.oxt`) *(Full stack, recommended for most users)* | Everything in LibrePy and LibreHarper + AI sidebar, `=PROMPT()`, web research, Calc → Python converter, MCP server | Users wanting the complete AI assistant, spreadsheet converter, and scientific compute suite |
+| 🐍 **[LibrePy](docs/scripting/librepy-split.md)** (`LibrePy.oxt`) | Python runtime, `=PY()`, NumPy, pandas, SymPy, Monaco, Jupyter **File → Open** `.ipynb`, domain helpers, OCR (no AI/MCP — core-track build for LO inclusion) | Users who want Python and Data Science in Calc/Writer without AI or API keys |
 | ✍️ **LibreHarper** (`LibreHarper.oxt`) | Standalone offline [Harper](https://github.com/Automattic/harper) grammar engine for Writer | Users who only want fast, local grammar checking without AI or Python stacks |
 
 **[Download .oxt Releases](https://github.com/KeithCu/writeragent/releases/latest)** · [Feature Index](docs/features.md) · [NumPy in LibreOffice Guide](docs/enabling_numpy_in_libreoffice.md) · [Discussions](https://github.com/KeithCu/writeragent/discussions)
@@ -48,6 +48,7 @@ The project is distributed as three standalone extension packages (*install only
 - **Spreadsheet → Python Converter *(WriterAgent)*** — Translate 235+ classic Calc/Excel formulas into clean Python expressions using the built-in `calc.*` parity library while preserving constants, dates, and cell formats. [Details](docs/calc/spreadsheet-to-python-import.md)
 - **Local Vision & OCR** — Extract text from embedded images or scanned documents directly into Writer and Calc via offline Docling OCR. [Vision Guide](docs/images/recognition.md)
 - <img src="Showcase/jupyter_logo.png" alt="Jupyter logo" height="22" align="absmiddle"> **Jupyter Notebook Support** — **File → Open…** a `.ipynb` (or double-click / `soffice notebook.ipynb`) creates a Writer document with markdown, editable code fields, and ▶ run buttons against a shared Python kernel. [Jupyter in Writer](docs/writer/jupyter-notebook-import.md)
+- **Crash-safe by design** — NumPy runs out-of-process in your own venv, so a scripting bug can't crash LibreOffice.
 
 ### 📊 Diagrams, Slides & Multi-Modal (Draw & Impress)
 
@@ -70,7 +71,7 @@ Full catalog of capabilities: **[docs/features.md](docs/features.md)**.
 2. **Restart** LibreOffice.
 3. **Quick Configuration:**
    - **Python / LibrePy users:** Open Calc, check **Tools → LibrePy (or WriterAgent) → Settings → Python**, and click **Test** to verify your environment and NumPy/pandas availability.
-   - **AI / WriterAgent users:** Open **WriterAgent → Settings** and enter your endpoint (e.g. `http://localhost:11434` for local [Ollama](https://ollama.com/), or an [OpenRouter](https://openrouter.ai/) / [Together.AI](https://www.together.ai/) API key). Open the sidebar via **View → Sidebar → WriterAgent** or press **Ctrl+Q** / **Ctrl+E**.
+   - **AI / WriterAgent users:** Open **WriterAgent → Settings** and enter your endpoint (e.g. `http://localhost:11434` for local [Ollama](https://ollama.com/) (no key needed), or an [OpenRouter](https://openrouter.ai/) / [Together.AI](https://www.together.ai/) API key). Open the sidebar via **View → Sidebar → WriterAgent** or press **Ctrl+Q** / **Ctrl+E**.
 
 > **UI Modes:** In classic toolbar mode, access tools through the top menubar. In tabbed/ribbon interfaces, use the **WriterAgent** chat sidebar and/or the **Python** sidebar (Writer + Calc): Settings `⚙`, Python `🐍`, LaTeX math or Edit cell, search `🔍` (WriterAgent chat only), and full menus via `☰`.
 
@@ -108,13 +109,11 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ## Benchmarks & Evaluation
 
-WriterAgent's **eval-1 LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. Eval-1 is **not string-only**: `--backend string` is the in-memory simulator, `--backend lo` is native headless UNO, and `--backend auto` is the per-task dual-lane mix. Task 18 (`python_shapes_flag`) needs native LO. Headed eval-2 is a separate harder suite — native LO is not eval-2-only. The table below is the **2026-09-27 complete 26×18 dual-lane** board (OpenRouter, live token pricing; 17-task string base + `python_shapes_flag` for every catalog model). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md). Pre-refresh rows still named `openai/gpt-5.6-luna` and `deepseek/deepseek-v4-flash-0731`; those ids left the live eval-1 catalog (gold defaults to `openai/gpt-6-luna`; DeepSeek Flash is `deepseek/deepseek-v4.1-flash` only).
+WriterAgent's **Eval-1 LLM Evaluation Suite** runs models on real Writer, Calc, and Draw jobs through the same tools the sidebar uses, then scores the exported document. Typical tasks: reformatting documents, recalculating taxes, drawing diagrams like the American flag using shapes. Every run is ranked by Value (correctness² ÷ dollars). The table below is the **2026-09-27 complete 26×18 dual-lane** board. Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
 
 ![Cost–quality Pareto fronts](docs/eval/pareto-fronts.svg)
 
 Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-distance.svg).
-
-**2026-09-27 refresh (complete flag-18):** catalog adds GPT-6 Luna, Command A+, Ternary Bonsai 2; drops GPT-5.6 Luna + deepseek-v4-flash-0731; MiMos omitted (aborted). All **26/26** models have `n_examples=18` (`python_shapes_flag` spliced after `-j4` remainder on #939 tip). Full methodology and ranking: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
 
 | Model | Correctness<br>avg task score (0–1) | Value<br>Correctness² ÷ $/task |
 | ----- | ----- | ----- |
@@ -144,3 +143,96 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | minimax/minimax-m3 | 0.823 | 12 |
 | qwen/qwen3.8-27b | 0.913 | 8 |
 | nvidia/nemotron-3-ultra-550b-a55b | 0.831 | 5 |
+
+---
+
+## Documentation & Architecture
+
+| Topic | Documentation Link |
+| :--- | :--- |
+| **Feature Index** | [docs/features.md](docs/features.md) |
+| **NumPy & Python in Calc** | [docs/enabling_numpy_in_libreoffice.md](docs/enabling_numpy_in_libreoffice.md) · [docs/calc/py-data-shapes.md](docs/calc/py-data-shapes.md) |
+| **LibrePy Core Architecture** | [docs/scripting/librepy-split.md](docs/scripting/librepy-split.md) |
+| **Domain Helper Functions** | [docs/scripting/numpy-domains.md](docs/scripting/numpy-domains.md) · [docs/calc/analysis-tools.md](docs/calc/analysis-tools.md) |
+| **Full Architecture** | [docs/writeragent-architecture.md](docs/writeragent-architecture.md) · [docs/framework/formal-verification.md](docs/framework/formal-verification.md) |
+| **Model Context Protocol (MCP)** | [docs/mcp-protocol.md](docs/mcp-protocol.md) |
+| **Embeddings & Search** | [docs/embeddings.md](docs/embeddings.md) |
+| **Benchmarks** | [docs/eval/benchmarks.md](docs/eval/benchmarks.md) |
+| **Localization (35 Locales)** | [docs/localization.md](docs/localization.md) |
+| **Code Explorer** | [DeepWiki](https://deepwiki.com/KeithCu/writeragent) |
+| **Cursor / Agent Skills** | [cursor-libreoffice](https://github.com/KeithCu/cursor-libreoffice) · [libreoffice-skill](https://github.com/KeithCu/libreoffice-skill) |
+
+Under the hood, all operations are governed by a formally verified finite state machine, with strict type checking and static analysis. Thread-unsafe UNO calls are caught in dev via a viral thread guard proxy, instead of randomly freezing. The mock-LLM sidebar suite — the world's worst LLM — proves Stop, hang, and error recovery end-to-end.
+
+![State machine architecture](Showcase/full_super_unified_complete.png)
+
+---
+
+## Project Evolution
+
+A chronicle of building a Python runtime and AI suite inside LibreOffice:
+
+- **Week 1**: [Initial fork, sidebar chat, multi-turn tools, and async streaming](https://keithcu.com/wordpress/?p=5060)
+- **Week 2 & 3**: [MCP, research sub-agent, voice support, and evaluation dashboard](https://keithcu.com/wordpress/?p=5112)
+- **Week 4–6**: [State machines, formal verification, and specialized toolsets](https://keithcu.com/wordpress/?p=5245)
+- **Week 6 & 7**: [Async grammar checking and TeX import support](https://keithcu.com/wordpress/?p=5276)
+- **Week 8+**: [NumPy compute bridge, `=PY()`](https://keithcu.com/wordpress/?p=5310)
+
+---
+
+## Contributing & Development
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KeithCu/writeragent)
+[Discussions](https://github.com/KeithCu/writeragent/discussions)
+
+**Prerequisites:** Python 3.11–3.13 for development (pinned to **3.13** via [`.python-version`](.python-version)), [uv](https://docs.astral.sh/uv/). Run `make check-setup` to verify. On macOS: install `make`, `gettext`.
+
+```bash
+git clone https://github.com/KeithCu/writeragent.git
+cd writeragent
+uv python install 3.13
+uv sync
+make deploy          # Builds & installs WriterAgent.oxt (or: make deploy writer)
+make test
+make help
+```
+
+To build and test the standalone extension variants:
+```bash
+# Standalone Python / NumPy compute suite (LibrePy)
+make build-core      # Produces build/LibrePy.oxt
+make deploy-core     # Installs LibrePy.oxt (removes WriterAgent)
+
+# Standalone Harper grammar checker (LibreHarper)
+make build-harper    # Produces build/LibreHarper.oxt
+make deploy-harper   # Installs LibreHarper.oxt
+```
+
+See [AGENTS.md](AGENTS.md) (invariants), [docs/repo-map.md](docs/repo-map.md) (entry points), and [docs/scripting/librepy-split.md](docs/scripting/librepy-split.md) for architecture details.
+
+---
+
+## Credits
+
+| Project | Contribution |
+| :--- | :--- |
+| [localwriter](https://github.com/balisujohn/localwriter) | Original Writer LLM extension (John Balis) |
+| [LibreCalc AI Assistant](https://extensions.libreoffice.org/en/extensions/show/99509) | Calc AI foundation and inspiration |
+| [LibreOffice MCP Extension](https://github.com/quazardous/mcp-libre) | MCP server patterns, Makefile, tool registry |
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | Tool-call parsers, JSON repair, memory patterns |
+| [latex2mathml](https://github.com/roniemartinez/latex2mathml) | LaTeX → MathML |
+| [mathml-to-latex](https://github.com/asnunes/py-mathml-to-latex) | MathML → LaTeX (Writer formula export) |
+| [isodate](https://github.com/gweis/isodate) | ISO 8601 duration parse/format (Calc wire) |
+
+---
+
+## License
+
+**GNU GPL v3 (or later)** — see [`LICENSE`](LICENSE). Originally MPL 2.0; relicensed in 2026 for stronger reciprocity and library compatibility.
+
+| Year | Contribution | Contributor |
+| :--- | :--- | :--- |
+| 2024 | Original release | John Balis |
+| 2025–2026 | Config, registries, build system | quazardous |
+| 2026 | Calc integration (originally MIT) | LibreCalc AI Assistant |
+| 2026 | Modifications and relicensing | KeithCu |
