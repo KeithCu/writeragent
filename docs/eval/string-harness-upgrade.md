@@ -1,25 +1,34 @@
-# String-harness upgrade (no LO)
+# String-harness upgrade (in-memory world)
 
-**Status:** The live pack is **18 tasks**. `--backend string` (default)
-still ranks the original 17 on the in-memory world and skips
-`python_shapes_flag`. `--backend auto` mixes that headless-LO row with
-the string pool: string threads and an LO agent pool (default 4, cap 5)
-start together, one soffice. LLM waits overlap; UNO stays serial on
-`_lo_thread`. Wall clock for native LO rows approaches that overlap
-plus serial UNO, not a full-example FIFO. The 2026-09-11 boards stay this
-17-task string snapshot. OpenRouter-only string cannot run the flag.
-Headed eval-2 remains the human path for the same Ask. LO ranking of
-the original 17, and multi-turn chat, stay out of scope.
+**Status:** Eval-1's live pack is **18 tasks**. Eval-1 can run **string
+OR native (headless LO)** — this doc is the history of the in-memory
+world, not a claim that ranking is string-only.
+
+- `--backend string` (default) = in-memory simulator; ranks the original
+  17 and **skips** `python_shapes_flag`.
+- `--backend lo` = native headless UNO for every selected row (one
+  soffice). This is still **eval-1**, not eval-2.
+- `--backend auto` = per-task mix; dual-lane scheduler (string pool
+  overlaps one FIFO LO lane). Wall clock approaches
+  `max(string_parallel, lo_serial)`.
+
+Task 18 (`python_shapes_flag`) **needs native** LO; OpenRouter-only
+string cannot run it. Headed **eval-2** is a separate harder suite for
+the same Ask — do not treat native LO as eval-2-only. Multi-turn chat
+(refresh `[DOCUMENT CONTENT]` after each user turn) stays out of scope
+for now.
 
 The body below is the string-world plan that shipped (schemas, worlds,
-process score). The mixed scheduler lives in `eval_scheduler.py`.
+process score). The mixed scheduler lives in `eval_scheduler.py`. The
+2026-09-11 boards were a 17-task string snapshot; the 2026-09-27 board completes the dual-lane splice
+(flag for all 26 catalog models, `n_examples=18`).
 
-Plan for making `--backend string` a real WriterAgent eval: same core
-tool catalog as chat, document worlds that can tell the truth, and a
-second score for how the agent worked. **`--backend lo` is out of
-scope.** Multi-turn chat (refresh `[DOCUMENT CONTENT]` after each user
-turn) is **saved for later**; worlds should export state so that hook
-is cheap when we want it.
+Plan that shipped: make `--backend string` a real WriterAgent eval —
+same core tool catalog as chat, honest document worlds, and a second
+score for how the agent worked. **`--backend lo` is in scope for
+eval-1** (headless UNO path); this upgrade doc simply does not re-derive
+that lane. Multi-turn chat is **saved for later**; worlds should export
+state so that hook is cheap when we want it.
 
 Related: [eval-dev-plan.md](eval-dev-plan.md) (older hybrid/LO roadmap;
 Phase F `=PY` rows live here), [ideas.md](ideas.md) (task ideas),
@@ -45,9 +54,12 @@ Today it does not:
 Do **not** start with MIPROv2, a new judge, or more oracle-needle
 tweaks. Those amplify a metric that is still too easy and too fake.
 
-## Non-goals
+## Non-goals (for this string-world plan)
 
-- `--backend lo`, UNO fidelity, screenshots, vision/multimodal.
+- Screenshots, vision/multimodal, and headed UI scoring (those are
+  eval-2 / other paths). **`--backend lo` itself is not a non-goal** —
+  native headless UNO is a first-class eval-1 backend; this plan only
+  upgrades the in-memory world.
 - Multi-turn user messages (later). Design worlds so
   `state.export_for_prompt()` exists; do not build the turn loop.
 - Generated item banks / anti-memorization.
@@ -347,4 +359,7 @@ No `make test-uno`. No LO scripted pack work.
 - Implementing more core tools on the worlds (`add_comment`,
   `list_sheets`, …) when a task needs them.
 - MIPROv2 on `agent_score` once the metric is stable.
-- Periodic `--backend lo` smoke only; not part of the ranking loop.
+- Broader `--backend lo` / `--backend auto` ranking of the full pack
+  (beyond the flag row) when we want native fidelity on every task —
+  already supported by the harness; not required for the string-world
+  work in this doc.

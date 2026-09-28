@@ -108,129 +108,39 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ## Benchmarks & Evaluation
 
-WriterAgent's **LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. The **2026-09-11 snapshot** uses the **17-task string harness** — it emulates document and tool behavior without running LibreOffice (OpenRouter, live token pricing). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md). The table below still names `openai/gpt-5.6-luna` and `deepseek/deepseek-v4-flash-0731`. Those ids have left the live eval-1 catalog; gold generation defaults to `openai/gpt-6-luna`, and DeepSeek Flash is `deepseek/deepseek-v4.1-flash` only.
+WriterAgent's **eval-1 LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. Eval-1 is **not string-only**: `--backend string` is the in-memory simulator, `--backend lo` is native headless UNO, and `--backend auto` is the per-task dual-lane mix. Task 18 (`python_shapes_flag`) needs native LO. Headed eval-2 is a separate harder suite — native LO is not eval-2-only. The table below is the **2026-09-27 complete 26×18 dual-lane** board (OpenRouter, live token pricing; 17-task string base + `python_shapes_flag` for every catalog model). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md). Pre-refresh rows still named `openai/gpt-5.6-luna` and `deepseek/deepseek-v4-flash-0731`; those ids left the live eval-1 catalog (gold defaults to `openai/gpt-6-luna`; DeepSeek Flash is `deepseek/deepseek-v4.1-flash` only).
 
 ![Cost–quality Pareto fronts](docs/eval/pareto-fronts.svg)
 
 Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-distance.svg).
 
+**2026-09-27 refresh (complete flag-18):** catalog adds GPT-6 Luna, Command A+, Ternary Bonsai 2; drops GPT-5.6 Luna + deepseek-v4-flash-0731; MiMos omitted (aborted). All **26/26** models have `n_examples=18` (`python_shapes_flag` spliced after `-j4` remainder on #939 tip). Full methodology and ranking: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
+
 | Model | Correctness<br>avg task score (0–1) | Value<br>Correctness² ÷ $/task |
 | ----- | ----- | ----- |
-| openai/gpt-oss-120b | 0.971 | 1475 |
-| openai/gpt-oss-20b | 0.805 | 911 |
-| upstage/solar-pro4 | 0.741 | 819 |
-| poolside/laguna-xs-2.1 | 0.885 | 574 |
-| google/gemma-4-31b-it | 0.918 | 548 |
-| google/gemma-4-26b-a4b-it | 0.739 | 385 |
-| meta/muse-spark-1.3-contributor | 0.979 | 354 |
-| deepseek/deepseek-v4-flash-0731 | 0.987 | 278 |
-| poolside/laguna-s-2.1 | 0.759 | 270 |
-| bytedance-seed/seed-2.0-mini | 0.918 | 222 |
-| openai/gpt-5.6-luna | 0.916 | 210 |
-| z-ai/glm-5.3-flash | 0.854 | 185 |
-| deepseek/deepseek-v4.1-flash | 0.935 | 105 |
-| google/gemini-3.5-flash-lite | 0.747 | 103 |
-| meta/muse-glimmer-30b | 0.987 | 99 |
-| ibm-granite/granite-4.2-8b | 0.861 | 96 |
-| mistralai/mistral-small-2603 | 0.629 | 94 |
-| inception/mercury-2.5-preview | 0.869 | 83 |
-| qwen/qwen3.8-flash | 0.805 | 82 |
-| nvidia/nemotron-3-super-120b-a12b | 0.904 | 76 |
-| nvidia/nemotron-3.5-lightning | 0.374 | 52 |
-| qwen/qwen3.8-27b | 0.922 | 36 |
-| minimax/minimax-m3 | 0.820 | 32 |
-| x-ai/grok-4.6 | 0.982 | 20 |
-| nvidia/nemotron-3-ultra-550b-a55b | 0.821 | 12 |
-
----
-
-## Documentation & Architecture
-
-| Topic | Documentation Link |
-| :--- | :--- |
-| **Feature Index** | [docs/features.md](docs/features.md) |
-| **NumPy & Python in Calc** | [docs/enabling_numpy_in_libreoffice.md](docs/enabling_numpy_in_libreoffice.md) · [docs/calc/py-data-shapes.md](docs/calc/py-data-shapes.md) |
-| **LibrePy Core Architecture** | [docs/scripting/librepy-split.md](docs/scripting/librepy-split.md) |
-| **Domain Helper Functions** | [docs/scripting/numpy-domains.md](docs/scripting/numpy-domains.md) · [docs/calc/analysis-tools.md](docs/calc/analysis-tools.md) |
-| **Full Architecture** | [docs/writeragent-architecture.md](docs/writeragent-architecture.md) · [docs/framework/formal-verification.md](docs/framework/formal-verification.md) |
-| **Model Context Protocol (MCP)** | [docs/mcp-protocol.md](docs/mcp-protocol.md) |
-| **Embeddings & Search** | [docs/embeddings.md](docs/embeddings.md) |
-| **Benchmarks** | [docs/eval/benchmarks.md](docs/eval/benchmarks.md) |
-| **Localization (34 Locales)** | [docs/localization.md](docs/localization.md) |
-| **Code Explorer** | [DeepWiki](https://deepwiki.com/KeithCu/writeragent) |
-| **Cursor / Agent Skills** | [cursor-libreoffice](https://github.com/KeithCu/cursor-libreoffice) · [libreoffice-skill](https://github.com/KeithCu/libreoffice-skill) |
-
-Under the hood, all agentic interactions are governed by a formally verified finite state machine with strict type checking and static analysis.
-
-![State machine architecture](Showcase/full_super_unified_complete.png)
-
----
-
-## Project Evolution
-
-A chronicle of building a Python runtime and AI suite inside LibreOffice:
-
-- **Week 1**: [Initial fork, sidebar chat, multi-turn tools, and async streaming](https://keithcu.com/wordpress/?p=5060)
-- **Week 2 & 3**: [MCP, research sub-agent, voice support, and evaluation dashboard](https://keithcu.com/wordpress/?p=5112)
-- **Week 4–6**: [State machines, formal verification, and specialized toolsets](https://keithcu.com/wordpress/?p=5245)
-- **Week 6 & 7**: [Async grammar checking and TeX import support](https://keithcu.com/wordpress/?p=5276)
-- **Week 8+**: [NumPy compute bridge, `=PY()`](https://keithcu.com/wordpress/?p=5310)
-
----
-
-## Contributing & Development
-
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KeithCu/writeragent)
-[Discussions](https://github.com/KeithCu/writeragent/discussions)
-
-**Prerequisites:** Python 3.11–3.13 for development (pinned to **3.13** via [`.python-version`](.python-version)), [uv](https://docs.astral.sh/uv/). Run `make check-setup` to verify. On macOS: install `make`, `gettext`.
-
-```bash
-git clone https://github.com/KeithCu/writeragent.git
-cd writeragent
-uv python install 3.13
-uv sync
-make deploy          # Builds & installs WriterAgent.oxt (or: make deploy writer)
-make test
-make help
-```
-
-To build and test the standalone extension variants:
-```bash
-# Standalone Python / NumPy compute suite (LibrePy)
-make build-core      # Produces build/LibrePy.oxt
-make deploy-core     # Installs LibrePy.oxt (removes WriterAgent)
-
-# Standalone Harper grammar checker (LibreHarper)
-make build-harper    # Produces build/LibreHarper.oxt
-make deploy-harper   # Installs LibreHarper.oxt
-```
-
-See [AGENTS.md](AGENTS.md) (invariants), [docs/repo-map.md](docs/repo-map.md) (entry points), and [docs/scripting/librepy-split.md](docs/scripting/librepy-split.md) for architecture details.
-
----
-
-## Credits
-
-| Project | Contribution |
-| :--- | :--- |
-| [localwriter](https://github.com/balisujohn/localwriter) | Original Writer LLM extension (John Balis) |
-| [LibreCalc AI Assistant](https://extensions.libreoffice.org/en/extensions/show/99509) | Calc AI foundation and inspiration |
-| [LibreOffice MCP Extension](https://github.com/quazardous/mcp-libre) | MCP server patterns, Makefile, tool registry |
-| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | Tool-call parsers, JSON repair, memory patterns |
-| [latex2mathml](https://github.com/roniemartinez/latex2mathml) | LaTeX → MathML |
-| [mathml-to-latex](https://github.com/asnunes/py-mathml-to-latex) | MathML → LaTeX (Writer formula export) |
-| [isodate](https://github.com/gweis/isodate) | ISO 8601 duration parse/format (Calc wire) |
-
----
-
-## License
-
-**GNU GPL v3 (or later)** — see [`LICENSE`](LICENSE). Originally MPL 2.0; relicensed in 2026 for stronger reciprocity and library compatibility.
-
-| Year | Contribution | Contributor |
-| :--- | :--- | :--- |
-| 2024 | Original release | John Balis |
-| 2025–2026 | Config, registries, build system | quazardous |
-| 2026 | Calc integration (originally MIT) | LibreCalc AI Assistant |
-| 2026 | Modifications and relicensing | KeithCu |
+| openai/gpt-oss-120b | 0.972 | 1161 |
+| openai/gpt-oss-20b | 0.802 | 815 |
+| poolside/laguna-xs-2.1 | 0.884 | 407 |
+| upstage/solar-pro4 | 0.756 | 397 |
+| google/gemma-4-31b-it | 0.908 | 381 |
+| google/gemma-4-26b-a4b-it | 0.739 | 243 |
+| openai/gpt-6-luna | 0.866 | 208 |
+| bytedance-seed/seed-2.0-mini | 0.908 | 203 |
+| poolside/laguna-s-2.1 | 0.772 | 189 |
+| meta/muse-spark-1.3-contributor | 0.980 | 163 |
+| z-ai/glm-5.3-flash | 0.848 | 89 |
+| prism-ml/ternary-bonsai-2-27b | 0.573 | 84 |
+| ibm-granite/granite-4.2-8b | 0.855 | 83 |
+| deepseek/deepseek-v4.1-flash | 0.932 | 83 |
+| meta/muse-glimmer-30b | 0.974 | 71 |
+| qwen/qwen3.8-flash | 0.781 | 69 |
+| mistralai/mistral-small-2603 | 0.615 | 67 |
+| inception/mercury-2.5-preview | 0.863 | 62 |
+| google/gemini-3.5-flash-lite | 0.747 | 56 |
+| nvidia/nemotron-3-super-120b-a12b | 0.902 | 49 |
+| nvidia/nemotron-3.5-lightning | 0.395 | 48 |
+| cohere/command-a-plus | 0.677 | 14 |
+| x-ai/grok-4.6 | 0.969 | 12 |
+| minimax/minimax-m3 | 0.823 | 12 |
+| qwen/qwen3.8-27b | 0.913 | 8 |
+| nvidia/nemotron-3-ultra-550b-a55b | 0.831 | 5 |
