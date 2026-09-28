@@ -148,8 +148,10 @@ MODEL_LABEL_CONFIG: dict[str, tuple[int, int, str, str]] = {
     "google/gemma-4-26b-a4b-it": (-6, -4, "right", "top"),
     "poolside/laguna-s-2.1": (6, 0, "left", "center"),
     "mistralai/mistral-small-2603": (6, 0, "left", "center"),
-    "poolside/laguna-xs-2.1": (6, 4, "left", "bottom"),
-    "bytedance-seed/seed-2.0-mini": (-4, 7, "right", "bottom"),
+    # Laguna XS (left) + Seed Mini (right) were both labeled into the
+    # mid-cost gap → unclear/overlapping near Gemma 4 31B.
+    "poolside/laguna-xs-2.1": (-8, -10, "right", "top"),
+    "bytedance-seed/seed-2.0-mini": (10, 10, "left", "bottom"),
     "ibm-granite/granite-4.2-8b": (6, -8, "left", "top"),
     "inception/mercury-2.5-preview": (6, 6, "left", "bottom"),
     "minimax/minimax-m3": (0, 7, "center", "bottom"),
