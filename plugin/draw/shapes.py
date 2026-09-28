@@ -452,7 +452,7 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
     try:
         import sys
 
-        fit_enum = sys.modules.get("com.sun.star.drawing.TextFitToSizeType")
+        fit_enum: Any = sys.modules.get("com.sun.star.drawing.TextFitToSizeType")
         if not fit_enum:
             from com.sun.star.drawing import TextFitToSizeType as fit_enum
 
