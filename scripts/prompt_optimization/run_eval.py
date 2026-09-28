@@ -11,7 +11,7 @@ Usage:
   export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY
   cd scripts/prompt_optimization
   python run_eval.py                    # 17 string tasks (skips backend=lo)
-  python run_eval.py --backend auto     # 18-task pack; string pool overlaps the LO agent pool
+  python run_eval.py --backend auto     # 19-task pack; string pool overlaps the LO agent pool
   python run_eval.py --backend auto -e python_shapes_flag   # flag only (key + soffice)
   python run_eval.py --backend lo --student scripted   # headless LO, no API key
   python run_eval.py --example table_from_mess   # one task_id (comma-separated ok)

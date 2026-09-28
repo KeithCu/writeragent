@@ -48,7 +48,7 @@ model / string threads                eval-lo-lane-N (pool)                _lo_t
 
 ### How much overlap exists after #931
 
-The live pack is 18 tasks. `dataset.py` marks **one** row `backend=lo`: `python_shapes_flag`. The other 17 omit `backend` and stay `string`.
+The live pack is 19 tasks. `dataset.py` marks **two** rows `backend=lo`: `python_shapes_flag` and `org_chart_gen`. The other 17 omit `backend` and stay `string`.
 
 | Invocation | Who overlaps | Who does not |
 | --- | --- | --- |
