@@ -263,9 +263,9 @@ Eval-1 backends: **`string`** = in-memory; **`lo`** = native headless UNO; **`au
 
 ### 2026-09-28 board refresh (complete 26×19 dual-lane)
 
-Org_chart_gen matrix splice on #941 tip (after 2026-09-27 complete 26×18 flag-18 board). Catalog unchanged: GPT-6 Luna, Command A+, Ternary Bonsai 2 aboard; no 5.6 Luna / ds-v4-flash-0731; MiMos omitted. **Org-chart hard PASS: 19/26** (7 fails kept honestly, including Ternary Bonsai hang → 0). Do not invent scores.
+Org_chart_gen matrix splice on #941 tip (after 2026-09-27 complete 26×18 flag-18 board), then **2026-09-28 hand-scored gallery overrides** ([docs/eval/org-chart-hand-scores-2026-09-28.md](../../docs/eval/org-chart-hand-scores-2026-09-28.md)). Catalog unchanged: GPT-6 Luna, Command A+, Ternary Bonsai 2 aboard; no 5.6 Luna / ds-v4-flash-0731; MiMos omitted. **Org-chart hard PASS (visual): 5/26** — Muse Spark, Qwen 3.8 Flash, Qwen 3.8 27B, GLM 5.3 Flash, GPT-6 Luna. Soft/borderline and other former oracle PASSes flipped to 0; catalog FAILs (incl. Ternary Bonsai hang) unchanged.
 
-Tasks 18–19 run on the **native** lane (`--backend auto`). **Board is complete: 26/26** models have `n_examples=19`. Perfect hard pass (n=19): only `meta/muse-spark-1.3-contributor` (`openai/gpt-oss-120b` fails org chart → 0.947).
+Tasks 18–19 run on the **native** lane (`--backend auto`). **Board is complete: 26/26** models have `n_examples=19`. Perfect hard pass (n=19): only `meta/muse-spark-1.3-contributor` (`openai/gpt-oss-120b` catalog org fail → 0.947).
 
 Pareto SVGs regenerated from this JSON: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg), [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg).
 
@@ -276,28 +276,28 @@ Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squ
 | Rank | Model | Hard pass | Agent | Correctness | Quality | Tokens/task | $/task | C²/$ | n_err |
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
 | 1 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.981 | 0.93 | 56766 | 0.00653 | 64.4 | 0 |
-| 2 | meta/muse-glimmer-30b | 0.947 | 0.947 | 0.975 | 0.96 | 32858 | 0.01429 | 30.9 | 0 |
-| 3 | x-ai/grok-4.6 | 0.947 | 0.947 | 0.971 | 0.94 | 36460 | 0.09480 | 4.9 | 0 |
-| 4 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 | 0 |
-| 5 | google/gemma-4-31b-it | 0.895 | 0.895 | 0.913 | 0.90 | 17594 | 0.00224 | 261.3 | 0 |
-| 6 | bytedance-seed/seed-2.0-mini | 0.895 | 0.895 | 0.913 | 0.90 | 28592 | 0.00415 | 103.1 | 0 |
-| 7 | poolside/laguna-xs-2.1 | 0.895 | 0.895 | 0.890 | 0.81 | 28418 | 0.00196 | 203.2 | 0 |
-| 8 | qwen/qwen3.8-27b | 0.842 | 0.842 | 0.917 | 0.92 | 133087 | 0.09898 | 2.9 | 1 |
-| 9 | deepseek/deepseek-v4.1-flash | 0.842 | 0.842 | 0.883 | 0.97 | 138573 | 0.01015 | 34.8 | 2 |
-| 10 | openai/gpt-6-luna | 0.842 | 0.842 | 0.873 | 0.93 | 34348 | 0.00550 | 71.1 | 0 |
-| 11 | inception/mercury-2.5-preview | 0.842 | 0.842 | 0.870 | 0.95 | 36864 | 0.01198 | 25.0 | 0 |
-| 12 | z-ai/glm-5.3-flash | 0.842 | 0.842 | 0.856 | 0.90 | 83249 | 0.00843 | 40.2 | 0 |
-| 13 | minimax/minimax-m3 | 0.789 | 0.789 | 0.832 | 0.94 | 126882 | 0.05519 | 5.5 | 1 |
-| 14 | openai/gpt-oss-20b | 0.789 | 0.789 | 0.812 | 0.89 | 24456 | 0.00110 | 349.7 | 0 |
-| 15 | qwen/qwen3.8-flash | 0.789 | 0.789 | 0.792 | 0.89 | 49095 | 0.00972 | 22.8 | 2 |
-| 16 | nvidia/nemotron-3-ultra-550b-a55b | 0.789 | 0.789 | 0.787 | 0.74 | 145858 | 0.14586 | 1.4 | 2 |
-| 17 | upstage/solar-pro4 | 0.789 | 0.789 | 0.768 | 0.90 | 33501 | 0.00146 | 199.9 | 0 |
-| 18 | ibm-granite/granite-4.2-8b | 0.737 | 0.737 | 0.810 | 0.93 | 110856 | 0.01192 | 12.7 | 2 |
-| 19 | poolside/laguna-s-2.1 | 0.737 | 0.737 | 0.784 | 0.90 | 32409 | 0.00335 | 86.3 | 2 |
-| 20 | google/gemma-4-26b-a4b-it | 0.737 | 0.737 | 0.753 | 0.89 | 20530 | 0.00227 | 145.4 | 0 |
-| 21 | nvidia/nemotron-3-super-120b-a12b | 0.684 | 0.737 | 0.907 | 0.91 | 143994 | 0.01904 | 10.7 | 4 |
-| 22 | google/gemini-3.5-flash-lite | 0.684 | 0.684 | 0.761 | 0.93 | 16160 | 0.01018 | 39.4 | 0 |
-| 23 | cohere/command-a-plus | 0.632 | 0.632 | 0.694 | 0.94 | 66553 | 0.03195 | 5.6 | 6 |
+| 2 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 | 0 |
+| 3 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 | 0 |
+| 4 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 | 0 |
+| 5 | qwen/qwen3.8-27b | 0.842 | 0.842 | 0.917 | 0.92 | 133087 | 0.09898 | 2.9 | 1 |
+| 6 | deepseek/deepseek-v4.1-flash | 0.842 | 0.842 | 0.883 | 0.97 | 138573 | 0.01015 | 34.8 | 2 |
+| 7 | openai/gpt-6-luna | 0.842 | 0.842 | 0.873 | 0.93 | 34348 | 0.00550 | 71.1 | 0 |
+| 8 | google/gemma-4-31b-it | 0.842 | 0.842 | 0.861 | 0.90 | 17594 | 0.00224 | 236.2 | 0 |
+| 9 | bytedance-seed/seed-2.0-mini | 0.842 | 0.842 | 0.861 | 0.90 | 28592 | 0.00415 | 93.3 | 0 |
+| 10 | z-ai/glm-5.3-flash | 0.842 | 0.842 | 0.856 | 0.90 | 83249 | 0.00843 | 40.2 | 0 |
+| 11 | poolside/laguna-xs-2.1 | 0.842 | 0.842 | 0.838 | 0.81 | 28418 | 0.00196 | 183.0 | 0 |
+| 12 | inception/mercury-2.5-preview | 0.789 | 0.789 | 0.817 | 0.95 | 36864 | 0.01198 | 22.1 | 0 |
+| 13 | qwen/qwen3.8-flash | 0.789 | 0.789 | 0.792 | 0.89 | 49095 | 0.00972 | 22.8 | 2 |
+| 14 | nvidia/nemotron-3-ultra-550b-a55b | 0.789 | 0.789 | 0.787 | 0.74 | 145858 | 0.14586 | 1.4 | 2 |
+| 15 | ibm-granite/granite-4.2-8b | 0.737 | 0.737 | 0.810 | 0.93 | 110856 | 0.01192 | 12.7 | 2 |
+| 16 | minimax/minimax-m3 | 0.737 | 0.737 | 0.780 | 0.94 | 126882 | 0.05519 | 5.1 | 1 |
+| 17 | openai/gpt-oss-20b | 0.737 | 0.737 | 0.759 | 0.89 | 24456 | 0.00110 | 349.7 | 0 |
+| 18 | upstage/solar-pro4 | 0.737 | 0.737 | 0.716 | 0.90 | 33501 | 0.00146 | 178.0 | 0 |
+| 19 | poolside/laguna-s-2.1 | 0.684 | 0.684 | 0.732 | 0.90 | 32409 | 0.00335 | 80.8 | 2 |
+| 20 | google/gemma-4-26b-a4b-it | 0.684 | 0.684 | 0.701 | 0.89 | 20530 | 0.00227 | 125.9 | 0 |
+| 21 | nvidia/nemotron-3-super-120b-a12b | 0.632 | 0.684 | 0.854 | 0.91 | 143994 | 0.01904 | 10.7 | 4 |
+| 22 | google/gemini-3.5-flash-lite | 0.632 | 0.632 | 0.708 | 0.93 | 16160 | 0.01018 | 34.4 | 0 |
+| 23 | cohere/command-a-plus | 0.579 | 0.579 | 0.641 | 0.94 | 66553 | 0.03195 | 4.8 | 6 |
 | 24 | mistralai/mistral-small-2603 | 0.579 | 0.579 | 0.583 | 0.85 | 24553 | 0.00534 | 39.2 | 2 |
 | 25 | prism-ml/ternary-bonsai-2-27b | 0.474 | 0.474 | 0.543 | 0.97 | 27120 | 0.00376 | 35.0 | 9 |
 | 26 | nvidia/nemotron-3.5-lightning | 0.368 | 0.421 | 0.395 | 0.68 | 34466 | 0.00338 | 17.0 | 0 |
