@@ -132,7 +132,7 @@ def _plotable_rows(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # Systematic alternating placements above and below points/curves to prevent collisions.
 MODEL_LABEL_CONFIG: dict[str, tuple[int, int, str, str]] = {
     # Dense mid-tier cluster alternating above / below along the front:
-    "google/gemma-4-31b-it": (-6, 6, "right", "bottom"),
+    "google/gemma-4-31b-it": (0, -14, "center", "top"),
     "meta/muse-spark-1.3-contributor": (0, 7, "center", "bottom"),
     "z-ai/glm-5.3-flash": (-6, -9, "right", "top"),
     "deepseek/deepseek-v4-flash-0731": (0, 7, "center", "bottom"),
@@ -140,7 +140,9 @@ MODEL_LABEL_CONFIG: dict[str, tuple[int, int, str, str]] = {
     "meta/muse-glimmer-30b": (6, 4, "left", "bottom"),
     "qwen/qwen3.8-27b": (6, 4, "left", "center"),
     # Lower clusters:
-    "openai/gpt-oss-120b": (4, 4, "left", "bottom"),
+    # gpt-oss-120b (cheap/high) + gemma-4-31b (nearby right) previously both
+    # labeled toward the gap between them → stacked at ~same SVG translate.
+    "openai/gpt-oss-120b": (-2, 10, "right", "bottom"),
     "openai/gpt-oss-20b": (0, 7, "center", "bottom"),
     "upstage/solar-pro4": (0, -10, "center", "top"),
     "google/gemma-4-26b-a4b-it": (-6, -4, "right", "top"),
