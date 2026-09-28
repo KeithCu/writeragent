@@ -16,6 +16,8 @@ How to run: [scripts/prompt_optimization/README.md](../../scripts/prompt_optimiz
 
 ## Snapshot ranking (2026-09-28 complete 26×19 dual-lane)
 
+> **Org-chart scoring needs work:** the code oracle for `org_chart_gen` is too loose (many false PASSes vs gallery PNGs). This snapshot uses **hand visual overrides** ([org-chart-hand-scores-2026-09-28.md](org-chart-hand-scores-2026-09-28.md)); a vision/scoring model may replace or augment the oracle later — not implemented in this refresh.
+
 **Complete 26×19 dual-lane board** after #943 org_chart splice + **2026-09-28 hand-scored gallery overrides** ([org-chart-hand-scores-2026-09-28.md](org-chart-hand-scores-2026-09-28.md)): prior 26×18 flag-18 board + `org_chart_gen` for every catalog model (`n_examples=19`). Eval-1 backends: `string` = in-memory; `lo` = native headless UNO; `auto` = dual-lane mix. Tasks 18–19 **need native**; headed eval-2 is separate — native is not eval-2-only.
 
 **Catalog (unchanged from flag-18 refresh):** `openai/gpt-6-luna`, `cohere/command-a-plus`, `prism-ml/ternary-bonsai-2-27b` aboard; no `openai/gpt-5.6-luna` / `deepseek/deepseek-v4-flash-0731`. MiMos omitted (aborted string runs). **Org-chart hard PASS (hand-scored visual): 5/26** — catalog oracle PASS overridden by gallery grades; soft/borderline also FAIL. Ternary Bonsai hang → hard=0 kept. See [org-chart-hand-scores-2026-09-28.md](org-chart-hand-scores-2026-09-28.md).
@@ -62,6 +64,7 @@ Ranked by **hard pass → agent score → metric**. **Hard pass** = document sub
 3. **Perfect hard pass (n=19):** only `meta/muse-spark-1.3-contributor` remains at 1.000. `openai/gpt-oss-120b` stays 0.947 (catalog org fail). Muse Glimmer / Grok drop to 0.895 after visual org FAIL.
 4. **C²/$:** `openai/gpt-oss-120b` still leads Value (correctness² ÷ $/task). Costs for spliced averages use catalog rates × recorded `total_tokens` (85% prompt / 15% completion when the split is unknown).
 5. **Pareto plots** regenerate from this JSON (`plot_pareto.py`); MiniMax remains on the board (one known stream-normalizer contract bug on a non-Calc task — see [stream-normalizer-delta-crash.md](stream-normalizer-delta-crash.md)).
+6. **Org-chart oracle gap:** structural box/connector floors still admit false PASSes (blobs, stacks, overlaps). Hand grades override for this board; tighten code scoring or add a vision judge later — see [org-chart-hand-scores-2026-09-28.md](org-chart-hand-scores-2026-09-28.md).
 
 ## Scoring approach
 

@@ -5,6 +5,13 @@ Catalog oracle PASS is **overridden** for board hard-pass; only visual HARD PASS
 
 Net: **5 / 26** models keep org_chart hard PASS for the board. Soft borderline also flipped to 0.
 
+
+## Scoring follow-up (code oracle needs work)
+
+The current `org_chart_gen` **code scoring** (`oracles.oracle_org_chart_gen` / `org_chart_eval`) is **too loose**: it produced many **false PASSes** (origin blobs, linear stacks, merged bars, overlays, truncated labels) that only failed under Chief visual review of gallery PNGs. This hand-score board overrides those oracle results for ranking.
+
+**Do not treat catalog oracle PASS as a trustworthy visual gate** until the scorer is tightened. A later improvement may use a **vision / scoring model** on the exported Draw PNG (or equivalent) instead of (or in addition to) structural box/connector floors — **not implemented here**; this file only records the gap.
+
 ## Table
 
 | Model | Visual | Board org hard | Reason |
