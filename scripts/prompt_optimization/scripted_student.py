@@ -277,6 +277,178 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         _tools(_tc("get_draw_tree", {}, "tree_1")),
         _stop(),
     ],
+    "org_chart_gen": [
+        _tools(
+            _tc(
+                "delegate_to_specialized_draw_toolset",
+                {
+                    "domain": "shapes",
+                    "task": (
+                        "Create org chart: Ava CEO; Ben CTO, Cara CFO, Dan COO; "
+                        "Eli Fay under Ben; Gus Hal under Cara; Ivy Jay under Dan; "
+                        "connect each manager to reports; verify with get_draw_tree."
+                    ),
+                },
+                "del_org_1",
+            )
+        ),
+        _tools(
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Ava (CEO)",
+                    "x": 8000,
+                    "y": 500,
+                    "width": 4000,
+                    "height": 1500,
+                },
+                "org_ava",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Ben (CTO)",
+                    "x": 2000,
+                    "y": 3000,
+                    "width": 3500,
+                    "height": 1500,
+                },
+                "org_ben",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Cara (CFO)",
+                    "x": 8000,
+                    "y": 3000,
+                    "width": 3500,
+                    "height": 1500,
+                },
+                "org_cara",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Dan (COO)",
+                    "x": 14000,
+                    "y": 3000,
+                    "width": 3500,
+                    "height": 1500,
+                },
+                "org_dan",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Eli (Engineer)",
+                    "x": 500,
+                    "y": 5500,
+                    "width": 3000,
+                    "height": 1400,
+                },
+                "org_eli",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Fay (Engineer)",
+                    "x": 3700,
+                    "y": 5500,
+                    "width": 3000,
+                    "height": 1400,
+                },
+                "org_fay",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Gus (Analyst)",
+                    "x": 6500,
+                    "y": 5500,
+                    "width": 3000,
+                    "height": 1400,
+                },
+                "org_gus",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Hal (Analyst)",
+                    "x": 9700,
+                    "y": 5500,
+                    "width": 3000,
+                    "height": 1400,
+                },
+                "org_hal",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Ivy (Lead)",
+                    "x": 12500,
+                    "y": 5500,
+                    "width": 3000,
+                    "height": 1400,
+                },
+                "org_ivy",
+            ),
+            _tc(
+                "shape_upsert",
+                {
+                    "action": "create",
+                    "shape_type": "rectangle",
+                    "text": "Jay (Lead)",
+                    "x": 15700,
+                    "y": 5500,
+                    "width": 3000,
+                    "height": 1400,
+                },
+                "org_jay",
+            ),
+        ),
+        _tools(
+            # Ava(0)→Ben(1), Cara(2), Dan(3)
+            _tc("shape_connect", {"start": 0, "end": 1}, "org_c1"),
+            _tc("shape_connect", {"start": 0, "end": 2}, "org_c2"),
+            _tc("shape_connect", {"start": 0, "end": 3}, "org_c3"),
+            # Ben→Eli(4), Fay(5)
+            _tc("shape_connect", {"start": 1, "end": 4}, "org_c4"),
+            _tc("shape_connect", {"start": 1, "end": 5}, "org_c5"),
+            # Cara→Gus(6), Hal(7)
+            _tc("shape_connect", {"start": 2, "end": 6}, "org_c6"),
+            _tc("shape_connect", {"start": 2, "end": 7}, "org_c7"),
+            # Dan→Ivy(8), Jay(9)
+            _tc("shape_connect", {"start": 3, "end": 8}, "org_c8"),
+            _tc("shape_connect", {"start": 3, "end": 9}, "org_c9"),
+        ),
+        _tools(
+            _tc(
+                "specialized_workflow_finished",
+                {"answer": "org chart created"},
+                "fin_org_1",
+            )
+        ),
+        _tools(_tc("get_draw_tree", {}, "org_tree_1")),
+        _stop(),
+    ],
     "data_sorting": [
         _tools(
             _tc(

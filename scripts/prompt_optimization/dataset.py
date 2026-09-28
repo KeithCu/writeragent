@@ -1,11 +1,12 @@
 """
 Fixed examples for prompt optimization / eval (scripts/prompt_optimization/).
 
-ALL_EXAMPLES is 18 tasks: 12 Writer (including style_consistency, smart_summarization,
-section_refactor, comment_management) + flowchart_gen (Draw) + data_sorting / tax_column
-(Calc) + two Phase F =PY dest rows (refuse overlap, no bulk read) + python_shapes_flag
-(Writer, backend=lo). Rows omit ``backend`` to stay on the string world. The flag
-cannot run there (no run_venv / domain=python).
+ALL_EXAMPLES is 19 tasks: 12 Writer (including style_consistency, smart_summarization,
+section_refactor, comment_management) + flowchart_gen / org_chart_gen (Draw) +
+data_sorting / tax_column (Calc) + two Phase F =PY dest rows (refuse overlap, no bulk
+read) + python_shapes_flag (Writer, backend=lo). Rows omit ``backend`` to stay on the
+string world. ``org_chart_gen`` and the flag declare ``backend=lo`` (native Draw /
+Writer); they cannot run on the string simulator.
 Structural tasks are scored from the exported final document (oracles + honest substring
 checks). A quality judge runs after the hard gate for resume, rewriting, summarization,
 and the two table tasks. See docs/eval/eval-dev-plan.md.
@@ -342,6 +343,36 @@ ALL_EXAMPLES = [
     COMMENT_MANAGEMENT,
 ]
 
+
+# Org Chart Gen — native Draw (backend=lo). Ten labeled boxes + nine connectors.
+# String DrawWorld cannot prove production connector nodes (connected_start/end).
+ORG_CHART_GEN = {
+    "document_content": "Create a company org chart.",
+    "user_question": (
+        "Create an org chart: Ava (CEO) on top, with three reports — "
+        "Ben (CTO), Cara (CFO), Dan (COO). "
+        "Ben manages Eli and Fay (Engineers). "
+        "Cara manages Gus and Hal (Analysts). "
+        "Dan manages Ivy and Jay (Leads). "
+        "Connect each manager to their reports. "
+        "Verify the layout with get_draw_tree (nodes and connections)."
+    ),
+    "task_id": "org_chart_gen",
+    "expected_contains": [
+        "Ava", "CEO", "Ben", "CTO", "Cara", "CFO", "Dan", "COO",
+        "Eli", "Fay", "Gus", "Hal", "Ivy", "Jay",
+    ],
+    "is_non_trivial": True,
+    "category": "structural",
+    "backend": "lo",
+    "rubric": (
+        "Uses shape_upsert for 10 labeled boxes (rectangle). Connections via "
+        "shape_connect (9 edges, each manager as start). Final get_draw_tree "
+        "shows 10 nodes and connected_start/connected_end on all 9 connectors. "
+        "Matches production Draw tree structure."
+    ),
+}
+
 # Flowchart Gen (from archive/eval/ideas.md Draw #3) - tests non-LO shapes via DrawDocState
 FLOWCHART_GEN = {
     "document_content": "Create a simple login flowchart.",
@@ -468,6 +499,7 @@ PYTHON_SHAPES_FLAG = {
 }
 
 ALL_EXAMPLES.append(FLOWCHART_GEN)
+ALL_EXAMPLES.append(ORG_CHART_GEN)
 ALL_EXAMPLES.append(DATA_SORTING)
 ALL_EXAMPLES.append(TAX_COLUMN)
 ALL_EXAMPLES.append(PY_REFUSE_OVERLAP)
@@ -482,7 +514,7 @@ def task_kind(task_id: str) -> str:
     Kind is keyed by task_id, not question keywords — flowchart_gen is Draw,
     data_sorting and tax_column are Calc, everything else is Writer.
     """
-    if task_id == "flowchart_gen":
+    if task_id in ("flowchart_gen", "org_chart_gen"):
         return "draw"
     if task_id in (
         "data_sorting",

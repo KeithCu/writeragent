@@ -536,6 +536,193 @@ def oracle_flowchart_gen(doc: str) -> list[str]:
     return fails
 
 
+
+_ORG_CHART_NAMES = (
+    "Ava",
+    "Ben",
+    "Cara",
+    "Dan",
+    "Eli",
+    "Fay",
+    "Gus",
+    "Hal",
+    "Ivy",
+    "Jay",
+)
+# Manager → report edges (manager is shape_connect start).
+_ORG_CHART_EDGES = (
+    ("ava", "ben"),
+    ("ava", "cara"),
+    ("ava", "dan"),
+    ("ben", "eli"),
+    ("ben", "fay"),
+    ("cara", "gus"),
+    ("cara", "hal"),
+    ("dan", "ivy"),
+    ("dan", "jay"),
+)
+# Soft floors from the rubric (~10 boxes, ~9 connectors). Exact shortfall is
+# soft in org_chart_eval; hard gate uses these floors only.
+_ORG_CHART_BOX_FLOOR = 8
+_ORG_CHART_CONN_FLOOR = 7
+
+
+def _org_chart_is_connector(node: dict[str, Any]) -> bool:
+    """Production Draw tree uses ConnectorShape nodes; DrawWorld does not."""
+    typ = str(node.get("type") or "").casefold()
+    return "connector" in typ
+
+
+def _org_chart_labeled_boxes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    boxes: list[dict[str, Any]] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if _org_chart_is_connector(node):
+            continue
+        text = str(node.get("text") or "").strip()
+        if not text:
+            continue
+        # Count any non-connector with person-name text (rectangle / custom /
+        # text box). Ignore decorative shapes that lack a roster name.
+        if not any(n.casefold() in text.casefold() for n in _ORG_CHART_NAMES):
+            continue
+        boxes.append(node)
+    return boxes
+
+
+def _org_chart_connectors(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [n for n in nodes if isinstance(n, dict) and _org_chart_is_connector(n)]
+
+
+def _org_chart_edges(
+    data: dict[str, Any], nodes: list[dict[str, Any]]
+) -> list[tuple[str, str]]:
+    """Return (start_text, end_text) pairs from production connectors or DrawWorld."""
+    edges: list[tuple[str, str]] = []
+    for node in _org_chart_connectors(nodes):
+        start = node.get("connected_start")
+        end = node.get("connected_end")
+        if isinstance(start, dict) and isinstance(end, dict):
+            edges.append(
+                (
+                    str(start.get("text") or "").casefold(),
+                    str(end.get("text") or "").casefold(),
+                )
+            )
+    if edges:
+        return edges
+    # String DrawWorld: top-level connections + tree texts by index.
+    by_idx_text: dict[int, str] = {}
+    for i, node in enumerate(nodes):
+        if isinstance(node, dict):
+            by_idx_text[i] = str(node.get("text") or "").casefold()
+            if "index" in node:
+                try:
+                    by_idx_text[int(node["index"])] = by_idx_text[i]
+                except (TypeError, ValueError):
+                    pass
+    conns = data.get("connections")
+    if isinstance(conns, list):
+        for conn in conns:
+            if not isinstance(conn, dict):
+                continue
+            try:
+                frm = int(conn.get("from_index"))
+                to = int(conn.get("to_index"))
+            except (TypeError, ValueError):
+                continue
+            edges.append((by_idx_text.get(frm, ""), by_idx_text.get(to, "")))
+    if edges:
+        return edges
+    # DrawWorld also annotates connected_end on the start shape.
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        dest = node.get("connected_end")
+        if isinstance(dest, dict):
+            edges.append(
+                (
+                    str(node.get("text") or "").casefold(),
+                    str(dest.get("text") or "").casefold(),
+                )
+            )
+    return edges
+
+
+def oracle_org_chart_gen(doc: str) -> list[str]:
+    """Hard gate for org_chart_gen: names, ~10 boxes, ~9 linked connectors, edges.
+
+    Exact 10/9 shortfalls are soft (see ``org_chart_eval``); this list is the
+    hard fail set used by ``check_oracle`` / ``agent_score``.
+    """
+    fails: list[str] = []
+    data = parse_json_export(doc)
+    texts: list[str] = []
+    if data:
+        _collect_texts(data, texts)
+    blob = " ".join(texts) if texts else visible_text(doc)
+    folded = fold_eval_text(blob).casefold()
+    for token in _ORG_CHART_NAMES:
+        if token.casefold() not in folded:
+            fails.append(f"org chart missing {token!r}")
+
+    nodes: list[dict[str, Any]] = []
+    if data:
+        tree = data.get("tree")
+        if isinstance(tree, list):
+            nodes = [n for n in tree if isinstance(n, dict)]
+
+    boxes = _org_chart_labeled_boxes(nodes)
+    connectors = _org_chart_connectors(nodes)
+    # When the export is DrawWorld-style (no connector nodes), fall back to
+    # the connections list length for the connector floor.
+    conn_count = len(connectors)
+    if conn_count == 0 and data:
+        raw_conns = data.get("connections")
+        if isinstance(raw_conns, list):
+            conn_count = len(raw_conns)
+
+    if len(boxes) < _ORG_CHART_BOX_FLOOR:
+        fails.append(
+            f"org chart labeled boxes {len(boxes)} < {_ORG_CHART_BOX_FLOOR} (~10)"
+        )
+    if conn_count < _ORG_CHART_CONN_FLOOR:
+        fails.append(
+            f"org chart connectors {conn_count} < {_ORG_CHART_CONN_FLOOR} (~9)"
+        )
+
+    # Fully linked connectors (production): both endpoints present.
+    linked = [
+        c
+        for c in connectors
+        if isinstance(c.get("connected_start"), dict)
+        and isinstance(c.get("connected_end"), dict)
+        and (
+            str((c.get("connected_start") or {}).get("text") or "").strip()
+            or str((c.get("connected_end") or {}).get("text") or "").strip()
+        )
+    ]
+    if connectors and len(linked) < _ORG_CHART_CONN_FLOOR:
+        fails.append(
+            f"org chart linked connectors {len(linked)} < {_ORG_CHART_CONN_FLOOR}"
+        )
+
+    edges = _org_chart_edges(data or {}, nodes)
+
+    def _has_edge(src_key: str, dst_key: str) -> bool:
+        for src, dst in edges:
+            if src_key in src and dst_key in dst:
+                return True
+        return False
+
+    for src_key, dst_key in _ORG_CHART_EDGES:
+        if not _has_edge(src_key, dst_key):
+            fails.append(f"missing {src_key.title()}→{dst_key.title()} edge")
+    return fails
+
+
+
 def oracle_data_sorting(doc: str) -> list[str]:
     grid = _calc_grid(doc)
     if not grid or len(grid) < 2:
@@ -816,6 +1003,7 @@ ORACLES: dict[str, Callable[[str], list[str]]] = {
     "section_refactor": oracle_section_refactor,
     "comment_management": oracle_comment_management,
     "flowchart_gen": oracle_flowchart_gen,
+    "org_chart_gen": oracle_org_chart_gen,
     "data_sorting": oracle_data_sorting,
     "tax_column": oracle_tax_column,
     "py_refuse_overlap": oracle_py_dest,
