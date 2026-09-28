@@ -132,7 +132,7 @@ def _plotable_rows(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # Systematic alternating placements above and below points/curves to prevent collisions.
 MODEL_LABEL_CONFIG: dict[str, tuple[int, int, str, str]] = {
     # Dense mid-tier cluster alternating above / below along the front:
-    "google/gemma-4-31b-it": (-6, 6, "right", "bottom"),
+    "google/gemma-4-31b-it": (0, 12, "center", "bottom"),
     "meta/muse-spark-1.3-contributor": (0, 7, "center", "bottom"),
     "z-ai/glm-5.3-flash": (-6, -9, "right", "top"),
     "deepseek/deepseek-v4-flash-0731": (0, 7, "center", "bottom"),
@@ -140,20 +140,27 @@ MODEL_LABEL_CONFIG: dict[str, tuple[int, int, str, str]] = {
     "meta/muse-glimmer-30b": (6, 4, "left", "bottom"),
     "qwen/qwen3.8-27b": (6, 4, "left", "center"),
     # Lower clusters:
-    "openai/gpt-oss-120b": (4, 4, "left", "bottom"),
+    # gpt-oss-120b (cheap/high) + gemma-4-31b (nearby right) previously both
+    # labeled toward the gap between them → stacked at ~same SVG translate.
+    "openai/gpt-oss-120b": (-2, 10, "right", "bottom"),
     "openai/gpt-oss-20b": (0, 7, "center", "bottom"),
     "upstage/solar-pro4": (0, -10, "center", "top"),
     "google/gemma-4-26b-a4b-it": (-6, -4, "right", "top"),
     "poolside/laguna-s-2.1": (6, 0, "left", "center"),
     "mistralai/mistral-small-2603": (6, 0, "left", "center"),
-    "poolside/laguna-xs-2.1": (6, 4, "left", "bottom"),
-    "bytedance-seed/seed-2.0-mini": (-4, 7, "right", "bottom"),
+    # Laguna XS (left) + Seed Mini (right) were both labeled into the
+    # mid-cost gap → unclear/overlapping near Gemma 4 31B.
+    "poolside/laguna-xs-2.1": (-8, -10, "right", "top"),
+    "bytedance-seed/seed-2.0-mini": (10, 10, "left", "bottom"),
     "ibm-granite/granite-4.2-8b": (6, -8, "left", "top"),
     "inception/mercury-2.5-preview": (6, 6, "left", "bottom"),
     "minimax/minimax-m3": (0, 7, "center", "bottom"),
     "nvidia/nemotron-3.5-lightning": (6, 5, "left", "bottom"),
     "nvidia/nemotron-3-ultra-550b-a55b": (6, -10, "left", "top"),
-    "nvidia/nemotron-3-super-120b-a12b": (-6, 7, "right", "bottom"),
+    # DeepSeek V4.1F (cheaper) + Nemotron Super were labeling into each other;
+    # DeepSeek had no MODEL_LABEL_CONFIG entry (LABEL_OFFSETS fallback rightward).
+    "deepseek/deepseek-v4.1-flash": (-10, 8, "right", "bottom"),
+    "nvidia/nemotron-3-super-120b-a12b": (10, 8, "left", "bottom"),
     "google/gemini-3.5-flash-lite": (6, 0, "left", "center"),
     "x-ai/grok-4.6": (6, 0, "left", "center"),
     "z-ai/glm-5.3": (0, 7, "center", "bottom"),
