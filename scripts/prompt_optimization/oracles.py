@@ -998,16 +998,6 @@ def oracle_smart_summarization(doc: str) -> list[str]:
 # solar_sld_gen — partial-home backup SLD (native Draw)
 # ---------------------------------------------------------------------------
 
-_SOLAR_BRAND_FAIL = (
-    "enphase",
-    "encharge",
-    "iq system",
-    "iq battery",
-    "iq combiner",
-    "iq8",
-    "iq7",
-    "envoy",
-)
 _SOLAR_STRING_INVERTER = ("string inverter", "central inverter")
 
 # Soft floors: ~10 labeled equipment boxes, ~7 topology connectors.
@@ -1017,7 +1007,9 @@ _SOLAR_CONN_FLOOR = 6
 
 def _solar_role_keys(text: str) -> set[str]:
     """Map shape text to topology roles (case-insensitive substring)."""
-    t = fold_eval_text(text or "").casefold()
+    # Collapse newlines so "Solar AC\nDisconnect" still matches.
+    raw = fold_eval_text(text or "").replace("\n", " ")
+    t = " ".join(raw.split()).casefold()
     roles: set[str] = set()
     if "utility" in t or re.search(r"(?<![a-z])grid(?![a-z])", t):
         roles.add("utility")
@@ -1031,11 +1023,16 @@ def _solar_role_keys(text: str) -> set[str]:
         or ("main" in t and "panel" in t and "subpanel" not in t and "backup" not in t)
     ):
         roles.add("main_panel")
-    if "solar ac disconnect" in t or (
-        "ac disconnect" in t and "solar" in t
-    ) or t.strip() in {"ac disconnect", "solar disconnect"}:
+    if (
+        "solar ac disconnect" in t
+        or ("ac disconnect" in t and "solar" in t)
+        or t.strip() in {"ac disconnect", "solar disconnect"}
+    ):
         roles.add("ac_disconnect")
     elif "ac disconnect" in t:
+        roles.add("ac_disconnect")
+    # Also match "Solar AC" + "Disconnect" split across lines (already collapsed).
+    if "disconnect" in t and "solar" in t and "ac" in t:
         roles.add("ac_disconnect")
     if (
         "system controller" in t
@@ -1043,17 +1040,22 @@ def _solar_role_keys(text: str) -> set[str]:
         or re.search(r"(?<![a-z])mid(?![a-z])", t)
     ):
         roles.add("controller")
-    if "backup subpanel" in t or "backup panel" in t or (
-        "backup" in t and "subpanel" in t
-    ) or ("backup" in t and "sub-panel" in t):
+    if (
+        "backup subpanel" in t
+        or "backup panel" in t
+        or ("backup" in t and "subpanel" in t)
+        or ("backup" in t and "sub-panel" in t)
+    ):
         roles.add("backup_subpanel")
     if "combiner" in t:
         roles.add("combiner")
     if "microinverter" in t or "micro-inverter" in t or "micro inverter" in t:
         roles.add("microinverter")
-    if "ac battery" in t or (
-        "battery" in t and "dc" not in t
-    ) or re.search(r"(?<![a-z])battery(?![a-z])", t):
+    if (
+        "ac battery" in t
+        or ("battery" in t and "dc" not in t)
+        or re.search(r"(?<![a-z])battery(?![a-z])", t)
+    ):
         roles.add("battery")
     if (
         "pv array" in t
@@ -1226,10 +1228,8 @@ def oracle_solar_sld_gen(doc: str) -> list[str]:
     blob = " ".join(texts) if texts else visible_text(doc)
     folded = fold_eval_text(blob).casefold()
 
-    # Brand scrub.
-    for brand in _SOLAR_BRAND_FAIL:
-        if brand in folded:
-            fails.append(f"brand string forbidden: {brand!r}")
+    # Brands (Enphase/Envoy/etc.) are OK — prompt prefers generic names but
+    # brand strings are not a hard fail (Keith).
 
     # Required labels (role presence anywhere in export).
     present_roles: set[str] = set()

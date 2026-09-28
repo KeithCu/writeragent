@@ -570,28 +570,6 @@ def test_good_fixtures_pass(task_id: str, doc: str) -> None:
                         {"type": "RectangleShape", "text": "Microinverters"},
                         {"type": "RectangleShape", "text": "Combiner"},
                         {"type": "RectangleShape", "text": "AC battery"},
-                        {"type": "RectangleShape", "text": "Enphase IQ Battery"},
-                    ],
-                }
-            ),
-            "brand",
-        ),
-        (
-            "solar_sld_gen",
-            json.dumps(
-                {
-                    "status": "ok",
-                    "tree": [
-                        {"type": "RectangleShape", "text": "Utility / Grid"},
-                        {"type": "RectangleShape", "text": "Meter"},
-                        {"type": "RectangleShape", "text": "Main panel"},
-                        {"type": "RectangleShape", "text": "Solar AC Disconnect"},
-                        {"type": "RectangleShape", "text": "System controller (MID)"},
-                        {"type": "RectangleShape", "text": "Backup subpanel"},
-                        {"type": "RectangleShape", "text": "PV array"},
-                        {"type": "RectangleShape", "text": "Microinverters"},
-                        {"type": "RectangleShape", "text": "Combiner"},
-                        {"type": "RectangleShape", "text": "AC battery"},
                     ],
                 }
             ),
@@ -1161,3 +1139,16 @@ def test_solar_sld_main_service_panel_label() -> None:
         }
     )
     assert check_oracle("solar_sld_gen", roles_doc) == []
+
+
+def test_solar_sld_brand_names_not_hard_fail() -> None:
+    """Keith: Enphase/Envoy/etc. are allowed; prefer generic in the prompt only."""
+    doc = json.dumps(
+        {
+            "status": "ok",
+            "tree": json.loads(_SOLAR_GOOD)["tree"]
+            + [{"type": "RectangleShape", "text": "Envoy gateway (optional)"}],
+        }
+    )
+    fails = check_oracle("solar_sld_gen", doc)
+    assert not any("brand" in f.casefold() for f in fails), fails

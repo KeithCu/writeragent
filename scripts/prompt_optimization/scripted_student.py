@@ -471,6 +471,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "action": "create",
                     "shape_type": "rectangle",
+                    "font_size": 9,
                     "text": "Utility / Grid",
                     "x": 500,
                     "y": 3500,
@@ -484,6 +485,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "action": "create",
                     "shape_type": "rectangle",
+                    "font_size": 9,
                     "text": "Meter",
                     "x": 4200,
                     "y": 3500,
@@ -497,6 +499,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "action": "create",
                     "shape_type": "rectangle",
+                    "font_size": 9,
                     "text": "Main panel\n(non-backup loads)",
                     "x": 4200,
                     "y": 6000,
@@ -510,6 +513,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "action": "create",
                     "shape_type": "rectangle",
+                    "font_size": 9,
                     "text": "Solar AC Disconnect",
                     "x": 7600,
                     "y": 3500,
@@ -523,6 +527,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "action": "create",
                     "shape_type": "rectangle",
+                    "font_size": 9,
                     "text": "System controller (MID)",
                     "x": 12200,
                     "y": 3300,
@@ -536,6 +541,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "action": "create",
                     "shape_type": "rectangle",
+                    "font_size": 9,
                     "text": "Backup subpanel\n(backup loads)",
                     "x": 17000,
                     "y": 3400,
@@ -549,6 +555,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "action": "create",
                     "shape_type": "rectangle",
+                    "font_size": 9,
                     "text": "PV array\n(modules)",
                     "x": 7600,
                     "y": 500,
@@ -562,6 +569,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "action": "create",
                     "shape_type": "rectangle",
+                    "font_size": 9,
                     "text": "Microinverters",
                     "x": 11200,
                     "y": 500,
@@ -575,6 +583,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "action": "create",
                     "shape_type": "rectangle",
+                    "font_size": 9,
                     "text": "Combiner",
                     "x": 14800,
                     "y": 500,
@@ -588,6 +597,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "action": "create",
                     "shape_type": "rectangle",
+                    "font_size": 9,
                     "text": "AC battery",
                     "x": 12200,
                     "y": 6000,
