@@ -751,6 +751,15 @@ def run_eval_on_examples_llm(
                 correctness = scored.partial_score
                 final = scored.summary
                 soft_notes = scored.soft
+            elif task_id == "org_chart_gen":
+                # Hard gate = oracles.oracle_org_chart_gen. Exact 10/9 is soft.
+                from org_chart_eval import score_org_chart_example
+
+                scored = score_org_chart_example(final, backend=task_backend)
+                oracle_failures = scored.failures
+                soft_notes = scored.soft
+                # Keep expected_contains correctness; do not invent a partial.
+                final = scored.summary
             from process_oracles import agent_score_from_failures, check_process
 
             process_failures = check_process(task_id, trace)

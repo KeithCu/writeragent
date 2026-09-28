@@ -35,10 +35,11 @@ def _events() -> tuple[list[tuple[str, float]], threading.Lock]:
 def test_declared_backend_defaults_string_and_flag_is_lo() -> None:
     kinds = {ex["task_id"]: declared_backend(ex) for ex in ALL_EXAMPLES}
     assert kinds["python_shapes_flag"] == "lo"
+    assert kinds["org_chart_gen"] == "lo"
     assert kinds["table_from_mess"] == "string"
     assert kinds["py_refuse_overlap"] == "string"
-    assert sum(1 for kind in kinds.values() if kind == "lo") == 1
-    assert len(ALL_EXAMPLES) == 18
+    assert sum(1 for kind in kinds.values() if kind == "lo") == 2
+    assert len(ALL_EXAMPLES) == 19
     flag = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "python_shapes_flag")
     assert flag["user_question"] == PYTHON_SHAPES_FLAG_ASK
     assert flag["document_content"] == ""
@@ -64,6 +65,7 @@ def test_select_pack_string_skips_flag_unless_explicit() -> None:
     assert skipped.error is None
     assert len(skipped.examples) == 17
     assert "python_shapes_flag" in skipped.notes[0]
+    assert "org_chart_gen" in skipped.notes[0]
     # An explicit -e that includes the flag is an error, not a silent drop.
     mixed = select_pack(examples, cli_backend="string", explicit=True, student="llm")
     assert mixed.error
@@ -78,8 +80,13 @@ def test_select_pack_scripted_skips_flag_on_auto() -> None:
     examples = to_eval_examples(ALL_EXAMPLES)
     selected = select_pack(examples, cli_backend="auto", explicit=False, student="scripted")
     assert selected.error is None
-    assert len(selected.examples) == 17
+    # 19 pack − flag (no script). org_chart_gen has a scripted LO replay and stays.
+    assert len(selected.examples) == 18
     assert "no scripted replay" in selected.notes[0]
+    assert "python_shapes_flag" in selected.notes[0]
+    ids = {ex.task_id for ex in selected.examples}
+    assert "python_shapes_flag" not in ids
+    assert "org_chart_gen" in ids
     only_flag = [ex for ex in examples if ex.task_id == "python_shapes_flag"]
     refused = select_pack(only_flag, cli_backend="auto", explicit=True, student="scripted")
     assert refused.error
@@ -91,6 +98,7 @@ def test_select_pack_lo_keeps_flag_and_drops_py_rows() -> None:
     selected = select_pack(examples, cli_backend="lo", explicit=False, student="llm")
     ids = [ex.task_id for ex in selected.examples]
     assert "python_shapes_flag" in ids
+    assert "org_chart_gen" in ids
     assert "py_refuse_overlap" not in ids
     assert "py_no_bulk_read" not in ids
     # Explicit -e of a =PY row still runs it (the old non-explicit filter).
@@ -355,12 +363,52 @@ def test_string_scripted_cli_skips_flag(capsys: pytest.CaptureFixture[str]) -> N
     )
     out = capsys.readouterr().out
     assert code == 0
-    assert "Skipping python_shapes_flag" in out
+    # Both backend=lo rows are skipped (order is dataset order).
+    assert "org_chart_gen" in out
+    assert "python_shapes_flag" in out
+    assert "backend=lo" in out
     assert "Scripted result pass: 17/17" in out
 
 
-def test_auto_scripted_cli_skips_flag(capsys: pytest.CaptureFixture[str]) -> None:
+def test_auto_scripted_cli_skips_flag(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Flag has no scripted replay; org_chart_gen does and still needs LO.
+
+    Unit CI has no real UNO. Keep product selection (flag skipped, org_chart
+    kept), then drop LO rows before running so we smoke the string pack under
+    auto without booting soffice. Full org_chart scripted LO is the integration
+    test ``test_scripted_lo_pack_all_pass``.
+    """
     import run_eval
+    import tools_lo
+    from eval_scheduler import PackSelection, declared_backend, select_pack as real_select_pack
+
+    def select_pack_without_lo_bootstrap(*args: object, **kwargs: object) -> PackSelection:
+        selected = real_select_pack(*args, **kwargs)  # type: ignore[arg-type]
+        if selected.error:
+            return selected
+        kept = [ex for ex in selected.examples if declared_backend(ex) != "lo"]
+        notes = list(selected.notes)
+        dropped = [
+            getattr(ex, "task_id", "") or "?"
+            for ex in selected.examples
+            if declared_backend(ex) == "lo"
+        ]
+        if dropped:
+            notes.append(
+                "Unit-test: not starting LO for "
+                + ", ".join(dropped)
+                + " (no soffice in unit CI)."
+            )
+        return PackSelection(kept, notes)
+
+    monkeypatch.setattr(run_eval, "select_pack", select_pack_without_lo_bootstrap)
+
+    def _boom(cls: object) -> None:
+        raise AssertionError("LOBackend.start must not run in unit auto+scripted smoke")
+
+    monkeypatch.setattr(tools_lo.LOBackend, "start", classmethod(_boom))
 
     code = run_eval.main(
         ["--backend", "auto", "--student", "scripted", "--no-bust-cache"]
@@ -368,4 +416,6 @@ def test_auto_scripted_cli_skips_flag(capsys: pytest.CaptureFixture[str]) -> Non
     out = capsys.readouterr().out
     assert code == 0
     assert "no scripted replay" in out
+    assert "python_shapes_flag" in out
+    assert "org_chart_gen" in out  # noted as unit-test LO drop
     assert "Scripted result pass: 17/17" in out

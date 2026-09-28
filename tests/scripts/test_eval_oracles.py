@@ -118,6 +118,71 @@ _FLOW_GOOD = json.dumps(
         ],
     }
 )
+
+_ORG_GOOD = json.dumps(
+    {
+        "status": "ok",
+        "page": 0,
+        "tree": [
+            {"type": "RectangleShape", "index": 0, "text": "Ava (CEO)"},
+            {"type": "RectangleShape", "index": 1, "text": "Ben (CTO)"},
+            {"type": "RectangleShape", "index": 2, "text": "Cara (CFO)"},
+            {"type": "RectangleShape", "index": 3, "text": "Dan (COO)"},
+            {"type": "RectangleShape", "index": 4, "text": "Eli (Engineer)"},
+            {"type": "RectangleShape", "index": 5, "text": "Fay (Engineer)"},
+            {"type": "RectangleShape", "index": 6, "text": "Gus (Analyst)"},
+            {"type": "RectangleShape", "index": 7, "text": "Hal (Analyst)"},
+            {"type": "RectangleShape", "index": 8, "text": "Ivy (Lead)"},
+            {"type": "RectangleShape", "index": 9, "text": "Jay (Lead)"},
+            {
+                "type": "ConnectorShape",
+                "connected_start": {"name": "s0", "text": "Ava (CEO)"},
+                "connected_end": {"name": "s1", "text": "Ben (CTO)"},
+            },
+            {
+                "type": "ConnectorShape",
+                "connected_start": {"name": "s0", "text": "Ava (CEO)"},
+                "connected_end": {"name": "s2", "text": "Cara (CFO)"},
+            },
+            {
+                "type": "ConnectorShape",
+                "connected_start": {"name": "s0", "text": "Ava (CEO)"},
+                "connected_end": {"name": "s3", "text": "Dan (COO)"},
+            },
+            {
+                "type": "ConnectorShape",
+                "connected_start": {"name": "s1", "text": "Ben (CTO)"},
+                "connected_end": {"name": "s4", "text": "Eli (Engineer)"},
+            },
+            {
+                "type": "ConnectorShape",
+                "connected_start": {"name": "s1", "text": "Ben (CTO)"},
+                "connected_end": {"name": "s5", "text": "Fay (Engineer)"},
+            },
+            {
+                "type": "ConnectorShape",
+                "connected_start": {"name": "s2", "text": "Cara (CFO)"},
+                "connected_end": {"name": "s6", "text": "Gus (Analyst)"},
+            },
+            {
+                "type": "ConnectorShape",
+                "connected_start": {"name": "s2", "text": "Cara (CFO)"},
+                "connected_end": {"name": "s7", "text": "Hal (Analyst)"},
+            },
+            {
+                "type": "ConnectorShape",
+                "connected_start": {"name": "s3", "text": "Dan (COO)"},
+                "connected_end": {"name": "s8", "text": "Ivy (Lead)"},
+            },
+            {
+                "type": "ConnectorShape",
+                "connected_start": {"name": "s3", "text": "Dan (COO)"},
+                "connected_end": {"name": "s9", "text": "Jay (Lead)"},
+            },
+        ],
+    }
+)
+
 _PY_GOOD = json.dumps(
     {
         "status": "ok",
@@ -156,6 +221,7 @@ _PY_BAD = json.dumps(
         ("data_sorting", _SORT_GOOD),
         ("tax_column", _TAX_GOOD),
         ("flowchart_gen", _FLOW_GOOD),
+        ("org_chart_gen", _ORG_GOOD),
         ("py_refuse_overlap", _PY_GOOD),
     ],
 )
@@ -227,6 +293,37 @@ def test_good_fixtures_pass(task_id: str, doc: str) -> None:
                 }
             ),
             "loop",
+        ),
+        (
+            "org_chart_gen",
+            json.dumps(
+                {
+                    "status": "ok",
+                    "tree": [{"type": "RectangleShape", "text": "Ava (CEO)"}],
+                }
+            ),
+            "Ben",
+        ),
+        (
+            "org_chart_gen",
+            json.dumps(
+                {
+                    "status": "ok",
+                    "tree": [
+                        {"type": "RectangleShape", "text": "Ava (CEO)"},
+                        {"type": "RectangleShape", "text": "Ben (CTO)"},
+                        {"type": "RectangleShape", "text": "Cara (CFO)"},
+                        {"type": "RectangleShape", "text": "Dan (COO)"},
+                        {"type": "RectangleShape", "text": "Eli (Engineer)"},
+                        {"type": "RectangleShape", "text": "Fay (Engineer)"},
+                        {"type": "RectangleShape", "text": "Gus (Analyst)"},
+                        {"type": "RectangleShape", "text": "Hal (Analyst)"},
+                        {"type": "RectangleShape", "text": "Ivy (Lead)"},
+                        {"type": "RectangleShape", "text": "Jay (Lead)"},
+                    ],
+                }
+            ),
+            "edge",
         ),
         (
             "table_engineering",

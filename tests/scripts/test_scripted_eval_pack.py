@@ -34,7 +34,7 @@ _LO_CMD = (
 
 def test_scripts_cover_expanded_pack() -> None:
     ids = {ex["task_id"] for ex in ALL_EXAMPLES}
-    assert len(ids) == 18
+    assert len(ids) == 19
     assert {
         "style_consistency",
         "smart_summarization",
@@ -42,6 +42,7 @@ def test_scripts_cover_expanded_pack() -> None:
         "comment_management",
         "py_refuse_overlap",
         "py_no_bulk_read",
+        "org_chart_gen",
         "python_shapes_flag",
     } <= ids
     assert "py_unique_beside" not in ids
@@ -50,13 +51,17 @@ def test_scripts_cover_expanded_pack() -> None:
         ex["task_id"] for ex in ALL_EXAMPLES if ex.get("backend", "string") != "lo"
     }
     assert string_ids <= set(SCRIPTS)
+    # Flag is live-model LO only. org_chart_gen has a scripted LO replay.
     assert "python_shapes_flag" not in SCRIPTS
+    assert "org_chart_gen" in SCRIPTS
     flag = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "python_shapes_flag")
     assert flag.get("backend") == "lo"
+    org = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "org_chart_gen")
+    assert org.get("backend") == "lo"
 
 
 def test_scripted_string_pack_all_pass() -> None:
-    # --backend string drops the flag. Replay only the rows this mode runs.
+    # --backend string drops backend=lo rows (flag + org_chart). Replay the rest.
     selected = select_pack(
         to_eval_examples(ALL_EXAMPLES),
         cli_backend="string",
@@ -66,7 +71,8 @@ def test_scripted_string_pack_all_pass() -> None:
     assert selected.error is None
     examples = selected.examples
     assert len(examples) == 17
-    assert all(getattr(ex, "task_id", "") != "python_shapes_flag" for ex in examples)
+    lo_ids = {"python_shapes_flag", "org_chart_gen"}
+    assert all(getattr(ex, "task_id", "") not in lo_ids for ex in examples)
     results = run_eval_on_examples_llm(
         examples,
         endpoint="https://openrouter.ai/api/v1",
@@ -168,8 +174,8 @@ def test_scripted_lo_pack_all_pass() -> None:
     )
     out = (proc.stdout or "") + "\n" + (proc.stderr or "")
     assert proc.returncode == 0, out
-    # =PY dest rows are string-harness only. The flag has no script, so the
-    # LO scripted pack stays the original non-py tasks (select_pack drops it).
+    # =PY dest rows are string-harness only. Flag has no script (dropped).
+    # org_chart_gen has a scripted LO replay and stays in the pack.
     selected = select_pack(
         to_eval_examples(ALL_EXAMPLES),
         cli_backend="lo",
@@ -177,8 +183,8 @@ def test_scripted_lo_pack_all_pass() -> None:
         student="scripted",
     )
     n = len(selected.examples)
-    assert "python_shapes_flag" not in {
-        getattr(ex, "task_id", "") for ex in selected.examples
-    }
+    ids = {getattr(ex, "task_id", "") for ex in selected.examples}
+    assert "python_shapes_flag" not in ids
+    assert "org_chart_gen" in ids
     assert f"Scripted result pass: {n}/{n}" in out, out
     assert "Skipping python_shapes_flag" in out
