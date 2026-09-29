@@ -499,18 +499,23 @@ PYTHON_SHAPES_FLAG = {
 }
 
 
-# Solar SLD Gen — native Draw (backend=lo). Partial-home backup with Solar AC
-# Disconnect between grid/meter and the system controller (MID). Prefer generic
-# labels; brand names are allowed (not a hard fail). TextFitToSize AUTOFIT
-# handles shape text sizing (#942) — no font-size nudge in the prompt.
+# Solar SLD Gen — native Draw (backend=lo). Partial-home backup: Solar AC
+# Disconnect comes from the main panel; MID and everything downstream of that
+# disconnect stay on the post-disconnect path (not utility/grid side of main).
+# Prefer generic labels; brand names are allowed (not a hard fail).
+# TextFitToSize AUTOFIT handles shape text sizing (#942) — no font-size nudge.
 SOLAR_SLD_GEN = {
     "document_content": (
         "Partial-home backup residential solar + AC storage (AC-coupled "
         "microinverter architecture). Prefer generic equipment names.\n\n"
         "Topology:\n"
-        "- Utility → Meter → Main panel (non-backup loads).\n"
-        "- Utility/Meter → Solar AC Disconnect → System controller (MID) → "
+        "- Utility → Meter → Main panel (non-backup loads stay on the main "
+        "panel / utility side).\n"
+        "- Main panel → Solar AC Disconnect → System controller (MID) → "
         "Backup subpanel → backup loads.\n"
+        "- MID and everything downstream of the Solar AC Disconnect stay on "
+        "that post-disconnect path (not on the utility/grid side of the main "
+        "panel).\n"
         "- PV modules + microinverters → Combiner → System controller PV port.\n"
         "- AC battery → System controller battery port.\n\n"
         "Ideal schematic layout (not unique art). Programming/shapes SLD."
@@ -524,16 +529,19 @@ SOLAR_SLD_GEN = {
         "1) Show all components with clear labels: Utility (or Grid), "
         "Meter, Main panel, Solar AC Disconnect, System controller (MID), "
         "Backup subpanel, Combiner, Microinverter(s), AC battery, PV array.\n"
-        "2) Connect topology exactly: Utility/Meter → Solar AC Disconnect → "
-        "System controller (MID) → Backup subpanel; also Utility/Meter → Main "
-        "panel for non-backup loads; microinverters on the PV array → Combiner → "
-        "controller PV; AC battery → controller battery.\n"
-        "3) Emphasize a single Solar AC Disconnect between the grid/meter and the "
-        "MID (do not bury it).\n"
+        "2) Connect topology exactly: Utility → Meter → Main panel; "
+        "Main panel → Solar AC Disconnect → System controller (MID) → "
+        "Backup subpanel; microinverters on the PV array → Combiner → "
+        "controller PV; AC battery → controller battery. Non-backup loads "
+        "remain on the main panel (utility side of the disconnect).\n"
+        "3) Emphasize a single Solar AC Disconnect fed from the main panel "
+        "(between main panel and MID — not a utility-side / meter-only tap). "
+        "MID and downstream equipment stay on the post-disconnect path.\n"
         "4) Microinverters belong on the array — not a single central string "
         "inverter.\n"
         "5) Layout should read source→load (utility/source toward house loads). "
-        "Main panel stays on the utility side; backup loads hang off the MID.\n"
+        "Main panel stays on the utility side of the Solar AC Disconnect; "
+        "backup loads hang off the MID.\n"
         "6) Prefer generic names; brand names are allowed but not required.\n\n"
         "Verify with get_draw_tree (nodes and connections)."
     ),
@@ -553,11 +561,12 @@ SOLAR_SLD_GEN = {
         "Native Draw shapes SLD. Hard: required labels (utility/grid, meter, main "
         "panel, Solar AC Disconnect, system controller/MID, backup subpanel, "
         "combiner, microinverter(s), AC battery, PV array); edges "
-        "grid/meter→Solar AC Disconnect→MID→backup subpanel; micros→combiner→"
-        "controller; battery→controller; micros on array not central string "
-        "inverter. Brands OK (prefer generic). Soft: readable source→load; main "
-        "on utility side; single emphasized Solar AC Disconnect. Layout not "
-        "unique. Shape text sizing relies on TextFitToSize AUTOFIT (#942)."
+        "Utility→Meter→Main panel→Solar AC Disconnect→MID→backup subpanel; "
+        "micros→combiner→controller; battery→controller; micros on array not "
+        "central string inverter. Brands OK (prefer generic). Soft: readable "
+        "source→load; main on utility side of disconnect; MID/downstream on "
+        "post-disconnect path; single emphasized Solar AC Disconnect. Layout "
+        "not unique. Shape text sizing relies on TextFitToSize AUTOFIT (#942)."
     ),
 }
 
