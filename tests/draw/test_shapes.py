@@ -325,6 +325,14 @@ def test_apply_shape_properties_text_defaults_to_autofit() -> None:
     shape.setPropertyValue.assert_any_call("TextFitToSize", "AUTOFIT_SENTINEL")
 
 
+def test_upsert_shape_font_size_schema_prefers_omit_autofit() -> None:
+    """shape_upsert font_size description nudges models to omit for AUTOFIT."""
+    desc = UpsertShape.parameters["properties"]["font_size"]["description"]
+    assert "Omit" in desc
+    assert "AUTOFIT" in desc
+    assert "usually correct" in desc
+
+
 def test_apply_shape_properties_font_size_skips_autofit() -> None:
     """Explicit font_size in schema opts out of TextFitToSize=AUTOFIT."""
     shape = MagicMock()
