@@ -215,8 +215,8 @@ _SOLAR_GOOD = json.dumps(
             "index": 2,
             "text": "Main panel (non-backup)",
             "geometry": {
-                "x": 4200,
-                "y": 6000,
+                "x": 7400,
+                "y": 3400,
                 "width": 3600,
                 "height": 1600
             }
@@ -226,7 +226,7 @@ _SOLAR_GOOD = json.dumps(
             "index": 3,
             "text": "Solar AC Disconnect",
             "geometry": {
-                "x": 7600,
+                "x": 11600,
                 "y": 3500,
                 "width": 4000,
                 "height": 1400
@@ -237,7 +237,7 @@ _SOLAR_GOOD = json.dumps(
             "index": 4,
             "text": "System controller (MID)",
             "geometry": {
-                "x": 12200,
+                "x": 16200,
                 "y": 3300,
                 "width": 4200,
                 "height": 1800
@@ -248,7 +248,7 @@ _SOLAR_GOOD = json.dumps(
             "index": 5,
             "text": "Backup subpanel",
             "geometry": {
-                "x": 17000,
+                "x": 21000,
                 "y": 3400,
                 "width": 3800,
                 "height": 1600
@@ -259,7 +259,7 @@ _SOLAR_GOOD = json.dumps(
             "index": 6,
             "text": "PV array",
             "geometry": {
-                "x": 7600,
+                "x": 11600,
                 "y": 500,
                 "width": 3200,
                 "height": 1400
@@ -270,7 +270,7 @@ _SOLAR_GOOD = json.dumps(
             "index": 7,
             "text": "Microinverters",
             "geometry": {
-                "x": 11200,
+                "x": 15200,
                 "y": 500,
                 "width": 3200,
                 "height": 1400
@@ -281,7 +281,7 @@ _SOLAR_GOOD = json.dumps(
             "index": 8,
             "text": "Combiner",
             "geometry": {
-                "x": 14800,
+                "x": 18800,
                 "y": 500,
                 "width": 3000,
                 "height": 1400
@@ -292,7 +292,7 @@ _SOLAR_GOOD = json.dumps(
             "index": 9,
             "text": "AC battery",
             "geometry": {
-                "x": 12200,
+                "x": 16200,
                 "y": 6000,
                 "width": 3600,
                 "height": 1400
@@ -323,8 +323,8 @@ _SOLAR_GOOD = json.dumps(
         {
             "type": "ConnectorShape",
             "connected_start": {
-                "name": "s1",
-                "text": "Meter"
+                "name": "s2",
+                "text": "Main panel (non-backup)"
             },
             "connected_end": {
                 "name": "s3",
@@ -1097,7 +1097,17 @@ def test_solar_sld_main_service_panel_label() -> None:
                 {"type": "RectangleShape", "text": "AC battery"},
                 {
                     "type": "ConnectorShape",
+                    "connected_start": {"text": "Utility / Grid"},
+                    "connected_end": {"text": "Meter"},
+                },
+                {
+                    "type": "ConnectorShape",
                     "connected_start": {"text": "Meter"},
+                    "connected_end": {"text": "Main Service Panel"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Main Service Panel"},
                     "connected_end": {"text": "Solar AC Disconnect"},
                 },
                 {
@@ -1130,11 +1140,6 @@ def test_solar_sld_main_service_panel_label() -> None:
                     "connected_start": {"text": "PV array"},
                     "connected_end": {"text": "Microinverters"},
                 },
-                {
-                    "type": "ConnectorShape",
-                    "connected_start": {"text": "Utility / Grid"},
-                    "connected_end": {"text": "Meter"},
-                },
             ],
         }
     )
@@ -1152,3 +1157,73 @@ def test_solar_sld_brand_names_not_hard_fail() -> None:
     )
     fails = check_oracle("solar_sld_gen", doc)
     assert not any("brand" in f.casefold() for f in fails), fails
+
+
+def test_solar_sld_requires_main_panel_to_ac_disconnect() -> None:
+    """Partial-home: Solar AC Disconnect must be fed from the main panel."""
+    doc = json.dumps(
+        {
+            "status": "ok",
+            "tree": [
+                {"type": "RectangleShape", "text": "Utility / Grid"},
+                {"type": "RectangleShape", "text": "Meter"},
+                {"type": "RectangleShape", "text": "Main panel"},
+                {"type": "RectangleShape", "text": "Solar AC Disconnect"},
+                {"type": "RectangleShape", "text": "System controller (MID)"},
+                {"type": "RectangleShape", "text": "Backup subpanel"},
+                {"type": "RectangleShape", "text": "PV array"},
+                {"type": "RectangleShape", "text": "Microinverters"},
+                {"type": "RectangleShape", "text": "Combiner"},
+                {"type": "RectangleShape", "text": "AC battery"},
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Utility / Grid"},
+                    "connected_end": {"text": "Meter"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Meter"},
+                    "connected_end": {"text": "Main panel"},
+                },
+                # Wrong utility-side tap: Meter → ACD (skips Main → ACD).
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Meter"},
+                    "connected_end": {"text": "Solar AC Disconnect"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Solar AC Disconnect"},
+                    "connected_end": {"text": "System controller (MID)"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "System controller (MID)"},
+                    "connected_end": {"text": "Backup subpanel"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "PV array"},
+                    "connected_end": {"text": "Microinverters"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Microinverters"},
+                    "connected_end": {"text": "Combiner"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "Combiner"},
+                    "connected_end": {"text": "System controller (MID)"},
+                },
+                {
+                    "type": "ConnectorShape",
+                    "connected_start": {"text": "AC battery"},
+                    "connected_end": {"text": "System controller (MID)"},
+                },
+            ],
+        }
+    )
+    fails = check_oracle("solar_sld_gen", doc)
+    assert any("main panel" in f.casefold() and "disconnect" in f.casefold() for f in fails), fails
+

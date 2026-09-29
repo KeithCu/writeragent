@@ -5,10 +5,11 @@
 """Soft notes for eval-1 task ``solar_sld_gen``.
 
 Hard pass/fail stays in ``oracles.oracle_solar_sld_gen`` (labels, topology
-edges, brand scrub, microinverters vs string inverter). Soft notes cover
-readable source→load order, main panel on the utility side, and a single
-emphasized Solar AC Disconnect. Does not invent a partial score; ``agent_score``
-stays binary from hard fails.
+edges, microinverters vs string inverter). Soft notes cover readable
+source→load order, main panel on the utility side of the Solar AC Disconnect,
+MID/downstream on the post-disconnect path, and a single emphasized Solar AC
+Disconnect. Does not invent a partial score; ``agent_score`` stays binary from
+hard fails.
 """
 from __future__ import annotations
 
@@ -146,13 +147,43 @@ def _soft_layout(nodes: list[dict[str, Any]]) -> list[str]:
 
     main_x = _mean_x("main_panel")
     mid_x = _mean_x("controller")
+    acd_x = _mean_x("ac_disconnect")
     if source_x is not None and main_x is not None and mid_x is not None:
-        # Main should sit closer to utility than the MID does (utility side).
+        # Main should sit closer to utility than the MID does (utility side of
+        # the Solar AC Disconnect / post-disconnect MID path).
         if abs(main_x - source_x) > abs(mid_x - source_x) + 1500:
             soft.append(
                 "layout soft: main panel not on utility side of MID "
                 f"(main_x={main_x:.0f}, mid_x={mid_x:.0f}, source_x={source_x:.0f})"
             )
+    if (
+        main_x is not None
+        and acd_x is not None
+        and mid_x is not None
+        and source_x is not None
+    ):
+        # Prefer Main → ACD → MID along the source→load axis.
+        if not (main_x <= acd_x + 500 and acd_x <= mid_x + 500) and not (
+            mid_x <= acd_x + 500 and acd_x <= main_x + 500
+        ):
+            # Accept top→bottom stacking as an alternate readable order.
+            main_ys = [p[1] for p in (positions.get("main_panel") or [])]
+            acd_ys = [p[1] for p in (positions.get("ac_disconnect") or [])]
+            mid_ys = [p[1] for p in (positions.get("controller") or [])]
+            stacked = False
+            if main_ys and acd_ys and mid_ys:
+                my = sum(main_ys) / len(main_ys)
+                ay = sum(acd_ys) / len(acd_ys)
+                iy = sum(mid_ys) / len(mid_ys)
+                stacked = (my <= ay + 500 and ay <= iy + 500) or (
+                    iy <= ay + 500 and ay <= my + 500
+                )
+            if not stacked:
+                soft.append(
+                    "layout soft: Solar AC Disconnect not between main panel "
+                    "and MID on the post-disconnect path "
+                    f"(main_x={main_x:.0f}, acd_x={acd_x:.0f}, mid_x={mid_x:.0f})"
+                )
 
     # Single emphasized Solar AC Disconnect (ignore long legend/notes boxes).
     ac_boxes = []

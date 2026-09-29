@@ -456,9 +456,10 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 {
                     "domain": "shapes",
                     "task": (
-                        "Partial-home SLD: Utility→Meter→Main panel; "
-                        "Meter→Solar AC Disconnect→System controller (MID)→"
-                        "Backup subpanel; PV+microinverters→Combiner→controller; "
+                        "Partial-home SLD: Utility→Meter→Main panel→"
+                        "Solar AC Disconnect→System controller (MID)→"
+                        "Backup subpanel; MID/downstream on post-disconnect path; "
+                        "PV+microinverters→Combiner→controller; "
                         "AC battery→controller; verify get_draw_tree."
                     ),
                 },
@@ -498,8 +499,8 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "action": "create",
                     "shape_type": "rectangle",
                     "text": "Main panel\n(non-backup loads)",
-                    "x": 4200,
-                    "y": 6000,
+                    "x": 7400,
+                    "y": 3400,
                     "width": 3600,
                     "height": 1600,
                 },
@@ -511,7 +512,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "action": "create",
                     "shape_type": "rectangle",
                     "text": "Solar AC Disconnect",
-                    "x": 7600,
+                    "x": 11600,
                     "y": 3500,
                     "width": 4000,
                     "height": 1400,
@@ -524,7 +525,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "action": "create",
                     "shape_type": "rectangle",
                     "text": "System controller (MID)",
-                    "x": 12200,
+                    "x": 16200,
                     "y": 3300,
                     "width": 4200,
                     "height": 1800,
@@ -537,7 +538,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "action": "create",
                     "shape_type": "rectangle",
                     "text": "Backup subpanel\n(backup loads)",
-                    "x": 17000,
+                    "x": 21000,
                     "y": 3400,
                     "width": 3800,
                     "height": 1600,
@@ -550,7 +551,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "action": "create",
                     "shape_type": "rectangle",
                     "text": "PV array\n(modules)",
-                    "x": 7600,
+                    "x": 11600,
                     "y": 500,
                     "width": 3200,
                     "height": 1400,
@@ -563,7 +564,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "action": "create",
                     "shape_type": "rectangle",
                     "text": "Microinverters",
-                    "x": 11200,
+                    "x": 15200,
                     "y": 500,
                     "width": 3200,
                     "height": 1400,
@@ -576,7 +577,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "action": "create",
                     "shape_type": "rectangle",
                     "text": "Combiner",
-                    "x": 14800,
+                    "x": 18800,
                     "y": 500,
                     "width": 3000,
                     "height": 1400,
@@ -589,7 +590,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "action": "create",
                     "shape_type": "rectangle",
                     "text": "AC battery",
-                    "x": 12200,
+                    "x": 16200,
                     "y": 6000,
                     "width": 3600,
                     "height": 1400,
@@ -600,9 +601,10 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         _tools(
             # 0 Utility, 1 Meter, 2 Main, 3 Solar AC Disconnect, 4 MID,
             # 5 Backup, 6 PV, 7 Microinverters, 8 Combiner, 9 AC battery
+            # Partial-home: Main → Solar AC Disconnect → MID (not Meter→ACD).
             _tc("shape_connect", {"start": 0, "end": 1}, "sld_c1"),
             _tc("shape_connect", {"start": 1, "end": 2}, "sld_c2"),
-            _tc("shape_connect", {"start": 1, "end": 3}, "sld_c3"),
+            _tc("shape_connect", {"start": 2, "end": 3}, "sld_c3"),
             _tc("shape_connect", {"start": 3, "end": 4}, "sld_c4"),
             _tc("shape_connect", {"start": 4, "end": 5}, "sld_c5"),
             _tc("shape_connect", {"start": 6, "end": 7}, "sld_c6"),

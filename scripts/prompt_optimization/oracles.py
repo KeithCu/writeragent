@@ -1216,8 +1216,10 @@ def _solar_has_path(
 
 
 def oracle_solar_sld_gen(doc: str) -> list[str]:
-    """Hard gate for solar_sld_gen: labels, topology edges, brands, micros.
+    """Hard gate for solar_sld_gen: labels, topology edges, micros.
 
+    Partial-home: Solar AC Disconnect is fed from the main panel; MID stays
+    on the post-disconnect path. Brands are allowed (not a hard fail).
     Soft layout notes live in ``solar_sld_eval``; ``agent_score`` stays binary.
     """
     fails: list[str] = []
@@ -1285,16 +1287,27 @@ def oracle_solar_sld_gen(doc: str) -> list[str]:
         )
 
     edges = _solar_edges(data or {}, nodes)
-    edges = _solar_edges(data or {}, nodes)
     role_edges = _solar_edge_roles(edges)
 
-    # grid/meter → Solar AC Disconnect → MID → backup subpanel
+    # Partial-home: Utility/Meter → Main panel → Solar AC Disconnect → MID →
+    # backup subpanel. Disconnect is fed from the main panel; MID stays on the
+    # post-disconnect path (not a utility/meter-only tap around the main).
     if not (
-        _solar_has_role_edge(role_edges, "utility", "ac_disconnect")
-        or _solar_has_role_edge(role_edges, "meter", "ac_disconnect")
-        or _solar_has_path(role_edges, {"utility", "meter"}, "ac_disconnect")
+        _solar_has_role_edge(role_edges, "utility", "meter")
+        or _solar_has_role_edge(role_edges, "meter", "utility")
+        or _solar_has_path(role_edges, {"utility"}, "meter")
     ):
-        fails.append("missing grid/meter→Solar AC Disconnect edge")
+        fails.append("missing Utility→Meter edge")
+    if not (
+        _solar_has_role_edge(role_edges, "meter", "main_panel")
+        or _solar_has_role_edge(role_edges, "utility", "main_panel")
+        or _solar_has_path(role_edges, {"utility", "meter"}, "main_panel")
+    ):
+        fails.append("missing Meter/Utility→Main panel edge")
+    # Direct edge required — undirected path would accept a Meter→ACD tap
+    # that only reaches Main via the meter (wrong utility-side placement).
+    if not _solar_has_role_edge(role_edges, "main_panel", "ac_disconnect"):
+        fails.append("missing main panel→Solar AC Disconnect edge")
     if not (
         _solar_has_role_edge(role_edges, "ac_disconnect", "controller")
         or _solar_has_path(
