@@ -607,7 +607,7 @@ class UpsertShape(ToolDrawShapeBase):
             "line_color": {"type": "string", "description": "Line border color"},
             "line_width": {"type": "integer", "description": "Line width (100ths of mm)"},
             "text_color": {"type": "string", "description": "Text character color"},
-            "font_size": {"type": "number", "description": "Font size in points"},
+            "font_size": {"type": "number", "description": "Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size."},
             "font_name": {"type": "string", "description": "Font family name"},
             "rotation_angle": {"type": "number", "description": "Rotation angle in degrees"},
         },
