@@ -46,6 +46,16 @@ def _find_crosshair() -> str | None:
     return None
 
 
+def test_latex_repair_keeps_real_newline_before_word() -> None:
+    raw = '{"note": "line1' + "\n" + 'end"}'
+    assert safe_json_loads(raw) == {"note": "line1\nend"}
+
+
+def test_latex_repair_still_restores_nabla_control_char() -> None:
+    raw = '{"eq": "' + "\nabla" + ' x"}'
+    assert safe_json_loads(raw) == {"eq": "\\nabla x"}
+
+
 def test_non_str_returns_default() -> None:
     assert safe_json_loads(None, default={"x": 1}) == {"x": 1}
     assert safe_json_loads(123, default="d") == "d"

@@ -511,8 +511,12 @@ def get_config_int(key: str) -> int:
 
 
 def get_config_str(key: str) -> str:
-    """Get a config value as str. ALL requested keys MUST be in the schema.
-    Throws ConfigError if key is not found."""
+    """Get a config value as str.
+
+    A missing value (``None``) returns ``""``. This does not raise.
+    ``get_config_int`` is the accessor that raises ``ConfigError`` for a
+    missing key.
+    """
     v = get_config(key)
     if v is None:
         return ""

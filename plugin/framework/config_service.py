@@ -188,8 +188,15 @@ class ConfigService(ServiceBase):
                 if field == "endpoint":
                     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
                     resolved = endpoint_from_selector_text(str(value))
-                    if resolved:
-                        set_config("endpoint", resolved, event_key=key)
+                    # What was wrong: an empty resolve returned without writing,
+                    # and the caller treated set() as success.
+                    if not resolved:
+                        raise ConfigError(
+                            "Endpoint text did not resolve to a URL",
+                            "CONFIG_INVALID_ENDPOINT",
+                            details={"value": value},
+                        )
+                    set_config("endpoint", resolved, event_key=key)
                 elif field == "image_model":
                     set_image_model(value or "", update_lru=True, event_key=key)
                 elif field == "text_model":

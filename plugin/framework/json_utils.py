@@ -158,10 +158,33 @@ def _repair_latex_clashes(text: str) -> str:
     # 2. Handle cases where the LLM sent a single backslash in the network JSON,
     # which the outer json.loads already silently evaluated as a control character
     # (e.g. \nabla -> \n + abla).
+    # What was wrong: step 2 replaced the control-character prefix anywhere,
+    # so a real newline followed by "e" (pretty-printed "example", or a
+    # string that continues "end") became the LaTeX command \ne.
     for corrupted, repaired in _SILENT_CORRUPTIONS.items():
-        text = text.replace(corrupted, repaired)
+        text = _replace_control_token(text, corrupted, repaired)
 
     return text
+
+
+def _replace_control_token(text: str, corrupted: str, repaired: str) -> str:
+    """Replace *corrupted* only when it is not the prefix of a longer word."""
+    pieces: list[str] = []
+    start = 0
+    while True:
+        found = text.find(corrupted, start)
+        if found < 0:
+            pieces.append(text[start:])
+            return "".join(pieces)
+        end = found + len(corrupted)
+        nxt = text[end:end + 1]
+        if nxt.isalnum() or nxt == "_":
+            pieces.append(text[start:end])
+            start = end
+            continue
+        pieces.append(text[start:found])
+        pieces.append(repaired)
+        start = end
 
 
 

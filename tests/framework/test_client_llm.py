@@ -1321,6 +1321,19 @@ def test_anthropic_stream_tool_use_accumulates(client):
     assert calls[0]["function"]["arguments"] == "{\"x\":1}"
 
 
+def test_anthropic_message_delta_ignores_non_dict_delta(client):
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "anthropic"}
+        shim = client._get_shim()
+    for event in (
+        {"type": "message_delta", "delta": None},
+        {"type": "message_delta"},
+        {"type": "message_delta", "delta": "stop"},
+    ):
+        _content, finish_reason, _thinking, _delta = shim.parse_response_chunk(event)
+        assert finish_reason is None
+
+
 def test_anthropic_stream_loop_keeps_tool_events(client):
     payloads = [
         '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',

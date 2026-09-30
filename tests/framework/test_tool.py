@@ -121,6 +121,10 @@ def test_detects_mutation():
     assert DomainGetInfoTool().detects_mutation() is False
     assert DomainMutateTool().detects_mutation() is True
 
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished
+
+    assert SpecializedWorkflowFinished().detects_mutation() is False
+
 def test_requires_document_lock_default_matches_detects_mutation():
     tool1 = ValidTool()
     assert tool1.requires_document_lock() is tool1.detects_mutation()

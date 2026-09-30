@@ -302,7 +302,11 @@ class AnthropicShim(BaseProviderShim):
             if tool_calls:
                 delta["tool_calls"] = tool_calls
         elif msg_type == "message_delta":
-            finish_reason = chunk.get("delta", {}).get("stop_reason")
+            # Other Anthropic branches already ignore a non-dict delta. A
+            # missing or string delta used to raise AttributeError here.
+            raw_delta = chunk.get("delta")
+            if isinstance(raw_delta, dict):
+                finish_reason = raw_delta.get("stop_reason")
         elif msg_type == "message_stop":
             finish_reason = "stop"
         return content, finish_reason, thinking, delta

@@ -507,7 +507,6 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
     # crosshair: off
     state = _DrainState(q=q, apply_chunk_fn=apply_chunk_fn, on_stream_done=on_stream_done, on_stopped=on_stopped, on_error=on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, show_search_thinking=show_search_thinking, job_done=job_done)
     log.debug("run_stream_drain_loop start %s", _marshal_thread_tag())
-    first_batch_logged = [False]
     try:
         # One active drain owner: nested Send/drain must not start a second pump loop.
         with drain_owner_scope("stream"):
@@ -547,9 +546,6 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
                             )
                     continue
 
-                if not first_batch_logged[0]:
-                    first_batch_logged[0] = True
-
                 try:
                     _process_batch(state, items, stop_checker)
                 except Exception as e:
@@ -588,6 +584,22 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
         job_done[0] = True
 
 
+def _call_item_or_zero_arg(fn: Callable[..., None], item: Any) -> None:
+    """Call ``fn(item)``. Retry with no args only for an arity ``TypeError``.
+
+    What was wrong: every ``TypeError`` was treated as "this callback takes no
+    arguments", so a failure inside the callback was swallowed and the callback
+    ran again. Retry only when the message is a signature mismatch.
+    """
+    try:
+        fn(item)
+    except TypeError as exc:
+        message = str(exc)
+        if "positional argument" not in message and "unexpected keyword" not in message:
+            raise
+        fn()
+
+
 def run_async_worker_with_drain(
     ctx: Any,
     worker_fn: Callable[[queue.Queue[Any]], None],
@@ -607,7 +619,9 @@ def run_async_worker_with_drain(
     :class:`StreamQueueKind` tuples. It does not need to post a terminal
     ``STREAM_DONE`` — the wrapper does so in ``finally`` so the drain loop
     always unblocks. Any exception raised by ``worker_fn`` is converted
-    into an ``ERROR`` payload.
+    into an ``ERROR`` payload, and that path does not also post
+    ``STREAM_DONE``: ``on_error`` returning ``True`` keeps the drain alive
+    for a replacement worker (native-audio STT fallback).
 
     Callback defaults: ``on_error_fn`` and ``on_stopped_fn`` fall back to
     ``on_done_fn`` or a no-op so the drain loop never fails on a missing
@@ -623,21 +637,28 @@ def run_async_worker_with_drain(
     _real_q: queue.Queue[Any] = cast("queue.Queue[Any]", _batched.raw if _batched is not None else q)
 
     def worker_wrapper() -> None:
+        # What was wrong: ``finally`` always queued STREAM_DONE after ERROR.
+        # A handler that returns True (keep draining, e.g. STT fallback) then
+        # saw that sentinel and ended the job before the replacement worker's
+        # chunks. Skip the sentinel only when this wrapper already queued ERROR.
+        failed = False
         try:
             worker_fn(cast("queue.Queue[Any]", _batched.raw if _batched is not None else q))  # worker always sees a real Queue
         except BaseException as e:
             from plugin.framework.errors import format_error_payload
 
+            failed = True
             payload = (StreamQueueKind.ERROR, format_error_payload(e))
             if _batched is not None:
                 _batched.flush()
             _real_q.put(payload)
         finally:
-            # Terminal sentinel — always flush any pending display text first
-            # when using the batcher, then emit the sentinel on the real queue.
+            # Terminal sentinel — flush pending display text first when using
+            # the batcher, then emit the sentinel on the real queue.
             if _batched is not None:
                 _batched.flush()
-            _real_q.put((StreamQueueKind.STREAM_DONE, None))
+            if not failed:
+                _real_q.put((StreamQueueKind.STREAM_DONE, None))
 
     from plugin.framework.uno_context import get_toolkit
 
@@ -654,11 +675,7 @@ def run_async_worker_with_drain(
 
     def on_stream_done_wrapper(item: Any) -> bool:
         if on_done_fn:
-            try:
-                on_done_fn(item)
-            except TypeError:
-                # Fallback for callbacks that don't take any arguments.
-                on_done_fn()
+            _call_item_or_zero_arg(on_done_fn, item)
         # Return True so _handle_stream_done_like sets job_done[0] and the
         # drain loop exits. This is the sole exit path now that the worker
         # thread no longer sets job_done directly (see worker_wrapper comment).
@@ -683,10 +700,7 @@ def run_async_worker_with_drain(
         # _done_fn is narrowed to non-None by the guard below (if on_done_fn).
         _done_fn = on_done_fn
         assert _done_fn is not None
-        try:
-            _done_fn(None)
-        except TypeError:
-            _done_fn()
+        _call_item_or_zero_arg(_done_fn, None)
 
     resolved_on_stopped = on_stopped_fn or (_call_done_on_stopped if on_done_fn else _noop_stopped)
 

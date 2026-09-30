@@ -143,7 +143,8 @@ class ToolResult(TypedDict, total=False):
     details: dict[str, Any]
 
 
-# Type for successful tool execution results
+# Type for successful tool execution results. Kept as a TypedDict so
+# CrossHair get_type_hints on importers does not see a Literal status field.
 class ToolSuccess(TypedDict):
     status: str  # "ok"
     # Other fields are optional in success case

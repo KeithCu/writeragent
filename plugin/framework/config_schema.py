@@ -127,6 +127,25 @@ def as_bool(value: Any) -> bool:
 
 
 @deal.post(lambda result: isinstance(result, int))
+def _signed_digits(token: str) -> bool:
+    body = token[1:] if token[:1] in "+-" else token
+    return bool(body) and body.isdigit()
+
+
+def _normalize_comma_number(s: str) -> str | None:
+    """One comma: three-digit suffix is thousands; any other suffix is a decimal comma.
+
+    Returns None when there is not exactly one comma (two commas must not be
+    rewritten into a truncated float).
+    """
+    if s.count(",") != 1:
+        return None
+    head, tail = s.split(",", 1)
+    if len(tail) == 3 and tail.isdigit() and _signed_digits(head):
+        return head + tail
+    return head + "." + tail
+
+
 @deal.raises(ValueError)
 def parse_int_robust(val: Any) -> int:
     """Robustly parse an integer value from a string, float, or other type,
@@ -165,16 +184,19 @@ def parse_int_robust(val: Any) -> int:
     except (ValueError, TypeError):
         pass
 
-    # Handle European decimal commas by replacing ',' with '.'
-    # but only if there is a single comma and it looks like a decimal separator
-    # e.g., "8765,0" -> "8765.0"
-    if "," in s:
-        cleaned = s.replace(",", ".")
+    # What was wrong: every comma became a dot, so "1,234" parsed as 1.234
+    # and then int 1. A single comma is a thousands group only when the
+    # suffix is exactly three digits; otherwise it is a decimal comma
+    # ("8765,0", "1,5").
+    normalized = _normalize_comma_number(s)
+    if normalized is not None:
         try:
-            f = float(cleaned)
-            if not math.isfinite(f):
-                raise ValueError(f"Cannot parse non-finite float as int: {val!r}")
-            return int(f)
+            if "." in normalized:
+                f = float(normalized)
+                if not math.isfinite(f):
+                    raise ValueError(f"Cannot parse non-finite float as int: {val!r}")
+                return int(f)
+            return int(normalized)
         except (ValueError, TypeError, OverflowError):
             pass
 
@@ -212,10 +234,13 @@ def parse_float_robust(val: Any) -> float:
     except (ValueError, TypeError):
         pass
 
-    if "," in s:
-        cleaned = s.replace(",", ".")
+    # Same comma rule as parse_int_robust: "1,234" is 1234, "1,5" is 1.5.
+    # Replacing every comma used to turn a thousands separator into a decimal
+    # and truncate the value.
+    normalized = _normalize_comma_number(s)
+    if normalized is not None:
         try:
-            return float(cleaned)
+            return float(normalized)
         except (ValueError, TypeError) as e:
             raise ValueError(f"Could not robustly parse float from {val!r}") from e
 

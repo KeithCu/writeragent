@@ -454,36 +454,47 @@ class QueueExecutor:
 
     def process_queue(self) -> None:
         """Process one item from queue (called from main thread via AsyncCallback)."""
-        try:
-            item = self._work_queue.get_nowait()
-        except queue.Empty:
-            return
-
-        fn_label = _fn_label(item.fn)
-        log.debug("process_queue start fn=%s %s", fn_label, _marshal_thread_tag(self))
-
-        # Atomically claim or cancel: whoever holds self._claim_lock first wins.
-        # This closes the race where _wait_for_result times out and sets
-        # item.cancelled=True just after this thread has already read it as False.
+        # Dequeue and the cancel check share ``_claim_lock``. What was wrong:
+        # ``get_nowait`` ran first, so Stop's drain only saw items still queued
+        # and the one already removed still ran. ``scope.cancel()`` sets the
+        # flag before that drain; checking ``is_cancelled()`` here covers an
+        # item the drain never marked. The callable stays outside the lock
+        # (``threading.Lock`` is not reentrant, and a test poke can re-enter).
         with self._claim_lock:
-            if item.cancelled:
-                log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, getattr(item.fn, "__name__", "<fn>"))
+            try:
+                item = self._work_queue.get_nowait()
+            except queue.Empty:
+                return
+            scope = item.scope
+            if item.cancelled or (scope is not None and scope.is_cancelled()):
+                item.cancelled = True
                 if item.blocking and item.event and not item.event.is_set():
                     item.exception = SendCancelled()
                     item.event.set()
-                # A timed-out head used to return here and leave the next item
-                # queued until some later poke. Wake the main thread now.
-                if not self._work_queue.empty():
-                    self._poke_main_thread()
-                return
-            item._claimed = True  # caller's timeout can no longer cancel this execution
+                skipped = True
+            else:
+                item._claimed = True  # caller's timeout can no longer cancel this execution
+                skipped = False
 
+        fn_label = _fn_label(item.fn)
+        if skipped:
+            log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, getattr(item.fn, "__name__", "<fn>"))
+            # A timed-out head used to return here and leave the next item
+            # queued until some later poke. Wake the main thread now.
+            if not self._work_queue.empty():
+                self._poke_main_thread()
+            return
+
+        log.debug("process_queue start fn=%s %s", fn_label, _marshal_thread_tag(self))
         try:
             item.result = item.fn(*item.args, **item.kwargs)
         except BaseException as exc:
             # Store KeyboardInterrupt/SystemExit too so the waiter re-raises
             # instead of seeing result=None while the exception hits VCL.
+            # Non-blocking posts have no waiter, so the exception used to vanish.
             item.exception = exc
+            if not item.blocking:
+                log.exception("QueueExecutor: non-blocking main-thread work failed (%s)", fn_label)
         finally:
             if item.blocking and item.event:
                 item.event.set()

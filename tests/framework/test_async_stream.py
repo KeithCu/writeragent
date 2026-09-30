@@ -131,6 +131,62 @@ def test_run_stream_drain_loop_error_on_error_true_keeps_draining():
     assert "after retry" in applied
 
 
+def test_worker_exception_on_error_true_still_applies_later_chunk():
+    """Wrapper must not queue STREAM_DONE after ERROR when recovery continues."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    toolkit = DummyToolkit()
+    shared: queue.Queue = queue.Queue()
+    applied = []
+    errors = []
+
+    def worker(_worker_q):
+        raise RuntimeError("boom")
+
+    def on_error(e):
+        errors.append(e)
+        shared.put((StreamQueueKind.CHUNK, "after retry"))
+        shared.put((StreamQueueKind.STREAM_DONE, None))
+        return True
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        run_async_worker_with_drain(
+            ctx,
+            worker,
+            lambda text, _is_thinking: applied.append(text),
+            lambda _item: None,
+            on_error,
+            q=shared,
+        )
+
+    assert len(errors) == 1
+    assert "after retry" in applied
+
+
+def test_on_done_internal_type_error_is_not_retried_as_zero_arg():
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    toolkit = DummyToolkit()
+    calls = []
+
+    def worker(worker_q):
+        worker_q.put((StreamQueueKind.STREAM_DONE, {"ok": True}))
+
+    def on_done(*args):
+        calls.append(args)
+        if args:
+            raise TypeError("'NoneType' object is not subscriptable")
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        run_async_worker_with_drain(ctx, worker, None, on_done, lambda _e: None)
+
+    assert len(calls) == 1
+    assert calls[0][0][0] is StreamQueueKind.STREAM_DONE
+    assert calls[0][0][1] == {"ok": True}
+
+
 def test_run_stream_drain_loop_stop_checker_mid_batch():
     q = queue.Queue()
     q.put((StreamQueueKind.CHUNK, "first "))

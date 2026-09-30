@@ -149,6 +149,31 @@ def test_transport_send_stop_during_host_gap_raises_stopped():
     assert err.value.code == "STOPPED"
 
 
+def test_transport_send_applies_later_timeout_on_reused_socket():
+    timeouts = {"n": 30}
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: timeouts["n"])
+    mock_conn = MagicMock()
+    mock_conn.sock = MagicMock()
+
+    def _send() -> None:
+        transport.send(
+            "POST",
+            "/v1/chat/completions",
+            b"{}",
+            headers={"User-Agent": "test"},
+            connection_getter=lambda: mock_conn,
+        )
+
+    _send()
+    assert mock_conn.timeout == 30
+    mock_conn.sock.settimeout.assert_called_with(30)
+
+    timeouts["n"] = 5
+    _send()
+    assert mock_conn.timeout == 5
+    mock_conn.sock.settimeout.assert_called_with(5)
+
+
 def test_transport_send_injects_user_agent():
     from plugin.framework.constants import USER_AGENT
 

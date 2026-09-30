@@ -704,6 +704,56 @@ class TestWorkItemClaimLockTimeoutRace:
         assert executed == [], "Cancelled item must not be executed"
         assert item.event.is_set(), "Event must be set so any waiter unblocks"
 
+    def test_process_queue_skips_item_scope_cancelled_after_dequeue(self):
+        # Stop sets the scope flag, then drains whatever is still queued.
+        # An item already removed is not marked cancelled. process_queue must
+        # still skip it because the scope is cancelled.
+        from plugin.framework.queue_executor import QueueExecutor, SendCancellation, SendCancelled, _WorkItem
+        import uuid
+
+        executed = []
+        scope = SendCancellation()
+        item = _WorkItem(str(uuid.uuid4()), lambda: executed.append(True), (), {}, blocking=True, scope=scope)
+        qe = QueueExecutor()
+        qe._work_queue.put(item)
+        pulled = qe._work_queue.get_nowait()
+        scope.bind_executor(qe)
+        scope.cancel()
+        qe._work_queue.put(pulled)
+        qe.process_queue()
+
+        assert executed == []
+        assert item.event.is_set()
+        assert isinstance(item.exception, SendCancelled)
+
+    def test_process_queue_runs_when_scope_is_active(self):
+        from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem
+        import uuid
+
+        executed = []
+        scope = SendCancellation()
+        item = _WorkItem(str(uuid.uuid4()), lambda: executed.append(True), (), {}, blocking=True, scope=scope)
+        qe = QueueExecutor()
+        qe._work_queue.put(item)
+        qe.process_queue()
+        assert executed == [True]
+
+    def test_process_queue_logs_nonblocking_exception(self):
+        from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+        from unittest.mock import patch
+        import uuid
+
+        def fn():
+            raise RuntimeError("ui failed")
+
+        item = _WorkItem(str(uuid.uuid4()), fn, (), {}, blocking=False)
+        qe = QueueExecutor()
+        qe._work_queue.put(item)
+        with patch("plugin.framework.queue_executor.log") as mock_log:
+            qe.process_queue()
+        assert isinstance(item.exception, RuntimeError)
+        mock_log.exception.assert_called_once()
+
     def test_process_queue_stores_baseexception(self):
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem
         import uuid

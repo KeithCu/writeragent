@@ -31,7 +31,6 @@ from plugin.framework.config_schema import (
     _normalize_configured_endpoint,
 )
 from plugin.framework.errors import ConfigValidationError
-from plugin.framework.url_utils import normalize_endpoint_url
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "plugin" / "framework" / "config_schema.py"
 _FORBIDDEN_IMPORT_ROOTS = frozenset(
@@ -154,6 +153,10 @@ def test_as_bool_and_numeric_parsers() -> None:
     assert as_bool("true") is True
     assert as_bool("off") is False
     assert parse_int_robust("8765,0") == 8765
+    assert parse_int_robust("1,234") == 1234
+    assert parse_int_robust("-1,234") == -1234
+    assert parse_float_robust("1,234") == pytest.approx(1234.0)
+    assert parse_float_robust("1,5") == pytest.approx(1.5)
     assert parse_float_robust("1,5") == pytest.approx(1.5)
 
 
@@ -261,6 +264,11 @@ def test_dataclass_field_type_resolves_int_with_postponed_annotations() -> None:
 
 
 def test_set_endpoint_normalizer() -> None:
+    # Restoring normalize_endpoint_url dropped the selector resolver that
+    # config.py installs at import, so a later test saw the raw "OpenRouter" label.
+    from plugin.framework import config_schema as schema
+
+    previous = schema._endpoint_normalizer
     try:
         assert _normalize_configured_endpoint("localhost", False) == "localhost"
 
@@ -270,4 +278,4 @@ def test_set_endpoint_normalizer() -> None:
         set_endpoint_normalizer(mock_normalizer)
         assert _normalize_configured_endpoint("localhost", False) == "mock_localhost_False"
     finally:
-        set_endpoint_normalizer(normalize_endpoint_url)
+        set_endpoint_normalizer(previous)

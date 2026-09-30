@@ -303,6 +303,10 @@ class SpecializedWorkflowFinished(ToolBase):
     description: str = "Provides a final answer to the given task and exits the specialized toolset mode."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"answer": {"type": "string", "description": "The final answer to the task. Use only standard Python types (numbers, strings, lists), no Numpy types."}}, "required": ["answer"]}
     tier: str = "specialized_control"
+    # Name-based detection treated this as a document write, so a read-only
+    # document_research target rejected the exit tool. It only clears the
+    # active domain. Sibling control tools already set this flag.
+    is_mutation: bool | None = False
     is_final_answer_tool: bool = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

@@ -150,6 +150,14 @@ class LlmHttpTransport:
         if not wait_host_gap(key, stop_checker, status_callback):
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
         conn = connection_getter() if connection_getter is not None else self.get_connection()
+        # What was wrong: timeout was stored only when the socket was opened.
+        # ``LlmClient._timeout`` reads ``request_timeout`` on every call, so a
+        # later change never reached a keep-alive connection.
+        timeout = self._timeout_getter()
+        conn.timeout = timeout
+        sock = getattr(conn, "sock", None)
+        if sock is not None:
+            sock.settimeout(timeout)
         self._pacer.wait_before_send()
         if not any(k.lower() == "user-agent" for k in headers):
             headers = dict(headers)

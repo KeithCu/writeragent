@@ -198,6 +198,14 @@ class TestModuleConfigProxy():
             c.get_config = old_get_config
 
 
+def test_set_ai_endpoint_unresolved_raises(config_svc) -> None:
+    from plugin.framework.errors import ConfigError
+
+    with pytest.raises(ConfigError) as err:
+        config_svc.set("ai.endpoint", "")
+    assert err.value.code == "CONFIG_INVALID_ENDPOINT"
+
+
 def test_dummy_impl_decorator_annotates_cls() -> None:
     """Nested class decorator must annotate `cls` for reportMissingParameterType."""
     from typing import Any, get_type_hints
