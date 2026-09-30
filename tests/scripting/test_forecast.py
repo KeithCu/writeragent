@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from plugin.scripting.forecast import anomaly_detection_time_series, decompose_time_series, forecast_time_series, run_forecast
+from plugin.scripting.venv import forecast as venv_forecast
 
 
 def _require_statsmodels_installed() -> None:
@@ -143,3 +144,56 @@ def test_forecast_time_series_models(model: str):
     result = forecast_time_series(data, periods=3, model=model)
     assert result["status"] == "ok"
     assert result["metrics"]["model"] == model
+
+
+def _indexed(frame: pd.DataFrame) -> pd.Series:
+    work = frame.copy()
+    work["Date"] = pd.to_datetime(work["Date"])
+    return work.set_index("Date")["Value"]
+
+
+def test_daily_series_infers_weekly_season_not_monthly():
+    # 30 daily rows used to become period 12 because n >= 24.
+    dates = pd.date_range("2024-01-01", periods=30, freq="D")
+    frame = pd.DataFrame({"Date": dates, "Value": [100.0 + (i % 7) for i in range(30)]})
+    assert venv_forecast._infer_seasonal_periods(_indexed(frame), None) == 7
+    assert venv_forecast._infer_seasonal_periods(_indexed(frame), 12) == 12
+    result = forecast_time_series(frame, periods=2, model="auto")
+    assert result["status"] == "ok"
+    assert result["metrics"].get("seasonal_periods", 7) == 7
+
+
+def test_weekly_series_stays_trend_only():
+    # 30 weeks is not two years, so a seasonal model must not run.
+    dates = pd.date_range("2024-01-07", periods=30, freq="W")
+    frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(30)]})
+    assert venv_forecast._infer_seasonal_periods(_indexed(frame), None) is None
+    result = forecast_time_series(frame, periods=3, model="auto")
+    assert result["status"] == "ok"
+    assert result["metrics"]["model"] != "holt_winters"
+    assert result["metrics"].get("seasonal_periods") != 12
+    assert any("not enough cycles" in flag for flag in result["flags"])
+
+
+def test_monthly_series_infers_annual_season():
+    frame = _seasonal_series(36)
+    assert venv_forecast._infer_seasonal_periods(_indexed(frame), None) == 12
+
+
+def test_weekday_forecast_skips_weekends():
+    dates = pd.bdate_range("2024-01-02", periods=60)
+    frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(60)]})
+    assert venv_forecast._infer_seasonal_periods(_indexed(frame), None) == 5
+    result = forecast_time_series(frame, periods=5, model="moving_average")
+    assert result["status"] == "ok"
+    assert result["metrics"]["freq"] == "B"
+    for row in result["tables"][0]["rows"]:
+        assert pd.Timestamp(row[0]).dayofweek < 5
+
+
+def test_duplicate_dates_are_aggregated():
+    rows = [{"Date": f"2024-01-{day:02d}", "Value": float(day)} for day in range(1, 10)]
+    rows.append({"Date": "2024-01-01", "Value": 100.0})
+    result = forecast_time_series(pd.DataFrame(rows), periods=2, model="moving_average")
+    assert result["status"] == "ok"
+    assert any("Aggregated 1 duplicate" in flag for flag in result["flags"])

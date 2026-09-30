@@ -257,8 +257,8 @@ These are the primary replacements: stop reimplementing what these stacks alread
 | Our helpers | Delegate to |
 |-------------|-------------|
 | `describe_data`, `clean_and_prepare`, `pivot_aggregate`, `group_summary`, `correlation_matrix`, `compare_periods` | **pandas**: `describe()`, `pivot_table()`, `groupby().agg()`, `corr()`, cleaning |
-| `run_regression` | **statsmodels** OLS |
-| `cluster_numeric` | **sklearn** KMeans |
+| `run_regression` | **statsmodels** OLS (coefficients, std error, p-value, interval) |
+| `cluster_numeric` | **sklearn** KMeans on standardized columns |
 | `detect_outliers` (IQR / z-score paths) | **pandas** / **scipy.stats** vectorized patterns |
 
 Prefer calling library APIs directly; copy snippets only when there is no stable package API.
@@ -386,8 +386,8 @@ Settings → Python **Test** reports **Data Analysis / EDA Libraries** and sugge
 | `group_summary` | Group-by aggregates |
 | `compare_periods` | YoY/QoQ/MoM via resample + pct_change |
 | `correlation_matrix` | Top correlated pairs |
-| `run_regression` | **statsmodels** OLS |
-| `cluster_numeric` | sklearn KMeans centroids |
+| `run_regression` | **statsmodels** OLS (coefficients plus std error, p-value, interval) |
+| `cluster_numeric` | sklearn KMeans on standardized columns, plus a row-label table |
 | `monte_carlo` | **pandas-montecarlo** resampling (`params.sims`, `params.bust`, `params.goal`) |
 
 *WriterAgent keeps coercion + result shaping; numeric work delegates to the libraries above. See [External code sources](#external-code-sources--planned-foss-replacements).*

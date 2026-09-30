@@ -36,7 +36,7 @@ _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "clean_and_prepare": {},
     "pivot_aggregate": {"index": "Category", "values": "Amount"},
     "group_summary": {"by": "Region", "metrics": ["Sales"]},
-    "compare_periods": {"date_col": "Date", "value_col": "Amount"},
+    "compare_periods": {"date_col": "Date", "value_col": "Amount", "agg": "sum"},
     "correlation_matrix": {},
     "run_regression": {"target": "Y", "features": ["X1", "X2"]},
     "cluster_numeric": {},
@@ -53,10 +53,10 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "clean_and_prepare": "Light dedupe and imputation",
     "pivot_aggregate": "Pivot table aggregate",
     "group_summary": "Group-by aggregates",
-    "compare_periods": "Period-over-period change (YoY/QoQ/MoM)",
+    "compare_periods": "Period-over-period change (YoY/QoQ/MoM); agg is sum, mean, or last",
     "correlation_matrix": "Pairwise correlations and top pairs",
-    "run_regression": "OLS linear regression (R² and coefficients)",
-    "cluster_numeric": "KMeans clustering on numeric columns",
+    "run_regression": "OLS linear regression (coefficients, standard errors, p-values, intervals)",
+    "cluster_numeric": "KMeans on standardized numeric columns, with a row-to-cluster table",
     "monte_carlo": "Resampling simulation on a numeric series",
 }
 

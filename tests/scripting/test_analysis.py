@@ -233,6 +233,23 @@ def test_compare_periods_yoy():
     result = analysis.compare_periods(DATE_GRID, date_col="Date", value_col="Revenue", period="Y")
     assert result["status"] == "ok"
     assert "change" in result["tables"][0]["columns"]
+    assert result["metrics"]["agg"] == "sum"
+    revenue = [row[1] for row in result["tables"][0]["rows"]]
+    assert 250 in revenue or 250.0 in revenue
+
+
+def test_compare_periods_mean_does_not_sum_prices():
+    result = analysis.compare_periods(DATE_GRID, date_col="Date", value_col="Revenue", period="Y", agg="mean")
+    assert result["status"] == "ok"
+    assert result["metrics"]["agg"] == "mean"
+    revenue = [row[1] for row in result["tables"][0]["rows"]]
+    assert 125 in revenue or 125.0 in revenue
+
+
+def test_compare_periods_rejects_unknown_agg():
+    result = analysis.compare_periods(DATE_GRID, date_col="Date", value_col="Revenue", agg="median")
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAM"
 
 
 def test_correlation_matrix():
@@ -251,6 +268,7 @@ def test_run_regression_linear():
     result = analysis.run_regression(grid, target="y", features=["x"])
     assert result["status"] == "ok"
     assert result["metrics"]["r_squared"] == pytest.approx(1.0, abs=1e-4)
+    assert result["tables"][0]["columns"] == ["term", "coefficient", "std_err", "p_value", "ci_low", "ci_high"]
 
 
 def test_run_regression_missing_statsmodels(monkeypatch):
@@ -275,6 +293,51 @@ def test_cluster_numeric():
     result = analysis.cluster_numeric(grid, n_clusters=2)
     assert result["status"] == "ok"
     assert result["metrics"]["n_clusters"] == 2
+    assert result["metrics"]["scale"] is True
+    names = [table["name"] for table in result["tables"]]
+    assert names == ["centroids", "labels"]
+
+
+def test_cluster_numeric_scaling_follows_the_small_column():
+    # The noise column spans 0..1000. Unscaled KMeans follows that column and
+    # mixes the two groups. Standardization keeps each group together.
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    n = 16
+    signal = [0.0] * n + [10.0] * n
+    noise = rng.uniform(0, 1000, size=2 * n)
+    grid = [["signal", "noise"], *[[s, float(v)] for s, v in zip(signal, noise)]]
+    result = analysis.cluster_numeric(grid, n_clusters=2)
+    assert result["status"] == "ok"
+    labels = next(table for table in result["tables"] if table["name"] == "labels")
+    clusters = [row[1] for row in labels["rows"]]
+    assert len(set(clusters[:n])) == 1
+    assert len(set(clusters[n:])) == 1
+    assert clusters[0] != clusters[n]
+    centroids = next(table for table in result["tables"] if table["name"] == "centroids")
+    signal_centers = [row[1] for row in centroids["rows"]]
+    assert min(signal_centers) < 2
+    assert max(signal_centers) > 8
+    assert "silhouette" in result["metrics"]
+
+
+def test_clean_and_prepare_keeps_rows_past_the_old_50_cap():
+    from plugin.scripting.calc_functions_common import ANALYSIS_DATA_TABLE_ROWS
+
+    header = ["x"]
+    result = analysis.clean_and_prepare([header, *[[i] for i in range(120)]])
+    table = result["tables"][0]
+    assert table["total_rows"] == 120
+    assert len(table["rows"]) == 120
+    assert table["truncated"] is False
+
+    extra = ANALYSIS_DATA_TABLE_ROWS + 10
+    result = analysis.clean_and_prepare([header, *[[i] for i in range(extra)]])
+    table = result["tables"][0]
+    assert table["truncated"] is True
+    assert len(table["rows"]) == ANALYSIS_DATA_TABLE_ROWS
+    assert table["total_rows"] == extra
 
 
 def test_monte_carlo_resample_metrics():

@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from plugin.scripting.calc_functions_common import (
+    ANALYSIS_DATA_TABLE_ROWS as DATA_TABLE_ROWS,
     FORECAST_HELPER_NAMES as HELPER_NAMES,
 )
 from plugin.scripting.venv.coerce import (
@@ -80,6 +81,14 @@ def _prepare_time_series(
     if work.empty:
         return None, None, _error_result("INSUFFICIENT_DATA", "No valid date/value rows after coercion", helper=helper)
 
+    # STL and Holt-Winters require a unique index. Two sheet rows on the same
+    # day used to be left as-is and then either error or distort the season.
+    n_before = len(work)
+    work = work.groupby(date_col, as_index=False, sort=True)[value_col].mean()
+    collapsed = n_before - len(work)
+    if collapsed:
+        coerced.metadata["duplicate_dates_collapsed"] = int(collapsed)
+
     series = work.set_index(date_col)[value_col]
     if not series.index.is_monotonic_increasing:
         series = series.sort_index()
@@ -92,15 +101,148 @@ def _prepare_time_series(
     return coerced, series, None
 
 
-def _infer_seasonal_periods(series: Any, seasonal_periods: int | None) -> int | None:
-    if seasonal_periods is not None and seasonal_periods > 1:
-        return int(seasonal_periods)
-    n = len(series)
-    if n >= 24:
-        return 12
-    if n >= 14:
+# One seasonal cycle for a regular calendar. Annual and sub-hour series have
+# no cycle we can safely guess, so they stay trend-only unless the caller
+# passes a period.
+_SEASON_BY_FREQ_BASE: dict[str, int] = {
+    "D": 7,
+    "C": 7,
+    "B": 5,
+    "W": 52,
+    "M": 12,
+    "ME": 12,
+    "MS": 12,
+    "BM": 12,
+    "BMS": 12,
+    "BME": 12,
+    "Q": 4,
+    "QE": 4,
+    "QS": 4,
+    "BQ": 4,
+    "BQS": 4,
+    "H": 24,
+    "BH": 24,
+}
+
+
+def _freq_base(freq: str) -> str:
+    return str(freq).split("-", 1)[0].upper()
+
+
+def _weekday_daily(series: Any, step: Any) -> bool:
+    """True when the typical gap is one day and the index has no weekend."""
+    import pandas as pd
+
+    if not isinstance(step, pd.Timedelta):
+        return False
+    days = float(step / pd.Timedelta(days=1))
+    if not 0.5 <= days <= 1.5:
+        return False
+    weekdays = {int(day) for day in series.index.dayofweek}
+    return bool(weekdays) and weekdays.isdisjoint({5, 6})
+
+
+def _period_from_gaps(series: Any) -> int | None:
+    """Guess a cycle when ``infer_freq`` fails (weekend gaps, short spans)."""
+    import pandas as pd
+
+    deltas = series.index.to_series().diff().dropna()
+    if deltas.empty:
+        return None
+    step = deltas.median()
+    if not isinstance(step, pd.Timedelta):
+        return None
+    days = float(step / pd.Timedelta(days=1))
+    if _weekday_daily(series, step):
+        return 5
+    if 0.5 <= days <= 1.5:
         return 7
+    if 6 <= days <= 8:
+        return 52
+    if 27 <= days <= 32:
+        return 12
+    if 85 <= days <= 95:
+        return 4
     return None
+
+
+def _candidate_seasonal_period(series: Any) -> int | None:
+    import pandas as pd
+
+    freq = pd.infer_freq(series.index)
+    if freq is not None:
+        mapped = _SEASON_BY_FREQ_BASE.get(_freq_base(freq))
+        if mapped is not None:
+            return mapped
+        # Known but non-seasonal (yearly, minutes): do not fall through to a
+        # gap guess that might invent a cycle.
+        return None
+    return _period_from_gaps(series)
+
+
+def _infer_seasonal_periods(series: Any, seasonal_periods: int | None) -> int | None:
+    """Season length from the dates, or the caller's explicit period.
+
+    The previous rule used the row count alone (``n >= 24`` → 12, ``n >= 14``
+    → 7). A 30-row daily sheet was fit as a 12-day season, and future dates
+    were still daily because those used ``infer_freq`` separately. An explicit
+    period still wins. An inferred period is used only when the series covers
+    at least two full cycles; otherwise the caller stays trend-only.
+    """
+    if seasonal_periods is not None and int(seasonal_periods) > 1:
+        return int(seasonal_periods)
+    candidate = _candidate_seasonal_period(series)
+    if candidate is None:
+        return None
+    if len(series) < candidate * _MIN_DECOMPOSE_CYCLES:
+        return None
+    return candidate
+
+
+def _seasonality_skip_reason(series: Any) -> str:
+    candidate = _candidate_seasonal_period(series)
+    if candidate is None:
+        return "could not infer a seasonal period from the dates; used trend-only"
+    need = candidate * _MIN_DECOMPOSE_CYCLES
+    return (
+        f"not enough cycles for a seasonal model "
+        f"(need {need} observations for period {candidate}); used trend-only"
+    )
+
+
+def _duplicate_date_flags(coerced: CoerceResult | None) -> list[str]:
+    if coerced is None:
+        return []
+    collapsed = coerced.metadata.get("duplicate_dates_collapsed")
+    if not collapsed:
+        return []
+    return [f"Aggregated {int(collapsed)} duplicate date rows by mean"]
+
+
+def _future_index(series: Any, periods: int) -> tuple[Any, str]:
+    """Dates after the last observation, and the frequency label used.
+
+    Weekday-only sheets often have no inferred frequency (the Friday–Monday
+    gap breaks ``infer_freq``). The median gap is still one day, which used
+    to emit Saturday and Sunday forecast dates.
+    """
+    import pandas as pd
+
+    last_date = series.index[-1]
+    freq = pd.infer_freq(series.index)
+    if freq is not None:
+        step = pd.tseries.frequencies.to_offset(freq)
+        label = str(freq)
+    else:
+        deltas = series.index.to_series().diff().dropna()
+        step = deltas.median() if not deltas.empty else pd.Timedelta(days=30)
+        if _weekday_daily(series, step):
+            step = pd.tseries.frequencies.to_offset("B")
+            label = "B"
+        else:
+            label = "median_step"
+    future = pd.date_range(start=last_date + step, periods=periods, freq=step)
+    return future, label
 
 
 def _forecast_moving_average(series: Any, *, periods: int) -> tuple[Any, str, dict[str, Any]]:
@@ -108,16 +250,15 @@ def _forecast_moving_average(series: Any, *, periods: int) -> tuple[Any, str, di
 
     window = max(2, min(12, len(series) // 3))
     last_ma = float(series.rolling(window).mean().iloc[-1])
-    last_date = series.index[-1]
-    freq = pd.infer_freq(series.index)
-    if freq is None:
-        deltas = series.index.to_series().diff().dropna()
-        step = deltas.median() if not deltas.empty else pd.Timedelta(days=30)
-    else:
-        step = pd.tseries.frequencies.to_offset(freq)
-    future_dates = pd.date_range(start=last_date + step, periods=periods, freq=step)
+    future_dates, freq_label = _future_index(series, periods)
     forecast_df = pd.DataFrame({"date": future_dates, "forecast": [last_ma] * periods})
-    metrics = {"model": "moving_average", "periods": periods, "n_obs": int(len(series)), "window": window}
+    metrics = {
+        "model": "moving_average",
+        "periods": periods,
+        "n_obs": int(len(series)),
+        "window": window,
+        "freq": freq_label,
+    }
     return forecast_df, "moving_average", metrics
 
 
@@ -133,14 +274,7 @@ def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int) 
     )
     fit = model.fit(optimized=True)
     forecast_vals = fit.forecast(periods)
-    last_date = series.index[-1]
-    freq = pd.infer_freq(series.index)
-    if freq is None:
-        deltas = series.index.to_series().diff().dropna()
-        step = deltas.median() if not deltas.empty else pd.Timedelta(days=30)
-    else:
-        step = pd.tseries.frequencies.to_offset(freq)
-    future_dates = pd.date_range(start=last_date + step, periods=periods, freq=step)
+    future_dates, freq_label = _future_index(series, periods)
 
     rows: list[dict[str, Any]] = []
     flags: list[str] = []
@@ -168,6 +302,7 @@ def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int) 
         "periods": periods,
         "n_obs": int(len(series)),
         "seasonal_periods": seasonal_periods,
+        "freq": freq_label,
     }
     if hasattr(fit, "aic"):
         metrics["aic"] = float(fit.aic)
@@ -185,14 +320,7 @@ def _forecast_arima(series: Any, *, periods: int) -> tuple[Any, str, dict[str, A
     pred = fit.get_forecast(steps=periods)
     forecast_vals = pred.predicted_mean
     conf = pred.conf_int()
-    last_date = series.index[-1]
-    freq = pd.infer_freq(series.index)
-    if freq is None:
-        deltas = series.index.to_series().diff().dropna()
-        step = deltas.median() if not deltas.empty else pd.Timedelta(days=30)
-    else:
-        step = pd.tseries.frequencies.to_offset(freq)
-    future_dates = pd.date_range(start=last_date + step, periods=periods, freq=step)
+    future_dates, freq_label = _future_index(series, periods)
 
     rows = []
     for idx, dt in enumerate(future_dates):
@@ -202,7 +330,13 @@ def _forecast_arima(series: Any, *, periods: int) -> tuple[Any, str, dict[str, A
             row["upper"] = float(conf.iloc[idx, 1])
         rows.append(row)
     forecast_df = pd.DataFrame(rows)
-    metrics: dict[str, Any] = {"model": "arima", "periods": periods, "n_obs": int(len(series)), "order": "(1,1,1)"}
+    metrics: dict[str, Any] = {
+        "model": "arima",
+        "periods": periods,
+        "n_obs": int(len(series)),
+        "order": "(1,1,1)",
+        "freq": freq_label,
+    }
     if hasattr(fit, "aic"):
         metrics["aic"] = float(fit.aic)
     return forecast_df, "arima", metrics, []
@@ -238,7 +372,7 @@ def forecast_time_series(
 
     periods = max(1, int(periods))
     model_name = str(model or "auto").strip().lower()
-    flags: list[str] = []
+    flags: list[str] = _duplicate_date_flags(coerced)
 
     if model_name == "moving_average":
         forecast_df, used_model, metrics = _forecast_moving_average(series, periods=periods)
@@ -250,7 +384,10 @@ def forecast_time_series(
             else:
                 return _missing_package_error(helper, "statsmodels")
         else:
+            explicit_season = seasonal_periods is not None and int(seasonal_periods) > 1
             season = _infer_seasonal_periods(series, seasonal_periods)
+            if season is None and model_name == "auto" and not explicit_season:
+                flags.append(_seasonality_skip_reason(series))
             try:
                 if model_name in ("auto", "holt_winters") and season is not None and len(series) >= season * _MIN_DECOMPOSE_CYCLES:
                     forecast_df, used_model, metrics, hw_flags = _forecast_holt_winters(series, periods=periods, seasonal_periods=season)
@@ -326,7 +463,7 @@ def decompose_time_series(
     if season is None or season < 2:
         return _error_result(
             "INSUFFICIENT_DATA",
-            "decompose_time_series requires period or enough data to infer seasonality (>= 24 points for monthly=12)",
+            "decompose_time_series needs an explicit period, or a date frequency with at least two full seasonal cycles",
             helper=helper,
         )
     if len(series) < season * _MIN_DECOMPOSE_CYCLES:
@@ -352,13 +489,19 @@ def decompose_time_series(
             "resid": result.resid,
         }
     )
-    table = _table_from_df(decomp_df, name="decomposition")
+    table = _table_from_df(decomp_df, name="decomposition", max_rows=DATA_TABLE_ROWS)
     metrics = {
         "model": decomp_model,
         "period": season,
         "n_obs": int(len(series)),
     }
-    return _ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata if coerced else {})
+    return _ok_result(
+        helper,
+        metrics=metrics,
+        tables=[table],
+        flags=_duplicate_date_flags(coerced),
+        metadata=coerced.metadata if coerced else {},
+    )
 
 
 def _robust_z_scores(values: Any) -> Any:
@@ -418,7 +561,7 @@ def anomaly_detection_time_series(
     if season is None or season < 2:
         return _error_result(
             "INSUFFICIENT_DATA",
-            "anomaly_detection_time_series requires period or enough data to infer seasonality (>= 24 points for monthly=12)",
+            "anomaly_detection_time_series needs an explicit period, or a date frequency with at least two full seasonal cycles",
             helper=helper,
         )
     if len(series) < season * _MIN_DECOMPOSE_CYCLES:
@@ -461,7 +604,13 @@ def anomaly_detection_time_series(
         "method": method_name,
         "n_obs": int(len(series)),
     }
-    return _ok_result(helper, metrics=metrics, tables=tables, metadata=coerced.metadata if coerced else {})
+    return _ok_result(
+        helper,
+        metrics=metrics,
+        tables=tables,
+        flags=_duplicate_date_flags(coerced),
+        metadata=coerced.metadata if coerced else {},
+    )
 
 
 def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:

@@ -24,6 +24,7 @@ from plugin.scripting.venv.coerce import (
 from plugin.scripting.calc_functions_common import (
     ANALYSIS_HELPER_NAMES as HELPER_NAMES,
     ANALYSIS_MAX_TABLE_ROWS as MAX_TABLE_ROWS,
+    ANALYSIS_DATA_TABLE_ROWS as DATA_TABLE_ROWS,
     ANALYSIS_MAX_COLS as MAX_COLS,
 )
 
@@ -409,7 +410,7 @@ def clean_and_prepare(
                 df[col] = series.fillna(fill_value)
                 actions.append(f"Filled categorical column {col} with {fill_categorical}")
 
-    table = _table_from_df(df, name="cleaned_data")
+    table = _table_from_df(df, name="cleaned_data", max_rows=DATA_TABLE_ROWS)
     result = _ok_result(
         "clean_and_prepare",
         metrics={"row_count": int(len(df)), "col_count": int(len(df.columns))},
@@ -439,7 +440,7 @@ def pivot_aggregate(
     except Exception as exc:
         return _error_result("PIVOT_FAILED", str(exc), helper="pivot_aggregate")
     flat = pivoted.reset_index()
-    table = _table_from_df(flat, name="pivot")
+    table = _table_from_df(flat, name="pivot", max_rows=DATA_TABLE_ROWS)
     return _ok_result(
         "pivot_aggregate",
         metrics={"row_count": int(len(flat)), "col_count": int(len(flat.columns))},
@@ -466,7 +467,7 @@ def group_summary(
     if missing:
         return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper="group_summary")
     grouped = df.groupby(by)[metrics].agg(aggfunc).reset_index()
-    table = _table_from_df(grouped, name="group_summary")
+    table = _table_from_df(grouped, name="group_summary", max_rows=DATA_TABLE_ROWS)
     return _ok_result(
         "group_summary",
         metrics={"group_count": int(len(grouped))},
@@ -482,28 +483,36 @@ def compare_periods(
     value_col: str,
     period: str = "Y",
     calc: str = "pct_change",
+    agg: str = "sum",
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
-    """YoY / QoQ style period-over-period change."""
+    """YoY / QoQ style period-over-period change.
+
+    ``agg`` defaults to ``sum`` (revenue). A price or a rate needs ``mean`` or
+    ``last`` — summing those was a silent wrong answer.
+    """
     import pandas as pd
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df.copy()
     if date_col not in df.columns or value_col not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Need columns {date_col!r} and {value_col!r}", helper="compare_periods")
+    agg_name = str(agg or "sum").strip().lower()
+    if agg_name not in ("sum", "mean", "last"):
+        return _error_result("INVALID_PARAM", f"agg must be sum, mean, or last, got {agg_name!r}", helper="compare_periods")
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
     df = df.dropna(subset=[date_col, value_col])
     freq = {"Y": "YE", "Q": "QE", "M": "ME"}.get(period.upper(), period)
-    grouped = df.set_index(date_col).sort_index()[value_col].resample(freq).sum().reset_index()
+    grouped = df.set_index(date_col).sort_index()[value_col].resample(freq).agg(agg_name).reset_index()
     if calc == "pct_change":
         grouped["change"] = grouped[value_col].pct_change()
     else:
         grouped["change"] = grouped[value_col].diff()
-    table = _table_from_df(grouped, name="period_comparison")
+    table = _table_from_df(grouped, name="period_comparison", max_rows=DATA_TABLE_ROWS)
     return _ok_result(
         "compare_periods",
-        metrics={"periods": int(len(grouped)), "period": period, "calc": calc},
+        metrics={"periods": int(len(grouped)), "period": period, "calc": calc, "agg": agg_name},
         tables=[table],
         metadata=coerced.metadata,
     )
@@ -587,8 +596,30 @@ def run_regression(
 
     design = sm.add_constant(x) if add_constant else x
     model = sm.OLS(y, design).fit()
-    names = (["const"] if add_constant else []) + feature_cols
-    coef_rows = [[name, round(float(coef), 6)] for name, coef in zip(names, model.params)]
+    # The fit already has uncertainty. A coefficient alone reads as exact.
+    ci = model.conf_int()
+
+    def _round_stat(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if number != number:  # NaN when the residual variance is zero
+            return None
+        return round(number, 6)
+
+    coef_rows = []
+    for name in model.params.index:
+        coef_rows.append(
+            [
+                str(name),
+                _round_stat(model.params[name]),
+                _round_stat(model.bse[name]),
+                _round_stat(model.pvalues[name]),
+                _round_stat(ci.loc[name].iloc[0]),
+                _round_stat(ci.loc[name].iloc[1]),
+            ]
+        )
     metrics = {
         "r_squared": round(float(model.rsquared), 6),
         "adj_r_squared": round(float(model.rsquared_adj), 6),
@@ -598,7 +629,7 @@ def run_regression(
 
     coef_table = {
         "name": "coefficients",
-        "columns": ["term", "coefficient"],
+        "columns": ["term", "coefficient", "std_err", "p_value", "ci_low", "ci_high"],
         "rows": coef_rows,
         "truncated": False,
         "total_rows": len(coef_rows),
@@ -617,11 +648,18 @@ def cluster_numeric(
     columns: list[str] | None = None,
     n_clusters: int = 3,
     method: str = "kmeans",
+    scale: bool = True,
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
-    """Cluster numeric columns with sklearn KMeans."""
+    """Cluster numeric columns with sklearn KMeans.
+
+    Unscaled KMeans treats a column in the thousands as more important than a
+    column in the tens, so the clusters follow magnitude instead of shape.
+    ``scale=True`` standardizes first and reports centroids in the original units.
+    """
+    import pandas as pd
     from sklearn.cluster import KMeans
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
@@ -641,14 +679,28 @@ def cluster_numeric(
     if method != "kmeans":
         return _error_result("UNSUPPORTED_METHOD", f"Unsupported method {method!r}", helper="cluster_numeric")
 
-    model = KMeans(n_clusters=n_clusters, random_state=42, n_init="auto")
-    labels = model.fit_predict(sample)
+    values = sample.to_numpy(dtype=float)
+    scaler = None
+    fitted = values
+    if scale and values.shape[0] >= 2:
+        from sklearn.preprocessing import StandardScaler
+
+        scaler = StandardScaler()
+        fitted = scaler.fit_transform(values)
+
+    # n_init="auto" is a single k-means++ start on current sklearn, which can
+    # lock onto a high-range column even after scaling. A few restarts find
+    # the standardized groups.
+    model = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    labels = model.fit_predict(fitted)
     counts: dict[int, int] = {}
     for label in labels:
         counts[int(label)] = counts.get(int(label), 0) + 1
 
-    centroids = model.cluster_centers_
-    centroid_rows = [[int(i), *[round(float(v), 6) for v in row]] for i, row in enumerate(centroids)]
+    centers = model.cluster_centers_
+    if scaler is not None:
+        centers = scaler.inverse_transform(centers)
+    centroid_rows = [[int(i), *[round(float(v), 6) for v in row]] for i, row in enumerate(centers)]
     centroid_table = {
         "name": "centroids",
         "columns": ["cluster", *numeric_cols],
@@ -656,10 +708,27 @@ def cluster_numeric(
         "truncated": False,
         "total_rows": len(centroid_rows),
     }
+    labels_df = pd.DataFrame({"row": [str(idx) for idx in sample.index], "cluster": [int(label) for label in labels]})
+    labels_table = _table_from_df(labels_df, name="labels", max_rows=DATA_TABLE_ROWS)
+
+    metrics: dict[str, Any] = {
+        "n_clusters": n_clusters,
+        "cluster_sizes": counts,
+        "method": method,
+        "scale": bool(scale),
+    }
+    n_labels = len(counts)
+    if n_labels >= 2 and len(labels) > n_labels:
+        try:
+            from sklearn.metrics import silhouette_score
+
+            metrics["silhouette"] = round(float(silhouette_score(fitted, labels)), 6)
+        except Exception:
+            log.exception("silhouette_score failed")
     return _ok_result(
         "cluster_numeric",
-        metrics={"n_clusters": n_clusters, "cluster_sizes": counts, "method": method},
-        tables=[centroid_table],
+        metrics=metrics,
+        tables=[centroid_table, labels_table],
         metadata=coerced.metadata,
     )
 
@@ -776,7 +845,15 @@ def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: b
     if name == "compare_periods":
         if not params.get("date_col") or not params.get("value_col"):
             return _error_result("MISSING_PARAM", "compare_periods requires params.date_col and params.value_col", helper=name)
-        return compare_periods(data, date_col=params["date_col"], value_col=params["value_col"], period=params.get("period", "Y"), calc=params.get("calc", "pct_change"), **common)
+        return compare_periods(
+            data,
+            date_col=params["date_col"],
+            value_col=params["value_col"],
+            period=params.get("period", "Y"),
+            calc=params.get("calc", "pct_change"),
+            agg=params.get("agg", "sum"),
+            **common,
+        )
     if name == "correlation_matrix":
         return correlation_matrix(data, method=params.get("method", "pearson"), min_abs=params.get("min_abs", 0.0), **common)
     if name == "run_regression":
@@ -784,7 +861,14 @@ def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: b
             return _error_result("MISSING_PARAM", "run_regression requires params.target", helper=name)
         return run_regression(data, target=params["target"], features=params.get("features"), add_constant=params.get("add_constant", True), **common)
     if name == "cluster_numeric":
-        return cluster_numeric(data, columns=params.get("columns"), n_clusters=params.get("n_clusters", 3), method=params.get("method", "kmeans"), **common)
+        return cluster_numeric(
+            data,
+            columns=params.get("columns"),
+            n_clusters=params.get("n_clusters", 3),
+            method=params.get("method", "kmeans"),
+            scale=params.get("scale", True),
+            **common,
+        )
     if name == "monte_carlo":
         return monte_carlo(data, sims=params.get("sims", 100), bust=params.get("bust", -1.0), goal=params.get("goal", 0.0), **common)
     return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
