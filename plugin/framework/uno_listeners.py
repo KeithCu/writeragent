@@ -130,7 +130,12 @@ def _catch_and_log(func: Any) -> Any:
             log.exception(f"{self.__class__.__name__} TypeError in {func.__name__}")
         except ValueError:
             log.exception(f"{self.__class__.__name__} ValueError in {func.__name__}")
-        except Exception:
+        except Exception as exc:
+            # CloseVetoException must reach the bridge or the close cannot be vetoed.
+            # DisposedException is a UNO signal, not a Python bug to swallow.
+            name = type(exc).__name__
+            if "CloseVetoException" in name or "DisposedException" in name:
+                raise
             # Base UNO listeners must not leak arbitrary Python exceptions into the C++ bridge.
             log.exception(f"{self.__class__.__name__} unhandled exception in {func.__name__}")
 

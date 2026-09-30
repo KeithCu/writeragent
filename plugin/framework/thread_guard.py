@@ -321,8 +321,10 @@ class _UnoThreadGuardProxy:
         return self._target == _unwrap_uno(other)
 
     def __hash__(self) -> int:
-        # Hash the unwrapped target with no main-thread assert so set/dict
-        # membership works off-thread. __eq__ *does* assert (it touches UNO).
+        # __eq__ asserts because it compares UNO objects. Hash must use the
+        # same check: an off-thread set lookup calls hash, then __eq__, and
+        # used to raise from __eq__ after hash succeeded.
+        assert_main_thread("UNO hash")
         return hash(self._target)
 
     # Expose the real target for the (rare) cases that need the concrete UNO object under the guard

@@ -462,6 +462,9 @@ class AsyncProcess:
 
     def start(self) -> None:
         """Starts the process and its monitoring threads."""
+        if self.process is not None and self.process.poll() is None:
+            # A second start() used to leak the previous Popen.
+            self.terminate()
         try:
             self.process = subprocess.Popen(self.args, **self._popen_kwargs)
         except Exception as e:
@@ -474,12 +477,12 @@ class AsyncProcess:
             self._stdout_thread = run_in_background(self._read_stream, self.process.stdout, self.stdout_cb, name=f"asyncproc-out-{self.process.pid}", dedicated=True)
         elif self.process.stdout:
             # Drain it silently to avoid deadlocks
-            run_in_background(self._drain_stream, self.process.stdout, name=f"asyncproc-outdrain-{self.process.pid}", dedicated=True)
+            self._stdout_thread = run_in_background(self._drain_stream, self.process.stdout, name=f"asyncproc-outdrain-{self.process.pid}", dedicated=True)
 
         if self.process.stderr and self.stderr_cb:
             self._stderr_thread = run_in_background(self._read_stream, self.process.stderr, self.stderr_cb, name=f"asyncproc-err-{self.process.pid}", dedicated=True)
         elif self.process.stderr:
-            run_in_background(self._drain_stream, self.process.stderr, name=f"asyncproc-errdrain-{self.process.pid}", dedicated=True)
+            self._stderr_thread = run_in_background(self._drain_stream, self.process.stderr, name=f"asyncproc-errdrain-{self.process.pid}", dedicated=True)
 
         self._wait_thread = run_in_background(self._wait_for_exit, name=f"asyncproc-wait-{self.process.pid}", dedicated=True)
 
@@ -514,8 +517,14 @@ class AsyncProcess:
         if self.process is None:
             return
         rc = self.process.wait()
-        # argv preview for the log line; a str args is the first character.
-        log.debug("Process %s exited with rc=%s", self.args[0] if getattr(self.args, "__len__", lambda: 0)() > 0 else self.args, rc)
+        args = self.args
+        if isinstance(args, str):
+            preview = args
+        elif args:
+            preview = args[0]
+        else:
+            preview = ""
+        log.debug("Process %s exited with rc=%s", preview, rc)
         if self.on_exit_cb:
             try:
                 self.on_exit_cb(rc)
@@ -533,3 +542,6 @@ class AsyncProcess:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait()
+        for handle in (self._stdout_thread, self._stderr_thread, self._wait_thread):
+            if handle is not None:
+                handle.join(timeout=1.0)

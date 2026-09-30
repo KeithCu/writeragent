@@ -77,14 +77,12 @@ def _candidate_windows(ctx: Any = None) -> list[Any]:
     except Exception:
         pass
     try:
-        import uno
-
-        from plugin.framework.uno_context import desktop_create_is_unsafe, get_service_manager
+        from plugin.framework.uno_context import desktop_create_is_unsafe, get_ctx, get_service_manager
 
         if desktop_create_is_unsafe():
             return wins
         if ctx is None:
-            ctx = uno.getComponentContext()
+            ctx = get_ctx()
         sm = get_service_manager(ctx)
         if sm is None:
             return wins
@@ -192,13 +190,12 @@ def probe_toolbar_icon_config_px(ctx: Any = None) -> int | None:
     LO values: 0=auto; positive enums map toward 16/24/32. Best-effort.
     """
     try:
-        import uno
         from com.sun.star.beans import PropertyValue
 
-        from plugin.framework.uno_context import get_service_manager
+        from plugin.framework.uno_context import get_ctx, get_service_manager
 
         if ctx is None:
-            ctx = uno.getComponentContext()
+            ctx = get_ctx()
         # ty rejects ctx.getServiceManager() on Any; use the shared getattr helper.
         sm = get_service_manager(ctx)
         if sm is None:

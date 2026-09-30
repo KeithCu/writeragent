@@ -37,7 +37,7 @@ class TestConfigSync:
         def mock_get_config(key):
             return self.config_data.get(key, '')
 
-        def mock_set_config(key, value):
+        def mock_set_config(key, value, event_key=None):
             self.config_data[key] = value
 
         self.get_patcher = patch('plugin.framework.config.get_config', side_effect=mock_get_config)
@@ -227,10 +227,10 @@ class TestConfigSyncFileIO:
         assert (get_api_key_for_endpoint('http://api.openai.com')) == ('')
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
             assert (f.read()) == (corrupt)
-        set_api_key_for_endpoint('http://api.openai.com', 'sk-recovered')
-        assert (get_api_key_for_endpoint('http://api.openai.com')) == ('sk-recovered')
-        data = self._load_written()
-        assert (data['api_keys_by_endpoint']['http://api.openai.com']) == ('sk-recovered')
+        with pytest.raises(ConfigError):
+            set_api_key_for_endpoint('http://api.openai.com', 'sk-recovered')
+        with open(self.config_path, encoding='utf-8') as f:
+            assert f.read() == corrupt
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
             assert (f.read()) == (corrupt)
 
@@ -485,9 +485,23 @@ class TestConfigSyncFileIO:
             mock_emit.assert_not_called()
         with patch.object(global_event_bus, 'emit') as mock_emit:
             set_config('text_model', 'other')
-            mock_emit.assert_called_once()  # ctx from _emit_config_changed_ctx
+            mock_emit.assert_called_once()
+            assert mock_emit.call_args.args[0] == "config:changed"
+            assert mock_emit.call_args.kwargs["key"] == "text_model"
+            assert mock_emit.call_args.kwargs["value"] == "other"
         data = self._load_written()
         assert (data.get('text_model')) == ('other')
+
+    def test_set_config_does_not_replace_unrepairable_json(self):
+        original = "{ this is not json, but keep me"
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            f.write(original)
+        reset_config_for_tests()
+        with patch("plugin.framework.config._try_repair_config_dict", return_value=None):
+            with pytest.raises(ConfigError):
+                set_config('text_model', 'should-not-wipe')
+        with open(self.config_path, encoding='utf-8') as f:
+            assert f.read() == original
 
     def test_set_config_invalid_numeric_falls_back_to_current_value(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:

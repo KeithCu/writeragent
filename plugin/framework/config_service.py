@@ -29,7 +29,6 @@ from plugin.framework.config import (
     parse_config_json_text,
     _load_config_dict,
     _write_config_file,
-    _emit_config_changed_ctx,
     AI_SIMPLE_FIELDS,
 )
 from plugin.framework.config_schema import WriterAgentConfig
@@ -181,10 +180,8 @@ class ConfigService(ServiceBase):
             # Internal mappings for keys missing from AI_SIMPLE_FIELDS if they map to methods
             if field == "api_key":
                 endpoint = get_current_endpoint()
-                set_api_key_for_endpoint(endpoint, value or "")
-                if value != old_value:
-                    bus = self._events or global_event_bus
-                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=_emit_config_changed_ctx())
+                # set_api_key_for_endpoint emits config:changed. Do not emit again.
+                set_api_key_for_endpoint(endpoint, value or "", event_key=key)
                 return
 
             if field in AI_SIMPLE_FIELDS:
@@ -192,21 +189,17 @@ class ConfigService(ServiceBase):
                     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
                     resolved = endpoint_from_selector_text(str(value))
                     if resolved:
-                        set_config("endpoint", resolved)
+                        set_config("endpoint", resolved, event_key=key)
                 elif field == "image_model":
-                    set_image_model(value or "", update_lru=True)
+                    set_image_model(value or "", update_lru=True, event_key=key)
                 elif field == "text_model":
-                    set_text_model(value or "", update_lru=True)
+                    set_text_model(value or "", update_lru=True, event_key=key)
                 elif field == "stt_model":
                     # Speech tab canonical key. Do not write legacy stt_model.
-                    set_config("audio.stt_model", value)
+                    set_config("audio.stt_model", value, event_key=key)
                 else:
                     # Direct 1:1 mapping to top-level key.
-                    set_config(field, value)
-
-                if value != old_value:
-                    bus = self._events or global_event_bus
-                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=_emit_config_changed_ctx())
+                    set_config(field, value, event_key=key)
                 return
 
         # Test fallback
@@ -233,8 +226,9 @@ class ConfigService(ServiceBase):
 
             ctx = None  # No UNO context in file-based test mode
         else:
+            # set_config emits the one config:changed for this write.
             set_config(key, value)
-            ctx = _emit_config_changed_ctx()
+            return
 
         if value != old_value:
             bus = self._events or global_event_bus

@@ -13,6 +13,8 @@ color tokens via UNO and "System" mode reflects the desktop at the time the
 window was created. This matches the logic previously only in rich_text.py.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any
 

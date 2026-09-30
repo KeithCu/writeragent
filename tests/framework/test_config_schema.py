@@ -245,8 +245,19 @@ def test_dataclass_field_helpers_parameterize_field() -> None:
     """
     from plugin.framework import config_schema as schema
 
-    assert schema._dataclass_field_default.__annotations__["field"] == "dataclasses.Field[Any]"
-    assert schema._dataclass_field_type.__annotations__["field"] == "dataclasses.Field[Any]"
+    # from __future__ import annotations stores the source text, including
+    # the quotes already written on the parameter.
+    assert "dataclasses.Field" in schema._dataclass_field_default.__annotations__["field"]
+    assert "dataclasses.Field" in schema._dataclass_field_type.__annotations__["field"]
+
+
+def test_dataclass_field_type_resolves_int_with_postponed_annotations() -> None:
+    import dataclasses
+
+    from plugin.framework.config_schema import _dataclass_field_type
+
+    field = next(f for f in dataclasses.fields(WriterAgentConfig) if f.name == "chat_max_tokens")
+    assert _dataclass_field_type(field) == "int"
 
 
 def test_set_endpoint_normalizer() -> None:

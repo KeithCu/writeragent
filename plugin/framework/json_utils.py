@@ -21,10 +21,13 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import re
 from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, deal, str_bounded
+
+log = logging.getLogger(__name__)
 
 _LATEX_CLASH_WORDS = [
     # \a (Bell)
@@ -210,7 +213,11 @@ def repair_json(text: str) -> str:
     if UNDER_CROSSHAIR:
         return repaired
 
-    import json_repair
+    try:
+        import json_repair
+    except ImportError:
+        log.warning("json_repair is not installed; leaving JSON unrepaired")
+        return repaired
 
     return str(json_repair.repair_json(repaired))
 
@@ -270,7 +277,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     if strict:
         try:
             parsed = json.loads(raw_text)
-            return parsed if parsed is not None else default
+            return parsed
         except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
             return default
 
@@ -288,14 +295,14 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
 
     try:
         parsed = json.loads(stripped)
-        return parsed if parsed is not None else default
+        return parsed
     except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
         pass
 
     # 2. strict=False attempt (handles bare control characters in non-strict LLM mode)
     try:
         parsed = json.loads(stripped, strict=False)
-        return parsed if parsed is not None else default
+        return parsed
     except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
         pass
 
@@ -305,7 +312,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         # literal_eval handles 'True', 'False', 'None' out of the box.
         # It also handles single quotes and tuple-like syntax.
         parsed = ast.literal_eval(stripped)
-        return parsed if parsed is not None else default
+        return parsed
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         pass
 
@@ -314,8 +321,8 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         repaired = repair_json(stripped)
         if repaired != stripped:
             parsed = json.loads(repaired, strict=False)
-            return parsed if parsed is not None else default
-    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
+            return parsed
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError, ImportError):
         pass
 
     return default

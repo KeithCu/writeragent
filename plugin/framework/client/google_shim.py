@@ -93,9 +93,12 @@ class GoogleShim(OpenAIShim):
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
         out: list[str] = []
         if "error" in response_data:
-            msg = response_data["error"].get("message", "Unknown Google API error")
+            from plugin.framework.errors import NetworkError
+
+            err = response_data["error"]
+            msg = err.get("message", "Unknown Google API error") if isinstance(err, dict) else str(err)
             log.error("Google image generation error: %s", msg)
-            return []
+            raise NetworkError(str(msg), code="HTTP_ERROR")
 
         if "predictions" in response_data:
             preds = response_data.get("predictions", [])

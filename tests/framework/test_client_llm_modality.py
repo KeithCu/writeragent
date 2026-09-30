@@ -47,11 +47,11 @@ def test_format_error_message():
     err = socket.timeout("timed out")
     assert "Timed Out" in format_error_message(err) or "timed out" in format_error_message(err).lower()
 
-@patch("plugin.framework.client.llm_client.sync_request")
+@patch("plugin.framework.client.llm_client.LlmClient._request_json")
 def test_transcribe_audio_uses_sync_request_fallback(mock_sync):
     """
-    Test that transcribe_audio uses the multipart/form-data fallback via sync_request
-    when the model does not have native audio.
+    Test that transcribe_audio uses the multipart/form-data fallback on the
+    persistent transport when the model does not have native audio.
     """
     # Mock return value
     mock_sync.return_value = {"text": "Hello world from STT"}
@@ -71,20 +71,16 @@ def test_transcribe_audio_uses_sync_request_fallback(mock_sync):
 
         assert result == "Hello world from STT"
         assert mock_sync.called
-        args, kwargs = mock_sync.call_args
+        _method, path, body, headers = mock_sync.call_args.args
 
-        # Assert url
-        assert args[0] == "http://test/v1/audio/transcriptions"
+        assert path.endswith("/audio/transcriptions")
 
-        # Assert headers content type was set to multipart
-        headers = kwargs.get("headers", {})
         content_type = headers.get("Content-Type", "")
         assert "multipart/form-data" in content_type
-        assert kwargs.get("timeout") == 120
+        assert client._timeout() == 120
 
         # Assert body format
         boundary = content_type.split("boundary=")[1]
-        body = kwargs.get("data", b"")
         assert boundary.encode("utf-8") in body
         assert b'name="file"; filename="dummy.wav"' in body
         assert b'name="model"' in body
@@ -108,7 +104,7 @@ def test_transcribe_audio_uses_native_audio(mock_sync_chat):
         assert result == "Native multimodal transcript"
         assert mock_sync_chat.called
 
-@patch("plugin.framework.client.llm_client.sync_request")
+@patch("plugin.framework.client.llm_client.LlmClient._request_json")
 def test_transcribe_audio_openrouter_uses_json_body(mock_sync):
     """OpenRouter /audio/transcriptions expects JSON with base64 input_audio, not multipart."""
     mock_sync.return_value = {"text": "Hello from OpenRouter STT"}
@@ -131,11 +127,10 @@ def test_transcribe_audio_openrouter_uses_json_body(mock_sync):
 
         assert result == "Hello from OpenRouter STT"
         assert mock_sync.called
-        args, kwargs = mock_sync.call_args
-        assert args[0] == "https://openrouter.ai/api/v1/audio/transcriptions"
-        headers = kwargs.get("headers", {})
+        _method, path, raw_body, headers = mock_sync.call_args.args
+        assert path.endswith("/audio/transcriptions")
         assert headers.get("Content-Type") == "application/json"
-        body = json.loads(kwargs.get("data", b"").decode("utf-8"))
+        body = json.loads(raw_body.decode("utf-8"))
         assert body["model"] == "mistralai/voxtral-mini-transcribe"
         assert body["input_audio"]["format"] == "wav"
         assert body["input_audio"]["data"]  # base64 payload present

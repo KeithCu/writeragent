@@ -43,32 +43,39 @@ def open_dialog_safely(dialog_func: Callable[..., Any], error_msg: str, *args: A
     except UnoObjectError as e:
         log.warning("UNO error opening dialog: %s", e.message)
     except Exception as e:
+        from plugin.framework.errors import is_disposed_exception
+
+        if is_disposed_exception(e):
+            log.debug("Dialog opening aborted: document disposed")
+            return
         log.exception("%s", error_msg)
-        # Try to use msgbox_with_report if available, otherwise msgbox
+        # error_msg is a caller sentence, not a catalog msgid. Do not pass it through _().
+        detail = f"{error_msg}: {e}"
         try:
             from plugin.chatbot.dialogs import msgbox_with_report
             from plugin.framework.i18n import _
             msgbox_with_report(
                 get_ctx(),
                 _("Error"),
-                _(f"{error_msg}: {str(e)}"),
+                detail,
                 box_type=3,
                 reportable=True,
                 report_title=error_msg,
                 report_extra=str(e),
             )
         except Exception:
+            log.exception("msgbox_with_report failed")
             try:
                 from plugin.chatbot.dialogs import msgbox
                 from plugin.framework.i18n import _
                 msgbox(
                     get_ctx(),
                     _("Error"),
-                    _(f"{error_msg}: {str(e)}"),
+                    detail,
                     box_type=3,
                 )
             except Exception:
-                pass
+                log.exception("msgbox failed")
 
 
 def register_common_handlers() -> None:

@@ -444,12 +444,6 @@ def test_execute_on_main_thread_no_service():
     default_executor._initialized = True
     with patch.object(default_executor, '_get_async_callback') as mock_get:
         mock_get.return_value = None
-
-        def bg_thread():
-            return mt.execute_on_main_thread((lambda x: (x * 2)), 5)
-        t = threading.Thread(target=bg_thread)
-        t.start()
-        t.join()
         with patch('threading.current_thread') as mock_thread, patch('threading.main_thread') as mock_main:
             mock_cur = MagicMock()
             mock_cur.name = 'Thread-1'
@@ -457,8 +451,8 @@ def test_execute_on_main_thread_no_service():
             mock_main_cur.name = 'Thread-2'
             mock_thread.return_value = mock_cur
             mock_main.return_value = mock_main_cur
-            res = mt.execute_on_main_thread((lambda x: (x * 2)), 5)
-            assert (res == 10)
+            with pytest.raises(RuntimeError, match="AsyncCallback unavailable"):
+                mt.execute_on_main_thread((lambda x: (x * 2)), 5)
 
 def test_post_to_main_thread_no_service():
     with patch.object(default_executor, '_get_async_callback') as mock_get:

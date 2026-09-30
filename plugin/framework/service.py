@@ -26,9 +26,12 @@ will confuse shutdown order.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC
 from dataclasses import dataclass
 from typing import Any, Generic, List, Protocol, TypeVar, cast
+
+log = logging.getLogger(__name__)
 
 
 # ── FSM State Markers ─────────────────────────────────────────────
@@ -151,10 +154,14 @@ class ServiceRegistry:
         ``register()`` accepts arbitrary objects, not only ServiceBase, so
         getattr+callable is required (ServiceBase already defines no-op methods).
         """
-        for svc in self._services.values():
+        for name, svc in self._services.items():
             init = getattr(svc, "initialize", None)
             if callable(init):
-                init(ctx)
+                try:
+                    init(ctx)
+                except Exception:
+                    # One service must not skip initialize() on the rest.
+                    log.exception("Service %s failed during initialize", name)
 
     def shutdown_all(self) -> None:
         """Call ``shutdown()`` on every service that supports it.
@@ -166,12 +173,9 @@ class ServiceRegistry:
             if callable(shutdown):
                 try:
                     shutdown()
-                except Exception as e:
-                    # Generic catch is somewhat acceptable during global teardown to ensure other services
-                    # still get their shutdown called, but we must log it so we aren't swallowing shutdown errors silently.
-                    import logging
-
-                    logging.getLogger(__name__).error("Service %s failed during shutdown: %s", name, e)
+                except Exception:
+                    # Keep going so later services still shut down, with a traceback.
+                    log.exception("Service %s failed during shutdown", name)
 
     @property
     def service_names(self) -> list[str]:

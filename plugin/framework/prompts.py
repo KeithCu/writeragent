@@ -29,6 +29,7 @@ Other important prompts (not assembled here):
 - scripts/prompt_optimization/ (Writer eval harness)
 """
 
+import logging
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -921,6 +922,7 @@ def get_peer_messaging_prompt_block(model: Any, ctx: Any) -> str:
             return _build()
         return execute_on_main_thread(_build)
     except Exception:
+        logging.getLogger(__name__).exception("peer messaging prompt block failed")
         return ""
 
 
@@ -949,6 +951,7 @@ def get_peer_inner_choice_block(uno_ctx: Any, doc: Any) -> str:
             return _build()
         return execute_on_main_thread(_build)
     except Exception:
+        logging.getLogger(__name__).exception("peer inner choice prompt block failed")
         return ""
 
 

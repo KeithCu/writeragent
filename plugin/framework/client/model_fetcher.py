@@ -214,13 +214,13 @@ def _store_model_fetch_caches(
     vision_models: list[str] | None = None,
     context_tokens: dict[str, int] | None = None,
 ) -> None:
-    _model_fetch_cache[cache_key] = models
-    _model_fetch_image_cache[cache_key] = image_models if models is not None else None
-    _model_fetch_vision_cache[cache_key] = vision_models if models is not None else None
+    # A failed fetch must not stick for the process lifetime. The next caller retries.
     if models is None:
-        _model_context_cache[cache_key] = None
-    else:
-        _model_context_cache[cache_key] = dict(context_tokens) if context_tokens else {}
+        return
+    _model_fetch_cache[cache_key] = models
+    _model_fetch_image_cache[cache_key] = image_models
+    _model_fetch_vision_cache[cache_key] = vision_models
+    _model_context_cache[cache_key] = dict(context_tokens) if context_tokens else {}
 
 
 def _model_fetch_cache_key(url: str, base: str, api_key_override: str | None = None) -> str:
@@ -263,8 +263,8 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     ``get_api_key_for_endpoint(base)``. Pass ``api_key_override`` (including ``""``)
     to use a key not yet saved to config (e.g. Settings dialog typing order: URL then API key).
 
-    Responses (including failed lookups, stored as None) are cached in `_model_fetch_cache`
-    for the process lifetime so repeated Settings/sidebar use does not re-hit the network.
+    Successful responses are cached in `_model_fetch_cache` for the process
+    lifetime. Failed lookups are not cached, so the next Settings open retries.
     """
     if not endpoint:
         return None
@@ -294,7 +294,6 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     except AuthError as e:
         if api_key:
             log.debug("fetch_available_models skipping %s: %s", url, e)
-            _store_model_fetch_caches(cache_key, None, None, None)
             return None
         log.debug("fetch_available_models unauthenticated for %s: %s", url, e)
         req_headers = {}
@@ -327,7 +326,6 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
             log.warning("fetch_available_models unexpected error for %s: %s", url, type(e).__name__)
     if get_provider_from_endpoint(base) == "zai":
         log.debug("fetch_available_models z.ai failed url=%s", url)
-    _store_model_fetch_caches(cache_key, None, None, None)
     return None
 
 
@@ -365,7 +363,6 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
         except AuthError as e:
             if api_key:
                 log.debug("fetch_available_image_models openrouter skipping %s: %s", url, e)
-                _model_fetch_image_cache[cache_key] = None
                 return None
             log.debug("fetch_available_image_models openrouter unauthenticated for %s: %s", url, e)
             req_headers = {}
@@ -383,7 +380,6 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
                 return image_models
         except Exception as e:
             log.warning("fetch_available_image_models openrouter failed for %s: %s", url, e)
-        _model_fetch_image_cache[cache_key] = None
         return None
 
     all_models = fetch_available_models(endpoint, api_key_override=api_key_override)
@@ -721,7 +717,6 @@ def fetch_together_tts_voices(
     except AuthError as e:
         if api_key:
             log.debug("fetch together voices skipping %s: %s", url, e)
-            _together_voices_fetch_cache[cache_key] = None
             return None
         log.debug("fetch together voices unauthenticated for %s: %s", url, e)
         req_headers = {}
@@ -737,7 +732,6 @@ def fetch_together_tts_voices(
         return found
     except Exception as e:
         log.warning("fetch together voices failed for %s: %s", url, e)
-    _together_voices_fetch_cache[cache_key] = None
     return None
 
 
@@ -975,7 +969,7 @@ def get_image_model() -> str:
     return str(defaults.get("image_model", "")).strip()
 
 
-def set_text_model(val: Any, update_lru: bool = True) -> None:
+def set_text_model(val: Any, update_lru: bool = True, *, event_key: str | None = None) -> None:
     """Set text/chat model and optionally update model_lru for the current endpoint."""
     if val is None:
         return
@@ -987,14 +981,14 @@ def set_text_model(val: Any, update_lru: bool = True) -> None:
     if val_str == current:
         return
 
-    set_config("text_model", val_str)
+    set_config("text_model", val_str, event_key=event_key)
     if update_lru:
         from plugin.chatbot.config_ui_helpers import update_lru_history
 
         update_lru_history(val_str, "model_lru", get_current_endpoint())
 
 
-def set_image_model(val: Any, update_lru: bool = True) -> None:
+def set_image_model(val: Any, update_lru: bool = True, *, event_key: str | None = None) -> None:
     """Set image model and notify listeners."""
     if val is None:
         return
@@ -1006,7 +1000,7 @@ def set_image_model(val: Any, update_lru: bool = True) -> None:
     if val_str == current:
         return
 
-    set_config("image_model", val_str)
+    set_config("image_model", val_str, event_key=event_key)
     if update_lru:
         from plugin.chatbot.config_ui_helpers import update_lru_history
 

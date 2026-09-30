@@ -27,10 +27,13 @@ of truth; ``set_manifest_modules`` rebuilds the derived tables at import.
 """
 
 # crosshair: off
+from __future__ import annotations
+
 import dataclasses
 import logging
 import os
 import textwrap
+import typing
 from typing import Any, Callable, Dict, Iterator
 
 from plugin.framework.deal_shim import UNDER_CROSSHAIR, deal
@@ -545,17 +548,25 @@ def _dataclass_field_default(field: "dataclasses.Field[Any]") -> Any:
 
 
 def _dataclass_field_type(field: "dataclasses.Field[Any]") -> str | None:
-    if field.type is int:
+    # from __future__ import annotations stores field.type as a string.
+    # get_type_hints resolves it so ``is int`` still matches on 3.9 and 3.13.
+    try:
+        resolved = typing.get_type_hints(WriterAgentConfig).get(field.name, field.type)
+    except Exception:
+        resolved = field.type
+    field_type_obj = resolved
+    origin = typing.get_origin(field_type_obj) or field_type_obj
+    if field_type_obj is int:
         return "int"
-    if field.type is float:
+    if field_type_obj is float:
         return "float"
-    if field.type is bool:
+    if field_type_obj is bool:
         return "boolean"
-    if field.type is str:
+    if field_type_obj is str:
         return "string"
-    if field.type is list or isinstance(_dataclass_field_default(field), list):
+    if origin is list or isinstance(_dataclass_field_default(field), list):
         return "list"
-    if field.type is dict or isinstance(_dataclass_field_default(field), dict):
+    if origin is dict or isinstance(_dataclass_field_default(field), dict):
         return "dict"
     return None
 
@@ -823,8 +834,6 @@ def is_known_config_key(key: str) -> bool:
         _resolve_default(key)
     except ConfigError:
         return False
-    except Exception:
-        return False
     return True
 
 
@@ -833,8 +842,6 @@ def is_default_value(key: str, value: Any) -> bool:
     try:
         default_val = _resolve_default(key)
     except ConfigError:
-        return False
-    except Exception:
         return False
     return _is_equal_to_default(key, value, default_val)
 

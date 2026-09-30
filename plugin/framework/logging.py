@@ -117,6 +117,7 @@ def _redact_sensitive_inplace(o: Any) -> None:
 
 
 FLUSH_INTERVAL_SEC = 1.0
+_MAX_DEBUG_LOG_BYTES = 5 * 1024 * 1024
 _debug_log_flush_lock = threading.Lock()
 _debug_log_last_flush = 0.0
 # Import-time binding so tests that patch time.monotonic (e.g. LLM pacing) are not affected by flush rate limiting.
@@ -126,6 +127,9 @@ _monotonic = time.monotonic
 class OptionalFlushFileHandler(logging.FileHandler):
     """FileHandler that rate-limits flush() to reduce disk wear (at most once per FLUSH_INTERVAL_SEC)."""
 
+    # FileHandler assigns stream in __init__ with no annotation basedpyright can see.
+    stream: Any
+
     def flush(self) -> None:
         global _debug_log_last_flush
         now = _monotonic()
@@ -134,6 +138,35 @@ class OptionalFlushFileHandler(logging.FileHandler):
                 return
             _debug_log_last_flush = now
         super().flush()
+        self._rotate_if_large()
+
+    def _rotate_if_large(self) -> None:
+        """Keep one backup so writeragent_debug.log cannot grow without a cap."""
+        try:
+            if not os.path.isfile(self.baseFilename):
+                return
+            if os.path.getsize(self.baseFilename) <= _MAX_DEBUG_LOG_BYTES:
+                return
+        except OSError:
+            return
+        self.acquire()
+        try:
+            stream = self.stream
+            if stream is not None:
+                stream.close()
+                # Clear the handle before rename. A failed replace must still
+                # reopen below; a closed-but-not-None stream would stay dead.
+                self.stream = None
+            backup = self.baseFilename + ".1"
+            if os.path.exists(backup):
+                os.remove(backup)
+            os.replace(self.baseFilename, backup)
+            self.stream = self._open()
+        except OSError:
+            if self.stream is None:
+                self.stream = self._open()
+        finally:
+            self.release()
 
     def close(self) -> None:
         try:

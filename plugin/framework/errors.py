@@ -555,8 +555,11 @@ def is_document_disposed(doc: Any) -> bool:
         try:
             _unused = doc.getImplementationName()
             return False
-        except Exception:
-            return True
+        except Exception as exc:
+            # A live document can raise RuntimeException for a bad call.
+            # Only a disposal exception means the document is gone.
+            name = type(exc).__name__
+            return isinstance(exc, DocumentDisposedError) or "DisposedException" in name
     return False
 
 

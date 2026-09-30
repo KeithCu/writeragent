@@ -39,6 +39,15 @@ def test_remove_with_siblings_deletes_without_pass() -> None:
     ast.parse(out)
 
 
+def test_same_line_sibling_is_kept() -> None:
+    src = "print(1); keep()\n"
+    out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
+    assert n == 1
+    assert "print" not in out
+    assert "keep()" in out
+    ast.parse(out)
+
+
 def test_multiline_call_fully_removed() -> None:
     src = (
         "def f():\n"

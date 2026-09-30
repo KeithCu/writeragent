@@ -78,14 +78,14 @@ def test_hypothesis_valid_json_round_trip(value) -> None:
 @given(garbage=st.text(max_size=30).filter(lambda s: s.strip() != ""))
 @settings(max_examples=60)
 def test_hypothesis_strict_garbage_returns_default(garbage: str) -> None:
-    # safe_json_loads in strict mode maps json.loads failures AND None return to default
+    # Parse failures return default. A successful JSON null is None, not default.
     try:
         parsed = json.loads(garbage)
     except (json.JSONDecodeError, ValueError, TypeError):
         assert safe_json_loads(garbage, default="SENTINEL", strict=True) == "SENTINEL"
         return
     if parsed is None:
-        assert safe_json_loads(garbage, default="SENTINEL", strict=True) == "SENTINEL"
+        assert safe_json_loads(garbage, default="SENTINEL", strict=True) is None
     else:
         assert _json_values_equal(safe_json_loads(garbage, default="SENTINEL", strict=True), parsed)
 

@@ -46,9 +46,10 @@ and logging.
 """
 
 import ipaddress
+import urllib.parse
 from typing import Optional
 
-from plugin.framework.url_utils import normalize_endpoint_url
+from plugin.framework.url_utils import get_url_hostname, normalize_endpoint_url
 
 
 def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
@@ -64,37 +65,44 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
         return None
 
     url = normalize_endpoint_url(endpoint).lower()
+    host = get_url_hostname(url).lower()
+    port = urllib.parse.urlparse(url).port
+
+    def _host_is(*names: str) -> bool:
+        # Hostname equality, not a substring of the whole URL. "ollama" inside
+        # notollama.example and "z.ai" inside z.ai.example used to match.
+        return any(host == name or host.endswith("." + name) for name in names)
 
     # Order matters for some overlaps (e.g. openrouter before generic openai-compatible)
-    if "openrouter.ai" in url:
+    if _host_is("openrouter.ai"):
         return "openrouter"
-    if "together.xyz" in url:
+    if _host_is("together.xyz"):
         return "together"
-    if "localhost:11434" in url or "ollama" in url:
+    if _host_is("ollama") or (host in ("localhost", "127.0.0.1") and port == 11434):
         return "ollama"
-    if "api.mistral.ai" in url:
+    if _host_is("api.mistral.ai"):
         return "mistral"
-    if "api.openai.com" in url:
+    if _host_is("api.openai.com"):
         return "openai"
-    if "api.deepseek.com" in url:
+    if _host_is("api.deepseek.com"):
         return "deepseek"
-    if "api.groq.com" in url:
+    if _host_is("api.groq.com"):
         return "groq"
-    if "api.cerebras.ai" in url:
+    if _host_is("api.cerebras.ai"):
         return "cerebras"
-    if "api.perplexity.ai" in url:
+    if _host_is("api.perplexity.ai"):
         return "perplexity"
-    if "api.x.ai" in url:
+    if _host_is("api.x.ai"):
         return "xai"
-    if "api.anthropic.com" in url:
+    if _host_is("api.anthropic.com"):
         return "anthropic"
-    if "generativelanguage.googleapis.com" in url:
+    if _host_is("generativelanguage.googleapis.com"):
         return "google"
-    if "localhost:1234" in url:
+    if host in ("localhost", "127.0.0.1") and port == 1234:
         return "lmstudio"
-    if "api.z.ai" in url or "z.ai" in url:
+    if _host_is("z.ai"):
         return "zai"
-    if "integrate.api.nvidia.com" in url or "api.nvidia.com" in url:
+    if _host_is("integrate.api.nvidia.com", "api.nvidia.com"):
         return "nvidia"
 
     return None

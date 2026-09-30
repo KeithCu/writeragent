@@ -16,9 +16,9 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Lightweight synchronous event bus for inter-module communication.
 
-Concurrency: ``emit`` copies the listener list, then calls those
-callables **on the emitting thread** (often a worker). There is no lock
-held while handlers run — a lock would deadlock the UI against workers
+Concurrency: ``emit`` copies the listener list under a lock, then calls
+those callables **on the emitting thread** (often a worker). The lock is
+not held while handlers run — that would deadlock the UI against workers
 and would block two legitimate same-named events from different threads.
 ``subscribe`` during an emit is not in that fan-out. Snapshotting is not
 UNO safety: a handler that touches Writer still belongs on the main
@@ -79,6 +79,9 @@ class EventBus:
     def __init__(self) -> None:
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         self._subscribers: dict[str, list[tuple[Any, bool]]] = {}  # event -> list of (callback, is_weakref)
+        # Guards list create/replace only. emit copies under the lock, then
+        # drops it before calling handlers.
+        self._lock: threading.Lock = threading.Lock()
         # Per-thread names currently in emit(); instance-wide would drop
         # legitimate parallel emits of the same event from two threads.
         self._dispatching = threading.local()
@@ -94,33 +97,30 @@ class EventBus:
                       object is garbage-collected.
         """
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
-        if event not in self._subscribers:
-            self._subscribers[event] = []
-
-        if weak:
-            if hasattr(callback, "__self__"):
-                ref: Any = weakref.WeakMethod(callback, lambda r: self._cleanup(event, r))
-                self._subscribers[event].append((ref, True))
-            else:
-                try:
-                    ref = weakref.ref(callback, lambda r: self._cleanup(event, r))
-                    self._subscribers[event].append((ref, True))
-                except TypeError:
-                    self._subscribers[event].append((callback, False))
+        entry: tuple[Any, bool]
+        if weak and hasattr(callback, "__self__"):
+            entry = (weakref.WeakMethod(callback, lambda r: self._cleanup(event, r)), True)
+        elif weak:
+            try:
+                entry = (weakref.ref(callback, lambda r: self._cleanup(event, r)), True)
+            except TypeError:
+                entry = (callback, False)
         else:
-            self._subscribers[event].append((callback, False))
+            entry = (callback, False)
+        with self._lock:
+            self._subscribers.setdefault(event, []).append(entry)
 
     def unsubscribe(self, event: str, callback: Any) -> None:
         """Remove *callback* from *event*."""
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
-        subs = self._subscribers.get(event)
-        if not subs:
-            return
-
-        # Replace the list; an in-flight emit already holds a snapshot.
-        self._subscribers[event] = [
-            (cb, is_weak) for cb, is_weak in subs if not self._same_callback(self._resolve(cb, is_weak), callback)
-        ]
+        with self._lock:
+            subs = self._subscribers.get(event)
+            if not subs:
+                return
+            # Replace the list; an in-flight emit already holds a snapshot.
+            self._subscribers[event] = [
+                (cb, is_weak) for cb, is_weak in subs if not self._same_callback(self._resolve(cb, is_weak), callback)
+            ]
 
     @staticmethod
     def _same_callback(stored: Any, callback: Any) -> bool:
@@ -156,12 +156,13 @@ class EventBus:
         Re-entrant emit of the same event on this thread is dropped.
         """
         # crosshair: off
-        live = self._subscribers.get(event)
-        if not live:
-            return
-        # Frozen listeners at emit time. Dead weakrefs stay until _cleanup
-        # or unsubscribe replace the stored list; do not pop in place.
-        subs = list(live)
+        with self._lock:
+            live = self._subscribers.get(event)
+            if not live:
+                return
+            # Frozen listeners at emit time. Dead weakrefs stay until _cleanup
+            # or unsubscribe replace the stored list; do not pop in place.
+            subs = list(live)
 
         active = self._active_events()
         if event in active:
@@ -196,10 +197,11 @@ class EventBus:
     def _cleanup(self, event: str, ref: Any) -> None:
         """Called when a weakref target is garbage-collected."""
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
-        subs = self._subscribers.get(event)
-        if subs:
-            # Replace, do not mutate in place (emit may still hold a snapshot).
-            self._subscribers[event] = [(cb, w) for cb, w in subs if cb is not ref]
+        with self._lock:
+            subs = self._subscribers.get(event)
+            if subs:
+                # Replace, do not mutate in place (emit may still hold a snapshot).
+                self._subscribers[event] = [(cb, w) for cb, w in subs if cb is not ref]
 
 
 def get_event_bus() -> EventBus:

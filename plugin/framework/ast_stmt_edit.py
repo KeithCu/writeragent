@@ -13,7 +13,7 @@ Used by:
 Rules (one source of truth):
 
 * Only ``ast.Expr`` whose value is the matched call (not assignments / args).
-* Multi-line via ``lineno`` / ``end_lineno`` (0-based inclusive line ranges).
+* Multi-line via ``lineno`` / ``end_lineno`` (1-based, matching ``ast``).
 * If a non-``Module`` suite would be empty after removals, keep one indented
   ``pass`` — otherwise ``if cond:`` with an empty body is a SyntaxError.
 * If siblings remain in the suite, delete the statement lines entirely.
@@ -157,7 +157,9 @@ def remove_expr_statements(
     if not nodes_to_remove:
         return src, 0
 
-    lines = src.splitlines(keepends=True)
+    # Copy into a plain list[str]. splitlines() is typed as a LiteralString
+    # list when src is a literal, and ty then rejects writing a new line back.
+    lines = [line for line in src.splitlines(keepends=True)]
     parent_map = _parent_map(tree)
     remove_set = set(nodes_to_remove)
     replacements: dict[int, str] = {}
@@ -190,6 +192,24 @@ def remove_expr_statements(
             for idx in range(first_idx + 1, last_idx + 1):
                 to_delete.add(idx)
         else:
+            end_col = getattr(node, "end_col_offset", None)
+            # ``print(1); keep()`` shares a line. Deleting the whole line drops keep().
+            if start_line == end_line and end_col is not None and first_idx not in to_delete:
+                raw = lines[first_idx]
+                prefix = raw[: node.col_offset]
+                suffix = raw[end_col:]
+                if prefix.strip() or suffix.strip():
+                    left = prefix.rstrip()
+                    if left.endswith(";"):
+                        left = left[:-1].rstrip()
+                    right = suffix.lstrip(" \t")
+                    if right.startswith(";"):
+                        right = right[1:].lstrip(" \t")
+                    if left and right.strip():
+                        lines[first_idx] = left + "; " + right
+                    else:
+                        lines[first_idx] = left + right
+                    continue
             for idx in range(first_idx, last_idx + 1):
                 to_delete.add(idx)
 

@@ -207,6 +207,19 @@ class AllDocTool(ToolBase):
     def execute(self, ctx, **kwargs):
         return {"status": "ok"}
 
+class RangeIndexTool(ToolBase):
+    name = "range_index_tool"
+    description = "Indexes range[0] the way Calc filter tools do"
+    parameters = {
+        "type": "object",
+        "properties": {"range": {"type": "array", "items": {"type": "string"}}},
+        "required": ["range"],
+    }
+    uno_services = None
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok", "range": kwargs["range"], "first": kwargs["range"][0]}
+
 class FailingTool(ToolBase):
     name = "fail_tool"
     description = "Always fails"
@@ -322,6 +335,17 @@ class TestDocTypeFiltering:
         assert names == ["universal_tool"]
 
 class TestExecute:
+    def test_string_range_is_wrapped_before_execute(self):
+        reg = _make_registry(RangeIndexTool())
+        ctx = _make_ctx()
+        result = reg.execute("range_index_tool", ctx, range="A1:D20")
+        assert result["status"] == "ok"
+        assert result["range"] == ["A1:D20"]
+        assert result["first"] == "A1:D20"
+
+        listed = reg.execute("range_index_tool", ctx, range=["B2:C3"])
+        assert listed["range"] == ["B2:C3"]
+
     def test_successful_execution(self):
         reg = _make_registry(FakeTool())
         ctx = _make_ctx("writer")

@@ -78,11 +78,8 @@ class TestPresetProviderDetection:
 
     def test_auth_matches_detection_for_hosted_presets(self):
         """Hosted presets in PROVIDERS: detection hint and host_matches agree."""
-        skip_normalized = {"http://localhost:1234"}  # lmstudio: detection only, auth -> custom
         for _label, url in ENDPOINT_PRESETS:
             normalized = normalize_endpoint_url(url)
-            if normalized in skip_normalized:
-                continue
             detected = get_provider_from_endpoint(normalized)
             assert (detected) is not None, normalized
             resolved = _resolve_provider_id(normalized, detected)

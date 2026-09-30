@@ -974,6 +974,12 @@ class ToolRegistry:
             if props:
                 kwargs = {k: v for k, v in kwargs.items() if k in props or k in extra_ok}
 
+            # MCP widens array ``range`` to string|array. Several Calc tools index
+            # ``[0]``, so a bare string would become its first character.
+            if isinstance(kwargs.get("range"), str):
+                kwargs = dict(kwargs)
+                kwargs["range"] = [kwargs["range"]]
+
             # Common context for all error details
             common_details = {"tool_name": tool_name}
             if ctx.caller:

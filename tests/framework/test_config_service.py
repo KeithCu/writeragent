@@ -93,7 +93,7 @@ class TestSetGet():
             assert config_svc.get("ai.stt_model") == "from-dual-read"
             config_svc.set("ai.stt_model", "whisper-1")
         mock_get.assert_called()
-        mock_set.assert_called_once_with("audio.stt_model", "whisper-1")
+        mock_set.assert_called_once_with("audio.stt_model", "whisper-1", event_key="ai.stt_model")
 
 class TestAccessControl():
 

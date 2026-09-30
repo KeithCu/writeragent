@@ -7,14 +7,109 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from plugin.framework.url_utils import get_url_path_and_query
-from .base_provider_shim import BaseProviderShim
+from .base_provider_shim import BaseProviderShim, coerce_raw_b64, inline_image_mime
+
+log = logging.getLogger(__name__)
+
+
+def _anthropic_image_block(url_val: Any) -> dict[str, Any] | None:
+    """Turn an OpenAI data-URL image part into an Anthropic base64 image block.
+
+    A data URL with no comma used to raise ``ValueError`` from ``split`` and
+    abort the whole request. Skip that part instead.
+    """
+    if not isinstance(url_val, str) or not url_val.startswith("data:"):
+        return None
+    if "," not in url_val:
+        log.warning("Anthropic image data URL has no comma; skipping image part")
+        return None
+    data = coerce_raw_b64(url_val)
+    if not data:
+        return None
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": inline_image_mime(url_val),
+            "data": data,
+        },
+    }
+
+
+def _anthropic_tool_def(tool: Any) -> dict[str, Any] | None:
+    """Accept an OpenAI tool wrapper or a flat Anthropic tool dict.
+
+    Chat sends ``{"type":"function","function":{name,description,parameters}}``.
+    Indexing ``t["name"]`` on that shape raised ``KeyError`` before the request
+    was sent.
+    """
+    if not isinstance(tool, dict):
+        return None
+    fn = tool.get("function")
+    src = fn if isinstance(fn, dict) else tool
+    name = src.get("name")
+    if not isinstance(name, str) or not name:
+        return None
+    schema = src.get("input_schema")
+    if not isinstance(schema, dict):
+        schema = src.get("parameters")
+    if not isinstance(schema, dict):
+        schema = {"type": "object", "properties": {}}
+    description = src.get("description") or ""
+    return {"name": name, "description": description, "input_schema": schema}
+
+
+def _parse_tool_input(args: Any) -> dict[str, Any] | None:
+    """Parse tool arguments into an object. Never substitute ``{}`` for bad JSON.
+
+    An empty object would look like a successful call with no arguments.
+    """
+    if isinstance(args, dict):
+        return args
+    if not isinstance(args, str):
+        log.warning("Anthropic tool arguments were not JSON; omitting tool_use")
+        return None
+    try:
+        parsed = json.loads(args)
+    except json.JSONDecodeError:
+        log.warning("Anthropic tool arguments were not valid JSON; omitting tool_use")
+        return None
+    if not isinstance(parsed, dict):
+        log.warning("Anthropic tool arguments JSON was not an object; omitting tool_use")
+        return None
+    return parsed
 
 
 class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
+
+    def __init__(self, client: Any) -> None:
+        super().__init__(client)
+        # Content-block index → OpenAI tool_calls index for the current stream.
+        # Cleared on each build_chat_request so a reused shim cannot leak indexes.
+        self._stream_tool_indexes: dict[int, int] = {}
+
+    def _reset_stream_tools(self) -> None:
+        self._stream_tool_indexes = {}
+
+    def _tool_delta(self, block_index: Any, function: dict[str, Any], tool_id: str | None = None, name: str | None = None) -> dict[str, Any] | None:
+        if not isinstance(block_index, int):
+            return None
+        tool_index = self._stream_tool_indexes.get(block_index)
+        if tool_index is None:
+            tool_index = len(self._stream_tool_indexes)
+            self._stream_tool_indexes[block_index] = tool_index
+        call: dict[str, Any] = {"index": tool_index, "function": function}
+        if tool_id is not None:
+            call["id"] = tool_id
+        if name is not None:
+            call["type"] = "function"
+            function["name"] = name
+        return {"tool_calls": [call]}
 
     def build_chat_request(
         self,
@@ -27,6 +122,7 @@ class AnthropicShim(BaseProviderShim):
         response_format: dict[str, Any] | None,
         chat_extra: dict[str, Any] | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
+        self._reset_stream_tools()
         endpoint = self.client._endpoint()
         url = f"{endpoint}/v1/messages"
         system_msg = ""
@@ -54,18 +150,11 @@ class AnthropicShim(BaseProviderShim):
                         if part.get("type") == "text":
                             result_blocks.append({"type": "text", "text": part.get("text", "")})
                         elif part.get("type") == "image_url":
-                            url_val = part.get("image_url", {}).get("url", "")
-                            if url_val.startswith("data:"):
-                                header, b64_data = url_val.split(",", 1)
-                                mime_type = header.split(";")[0].split(":")[1]
-                                result_blocks.append({
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": mime_type,
-                                        "data": b64_data,
-                                    },
-                                })
+                            image_url = part.get("image_url")
+                            url_val = image_url.get("url", "") if isinstance(image_url, dict) else ""
+                            image_block = _anthropic_image_block(url_val)
+                            if image_block is not None:
+                                result_blocks.append(image_block)
                 else:
                     result_blocks.append({"type": "text", "text": str(content or "")})
 
@@ -90,12 +179,10 @@ class AnthropicShim(BaseProviderShim):
                     anth_content.append({"type": "text", "text": str(content)})
 
                 for tc in tool_calls:
-                    fn = tc.get("function", {})
-                    args = fn.get("arguments", "{}")
-                    try:
-                        args_obj = json.loads(args) if isinstance(args, str) else args
-                    except Exception:
-                        args_obj = {}
+                    fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+                    args_obj = _parse_tool_input(fn.get("arguments", "{}"))
+                    if args_obj is None:
+                        continue
                     anth_content.append({
                         "type": "tool_use",
                         "id": tc.get("id"),
@@ -111,18 +198,11 @@ class AnthropicShim(BaseProviderShim):
                     if part.get("type") == "text":
                         anth_content.append({"type": "text", "text": part.get("text", "")})
                     elif part.get("type") == "image_url":
-                        url_val = part.get("image_url", {}).get("url", "")
-                        if url_val.startswith("data:"):
-                            header, b64_data = url_val.split(",", 1)
-                            mime_type = header.split(";")[0].split(":")[1]
-                            anth_content.append({
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": mime_type,
-                                    "data": b64_data,
-                                },
-                            })
+                        image_url = part.get("image_url")
+                        url_val = image_url.get("url", "") if isinstance(image_url, dict) else ""
+                        image_block = _anthropic_image_block(url_val)
+                        if image_block is not None:
+                            anth_content.append(image_block)
                 converted.append({"role": role or "user", "content": anth_content})
             else:
                 converted.append({"role": role or "user", "content": str(content or "")})
@@ -138,10 +218,9 @@ class AnthropicShim(BaseProviderShim):
         if system_msg:
             data["system"] = system_msg
         if tools:
-            data["tools"] = [
-                {"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
-                for t in tools
-            ]
+            converted_tools = [tool_def for tool_def in (_anthropic_tool_def(t) for t in tools) if tool_def]
+            if converted_tools:
+                data["tools"] = converted_tools
 
         path = get_url_path_and_query(url)
         return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
@@ -153,10 +232,35 @@ class AnthropicShim(BaseProviderShim):
         thinking = None
         delta: dict[str, Any] = {}
 
-        if msg_type == "content_block_delta":
-            d = chunk.get("delta", {})
+        if msg_type == "message_start":
+            self._reset_stream_tools()
+        elif msg_type == "content_block_start":
+            block = chunk.get("content_block")
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                tool_delta = self._tool_delta(
+                    chunk.get("index"),
+                    {"name": block.get("name") or "", "arguments": ""},
+                    tool_id=block.get("id"),
+                    name=block.get("name") or "",
+                )
+                if tool_delta:
+                    delta = tool_delta
+        elif msg_type == "content_block_delta":
+            raw_delta = chunk.get("delta")
+            d: dict[str, Any] = raw_delta if isinstance(raw_delta, dict) else {}
             if d.get("type") == "text_delta":
                 content = d.get("text") or ""
+                if content:
+                    delta = {"content": content}
+            elif d.get("type") == "input_json_delta":
+                # partial_json is a fragment. accumulate_delta concatenates
+                # function.arguments across chunks that share an index.
+                tool_delta = self._tool_delta(
+                    chunk.get("index"),
+                    {"arguments": d.get("partial_json") or ""},
+                )
+                if tool_delta:
+                    delta = tool_delta
         elif msg_type == "message":
             # SYNC response
             content_parts = chunk.get("content", [])

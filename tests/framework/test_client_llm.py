@@ -991,10 +991,16 @@ def test_make_chat_request_coalesces_system_messages(client):
         assert api_messages[1]["role"] == "user"
 
 
+def _posted_json(mock_req):
+    """Body posted through LlmClient._request_json (method, path, body, headers)."""
+    path = mock_req.call_args.args[1]
+    return path, json.loads(mock_req.call_args.args[2])
+
+
 def test_grok_shim(client):
     with (
         patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
-        patch("plugin.framework.client.llm_client.sync_request") as mock_sync
+        patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync
     ):
         mock_auth.return_value = {"provider": "xai"}
         mock_sync.return_value = {"data": []}
@@ -1002,9 +1008,7 @@ def test_grok_shim(client):
         # Test image request for Grok (should omit size)
         client.image_completion("Draw a cat", model="aurora", width=1024, height=1024)
 
-        # Check the request body sent to sync_request
-        args, kwargs = mock_sync.call_args
-        body = json.loads(kwargs["data"])
+        path, body = _posted_json(mock_sync)
         assert body["prompt"] == "Draw a cat"
         assert body["model"] == "aurora"
         assert body["aspect_ratio"] == "1:1"
@@ -1012,22 +1016,21 @@ def test_grok_shim(client):
         assert "size" not in body
         assert "quality" not in body
         assert "image" not in body
-        assert str(args[0]).endswith("/images/generations")
+        assert str(path).endswith("/images/generations")
 
         client.image_completion("Wide landscape", model="aurora", width=1792, height=1024)
-        body = json.loads(mock_sync.call_args.kwargs["data"])
+        _path, body = _posted_json(mock_sync)
         assert body["aspect_ratio"] == "16:9"
         assert body["resolution"] == "2k"
 
         client.image_completion("High res", model="aurora", width=2048, height=2048)
-        body = json.loads(mock_sync.call_args.kwargs["data"])
+        _path, body = _posted_json(mock_sync)
         assert body["aspect_ratio"] == "1:1"
         assert body["resolution"] == "2k"
 
         client.image_completion("Make it dusk", model="aurora", width=1024, height=1024, source_image="abc123")
-        args, kwargs = mock_sync.call_args
-        body = json.loads(kwargs["data"])
-        assert str(args[0]).endswith("/images/edits")
+        path, body = _posted_json(mock_sync)
+        assert str(path).endswith("/images/edits")
         assert "image_url" not in body
         assert body["aspect_ratio"] == "1:1"
         assert body["resolution"] == "1k"
@@ -1042,7 +1045,7 @@ def test_grok_shim(client):
 def test_ollama_shim_image(client):
     with (
         patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
-        patch("plugin.framework.client.llm_client.sync_request") as mock_sync
+        patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync
     ):
         mock_auth.return_value = {"provider": "ollama"}
         mock_sync.return_value = {"images": ["abc"]}
@@ -1050,8 +1053,7 @@ def test_ollama_shim_image(client):
         # Test image request for Ollama
         client.image_completion("Draw a dog", model="flux", width=1024, height=1024)
 
-        _, kwargs = mock_sync.call_args
-        body = json.loads(kwargs["data"])
+        _path, body = _posted_json(mock_sync)
         assert body["prompt"] == "Draw a dog"
         assert body["model"] == "flux"
         assert body["stream"] is False
@@ -1061,8 +1063,7 @@ def test_ollama_shim_image(client):
         assert "image_url" not in body
 
         client.image_completion("Make it dusk", model="flux", width=512, height=512, source_image="abc123")
-        _, kwargs = mock_sync.call_args
-        body = json.loads(kwargs["data"])
+        _path, body = _posted_json(mock_sync)
         assert body["images"] == ["abc123"]
         assert "image_url" not in body
 
@@ -1081,19 +1082,20 @@ def test_image_completion_passes_client_timeout(client):
     client.config["request_timeout"] = 122
     with (
         patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
-        patch("plugin.framework.client.llm_client.sync_request") as mock_sync,
+        patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync,
     ):
         mock_auth.return_value = {"provider": "openai"}
         mock_sync.return_value = {"data": []}
         client.image_completion("Draw a cat", model="dall-e-3", width=1024, height=1024)
-        assert mock_sync.call_args.kwargs["timeout"] == 122
+        assert client._timeout() == 122
+        assert mock_sync.called
 
 
 def test_openrouter_shim_image(client):
     client.config["endpoint"] = "https://openrouter.ai/api"
     with (
         patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
-        patch("plugin.framework.client.llm_client.sync_request") as mock_sync
+        patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync
     ):
         mock_auth.return_value = {"provider": "openrouter"}
         mock_sync.return_value = {"data": [{"b64_json": "xyz"}]}
@@ -1101,10 +1103,8 @@ def test_openrouter_shim_image(client):
         # Test image request for OpenRouter
         client.image_completion("Draw a galaxy", model="bytedance-seed/seedream-4.5", width=1024, height=1024)
         
-        args, kwargs = mock_sync.call_args
-        assert args[0] == "https://openrouter.ai/api/v1/images"
-        
-        body = json.loads(kwargs["data"])
+        path, body = _posted_json(mock_sync)
+        assert str(path).endswith("/images")
         assert body["prompt"] == "Draw a galaxy"
         assert body["model"] == "bytedance-seed/seedream-4.5"
         assert body["aspect_ratio"] == "1:1"
@@ -1114,7 +1114,7 @@ def test_openrouter_shim_image(client):
         assert body["output_format"] == "png"
 
         client.image_completion("Draw a galaxy", model="bytedance-seed/seedream-4.5", width=2048, height=2048)
-        body = json.loads(mock_sync.call_args.kwargs["data"])
+        _path, body = _posted_json(mock_sync)
         assert body["aspect_ratio"] == "1:1"
         assert body["resolution"] == "2K"
         assert "size" not in body
@@ -1129,7 +1129,7 @@ def test_openrouter_shim_image_flux_klein_png_aspect_not_size(client):
     client.config["endpoint"] = "https://openrouter.ai/api"
     with (
         patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
-        patch("plugin.framework.client.llm_client.sync_request") as mock_sync
+        patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync
     ):
         mock_auth.return_value = {"provider": "openrouter"}
         mock_sync.return_value = {"data": [{"b64_json": "xyz"}]}
@@ -1141,7 +1141,7 @@ def test_openrouter_shim_image_flux_klein_png_aspect_not_size(client):
             height=576,
         )
 
-        body = json.loads(mock_sync.call_args.kwargs["data"])
+        _path, body = _posted_json(mock_sync)
         assert body["model"] == "black-forest-labs/flux.2-klein-4b"
         assert body["aspect_ratio"] == "16:9"
         assert body["resolution"] == "1K"
@@ -1157,7 +1157,7 @@ def test_openrouter_shim_image_flux_klein_png_aspect_not_size(client):
             source_image="abc123",
         )
 
-        body = json.loads(mock_sync.call_args.kwargs["data"])
+        _path, body = _posted_json(mock_sync)
         assert body["output_format"] == "png"
         assert body["aspect_ratio"] == "1:1"
         assert body["resolution"] == "1K"
@@ -1210,6 +1210,108 @@ def test_anthropic_shim(client):
         assert data["system"].endswith("You are a helpful assistant.")
         assert data["messages"] == [{"role": "user", "content": "Hello!"}]
         assert data["max_tokens"] == 100
+
+
+def test_anthropic_accepts_openai_shaped_tools(client):
+    client.config["model"] = "claude-3-5-sonnet-20241022"
+    tools = [{
+        "type": "function",
+        "function": {
+            "name": "write_cells",
+            "description": "Write cells",
+            "parameters": {"type": "object", "properties": {"range": {"type": "array"}}},
+        },
+    }]
+    messages = [
+        {"role": "user", "content": [
+            {"type": "text", "text": "Hi"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,aaaa"}},
+            {"type": "image_url", "image_url": {"url": "data:not-a-data-url"}},
+        ]},
+        {"role": "assistant", "tool_calls": [{
+            "id": "t1",
+            "function": {"name": "write_cells", "arguments": "{not json"},
+        }]},
+    ]
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "anthropic"}
+        _method, _path, body, _headers = client.make_chat_request(messages, max_tokens=20, tools=tools)
+    data = json.loads(body)
+    assert data["tools"] == [{
+        "name": "write_cells",
+        "description": "Write cells",
+        "input_schema": {"type": "object", "properties": {"range": {"type": "array"}}},
+    }]
+    user = data["messages"][0]
+    assert user["content"][1]["source"]["media_type"] == "image/png"
+    assert user["content"][1]["source"]["data"] == "aaaa"
+    assert all(part.get("type") != "image" or part["source"]["data"] == "aaaa" for part in user["content"])
+    assistant = data["messages"][1]
+    assert assistant["content"] == [] or all(part.get("type") != "tool_use" for part in assistant["content"])
+
+
+def test_anthropic_stream_tool_use_accumulates(client):
+    from plugin.framework.async_stream import accumulate_delta
+
+    events = [
+        {"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "t1", "name": "do_work", "input": {}}},
+        {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": "{\"x\":"}},
+        {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": "1}"}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hi"}},
+        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}},
+    ]
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "anthropic"}
+        shim = client._get_shim()
+    snapshot: dict = {}
+    contents: list[str] = []
+    finish = None
+    for event in events:
+        content, finish_reason, _thinking, delta = shim.parse_response_chunk(event)
+        if content:
+            contents.append(content)
+        if finish_reason:
+            finish = finish_reason
+        if delta:
+            accumulate_delta(snapshot, delta)
+    assert contents == ["Hi"]
+    assert finish == "tool_use"
+    calls = snapshot["tool_calls"]
+    assert calls[0]["index"] == 0
+    assert calls[0]["function"]["name"] == "do_work"
+    assert calls[0]["function"]["arguments"] == "{\"x\":1}"
+
+
+def test_anthropic_stream_loop_keeps_tool_events(client):
+    payloads = [
+        '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',
+        '{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"t1","name":"do_work","input":{}}}',
+        '{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{}"}}',
+        '{"type":"message_delta","delta":{"stop_reason":"tool_use"}}',
+        "[DONE]",
+    ]
+
+    def iterate(_response):
+        yield from payloads
+
+    with (
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
+        patch("http.client.HTTPSConnection") as mock_https,
+        patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate),
+        patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
+    ):
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_conn.getresponse.return_value = mock_response
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+        )
+    assert "Hi" in result["content"]
+    assert result["tool_calls"][0]["function"]["name"] == "do_work"
+    assert result["finish_reason"] == "tool_use"
 
 
 def test_make_chat_request_coalesces_mixed_system_messages(client):

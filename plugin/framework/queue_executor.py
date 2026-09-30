@@ -129,14 +129,20 @@ class SendCancellation:
     def register_on_cancel(self, hook: Callable[[], None]) -> None:
         with self._lock:
             self._hooks.append(hook)
+            already = self._cancelled.is_set()
+        # Stop can win the race: a hook registered after cancel() must still run.
+        if already:
+            try:
+                hook()
+            except Exception:
+                log.exception("SendCancellation: error in late cancel hook")
 
     def cancel(self) -> None:
-        if self._cancelled.is_set():
-            return
-        self._cancelled.set()
-        # Snapshot under the lock so concurrent register_* calls during
-        # cancellation don't produce a torn iteration.
+        # Set the flag under the lock so two callers cannot both run the hooks.
         with self._lock:
+            if self._cancelled.is_set():
+                return
+            self._cancelled.set()
             hooks = list(self._hooks)
             executors = list(self._executors)
         for hook in hooks:
@@ -445,6 +451,10 @@ class QueueExecutor:
                 if item.blocking and item.event and not item.event.is_set():
                     item.exception = SendCancelled()
                     item.event.set()
+                # A timed-out head used to return here and leave the next item
+                # queued until some later poke. Wake the main thread now.
+                if not self._work_queue.empty():
+                    self._poke_main_thread()
                 return
             item._claimed = True  # caller's timeout can no longer cancel this execution
 
@@ -603,24 +613,14 @@ class QueueExecutor:
         svc = None if _force_marshal_mode else self._get_async_callback()
 
         if svc is None and not _force_marshal_mode:
-            import os
-
-            # Eval harness: never run UNO on a random caller thread. Only the
-            # designated ``_lo_thread`` (``_may_run_marshal_inline``) is safe.
-            if os.environ.get("WRITERAGENT_EVAL_HARNESS") == "1" or is_agent_active() or bg_task:
-                msg = "marshal refused: AsyncCallback unavailable from background thread (fn=%s)" % fn_label
-                try:
-                    raise RuntimeError(msg)
-                except RuntimeError:
-                    log.exception("%s %s", msg, tag)
-                    raise
-            # Fallback: call directly (not thread-safe).
-            log.warning(
-                "marshal route=fallback_no_async (UNO on caller thread) fn=%s %s",
-                fn_label,
-                tag,
-            )
-            return fn(*args, **kwargs)
+            # Off the main thread with no AsyncCallback. Running fn here touches
+            # UNO on the caller. The logical-main path already returned above.
+            msg = "marshal refused: AsyncCallback unavailable from background thread (fn=%s)" % fn_label
+            try:
+                raise RuntimeError(msg)
+            except RuntimeError:
+                log.exception("%s %s", msg, tag)
+                raise
 
         log.debug("marshal route=enqueue fn=%s %s", fn_label, tag)
         item = self._enqueue_work(fn, args, kwargs, blocking=True)
@@ -645,20 +645,16 @@ class QueueExecutor:
 
         svc = None if _force_marshal_mode else self._get_async_callback()
         if svc is None and not _force_marshal_mode:
-            if bg_task:
-                log.warning(
-                    "marshal route=post_dropped (AsyncCallback unavailable, background task %r) fn=%s %s",
-                    bg_task,
-                    fn_label,
-                    tag,
-                )
+            if self._may_run_marshal_inline():
+                log.debug("marshal route=post_inline_logical_main fn=%s %s", fn_label, tag)
+                fn(*args, **kwargs)
                 return
             log.warning(
-                "marshal route=post_fallback_no_async (UNO on caller thread) fn=%s %s",
+                "marshal route=post_dropped (AsyncCallback unavailable, background task %r) fn=%s %s",
+                bg_task,
                 fn_label,
                 tag,
             )
-            fn(*args, **kwargs)
             return
 
         log.debug("marshal route=post_enqueue fn=%s %s", fn_label, tag)

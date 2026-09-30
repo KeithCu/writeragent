@@ -88,6 +88,7 @@ from plugin.framework.constants import USER_AGENT
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import (
+    AuthError,
     resolve_auth_for_config,
     build_auth_headers,
     reject_control_chars_in_api_key,
@@ -119,9 +120,26 @@ from .stream_normalizer import (
     THINKING_DELTA_KEYS,
 )
 from .provider_detection import is_openrouter_endpoint
-from .requests import sync_request
 
 log = logging.getLogger(__name__)
+
+# Anthropic Messages SSE has no OpenAI ``choices`` array. These event types
+# still carry text, tool_use, or stop_reason.
+_ANTHROPIC_STREAM_TYPES = frozenset({
+    "content_block_start",
+    "content_block_delta",
+    "message_delta",
+    "message_stop",
+    "message",
+})
+
+
+def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
+    """True when a stream JSON object should be handed to the provider shim."""
+    choices = chunk.get("choices")
+    if isinstance(choices, list) and choices:
+        return True
+    return chunk.get("type") in _ANTHROPIC_STREAM_TYPES
 
 
 def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
@@ -239,7 +257,7 @@ def _peek_live_ollama_num_ctx(client: Any) -> int | None:
         return None
 
 
-def _log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, err_body: str = "") -> None:
+def _log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, err_body: str = "", n_ctx: int | None = None) -> None:
     """One ERROR-level safe request shape for HTTP 500. No prompts or secrets.
 
     Local llama-server / Ollama 500 bodies are often opaque. This is the
@@ -265,7 +283,7 @@ def _log_http_500_request_diag(client: Any, response: Any, path: str, body: Any,
         len(messages) if isinstance(messages, list) else 0,
         len(tools) if isinstance(tools, list) else 0,
         _request_payload_byte_length(body),
-        _peek_live_ollama_num_ctx(client),
+        n_ctx,
         _prompt_char_count(messages),
         payload.get("max_tokens"),
         _exit_code_from_provider_body(err_body),
@@ -363,8 +381,9 @@ class LlmClient:
             path,
             request_model,
         )
+        n_ctx = _peek_live_ollama_num_ctx(self) if response.status == 500 else None
         if response.status == 500:
-            _log_http_500_request_diag(self, response, path, body, err_body)
+            _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
         self._close_connection()
         if response.status in RETRYABLE_HTTP_STATUS and retries_left > 0 and not emitted_any:
             retry_after = parse_retry_after(response.getheader("Retry-After"))
@@ -387,7 +406,7 @@ class LlmClient:
             response.status,
             response.reason,
             err_body,
-            context_window=_peek_live_ollama_num_ctx(self),
+            context_window=n_ctx,
         )
         err_msg = append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
         raise NetworkError(err_msg, code="HTTP_ERROR", details={"url": path, "status": response.status})
@@ -398,7 +417,7 @@ class LlmClient:
         Packet B13: Stop can fire before ``get_connection``. Without ``_stopped``,
         the worker opens a fresh socket and holds ``llm_request_lane`` until timeout.
         """
-        log.debug("LlmClient.stop(, level=logging.DEBUG) called")
+        log.debug("LlmClient.stop() called")
         self._stopped = True
         self._close_connection()
 
@@ -647,6 +666,53 @@ class LlmClient:
         shim = self._get_shim()
         return shim.build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
 
+    def _request_json(self, method: str, path: str, body: Any, headers: dict[str, str]) -> Any:
+        """Blocking JSON call on the persistent transport.
+
+        Image and speech used ``sync_request``, which ignored Stop and 429/503
+        backoff. This shares the chat transport so ``stop()`` closes the socket.
+        """
+        from plugin.framework.errors import safe_json_loads
+
+        if self._stopped:
+            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+        sends_left = RETRY_MAX_ATTEMPTS
+        wait_index = 0
+        while True:
+            try:
+                if self._stopped:
+                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                response = self._send_request(method, path, body, headers)
+                if response.status != 200:
+                    sends_left -= 1
+                    wait_index += 1
+                    action = self._retry_or_raise_http_error(
+                        response,
+                        body,
+                        path,
+                        retries_left=sends_left,
+                        emitted_any=False,
+                        stop_checker=None,
+                        attempt=wait_index,
+                    )
+                    if action == "stop":
+                        raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                    continue
+                raw = response.read().decode("utf-8", errors="replace")
+                return safe_json_loads(raw)
+            except CONNECTION_ERRORS as e:
+                sends_left -= 1
+                wait_index += 1
+                action = self._transport.handle_connection_error(
+                    e,
+                    path=path,
+                    retries_left=sends_left,
+                    retry_log_message="Retrying JSON request on fresh connection",
+                    attempt=wait_index,
+                )
+                if action == "stop":
+                    raise NetworkError("LLM request aborted by Stop", code="STOPPED") from e
+
     def image_completion(
         self,
         prompt: str,
@@ -672,12 +738,9 @@ class LlmClient:
         # Path/query must not include API keys (Google image used to put ?key= here).
         log.debug("URL: %s" % urllib.parse.urlunparse(urllib.parse.urlparse(url)._replace(query="", fragment="")))
 
-        # Image generate/edit used to omit timeout, so sync_request's old
-        # default of 10s fired while Settings request_timeout (e.g. 122) was
-        # ignored — OpenRouter /images then showed a misleading "increase
-        # Request Timeout" message after ~10s wall clock. Pass the same
-        # Settings budget as chat sync / STT.
-        res = sync_request(url, method=method, data=body, headers=headers, timeout=self._timeout())
+        # Image generate/edit used sync_request, which Stop cannot abort and
+        # which does not retry 429/503. The persistent transport does both.
+        res = self._request_json(method, path, body, headers)
         if not res:
             return []
 
@@ -701,7 +764,7 @@ class LlmClient:
 
         # 1. Check if the STT model itself supports native audio
         if has_native_audio(model_name, self._endpoint()):
-            log.debug("Using multimodal chat for transcription fallback (model: %s, level=logging.WARNING)" % model_name)
+            log.warning("Using multimodal chat for transcription fallback (model: %s)", model_name)
             try:
                 with open(wav_path, "rb") as f:
                     audio_b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -710,8 +773,14 @@ class LlmClient:
 
                 # Using synchronous chat completion with model override
                 return self.chat_completion_sync(messages, max_tokens=16384, model=model_name)
+            except AuthError:
+                raise
+            except NetworkError as e:
+                if self._stopped or getattr(e, "code", None) == "STOPPED":
+                    raise
+                log.warning("Multimodal transcription failed: %s. Falling back to stt endpoint.", type(e).__name__)
             except Exception as e:
-                log.warning("Multimodal transcription failed: %s. Falling back to stt endpoint." % type(e).__name__)
+                log.warning("Multimodal transcription failed: %s. Falling back to stt endpoint.", type(e).__name__)
 
         endpoint = self._endpoint()
         api_path = self._api_path()
@@ -748,8 +817,8 @@ class LlmClient:
         log.debug("URL: %s" % url)
         log.debug("STT Model: %s" % model_name)
 
-        # use sync_request (blocking helper already in this file)
-        res = sync_request(url, data=body_bytes, headers=headers, timeout=self._timeout())
+        # Same transport as chat so Stop closes the socket and 429/503 retries.
+        res = self._request_json("POST", api_path + "/audio/transcriptions", body_bytes, headers)
         return res.get("text", "") if isinstance(res, dict) else str(res)
 
     def stream_completion(
@@ -784,7 +853,7 @@ class LlmClient:
     ) -> Any:
         """Common low-level streaming engine."""
         init_logging(self.ctx)
-        log.debug("=== Starting streaming loop (persistent, level=logging.INFO) ===")
+        log.info("=== Starting streaming loop (persistent) ===")
         log.debug("Request Path: %s" % path)
 
         # Do not clear ``_stopped`` here — that races with stop() on another thread
@@ -894,9 +963,10 @@ class LlmClient:
                             self._close_connection()
                             break
 
-                        # Grok/xAI sends a final chunk with empty choices + usage
-                        choices = chunk.get("choices", [])
-                        if not choices:
+                        # Grok/xAI sends a final chunk with empty choices + usage.
+                        # Anthropic SSE events have no choices array; dropping them
+                        # discarded text_delta and tool_use before the shim could parse.
+                        if not _chunk_should_parse(chunk):
                             continue
 
                         content, finish_reason, thinking, delta = self.extract_content_from_response(chunk)
@@ -1252,7 +1322,7 @@ class LlmClient:
                 except CONNECTION_ERRORS as e:
                     sends_left -= 1
                     wait_index += 1
-                    self._transport.handle_connection_error(
+                    action = self._transport.handle_connection_error(
                         e,
                         path=path,
                         retries_left=sends_left,
@@ -1261,6 +1331,17 @@ class LlmClient:
                         status_callback=status_callback,
                         attempt=wait_index,
                     )
+                    if action == "stop":
+                        self._stopped = True
+                        return {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": None,
+                            "finish_reason": "stop",
+                            "images": [],
+                            "usage": {},
+                            "model": requested_model,
+                        }
                     continue
                 except NetworkError as e:
                     if getattr(e, "code", None) == "STOPPED":

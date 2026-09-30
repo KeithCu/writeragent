@@ -59,10 +59,9 @@ def _is_zai_host(url: Any) -> bool:
 
 def _is_google_host(url: Any) -> bool:
     """True when URL targets Google Gemini API (generativelanguage.googleapis.com)."""
-    if not isinstance(url, str):
-        return False
-    url_lower = url.lower()
-    return "generativelanguage.googleapis.com" in url_lower
+    host = get_url_hostname(url).lower()
+    name = "generativelanguage.googleapis.com"
+    return host == name or host.endswith("." + name)
 
 
 def _zai_url_path(url: Any) -> str:

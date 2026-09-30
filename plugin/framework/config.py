@@ -37,9 +37,11 @@ broken JSON, coercing out-of-range numbers, upgrading old
 ``calc_prompt_max_tokens``) share ``_config_write_lock`` (an ``RLock`` so
 a helper already holding it can persist). Without that lock a
 background ``get_config`` could rewrite an older file over a key the UI
-just saved. The ``config:changed`` event is emitted **after** the lock
-is released so listeners may call ``get_config`` / ``set_config`` without
-deadlocking.
+just saved. One ``config:changed`` event is emitted **after** the lock
+is released, with ``key``, ``value``, and ``old_value``, so listeners may
+call ``get_config`` / ``set_config`` without deadlocking. Callers that map
+a settings key onto a stored key (for example ``ai.endpoint`` → ``endpoint``)
+pass ``event_key`` so listeners still see the key that was set.
 
 Schema-backed coercion, option canonicalization, and min/max bounds live in
 ``config_schema.py``. Import those names from there. This module is path,
@@ -150,7 +152,7 @@ def init_config(ctx: Any | None = None) -> str:
 
             default_executor.set_context(ctx)
         except Exception:
-            pass
+            log.exception("init_config: default_executor.set_context failed")
     if _resolved_config_path is not None:
         return _resolved_config_path
     if ctx is None:
@@ -301,6 +303,7 @@ def _load_config_dict(
     *,
     allow_repair: bool = False,
     persist_repair: bool = False,
+    fail_on_unrepairable: bool = False,
 ) -> dict[str, Any]:
     """Load writeragent.json as a dict. Optionally backup, repair, and persist small JSON typos."""
     if not config_file_path or not os.path.exists(config_file_path):
@@ -348,6 +351,14 @@ def _load_config_dict(
             config_file_path,
             backup_path or "none",
         )
+        if fail_on_unrepairable:
+            # A later set_config used to load this {} and os.replace the file,
+            # wiping every other setting. Reads may still fall back to defaults.
+            raise ConfigError(
+                f"Invalid JSON in {config_file_path} could not be repaired",
+                "CONFIG_INVALID_FORMAT",
+                details={"path": config_file_path, "backup_path": backup_path},
+            )
         return {}
 
     log.warning("Invalid JSON in %s (repair disabled). Using empty dict for this load.", config_file_path)
@@ -567,8 +578,12 @@ def _raw_config_value_for_key(config_data: dict[str, Any], key: str) -> Any:
     return _config_schema._MISSING_VALUE
 
 
-def set_config(key: str, value: Any) -> None:
-    """Set a config key to value. Creates file if needed. Omits defaults."""
+def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
+    """Set a config key to value. Creates file if needed. Omits defaults.
+
+    ``event_key`` is the key listeners see. It differs from ``key`` when a
+    settings field is stored under another name.
+    """
     try:
         config_file_path = _config_path()
     except ConfigError:
@@ -579,12 +594,19 @@ def set_config(key: str, value: Any) -> None:
         log.warning("set_config skipped: empty config path")
         return
     emit_changed = False
+    previous: Any = None
     with _config_write_lock:
         if os.path.exists(config_file_path):
-            config_data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=False)
+            config_data = _load_config_dict(
+                config_file_path,
+                allow_repair=True,
+                persist_repair=False,
+                fail_on_unrepairable=True,
+            )
         else:
             config_data = {}
         current_value = _raw_config_value_for_key(config_data, key)
+        previous = None if current_value is _config_schema._MISSING_VALUE else current_value
         value = _config_schema.coerce_config_value(key, value, fallback_value=current_value)
         if config_data.get(key) == value:
             return
@@ -615,7 +637,13 @@ def set_config(key: str, value: Any) -> None:
             raise ConfigError(f"Failed to save config: {e}", "CONFIG_SAVE_ERROR") from e
     # Handlers may get_config/set_config; do not hold the write lock across emit.
     if emit_changed:
-        global_event_bus.emit("config:changed", ctx=_emit_config_changed_ctx())
+        global_event_bus.emit(
+            "config:changed",
+            key=event_key or key,
+            value=value,
+            old_value=previous,
+            ctx=_emit_config_changed_ctx(),
+        )
 
 
 def remove_config(key: str) -> None:
@@ -634,11 +662,17 @@ def remove_config(key: str) -> None:
     emit_changed = False
     with _config_write_lock:
         try:
-            with open(config_file_path, "r", encoding="utf-8") as f:
-                config_data = parse_config_json_text(f.read())
-            if not isinstance(config_data, dict):
-                return
+            config_data = _load_config_dict(
+                config_file_path,
+                allow_repair=True,
+                persist_repair=False,
+                fail_on_unrepairable=True,
+            )
+        except ConfigError:
+            log.exception("remove_config skipped: config file could not be parsed")
+            return
         except OSError:
+            log.exception("remove_config skipped: config file could not be read")
             return
         removed = False
         if key in config_data:
@@ -675,7 +709,13 @@ def remove_config(key: str) -> None:
             log.exception("Error writing to %s", config_file_path)
             raise ConfigError(f"Failed to remove config key: {e}", "CONFIG_SAVE_ERROR") from e
     if emit_changed:
-        global_event_bus.emit("config:changed", ctx=_emit_config_changed_ctx())
+        global_event_bus.emit(
+            "config:changed",
+            key=key,
+            value=None,
+            old_value=None,
+            ctx=_emit_config_changed_ctx(),
+        )
 
 
 def _get_validated_config_dict() -> dict[str, Any]:
@@ -691,9 +731,11 @@ def _get_validated_config_dict() -> dict[str, Any]:
 
     current_time = time.time()
 
-    # 2-second cache for the mtime check
-    if _cache.data is not None and (current_time - _cache.mtime_last_checked) < 2.0:
-        return _cache.data
+    # 2-second cache for the mtime check. Snapshot once: a concurrent
+    # set_config can set _cache.data to None between a check and a second read.
+    cached = _cache.data
+    if cached is not None and (current_time - _cache.mtime_last_checked) < 2.0:
+        return cached
 
     # Load/repair/coerce may persist; serialize with set_config and re-check
     # cache after waiting so we do not rewrite a file another thread just saved.
@@ -791,7 +833,7 @@ def get_api_key_for_endpoint(endpoint: Any) -> str:
     return data.get(normalized) or ""
 
 
-def set_api_key_for_endpoint(endpoint: Any, key: Any) -> None:
+def set_api_key_for_endpoint(endpoint: Any, key: Any, *, event_key: str | None = None) -> None:
     """Store API key for the given endpoint in api_keys_by_endpoint."""
     data = get_config("api_keys_by_endpoint")
     if not isinstance(data, dict):
@@ -802,7 +844,7 @@ def set_api_key_for_endpoint(endpoint: Any, key: Any) -> None:
         data = dict(data)
     normalized = normalize_endpoint_url(endpoint or "")
     data[normalized] = str(key)
-    set_config("api_keys_by_endpoint", data)
+    set_config("api_keys_by_endpoint", data, event_key=event_key)
 
 
 # --- Bundled API config ---

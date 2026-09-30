@@ -258,7 +258,7 @@ class TestSafeJsonLoads:
 
     def test_safe_json_loads_null_eval(self):
         assert (safe_json_loads('null')) is None
-        assert (safe_json_loads('null', default={})) == ({})
+        assert (safe_json_loads('null', default={})) is None
 
     def test_safe_json_loads_custom_default(self):
         assert (safe_json_loads('invalid', default={'error': True})) == ({'error': True})
