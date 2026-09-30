@@ -34,14 +34,16 @@ from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bo
 
 try:
     from com.sun.star.lang import DisposedException
-    from com.sun.star.uno import RuntimeException, Exception as UnoException
 
-    # In test mock environments, UnoException or RuntimeException might be aliased to builtins.Exception.
-    # We only include types that are not the root Exception class.
-    _raw_uno_exceptions = (DisposedException, RuntimeException, UnoException)
-    UNO_DISPOSED_EXCEPTIONS: tuple[type[BaseException], ...] = tuple(
-        cls for cls in _raw_uno_exceptions if isinstance(cls, type) and issubclass(cls, BaseException) and cls is not Exception
-    )
+    # isinstance must be DisposedException only. com.sun.star.uno.Exception is the
+    # parent of almost every UNO error, and IllegalArgumentException subclasses
+    # RuntimeException, so either of those bases reports a bad argument as disposal.
+    # RuntimeException still matches by type name below (bridge teardown, mocks).
+    # Drop the type when a test mock aliases it to builtins.Exception.
+    if isinstance(DisposedException, type) and issubclass(DisposedException, BaseException) and DisposedException is not Exception:
+        UNO_DISPOSED_EXCEPTIONS: tuple[type[BaseException], ...] = (DisposedException,)
+    else:
+        UNO_DISPOSED_EXCEPTIONS = ()
 except (ImportError, AttributeError):
     UNO_DISPOSED_EXCEPTIONS = ()
 
@@ -52,8 +54,11 @@ def is_disposed_exception(exc: BaseException) -> bool:
     Matching ``RuntimeException`` in the type name is a deliberate heuristic:
     ``com.sun.star.uno.RuntimeException`` (and name-alikes in mocks) is how
     bridge teardown often surfaces. Do not narrow this so UI lifecycle can
-    still use :class:`suppress_disposed` without crashing the host. Genuine
-    failures belong outside those blocks, not in a tighter name check here.
+    still use :class:`suppress_disposed` without crashing the host. The check
+    is the type name, not ``isinstance(..., RuntimeException)``:
+    ``IllegalArgumentException`` subclasses ``RuntimeException`` and must stay
+    a normal error. Genuine failures belong outside those blocks, not in a
+    tighter name check here.
     Tool chat mapping uses :func:`is_tool_document_disposed` so a live-doc
     bare RuntimeException is not reported as DOCUMENT_DISPOSED.
     """

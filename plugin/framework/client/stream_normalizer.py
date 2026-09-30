@@ -243,11 +243,12 @@ def iterate_sse(stream: Any) -> Iterator[str]:
         if line_str.startswith(b"data:"):
             # Payload is everything after the first ":"
             idx = line_str.find(b":") + 1
-            payload = line_str[idx:].decode("utf-8").strip()
+            # One bad byte used to raise UnicodeDecodeError and abort the stream.
+            payload = line_str[idx:].decode("utf-8", errors="replace").strip()
             yield payload
         elif line_str.startswith(b"{"):
             # Raw JSON line (common in some streaming formats like Google Gemini raw stream)
-            yield line_str.decode("utf-8").strip()
+            yield line_str.decode("utf-8", errors="replace").strip()
 
 
 @deal.post(lambda result: isinstance(result, dict))

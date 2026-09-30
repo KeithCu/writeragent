@@ -94,6 +94,12 @@ def test_strict_rejects_single_quoted() -> None:
     assert safe_json_loads("{'a': 1}", default="d", strict=True) == "d"
 
 
+def test_literal_eval_rejects_non_json_types() -> None:
+    assert safe_json_loads("{'a': 1}") == {"a": 1}
+    assert not isinstance(safe_json_loads("(1, 2)", default="d"), tuple)
+    assert not isinstance(safe_json_loads("b'hi'", default="d"), bytes)
+
+
 @pytest.mark.slow
 def test_crosshair_safe_json_loads_fqn_if_available() -> None:
     crosshair_path = _find_crosshair()

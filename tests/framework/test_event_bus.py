@@ -167,6 +167,21 @@ def test_emit_drops_reentrant_same_event():
     assert calls == ["enter", "after-nested"]
 
 
+def test_config_changed_reentry_allows_a_different_key():
+    bus = EventBus()
+    seen = []
+
+    def handler(key, value=None, old_value=None, ctx=None):
+        seen.append(key)
+        if key == "a":
+            bus.emit("config:changed", key="b", value=1)
+            bus.emit("config:changed", key="a", value=2)
+
+    bus.subscribe("config:changed", handler)
+    bus.emit("config:changed", key="a", value=0)
+    assert seen == ["a", "b"]
+
+
 def test_emit_allows_nested_different_event():
     bus = EventBus()
     order = []

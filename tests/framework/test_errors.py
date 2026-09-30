@@ -700,3 +700,45 @@ class TestSuppressDisposed:
         with pytest.raises(DocumentDisposedError):
             _disposed_fn()
 
+
+def test_illegal_argument_is_not_document_disposal():
+    """Real pyuno: IllegalArgumentException subclasses RuntimeException.
+
+    isinstance(exc, RuntimeException) used to report it as disposal. The name
+    check still treats a bare RuntimeException as bridge teardown.
+    """
+    uno = pytest.importorskip("uno")
+    del uno
+    try:
+        from com.sun.star.lang import DisposedException, IllegalArgumentException, IndexOutOfBoundsException
+        from com.sun.star.uno import RuntimeException
+    except ImportError:
+        pytest.skip("pyuno type library is not available")
+
+    from plugin.framework.errors import (
+        DocumentDisposedError,
+        UnoObjectError,
+        is_disposed_exception,
+        safe_call,
+    )
+
+    bad_arg = IllegalArgumentException("bad arg", None, 0)
+    assert not is_disposed_exception(bad_arg)
+
+    def _raise_arg():
+        raise bad_arg
+
+    with pytest.raises(UnoObjectError):
+        safe_call(_raise_arg, "probe")
+
+    assert not is_disposed_exception(IndexOutOfBoundsException("oob", None))
+    assert is_disposed_exception(DisposedException("gone", None))
+    runtime = RuntimeException("bridge", None)
+    assert is_disposed_exception(runtime)
+
+    def _raise_runtime():
+        raise runtime
+
+    with pytest.raises(DocumentDisposedError):
+        safe_call(_raise_runtime, "probe")
+

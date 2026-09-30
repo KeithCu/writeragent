@@ -896,3 +896,32 @@ class TestRobustNumericParsing:
             })
         assert (ok)
         assert (err) == ("")
+
+
+def test_set_config_raises_when_path_empty():
+    with patch("plugin.framework.config._config_path", return_value=""):
+        with pytest.raises(ConfigError) as exc:
+            set_config("text_model", "x")
+    assert exc.value.code == "CONFIG_PATH_ERROR"
+
+
+def test_remove_config_raises_when_path_unresolved():
+    from plugin.framework.config import remove_config
+
+    with patch("plugin.framework.config._config_path", side_effect=ConfigError("no path", "CONFIG_DIR_ERROR")):
+        with pytest.raises(ConfigError):
+            remove_config("text_model")
+
+
+def test_second_config_backup_keeps_the_first_copy(tmp_path):
+    from plugin.framework.config import _backup_config_file
+
+    path = tmp_path / "writeragent.json"
+    path.write_text("first", encoding="utf-8")
+    first = _backup_config_file(str(path))
+    assert first is not None and first.endswith(".bak")
+    path.write_text("second", encoding="utf-8")
+    second = _backup_config_file(str(path))
+    assert second is not None and second != first
+    assert (tmp_path / "writeragent.json.bak").read_text(encoding="utf-8") == "first"
+    assert open(second, encoding="utf-8").read() == "second"

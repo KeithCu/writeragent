@@ -285,10 +285,18 @@ class AnthropicShim(BaseProviderShim):
             tool_calls = []
             for p in content_parts:
                 if p.get("type") == "tool_use":
+                    # A partial tool block has no name. p["name"] used to KeyError
+                    # and abort the whole response.
+                    name = p.get("name")
+                    if not isinstance(name, str) or not name:
+                        continue
+                    raw_input = p.get("input")
+                    if not isinstance(raw_input, (dict, list)):
+                        raw_input = {}
                     tool_calls.append({
-                        "id": p["id"],
+                        "id": p.get("id") or "",
                         "type": "function",
-                        "function": {"name": p["name"], "arguments": json.dumps(p["input"])},
+                        "function": {"name": name, "arguments": json.dumps(raw_input)},
                     })
             delta = {"role": "assistant", "content": content}
             if tool_calls:

@@ -247,7 +247,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     Attempts (non-strict / LLM mode; keep this list in sync with the body):
     1. Standard json.loads
     2. json.loads with strict=False (handles raw control chars, per hermes-agent)
-    3. ast.literal_eval (single quotes and Python-isms)
+    3. ast.literal_eval (single quotes and Python-isms; tuples, sets, and bytes are rejected)
     4. repair_json + json.loads (truncated / malformed JSON)
 
     Do not swap 3 and 4 to "repair first" without golden tests: literal_eval
@@ -312,7 +312,9 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         # literal_eval handles 'True', 'False', 'None' out of the box.
         # It also handles single quotes and tuple-like syntax.
         parsed = ast.literal_eval(stripped)
-        return parsed
+        # literal_eval also returns tuples, sets, and bytes. Callers expect JSON.
+        if parsed is None or type(parsed) in (bool, int, float, str, list, dict):
+            return parsed
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         pass
 

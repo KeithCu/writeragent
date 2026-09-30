@@ -76,6 +76,7 @@ _activity_lock = threading.Lock()
 _watchdog_started = False
 _watchdog_interval_sec = 15
 _watchdog_threshold_sec = 30
+_watchdog_hung_shown = False
 
 DEBUG_LOG_FILENAME = "writeragent_debug.log"
 
@@ -84,11 +85,17 @@ LOG_REDACT_IMAGE_PLACEHOLDER = "<image base64 data truncated, length=%d>"
 LOG_REDACT_SIGNATURE_PLACEHOLDER = "<signature truncated, length=%d>"
 # Image-model reasoning_details[].signature blobs are thousands of chars; keep short values readable.
 LOG_REDACT_SIGNATURE_MIN_LEN = 256
+# Dict keys whose string values are credentials. Matched case-insensitively.
+_SECRET_LOG_KEYS = frozenset({"api_key", "authorization", "bearer", "password"})
+LOG_REDACT_SECRET_PLACEHOLDER = "<redacted>"
 
 
 def _redact_sensitive_inplace(o: Any) -> None:
-    """Strip large base64 and long signature blobs from nested API-shaped JSON (chat multimodal parts, image requests/responses, reasoning_details)."""
+    """Strip large base64, long signature blobs, and secret dict values from nested API-shaped JSON."""
     if isinstance(o, dict):
+        for key, val in list(o.items()):
+            if isinstance(key, str) and key.casefold() in _SECRET_LOG_KEYS and isinstance(val, str):
+                o[key] = LOG_REDACT_SECRET_PLACEHOLDER
         if o.get("type") == "input_audio":
             ia = o.get("input_audio")
             if isinstance(ia, dict) and isinstance(ia.get("data"), str):
@@ -176,7 +183,7 @@ class OptionalFlushFileHandler(logging.FileHandler):
         super().close()
 
 
-# One handler shared by the writeragent logger and the root logger. Two handlers
+# One handler shared by the writeragent and plugin loggers. Two handlers
 # on the same path rotate on separate fds: after the first rename, the other fd
 # keeps writing the inode that is now writeragent_debug.log.1, and that backup
 # is never size-checked, so it grows past the cap.
@@ -281,18 +288,24 @@ def init_logging(ctx: Any | None = None) -> None:
             _log_level_numeric = numeric_level
 
             logger = log
-            root_logger = logging.getLogger()
+            plugin_logger = logging.getLogger("plugin")
             logger.setLevel(numeric_level)
 
             if _debug_log_path:
-                # plugin.* modules use logging.getLogger(__name__); root receives those records.
-                # writeragent.* uses the named logger below with propagate=False to avoid duplicates.
-                # Both loggers share one file handler so rotation has a single fd.
-                root_logger.setLevel(numeric_level)
+                # plugin.* uses logging.getLogger(__name__) and propagates to the
+                # plugin logger. writeragent.* uses the named logger below.
+                # Both share one file handler so rotation has a single fd.
+                # The handler is not on the root logger: at DEBUG that pulled
+                # third-party records (full URLs) into writeragent_debug.log.
+                plugin_logger.setLevel(numeric_level)
                 _ensure_debug_file_handler(logger)
-                _ensure_debug_file_handler(root_logger)
+                _ensure_debug_file_handler(plugin_logger)
+                # writeragent has its own handler. plugin.* keeps propagating so
+                # a root handler (tests, lastResort) still sees those records.
+                # The file handler is not on root, so third-party logs are not
+                # copied into writeragent_debug.log and plugin lines are not
+                # written twice.
                 logger.propagate = False
-                logging.lastResort = None
 
                 if first_init:
                     logger.warning(
@@ -454,6 +467,10 @@ def format_tool_call_for_display(tool: Any, args: Any, method: Any = None) -> st
             arg_vals = []
             if isinstance(args_dict, dict):
                 for k, v in args_dict.items():
+                    if isinstance(k, str) and k.casefold() in _SECRET_LOG_KEYS and isinstance(v, str):
+                        val_str = repr(LOG_REDACT_SECRET_PLACEHOLDER)
+                        arg_vals.append(f"{k}={val_str}")
+                        continue
                     val_str = repr(v)
                     if len(val_str) > 100:
                         if isinstance(v, str):
@@ -500,6 +517,9 @@ def format_tool_result_for_display(tool: Any, result: Any, args: Any = None) -> 
             args_dict = args if isinstance(args, dict) else {}
             arg_vals = []
             for k, v in args_dict.items():
+                if isinstance(k, str) and k.casefold() in _SECRET_LOG_KEYS and isinstance(v, str):
+                    arg_vals.append(f"{k}={repr(LOG_REDACT_SECRET_PLACEHOLDER)}")
+                    continue
                 v_str = repr(v)
                 if len(v_str) > 100:
                     if isinstance(v, str):
@@ -522,6 +542,9 @@ def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any 
         return
     payload = {"location": location, "message": message, "timestamp": int(time.time() * 1000)}
     if data is not None:
+        # Copy first so a logged payload cannot mutate the caller's dict.
+        if isinstance(data, (dict, list)):
+            data = redact_sensitive_payload_for_log(data)
         payload["data"] = data
     if hypothesis_id is not None:
         payload["hypothesisId"] = hypothesis_id
@@ -545,34 +568,60 @@ def update_activity_state(phase: str, round_num: Any = None, tool_name: str | No
             _activity_state["tool_name"] = tool_name
 
 
+def _clear_hung_status(status_control: Any) -> None:
+    """Clear a watchdog Hung: label once work resumes. Leave any newer status."""
+    try:
+        current = status_control.getText()
+    except Exception:
+        log.debug("watchdog: could not read status text", exc_info=True)
+        return
+    if isinstance(current, str) and current.startswith("Hung:"):
+        status_control.setText("")
+
+
+def _watchdog_check(status_control: Any) -> None:
+    """One watchdog pass. Posts Hung: after the idle threshold, and clears it when activity resumes."""
+    global _watchdog_hung_shown
+    with _activity_lock:
+        phase = _activity_state["phase"]
+        round_num = _activity_state["round_num"]
+        tool_name = _activity_state["tool_name"]
+        last = _activity_state["last_activity"]
+    if not phase:
+        return
+    last_val = last if isinstance(last, (int, float)) else 0.0
+    elapsed = time.monotonic() - last_val
+    if elapsed < _watchdog_threshold_sec:
+        if _watchdog_hung_shown and status_control is not None:
+            try:
+                from plugin.framework.queue_executor import post_to_main_thread
+
+                post_to_main_thread(_clear_hung_status, status_control)
+                _watchdog_hung_shown = False
+            except Exception:
+                log.debug("watchdog: failed to clear Hung status", exc_info=True)
+        return
+    msg = "WATCHDOG: no activity for %ds; phase=%s round=%s tool=%s" % (int(elapsed), phase, round_num, tool_name if tool_name else "")
+    log.debug(f"[Chat] {msg}")
+    if status_control:
+        hung_text = "Hung: %s round %s" % (phase, round_num)
+        if tool_name:
+            hung_text += " %s" % tool_name
+        try:
+            from plugin.framework.queue_executor import post_to_main_thread
+
+            post_to_main_thread(status_control.setText, hung_text)
+            _watchdog_hung_shown = True
+        except Exception:
+            log.debug("watchdog: failed to post Hung status to main thread", exc_info=True)
+
+
 @background
 def _watchdog_loop(status_control: Any) -> None:
     """Daemon thread: if no activity for threshold, log and set status to Hung: ..."""
     while True:
         time.sleep(_watchdog_interval_sec)
-        with _activity_lock:
-            phase = _activity_state["phase"]
-            round_num = _activity_state["round_num"]
-            tool_name = _activity_state["tool_name"]
-            last = _activity_state["last_activity"]
-        if not phase:
-            continue
-        last_val = last if isinstance(last, (int, float)) else 0.0
-        elapsed = time.monotonic() - last_val
-        if elapsed < _watchdog_threshold_sec:
-            continue
-        msg = "WATCHDOG: no activity for %ds; phase=%s round=%s tool=%s" % (int(elapsed), phase, round_num, tool_name if tool_name else "")
-        log.debug(f"[Chat] {msg}")
-        if status_control:
-            hung_text = "Hung: %s round %s" % (phase, round_num)
-            if tool_name:
-                hung_text += " %s" % tool_name
-            try:
-                from plugin.framework.queue_executor import post_to_main_thread
-
-                post_to_main_thread(status_control.setText, hung_text)
-            except Exception:
-                log.debug("watchdog: failed to post Hung status to main thread", exc_info=True)
+        _watchdog_check(status_control)
 
 
 def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:

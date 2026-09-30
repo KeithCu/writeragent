@@ -2207,6 +2207,43 @@ def test_stream_truncated_tool_arguments_stay_literal(client):
     assert result["finish_reason"] == "tool_calls"
 
 
+def test_request_json_rejects_non_json_body():
+    client = LlmClient({"endpoint": "http://127.0.0.1:9", "model": "m", "api_key": "k"}, None)
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = b"not-json"
+    with patch.object(client, "_send_request", return_value=response), patch.object(client, "_close_if_connection_close"):
+        with pytest.raises(NetworkError) as exc:
+            client._request_json("POST", "/v1/chat/completions", {}, {})
+    assert exc.value.code == "BAD_RESPONSE"
+
+
+def test_transcribe_unknown_audio_tries_native_chat(tmp_path):
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+    client = LlmClient({"endpoint": "http://127.0.0.1:9", "model": "m", "api_key": "k"}, None)
+    with (
+        patch("plugin.framework.client.model_fetcher.has_native_audio", return_value=None),
+        patch.object(client, "chat_completion_sync", return_value="hello") as chat,
+    ):
+        assert client.transcribe_audio(str(wav), model="unknown-audio") == "hello"
+    chat.assert_called_once()
+
+
+def test_peek_ollama_num_ctx_caches_a_miss():
+    from plugin.framework.client import llm_client as llm_mod
+
+    llm_mod._ollama_num_ctx_misses.clear()
+    client = MagicMock()
+    client._get_provider.return_value = "ollama"
+    client.config = {"model": "llama"}
+    client._endpoint.return_value = "http://127.0.0.1:11434"
+    with patch("plugin.framework.client.model_fetcher.query_ollama_runtime_num_ctx", return_value=None) as query:
+        assert llm_mod._peek_live_ollama_num_ctx(client) is None
+        assert llm_mod._peek_live_ollama_num_ctx(client) is None
+    assert query.call_count == 1
+
+
 
 
 

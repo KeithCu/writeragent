@@ -40,6 +40,13 @@ log = logging.getLogger("writeragent.events")
 from plugin.framework.deal_shim import deal
 
 
+def _reentry_token(event: str, data: dict[str, Any]) -> str:
+    """Identity used to drop a nested emit. config:changed includes the key."""
+    if event == "config:changed":
+        return "config:changed:" + str(data.get("key"))
+    return event
+
+
 class EventBus:
     """Publish/subscribe event bus.
 
@@ -56,7 +63,8 @@ class EventBus:
     Re-entrant ``emit`` of the *same* event on the same thread is dropped
     (warning logged). That stops the sidebar config-refresh loop where
     ``config:changed`` → control ``setText`` → listener → ``set_config`` →
-    ``config:changed`` again. Nested *different* events still run. Concurrent
+    ``config:changed`` for the same key. A nested change of a different key
+    still runs. Nested *different* events still run. Concurrent
     emits of the same name on *other* threads are not dropped (thread-local
     dispatch set, not a process-wide lock).
 
@@ -152,6 +160,8 @@ class EventBus:
 
         Exceptions in subscribers are logged and swallowed.
         Re-entrant emit of the same event on this thread is dropped.
+        ``config:changed`` is dropped only when the key matches, so a handler
+        that writes a second key still notifies listeners.
         """
         # crosshair: off
         with self._lock:
@@ -163,11 +173,12 @@ class EventBus:
             subs = list(live)
 
         active = self._active_events()
-        if event in active:
-            log.warning("Suppressed re-entrant event_bus.emit for %r on the same thread", event)
+        token = _reentry_token(event, data)
+        if token in active:
+            log.warning("Suppressed re-entrant event_bus.emit for %r on the same thread", token)
             return
 
-        active.add(event)
+        active.add(token)
         try:
             for cb, is_weak in subs:
                 resolved = self._resolve(cb, is_weak)
@@ -184,7 +195,7 @@ class EventBus:
                     # but log it clearly as an unhandled application error
                     log.exception("Unhandled error in event handler %s for %s: %s", resolved, event, e)
         finally:
-            active.discard(event)
+            active.discard(token)
 
     def _resolve(self, cb: Any, is_weak: bool) -> Any:
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)

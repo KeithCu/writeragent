@@ -670,6 +670,23 @@ class TestWorkItemClaimLockTimeoutRace:
         assert item.cancelled is False  # claim won — item not cancelled
         assert item._claimed is True
 
+    def test_timeout_returns_result_if_event_is_set_during_wait(self):
+        # wait() can return false in the same window process_queue stores
+        # the result and sets the event. The waiter must return that result.
+        from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+
+        qe = QueueExecutor()
+        item = _WorkItem("race", lambda: None, (), {}, blocking=True)
+
+        def wait(timeout=None):
+            item.result = "done"
+            item.event.set()
+            return False
+
+        item.event.wait = wait
+        assert qe._wait_for_result(item, 0.01) == "done"
+        assert item.cancelled is False
+
     def test_process_queue_skips_cancelled_item_via_claim_lock(self):
         # Verify process_queue respects item.cancelled when set before claiming.
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem

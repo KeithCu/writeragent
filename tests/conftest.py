@@ -366,8 +366,11 @@ def _setup_grammar_persistence_test_env():
     # Save log handlers
     wa_logger = logging.getLogger("writeragent")
     root_logger = logging.getLogger()
+    plugin_logger = logging.getLogger("plugin")
     old_wa_handlers = list(wa_logger.handlers)
     old_root_handlers = list(root_logger.handlers)
+    old_plugin_handlers = list(plugin_logger.handlers)
+    old_plugin_level = plugin_logger.level
 
     tmp_dir = tempfile.mkdtemp()
     # Seed the resolved-config-path cache too. Patching the user_config_dir attribute below does
@@ -407,6 +410,17 @@ def _setup_grammar_persistence_test_env():
                     h.close()
                 except Exception:
                     pass
+        # init_logging attaches the debug file handler to the plugin logger
+        # (not root). Drop handlers this test added before the temp dir goes.
+        plugin_logger.setLevel(old_plugin_level)
+        for h in list(plugin_logger.handlers):
+            if h not in old_plugin_handlers:
+                plugin_logger.removeHandler(h)
+                try:
+                    h.close()
+                except Exception:
+                    pass
+        logging_mod._debug_file_handler = None
 
         # Clean up
         grammar_persistence.grammar_registry.doc_persistence_instances.clear()

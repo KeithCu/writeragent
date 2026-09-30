@@ -40,6 +40,10 @@ class TestInitLogging:
         self._saved_root_handlers = list(logging.getLogger().handlers)
         self._saved_last_resort = logging.lastResort
         self._saved_propagate = log.propagate
+        plugin_logger = logging.getLogger("plugin")
+        self._saved_plugin_propagate = plugin_logger.propagate
+        self._saved_plugin_level = plugin_logger.level
+        self._saved_plugin_handlers = list(plugin_logger.handlers)
         config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = None
         logging_mod._debug_log_path = None
@@ -51,7 +55,7 @@ class TestInitLogging:
     def _release_debug_handlers(self) -> None:
         import plugin.framework.logging as logging_mod
 
-        for logger in (log, logging.getLogger()):
+        for logger in (log, logging.getLogger(), logging.getLogger("plugin")):
             for handler in list(logger.handlers):
                 try:
                     logger.removeHandler(handler)
@@ -71,6 +75,16 @@ class TestInitLogging:
         logging_mod._exception_hooks_installed = self._saved_hooks
         logging.lastResort = self._saved_last_resort
         log.propagate = self._saved_propagate
+        plugin_logger = logging.getLogger("plugin")
+        plugin_logger.propagate = self._saved_plugin_propagate
+        plugin_logger.setLevel(self._saved_plugin_level)
+        for handler in list(plugin_logger.handlers):
+            if handler not in self._saved_plugin_handlers:
+                plugin_logger.removeHandler(handler)
+                try:
+                    handler.close()
+                except Exception:
+                    pass
         for h in list(log.handlers):
             log.removeHandler(h)
             try:
@@ -159,12 +173,14 @@ class TestInitLogging:
             assert ("writeragent-console-probe") in (contents)
             assert ("module-console-probe") in (contents)
             assert (wa_buf.getvalue()) == ("")
-            assert (root_buf.getvalue()) == ("")
-            # Root-only sweep: module logger may keep its StreamHandler; file still receives via root.
+            # writeragent does not propagate. plugin.* still does, so a root
+            # handler sees module logs and not the writeragent logger.
+            assert ("writeragent-console-probe") not in (root_buf.getvalue())
+            assert ("module-console-probe") in (root_buf.getvalue())
             assert ("module-console-probe") in (module_stderr_buf.getvalue())
             self._release_debug_handlers()
 
-    def test_init_logging_disables_last_resort(self):
+    def test_init_logging_leaves_root_and_last_resort(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             config_path = os.path.join(tmp, "writeragent.json")
             with open(config_path, "w", encoding="utf-8") as fh:
@@ -177,7 +193,18 @@ class TestInitLogging:
             ):
                 init_logging(mock_ctx)
 
-            assert (logging.lastResort) is None
+            logging.getLogger("plugin.framework.file_probe").warning("plugin-file-probe")
+            logging.getLogger("urllib3").warning("third-party-probe-url")
+            handler = next(h for h in log.handlers if isinstance(h, logging.FileHandler))
+            logging.FileHandler.flush(handler)
+            with open(os.path.join(tmp, "writeragent_debug.log"), encoding="utf-8") as fh:
+                contents = fh.read()
+            assert "plugin-file-probe" in contents
+            assert "third-party-probe-url" not in contents
+            assert logging.lastResort is self._saved_last_resort
+            assert not any(isinstance(h, OptionalFlushFileHandler) for h in logging.getLogger().handlers)
+            plugin_handlers = [h for h in logging.getLogger("plugin").handlers if isinstance(h, logging.FileHandler)]
+            assert plugin_handlers[0] is handler
             self._release_debug_handlers()
 
     def test_shared_handler_rotation_caps_backup(self):
@@ -196,9 +223,10 @@ class TestInitLogging:
                 init_logging(mock_ctx)
 
             wa_handlers = [h for h in log.handlers if isinstance(h, logging.FileHandler)]
-            root_handlers = [h for h in logging.getLogger().handlers if isinstance(h, logging.FileHandler)]
+            plugin_handlers = [h for h in logging.getLogger("plugin").handlers if isinstance(h, logging.FileHandler)]
             assert len(wa_handlers) == 1
-            assert wa_handlers[0] is root_handlers[0]
+            assert wa_handlers[0] is plugin_handlers[0]
+            assert wa_handlers[0] not in logging.getLogger().handlers
             handler = wa_handlers[0]
 
             log.warning("A" * (logging_mod._MAX_DEBUG_LOG_BYTES + 64))
@@ -315,6 +343,45 @@ def test_update_activity_state():
     assert (_activity_state['last_activity'] > 0)
 
 
+def test_watchdog_clears_hung_status_when_activity_resumes():
+    import plugin.framework.logging as logging_mod
+
+    class Ctrl:
+        def __init__(self) -> None:
+            self.text = "Working"
+
+        def getText(self) -> str:
+            return self.text
+
+        def setText(self, value: str) -> None:
+            self.text = value
+
+    ctrl = Ctrl()
+
+    def immediate(fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+    saved = logging_mod._watchdog_hung_shown
+    try:
+        logging_mod._watchdog_hung_shown = False
+        update_activity_state("chat", round_num=2, tool_name="edit")
+        with logging_mod._activity_lock:
+            logging_mod._activity_state["last_activity"] = 0.0
+        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=immediate):
+            logging_mod._watchdog_check(ctrl)
+            assert ctrl.text.startswith("Hung:")
+            update_activity_state("chat", round_num=2)
+            logging_mod._watchdog_check(ctrl)
+            assert ctrl.text == ""
+            ctrl.text = "Ready"
+            logging_mod._watchdog_hung_shown = True
+            logging_mod._watchdog_check(ctrl)
+            assert ctrl.text == "Ready"
+    finally:
+        logging_mod._watchdog_hung_shown = saved
+        update_activity_state("")
+
+
 class TestAgentLog:
 
     def setup_method(self):
@@ -346,6 +413,26 @@ class TestAgentLog:
         assert payload["message"] == "hello"
         assert payload["data"] == {"k": "v"}
         assert payload["hypothesisId"] == "H1"
+
+    def test_agent_log_redacts_secret_keys(self):
+        import plugin.framework.logging as logging_mod
+        logging_mod._enable_agent_log = True
+        handler = MemoryHandler(capacity=10)
+        handler.setLevel(logging.DEBUG)
+        log.addHandler(handler)
+        log.setLevel(logging.DEBUG)
+        original = {"api_key": "sk-live", "nested": {"Authorization": "Bearer secret"}}
+        agent_log("test.py:2", "secrets", data=original)
+        assert original["api_key"] == "sk-live"
+        payload = json.loads(handler.buffer[0].getMessage().split("[Agent] ", 1)[1])
+        assert payload["data"]["api_key"] == "<redacted>"
+        assert payload["data"]["nested"]["Authorization"] == "<redacted>"
+
+    def test_tool_display_redacts_secret_args(self):
+        shown = format_tool_call_for_display("fetch", {"api_key": "sk-live", "q": "cats"})
+        assert "sk-live" not in shown
+        assert "<redacted>" in shown
+        assert "cats" in shown
 
     def test_agent_log_noop_when_disabled(self):
         import plugin.framework.logging as logging_mod

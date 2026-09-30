@@ -207,6 +207,12 @@ def _backup_config_file(config_file_path: str, *, reason: str = "invalid-json") 
     if not config_file_path or not os.path.exists(config_file_path):
         return None
     backup_path = _config_backup_path(config_file_path)
+    # A second corruption must not overwrite the only earlier copy.
+    if os.path.exists(backup_path):
+        stamped = backup_path + "." + time.strftime("%Y%m%d%H%M%S")
+        if os.path.exists(stamped):
+            stamped = stamped + "." + str(time.time_ns())
+        backup_path = stamped
     try:
         shutil.copy2(config_file_path, backup_path)
         log.warning("Backed up config %s to %s (%s)", config_file_path, backup_path, reason)
@@ -589,15 +595,9 @@ def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
     ``event_key`` is the key listeners see. It differs from ``key`` when a
     settings field is stored under another name.
     """
-    try:
-        config_file_path = _config_path()
-    except ConfigError:
-        log.warning("set_config skipped: config path could not be resolved")
-        return
-
+    config_file_path = _config_path()
     if not config_file_path:
-        log.warning("set_config skipped: empty config path")
-        return
+        raise ConfigError("Config path is empty", "CONFIG_PATH_ERROR")
     emit_changed = False
     previous: Any = None
     with _config_write_lock:
@@ -653,15 +653,9 @@ def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
 
 def remove_config(key: str) -> None:
     """Remove a config key."""
-    try:
-        config_file_path = _config_path()
-    except ConfigError:
-        log.warning("remove_config skipped: config path could not be resolved")
-        return
-
+    config_file_path = _config_path()
     if not config_file_path:
-        log.warning("remove_config skipped: empty config path")
-        return
+        raise ConfigError("Config path is empty", "CONFIG_PATH_ERROR")
     if not os.path.exists(config_file_path):
         return
     emit_changed = False

@@ -377,3 +377,8 @@ def test_iterate_sse_truncated_and_non_utf8_lines_still_yield_later_payloads():
     assert payloads[2] == "[DONE]"
 
 
+def test_iterate_sse_replaces_invalid_utf8():
+    stream = create_mock_http_response(sse_lines=[b"data: caf\xff", b"data: [DONE]"])
+    assert list(iterate_sse(stream)) == ["caf\ufffd", "[DONE]"]
+
+

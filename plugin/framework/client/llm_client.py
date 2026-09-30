@@ -237,6 +237,12 @@ def _exit_code_from_provider_body(err_body: str) -> str | None:
     return None
 
 
+# Misses from the HTTP 500 diagnostic only. Do not store these in
+# _ollama_show_cache: that cache is also the vision lookup, and a down
+# server would then stick "no vision" for the process.
+_ollama_num_ctx_misses: set[str] = set()
+
+
 def _peek_live_ollama_num_ctx(client: Any) -> int | None:
     """Cached Ollama runtime num_ctx for crash copy / 500 logs. Never raises."""
     try:
@@ -245,9 +251,16 @@ def _peek_live_ollama_num_ctx(client: Any) -> int | None:
         model_name = str(client.config.get("model") or "").strip()
         if not model_name:
             return None
+        endpoint = str(client._endpoint() or "")
+        cache_key = f"{endpoint}@{model_name}"
+        if cache_key in _ollama_num_ctx_misses:
+            return None
         from plugin.framework.client.model_fetcher import query_ollama_runtime_num_ctx
 
-        return query_ollama_runtime_num_ctx(client._endpoint(), model_name)
+        num_ctx = query_ollama_runtime_num_ctx(endpoint, model_name)
+        if num_ctx is None:
+            _ollama_num_ctx_misses.add(cache_key)
+        return num_ctx
     except Exception:
         log.debug("HTTP 500: live num_ctx lookup failed", exc_info=True)
         return None
@@ -731,7 +744,11 @@ class LlmClient:
                     continue
                 raw = response.read().decode("utf-8", errors="replace")
                 self._close_if_connection_close(response)
-                return safe_json_loads(raw)
+                parsed = safe_json_loads(raw)
+                # A 200 with a non-JSON body used to become None and then an empty reply.
+                if parsed is None:
+                    raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
+                return parsed
             except CONNECTION_ERRORS as e:
                 sends_left -= 1
                 wait_index += 1
@@ -795,8 +812,10 @@ class LlmClient:
         # Client dict may carry the Speech-tab key or the legacy top-level key.
         model_name = model or self.config.get("audio.stt_model") or self.config.get("stt_model") or "whisper-1"
 
-        # 1. Check if the STT model itself supports native audio
-        if has_native_audio(model_name, self._endpoint()):
+        # 1. Check if the STT model itself supports native audio.
+        # None means unknown. has_native_audio documents that as "try native";
+        # a bare `if` treated None as false and skipped chat for uncatalogued models.
+        if has_native_audio(model_name, self._endpoint()) is not False:
             log.warning("Using multimodal chat for transcription fallback (model: %s)", model_name)
             try:
                 with open(wav_path, "rb") as f:
@@ -1354,6 +1373,8 @@ class LlmClient:
                     raw = response.read()
                     self._close_if_connection_close(response)
                     result = safe_json_loads(raw.decode("utf-8"))
+                    if result is None:
+                        raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
                     break
                 except CONNECTION_ERRORS as e:
                     sends_left -= 1
@@ -1398,9 +1419,6 @@ class LlmClient:
                     raise NetworkError(err_msg, details={"url": path}) from e
 
             log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
-
-            if result is None:
-                result = {}
 
             used_model = str(result.get("model") or requested_model) if isinstance(result, dict) else requested_model
             log.info(

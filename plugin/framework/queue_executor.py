@@ -156,7 +156,7 @@ class SendCancellation:
         if not executors:
             return
         for executor in executors:
-            executor.cancel_pending_work()
+            executor.cancel_pending_work(self)
 
 
 def get_current_send_cancellation() -> SendCancellation | None:
@@ -288,7 +288,7 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
 
 
 class _WorkItem:
-    __slots__: ClassVar[tuple[str, ...]] = ("id", "fn", "args", "kwargs", "blocking", "event", "result", "exception", "cancelled", "_claimed")
+    __slots__: ClassVar[tuple[str, ...]] = ("id", "fn", "args", "kwargs", "blocking", "event", "result", "exception", "cancelled", "_claimed", "scope")
     id: str
     fn: Any
     args: Any
@@ -297,8 +297,9 @@ class _WorkItem:
     event: threading.Event | None
     cancelled: bool
     _claimed: bool
+    scope: SendCancellation | None
 
-    def __init__(self, item_id: str, fn: Any, args: Any, kwargs: Any, blocking: bool = True) -> None:
+    def __init__(self, item_id: str, fn: Any, args: Any, kwargs: Any, blocking: bool = True, scope: SendCancellation | None = None) -> None:
         self.id = item_id
         self.fn = fn
         self.args = args
@@ -309,6 +310,7 @@ class _WorkItem:
         self.exception: BaseException | None = None
         self.cancelled = False
         self._claimed = False
+        self.scope = scope
 
 
 class QueueExecutor:
@@ -505,12 +507,16 @@ class QueueExecutor:
         except Exception as e:
             log.warning("_poke_main_thread addCallback failed: %s %s", e, _marshal_thread_tag(self))
 
-    def cancel_pending_work(self) -> None:
+    def cancel_pending_work(self, scope: SendCancellation | None = None) -> None:
         """Mark queued main-thread work as cancelled and wake blocking waiters.
 
         Drain and mark under ``_claim_lock``. ``_enqueue_work`` puts under the
         same lock. A put used to land after this loop saw an empty queue and
         before the lock, so Stop left that item runnable.
+
+        A *scope* cancels only items enqueued under that send. Other items go
+        back in order. Stop used to wipe MCP, grammar, and peer marshals that
+        share ``default_executor``. No scope still drains the whole queue.
         """
         with self._claim_lock:
             pending: list[_WorkItem] = []
@@ -519,11 +525,17 @@ class QueueExecutor:
                     pending.append(self._work_queue.get_nowait())
                 except queue.Empty:
                     break
+            keep: list[_WorkItem] = []
             for item in pending:
+                if scope is not None and item.scope is not scope:
+                    keep.append(item)
+                    continue
                 item.cancelled = True
                 if item.blocking and item.event and not item.event.is_set():
                     item.exception = SendCancelled()
                     item.event.set()
+            for item in keep:
+                self._work_queue.put(item)
 
     def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True) -> _WorkItem:
         """Add work item to queue."""
@@ -531,7 +543,7 @@ class QueueExecutor:
         if scope is not None:
             scope.bind_executor(self)
         item_id = str(uuid.uuid4())
-        item = _WorkItem(item_id, fn, args, kwargs, blocking)
+        item = _WorkItem(item_id, fn, args, kwargs, blocking, scope)
         # Same lock as ``cancel_pending_work``'s drain. Not held across poke:
         # ``process_queue`` may already hold it and re-enter through the test
         # poke handler (``threading.Lock`` is not reentrant).
@@ -547,10 +559,16 @@ class QueueExecutor:
             # this item for execution. Without _claim_lock there was a window
             # where the main thread could start executing fn() after this thread
             # gave up, causing UNO calls to run against an abandoned caller.
+            # wait() can also return false in the same window the result is
+            # stored and the event is set. Raising TimeoutError then drops a
+            # finished result.
+            finished = False
             with self._claim_lock:
-                if not item._claimed:
+                finished = item.event is not None and item.event.is_set()
+                if not finished and not item._claimed:
                     item.cancelled = True
-            raise TimeoutError("Main-thread execution of %s timed out after %ss" % (getattr(item.fn, "__name__", str(item.fn)), timeout))
+            if not finished:
+                raise TimeoutError("Main-thread execution of %s timed out after %ss" % (getattr(item.fn, "__name__", str(item.fn)), timeout))
 
         # The redundant `if item.cancelled and item.exception` branch has been
         # removed: the unconditional check below covers it entirely.

@@ -487,15 +487,35 @@ class AsyncProcess:
         self._wait_thread = run_in_background(self._wait_for_exit, name=f"asyncproc-wait-{self.process.pid}", dedicated=True)
 
     def _read_stream(self, stream: Any, callback: Any) -> None:
+        # ``for line in stream`` blocks in readline. A child that writes a long
+        # burst with no newline fills the OS pipe and deadlocks. A callback
+        # exception used to leave that loop and close the pipe while the child
+        # was still writing. Short reads match start_stderr_drain.
+        pending = ""
         try:
-            for line in stream:
-                if line is not None:
-                    callback(line.rstrip("\n\r"))
-        except ValueError:
-            pass  # ValueError: I/O operation on closed file
-        except OSError as e:
-            log.debug("AsyncProcess stream read error: %s", e)
+            while True:
+                chunk = _read_stderr_chunk(stream)
+                if chunk is None or chunk == "" or chunk == b"":
+                    break
+                if isinstance(chunk, bytes):
+                    chunk = chunk.decode("utf-8", errors="replace")
+                pending += chunk
+                lines = pending.splitlines(keepends=True)
+                if lines and not lines[-1].endswith(("\n", "\r")):
+                    pending = lines.pop()
+                else:
+                    pending = ""
+                for line in lines:
+                    try:
+                        callback(line.rstrip("\n\r"))
+                    except Exception:
+                        log.exception("AsyncProcess stream callback failed")
         finally:
+            if pending:
+                try:
+                    callback(pending.rstrip("\n\r"))
+                except Exception:
+                    log.exception("AsyncProcess stream callback failed")
             try:
                 stream.close()
             except OSError:
@@ -503,10 +523,10 @@ class AsyncProcess:
 
     def _drain_stream(self, stream: Any) -> None:
         try:
-            for _unused in stream:
-                pass
-        except OSError:
-            pass
+            while True:
+                chunk = _read_stderr_chunk(stream)
+                if chunk is None or chunk == "" or chunk == b"":
+                    break
         finally:
             try:
                 stream.close()

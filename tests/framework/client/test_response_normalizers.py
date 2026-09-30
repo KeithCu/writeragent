@@ -86,6 +86,24 @@ def test_anthropic_shim_parse_sync_response():
     assert usage["input_tokens"] == 20
 
 
+def test_anthropic_shim_skips_tool_block_without_name():
+    shim = AnthropicShim(MagicMock())
+    payload = {
+        "type": "message",
+        "content": [
+            {"type": "tool_use", "id": "t0"},
+            {"type": "tool_use", "id": "t1", "name": "do_work", "input": {"x": 1}},
+        ],
+        "stop_reason": "tool_use",
+    }
+    parsed = shim.parse_sync_response(payload)
+    tool_calls = parsed[2]
+    assert tool_calls is not None
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["function"]["name"] == "do_work"
+    assert tool_calls[0]["id"] == "t1"
+
+
 def test_google_shim_parse_sync_response():
     client_mock = MagicMock()
     shim = GoogleShim(client_mock)

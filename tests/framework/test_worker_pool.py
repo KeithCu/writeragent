@@ -193,45 +193,69 @@ def test_async_process_terminate_timeout():
 def test_async_process_read_stream_errors():
     ap = AsyncProcess(["ls"])
 
-    # Test ValueError
+    # ValueError from a closed pipe ends the reader and still closes.
     mock_stream = MagicMock()
-    mock_stream.__iter__.side_effect = ValueError("I/O operation on closed file")
-
+    mock_stream.buffer.read1.side_effect = ValueError("I/O operation on closed file")
     ap._read_stream(mock_stream, lambda x: None)
     mock_stream.close.assert_called()
 
-    # Test OSError
     mock_stream = MagicMock()
-    mock_stream.__iter__.side_effect = OSError("read error")
-
+    mock_stream.buffer.read1.side_effect = OSError("read error")
     ap._read_stream(mock_stream, lambda x: None)
     mock_stream.close.assert_called()
 
-    # Test stream close throwing OSError
     mock_stream = MagicMock()
-    mock_stream.__iter__.return_value = ["line1"]
+    mock_stream.buffer.read1.return_value = b""
     mock_stream.close.side_effect = OSError("close error")
-
     ap._read_stream(mock_stream, lambda x: None)
     mock_stream.close.assert_called()
 
 def test_async_process_drain_stream_errors():
     ap = AsyncProcess(["ls"])
 
-    # Test OSError in loop
     mock_stream = MagicMock()
-    mock_stream.__iter__.side_effect = OSError("drain error")
-
+    mock_stream.buffer.read1.side_effect = OSError("drain error")
     ap._drain_stream(mock_stream)
     mock_stream.close.assert_called()
 
-    # Test stream close throwing OSError
     mock_stream = MagicMock()
-    mock_stream.__iter__.return_value = ["line1"]
+    mock_stream.buffer.read1.return_value = b""
     mock_stream.close.side_effect = OSError("close error")
-
     ap._drain_stream(mock_stream)
     mock_stream.close.assert_called()
+
+
+class _ChunkStream:
+    """Bytes delivered by read1, including a newline-free burst."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = list(chunks)
+        self.closed = False
+
+    def read1(self, size: int) -> bytes:
+        del size
+        if not self._chunks:
+            return b""
+        return self._chunks.pop(0)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_async_process_read_stream_short_reads_and_callback_errors():
+    ap = AsyncProcess(["dummy"])
+    burst = b"x" * 8192
+    stream = _ChunkStream([burst, b"\nnext\n"])
+    received = []
+
+    def callback(line: str) -> None:
+        received.append(line)
+        if line == "x" * 8192:
+            raise RuntimeError("callback failed")
+
+    ap._read_stream(stream, callback)
+    assert received == ["x" * 8192, "next"]
+    assert stream.closed is True
 
 def test_async_process_terminate_not_running():
     ap = AsyncProcess([sys.executable, "-c", "pass"])
@@ -444,6 +468,13 @@ class TestReadStreamStripsNewlines:
         stream = self._make_stream(["\n"])
         ap._read_stream(stream, received.append)
         assert received == [""], f"Expected [\"\"] but got: {received!r}"
+
+    def test_partial_line_delivered_at_eof(self):
+        ap = AsyncProcess(["dummy"])
+        received = []
+        stream = self._make_stream(["hello"])
+        ap._read_stream(stream, received.append)
+        assert received == ["hello"]
 
 
 def test_stderr_drain_short_read_before_eof():

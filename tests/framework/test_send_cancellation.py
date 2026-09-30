@@ -94,25 +94,30 @@ def test_unbound_cancel_leaves_default_executor_queue():
                 default_executor._work_queue.put(other)
 
 
-def test_bound_cancel_wakes_default_executor():
+def test_bound_cancel_wakes_only_that_scope():
+    """Stop cancels marshals tagged with this send and leaves the rest queued."""
     import queue as queue_mod
 
-    from plugin.framework.queue_executor import _WorkItem
+    from plugin.framework.queue_executor import _current_send_cancellation
 
-    item = _WorkItem("bound-cancel", lambda: None, (), {}, blocking=True)
-    default_executor._work_queue.put(item)
-    try:
-        scope = SendCancellation()
-        scope.bind_executor(default_executor)
-        scope.cancel()
-        assert item.cancelled is True
-        assert isinstance(item.exception, SendCancelled)
-    finally:
-        while True:
+    with patch.object(default_executor, "_poke_main_thread"):
+        with agent_session() as scope:
+            mine = default_executor._enqueue_work(lambda: None, (), {})
+            token = _current_send_cancellation.set(None)
             try:
-                default_executor._work_queue.get_nowait()
-            except queue_mod.Empty:
-                break
+                other = default_executor._enqueue_work(lambda: None, (), {})
+            finally:
+                _current_send_cancellation.reset(token)
+            scope.cancel()
+            assert mine.cancelled is True
+            assert isinstance(mine.exception, SendCancelled)
+            assert other.cancelled is False
+            assert other.event is not None and not other.event.is_set()
+    while True:
+        try:
+            default_executor._work_queue.get_nowait()
+        except queue_mod.Empty:
+            break
 
 
 def test_cancel_pending_work_wakes_blocking_waiter():
@@ -199,19 +204,31 @@ def test_agent_session_stop_then_success_does_not_double_cancel():
 
 
 def test_agent_session_abort_cancels_pending_main_thread_work():
+    """Abort cancels marshals tagged with this send. Earlier untagged work stays queued."""
+    import queue as queue_mod
+
     from plugin.framework.queue_executor import _WorkItem
 
-    item = _WorkItem("id", lambda: None, (), {}, blocking=True)
-    default_executor._work_queue.put(item)
-
-    with pytest.raises(RuntimeError):
-        with agent_session():
-            raise RuntimeError("crash")
-
-    assert item.cancelled
-    assert item.event is not None
-    assert item.event.wait(timeout=1.0)
-    assert item.exception is not None
+    earlier = _WorkItem("earlier", lambda: None, (), {}, blocking=True)
+    default_executor._work_queue.put(earlier)
+    mine = None
+    try:
+        with pytest.raises(RuntimeError):
+            with agent_session():
+                with patch.object(default_executor, "_poke_main_thread"):
+                    mine = default_executor._enqueue_work(lambda: None, (), {})
+                raise RuntimeError("crash")
+        assert mine is not None and mine.cancelled
+        assert mine.event is not None
+        assert mine.event.wait(timeout=1.0)
+        assert isinstance(mine.exception, SendCancelled)
+        assert earlier.cancelled is False
+    finally:
+        while True:
+            try:
+                default_executor._work_queue.get_nowait()
+            except queue_mod.Empty:
+                break
 
 
 def test_cancel_clears_bound_executor_not_unrelated():
@@ -220,12 +237,12 @@ def test_cancel_clears_bound_executor_not_unrelated():
     bound = QueueExecutor()
     other = QueueExecutor()
 
-    bound_item = _WorkItem("bound", lambda: None, (), {}, blocking=True)
+    scope = SendCancellation()
+    bound_item = _WorkItem("bound", lambda: None, (), {}, blocking=True, scope=scope)
     other_item = _WorkItem("other", lambda: None, (), {}, blocking=True)
     bound._work_queue.put(bound_item)
     other._work_queue.put(other_item)
 
-    scope = SendCancellation()
     scope.bind_executor(bound)
     scope.cancel()
 
