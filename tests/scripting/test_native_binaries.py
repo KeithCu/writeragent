@@ -79,8 +79,9 @@ def test_download_url_to_file_atomic_replace_preserves_inode(tmp_path):
                 return False
 
         statuses: list[str] = []
-        with patch("urllib.request.urlopen", return_value=_Resp()):
+        with patch("urllib.request.urlopen", return_value=_Resp()) as mock_urlopen:
             _download_url_to_file("https://example.test/pack.so", str(dest), statuses.append)
+        assert mock_urlopen.call_args.kwargs["timeout"] == 60
 
         assert dest.read_bytes() == b"NEW!"
         if fd is not None:

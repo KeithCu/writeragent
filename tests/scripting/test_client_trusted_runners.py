@@ -78,3 +78,16 @@ def test_languagetool_and_vale_use_config_limit_timeouts(ctx):
     assert mock_run.call_args.kwargs["timeout_sec"] == VALE_WORKER_TIMEOUT_SEC
 
 
+def test_run_text_analytics_string_spec_applies_sentiment_model(ctx):
+    with (
+        patch(
+            "plugin.framework.config.get_config_dict",
+            return_value={"text_analytics_sentiment_model": "xlm-roberta"},
+        ),
+        patch("plugin.scripting.client._run_trusted_action", return_value={"status": "ok"}) as mock_run,
+    ):
+        client.run_text_analytics(ctx, "sentiment", "hi")
+    assert mock_run.call_args.kwargs["helper"] == "sentiment"
+    assert mock_run.call_args.kwargs["params"]["model"] == "xlm-roberta"
+
+

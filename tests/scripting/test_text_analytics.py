@@ -232,3 +232,9 @@ def test_text_analytics_sentiment_accepts_list_for_sections():
     assert res["per_section"][0]["label"] == "positive"
     assert res["per_section"][1]["label"] == "negative"
 
+
+def test_result_to_html_table_double_escapes_markup():
+    html = ta._result_to_html_table({"key_phrases": [{"lemma": "<script>"}]})
+    assert "&amp;lt;script&amp;gt;" in html
+    assert "<script>" not in html
+

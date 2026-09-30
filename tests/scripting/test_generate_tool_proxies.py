@@ -387,9 +387,8 @@ def test_rpc_call_logic_in_generated_code():
     assert "def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:" in code
     assert "kwargs = {k: v for k, v in kwargs.items() if v is not None}" in code
     assert "from plugin.scripting.host_rpc import execute_tool" in code
-    assert "write_pickle_frame(sys.stdout.buffer, request)" in code
-    assert "max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES" in code
-    assert "read_pickle_frame(" in code
+    assert "from plugin.scripting.ipc import exchange_tool_call" in code
+    assert "return exchange_tool_call(tool_name, kwargs)" in code
 
 
 def test_indexes_domain_becomes_index():

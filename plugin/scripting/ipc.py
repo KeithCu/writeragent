@@ -20,7 +20,9 @@ import select
 import struct
 import subprocess
 import sys
+import threading
 import time
+import uuid
 from typing import Any, Callable, IO
 
 log = logging.getLogger("writeragent.scripting.ipc")
@@ -172,6 +174,39 @@ def read_pickle_frame(
     """Read and unpickle one length-prefixed message. Return None on EOF/truncation."""
     payload = read_frame_payload(stream, max_payload_bytes=max_payload_bytes, frame_label=frame_label)
     return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict)
+
+
+# One lock for every venv → host tool_call on this pipe. The LibrePy named-script
+# fallback used to write a frame with no lock, so two calls could interleave.
+_tool_call_lock = threading.Lock()
+
+
+def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Write one tool_call frame and read its response. Check the echoed id.
+
+    The host echoes ``id`` on both success and error. A mismatch means this
+    response belongs to another call; reading further frames would pair it
+    with a later request, so stop here.
+    """
+    call_id = str(uuid.uuid4())
+    request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": args}
+    with _tool_call_lock:
+        write_pickle_frame(sys.stdout.buffer, request)
+        response = read_pickle_frame(
+            sys.stdin.buffer,
+            require_dict=True,
+            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            frame_label="tool_call response",
+        )
+    if response is None:
+        raise ConnectionError("Lost connection to LibreOffice host during tool call")
+    if response.get("id") != call_id:
+        raise RuntimeError(
+            f"tool_call response id {response.get('id')!r} does not match request {call_id!r}"
+        )
+    if response.get("status") == "error":
+        raise RuntimeError(response.get("message", response.get("error", "Unknown error")))
+    return response.get("result", {})
 
 
 def read_pickle_frame_with_timeout(

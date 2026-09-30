@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 _CONTRIB_BASE_URL = "https://raw.githubusercontent.com/KeithCu/writeragent/master/contrib/"
+# urlopen's default is no timeout, so a stalled native download blocked the caller.
+_NATIVE_DOWNLOAD_TIMEOUT_SEC = 60
 
 
 def _cleanup_stale_native_backups(bin_dir: str) -> None:
@@ -132,7 +134,7 @@ def _download_url_to_file(
     )
     partial_path = dest_path + ".partial"
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=_NATIVE_DOWNLOAD_TIMEOUT_SEC) as response:
             total_size = int(response.headers.get("content-length", 0))
             block_size = 8192
             downloaded = 0

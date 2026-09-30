@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -20,6 +21,8 @@ from plugin.scripting.config_limits import (
 )
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
 from plugin.vision.vision_common import resolve_engine
+
+log = logging.getLogger(__name__)
 
 
 def _run_trusted_action(
@@ -287,22 +290,16 @@ def run_text_analytics(
     For sentiment: uses transformers + a multilingual model (default: XLM-RoBERTa based).
     Requires `spacy` + `textdescriptives` for other helpers; `transformers` + `torch` (CPU) for sentiment.
     """
-    # Read JSON config overrides so users can change the model via writeragent.json
-    # (e.g. for a different multilingual model or future engine). For now only "transformers" is supported.
+    # writeragent.json "text_analytics_sentiment_model" used to apply only when
+    # spec was a dict. A string helper name ("sentiment") skipped the assignment
+    # and the worker kept its hard-coded model.
+    model: Any = None
     try:
         from plugin.framework.config import get_config_dict
         cfg = get_config_dict() or {}
-        model = cfg.get("text_analytics_sentiment_model")
-        if model:
-            if isinstance(spec, dict):
-                p = spec.setdefault("params", {})
-                p["model"] = model
-            else:
-                # spec is str like "sentiment" — wrap temporarily for consistency
-                # (callers that pass str will still work; model is best passed in dict form).
-                pass
+        model = cfg.get("text_analytics_sentiment_model") or None
     except Exception:
-        pass  # config optional; fall back to hard-coded default in _extract_sentiment
+        log.exception("Could not read text_analytics_sentiment_model")
 
     timeout_sec = _resolve_trusted_timeout(ctx, _TEXT_SESSION_PREFIX)
     if isinstance(spec, str):
@@ -311,6 +308,9 @@ def run_text_analytics(
     else:
         helper = str(spec.get("helper", "") or "")
         params = spec.get("params") or {}
+    if model:
+        params = dict(params) if isinstance(params, dict) else {}
+        params["model"] = model
     return _run_trusted_action(
         ctx,
         session_id=_TEXT_SESSION_PREFIX,

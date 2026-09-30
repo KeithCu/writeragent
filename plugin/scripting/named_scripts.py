@@ -100,21 +100,10 @@ def _rpc_named(tool_name: str, **kwargs: Any) -> Any:
 
             return _rpc_call(tool_name, **kwargs)
         except ImportError:
-            import uuid
+            # LibrePy omits writeragent_api. Same locked, id-checked pipe as _rpc_call.
+            from plugin.scripting.ipc import exchange_tool_call
 
-            from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame
-
-            call_id = str(uuid.uuid4())
-            request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": kwargs}
-            write_pickle_frame(sys.stdout.buffer, request)
-            response = read_pickle_frame(
-                sys.stdin.buffer, require_dict=True, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES
-            )
-            if response is None:
-                raise ConnectionError("Lost connection to LibreOffice host during tool call")
-            if response.get("status") == "error":
-                raise RuntimeError(response.get("message", "Unknown error"))
-            return response.get("result", {})
+            return exchange_tool_call(tool_name, kwargs)
 
     from plugin.scripting.host_rpc import execute_tool
 

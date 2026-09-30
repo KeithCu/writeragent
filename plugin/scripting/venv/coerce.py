@@ -39,9 +39,15 @@ _LO_ERROR_TOKENS = frozenset(
     }
 )
 
-_CURRENCY_RE = re.compile(r"^[\s$€£¥₹]+\s*([\d,]+(?:\.\d+)?)\s*$")
-_PERCENT_RE = re.compile(r"^([\d,]+(?:\.\d+)?)\s*%\s*$")
-_NUMERIC_RE = re.compile(r"^[\s$€£¥₹+-]*([\d,]+(?:\.\d+)?)\s*$")
+# The sign used to sit in the ignored prefix, so "-1,234.50" and "$-123" became
+# positive floats. Capture one sign before or after the currency symbol. Two
+# signs ("+-5") is not a single number.
+_SIGN = r"([+-])?"
+_NUMBER = r"([\d,]+(?:\.\d+)?)"
+_CURRENCY_CHARS = r"[$€£¥₹]"
+_PERCENT_RE = re.compile(rf"^\s*{_SIGN}\s*{_NUMBER}\s*%\s*$")
+_CURRENCY_RE = re.compile(rf"^\s*{_SIGN}\s*{_CURRENCY_CHARS}+\s*{_SIGN}\s*{_NUMBER}\s*$")
+_NUMERIC_RE = re.compile(rf"^\s*{_SIGN}\s*{_CURRENCY_CHARS}*\s*{_SIGN}\s*{_NUMBER}\s*$")
 
 # --- Coercion & CoerceResult ---
 
@@ -73,28 +79,30 @@ def is_missing_value(value: Any) -> bool:
     return False
 
 
+def _signed_magnitude(sign_a: str | None, sign_b: str | None, digits: str) -> float | None:
+    """Apply one leading sign. Two signs means the text is not a single number."""
+    if sign_a and sign_b:
+        return None
+    try:
+        return float((sign_a or sign_b or "") + digits.replace(",", ""))
+    except ValueError:
+        return None
+
+
 def _parse_numeric_string(text: str) -> float | None:
     stripped = text.strip()
     if not stripped or stripped in _LO_ERROR_TOKENS:
         return None
     pct = _PERCENT_RE.match(stripped)
     if pct:
-        try:
-            return float(pct.group(1).replace(",", "")) / 100.0
-        except ValueError:
-            return None
+        value = _signed_magnitude(pct.group(1), None, pct.group(2))
+        return None if value is None else value / 100.0
     cur = _CURRENCY_RE.match(stripped)
     if cur:
-        try:
-            return float(cur.group(1).replace(",", ""))
-        except ValueError:
-            return None
+        return _signed_magnitude(cur.group(1), cur.group(2), cur.group(3))
     num = _NUMERIC_RE.match(stripped)
     if num:
-        try:
-            return float(num.group(1).replace(",", ""))
-        except ValueError:
-            return None
+        return _signed_magnitude(num.group(1), num.group(2), num.group(3))
     return None
 
 

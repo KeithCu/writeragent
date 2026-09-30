@@ -240,13 +240,14 @@ def test_handle_non_tool_call_returns_false():
 def test_rpc_call_drops_none_kwargs():
     import plugin.scripting.writeragent_api as api
 
-    with patch.object(api, "IS_WORKER", True), patch.object(api, "write_pickle_frame") as mock_write, patch.object(
-        api, "read_pickle_frame", return_value={"status": "ok", "result": {"status": "ok"}}
-    ):
+    with patch.object(api, "IS_WORKER", True), patch(
+        "plugin.scripting.ipc.exchange_tool_call", return_value={}
+    ) as mock_exchange:
         api._rpc_call("apply_document_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
-    sent = mock_write.call_args[0][1]
-    assert sent["args"] == {"content": ["<p>Hi</p>"], "target": "end"}
-    assert "dry_run" not in sent["args"]
+    mock_exchange.assert_called_once_with(
+        "apply_document_content",
+        {"content": ["<p>Hi</p>"], "target": "end"},
+    )
 
 
 def test_run_code_in_user_venv_forwards_python_tool_domain():

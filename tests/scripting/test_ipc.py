@@ -229,6 +229,39 @@ def test_win32_readline_sleep_clamps_when_peek_crosses_deadline(monkeypatch):
     assert slept == [0.0]
 
 
+def test_exchange_tool_call_returns_result_when_id_matches(monkeypatch):
+    from plugin.scripting import ipc
+
+    written: dict[str, object] = {}
+
+    def _write(stream, message, **kwargs):
+        written["message"] = message
+
+    def _read(stream, **kwargs):
+        assert kwargs["max_payload_bytes"] == DEFAULT_MAX_PAYLOAD_BYTES
+        assert kwargs["require_dict"] is True
+        message = written["message"]
+        assert isinstance(message, dict)
+        return {"status": "ok", "id": message["id"], "result": {"n": 1}}
+
+    monkeypatch.setattr(ipc, "write_pickle_frame", _write)
+    monkeypatch.setattr(ipc, "read_pickle_frame", _read)
+    assert ipc.exchange_tool_call("get_named_python_script", {"name": "a"}) == {"n": 1}
+
+
+def test_exchange_tool_call_rejects_mismatched_id(monkeypatch):
+    from plugin.scripting import ipc
+
+    monkeypatch.setattr(ipc, "write_pickle_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        ipc,
+        "read_pickle_frame",
+        lambda *args, **kwargs: {"status": "ok", "id": "other", "result": {"n": 1}},
+    )
+    with pytest.raises(RuntimeError, match="does not match"):
+        ipc.exchange_tool_call("get_named_python_script", {})
+
+
 def test_json_line_timeout_falls_back_when_fileno_not_int():
     """Non-int fileno() (e.g. MagicMock) must use readline, not PeekNamedPipe/select."""
     stream = MagicMock()

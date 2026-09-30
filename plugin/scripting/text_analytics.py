@@ -269,7 +269,14 @@ def is_text_analytics_result(value: Any) -> bool:
 
 
 def _result_to_html_table(data: dict[str, Any]) -> str:
-    """Shared: turn analysis result data into a compact bordered HTML table."""
+    """Shared: turn analysis result data into a compact bordered HTML table.
+
+    Cell text is double-escaped. ``insert_content_at_position`` unescapes once
+    before the StarWriter HTML filter, so a single ``html.escape`` would turn
+    a lemma such as ``<script>`` back into markup.
+    """
+    from plugin.scripting.python_runner import _html_insert_text
+
     rows: list[str] = []
 
     rd = data.get("readability") or {}
@@ -277,7 +284,7 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
     for k, v in {**rd, **ds}.items():
         if isinstance(v, (int, float, str)):
             val = f"{v:.3f}" if isinstance(v, float) else str(v)
-            rows.append(f"<tr><td>{k}</td><td>{val}</td></tr>")
+            rows.append(f"<tr><td>{_html_insert_text(k)}</td><td>{_html_insert_text(val)}</td></tr>")
 
     ents = data.get("entities") or []
     if ents:
@@ -286,12 +293,12 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
             lab = e.get("label", "?")
             labels[lab] = labels.get(lab, 0) + 1
         for lab, cnt in sorted(labels.items(), key=lambda x: -x[1])[:12]:
-            rows.append(f"<tr><td>entity:{lab}</td><td>{cnt}</td></tr>")
+            rows.append(f"<tr><td>{_html_insert_text(f'entity:{lab}')}</td><td>{cnt}</td></tr>")
 
     kps = data.get("key_phrases") or []
     if kps:
-        top = ", ".join(kp.get("lemma") or kp.get("text") for kp in kps[:8])
-        rows.append(f"<tr><td>key_phrases</td><td>{top}</td></tr>")
+        top = ", ".join(kp.get("lemma") or kp.get("text") or "" for kp in kps[:8])
+        rows.append(f"<tr><td>key_phrases</td><td>{_html_insert_text(top)}</td></tr>")
 
     # Topics (fancier text analytics): show top terms per topic + section assignments if present.
     topics = data.get("topics") or []
@@ -299,27 +306,29 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
         for t in topics[:6]:
             tid = t.get("id", "?")
             terms = ", ".join(t.get("terms", [])[:5])
-            rows.append(f"<tr><td>topic {tid}</td><td>{terms}</td></tr>")
+            rows.append(
+                f"<tr><td>{_html_insert_text(f'topic {tid}')}</td><td>{_html_insert_text(terms)}</td></tr>"
+            )
         assigns = data.get("assignments") or []
         if assigns:
             # Compact: show how many sections map to each topic
             counts = Counter(a.get("dominant_topic") for a in assigns)
             summary = "; ".join(f"t{tid}:{cnt}" for tid, cnt in sorted(counts.items()))
-            rows.append(f"<tr><td>topic sections</td><td>{summary}</td></tr>")
+            rows.append(f"<tr><td>topic sections</td><td>{_html_insert_text(summary)}</td></tr>")
 
     # Sentiment: overall + summary of per-section if available
     sent = data.get("sentiment") or data.get("overall") or {}
     if sent and isinstance(sent, dict) and "score" in sent:
         sc = sent.get("score", 0)
         lab = sent.get("label", "neutral")
-        rows.append(f"<tr><td>sentiment</td><td>{lab} ({sc})</td></tr>")
+        rows.append(f"<tr><td>sentiment</td><td>{_html_insert_text(f'{lab} ({sc})')}</td></tr>")
     per_sec = data.get("per_section") or []
     if per_sec:
         # Count labels across sections
         labels = Counter(str(p.get("label")) for p in per_sec if isinstance(p, dict) and p.get("label") is not None)
         if labels:
             summary = "; ".join(f"{lab}:{cnt}" for lab, cnt in labels.most_common())
-            rows.append(f"<tr><td>sections</td><td>{summary}</td></tr>")
+            rows.append(f"<tr><td>sections</td><td>{_html_insert_text(summary)}</td></tr>")
 
     if not rows:
         return ""
@@ -348,7 +357,9 @@ def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, 
         # Fallback to a small JSON snippet so something is inserted
         import json
 
-        html = "<pre>" + json.dumps(data, indent=2, ensure_ascii=False)[:1500] + "</pre>"
+        from plugin.scripting.python_runner import _html_insert_text
+
+        html = "<pre>" + _html_insert_text(json.dumps(data, indent=2, ensure_ascii=False)[:1500]) + "</pre>"
 
     html = "<h4>Text Analytics</h4>" + html
 

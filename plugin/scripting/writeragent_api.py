@@ -10,12 +10,8 @@ per-tool classes are the public script API (IDE jump and types). Change this
 generator if the file is too large; do not slim the generated module by hand.
 """
 import os
-import sys
-import threading
-import uuid
 from typing import Any
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES as _WORKFLOW_TASK_PREFIXES
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame
 
 # Re-export so venv scripts and tests share the comment-scan prefix tuple.
 WORKFLOW_TASK_PREFIXES = _WORKFLOW_TASK_PREFIXES
@@ -23,9 +19,6 @@ WORKFLOW_TASK_PREFIXES = _WORKFLOW_TASK_PREFIXES
 
 # Detect if running in-process (LibreOffice host) or out-of-process (Venv worker)
 IS_WORKER = os.environ.get("WRITERAGENT_IS_WORKER") == "1"
-
-# ── RPC transport ──────────────────────────────────────────────
-_lock = threading.Lock()
 
 
 def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:
@@ -39,20 +32,9 @@ def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:
         except Exception as e:
             raise RuntimeError(f"Failed to execute tool in-process: {e}")
 
-    call_id = str(uuid.uuid4())
-    request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": kwargs}
-    with _lock:
-        write_pickle_frame(sys.stdout.buffer, request)
-        # Block and read the response frame from the host on stdin
-        response = read_pickle_frame(
-            sys.stdin.buffer, require_dict=True, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES
-        )
-        if response is None:
-            raise ConnectionError("Lost connection to LibreOffice host during tool call")
+    from plugin.scripting.ipc import exchange_tool_call
 
-    if response.get("status") == "error":
-        raise RuntimeError(response.get("message", response.get("error", "Unknown error")))
-    return response.get("result", {})
+    return exchange_tool_call(tool_name, kwargs)
 
 
 def get_active_document_type() -> str:

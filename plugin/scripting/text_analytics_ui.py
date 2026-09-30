@@ -367,27 +367,6 @@ class TextAnalyticsDialog:
                         msg += f"\n\nReal error details from the worker process:\n{detail}"
                     return msg
                 return "No sentiment data."
-        if helper == "sentiment":
-            sent = data.get("sentiment") or {}
-            if not sent or "score" not in sent:
-                err = data.get("error") or data.get("note")
-                if err:
-                    hint = data.get("install_hint", "")
-                    install = data.get("install", "")
-                    detail = data.get("detail", "")
-                    msg = f"Sentiment error: {err}"
-                    if "MISSING_PACKAGE" in str(err):
-                        msg = "Sentiment: MISSING_PACKAGE (the transformers package or its dependencies could not be imported)"
-                    elif "MODEL_LOAD_FAILED" in str(err) or "LOAD_FAILED" in str(err):
-                        msg = "Sentiment: model load failed (package is present, but loading the model/tokenizer failed)"
-                    if hint:
-                        msg += f"\n\n{hint}"
-                    if install:
-                        msg += f"\n\nSuggested install: {install}"
-                    if detail:
-                        msg += f"\n\nReal error details from the worker process:\n{detail}"
-                    return msg
-                return "No sentiment data."
             lines.append(f"Sentiment: {sent.get('label')} (score: {sent.get('score')})")
             per = data.get("per_section") or []
             if per:

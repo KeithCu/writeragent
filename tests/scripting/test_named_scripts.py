@@ -357,3 +357,26 @@ def test_host_rpc_named_script_allowed_when_tools_disabled():
             allowed_tools=allowed,
         )
     assert out["code"] == code
+
+
+def test_rpc_named_librepy_fallback_uses_exchange_tool_call():
+    import builtins
+
+    from plugin.scripting.named_scripts import _rpc_named
+
+    real_import = builtins.__import__
+
+    def _block_api(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "plugin.scripting.writeragent_api":
+            raise ImportError("LibrePy omits writeragent_api")
+        return real_import(name, globals, locals, fromlist, level)
+
+    with (
+        patch.dict("os.environ", {"WRITERAGENT_IS_WORKER": "1"}),
+        patch("builtins.__import__", side_effect=_block_api),
+        patch("plugin.scripting.ipc.exchange_tool_call", return_value={"body": "x"}) as mock_exchange,
+    ):
+        result = _rpc_named("get_named_python_script", name="Hello", missing=None)
+
+    assert result == {"body": "x"}
+    mock_exchange.assert_called_once_with("get_named_python_script", {"name": "Hello"})
