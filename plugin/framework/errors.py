@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import Any, Literal, TypedDict
+from typing import Any, TypedDict
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
@@ -128,11 +128,7 @@ class suppress_disposed(contextlib.ContextDecorator):
 ignore_disposed = suppress_disposed
 
 
-# Status values for tool execution results (cast/docs alias only — not TypedDict fields).
-StatusValue = Literal["ok", "error"]
-
-
-# TypedDict status fields use str, not Literal/StatusValue: CrossHair calls get_type_hints on
+# TypedDict status fields use str, not Literal: CrossHair calls get_type_hints on
 # TypedDicts when realizing Any-heap objects; Literal there TypeErrors and flakes check-all on
 # importers (e.g. stream_normalizer via plugin.framework.client). Same rule as payload_codec ColumnKind.
 class ToolResult(TypedDict, total=False):

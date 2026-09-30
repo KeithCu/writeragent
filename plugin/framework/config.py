@@ -92,18 +92,13 @@ CONFIG_SCHEMA_COMMENT = (
 )
 
 _uno_mod: Any
-_unohelper_mod: Any
 try:
     import uno as _uno_impl
-    import unohelper as _unohelper_impl
 
     _uno_mod = _uno_impl
-    _unohelper_mod = _unohelper_impl
 except ImportError:
     _uno_mod = None
-    _unohelper_mod = None
 uno: Any = _uno_mod
-unohelper: Any = _unohelper_mod
 
 log = logging.getLogger(__name__)
 
@@ -535,20 +530,9 @@ def get_config_int_safe(key: str) -> int:
             return 0
 
 
-def get_config_float_safe(key: str) -> float:
-    """Safely read a float config value. Unlike get_config_float, this returns the schema default (or 0.0) rather than raising an exception if the key is missing or the value is invalid."""
-    try:
-        return get_config_float(key)
-    except Exception:
-        try:
-            return _config_schema.parse_float_robust(_config_schema._resolve_default(key))
-        except Exception:
-            return 0.0
-
-
 def get_config_float(key: str) -> float:
     """Get a config value as float. ALL requested keys MUST be in the schema.
-    Throws ConfigError if key is not found or value is non-float (use get_config_float_safe to return a default instead)."""
+    Throws ConfigError if key is not found or value is non-float."""
     v = get_config(key)
     if v == "" or v is None:
         v = _config_schema._resolve_default(key)

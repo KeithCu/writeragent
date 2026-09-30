@@ -332,6 +332,3 @@ class LocalHttpsCertificateFallback:
         self._fallback_hosts.add(host)
         log.error("Local HTTPS certificate verification failed for %s; retrying unverified." % host)
         return True
-
-    def has_fallback(self, host: str) -> bool:
-        return host in self._fallback_hosts

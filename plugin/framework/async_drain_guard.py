@@ -75,10 +75,6 @@ def drain_owner_scope(owner_name: str) -> Generator[None, None, None]:
             _notify_drain_idle()
 
 
-# Sentry alias for backward compatibility
-drain_owner_sentry = drain_owner_scope
-
-
 def get_drain_owner() -> str | None:
     """Return the active drain owner name, or None if idle."""
     with _drain_lock:

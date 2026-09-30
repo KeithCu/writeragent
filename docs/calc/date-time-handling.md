@@ -182,7 +182,7 @@ Do not broaden write parsing to locale display forms. §8 shows `08/05/2026` res
 
 ### 4.3 MCP `values` / `range` schema (string \| array)
 
-**Shipped:** OpenAI/Gemini tool schemas keep `"type": "string"` on `values` (Gemini-friendly; fill-all via a single string). MCP `tools/list` → `inputSchema` widens to `["string","array"]` with flat `items: ["string","number"]` in [`to_mcp_schema`](../../plugin/framework/tool.py) **after** `_normalize_schema_for_strict_providers`. `execute` already coerces lists via `json.dumps`.
+**Shipped:** OpenAI/Gemini tool schemas keep `"type": "string"` on `values` (Gemini-friendly; fill-all via a single string). MCP `tools/list` → `inputSchema` widens to `["string","array"]` with flat `items: ["string","number"]` in [`to_mcp_schema`](../../plugin/framework/tool_schema.py) **after** `_normalize_schema_for_strict_providers`. `execute` already coerces lists via `json.dumps`.
 
 The same post-normalize pass widens **top-level** array-typed `range` to `["string","array"]` (items stay string). OpenAI/Gemini stay `"array"`. Execute already coerces a bare string to `[str]`. Nested string ranges (e.g. DuckDB `tables.*.range`) are not widened. `list_conditional_formats` and sheet-filter tools use the same array `range` schema as other Calc range tools.
 

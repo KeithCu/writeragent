@@ -1,6 +1,5 @@
 import gc
 from plugin.framework.event_bus import EventBus, get_event_bus
-from plugin.framework.event_bus import EventBusService
 
 def test_subscribe_emit():
     bus = EventBus()
@@ -46,12 +45,6 @@ def test_weakref_subscribe():
 
     bus.emit("test:event", event_data="second")
     assert received == ["first"] # unchanged
-
-def test_event_bus_service():
-    service = EventBusService()
-    assert service.name == "events"
-    assert hasattr(service, "subscribe")
-    assert hasattr(service, "emit")
 
 def test_get_event_bus_singleton():
     bus1 = get_event_bus()

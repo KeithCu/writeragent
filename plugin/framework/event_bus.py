@@ -34,8 +34,6 @@ import threading
 import weakref
 from typing import Any
 
-from plugin.framework.service import ServiceBase
-
 log = logging.getLogger("writeragent.events")
 
 
@@ -212,23 +210,3 @@ def get_event_bus() -> EventBus:
 
 
 global_event_bus = get_event_bus()
-
-
-class EventBusService(ServiceBase, EventBus):
-    """Singleton event bus exposed as a service.
-
-    Inherits from both ServiceBase (for registry) and EventBus (for
-    pub/sub). Modules access it as ``services.events``.
-    """
-
-    name: str | None = "events"
-    _subscribers: dict[str, list[tuple[Any, bool]]]
-    _dispatching: threading.local
-
-    def __init__(self) -> None:
-        # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
-        ServiceBase.__init__(self)
-        # Share the process-wide subscriber dict; do not reassign this attribute
-        # or the service would silently desync from global_event_bus.
-        self._subscribers = global_event_bus._subscribers
-        self._dispatching = global_event_bus._dispatching

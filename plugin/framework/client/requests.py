@@ -13,8 +13,8 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from plugin.framework.constants import USER_AGENT
 from plugin.framework.errors import NetworkError
-from .ssl_helpers import get_verified_ssl_context, get_unverified_ssl_context, _is_certificate_verify_error
-from .provider_detection import is_local_host
+from .request_controls import LocalHttpsCertificateFallback
+from .ssl_helpers import get_verified_ssl_context, get_unverified_ssl_context
 from plugin.framework.errors import format_error_message
 from .errors import _format_http_error_response
 
@@ -65,7 +65,7 @@ def sync_request(
     full_url = getattr(req, "full_url", url)
     parsed = urlparse(str(full_url))
     host = parsed.hostname or ""
-    is_local_https = parsed.scheme.lower() == "https" and is_local_host(host)
+    is_https = parsed.scheme.lower() == "https"
 
     def _read_with_context(context: Any) -> Any:
         log.debug(f"About to open URL: {getattr(req, 'full_url', url)}")
@@ -95,8 +95,10 @@ def sync_request(
     except NetworkError:
         raise
     except Exception as e:
-        if is_local_https and _is_certificate_verify_error(e):
-            log.exception("Local HTTPS certificate verification failed for %s; retrying unverified.", host)
+        # Fresh instance: this call still tries verified TLS first. Remembering the
+        # host here would change the next sync_request. enable_if_applicable logs.
+        cert_fallback = LocalHttpsCertificateFallback()
+        if is_https and cert_fallback.enable_if_applicable(host, e):
             try:
                 return _read_with_context(get_unverified_ssl_context())
             except urllib.error.HTTPError as retry_http_e:

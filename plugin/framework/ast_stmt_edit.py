@@ -1,14 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared AST edits for expression-statement call sites (release strip + Excel PY).
 
-Used by:
-
-* [`scripts/strip_code.py`](../../scripts/strip_code.py) — remove ``grammar_obs(...)``,
-  logger ``.debug``/``.info``, and most ``print``/``pprint`` statements from
-  production bundles.
-* [`plugin/calc/excel_py_convert/to_dag.py`](../calc/excel_py_convert/to_dag.py) —
-  turn discarded ``xl(...)`` statements (e.g. under ``if``) into ``pass`` /
-  delete them so they do not become ``data`` or fail-closed dynamic refs.
+Used by [`scripts/strip_code.py`](../../scripts/strip_code.py) to remove
+``grammar_obs(...)``, logger ``.debug``/``.info``, and most ``print``/``pprint``
+statements from production bundles.
 
 Rules (one source of truth):
 

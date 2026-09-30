@@ -335,9 +335,13 @@ def clear_writer_body(doc: Any) -> bool:
         page = doc.getDrawPage()
         # Bounded, never `while getCount()`: if a remove silently fails the count never
         # drops, and an unbounded loop here would freeze the main thread.
-        for _ in range(int(page.getCount())):
+        # The cap is the count at entry, not a live getCount() check.
+        removal_budget = int(page.getCount())
+        removal_attempt = 0
+        while removal_attempt < removal_budget:
             before = page.getCount()
             page.remove(page.getByIndex(0))
+            removal_attempt += 1
             if page.getCount() >= before:
                 break
             removed = True

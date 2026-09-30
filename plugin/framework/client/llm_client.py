@@ -108,6 +108,7 @@ from .request_controls import (
     pacing_key,
     parse_retry_after,
     remember_host_gap,
+    request_model_from_body,
     wait_abortable,
 )
 from .stream_normalizer import (
@@ -151,11 +152,6 @@ def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
     except (ValueError, TypeError, UnicodeDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
-
-
-def _request_model_from_body(body: Any) -> Any:
-    """Extract model field from encoded chat request body for error diagnostics."""
-    return _chat_request_payload_from_body(body).get("model")
 
 
 def _request_payload_byte_length(body: Any) -> int:
@@ -369,7 +365,7 @@ class LlmClient:
         OpenClaw Retry-After + jitter. Never after tokens already reached the UI.
         """
         err_body = response.read().decode("utf-8", errors="replace")
-        request_model = _request_model_from_body(body)
+        request_model = request_model_from_body(body)
         api_key = str(self.config.get("api_key") or "").strip()
         # Keep the existing response-body ERROR line, but never echo the key if
         # a provider (or proxy) reflected it in the error text.
@@ -899,7 +895,7 @@ class LlmClient:
                     continue
 
                 if wait_index == 0:
-                    clear_host_gap(pacing_key(self._current_host(), _request_model_from_body(body)))
+                    clear_host_gap(pacing_key(self._current_host(), request_model_from_body(body)))
 
                 try:
                     # Use a flag to stop logical processing but keep reading to exhaust the stream
@@ -907,7 +903,7 @@ class LlmClient:
                     # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                     last_contents: collections.deque[str] = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
                     think_tag_splitter = ThinkTagStreamSplitter()
-                    requested_model = _request_model_from_body(body)
+                    requested_model = request_model_from_body(body)
                     used_model = None
 
                     self._get_provider()
@@ -1314,7 +1310,7 @@ class LlmClient:
                             }
                         continue
                     if wait_index == 0:
-                        clear_host_gap(pacing_key(self._current_host(), _request_model_from_body(body)))
+                        clear_host_gap(pacing_key(self._current_host(), request_model_from_body(body)))
                     from plugin.framework.errors import safe_json_loads
 
                     result = safe_json_loads(response.read().decode("utf-8"))

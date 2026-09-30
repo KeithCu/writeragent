@@ -14,8 +14,6 @@ from plugin.framework.uno_listeners import (
     BaseKeyListener,
     BaseWindowListener,
     BaseDocumentEventListener,
-    BaseCloseListener,
-    BaseTerminateListener,
 )
 
 def test_catch_and_log_decorator(caplog):
@@ -165,48 +163,6 @@ def test_base_document_event_listener():
     listener.documentEventOccured(ev)
     assert listener.called is True
     assert listener.event == ev
-
-
-def test_base_close_listener():
-    """Verify close listener invokes the correct subclass callbacks."""
-    class MyCloseListener(BaseCloseListener):
-        def __init__(self):
-            super().__init__()
-            self.query_called = False
-            self.notify_called = False
-
-        def on_query_closing(self, Source, GetsOwnership):
-            self.query_called = True
-
-        def on_notify_closing(self, Source):
-            self.notify_called = True
-
-    listener = MyCloseListener()
-    listener.queryClosing(MagicMock(), True)
-    listener.notifyClosing(MagicMock())
-    assert listener.query_called is True
-    assert listener.notify_called is True
-
-
-def test_base_terminate_listener():
-    """Verify terminate listener invokes the correct subclass callbacks."""
-    class MyTerminateListener(BaseTerminateListener):
-        def __init__(self):
-            super().__init__()
-            self.query_called = False
-            self.notify_called = False
-
-        def on_query_termination(self, Event):
-            self.query_called = True
-
-        def on_notify_termination(self, Event):
-            self.notify_called = True
-
-    listener = MyTerminateListener()
-    listener.queryTermination(MagicMock())
-    listener.notifyTermination(MagicMock())
-    assert listener.query_called is True
-    assert listener.notify_called is True
 
 
 @patch("plugin.framework.uno_listeners.log")

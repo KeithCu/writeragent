@@ -742,21 +742,6 @@ def run_stream_completion_async(ctx: Any, client: Any, prompt: Any, system_promp
     _run_client_stream(ctx, client_call, apply_chunk_fn=apply_chunk_fn, on_done_fn=on_done_fn, on_error_fn=on_error_fn, on_status_fn=on_status_fn, stop_checker=stop_checker, name="stream-completion", include_status=True)
 
 
-def run_stream_async(ctx: Any, client: Any, messages: Any, tools: Any = None, apply_chunk_fn: Any = None, on_done_fn: Any = None, on_error_fn: Any = None, max_tokens: Any = None, stop_checker: Any = None) -> None:
-    """Compatibility helper for legacy run_stream_async calls (using messages/tools)."""
-    # crosshair: off
-
-    effective_max = max_tokens or 512
-
-    def client_call(**cb_kwargs: Any) -> None:
-        if tools:
-            client.stream_request_with_tools(messages, effective_max, tools=tools, **cb_kwargs)
-        else:
-            client.stream_chat_response(messages, effective_max, **cb_kwargs)
-
-    _run_client_stream(ctx, client_call, apply_chunk_fn=apply_chunk_fn, on_done_fn=on_done_fn, on_error_fn=on_error_fn, stop_checker=stop_checker, name="stream-async", include_status=False)
-
-
 def run_blocking_in_thread(
     ctx: Any,
     func: Any,

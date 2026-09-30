@@ -184,7 +184,7 @@ That produces tests of the form `assert foo(args) == <whatever it got>`. **Do no
 
 **WriterAgent reference module:** [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py) — see [`../scripting/serialization-verification.md`](../scripting/serialization-verification.md).
 
-**CrossHair + `typing.Literal`:** CrossHair cannot proxy `Literal[...]` (it calls `get_type_hints` on the literal itself). Use `str` in function **parameter** annotations and in **TypedDict fields** that may land on the type heap via imports; keep `Literal` aliases (e.g. `ColumnKind`, `StatusValue`, `HeaderMode`) for casts/comments only. Parameter case fixed in `payload_codec.py`; TypedDict case fixed in [`errors.py`](../../plugin/framework/errors.py) (`ToolSuccess`/`ToolError`) after flaky check-all crashes on importers such as `stream_normalizer`; dataclass / param case for excel `HeaderMode` / `DepRole` in [`models.py`](../../plugin/calc/excel_py_convert/models.py) + [`to_dag.py`](../../plugin/calc/excel_py_convert/to_dag.py).
+**CrossHair + `typing.Literal`:** CrossHair cannot proxy `Literal[...]` (it calls `get_type_hints` on the literal itself). Use `str` in function **parameter** annotations and in **TypedDict fields** that may land on the type heap via imports; keep `Literal` aliases (e.g. `ColumnKind`, `HeaderMode`) for casts/comments only. Parameter case fixed in `payload_codec.py`; TypedDict case fixed in [`errors.py`](../../plugin/framework/errors.py) (`ToolSuccess`/`ToolError`) after flaky check-all crashes on importers such as `stream_normalizer`; dataclass / param case for excel `HeaderMode` / `DepRole` in [`models.py`](../../plugin/calc/excel_py_convert/models.py) + [`to_dag.py`](../../plugin/calc/excel_py_convert/to_dag.py).
 
 **FQN cover vs package `__init__`:** Cover-all loads targets by qualname, which runs the parent package `__init__.py`. Eager UNO/tool imports or import-time filesystem probes (e.g. `tempfile.gettempdir()` in [`format.py`](../../plugin/writer/format.py)) trip CrossHair's auditwall (`SideEffectDetected`) even when the pure submodule itself is fine under file-path cover. Fix with `if not UNDER_CROSSHAIR:` (or the same env flag) on the heavy package imports (see [`plugin/writer/__init__.py`](../../plugin/writer/__init__.py)) and/or a CrossHair-safe temp-dir shim — not a skip-list entry.
 
@@ -483,7 +483,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 2. **`plugin/calc/address_utils.py`** — inverse column/address contracts + Hypothesis ([`tests/calc/test_address_utils_verification.py`](../../tests/calc/test_address_utils_verification.py))
 3. **`plugin/mcp/cors.py`** — origin normalize / safety ([`tests/mcp/test_cors_verification.py`](../../tests/mcp/test_cors_verification.py))
 4. **`plugin/framework/config_schema.py`** — `as_bool` / `parse_int_robust` / `parse_float_robust` ([`tests/framework/test_config_coerce_verification.py`](../../tests/framework/test_config_coerce_verification.py)); not whole-file CrossHair
-5. **`plugin/framework/tool.py`** — `_normalize_schema_for_strict_providers`, `to_openai_schema`, `to_mcp_schema` ([`tests/framework/test_tool_schema_verification.py`](../../tests/framework/test_tool_schema_verification.py))
+5. **`plugin/framework/tool_schema.py`** — `_normalize_schema_for_strict_providers`, `to_openai_schema`, `to_mcp_schema` (re-exported from [`tool.py`](../../plugin/framework/tool.py); CrossHair FQN stays `plugin.framework.tool._normalize_schema_for_strict_providers`) ([`tests/framework/test_tool_schema_verification.py`](../../tests/framework/test_tool_schema_verification.py))
 6. **`plugin/framework/async_stream.py`** — `accumulate_delta`, `_format_agent_tool_stream_line` ([`tests/framework/test_accumulate_delta_verification.py`](../../tests/framework/test_accumulate_delta_verification.py))
 7. **FSM catch-up** — CrossHair on `state_machine.py` + `tool_loop_state.py` helpers (`next_state` is `# crosshair: off`) ([`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py)); `mcp_state.next_state` ([`tests/mcp/test_mcp_state_verification.py`](../../tests/mcp/test_mcp_state_verification.py))
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../../tests/framework/test_json_utils_verification.py))
@@ -743,7 +743,7 @@ By adopting concolic execution (CrossHair) and Design by Contract (`deal`), we c
    - Used across Writer, Calc, and MCP protocols
    - Verify format preservation, mathematical bounds, and contract invariants
 
-3. **`plugin/framework/tool.py`** (`to_openai_schema` / `to_mcp_schema` / `_normalize_schema_for_strict_providers`)
+3. **`plugin/framework/tool_schema.py`** (`to_openai_schema` / `to_mcp_schema` / `_normalize_schema_for_strict_providers`, re-exported from `tool.py`)
    - JSON schema transformations
    - Tool parameter validation
    - Prove schema equivalence properties

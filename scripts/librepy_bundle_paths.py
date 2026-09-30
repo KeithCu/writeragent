@@ -140,6 +140,8 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/client/__init__.py",
     "plugin/framework/client/errors.py",
     "plugin/framework/client/requests.py",
+    # requests.py calls LocalHttpsCertificateFallback for local HTTPS retries.
+    "plugin/framework/client/request_controls.py",
     "plugin/framework/client/ssl_helpers.py",
     "plugin/framework/client/provider_detection.py",
     "plugin/scripting/sandbox_cache.py",

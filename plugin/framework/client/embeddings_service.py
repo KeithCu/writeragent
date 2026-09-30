@@ -5,7 +5,6 @@
 """Host-side embeddings index RPC — sqlite-vec + LangGraph in the venv worker."""
 from __future__ import annotations
 
-import logging
 from typing import Any, Callable
 
 from plugin.framework.client.embedding_client import _embedding_session_id
@@ -13,8 +12,6 @@ from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
-
-log = logging.getLogger(__name__)
 
 
 def _folder_search_mode() -> str:

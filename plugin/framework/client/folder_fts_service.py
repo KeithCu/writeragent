@@ -12,14 +12,11 @@ is acceptable for occasional document_research tool calls.
 """
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from plugin.framework.constants import EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
-
-log = logging.getLogger(__name__)
 
 _FTS_SESSION_ID = f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:folder_fts"
 

@@ -184,8 +184,6 @@ Empty defaults + `_catch_and_log` so Python exceptions do not leak into the C++ 
 | `BaseWindowListener` | `XWindowListener` |
 | `BaseContainerListener` | `XContainerListener` |
 | `BaseDocumentEventListener` | `XDocumentEventListener` |
-| `BaseCloseListener` | `XCloseListener` |
-| `BaseTerminateListener` | `XTerminateListener` |
 | `BaseActivationEventListener` | Calc `XActivationEventListener` |
 
 Dummy parents when PyUNO is absent (unit tests). New listeners should subclass these, not raw `unohelper.Base`.

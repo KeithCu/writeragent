@@ -109,8 +109,6 @@ from plugin.framework.uno_listeners import (
     BaseKeyListener,         # override on_key_pressed(self, e), on_key_released(self, e)
     BaseWindowListener,      # override on_window_resized, on_window_moved, on_window_shown, on_window_hidden
     BaseDocumentEventListener,
-    BaseCloseListener,
-    BaseTerminateListener,
     BaseActivationEventListener, # override on_active_spreadsheet_changed(self, aEvent) for Calc sheets
 )
 ```

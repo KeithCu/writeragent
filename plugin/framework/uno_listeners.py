@@ -37,8 +37,6 @@ _XTextListener: Any = None
 _XKeyListener: Any = None
 _XWindowListener: Any = None
 _XDocumentEventListener: Any = None
-_XCloseListener: Any = None
-_XTerminateListener: Any = None
 _XActivationEventListener: Any = None
 _XContainerListener: Any = None
 _HAVE_UNO = False
@@ -54,8 +52,6 @@ try:
         XWindowListener as _XWindowListener_impl,
     )
     from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl
-    from com.sun.star.util import XCloseListener as _XCloseListener_impl
-    from com.sun.star.frame import XTerminateListener as _XTerminateListener_impl
     from com.sun.star.sheet import XActivationEventListener as _XActivationEventListener_impl
     from com.sun.star.container import XContainerListener as _XContainerListener_impl
 
@@ -67,8 +63,6 @@ try:
     _XKeyListener = _XKeyListener_impl
     _XWindowListener = _XWindowListener_impl
     _XDocumentEventListener = _XDocumentEventListener_impl
-    _XCloseListener = _XCloseListener_impl
-    _XTerminateListener = _XTerminateListener_impl
     _XActivationEventListener = _XActivationEventListener_impl
     _XContainerListener = _XContainerListener_impl
     _HAVE_UNO = True
@@ -85,8 +79,6 @@ if TYPE_CHECKING:
     class _XKeyListenerParent: pass
     class _XWindowListenerParent: pass
     class _XDocumentEventListenerParent: pass
-    class _XCloseListenerParent: pass
-    class _XTerminateListenerParent: pass
     class _XActivationEventListenerParent: pass
     class _XContainerListenerParent: pass
 else:
@@ -98,8 +90,6 @@ else:
     class _DummyKeyListener: pass
     class _DummyWindowListener: pass
     class _DummyDocumentEventListener: pass
-    class _DummyCloseListener: pass
-    class _DummyTerminateListener: pass
     class _DummyActivationListener: pass
     class _DummyContainerListener: pass
 
@@ -111,8 +101,6 @@ else:
     _XKeyListenerParent = _XKeyListener if _HAVE_UNO else _DummyKeyListener
     _XWindowListenerParent = _XWindowListener if _HAVE_UNO else _DummyWindowListener
     _XDocumentEventListenerParent = _XDocumentEventListener if _HAVE_UNO else _DummyDocumentEventListener
-    _XCloseListenerParent = _XCloseListener if _HAVE_UNO else _DummyCloseListener
-    _XTerminateListenerParent = _XTerminateListener if _HAVE_UNO else _DummyTerminateListener
     _XActivationEventListenerParent = _XActivationEventListener if _HAVE_UNO else _DummyActivationListener
     _XContainerListenerParent = _XContainerListener if _HAVE_UNO else _DummyContainerListener
 
@@ -257,38 +245,6 @@ class BaseDocumentEventListener(BaseListener, _XDocumentEventListenerParent):
         self.on_document_event(Event)
 
     def on_document_event(self, Event: Any) -> None:
-        pass
-
-
-class BaseCloseListener(BaseListener, _XCloseListenerParent):
-    @_catch_and_log
-    def queryClosing(self, Source: Any, GetsOwnership: bool) -> None:  # noqa: N802, N803 -- UNO signature
-        self.on_query_closing(Source, GetsOwnership)
-
-    @_catch_and_log
-    def notifyClosing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        self.on_notify_closing(Source)
-
-    def on_query_closing(self, Source: Any, GetsOwnership: bool) -> None:
-        pass
-
-    def on_notify_closing(self, Source: Any) -> None:
-        pass
-
-
-class BaseTerminateListener(BaseListener, _XTerminateListenerParent):
-    @_catch_and_log
-    def queryTermination(self, Event: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        self.on_query_termination(Event)
-
-    @_catch_and_log
-    def notifyTermination(self, Event: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        self.on_notify_termination(Event)
-
-    def on_query_termination(self, Event: Any) -> None:
-        pass
-
-    def on_notify_termination(self, Event: Any) -> None:
         pass
 
 

@@ -256,6 +256,42 @@ def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
         return False
 
 
+def _model_fetch_auth_headers(
+    base: str,
+    api_key_override: str | None,
+    url: str,
+    *,
+    is_openwebui: bool,
+    is_openrouter: bool,
+    log_label: str,
+) -> dict[str, str] | None:
+    """Headers for a model-list GET.
+
+    None: a key was present and auth setup failed; the caller skips the request.
+    {}: fetch without credentials.
+    """
+    from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
+
+    if api_key_override is not None:
+        api_key = str(api_key_override).strip()
+    else:
+        api_key = str(get_api_key_for_endpoint(base) or "").strip()
+    mini = {
+        "endpoint": base,
+        "api_key": api_key,
+        "is_openwebui": is_openwebui,
+        "is_openrouter": is_openrouter,
+    }
+    try:
+        return build_auth_headers(resolve_auth_for_config(mini))
+    except AuthError as e:
+        if api_key:
+            log.debug("%s skipping %s: %s", log_label, url, e)
+            return None
+        log.debug("%s unauthenticated for %s: %s", log_label, url, e)
+        return {}
+
+
 def fetch_available_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
     """Fetch available models from endpoint/v1/models. Returns list of IDs or None on error.
 
@@ -280,23 +316,18 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     if cache_key in _model_fetch_cache:
         return _model_fetch_cache[cache_key]
 
-    from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
-
-    if api_key_override is not None:
-        api_key = str(api_key_override).strip()
-    else:
-        api_key = str(get_api_key_for_endpoint(base) or "").strip()
     is_openwebui = as_bool(get_config("is_openwebui")) or "open-webui" in base.lower() or "openwebui" in base.lower()
     is_openrouter = "openrouter.ai" in base.lower() or as_bool(get_config("is_openrouter"))
-    mini = {"endpoint": base, "api_key": api_key, "is_openwebui": is_openwebui, "is_openrouter": is_openrouter}
-    try:
-        req_headers = build_auth_headers(resolve_auth_for_config(mini))
-    except AuthError as e:
-        if api_key:
-            log.debug("fetch_available_models skipping %s: %s", url, e)
-            return None
-        log.debug("fetch_available_models unauthenticated for %s: %s", url, e)
-        req_headers = {}
+    req_headers = _model_fetch_auth_headers(
+        base,
+        api_key_override,
+        url,
+        is_openwebui=is_openwebui,
+        is_openrouter=is_openrouter,
+        log_label="fetch_available_models",
+    )
+    if req_headers is None:
+        return None
 
     try:
         from plugin.framework.client.requests import sync_request
@@ -355,17 +386,16 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
         if cache_key in _model_fetch_image_cache:
             return _model_fetch_image_cache[cache_key]
 
-        from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
-        api_key = str(api_key_override if api_key_override is not None else get_api_key_for_endpoint(base) or "").strip()
-        mini = {"endpoint": base, "api_key": api_key, "is_openwebui": is_owu, "is_openrouter": True}
-        try:
-            req_headers = build_auth_headers(resolve_auth_for_config(mini))
-        except AuthError as e:
-            if api_key:
-                log.debug("fetch_available_image_models openrouter skipping %s: %s", url, e)
-                return None
-            log.debug("fetch_available_image_models openrouter unauthenticated for %s: %s", url, e)
-            req_headers = {}
+        req_headers = _model_fetch_auth_headers(
+            base,
+            api_key_override,
+            url,
+            is_openwebui=is_owu,
+            is_openrouter=True,
+            log_label="fetch_available_image_models openrouter",
+        )
+        if req_headers is None:
+            return None
 
         try:
             from plugin.framework.client.requests import sync_request
@@ -472,19 +502,17 @@ def _fetch_openrouter_modality_models(
     if cache_key in cache:
         return cache[cache_key]
 
-    from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
-
-    api_key = str(api_key_override if api_key_override is not None else get_api_key_for_endpoint(base) or "").strip()
-    mini = {"endpoint": base, "api_key": api_key, "is_openwebui": is_owu, "is_openrouter": True}
-    try:
-        req_headers = build_auth_headers(resolve_auth_for_config(mini))
-    except AuthError as e:
-        if api_key:
-            log.debug("fetch openrouter %s models skipping %s: %s", modality, url, e)
-            cache[cache_key] = None
-            return None
-        log.debug("fetch openrouter %s models unauthenticated for %s: %s", modality, url, e)
-        req_headers = {}
+    req_headers = _model_fetch_auth_headers(
+        base,
+        api_key_override,
+        url,
+        is_openwebui=is_owu,
+        is_openrouter=True,
+        log_label=f"fetch openrouter {modality} models",
+    )
+    if req_headers is None:
+        cache[cache_key] = None
+        return None
 
     try:
         from plugin.framework.client.requests import sync_request
@@ -705,21 +733,16 @@ def fetch_together_tts_voices(
     if cache_key in _together_voices_fetch_cache:
         return _together_voices_fetch_cache[cache_key]
 
-    from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
-
-    if api_key_override is not None:
-        api_key = str(api_key_override).strip()
-    else:
-        api_key = str(get_api_key_for_endpoint(base) or "").strip()
-    mini = {"endpoint": base, "api_key": api_key, "is_openwebui": is_owu, "is_openrouter": False}
-    try:
-        req_headers = build_auth_headers(resolve_auth_for_config(mini))
-    except AuthError as e:
-        if api_key:
-            log.debug("fetch together voices skipping %s: %s", url, e)
-            return None
-        log.debug("fetch together voices unauthenticated for %s: %s", url, e)
-        req_headers = {}
+    req_headers = _model_fetch_auth_headers(
+        base,
+        api_key_override,
+        url,
+        is_openwebui=is_owu,
+        is_openrouter=False,
+        log_label="fetch together voices",
+    )
+    if req_headers is None:
+        return None
 
     try:
         from plugin.framework.client.requests import sync_request

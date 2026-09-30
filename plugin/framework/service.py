@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 from abc import ABC
 from dataclasses import dataclass
-from typing import Any, Generic, List, Protocol, TypeVar, cast
+from typing import Any, Generic, List, TypeVar, cast
 
 log = logging.getLogger(__name__)
 
@@ -40,10 +40,6 @@ log = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class BaseState:
     """Marker base for immutable FSM state. Subclasses add domain fields."""
-
-
-class Effect(Protocol):
-    """Structural marker for side-effect descriptions (interpreted outside FSM)."""
 
 
 StateT = TypeVar("StateT", bound=BaseState)
@@ -86,6 +82,26 @@ class ServiceBase(ABC):
         """Called on extension unload. Override to clean up."""
 
 
+def iter_named_concrete_subclasses(module: Any, base: type, *skip_bases: type) -> Any:
+    """Yield concrete subclasses defined in ``module`` that set ``name``.
+
+    ``base`` itself is skipped. ``skip_bases`` drops further families
+    (for example ``ToolBaseDummy``). Callers instantiate; this only finds classes.
+    """
+    import inspect
+
+    for _cls_name, obj in inspect.getmembers(module, inspect.isclass):
+        if not issubclass(obj, base) or obj is base:
+            continue
+        if obj.__module__ != module.__name__ or inspect.isabstract(obj):
+            continue
+        if not getattr(obj, "name", None):
+            continue
+        if any(issubclass(obj, skip) for skip in skip_bases):
+            continue
+        yield obj
+
+
 class ServiceRegistry:
     """Registry that holds all services and provides attribute access.
 
@@ -114,25 +130,23 @@ class ServiceRegistry:
 
     def auto_discover(self, module: Any) -> None:
         """Automatically discover and register ServiceBase subclasses in a module."""
-        import inspect
         import logging
 
         log = logging.getLogger("writeragent.services")
 
-        for _name, obj in inspect.getmembers(module, inspect.isclass):
-            if issubclass(obj, ServiceBase) and obj is not ServiceBase and obj.__module__ == module.__name__ and not inspect.isabstract(obj) and getattr(obj, "name", None):
-                try:
-                    # Contract: override __init__ → __init__(self, registry); else no-arg.
-                    # Do not use inspect.signature (UNO/C types). TypeError is logged and skipped.
-                    if obj.__init__ is not object.__init__:
-                        svc_instance = cast("Any", obj)(self)
-                    else:
-                        svc_instance = obj()
-                    self.register(obj.name, svc_instance)
-                except (TypeError, ValueError, ImportError):
-                    log.exception("Failed to instantiate service %s (TypeError/ValueError/ImportError)", obj.__name__)
-                except Exception:
-                    log.exception("Failed to instantiate service %s (unexpected)", obj.__name__)
+        for obj in iter_named_concrete_subclasses(module, ServiceBase):
+            try:
+                # Contract: override __init__ → __init__(self, registry); else no-arg.
+                # Do not use inspect.signature (UNO/C types). TypeError is logged and skipped.
+                if obj.__init__ is not object.__init__:
+                    svc_instance = cast("Any", obj)(self)
+                else:
+                    svc_instance = obj()
+                self.register(obj.name, svc_instance)
+            except (TypeError, ValueError, ImportError):
+                log.exception("Failed to instantiate service %s (TypeError/ValueError/ImportError)", obj.__name__)
+            except Exception:
+                log.exception("Failed to instantiate service %s (unexpected)", obj.__name__)
 
     def get(self, name: str) -> Any:
         """Get a service by name, or None if not registered."""

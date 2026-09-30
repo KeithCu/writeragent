@@ -896,6 +896,20 @@ def format_peer_outer_delegate_hint(model: Any) -> str:
     return PEER_OUTER_DELEGATE_HINT.format(delegate=peer_outer_delegate_tool_name(model))
 
 
+def _peer_block_on_main_thread(build: Any, fail_log: str) -> str:
+    """Run a peer-catalog prompt builder on the UI thread. Empty string on failure."""
+    try:
+        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.thread_guard import on_main_thread
+
+        if on_main_thread():
+            return build()
+        return execute_on_main_thread(build)
+    except Exception:
+        logging.getLogger(__name__).exception(fail_log)
+        return ""
+
+
 def get_peer_messaging_prompt_block(model: Any, ctx: Any) -> str:
     """Thin outer pointer when a v1 peer is open. No send_peer_work/result on this loop.
 
@@ -914,16 +928,7 @@ def get_peer_messaging_prompt_block(model: Any, ctx: Any) -> str:
             return ""
         return format_peer_outer_delegate_hint(model)
 
-    try:
-        from plugin.framework.queue_executor import execute_on_main_thread
-        from plugin.framework.thread_guard import on_main_thread
-
-        if on_main_thread():
-            return _build()
-        return execute_on_main_thread(_build)
-    except Exception:
-        logging.getLogger(__name__).exception("peer messaging prompt block failed")
-        return ""
+    return _peer_block_on_main_thread(_build, "peer messaging prompt block failed")
 
 
 def get_peer_inner_choice_block(uno_ctx: Any, doc: Any) -> str:
@@ -943,16 +948,7 @@ def get_peer_inner_choice_block(uno_ctx: Any, doc: Any) -> str:
             return ""
         return PEER_INNER_CHOICE_RULES + "\n" + format_peer_catalog(peers)
 
-    try:
-        from plugin.framework.queue_executor import execute_on_main_thread
-        from plugin.framework.thread_guard import on_main_thread
-
-        if on_main_thread():
-            return _build()
-        return execute_on_main_thread(_build)
-    except Exception:
-        logging.getLogger(__name__).exception("peer inner choice prompt block failed")
-        return ""
+    return _peer_block_on_main_thread(_build, "peer inner choice prompt block failed")
 
 
 def get_core_directives_for_type(doc_type: str | None) -> str:
@@ -1180,6 +1176,16 @@ def tts_short_answers_prompt_suffix() -> str:
     return TTS_SHORT_ANSWERS_INSTRUCTION + "\n\n" + TTS_SHORT_ANSWERS_REMINDER
 
 
+def _fill_chat_role_template(template: str, delegation: str, core_directives: str) -> str:
+    """Substitute the two role placeholders. Response-format stays with the caller.
+
+    ``get_chat_system_prompt_for_document`` caches this result before the
+    response-format replace, and Draw applies the image-tool line after that cache.
+    """
+    base = template.replace("{specialized_delegation}", delegation)
+    return base.replace("{core_directives}", core_directives)
+
+
 def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = "", ctx: Any = None) -> str:
     """Ambient chat prompt keyed by doc-type label — no document model / get_document_type.
 
@@ -1195,21 +1201,18 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
         from plugin.calc.base import ToolCalcSpecialBase
 
         delegation = get_specialized_delegation_tool_hint(ToolCalcSpecialBase, "Calc", ctx=ctx)
-        base = DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
-        base = base.replace("{core_directives}", CALC_CORE_DIRECTIVES)
+        base = _fill_chat_role_template(DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, CALC_CORE_DIRECTIVES)
     elif label in ("draw", "impress"):
         from plugin.draw.base import ToolDrawSpecialBase
 
         delegation = get_specialized_delegation_tool_hint(ToolDrawSpecialBase, "Draw", ctx=ctx)
-        base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
-        base = base.replace("{core_directives}", DRAW_CORE_DIRECTIVES)
+        base = _fill_chat_role_template(DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, DRAW_CORE_DIRECTIVES)
         base = _apply_draw_get_image_tool_line(base)
     else:
         from plugin.writer.specialized_base import ToolWriterSpecialBase
 
         delegation = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer", ctx=ctx)
-        base = DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
-        base = base.replace("{core_directives}", WRITER_CORE_DIRECTIVES)
+        base = _fill_chat_role_template(DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, WRITER_CORE_DIRECTIVES)
 
     base = base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
     if additional_instructions and str(additional_instructions).strip():
@@ -1230,15 +1233,13 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
     delegation = get_specialized_delegation_for_model(model, ctx=ctx)
 
     if is_calc(model):
-        base = DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
-        base = base.replace("{core_directives}", CALC_CORE_DIRECTIVES)
+        base = _fill_chat_role_template(DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, CALC_CORE_DIRECTIVES)
 
         global DEFAULT_CALC_CHAT_SYSTEM_PROMPT
         if not DEFAULT_CALC_CHAT_SYSTEM_PROMPT:
             DEFAULT_CALC_CHAT_SYSTEM_PROMPT = base
     elif is_draw(model):
-        base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
-        base = base.replace("{core_directives}", DRAW_CORE_DIRECTIVES)
+        base = _fill_chat_role_template(DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, DRAW_CORE_DIRECTIVES)
 
         global DEFAULT_DRAW_CHAT_SYSTEM_PROMPT
         if not DEFAULT_DRAW_CHAT_SYSTEM_PROMPT:
@@ -1247,8 +1248,7 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
         # After the cache so DEFAULT_DRAW_CHAT_SYSTEM_PROMPT stays the ungated template.
         base = _apply_draw_get_image_tool_line(base)
     else:
-        base = DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
-        base = base.replace("{core_directives}", WRITER_CORE_DIRECTIVES)
+        base = _fill_chat_role_template(DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, WRITER_CORE_DIRECTIVES)
 
         # update the static variable once it's lazily generated so tests and imports works
         global DEFAULT_CHAT_SYSTEM_PROMPT
