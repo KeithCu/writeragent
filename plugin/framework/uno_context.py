@@ -468,6 +468,10 @@ def get_toolkit(ctx: Any | None = None) -> Any:
 _default_focus_restore = None
 _restore_query_after_scroll = True
 _stream_focus_trackers: list[Any] = []
+# (controller, handler). One click handler per document controller, not one
+# for the process: the first sidebar used to subscribe only the document that
+# was current at install time.
+_doc_click_bindings: list[tuple[Any, Any]] = []
 _stream_rich_control = None
 
 
@@ -588,6 +592,65 @@ def _attach_leave_query_listeners(control: Any) -> None:
         log.debug("leave-query listeners: %s", e)
 
 
+def _release_doc_click_binding(controller: Any, handler: Any) -> None:
+    """Drop a document click handler so a closed controller is not pinned."""
+    try:
+        if controller is not None and hasattr(controller, "removeMouseClickHandler"):
+            controller.removeMouseClickHandler(handler)
+    except Exception as e:
+        log.debug("removeMouseClickHandler: %s", e)
+    _doc_click_bindings[:] = [pair for pair in _doc_click_bindings if pair[1] is not handler]
+    try:
+        _stream_focus_trackers.remove(handler)
+    except ValueError:
+        pass
+
+
+def _ensure_document_click_handler(ctx: Any) -> None:
+    """Page click on the current document calls ``note_user_left_query``.
+
+    What was wrong: the ``XMouseClickHandler`` was added once, to whichever
+    controller was current the first time a sidebar installed, and never
+    removed. How it happened: ``install_stream_focus_tracker`` returned as
+    soon as ``_stream_focus_trackers`` was non-empty, so a later document
+    never subscribed. Why this fixes it: every install attaches a handler to
+    the controller that is current now (and skips one that already has it).
+    ``disposing`` removes it, so a closed document is not kept alive.
+    """
+    try:
+        import unohelper
+        from com.sun.star.awt import XMouseClickHandler
+    except ImportError:
+        return
+
+    try:
+        controller = _current_document_controller(ctx)
+        if controller is None or not hasattr(controller, "addMouseClickHandler"):
+            return
+        for existing, _handler in _doc_click_bindings:
+            if uno_same(existing, controller):
+                return
+
+        class _DocClick(unohelper.Base, XMouseClickHandler):
+            def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
+                _release_doc_click_binding(controller, self)
+
+            def mousePressed(self, e: MouseEvent) -> bool:  # noqa: N802 -- UNO signature
+                note_user_left_query()
+                log.debug("stream focus: document click")
+                return False
+
+            def mouseReleased(self, e: MouseEvent) -> bool:  # noqa: N802 -- UNO signature
+                return False
+
+        handler = _DocClick()
+        controller.addMouseClickHandler(handler)
+        _doc_click_bindings.append((controller, handler))
+        _stream_focus_trackers.append(handler)
+    except Exception as e:
+        log.debug("document click handler: %s", e)
+
+
 def install_stream_focus_tracker(ctx: Any, query: Any = None, rich: Any = None, leave_query_controls: Any = None) -> None:
     """Query focusGained → keep restoring. Document / sidebar pointer → stop.
 
@@ -602,17 +665,18 @@ def install_stream_focus_tracker(ctx: Any, query: Any = None, rich: Any = None, 
         _default_focus_restore = query
     if rich is not None:
         _stream_rich_control = rich
-    # Query/doc listeners are process-global (first sidebar wins). A later
-    # Writer/Calc panel still needs Stop/Clear mouse listeners or stream
-    # setFocus can swallow Stop on that panel.
+    # Query focus listener is process-global (first sidebar wins). A later
+    # Writer/Calc panel still needs Stop/Clear mouse listeners, and the
+    # document click handler must follow whichever controller is current.
     if _stream_focus_trackers:
         for ctrl in leave_query_controls or ():
             if ctrl is not None and ctrl is not query:
                 _attach_leave_query_listeners(ctrl)
+        _ensure_document_click_handler(ctx)
         return
     try:
         import unohelper
-        from com.sun.star.awt import XFocusListener, XMouseClickHandler
+        from com.sun.star.awt import XFocusListener
     except ImportError:
         return
 
@@ -627,37 +691,16 @@ def install_stream_focus_tracker(ctx: Any, query: Any = None, rich: Any = None, 
             note_user_wants_query()
             log.debug("stream focus: query")
 
-    class _DocClick(unohelper.Base, XMouseClickHandler):
-        def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
-            return
-
-        def mousePressed(self, e: MouseEvent) -> bool:  # noqa: N802 -- UNO signature
-            note_user_left_query()
-            log.debug("stream focus: document click")
-            return False
-
-        def mouseReleased(self, e: MouseEvent) -> bool:  # noqa: N802 -- UNO signature
-            return False
-
-    controller = None
     try:
         if query is not None and hasattr(query, "addFocusListener"):
             q_track = _QueryFocus()
             query.addFocusListener(q_track)
             _stream_focus_trackers.append(q_track)
-        controller = _current_document_controller(ctx)
-        if controller is not None and hasattr(controller, "addMouseClickHandler"):
-            d_track = _DocClick()
-            controller.addMouseClickHandler(d_track)
-            _stream_focus_trackers.append(d_track)
+        _ensure_document_click_handler(ctx)
         for ctrl in leave_query_controls or ():
             if ctrl is not None and ctrl is not query:
                 _attach_leave_query_listeners(ctrl)
-        log.debug(
-            "install_stream_focus_tracker n=%d mouse=%s",
-            len(_stream_focus_trackers),
-            bool(controller is not None and hasattr(controller, "addMouseClickHandler")),
-        )
+        log.debug("install_stream_focus_tracker n=%d", len(_stream_focus_trackers))
     except Exception as e:
         log.debug("install_stream_focus_tracker: %s", e)
 

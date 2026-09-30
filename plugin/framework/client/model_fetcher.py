@@ -28,7 +28,7 @@ from typing import Any
 from plugin.framework.constants import ModelCapability
 from plugin.framework.default_models import DEFAULT_MODELS, get_provider_defaults, resolve_model_id
 from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_suffix
-from plugin.framework.client.provider_detection import get_provider_from_endpoint
+from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import NetworkError
 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
 from plugin.framework.config import (
@@ -325,7 +325,9 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
         return _model_fetch_cache[cache_key]
 
     is_openwebui = as_bool(get_config("is_openwebui")) or "open-webui" in base.lower() or "openwebui" in base.lower()
-    is_openrouter = "openrouter.ai" in base.lower() or as_bool(get_config("is_openrouter"))
+    # Hostname equality, same rule as get_provider_from_endpoint. A path that
+    # merely contains "openrouter.ai" is not this provider.
+    is_openrouter = is_openrouter_endpoint(base, explicit_is_openrouter=as_bool(get_config("is_openrouter")))
     req_headers = _model_fetch_auth_headers(
         base,
         api_key_override,
@@ -362,7 +364,7 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
         if isinstance(e, NetworkError):
             log.warning("fetch_available_models NetworkError for %s: %s", url, e)
         else:
-            log.warning("fetch_available_models unexpected error for %s: %s", url, type(e).__name__)
+            log.exception("fetch_available_models unexpected error for %s", url)
     if get_provider_from_endpoint(base) == "zai":
         log.debug("fetch_available_models z.ai failed url=%s", url)
     return None

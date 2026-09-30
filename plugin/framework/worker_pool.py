@@ -541,7 +541,13 @@ class AsyncProcess:
                 self.process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 self.process.kill()
-                self.process.wait()
+                # start() calls terminate() on the caller, including the UI
+                # thread. wait() with no timeout blocked there if the child
+                # ignored SIGKILL (uninterruptible sleep).
+                try:
+                    self.process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    log.warning("Process still alive after kill (timeout=%ss)", timeout)
         for handle in (self._stdout_thread, self._stderr_thread, self._wait_thread):
             if handle is not None:
                 handle.join(timeout=1.0)

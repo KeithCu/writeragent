@@ -218,7 +218,7 @@ flowchart LR
 | `process_events_to_idle(ctx, rounds=1)` | Drain UI events between append / caret-reveal steps |
 | `restore_query_if_user_still_there()` | After stream SelectAll, `query.setFocus()` only while the user still wants Ask/instruct |
 | `note_user_left_query()` | Stop restoring (Stop/Clear/other sidebar pointer, Writer page click) so stream `setFocus` cannot abort Stop |
-| `install_stream_focus_tracker` | Query focusGained → restore; document click + `leave_query_controls` mouse/focus → leave |
+| `install_stream_focus_tracker` | Query focusGained → restore; click handler on the current document controller (each open document, removed on dispose) + `leave_query_controls` mouse/focus → leave |
 
 ### Key APIs (`rich_text_paste.py`)
 

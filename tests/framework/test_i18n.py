@@ -68,6 +68,35 @@ class TestI18n:
             locale = get_lo_locale(mock_ctx)
             assert (locale) == ("fr_FR")
 
+    def test_background_gettext_does_not_stick_english_catalog(self):
+        """A worker _() before init_i18n(ctx) must not freeze the English catalog."""
+        import threading
+
+        i18n_module._translation = None
+        i18n_module._active_locale = "en_US"
+        holder: dict[str, object] = {}
+
+        def run() -> None:
+            holder["text"] = _("Hello")
+            holder["catalog"] = i18n_module._translation
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        worker.join()
+        assert holder["text"] == "Hello"
+        assert holder["catalog"] is None
+        assert i18n_module._translation is None
+
+        with (
+            patch.object(i18n_module, "get_lo_locale", return_value="fr_FR"),
+            patch.object(i18n_module, "load_translation", return_value=NullTranslations()) as load,
+        ):
+            i18n_module.init_i18n(object())
+        load.assert_called_once()
+        assert i18n_module._active_locale == "fr_FR"
+        assert i18n_module._translation is not None
+        i18n_module._translation = None
+
     def test_locale_detection_default_when_uno_fails(self):
         """When UNO/config is unavailable, locale defaults to English (not OS LANG)."""
         mock_ctx = MagicMock()

@@ -154,21 +154,18 @@ def _resolve_provider_id(endpoint: str, provider_hint: Optional[str] = None) -> 
     """
     Map an endpoint URL + optional hint to a provider id from PROVIDERS.
     Falls back to "custom" when nothing matches.
+
+    Hostname equality via ``get_provider_from_endpoint``, not a substring of
+    the whole URL. ``ollama`` inside ``notollama.example`` used to match and
+    skip a required API key.
     """
-    # crosshair: off  # substring fragment-in-url; finite endpoint enum still 61k examples (pre filters, does not construct). Doable later with a constructor domain (cover-all 33258921875).
+    # crosshair: off  # URL parse + host match; finite endpoint enum still huge (cover-all).
     if provider_hint:
         normalized = provider_hint.strip().lower()
         if normalized in PROVIDERS:
             return normalized
 
-    url = normalize_endpoint_url(endpoint).lower()
-    for pid, cfg in PROVIDERS.items():
-        if not cfg.host_matches:
-            continue
-        if any(fragment in url for fragment in cfg.host_matches):
-            return pid
-
-    return "custom"
+    return get_provider_from_endpoint(endpoint) or "custom"
 
 
 @deal.pre(lambda provider_id: _deal_provider_id_ok(provider_id))

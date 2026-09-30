@@ -20,11 +20,11 @@ Uses standard Python gettext to localize strings dynamically.
 
 Concurrency: gettext catalogs are loaded once on the LibreOffice UI
 thread in ``init_i18n`` (reads the office locale from UNO config). After
-that, ``_()`` is a read of the loaded catalog — no lock. If something
-calls ``get_lo_locale`` from a **background** thread before init, it
-returns English (``en_US``) instead of calling
-``uno.getComponentContext()``, which can create a second, wrong UNO
-context and break dialogs.
+that, ``_()`` is a read of the loaded catalog — no lock. A background
+``_()`` before that init does not install a catalog: ``get_lo_locale``
+off the main thread returns English rather than calling
+``uno.getComponentContext()`` (a second, wrong UNO context breaks
+dialogs), and storing that English catalog used to stick for the process.
 """
 
 from __future__ import annotations
@@ -146,14 +146,24 @@ def load_translation(
 def init_i18n(ctx: Any | None = None) -> None:
     """Load gettext for the current locale.
 
-    Always sets :data:`_translation` before return (``NullTranslations`` on any
-    failure so callers never see ``None`` after a successful call).
+    Sets :data:`_translation` before return (``NullTranslations`` on any
+    failure) once a real locale read is possible. A background caller with
+    no ``ctx`` returns without installing a catalog so a later UI-thread
+    ``init_i18n(ctx)`` can still load the office locale.
     """
     # crosshair: off
     global _translation, _active_locale
 
     if _translation is not None:
         return
+
+    if ctx is None:
+        from plugin.framework.thread_guard import on_main_thread
+
+        # Off-main _() before init used to call get_lo_locale (English, no UNO)
+        # and then this early return above froze that catalog for the process.
+        if not on_main_thread():
+            return
 
     try:
         locale = get_lo_locale(ctx)
@@ -190,5 +200,7 @@ def _(message: str) -> str:
     if _translation is None:
         init_i18n()
 
-    assert _translation is not None
-    return _translation.gettext(message)
+    translation = _translation
+    if translation is None:
+        return message
+    return translation.gettext(message)

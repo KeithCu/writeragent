@@ -320,6 +320,8 @@ class QueueExecutor:
     _init_lock: threading.Lock
     _claim_lock: threading.Lock
     _initialized: bool
+    _logged_missing_ctx: bool
+    _logged_async_callback_failure: bool
 
     def __init__(self, ctx: Any | None = None) -> None:
         from plugin.framework.thread_guard import _unwrap_uno
@@ -331,6 +333,8 @@ class QueueExecutor:
         self._init_lock = threading.Lock()
         self._claim_lock = threading.Lock()
         self._initialized = False
+        self._logged_missing_ctx = False
+        self._logged_async_callback_failure = False
 
     def set_context(self, ctx: Any) -> None:
         """Update or set the UNO component context (e.g. at bootstrap)."""
@@ -391,12 +395,17 @@ class QueueExecutor:
                 # set_context() is the path that works. Missing ctx logs below
                 # and leaves AsyncCallback unset (tests without VCL still run).
                 if ctx is None:
-                    log.warning(
-                        "QueueExecutor has no component context; "
-                        "call set_context() from bootstrap on the main thread"
-                    )
+                    # Do not latch _initialized. A post before set_context used
+                    # to fail the assert below and then refuse every later marshal
+                    # until the context object identity changed.
+                    if not self._logged_missing_ctx:
+                        log.warning(
+                            "QueueExecutor has no component context; "
+                            "call set_context() from bootstrap on the main thread"
+                        )
+                        self._logged_missing_ctx = True
+                    return None
 
-                assert ctx is not None, "UNO component context is required for AsyncCallback"
                 ctx_any = cast("Any", ctx)
                 from plugin.framework.uno_context import get_service_manager
 
@@ -408,11 +417,17 @@ class QueueExecutor:
                 if self._async_callback_service is None:
                     raise RuntimeError("createInstance com.sun.star.awt.AsyncCallback returned None")
                 self._callback_instance = self._make_callback_instance()
+                self._initialized = True
                 log.info("QueueExecutor initialized (AsyncCallback ready)")
             except Exception as exc:
-                log.warning("AsyncCallback unavailable (%s) — UNO calls will run in the HTTP thread (legacy behaviour)", exc)
+                # A one-shot toolkit failure used to set _initialized, after which
+                # execute() raised and post() dropped work until set_context saw
+                # a different context object. Leave the flag clear and retry.
                 self._async_callback_service = None
-            self._initialized = True
+                self._callback_instance = None
+                if not self._logged_async_callback_failure:
+                    log.warning("AsyncCallback unavailable (%s); next marshal will retry", exc)
+                    self._logged_async_callback_failure = True
             return self._async_callback_service
 
     def _make_callback_instance(self) -> Any:

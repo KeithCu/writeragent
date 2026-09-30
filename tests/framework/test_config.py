@@ -12,6 +12,7 @@ from plugin.framework.config import (
     get_api_key_for_endpoint,
     set_api_key_for_endpoint,
     get_config,
+    get_config_dict,
     get_config_bool,
     get_config_float,
     get_config_int,
@@ -214,6 +215,11 @@ class TestConfigSyncFileIO:
         second = get_config("openrouter_chat_extra")
         assert second == {"temperature": 0.2}
         assert "extra" not in second
+
+        whole = get_config_dict()
+        extra = whole["openrouter_chat_extra"]
+        extra["temperature"] = 9
+        assert get_config("openrouter_chat_extra") == {"temperature": 0.2}
 
     def test_set_api_key_file_io(self):
         set_api_key_for_endpoint('http://api.openai.com', 'sk-1234')

@@ -559,8 +559,15 @@ def get_config_float(key: str) -> float:
 
 
 def get_config_dict() -> dict[str, Any]:
-    """Return the full config as a dict. Returns {} if missing or on error."""
-    return _get_validated_config_dict()
+    """Return the full config as a dict. Returns {} if missing or on error.
+
+    Copies each value the same way ``get_config`` does. Returning ``_cache.data``
+    itself let a caller change memory without a write.
+    """
+    data = _get_validated_config_dict()
+    if not isinstance(data, dict):
+        return {}
+    return {key: _copy_config_value(value) for key, value in data.items()}
 
 
 def _raw_config_value_for_key(config_data: dict[str, Any], key: str) -> Any:

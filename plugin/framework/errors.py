@@ -350,6 +350,24 @@ def format_error_payload(e: BaseException) -> dict[str, Any]:
 # remains in client/errors.py. Import format_error_message from this module
 # (not from client.errors).
 
+
+def _is_connection_refused(exc: BaseException, reason: str) -> bool:
+    """True for a refused TCP connect, not for the digits 111 in an unrelated message."""
+    import errno
+    import urllib.error
+
+    if isinstance(exc, ConnectionRefusedError):
+        return True
+    nested = getattr(exc, "reason", None) if isinstance(exc, urllib.error.URLError) else None
+    if isinstance(nested, ConnectionRefusedError):
+        return True
+    if getattr(exc, "errno", None) == errno.ECONNREFUSED:
+        return True
+    if getattr(nested, "errno", None) == errno.ECONNREFUSED:
+        return True
+    return "Connection refused" in reason
+
+
 @deal.pre(lambda e: isinstance(e, Exception))
 @deal.post(lambda result: isinstance(result, str))
 def format_error_message(e: Exception) -> str:
@@ -414,7 +432,9 @@ def format_error_message(e: Exception) -> str:
             reason = str(getattr(e, "reason", None) or e)
         else:
             reason = str(e)
-        if "Connection refused" in reason or "111" in reason:
+        # Errno text and unrelated messages both contain "111" (port 1111).
+        # Match the errno or the words, not that substring.
+        if _is_connection_refused(e, reason):
             return _("Connection Refused. Is your local AI server (Ollama/LM Studio) running?")
         if "getaddrinfo failed" in reason:
             return _("DNS Error. Could not resolve the endpoint URL.")

@@ -1915,6 +1915,64 @@ def test_stream_timeout_retries_wait_then_succeeds(client, _fast_retry_waits):
     _fast_retry_waits["transport"].assert_called_once()
 
 
+def _abort_wait_on_stop(client):
+    from plugin.framework.client.request_controls import wait_abortable as real_wait
+
+    clock = {"t": 0.0}
+
+    def sleep_then_stop(delay: float) -> None:
+        clock["t"] += delay
+        client.stop()
+
+    def abortable(delay, stop_checker=None, **kwargs):
+        return real_wait(delay, stop_checker, sleep=sleep_then_stop, monotonic=lambda: clock["t"])
+
+    return abortable
+
+
+def test_stream_retry_wait_aborts_when_client_stopped(client, _fast_retry_waits):
+    """stop() during a 429 backoff must end the stream even with no stop_checker."""
+    _fast_retry_waits["llm"].side_effect = _abort_wait_on_stop(client)
+    busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, busy)
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            stop_checker=None,
+        )
+    assert result["finish_reason"] == "stop"
+    assert mock_https.call_count == 1
+
+
+def test_stream_connection_retry_aborts_when_client_stopped(client, _fast_retry_waits):
+    _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, ConnectionResetError("reset"))
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            stop_checker=None,
+        )
+    assert result["finish_reason"] == "stop"
+    assert mock_https.call_count == 1
+
+
+def test_sync_request_with_tools_retry_wait_aborts_when_client_stopped(client, _fast_retry_waits):
+    _fast_retry_waits["llm"].side_effect = _abort_wait_on_stop(client)
+    busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, busy)
+        result = client.request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            stream=False,
+            stop_checker=None,
+        )
+    assert result["finish_reason"] == "stop"
+    assert mock_https.call_count == 1
+
+
 def test_request_json_retry_wait_aborts_when_stopped(client, _fast_retry_waits):
     """Image/STT JSON retries must not sleep out a 429 after Stop latches."""
     from plugin.framework.client.request_controls import wait_abortable as real_wait

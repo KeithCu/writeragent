@@ -434,6 +434,23 @@ class LlmClient:
         """Allow a reused client to send again (call on the UI thread at send start)."""
         self._stopped = False
 
+    def _abort_checker(self, stop_checker: Any) -> Any:
+        """Checker for retry sleeps: ``stop()`` or the caller's predicate.
+
+        ``wait_abortable`` returns early only when its checker is true.
+        Streaming and sync tool requests passed the caller's checker alone, so
+        ``stop()`` (which only sets ``_stopped``) slept out a backoff of up to
+        ``RETRY_MAX_DELAY_SEC`` when the caller passed no checker. Image/STT
+        ``_request_json`` already combined the latch; these loops did not.
+        """
+
+        def _aborted() -> bool:
+            if self._stopped:
+                return True
+            return bool(stop_checker and stop_checker())
+
+        return _aborted
+
     def _endpoint(self) -> str:
         raw = self.config.get("endpoint", "http://localhost:11434")
         return normalize_endpoint_url(raw, is_openwebui=self.config.get("is_openwebui", False))
@@ -794,9 +811,10 @@ class LlmClient:
             except NetworkError as e:
                 if self._stopped or getattr(e, "code", None) == "STOPPED":
                     raise
-                log.warning("Multimodal transcription failed: %s. Falling back to stt endpoint.", type(e).__name__)
-            except Exception as e:
-                log.warning("Multimodal transcription failed: %s. Falling back to stt endpoint.", type(e).__name__)
+                # Fall through to the transcription endpoint; keep the traceback.
+                log.exception("Multimodal transcription failed; falling back to stt endpoint")
+            except Exception:
+                log.exception("Multimodal transcription failed; falling back to stt endpoint")
 
         endpoint = self._endpoint()
         api_path = self._api_path()
@@ -880,6 +898,7 @@ class LlmClient:
             self._close_connection()
             return "stop"
 
+        abort_checker = self._abort_checker(stop_checker)
         sends_left = RETRY_MAX_ATTEMPTS if _retry else 1
         wait_index = 0
         emitted_any = False
@@ -906,7 +925,7 @@ class LlmClient:
                         path,
                         retries_left=sends_left,
                         emitted_any=emitted_any,
-                        stop_checker=stop_checker,
+                        stop_checker=abort_checker,
                         status_callback=status_callback,
                         attempt=wait_index,
                     )
@@ -1096,7 +1115,7 @@ class LlmClient:
                     path=path,
                     retries_left=sends_left,
                     retry_log_message="Retrying streaming request on fresh connection",
-                    stop_checker=stop_checker,
+                    stop_checker=abort_checker,
                     status_callback=status_callback,
                     attempt=wait_index,
                 )
@@ -1280,6 +1299,7 @@ class LlmClient:
             result = None
             sends_left = RETRY_MAX_ATTEMPTS
             wait_index = 0
+            abort_checker = self._abort_checker(stop_checker)
             while True:
                 try:
                     if self._stopped or (stop_checker and stop_checker()):
@@ -1312,7 +1332,7 @@ class LlmClient:
                             path,
                             retries_left=sends_left,
                             emitted_any=False,
-                            stop_checker=stop_checker,
+                            stop_checker=abort_checker,
                             status_callback=status_callback,
                             attempt=wait_index,
                         )
@@ -1343,7 +1363,7 @@ class LlmClient:
                         path=path,
                         retries_left=sends_left,
                         retry_log_message="Retrying request_with_tools on fresh connection",
-                        stop_checker=stop_checker,
+                        stop_checker=abort_checker,
                         status_callback=status_callback,
                         attempt=wait_index,
                     )

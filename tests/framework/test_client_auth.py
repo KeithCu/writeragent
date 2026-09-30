@@ -253,3 +253,10 @@ def test_openrouter_extra_headers_present():
     assert "HTTP-Referer" not in PROVIDERS["openai"].extra_headers
     assert "HTTP-Referer" not in PROVIDERS["deepseek"].extra_headers
 
+
+def test_resolve_provider_id_does_not_substring_match_host():
+    """notollama.example is not Ollama; a path containing openrouter.ai is not OpenRouter."""
+    assert _resolve_provider_id("https://notollama.example/v1") == "custom"
+    assert _resolve_provider_id("https://example.com/openrouter.ai/v1") == "custom"
+    assert _resolve_provider_id("https://api.openai.com/v1") == "openai"
+

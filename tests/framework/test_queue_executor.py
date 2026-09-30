@@ -207,6 +207,8 @@ def reset_mt_globals():
     default_executor._initialized = False
     default_executor._async_callback_service = None
     default_executor._callback_instance = None
+    default_executor._logged_missing_ctx = False
+    default_executor._logged_async_callback_failure = False
     with default_executor._init_lock:
         pass
     while (not default_executor._work_queue.empty()):
@@ -219,6 +221,27 @@ def reset_mt_globals():
     default_executor._initialized = False
     default_executor._async_callback_service = None
     default_executor._callback_instance = None
+    default_executor._logged_missing_ctx = False
+    default_executor._logged_async_callback_failure = False
+
+def test_async_callback_failure_is_not_sticky():
+    """A failed createInstance must not latch marshaling off until the context changes."""
+    mock_ctx = MagicMock()
+    mock_smgr = MagicMock()
+    mock_ctx.ServiceManager = mock_smgr
+    mock_smgr.createInstanceWithContext.side_effect = RuntimeError("toolkit down")
+    qe = lc.QueueExecutor(ctx=mock_ctx)
+    assert qe._get_async_callback() is None
+    assert qe._initialized is False
+
+    service = MagicMock()
+    mock_smgr.createInstanceWithContext.side_effect = None
+    mock_smgr.createInstanceWithContext.return_value = service
+    with patch.object(qe, "_make_callback_instance", return_value=MagicMock()):
+        res = qe._get_async_callback()
+    assert res is service
+    assert qe._initialized is True
+
 
 def test_get_async_callback_success(monkeypatch):
     mock_ctx = MagicMock()
@@ -350,10 +373,13 @@ def test_get_async_callback_failure(monkeypatch):
     monkeypatch.setitem(sys.modules, 'uno', mock_uno)
     with patch('plugin.framework.queue_executor.log.warning') as mock_warn:
         res = default_executor._get_async_callback()
+        again = default_executor._get_async_callback()
     assert (res is None)
-    assert (default_executor._initialized)
+    assert (again is None)
+    # Missing context must not latch; the next marshal retries after set_context.
+    assert (default_executor._initialized is False)
     assert (default_executor._async_callback_service is None)
-    mock_warn.assert_called()
+    mock_warn.assert_called_once()
 
 def test_get_async_callback_returns_none(monkeypatch):
     mock_ctx = MagicMock()
@@ -364,8 +390,8 @@ def test_get_async_callback_returns_none(monkeypatch):
     with patch('plugin.framework.queue_executor.log.warning') as mock_warn:
         res = default_executor._get_async_callback()
     assert (res is None)
-    assert (default_executor._initialized)
-    mock_warn.assert_called()
+    assert (default_executor._initialized is False)
+    mock_warn.assert_called_once()
 
 def test_make_callback_instance():
     import sys

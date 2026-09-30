@@ -561,6 +561,69 @@ def test_install_attaches_leave_controls_when_trackers_already_exist():
         uc._stream_focus_trackers[:] = saved
 
 
+def test_install_click_handler_follows_each_document_controller():
+    """A later document must get its own page-click handler; disposing removes it."""
+    import types
+
+    from plugin.framework import uno_context as uc
+
+    class _Base:
+        pass
+
+    class XFocusListener:
+        pass
+
+    class XMouseClickHandler:
+        pass
+
+    class XMouseListener:
+        pass
+
+    class _Controller:
+        def __init__(self) -> None:
+            self.added: list[object] = []
+            self.removed: list[object] = []
+
+        def addMouseClickHandler(self, handler: object) -> None:
+            self.added.append(handler)
+
+        def removeMouseClickHandler(self, handler: object) -> None:
+            self.removed.append(handler)
+
+    first = _Controller()
+    second = _Controller()
+    saved_trackers = list(uc._stream_focus_trackers)
+    saved_bindings = list(uc._doc_click_bindings)
+    uc._stream_focus_trackers.clear()
+    uc._doc_click_bindings.clear()
+    fake_awt = types.SimpleNamespace(
+        XFocusListener=XFocusListener,
+        XMouseListener=XMouseListener,
+        XMouseClickHandler=XMouseClickHandler,
+    )
+    controllers = iter([first, second, second])
+    try:
+        with (
+            patch.dict(
+                sys.modules,
+                {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
+            ),
+            patch.object(uc, "_current_document_controller", side_effect=lambda ctx: next(controllers)),
+        ):
+            uc.install_stream_focus_tracker(MagicMock(), query=MagicMock())
+            uc.install_stream_focus_tracker(MagicMock(), query=MagicMock())
+            uc.install_stream_focus_tracker(MagicMock(), query=MagicMock())
+        assert len(first.added) == 1
+        assert len(second.added) == 1
+        handler = second.added[0]
+        handler.disposing(None)
+        assert second.removed == [handler]
+        assert all(pair[1] is not handler for pair in uc._doc_click_bindings)
+    finally:
+        uc._stream_focus_trackers[:] = saved_trackers
+        uc._doc_click_bindings[:] = saved_bindings
+
+
 # ---- uno_same --------------------------------------------------------------
 
 

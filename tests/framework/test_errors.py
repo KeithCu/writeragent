@@ -154,6 +154,17 @@ class TestErrorHandling:
         assert ("HTTP Error" in msg or "Remote" in msg)
         assert ("Connection Error") not in (msg)
 
+    def test_format_error_message_111_substring_is_not_connection_refused(self):
+        import errno
+        import urllib.error
+
+        from plugin.framework.errors import format_error_message
+
+        missed = urllib.error.URLError("failed to reach http://host:1111/v1")
+        assert "Connection Refused" not in format_error_message(missed)
+        refused = OSError(errno.ECONNREFUSED, "connect")
+        assert "Connection Refused" in format_error_message(refused)
+
     def test_writeragent_exception_subclasses_and_details_unification(self):
         from plugin.framework.errors import (
             AgentParsingError,

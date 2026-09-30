@@ -7,6 +7,7 @@ from plugin.framework.client.request_controls import (
     LocalHttpsCertificateFallback,
     RequestPacer,
     backoff_delay_sec,
+    claim_host_send_slot,
     clear_host_gap,
     emit_retry_status,
     ensure_free_model_pacing,
@@ -155,6 +156,20 @@ def test_request_model_from_body_reads_model_field():
     assert request_model_from_body(b'{"model": "openrouter/free"}') == "openrouter/free"
     assert request_model_from_body('{"model": "foo:free"}') == "foo:free"
     assert request_model_from_body(b"not-json") is None
+
+
+def test_host_gap_claims_do_not_both_see_zero_wait():
+    """Two jobs must not both observe a zero gap and send together."""
+    remember_host_gap("example.com", 5.0)
+    mark_host_sent("example.com", monotonic=lambda: 100.0)
+    first = claim_host_send_slot("example.com", monotonic=lambda: 100.0)
+    second = claim_host_send_slot("example.com", monotonic=lambda: 100.0)
+    assert first == 5.0
+    assert second == 10.0
+    # The later reservation must survive the first job recording its real send.
+    mark_host_sent("example.com", monotonic=lambda: 105.0)
+    # 105 is earlier than the second reservation (110). A third caller still waits.
+    assert remaining_host_gap("example.com", monotonic=lambda: 105.0) == 10.0
 
 
 def test_host_gap_is_sticky_until_first_try_success():

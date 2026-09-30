@@ -243,6 +243,8 @@ run_venv_python_script(code="… plt.plot(…) …")
 | `decompose_time_series` | Trend / seasonal / residual | `date_col`, `value_col`, `period`, `model` |
 | `anomaly_detection_time_series` | Series-aware outliers (STL residuals + robust z-score) | `date_col`, `value_col`, `period`, `threshold=3.0`, `method="stl_residual"` |
 
+**Seasonality:** The period is inferred from the date frequency (daily 7, business-day 5, weekly 52, monthly 12, quarterly 4), and only when the series covers at least two full cycles. Otherwise `model="auto"` stays trend-only and adds a flag. An explicit `seasonal_periods` (or `period` on decompose / anomaly) still wins. Row count alone used to pick 12 whenever there were 24 or more rows, so a daily sheet was fit as a 12-day season. Duplicate timestamps are averaged before the fit. Weekday-only series forecast on business days.
+
 **Phase 2 (deferred):**
 
 | Helper | Purpose |
@@ -707,8 +709,7 @@ Roadmap of ergonomic, output formatting, and parameter enhancements across exist
   - *Target/feature column auto-detection:* Default `target_col` to the last column and `feature_cols` to all preceding numeric columns when omitted.
   - *Data hygiene helper:* Add a lightweight `clean_data` helper (`drop_na`, `fill_na_median`, `strip_headers`) to prep spreadsheet tables before statistical modeling.
 - **Time Series & Forecasting:**
-  - *Automatic date frequency inference:* Infer business-day (`'B'`) and weekly intervals gracefully to avoid false missing-period warnings on weekends.
-  - *Summary KPI banner:* Add executive summary metrics (`MAPE`, `Expected Next Value`, `Trend %`) above the projected data table.
+  - *Summary KPI banner:* Add executive summary metrics (`MAPE`, `Expected Next Value`, `Trend %`) above the projected data table. Frequency-based seasonality (and weekday forecast dates) is shipped; see [Forecasting](#forecasting).
 - **Text / Document Analytics:**
   - *Writer in-document highlighting:* Option to highlight detected entities or low-readability sentences directly in Writer text.
   - *Topic weight breakdown:* Format `topics` output with relative percentage weights per section for quick at-a-glance density inspection.

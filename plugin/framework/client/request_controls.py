@@ -249,7 +249,31 @@ def mark_host_sent(host: str, *, monotonic: Callable[[], float] | None = None) -
         return
     now = (monotonic or time.monotonic)()
     with _host_gap_lock:
-        _host_last_sent[host] = now
+        # claim_host_send_slot may already have reserved a later instant.
+        # A slow send must not move that stamp backward and let another job in.
+        prev = _host_last_sent.get(host)
+        if prev is None or now > prev:
+            _host_last_sent[host] = now
+
+
+def claim_host_send_slot(host: str, *, monotonic: Callable[[], float] | None = None) -> float:
+    """Reserve this caller's send time and return how long it must wait.
+
+    ``remaining_host_gap`` and ``mark_host_sent`` used to take the lock
+    separately. Two jobs could both read a zero wait and send together.
+    The reservation is ``now + wait``; ``mark_host_sent`` only moves it forward.
+    """
+    if not host:
+        return 0.0
+    now = (monotonic or time.monotonic)()
+    with _host_gap_lock:
+        gap = _host_gap_sec.get(host, 0.0)
+        last = _host_last_sent.get(host)
+        wait = 0.0
+        if gap > 0 and last is not None:
+            wait = max(0.0, gap - (now - last))
+        _host_last_sent[host] = now + wait
+        return wait
 
 
 def remaining_host_gap(host: str, *, monotonic: Callable[[], float] | None = None) -> float:
@@ -268,13 +292,15 @@ def wait_host_gap(
     host: str,
     stop_checker: Callable[[], bool] | None = None,
     status_callback: Callable[[str], None] | None = None,
+    *,
+    monotonic: Callable[[], float] | None = None,
 ) -> bool:
     """Wait out a learned per-host gap. False if Stop fired."""
-    remaining = remaining_host_gap(host)
+    remaining = claim_host_send_slot(host, monotonic=monotonic)
     if remaining <= 0:
         return True
     emit_retry_status(status_callback, remaining)
-    return wait_abortable(remaining, stop_checker)
+    return wait_abortable(remaining, stop_checker, monotonic=monotonic)
 
 
 class RequestPacer:
