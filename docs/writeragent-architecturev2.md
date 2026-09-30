@@ -194,7 +194,7 @@ An in-LibreOffice **LLM Evaluation Suite** benchmarks models on real Writer/Calc
 
 #### Cross-Document Intelligence
 
-An optional **embeddings + FTS** engine (`writeragent_embeddings/corpus.db`, sqlite-vec) enables hybrid search over a document's sibling files: BM25/FTS5 and semantic vectors fused with **reciprocal-rank fusion**, optional cross-encoder reranking — all heavy compute (sentence-transformers, sqlite-vec) confined to the user venv. Experimental **memory** (`USER.md` + `MEMORY_GUIDANCE`) persists cross-session agent knowledge, and the **librarian** mode maintains a per-profile ReAct transcript.
+An optional **embeddings + FTS** engine (`writeragent_embeddings/corpus.db`, sqlite-vec) enables hybrid search over a document's sibling files: BM25/FTS5 and semantic vectors fused with **reciprocal-rank fusion**, optional cross-encoder reranking — all heavy compute (sentence-transformers, sqlite-vec) confined to the user venv. **Memory** (`upsert_memory` → `USER.md`, injected via `MEMORY_GUIDANCE`) persists cross-session agent knowledge, and the **librarian** mode maintains a per-profile ReAct transcript.
 
 ---
 

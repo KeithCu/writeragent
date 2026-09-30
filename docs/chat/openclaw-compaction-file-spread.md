@@ -157,7 +157,7 @@ The plan's non-goals are not "we might do these later as extra functions in `com
 | --- | ---: | ---: | --- |
 | Safeguard mode + quality-audit retries (`agent-hooks/compaction-safeguard*.ts`) | 4 | 2,081 | Deferred. Default in OpenClaw is now `"safeguard"`; `compaction-safeguard.ts` is 1,485 lines with an `oxlint-disable max-lines` TODO to split it further |
 | `/compact` slash + notices (`auto-reply/commands-compact.ts`, `compaction-notice.ts`) | 2+ | ~536 | Slash commands are stubs; v1 is silent except a drain `STATUS` line |
-| Memory flush before compact (`memory-flush.ts`) | 1 (not in the glob) | 187 | Experimental `memory.py`; no silent extra agent turn |
+| Memory flush before compact (`memory-flush.ts`) | 1 (not in the glob) | 187 | Shipped `upsert_memory`; no silent extra agent turn |
 | Successor transcripts (`compaction-successor.ts`) | 1 | 369 | No second session file |
 | Checkpoints (`gateway/session-compaction-checkpoints.ts` + server-methods) | 3 | ~1,343 | In-memory `CompactionState` only |
 | Plugin summarizer (`plugins/compaction-provider.ts`) | 1 | 9 (+ registry types) | Same chat model |

@@ -38,7 +38,7 @@ Start here by task.
 | FSM / service | Pure `next_state` only; no UNO/I/O in transitions | [`plugin/framework/service.py`](../plugin/framework/service.py) |
 | Threading / UNO guard | `run_in_background`, `AsyncProcess`, Layer A `guard_uno` | [`plugin/framework/worker_pool.py`](../plugin/framework/worker_pool.py), [`plugin/framework/thread_guard.py`](../plugin/framework/thread_guard.py) |
 | UNO listeners / i18n | UNO listeners; gettext `_` for UI | [`plugin/framework/uno_listeners.py`](../plugin/framework/uno_listeners.py), [`plugin/framework/i18n.py`](../plugin/framework/i18n.py) |
-| Memory / prompts | Experimental memory + `MEMORY_GUIDANCE`; mode prompts live next to their modules (index in `prompts.py`) | [`plugin/chatbot/memory.py`](../plugin/chatbot/memory.py), [`plugin/framework/prompts.py`](../plugin/framework/prompts.py) |
+| Memory / prompts | Shipped `upsert_memory` + `MEMORY_GUIDANCE` (`USER.md` injected each turn); mode prompts live next to their modules (index in `prompts.py`) | [`plugin/chatbot/memory.py`](../plugin/chatbot/memory.py), [`plugin/framework/prompts.py`](../plugin/framework/prompts.py) |
 | Extension update check | Weekly WriterAgent / LibrePy / LibreHarper update check | [`plugin/chatbot/extension_update_check.py`](../plugin/chatbot/extension_update_check.py) |
 | Calc `=PROMPT()` / `=PYTHON()` | Calc spreadsheet function add-ins (LibrePy uses `addin_librepy.py` instead of `addin.py`) | [`plugin/calc/prompt_addin.py`](../plugin/calc/prompt_addin.py), [`plugin/calc/prompt_function.py`](../plugin/calc/prompt_function.py), [`plugin/calc/python/addin.py`](../plugin/calc/python/addin.py), [`plugin/calc/python/addin_librepy.py`](../plugin/calc/python/addin_librepy.py), [`plugin/calc/python/function.py`](../plugin/calc/python/function.py) |
 | Scripting / venv | Public script API, sandbox policy, venv worker (not for user imports) | [`plugin/scripting/`](../plugin/scripting/), [`plugin/scripting/venv/`](../plugin/scripting/venv/), [`plugin/scripting/import_policy.py`](../plugin/scripting/import_policy.py), [`plugin/scripting/sandbox.py`](../plugin/scripting/sandbox.py), [`plugin/scripting/venv_worker.py`](../plugin/scripting/venv_worker.py), [`plugin/scripting/venv_diagnostics.py`](../plugin/scripting/venv_diagnostics.py) |
@@ -100,7 +100,7 @@ Start here by task.
 | UNO Dialogs & Wizards | [framework/uno-dialogs.md](framework/uno-dialogs.md) |
 | UNO exception policy (disposed vs leaf catches) | [framework/exception-policy.md](framework/exception-policy.md) |
 | LLM Hacks & Workarounds | [chat/llm-hacks.md](chat/llm-hacks.md) |
-| Experimental memory / roadmap | [archive/hermes-agent-patterns.md](archive/hermes-agent-patterns.md), [ROADMAP.md](ROADMAP.md), [framework/robustness-roadmap.md](framework/robustness-roadmap.md) |
+| Memory / roadmap | [archive/hermes-agent-patterns.md](archive/hermes-agent-patterns.md), [ROADMAP.md](ROADMAP.md), [framework/robustness-roadmap.md](framework/robustness-roadmap.md) |
 | LLM evals / benchmarks | [eval/benchmarks.md](eval/benchmarks.md), [eval/string-harness-upgrade.md](eval/string-harness-upgrade.md), [scripts/prompt_optimization/README.md](../scripts/prompt_optimization/README.md) |
 | Eval-2 headed benchmarks (sibling of string-pack hard/partial/cost; separate JSON/charts) | [eval/eval-2/benchmarks.md](eval/eval-2/benchmarks.md), [eval/eval-2/README.md](eval/eval-2/README.md) |
 

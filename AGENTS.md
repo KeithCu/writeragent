@@ -37,7 +37,7 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 - **Chat:** Sidebar + menu chat (Writer/Calc deck; Draw per code paths)—multi-turn, tools, history (SQLite when available, else JSON under `writeragent_history.db.d/`).
 - **Extend / Edit selection:** Writer uses `get_string_without_tracked_deletions()` in `text_helpers` for prompts; undo/session details in `plugin/writer/edit_review.py`.
 - **Settings:** `writeragent.json` under the LibreOffice user profile—see `config` module doc.
-- **Memory (experimental):** `memory` + `MEMORY_GUIDANCE` in `prompts` — [docs/archive/hermes-agent-patterns.md](docs/archive/hermes-agent-patterns.md).
+- **Memory:** `upsert_memory` writes `USER.md`; `MEMORY_GUIDANCE` injects it each turn — [docs/archive/hermes-agent-patterns.md](docs/archive/hermes-agent-patterns.md).
 - **Calc:** `=PROMPT()` and `=PYTHON()` add-ins (see [`docs/repo-map.md`](docs/repo-map.md)).
 - **Eval / benchmarks:** `make run_eval` / `scripts/benchmark.py` → `scripts/prompt_optimization/` — [scripts/prompt_optimization/README.md](scripts/prompt_optimization/README.md), [docs/eval/eval-dev-plan.md](docs/eval/eval-dev-plan.md).
 

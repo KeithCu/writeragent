@@ -4,7 +4,7 @@ WriterAgent adopts substantial design from [Nous Hermes Agent](https://github.co
 
 **Entry points:** [`plugin/chatbot/memory.py`](../plugin/chatbot/memory.py), [`plugin/chatbot/skills.py`](../plugin/chatbot/skills.py), [`plugin/framework/prompts.py`](../plugin/framework/prompts.py) (`MEMORY_GUIDANCE`, injection in `get_chat_system_prompt_for_document`).
 
-**Status (2026-06):** `upsert_memory` + `USER.md` injection are active. The first skill (`humanizer`) ships with ambient prompt injection only (Settings checkbox). General skills list/view/manage tools remain aspirational.
+**Status:** `upsert_memory` + `USER.md` injection are shipped (core tool, not experimental). Search, expiration, and compression are not. The first skill (`humanizer`) ships with ambient prompt injection only (Settings checkbox). General skills list/view/manage tools remain aspirational.
 
 **Skills catalog (refreshed 2026-08):** Still only humanizer shipped — no further skills were added. The table below replaces the older “plan / OCR / arxiv / llm-wiki” shortlist after a pass over current Hermes bundled + optional skills. Not scheduled work; parked so the next seeds are not rediscovered from scratch.
 

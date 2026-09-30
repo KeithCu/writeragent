@@ -85,7 +85,7 @@ Visible so they are not re-invented as high-priority programs:
 - UI theme editor; document template marketplace; offline mode
 - Third-party plugin / extension API
 - Tool registry versioning; config profiles (schema lives in `config_schema.py`)
-- Memory search / expiration / compression (experimental `memory.py`, not active)
+- Memory search / expiration / compression (`upsert_memory` + `USER.md` injection are shipped; these extras are not)
 - Performance-profiling program; Draw/Impress pytest page stubs (factory `doc_type` is enough)
 - MCP specialized-tool opt-in, domain switching, and document targeting (already implemented)
 

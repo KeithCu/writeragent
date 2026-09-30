@@ -66,7 +66,9 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
-| `stt_model` | `string` | `""` |  | Speech-to-text model when the chat model cannot take audio input. |
+| `stt_provider` | `string` | `"endpoint"` |  | LLM Endpoint uses Audio Model and POST /v1/audio/transcriptions. Local Whisper runs faster-whisper in the Settings → Python venv (not LibreOffice's Python). Options: endpoint (LLM Endpoint), local (Local Whisper (faster-whisper)) |
+| `stt_model` | `string` | `""` |  | Speech-to-text model when STT Provider is LLM Endpoint and the chat model cannot take audio input. |
+| `stt_local_model` | `string` | `"base"` |  | faster-whisper size. The first transcription downloads weights into the Hugging Face cache (base, the default, is about 150 MB; tiny ~75 MB, small ~500 MB, medium ~1.5 GB). Options: tiny (tiny (~75 MB)), base (base (~150 MB)), small (small (~500 MB)), medium (medium (~1.5 GB)) |
 | `tts_enabled` | `boolean` | `false` |  | Speak assistant responses aloud using text-to-speech. |
 | `tts_sentence_mode` | `boolean` | `true` |  | Synthesize the next sentences while the current one plays, so a short sentence is not followed by a gap. Stop discards clips that are not playing yet. Turn off to speak the whole reply as one clip. |
 | `tts_short_answers` | `boolean` | `true` |  | Aim for about one paragraph unless the user asks for more. Only applies while speech output (TTS) is on. |
