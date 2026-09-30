@@ -893,7 +893,7 @@ def launch_monaco_editor(
             return False
 
         # Trigger background pre-warming of the venv subprocess now that Monaco is successfully up.
-        run_in_background(warm_venv_worker, ctx, name="warm-venv-worker")
+        run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=True)
 
     if not session.is_running:
         detail = session.read_stderr_tail()

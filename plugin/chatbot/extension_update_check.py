@@ -131,7 +131,7 @@ def schedule_extension_update_check_once(ctx: Any, extension_id: str | None = No
     from plugin.framework.worker_pool import run_in_background
 
     log.info("extension update check: scheduling background worker for %s", eid)
-    run_in_background(run_extension_update_check, ctx, name=f"extension_update_check_{profile.display_name}", extension_id=eid)
+    run_in_background(run_extension_update_check, ctx, name=f"extension_update_check_{profile.display_name}", extension_id=eid, dedicated=True)
 
 
 def reset_extension_update_check_schedule_for_tests() -> None:

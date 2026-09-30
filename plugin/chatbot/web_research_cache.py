@@ -518,6 +518,7 @@ def enqueue_research_cache_embedding_backfill(ctx: Any, cache_path: str, max_age
             max_age_days,
             embedding_model,
             name="web-research-cache-embeddings",
+            dedicated=True,
         )
     except Exception:
         with _EMBEDDING_BACKFILL_LOCK:
@@ -558,6 +559,7 @@ def enqueue_research_cache_embedding_for_row(ctx: Any, cache_path: str, raw_key:
         embedding_text,
         embedding_model,
         name="web-research-cache-embedding-row",
+        dedicated=True,
     )
 
 

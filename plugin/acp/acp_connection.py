@@ -262,7 +262,7 @@ class ACPConnection:
         # Live drain already collected stderr; log a bounded tail for debugging.
         drain = self._stderr_drain
         if drain is not None:
-            stderr_text = drain.text().strip()
+            stderr_text = drain.finish_text().strip()
             if stderr_text:
                 log.warning("ACP stderr: %s", stderr_text[:500])
 

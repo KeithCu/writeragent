@@ -153,8 +153,13 @@ CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would bl
 | `plugin/chatbot/tool_loop.py` | `llm-worker-*`, `llm-worker-final` |
 | `plugin/chatbot/tool_loop_actions.py` | `tool-async-*` |
 | `plugin/framework/tool.py` `_execute_with_timeout` | `tool-timeout-*` (caller `join(timeout)`) |
+| `plugin/writer/locale/harper.py` | `harper-ensure-ready` (download + LSP start) |
+| `plugin/embeddings/search_ui.py`, `plugin/scripting/python_runner_ui.py`, `plugin/scripting/editor_host.py` | `warm-venv-worker` |
+| `plugin/embeddings/embeddings_indexer.py` | `corpus-index-*` |
+| `plugin/chatbot/web_research_cache.py` | `web-research-cache-embeddings`, `web-research-cache-embedding-row` |
+| `plugin/chatbot/extension_update_check.py` | `extension_update_check_*` |
 
-**Pooled** (default) — short fire-and-forget: `_update_menu_icons`, `notify_menu_update`, `warm-venv-worker`, search-dialog query/rebuild, `corpus-index-*`, settings probes/fetches, `status-dialog-probe`, `extension_update_check_*`, web-research cache embed.
+**Pooled** (default) — short fire-and-forget: `_update_menu_icons`, `notify_menu_update`, search-dialog query/rebuild, settings probes/fetches, `status-dialog-probe`.
 
 **Not on this pool:** Opengrep-excluded raw threads (`grammar_work_queue.py`, `venv_worker.py` IPC, `harper.py` stdout, CDP `browser_supervisor`). Local `ThreadPoolExecutor` in `web_research_deep.py` and jedi (`editor_main.py`) stay local.
 
@@ -235,8 +240,8 @@ flowchart TD
 
 ### Architectural Invariants
 
-1. **Continuous stderr drain:** Every long-lived child process spawned with `stderr=PIPE` must have a dedicated continuous drain thread via [`start_stderr_drain`](../../plugin/framework/worker_pool.py) or [`AsyncProcess`](../../plugin/framework/worker_pool.py), or redirect stderr to `DEVNULL` (e.g. [`harper.py`](../../plugin/writer/locale/harper.py)) or a file.
-2. **Bounded diagnostic tail:** Stderr drains retain a bounded tail (e.g., `collections.deque(maxlen=100)`) so diagnostic output is available on failures without risking unbounded memory growth.
+1. **Continuous stderr drain:** Every long-lived child process spawned with `stderr=PIPE` must have a dedicated continuous drain thread via [`start_stderr_drain`](../../plugin/framework/worker_pool.py) or [`AsyncProcess`](../../plugin/framework/worker_pool.py), or redirect stderr to `DEVNULL` (e.g. [`harper.py`](../../plugin/writer/locale/harper.py)) or a file. The drain uses `read1` (one raw read). `BufferedReader.read(n)` waits for *n* bytes or EOF, so a short burst stayed invisible until the child exited.
+2. **Bounded diagnostic tail:** Stderr drains retain a bounded tail so diagnostic output is available on failures without risking unbounded memory growth. After the child pipe is at EOF, callers read it with `StderrTail.finish_text()` (join, then the tail). Live readers use `text()` and must not join a drain whose pipe is still open.
 3. **Pipe buffer capacity:** [`optimize_popen_pipes`](../../plugin/scripting/sandbox.py) expands Linux pipe size via `F_SETPIPE_SZ` where available. This reduces pressure but does not eliminate the need for continuous drains.
 4. **Bounded venv stdin writes:** In [`PythonWorkerManager`](../../plugin/scripting/venv_worker.py):
    - Outbound pickle frames are written in a timed thread with an explicit timeout.

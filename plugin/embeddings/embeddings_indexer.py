@@ -89,7 +89,7 @@ def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
     def _run() -> None:
         _index_worker(ctx, folder_key, listing_root)
 
-    run_in_background(_run, name=f"corpus-index-{folder_key[:8]}")
+    run_in_background(_run, name=f"corpus-index-{folder_key[:8]}", dedicated=True)
 
 
 def ensure_index_wakeup(ctx: Any, services: Any, model: Any) -> None:

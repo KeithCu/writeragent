@@ -190,7 +190,7 @@ def _read_json_line(proc: subprocess.Popen[str], timeout: float) -> dict[str, An
         raise RuntimeError(f"Failed to read from recording subprocess: {exc}") from exc
     if payload is None:
         drain = _recording_stderr_drains.get(id(proc))
-        stderr = (drain.text() if drain is not None else "") or ""
+        stderr = (drain.finish_text() if drain is not None else "") or ""
         code = proc.poll()
         detail = stderr.strip() or f"exit code {code}"
         raise RuntimeError(f"Recording subprocess ended before responding ({detail}).")

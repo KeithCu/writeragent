@@ -789,7 +789,7 @@ class PythonWorkerManager:
         """Return bounded stderr captured by the live drain thread (crash diagnostics)."""
         drain = self._stderr_drain
         if drain is not None:
-            text = drain.text().strip()
+            text = drain.finish_text().strip()
             return f"\nWorker stderr:\n{text}" if text else ""
         # Fallback if spawn raced before the drain was attached.
         if self._proc is None or self._proc.stderr is None:

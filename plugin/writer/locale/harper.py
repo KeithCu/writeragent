@@ -507,6 +507,7 @@ def harper_ensure_ready_async(user_config_dir: str, bcp47: str = "en-US") -> boo
             user_config_dir,
             bcp47,
             name="harper-ensure-ready",
+            dedicated=True,
         )
     except Exception:
         log.exception("[harper] Could not submit ensure job")

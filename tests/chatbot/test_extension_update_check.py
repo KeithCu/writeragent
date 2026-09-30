@@ -139,6 +139,7 @@ def test_schedule_once_allows_two_products_same_process():
         assert run_bg.call_count == 2
         kw_ids = {c.kwargs["extension_id"] for c in run_bg.call_args_list}
         assert kw_ids == {EXTENSION_ID_WRITERAGENT, EXTENSION_ID_LIBREHARPER}
+        assert all(c.kwargs.get("dedicated") is True for c in run_bg.call_args_list)
     reset_extension_update_check_schedule_for_tests()
 
 

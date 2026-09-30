@@ -10,6 +10,7 @@ import threading
 from plugin.framework.thread_guard import get_background_task_name
 from plugin.framework.worker_pool import (
     BackgroundHandle,
+    _DaemonWorkPool,
     background_pool_max_workers,
     reset_background_pool_for_tests,
     run_in_background,
@@ -443,4 +444,107 @@ class TestReadStreamStripsNewlines:
         stream = self._make_stream(["\n"])
         ap._read_stream(stream, received.append)
         assert received == [""], f"Expected [\"\"] but got: {received!r}"
+
+
+def test_stderr_drain_short_read_before_eof():
+    """A buffered pipe must surface a short burst while the child is still alive.
+
+    BufferedReader.read(4096) waits for 4096 bytes or EOF, so this used to
+    stay empty for the whole sleep.
+    """
+    script = (
+        "import sys, time\n"
+        "sys.stderr.buffer.write(b'hello-stderr-tail')\n"
+        "sys.stderr.buffer.flush()\n"
+        "time.sleep(30)\n"
+    )
+    cases = (
+        {"stderr": subprocess.PIPE},
+        {"stderr": subprocess.PIPE, "text": True, "bufsize": 1},
+    )
+    for popen_kwargs in cases:
+        proc = subprocess.Popen([sys.executable, "-c", script], **popen_kwargs)
+        drain = None
+        try:
+            drain = start_stderr_drain(proc.stderr, name="test-stderr-short")
+            assert drain is not None
+            deadline = time.time() + 2.0
+            while time.time() < deadline and "hello-stderr-tail" not in drain.text():
+                time.sleep(0.02)
+            assert "hello-stderr-tail" in drain.text()
+            assert proc.poll() is None
+        finally:
+            proc.kill()
+            proc.wait(timeout=5)
+            if drain is not None:
+                drain.join(timeout=2)
+
+
+def test_stderr_drain_joins_split_utf8():
+    """A character split across two short reads must not become two replacement chars."""
+
+    class _Chunks:
+        def __init__(self) -> None:
+            # U+00E9 (é) as two UTF-8 bytes delivered separately, then EOF.
+            self._chunks = [b"\xc3", b"\xa9", b""]
+
+        def read1(self, _n: int) -> bytes:
+            if not self._chunks:
+                return b""
+            return self._chunks.pop(0)
+
+        def close(self) -> None:
+            return None
+
+    drain = start_stderr_drain(_Chunks(), name="test-utf8-split")
+    assert drain is not None
+    drain.join(timeout=2)
+    assert drain.text() == "é"
+
+
+def test_concurrent_submit_during_shutdown_does_not_hang():
+    pool = _DaemonWorkPool(1)
+    errors: list[str] = []
+    stop = threading.Event()
+
+    def hammer() -> None:
+        while not stop.is_set():
+            try:
+                fut = pool.submit(lambda: None)
+            except RuntimeError:
+                return
+            handle = BackgroundHandle(future=fut)
+            handle.join(timeout=2)
+            if handle.is_alive():
+                errors.append("hung")
+                return
+
+    worker = threading.Thread(target=hammer)
+    worker.start()
+    time.sleep(0.05)
+    try:
+        pool.shutdown(wait=True, cancel_futures=True)
+    finally:
+        stop.set()
+        worker.join(timeout=3)
+    assert not worker.is_alive()
+    assert errors == []
+
+
+def test_async_process_replaces_undecodable_stderr():
+    stderr_lines: list[str] = []
+    script = "import sys; sys.stderr.buffer.write(bytes([0xFF])); sys.stderr.buffer.write(b'\\n'); sys.stderr.buffer.flush()"
+    ap = AsyncProcess([sys.executable, "-c", script], stderr_cb=stderr_lines.append)
+    ap.start()
+    assert ap._wait_thread is not None
+    ap._wait_thread.join(timeout=2)
+    if ap._stderr_thread:
+        ap._stderr_thread.join(timeout=1)
+    assert any("\ufffd" in line for line in stderr_lines)
+
+
+def test_async_process_does_not_mutate_caller_kwargs():
+    kwargs: dict[str, object] = {"close_fds": True}
+    AsyncProcess(["dummy"], **kwargs)
+    assert kwargs == {"close_fds": True}
 

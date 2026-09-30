@@ -216,7 +216,7 @@ class NativePythonScriptDialog:
             self._dlg = dlg
 
             # Trigger background pre-warming of the venv subprocess for the native fallback case as well
-            run_in_background(warm_venv_worker, ctx, name="warm-venv-worker")
+            run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=True)
 
             select_ctrl = dlg.getControl("ScriptSelect")
             self._select_ctrl = select_ctrl

@@ -24,8 +24,9 @@ Concurrency: all background Python work must start here
 fire-and-forget jobs share a **fixed-size daemon pool** (unbounded queue).
 Servers, pipe drains, LLM streams, and anything another thread will
 ``join()`` must pass ``dedicated=True`` so they do not occupy a pool slot
-forever. ``_pool_lock`` only covers creating/resetting that pool;
-submitting work uses a thread-safe queue. ``StderrTail``’s lock is only
+forever. ``_pool_lock`` only covers creating/resetting that pool.
+``submit`` and the shutdown drain share a lock so a test reset cannot
+enqueue work behind the worker sentinels. ``StderrTail``’s lock is only
 the bounded stderr buffer from a child process. Never ``join()`` a pooled
 job from another pooled job (the pool can deadlock). Map:
 docs/framework/threading.md.
@@ -33,6 +34,7 @@ docs/framework/threading.md.
 
 from __future__ import annotations
 
+import codecs
 import logging
 import os
 import queue
@@ -127,23 +129,29 @@ class _DaemonWorkPool:
 
     _max_workers: int
     _shutdown: bool
+    _submit_lock: threading.Lock
 
     def __init__(self, max_workers: int) -> None:
         self._max_workers = max(1, max_workers)
         self._queue: queue.SimpleQueue[tuple[Callable[[], None], Future[Any]] | None] = queue.SimpleQueue()
         self._threads: list[threading.Thread] = []
         self._shutdown = False
+        # Held across the shutdown flag, the pending-work drain, and the
+        # sentinel puts. submit() takes the same lock so a Future cannot land
+        # behind those sentinels after the workers have been told to exit.
+        self._submit_lock = threading.Lock()
         for i in range(self._max_workers):
             t = threading.Thread(target=self._run, name=f"wa-bg-{i}", daemon=True)
             t.start()
             self._threads.append(t)
 
     def submit(self, fn: Callable[[], None]) -> Future[Any]:
-        if self._shutdown:
-            raise RuntimeError("background pool is shut down")
-        fut: Future[Any] = Future()
-        self._queue.put((fn, fut))
-        return fut
+        with self._submit_lock:
+            if self._shutdown:
+                raise RuntimeError("background pool is shut down")
+            fut: Future[Any] = Future()
+            self._queue.put((fn, fut))
+            return fut
 
     def _run(self) -> None:
         while True:
@@ -163,29 +171,32 @@ class _DaemonWorkPool:
                 fut.set_result(None)
 
     def shutdown(self, *, wait: bool = True, cancel_futures: bool = True) -> None:
-        self._shutdown = True
-        # Drop the live pool prefix so tests (and diagnostics) do not count
-        # retiring workers as the new pool. Happened when a prior 8-worker
-        # pool's join timed out and a leftover ``wa-bg-3`` sat next to a
-        # 2-worker reset pool's ``wa-bg-0`` / ``wa-bg-1``.
-        for i, t in enumerate(self._threads):
-            t.name = f"wa-bg-retired-{i}"
-        if cancel_futures:
-            pending: list[tuple[Callable[[], None], Future[Any]]] = []
-            while True:
-                try:
-                    item = self._queue.get_nowait()
-                except queue.Empty:
-                    break
-                if item is None:
-                    continue
-                pending.append(item)
-            for pending_item in pending:
-                pending_item[1].cancel()
-        remaining = len(self._threads)
-        while remaining:
-            self._queue.put(None)
-            remaining -= 1
+        with self._submit_lock:
+            self._shutdown = True
+            # Drop the live pool prefix so tests (and diagnostics) do not count
+            # retiring workers as the new pool. Happened when a prior 8-worker
+            # pool's join timed out and a leftover ``wa-bg-3`` sat next to a
+            # 2-worker reset pool's ``wa-bg-0`` / ``wa-bg-1``.
+            for i, t in enumerate(self._threads):
+                t.name = f"wa-bg-retired-{i}"
+            if cancel_futures:
+                pending: list[tuple[Callable[[], None], Future[Any]]] = []
+                while True:
+                    try:
+                        item = self._queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    if item is None:
+                        continue
+                    pending.append(item)
+                for pending_item in pending:
+                    pending_item[1].cancel()
+            remaining = len(self._threads)
+            while remaining:
+                self._queue.put(None)
+                remaining -= 1
+        # Join outside the lock: a worker blocked in queue.get() only needs
+        # the sentinel, and join must not run while submit is waiting.
         if wait:
             for t in self._threads:
                 t.join(timeout=5.0)
@@ -311,6 +322,16 @@ class StderrTail:
         with self._lock:
             return "".join(self._chunks)
 
+    def finish_text(self, timeout: float = 1.0) -> str:
+        """Join the drain after the child pipe should be at EOF, then return the tail.
+
+        *timeout* is bounded so a stderr pipe that is still open cannot block
+        the caller. Live readers (the child is still running) should use
+        :meth:`text` instead.
+        """
+        self.join(timeout)
+        return self.text()
+
     def attach_thread(self, thread: BackgroundHandle | threading.Thread) -> None:
         self._thread = thread
 
@@ -325,6 +346,30 @@ class StderrTail:
         """Return whether the drain thread is still consuming the pipe."""
         thread = self._thread
         return thread is not None and thread.is_alive()
+
+
+def _read_stderr_chunk(stream: IO[Any]) -> bytes | str | None:
+    """One short read. Empty means EOF. None means the pipe is already gone.
+
+    ``BufferedReader.read(n)`` keeps reading until *n* bytes arrive or the
+    pipe hits EOF, so a short burst from a still-running child never reached
+    the tail. ``read1`` returns the bytes already in the pipe. A raw
+    ``FileIO`` (``bufsize=0``) has no ``read1``; its ``read(n)`` is one
+    ``os.read`` and already returns a short count.
+    """
+    buffer = getattr(stream, "buffer", None)
+    readable: IO[Any] = buffer if buffer is not None and hasattr(buffer, "read1") else stream
+    read1 = getattr(readable, "read1", None)
+    try:
+        if callable(read1):
+            chunk = read1(4096)
+            if isinstance(chunk, (bytes, str)) or chunk is None:
+                return chunk
+            return None
+        return readable.read(4096)
+    except (OSError, ValueError):
+        # ValueError: I/O operation on closed file, same as AsyncProcess readers.
+        return None
 
 
 def start_stderr_drain(
@@ -343,16 +388,18 @@ def start_stderr_drain(
     tail = StderrTail(max_chars=max_tail_chars)
 
     def _loop() -> None:
+        # Incremental: a UTF-8 character may be split across two short reads.
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         try:
             while True:
-                chunk = stream.read(4096)
+                chunk = _read_stderr_chunk(stream)
                 if not chunk:
                     break
-                if isinstance(chunk, bytes):
-                    text = chunk.decode("utf-8", errors="replace")
+                if isinstance(chunk, str):
+                    tail._append(chunk)
                 else:
-                    text = chunk
-                tail._append(text)
+                    tail._append(decoder.decode(chunk))
+            tail._append(decoder.decode(b"", final=True))
         except Exception:
             log.debug("%s failed", name, exc_info=True)
         finally:
@@ -391,13 +438,19 @@ class AsyncProcess:
         self.on_exit_cb = on_exit_cb
         self.process: Optional[subprocess.Popen[str]] = None
 
-        self._popen_kwargs: dict[str, Any] = popen_kwargs
+        # Copy: setdefault must not mutate the caller's dict.
+        self._popen_kwargs: dict[str, Any] = dict(popen_kwargs)
         if sys.platform == "win32":
             self._popen_kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
         self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
         self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
         self._popen_kwargs.setdefault("text", True)
         self._popen_kwargs.setdefault("bufsize", 1)  # Line buffered
+        # UnicodeDecodeError is a ValueError, and _read_stream treats ValueError
+        # as "pipe closed". Strict decoding used to kill the reader and drop the tail.
+        if self._popen_kwargs.get("text"):
+            self._popen_kwargs.setdefault("encoding", "utf-8")
+            self._popen_kwargs.setdefault("errors", "replace")
 
         self._stdout_thread: BackgroundHandle | None = None
         self._stderr_thread: BackgroundHandle | None = None
