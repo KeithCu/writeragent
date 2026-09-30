@@ -1,4 +1,5 @@
 
+import logging
 from unittest.mock import patch
 from plugin.framework.module_base import ModuleLoader
 from unittest.mock import MagicMock
@@ -34,7 +35,7 @@ def test_topo_sort_with_provides_services():
     assert (names.index('provider') < names.index('consumer'))
 
 @patch('plugin.framework.module_base.ModuleLoader.load_manifest')
-def test_load_modules(mock_load_manifest):
+def test_load_modules(mock_load_manifest, caplog):
     mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'test_module'}]
     import types
     mock_module = types.ModuleType('plugin.test_module')
@@ -62,9 +63,41 @@ def test_load_modules(mock_load_manifest):
                 return True
             return original_isclass(obj)
         with patch.object(inspect, 'isclass', side_effect=fake_isclass):
-            modules = ModuleLoader.load_modules({})
+            with caplog.at_level(logging.WARNING, logger='writeragent.module_base'):
+                modules = ModuleLoader.load_modules({})
         assert (len(modules) == 1)
         assert (modules[0].name == 'test_module')
+        assert not any(('ModuleBase subclasses' in record.message) for record in caplog.records)
+
+@patch('plugin.framework.module_base.ModuleLoader.load_manifest')
+def test_load_modules_warns_when_two_subclasses(mock_load_manifest, caplog):
+    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'test_module'}]
+    import types
+    mock_module = types.ModuleType('plugin.test_module')
+
+    class ModuleBase():
+        pass
+
+    class AlphaModule(ModuleBase):
+
+        def initialize(self, registry):
+            pass
+
+    class ZetaModule(ModuleBase):
+
+        def initialize(self, registry):
+            pass
+    ModuleBase.__name__ = 'ModuleBase'
+    mock_module.AlphaModule = AlphaModule
+    mock_module.ZetaModule = ZetaModule
+    import os
+    with patch('importlib.import_module', return_value=mock_module), patch.object(os.path, 'isdir', return_value=True):
+        with caplog.at_level(logging.WARNING, logger='writeragent.module_base'):
+            modules = ModuleLoader.load_modules({})
+    assert (len(modules) == 1)
+    assert (type(modules[0]).__name__ == 'AlphaModule')
+    assert any(('exposes 2 ModuleBase subclasses' in record.message) for record in caplog.records)
+    assert any(('AlphaModule' in record.message and 'ZetaModule' in record.message) for record in caplog.records)
 
 class MyModule(ModuleBase):
     name = 'my_module'

@@ -506,14 +506,19 @@ class QueueExecutor:
             log.warning("_poke_main_thread addCallback failed: %s %s", e, _marshal_thread_tag(self))
 
     def cancel_pending_work(self) -> None:
-        """Mark queued main-thread work as cancelled and wake blocking waiters."""
-        pending: list[_WorkItem] = []
-        while True:
-            try:
-                pending.append(self._work_queue.get_nowait())
-            except queue.Empty:
-                break
+        """Mark queued main-thread work as cancelled and wake blocking waiters.
+
+        Drain and mark under ``_claim_lock``. ``_enqueue_work`` puts under the
+        same lock. A put used to land after this loop saw an empty queue and
+        before the lock, so Stop left that item runnable.
+        """
         with self._claim_lock:
+            pending: list[_WorkItem] = []
+            while True:
+                try:
+                    pending.append(self._work_queue.get_nowait())
+                except queue.Empty:
+                    break
             for item in pending:
                 item.cancelled = True
                 if item.blocking and item.event and not item.event.is_set():
@@ -527,7 +532,11 @@ class QueueExecutor:
             scope.bind_executor(self)
         item_id = str(uuid.uuid4())
         item = _WorkItem(item_id, fn, args, kwargs, blocking)
-        self._work_queue.put(item)
+        # Same lock as ``cancel_pending_work``'s drain. Not held across poke:
+        # ``process_queue`` may already hold it and re-enter through the test
+        # poke handler (``threading.Lock`` is not reentrant).
+        with self._claim_lock:
+            self._work_queue.put(item)
         self._poke_main_thread()
         return item
 

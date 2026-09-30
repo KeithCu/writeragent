@@ -703,3 +703,105 @@ class TestWorkItemClaimLockTimeoutRace:
         qe.process_queue()
         assert isinstance(item.exception, Boom)
         assert item.event.is_set()
+
+
+class _ClaimLockProbe:
+    """``with``-compatible lock that reports a thread blocked before acquire."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._mu = threading.Lock()
+        self._cond = threading.Condition(self._mu)
+        self.held = False
+        self.blocked = 0
+
+    def __enter__(self) -> "_ClaimLockProbe":
+        with self._mu:
+            self.blocked += 1
+            self._cond.notify_all()
+        self._lock.acquire()
+        with self._mu:
+            self.blocked -= 1
+            self.held = True
+            self._cond.notify_all()
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        with self._mu:
+            self.held = False
+        self._lock.release()
+
+    def wait_blocked(self, timeout: float = 2.0) -> bool:
+        with self._mu:
+            return self._cond.wait_for(lambda: self.held and self.blocked >= 1, timeout)
+
+
+def test_cancel_drain_excludes_concurrent_enqueue():
+    """A put that overlaps cancel must wait until the drain has left ``_claim_lock``.
+
+    ``get_nowait`` blocks on the empty queue while cancel still holds the lock.
+    If ``_enqueue_work`` put without that lock, the item would land in the gap
+    the drain already treated as empty.
+    """
+    from plugin.framework.queue_executor import QueueExecutor
+
+    qe = QueueExecutor()
+    probe = _ClaimLockProbe()
+    qe._claim_lock = probe  # type: ignore[assignment]
+    saw_empty = threading.Event()
+    release_empty = threading.Event()
+    put_count = {"n": 0}
+
+    class GapQueue(queue.Queue):
+        def get_nowait(self):  # type: ignore[no-untyped-def]
+            try:
+                return queue.Queue.get_nowait(self)
+            except queue.Empty:
+                saw_empty.set()
+                if not release_empty.wait(timeout=2):
+                    raise AssertionError("cancel drain was not released")
+                raise
+
+        def put(self, item, block=True, timeout=None):  # type: ignore[no-untyped-def]
+            put_count["n"] += 1
+            return queue.Queue.put(self, item, block, timeout)
+
+    gap: queue.Queue = GapQueue()
+    qe._work_queue = gap
+    pre = _WorkItem("pre-cancel", lambda: None, (), {}, blocking=True)
+    # Seed before counting puts from the racing enqueue.
+    queue.Queue.put(gap, pre)
+    errors: list[BaseException] = []
+
+    def canceller() -> None:
+        try:
+            qe.cancel_pending_work()
+        except BaseException as exc:
+            errors.append(exc)
+
+    def enqueuer() -> None:
+        try:
+            qe._enqueue_work(lambda: None, (), {}, blocking=False)
+        except BaseException as exc:
+            errors.append(exc)
+
+    cancel_thread = threading.Thread(target=canceller)
+    enqueue_thread = threading.Thread(target=enqueuer)
+    cancel_thread.start()
+    try:
+        assert saw_empty.wait(timeout=2)
+        enqueue_thread.start()
+        assert probe.wait_blocked()
+        assert put_count["n"] == 0
+        assert gap.empty()
+    finally:
+        release_empty.set()
+        cancel_thread.join(timeout=2)
+        enqueue_thread.join(timeout=2)
+    assert not cancel_thread.is_alive()
+    assert not enqueue_thread.is_alive()
+    assert errors == []
+    assert pre.cancelled is True
+    assert put_count["n"] == 1
+    late = gap.get_nowait()
+    assert late.cancelled is False

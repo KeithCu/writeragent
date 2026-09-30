@@ -125,13 +125,21 @@ def reset_suppressed_vcl_pump_count() -> None:
 
 def add_drain_idle_callback(fn: Callable[[], None]) -> None:
     """Register *fn* to run when drain depth hits 0 (outside the sentry lock)."""
-    if fn not in _drain_idle_callbacks:
-        _drain_idle_callbacks.append(fn)
+    # Membership and append raced ``_notify_drain_idle``'s snapshot: both
+    # touched the list with no lock, so a register could miss that idle pass
+    # or pass ``in`` twice and append a duplicate. Same lock as the copy below.
+    with _drain_lock:
+        if fn not in _drain_idle_callbacks:
+            _drain_idle_callbacks.append(fn)
 
 
 def _notify_drain_idle() -> None:
     """Invoke idle callbacks. Never raise into the drain ``finally``."""
-    for cb in list(_drain_idle_callbacks):
+    # Copy under the lock, then drop it before calling. Peer ``_on_drain_idle``
+    # calls ``get_drain_owner()``, which takes this same non-reentrant lock.
+    with _drain_lock:
+        callbacks = list(_drain_idle_callbacks)
+    for cb in callbacks:
         try:
             cb()
         except Exception:

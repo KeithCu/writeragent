@@ -214,13 +214,30 @@ class ModuleLoader:
                 mod_pkg = importlib.import_module(import_path)
                 module_class = None
 
-                # Look for a class subclassing ModuleBase by checking MRO names (avoids LO sys.path duplicate issues)
+                # Match ModuleBase by MRO ``__name__``, not type identity. LibreOffice
+                # can import this class twice via sys.path, so ``issubclass`` misses it.
+                # ``dir()`` is alphabetical; the first hit used to win with no signal
+                # when a package exposed two subclasses.
+                candidates: list[Any] = []
                 for attr_name in dir(mod_pkg):
                     attr = getattr(mod_pkg, attr_name)
+                    if any(attr is seen for seen in candidates):
+                        continue
                     if inspect.isclass(attr) and getattr(attr, "__name__", "") != "ModuleBase":
                         if any(getattr(b, "__name__", "") == "ModuleBase" for b in getattr(attr, "__mro__", [])):
-                            module_class = attr
-                            break
+                            candidates.append(attr)
+                if len(candidates) > 1:
+                    chosen = candidates[0]
+                    log.warning(
+                        "Module %s exposes %d ModuleBase subclasses (%s); using %s",
+                        name,
+                        len(candidates),
+                        ", ".join(getattr(c, "__name__", "?") for c in candidates),
+                        getattr(chosen, "__name__", "?"),
+                    )
+                    module_class = chosen
+                elif candidates:
+                    module_class = candidates[0]
 
                 if module_class:
                     mod = module_class()
