@@ -17,6 +17,8 @@ then wait for the full network timeout. Details:
 docs/framework/threading.md.
 """
 
+from __future__ import annotations
+
 import http.client
 import logging
 import socket

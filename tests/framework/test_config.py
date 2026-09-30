@@ -206,6 +206,15 @@ class TestConfigSyncFileIO:
         reset_config_for_tests()
         assert (get_stt_model()) == ("whisper-legacy")
 
+    def test_get_config_dict_is_not_the_cache(self):
+        set_config("openrouter_chat_extra", {"temperature": 0.2})
+        first = get_config("openrouter_chat_extra")
+        first["temperature"] = 9
+        first["extra"] = True
+        second = get_config("openrouter_chat_extra")
+        assert second == {"temperature": 0.2}
+        assert "extra" not in second
+
     def test_set_api_key_file_io(self):
         set_api_key_for_endpoint('http://api.openai.com', 'sk-1234')
         assert (os.path.exists(self.config_path))

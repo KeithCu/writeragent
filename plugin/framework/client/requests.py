@@ -21,6 +21,17 @@ from .errors import _format_http_error_response
 log = logging.getLogger(__name__)
 
 
+def _log_request_target(url: Any) -> str:
+    """Host and path for logs. Query strings can carry API keys."""
+    raw = getattr(url, "full_url", url)
+    parsed = urlparse(str(raw))
+    host = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    path = parsed.path or "/"
+    scheme = parsed.scheme or "http"
+    return f"{scheme}://{host}{port}{path}"
+
+
 def sync_request(
     url: str | Request,
     data: bytes | None = None,
@@ -58,7 +69,7 @@ def sync_request(
         if not header_keys and hasattr(req, "get_full_url"):
             # If it's a urllib Request object, headers might be in .headers
             pass
-        log.debug(f"Request to {getattr(req, 'full_url', url)} with header keys: {header_keys}")
+        log.debug("Request to %s with header keys: %s", _log_request_target(req), header_keys)
     except Exception:
         pass
 
@@ -68,7 +79,7 @@ def sync_request(
     is_https = parsed.scheme.lower() == "https"
 
     def _read_with_context(context: Any) -> Any:
-        log.debug(f"About to open URL: {getattr(req, 'full_url', url)}")
+        log.debug("About to open URL: %s", _log_request_target(req))
         with urlopen(req, timeout=timeout, context=context) as resp:
             log.debug(f"URL opened, status={resp.getcode()}. Heading to read...")
             raw = resp.read()
@@ -90,7 +101,9 @@ def sync_request(
             err_body = ""
 
         msg = _format_http_error_response(status, reason, err_body)
-        log.exception("HTTP Error: %s", msg)
+        # Status and target only. ``msg`` includes the provider body, which can
+        # echo a key; the NetworkError still carries the full text for the UI.
+        log.exception("HTTP Error %s %s for %s", status, reason, _log_request_target(full_url))
         raise NetworkError(msg, code="HTTP_ERROR", details={"url": url, "status": status}) from e
     except NetworkError:
         raise
@@ -109,7 +122,7 @@ def sync_request(
                 except Exception:
                     err_body = ""
                 msg = _format_http_error_response(status, reason, err_body)
-                log.exception("HTTP Error: %s", msg)
+                log.exception("HTTP Error %s %s for %s", status, reason, _log_request_target(full_url))
                 raise NetworkError(msg, code="HTTP_ERROR", details={"url": url, "status": status}) from retry_http_e
             except Exception as retry_e:
                 log.exception("Request retry failed: %s", format_error_message(retry_e))

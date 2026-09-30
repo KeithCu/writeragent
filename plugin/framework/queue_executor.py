@@ -150,8 +150,11 @@ class SendCancellation:
                 hook()
             except Exception:
                 log.exception("SendCancellation: error in cancel hook")
+        # Unbound Stop only latches the flag. Falling back to default_executor
+        # cancelled MCP, grammar, and peer items posted before the drain bound
+        # this scope. The sidebar drain checks is_cancelled() and returns.
         if not executors:
-            executors = [default_executor]
+            return
         for executor in executors:
             executor.cancel_pending_work()
 

@@ -73,9 +73,11 @@ class TestFetchAvailableModelsCache:
             k_saved = cfg._model_fetch_cache_key(url, base, None)
             k_a = cfg._model_fetch_cache_key(url, base, 'typed-a')
             k_b = cfg._model_fetch_cache_key(url, base, 'typed-b')
-        assert (k_saved) == (f'{url}\x1fsaved')
-        assert (k_a) == (f'{url}\x1ftyped-a')
-        assert (k_b) == (f'{url}\x1ftyped-b')
+        assert k_saved.startswith(f'{url}\x1f')
+        assert 'saved' not in k_saved
+        assert 'typed-a' not in k_a
+        assert 'typed-b' not in k_b
+        assert len({k_saved, k_a, k_b}) == 3
 
 
 class TestTextModelPlaceholderGuards:

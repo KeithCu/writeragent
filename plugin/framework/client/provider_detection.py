@@ -45,6 +45,8 @@ automatically benefit error messages, auth, model fetching, local SSL handling,
 and logging.
 """
 
+from __future__ import annotations
+
 import ipaddress
 import urllib.parse
 from typing import Optional
@@ -149,5 +151,7 @@ def is_openrouter_endpoint(endpoint: str, explicit_is_openrouter: bool | None = 
         return True
     if not endpoint:
         return False
-    url = normalize_endpoint_url(endpoint).lower()
-    return "openrouter.ai" in url
+    # Hostname equality, same rule as get_provider_from_endpoint. A path or
+    # query that merely contains "openrouter.ai" is not this provider.
+    # Custom proxies set the explicit flag.
+    return get_provider_from_endpoint(endpoint) == "openrouter"

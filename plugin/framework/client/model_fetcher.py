@@ -11,8 +11,13 @@ Those dicts have **no lock**. If two background jobs miss the cache at
 once, both may HTTP; whichever finishes last overwrites the list. That is
 harmless (same endpoint, same models). Do not add a mutex just to
 serialize identical fetches. When a UNO ``ctx`` is passed, the cache key
-includes the API key so two keys on the same host do not share a list.
+includes a hash of the API key so two keys on the same host do not share a
+list and a dump of the dict does not contain the key.
 """
+
+from __future__ import annotations
+
+import hashlib
 import urllib.parse
 import json
 import ipaddress
@@ -61,8 +66,8 @@ ENDPOINT_PRESETS = [
 
 
 # GET {base}/v1/models — memoized for the lifetime of this Python process (LibreOffice
-# session). Key is normalized URL, or ``url + "\\x1f" + api_key`` when ``ctx`` is passed
-# (same host, different keys must not share cache). Value is model id list or None after failure.
+# session). Key is normalized URL plus a hash of the API key (same host, different
+# keys must not share cache; the raw key is not stored). Value is model id list or None after failure.
 _model_fetch_cache: dict[str, list[str] | None] = {}
 _model_fetch_image_cache: dict[str, list[str] | None] = {}
 _model_fetch_vision_cache: dict[str, list[str] | None] = {}
@@ -228,7 +233,10 @@ def _model_fetch_cache_key(url: str, base: str, api_key_override: str | None = N
         key = str(api_key_override).strip()
     else:
         key = str(get_api_key_for_endpoint(base) or "")
-    return f"{url}\x1f{key}"
+    # Hash, not the raw key: these dicts live for the process and get logged
+    # in diagnostics. Two keys on one URL must still miss each other.
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return f"{url}\x1f{digest}"
 
 
 def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:

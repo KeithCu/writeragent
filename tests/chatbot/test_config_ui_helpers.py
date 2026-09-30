@@ -53,7 +53,7 @@ class TestSyncSidebarTextModel:
                 return self.config_data[key]
             return default if default is not None else ''
 
-        def mock_set_config(key, value):
+        def mock_set_config(key, value, event_key=None):
             self.config_data[key] = value
 
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
@@ -128,7 +128,7 @@ class TestSyncSidebarTextModel:
                 return self.config_data[key]
             return default if default is not None else ''
 
-        def shared_set_config(key, value):
+        def shared_set_config(key, value, event_key=None):
             self.config_data[key] = value
 
         with patch('plugin.framework.config.get_config', side_effect=shared_get_config), \
@@ -290,13 +290,16 @@ class TestPopulateComboboxWithLruFetchOptions:
         assert ('llama3.2') not in (items)
         assert ('(Enter API Key to load models)') in (items)
 
-    def test_local_provider_fetch_fail_shows_connection_failed(self):
+    def test_lmstudio_without_key_shows_enter_api_key(self):
+        # localhost:1234 is the LM Studio provider (bearer). An empty key blocks
+        # the catalog fetch; a down server is not "(Connection failed)".
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        with patch('plugin.framework.client.model_fetcher.fetch_available_models', return_value=None):
+        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'http://localhost:1234', api_key_override='')
-        items = ctrl.addItems.call_args[0][0]
-        assert ('(Connection failed)') in (items)
+            mock_fetch.assert_not_called()
+        items = list(ctrl.addItems.call_args[0][0])
+        assert (items) == (['(Enter API Key to load models)'])
 
     def test_placeholder_current_val_ignored_when_models_available(self):
         ctrl = MagicMock()
@@ -328,10 +331,12 @@ class TestPopulateComboboxWithLruFetchOptions:
         assert ('(Connection failed)') not in (items)
 
     def test_connection_failed_only_when_fetch_none(self):
+        # Not 11434 or 1234: those are Ollama and LM Studio. An unknown local
+        # port stays anonymous, so a failed fetch is a connection error.
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         with patch('plugin.chatbot.config_ui_helpers.fetch_available_models', return_value=None):
-            populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'http://localhost:1234', api_key_override='')
+            populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'http://127.0.0.1:9', api_key_override='')
         items = list(ctrl.addItems.call_args[0][0])
         assert (items) == (['(Connection failed)'])
 

@@ -9,6 +9,8 @@ Wire-specific formatting (HTTP response bodies, audio modality heuristics) and
 :func:`plugin.framework.errors.format_error_message` — import it from there.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 from plugin.framework.i18n import _

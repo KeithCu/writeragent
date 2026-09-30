@@ -348,6 +348,19 @@ class LlmClient:
     def _close_connection(self) -> None:
         self._transport.close()
 
+    def _close_if_connection_close(self, response: Any) -> None:
+        """Drop the keep-alive socket when the server sent ``Connection: close``.
+
+        Call only after the body is fully read. Stop already closed the socket;
+        a later ``read()`` would block until ``request_timeout`` and hold
+        ``llm_request_lane``.
+        """
+        if self._stopped or not hasattr(response, "getheader"):
+            return
+        conn_hdr = (response.getheader("Connection") or "").strip().lower()
+        if conn_hdr == "close":
+            self._close_connection()
+
     def _retry_or_raise_http_error(
         self,
         response: Any,
@@ -667,8 +680,13 @@ class LlmClient:
 
         Image and speech used ``sync_request``, which ignored Stop and 429/503
         backoff. This shares the chat transport so ``stop()`` closes the socket.
+        Retry waits read the same latch: ``wait_abortable`` only returns early
+        when a checker is set, so a 429 used to sleep out after Stop.
         """
         from plugin.framework.errors import safe_json_loads
+
+        def _stopped() -> bool:
+            return self._stopped
 
         if self._stopped:
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
@@ -688,13 +706,14 @@ class LlmClient:
                         path,
                         retries_left=sends_left,
                         emitted_any=False,
-                        stop_checker=None,
+                        stop_checker=_stopped,
                         attempt=wait_index,
                     )
                     if action == "stop":
                         raise NetworkError("LLM request aborted by Stop", code="STOPPED")
                     continue
                 raw = response.read().decode("utf-8", errors="replace")
+                self._close_if_connection_close(response)
                 return safe_json_loads(raw)
             except CONNECTION_ERRORS as e:
                 sends_left -= 1
@@ -704,6 +723,7 @@ class LlmClient:
                     path=path,
                     retries_left=sends_left,
                     retry_log_message="Retrying JSON request on fresh connection",
+                    stop_checker=_stopped,
                     attempt=wait_index,
                 )
                 if action == "stop":
@@ -1053,9 +1073,7 @@ class LlmClient:
                         except Exception:
                             pass
                         # Honor Connection: close so we don't try to reuse when the server closed.
-                        conn_hdr = (response.getheader("Connection") or "").strip().lower()
-                        if conn_hdr == "close":
-                            self._close_connection()
+                        self._close_if_connection_close(response)
                     else:
                         try:
                             self._close_connection()
@@ -1313,7 +1331,9 @@ class LlmClient:
                         clear_host_gap(pacing_key(self._current_host(), request_model_from_body(body)))
                     from plugin.framework.errors import safe_json_loads
 
-                    result = safe_json_loads(response.read().decode("utf-8"))
+                    raw = response.read()
+                    self._close_if_connection_close(response)
+                    result = safe_json_loads(raw.decode("utf-8"))
                     break
                 except CONNECTION_ERRORS as e:
                     sends_left -= 1

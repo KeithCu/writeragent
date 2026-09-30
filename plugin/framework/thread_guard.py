@@ -39,6 +39,8 @@ same “UNO used off the main thread” dialog at once. This module
 thread — use ``QueueExecutor`` / ``execute_on_main_thread`` for that.
 """
 
+from __future__ import annotations
+
 import functools
 import os
 import threading

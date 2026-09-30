@@ -1915,6 +1915,81 @@ def test_stream_timeout_retries_wait_then_succeeds(client, _fast_retry_waits):
     _fast_retry_waits["transport"].assert_called_once()
 
 
+def test_request_json_retry_wait_aborts_when_stopped(client, _fast_retry_waits):
+    """Image/STT JSON retries must not sleep out a 429 after Stop latches."""
+    from plugin.framework.client.request_controls import wait_abortable as real_wait
+
+    clock = {"t": 0.0}
+
+    def sleep_then_stop(delay: float) -> None:
+        clock["t"] += delay
+        client.stop()
+
+    def abortable(delay, stop_checker=None, **kwargs):
+        return real_wait(delay, stop_checker, sleep=sleep_then_stop, monotonic=lambda: clock["t"])
+
+    _fast_retry_waits["llm"].side_effect = abortable
+    busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, busy)
+        with pytest.raises(NetworkError) as err:
+            client._request_json("POST", "/v1/images/generations", b"{}", {})
+    assert err.value.code == "STOPPED"
+    assert mock_https.call_count == 1
+
+
+def test_request_json_connection_retry_aborts_when_stopped(client, _fast_retry_waits):
+    from plugin.framework.client.request_controls import wait_abortable as real_wait
+
+    clock = {"t": 0.0}
+
+    def sleep_then_stop(delay: float) -> None:
+        clock["t"] += delay
+        client.stop()
+
+    def abortable(delay, stop_checker=None, **kwargs):
+        return real_wait(delay, stop_checker, sleep=sleep_then_stop, monotonic=lambda: clock["t"])
+
+    _fast_retry_waits["transport"].side_effect = abortable
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, ConnectionResetError("reset"))
+        with pytest.raises(NetworkError) as err:
+            client._request_json("POST", "/v1/audio/transcriptions", b"{}", {})
+    assert err.value.code == "STOPPED"
+    assert mock_https.call_count == 1
+
+
+def test_request_json_closes_on_connection_close(client):
+    resp = create_mock_http_response(200, json_data={"ok": True}, headers={"Connection": "close"})
+    with patch("http.client.HTTPSConnection") as mock_https:
+        conns = _https_steps(mock_https, resp)
+        result = client._request_json("POST", "/v1/images/generations", b"{}", {})
+    assert result == {"ok": True}
+    conns[0].close.assert_called()
+
+
+def test_request_json_keeps_connection_without_close_header(client):
+    resp = create_mock_http_response(200, json_data={"ok": True})
+    with patch("http.client.HTTPSConnection") as mock_https:
+        conns = _https_steps(mock_https, resp)
+        result = client._request_json("POST", "/v1/images/generations", b"{}", {})
+    assert result == {"ok": True}
+    conns[0].close.assert_not_called()
+
+
+def test_request_with_tools_closes_on_connection_close(client):
+    resp = create_mock_http_response(
+        200,
+        json_data={"choices": [{"message": {"role": "assistant", "content": "Hi"}, "finish_reason": "stop"}]},
+        headers={"Connection": "close"},
+    )
+    with patch("http.client.HTTPSConnection") as mock_https:
+        conns = _https_steps(mock_https, resp)
+        result = client.request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert result["content"] == "Hi"
+    conns[0].close.assert_called()
+
+
 def test_stream_retry_backoff_stop_skips_second_send(client, _fast_retry_waits):
     _fast_retry_waits["llm"].return_value = False
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")

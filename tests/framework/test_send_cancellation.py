@@ -68,6 +68,53 @@ def test_writer_agent_smol_model_passes_stop_checker():
     assert kwargs.get("stop_checker") is checker
 
 
+def test_unbound_cancel_leaves_default_executor_queue():
+    """Stop before bind must not wipe MCP/grammar/peer work on default_executor."""
+    import queue as queue_mod
+
+    from plugin.framework.queue_executor import _WorkItem
+
+    item = _WorkItem("unbound-cancel", lambda: None, (), {}, blocking=True)
+    default_executor._work_queue.put(item)
+    try:
+        scope = SendCancellation()
+        scope.cancel()
+        assert scope.is_cancelled()
+        assert item.cancelled is False
+        assert item.event is not None and not item.event.is_set()
+    finally:
+        leftover = []
+        while True:
+            try:
+                leftover.append(default_executor._work_queue.get_nowait())
+            except queue_mod.Empty:
+                break
+        for other in leftover:
+            if other is not item:
+                default_executor._work_queue.put(other)
+
+
+def test_bound_cancel_wakes_default_executor():
+    import queue as queue_mod
+
+    from plugin.framework.queue_executor import _WorkItem
+
+    item = _WorkItem("bound-cancel", lambda: None, (), {}, blocking=True)
+    default_executor._work_queue.put(item)
+    try:
+        scope = SendCancellation()
+        scope.bind_executor(default_executor)
+        scope.cancel()
+        assert item.cancelled is True
+        assert isinstance(item.exception, SendCancelled)
+    finally:
+        while True:
+            try:
+                default_executor._work_queue.get_nowait()
+            except queue_mod.Empty:
+                break
+
+
 def test_cancel_pending_work_wakes_blocking_waiter():
     from plugin.framework.queue_executor import _WorkItem
 

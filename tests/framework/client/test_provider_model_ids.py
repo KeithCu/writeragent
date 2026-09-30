@@ -8,7 +8,7 @@ from plugin.framework.client.auth import (
     provider_requires_slug_model_id,
 )
 from plugin.framework.client.model_fetcher import ENDPOINT_PRESETS
-from plugin.framework.client.provider_detection import get_provider_from_endpoint
+from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.url_utils import normalize_endpoint_url
 
 
@@ -84,3 +84,12 @@ class TestPresetProviderDetection:
             assert (detected) is not None, normalized
             resolved = _resolve_provider_id(normalized, detected)
             assert (resolved) == (detected), normalized
+
+
+def test_is_openrouter_endpoint_matches_host_not_substring():
+    assert is_openrouter_endpoint("https://openrouter.ai/api/v1")
+    assert is_openrouter_endpoint("https://gateway.openrouter.ai/api/v1")
+    assert is_openrouter_endpoint("http://127.0.0.1:11434/v1", explicit_is_openrouter=True)
+    assert not is_openrouter_endpoint("http://127.0.0.1:11434/v1")
+    assert not is_openrouter_endpoint("https://notopenrouter.ai/v1")
+    assert not is_openrouter_endpoint("https://example.com/openrouter.ai/v1")

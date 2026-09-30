@@ -458,6 +458,20 @@ def _build_validated_config_export(data: Dict[str, Any], config: _config_schema.
 # --- Core config I/O ---
 
 
+def _copy_config_value(value: Any) -> Any:
+    """Return a shallow copy of dict/list config values.
+
+    ``_cache.data`` stores the validated file. Handing that object out let a
+    caller change memory without a write (``set_api_key_for_endpoint`` already
+    copied for that reason). Nested objects stay shared.
+    """
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, list):
+        return list(value)
+    return value
+
+
 def get_config(key: str) -> Any:
     """Get a config value by key. JSON overrides; when key is missing, use schema default then central fallback."""
     config_data = _get_validated_config_dict()
@@ -465,13 +479,13 @@ def get_config(key: str) -> Any:
         config_data = {}
 
     if key in config_data:
-        return config_data[key]
+        return _copy_config_value(config_data[key])
 
     for dotted in _config_schema._dotted_fallback_keys(key):
         if dotted in config_data:
-            return config_data[dotted]
+            return _copy_config_value(config_data[dotted])
 
-    return _config_schema._resolve_default(key)
+    return _copy_config_value(_config_schema._resolve_default(key))
 
 
 def get_config_int(key: str) -> int:
@@ -823,8 +837,8 @@ def set_api_key_for_endpoint(endpoint: Any, key: Any, *, event_key: str | None =
     if not isinstance(data, dict):
         data = {}
     else:
-        # Copy: get_config returns the live cache; mutating it would leak an
-        # unpersisted key into memory if the write below fails.
+        # Mutate a copy. get_config also copies on the way out so a caller
+        # cannot alias the cache; this copy is the dict set_config persists.
         data = dict(data)
     normalized = normalize_endpoint_url(endpoint or "")
     data[normalized] = str(key)

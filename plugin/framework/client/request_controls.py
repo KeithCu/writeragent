@@ -19,6 +19,8 @@ requests (new ``LlmClient`` per job) space themselves instead of immediately
 re-hitting a busy local server. OpenClaw does not persist the gap; we do.
 """
 
+from __future__ import annotations
+
 import datetime
 import email.utils
 import json
