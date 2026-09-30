@@ -207,11 +207,11 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
     test_instance._transcribe_audio = MagicMock(return_value="spoken words")
 
     with (
-        patch("plugin.chatbot.tool_loop.get_text_model", return_value="chat-model"),
-        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="https://example"),
-        patch("plugin.chatbot.tool_loop.get_stt_model", return_value="stt-model"),
-        patch("plugin.chatbot.tool_loop.set_native_audio_support") as mock_cache,
-        patch("plugin.chatbot.tool_loop.os.remove") as mock_remove,
+        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
+        patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
+        patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
+        patch("plugin.framework.client.model_fetcher.set_native_audio_support") as mock_cache,
+        patch("plugin.scripting.audio_recorder_service.os.remove") as mock_remove,
     ):
         recovered = test_instance._handle_stream_error("unsupported modality: audio")
 
@@ -261,12 +261,7 @@ def test_handle_stream_error_payload_dict(test_instance):
         "code": "HTTP_ERROR",
         "message": "HTTP Error 500 from AI Provider: Internal Server Error. mock LLM soak failure",
     }
-    with (
-        patch("plugin.chatbot.tool_loop.get_text_model", return_value="chat-model"),
-        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="https://example"),
-        patch("plugin.chatbot.tool_loop.get_stt_model", return_value=""),
-    ):
-        recovered = test_instance._handle_stream_error(payload)
+    recovered = test_instance._handle_stream_error(payload)
     assert recovered is None
     joined = "".join(test_instance.responses)
     assert "[API error:" in joined
@@ -277,12 +272,7 @@ def test_handle_stream_error_payload_dict(test_instance):
 
 def test_handle_stream_error_payload_dict_missing_message(test_instance):
     payload = {"status": "error", "code": "HTTP_ERROR"}
-    with (
-        patch("plugin.chatbot.tool_loop.get_text_model", return_value="chat-model"),
-        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="https://example"),
-        patch("plugin.chatbot.tool_loop.get_stt_model", return_value=""),
-    ):
-        recovered = test_instance._handle_stream_error(payload)
+    recovered = test_instance._handle_stream_error(payload)
     assert recovered is None
     joined = "".join(test_instance.responses)
     assert "[API error:" in joined
@@ -303,12 +293,7 @@ def test_handle_stream_error_llama_overflow_plain_sentence(test_instance):
         ),
         "details": {"url": "/v1/chat/completions", "status": 500},
     }
-    with (
-        patch("plugin.chatbot.tool_loop.get_text_model", return_value="qwen2.5:7b"),
-        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="http://localhost:11434"),
-        patch("plugin.chatbot.tool_loop.get_stt_model", return_value=""),
-    ):
-        recovered = test_instance._handle_stream_error(payload)
+    recovered = test_instance._handle_stream_error(payload)
     assert recovered is None
     joined = "".join(test_instance.responses)
     assert local_model_overflow_message() in joined
@@ -324,12 +309,7 @@ def test_handle_stream_error_keeps_named_window_sentence(test_instance):
         "overflowed a 4K context window."
     )
     payload = {"status": "error", "code": "HTTP_ERROR", "message": named}
-    with (
-        patch("plugin.chatbot.tool_loop.get_text_model", return_value="qwen2.5:7b"),
-        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="http://localhost:11434"),
-        patch("plugin.chatbot.tool_loop.get_stt_model", return_value=""),
-    ):
-        test_instance._handle_stream_error(payload)
+    test_instance._handle_stream_error(payload)
     joined = "".join(test_instance.responses)
     assert named in joined
     assert "[API error:" not in joined
@@ -355,12 +335,7 @@ def _overflow_payload(message="prompt is too long"):
 
 
 def _handle_stream_error(instance, payload, compaction_enabled=True):
-    with (
-        patch("plugin.chatbot.tool_loop.get_text_model", return_value="chat-model"),
-        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="https://example"),
-        patch("plugin.chatbot.tool_loop.get_stt_model", return_value=""),
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=compaction_enabled),
-    ):
+    with patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=compaction_enabled):
         return instance._handle_stream_error(payload)
 
 

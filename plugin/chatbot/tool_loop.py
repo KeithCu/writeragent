@@ -18,8 +18,6 @@ import logging
 import inspect
 import dataclasses
 import queue
-import base64
-import os
 from typing import TYPE_CHECKING, Protocol, Any, Callable, Sequence, cast
 
 if TYPE_CHECKING:
@@ -30,7 +28,6 @@ from plugin.framework.async_stream import run_stream_drain_loop, StreamQueueKind
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.errors import format_error_message, is_disposed_exception, suppress_disposed, UnoObjectError
 from plugin.framework.client.errors import (
-    is_audio_unsupported_error,
     is_local_model_server_crash,
     local_model_overflow_message,
 )
@@ -39,14 +36,11 @@ from plugin.framework.config import (
     get_config,
     get_config_bool_safe,
     get_config_int,
-    get_current_endpoint,
     validate_api_config,
 )
 from plugin.framework.client.model_fetcher import (
-    get_stt_model,
     get_text_model,
     set_image_model,
-    set_native_audio_support,
 )
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
@@ -144,7 +138,6 @@ class ToolLoopHost(Protocol):
     def _execute_effect(self, effect: Any) -> bool: ...
     def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
     def _refresh_active_tools_for_session(self) -> None: ...
-    def _is_400_input_validation(self, err: Any) -> bool: ...
     def rerender_rich_text_session(self) -> None: ...
 
     # Producer batcher for the current send (set in _start_tool_calling_async when batching is active)
@@ -374,23 +367,11 @@ class ToolCallingMixin:
                 attachments.append("Image")
 
             if self.audio_wav_path:
-                try:
-                    with open(self.audio_wav_path, "rb") as f:
-                        wav_data = f.read()
-                    b64_audio = base64.b64encode(wav_data).decode("utf-8")
-                    audio_msg = {"type": "input_audio", "input_audio": {"data": b64_audio, "format": "wav"}}
-                    content_list.append(audio_msg)
+                from plugin.scripting.audio_recorder_service import append_wav_as_input_audio
+
+                if append_wav_as_input_audio(content_list, self.audio_wav_path):
                     attachments.append("Audio")
-                except (IOError, OSError):
-                    log.exception("Audio file error")
-                    log.debug("Audio file preserved at: %s" % self.audio_wav_path)
-                    self.audio_wav_path = None
-                except Exception as e:
-                    from plugin.framework.errors import NetworkError
-                    if isinstance(e, NetworkError):
-                        log.exception("NetworkError while handling audio message")
-                    else:
-                        log.exception("Unexpected audio error")
+                else:
                     self.audio_wav_path = None
 
             self.session.add_user_message(content_list)
@@ -661,60 +642,14 @@ class ToolCallingMixin:
         for effect in tr.effects:
             self._execute_effect(effect)
 
-    def _is_400_input_validation(self: ToolLoopHost, err: Any) -> bool:
-        """Treat HTTP 400 with 'input validation' or 'bad request' as likely audio-format rejection (e.g. Together AI)."""
-        msg = str(err).lower()
-        return "400" in msg and ("input validation" in msg or "bad request" in msg)
-
     def _handle_stream_error(self: ToolLoopHost, e: Any) -> bool | None:
-        current_model = get_text_model()
-        current_endpoint = get_current_endpoint()
+        # Native-audio rejection retries as text on this drain. WAV attach and
+        # the STT retry live in audio_recorder_service, next to recording.
+        from plugin.scripting.audio_recorder_service import clear_pending_audio_wav, try_native_audio_stt_fallback
 
-        # If native audio failed, cache it and retry as text on this drain — do not
-        # re-enter _do_send_chat_with_tools / _start_tool_calling_async (nested drain).
-        if self.audio_wav_path and (is_audio_unsupported_error(e) or self._is_400_input_validation(e)):
-            log.warning("Model %s failed native audio, caching and falling back to STT" % current_model)
-            set_native_audio_support(current_model, current_endpoint, supported=False)
-
-            from plugin.audio.stt_service import uses_local_stt
-
-            stt_model = get_stt_model()
-            # Local Whisper does not need an endpoint model id. Endpoint STT still does.
-            local_stt = uses_local_stt()
-            retry_q = self._active_batched_q or self._active_q
-            if (stt_model or local_stt) and retry_q is not None and self._active_client is not None:
-                self._append_response("\n[Model does not support audio. Falling back to STT...]\n")
-                try:
-                    transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
-                    wav_path = self.audio_wav_path
-                    self.audio_wav_path = None
-                    if wav_path:
-                        try:
-                            os.remove(wav_path)
-                        except OSError as rem_err:
-                            log.debug("Failed to remove audio_wav_path after STT fallback: %s", rem_err)
-                    if not (transcript or "").strip():
-                        # G27: empty STT must not spawn a blank chat POST.
-                        self._append_response("\n" + _("[No speech detected.]") + "\n")
-                        self._terminal_status = ""
-                        return True
-                    combined = (self._active_query_text + "\n" + transcript).strip() if self._active_query_text else transcript
-                    if self.session.messages and self.session.messages[-1].get("role") == "user":
-                        self.session.messages.pop()
-                    self.session.add_user_message(combined)
-                    self._active_query_text = combined
-                    self._spawn_llm_worker(
-                        retry_q,
-                        self._active_client,
-                        self._active_max_tokens,
-                        self._active_tools or [],
-                        self._sm_state.round_num,
-                        query_text=combined,
-                    )
-                    return True
-                except Exception:
-                    log.exception("STT fallback after native-audio error failed")
-                return None
+        fallback = try_native_audio_stt_fallback(self, e)
+        if fallback is not False:
+            return fallback
 
         # If we reached here, it's either not a modality error or STT is not configured.
         # Drain ERROR items are format_error_payload dicts (see _spawn_llm_worker),
@@ -778,13 +713,7 @@ class ToolCallingMixin:
             self._append_response("\n[API error: %s]\n" % err_msg)
         self._terminal_status = "Error"
         self._set_status("Error")
-        # Cleanup audio if we aren't falling back
-        if self.audio_wav_path:
-            try:
-                os.remove(self.audio_wav_path)
-            except OSError as e:
-                log.debug("Failed to remove audio_wav_path during error handling: %s", e)
-            self.audio_wav_path = None
+        clear_pending_audio_wav(self)
         return None
 
     def _on_tool_loop_approval_required(self: ToolLoopHost, item: Any) -> None:

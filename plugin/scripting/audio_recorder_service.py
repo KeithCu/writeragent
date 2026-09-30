@@ -2,10 +2,16 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Host-side helpers for venv microphone recording subprocess."""
+"""Host-side helpers for venv microphone recording and chat audio.
+
+Recording spawn/IPC stays in this module. Chat also uses it to attach a
+finished WAV as ``input_audio`` and to recover when that native-audio POST
+is rejected, so the tool loop does not own those steps.
+"""
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import subprocess
@@ -533,3 +539,113 @@ def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[s
     run_vec_pack_download(on_display, on_status, include_header=False)
     on_display("\nAll downloaded files installed successfully!\n")
     return True
+
+
+def _is_400_input_validation(err: Any) -> bool:
+    """Treat HTTP 400 with 'input validation' or 'bad request' as likely audio-format rejection (e.g. Together AI)."""
+    msg = str(err).lower()
+    return "400" in msg and ("input validation" in msg or "bad request" in msg)
+
+
+def append_wav_as_input_audio(content_list: list[dict[str, Any]], wav_path: str) -> bool:
+    """Read a WAV and append an OpenAI ``input_audio`` content part.
+
+    Returns False when the file cannot be read. The caller clears
+    ``audio_wav_path`` and still posts the text or image message.
+    """
+    from plugin.framework.errors import NetworkError
+
+    try:
+        with open(wav_path, "rb") as f:
+            wav_data = f.read()
+        b64_audio = base64.b64encode(wav_data).decode("utf-8")
+        content_list.append({"type": "input_audio", "input_audio": {"data": b64_audio, "format": "wav"}})
+        return True
+    except (IOError, OSError):
+        log.exception("Audio file error")
+        log.debug("Audio file preserved at: %s" % wav_path)
+        return False
+    except Exception as e:
+        if isinstance(e, NetworkError):
+            log.exception("NetworkError while handling audio message")
+        else:
+            log.exception("Unexpected audio error")
+        return False
+
+
+def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
+    """After a native ``input_audio`` rejection, transcribe and respawn this drain.
+
+    The chat POST already failed, so this must not re-enter
+    ``_do_send_chat_with_tools`` / ``_start_tool_calling_async`` (nested drain).
+    Model-catalog imports stay inside this function so LibrePy can load the
+    recorder helpers without pulling the chat model fetcher.
+
+    False: not a native-audio rejection, or STT cannot run. The caller
+    continues with overflow and generic API handling.
+    True: the worker was respawned, or empty speech ended the turn.
+    None: transcription threw. Stop the drain without a second API error;
+    ``_transcribe_audio`` already reported it and deleted the WAV.
+    """
+    from plugin.audio.stt_service import uses_local_stt
+    from plugin.framework.client.errors import is_audio_unsupported_error
+    from plugin.framework.client.model_fetcher import get_stt_model, get_text_model, set_native_audio_support
+    from plugin.framework.config import get_current_endpoint
+    from plugin.framework.i18n import _
+
+    if not host.audio_wav_path or not (_is_400_input_validation(error) or is_audio_unsupported_error(error)):
+        return False
+
+    current_model = get_text_model()
+    current_endpoint = get_current_endpoint()
+    log.warning("Model %s failed native audio, caching and falling back to STT" % current_model)
+    set_native_audio_support(current_model, current_endpoint, supported=False)
+
+    stt_model = get_stt_model()
+    # Local Whisper does not need an endpoint model id. Endpoint STT still does.
+    local_stt = uses_local_stt()
+    retry_q = host._active_batched_q or host._active_q
+    if (stt_model or local_stt) and retry_q is not None and host._active_client is not None:
+        host._append_response("\n[Model does not support audio. Falling back to STT...]\n")
+        try:
+            transcript = host._transcribe_audio(host.audio_wav_path, stt_model)
+            wav_path = host.audio_wav_path
+            host.audio_wav_path = None
+            if wav_path:
+                try:
+                    os.remove(wav_path)
+                except OSError as rem_err:
+                    log.debug("Failed to remove audio_wav_path after STT fallback: %s", rem_err)
+            if not (transcript or "").strip():
+                # G27: empty STT must not spawn a blank chat POST.
+                host._append_response("\n" + _("[No speech detected.]") + "\n")
+                host._terminal_status = ""
+                return True
+            combined = (host._active_query_text + "\n" + transcript).strip() if host._active_query_text else transcript
+            if host.session.messages and host.session.messages[-1].get("role") == "user":
+                host.session.messages.pop()
+            host.session.add_user_message(combined)
+            host._active_query_text = combined
+            host._spawn_llm_worker(
+                retry_q,
+                host._active_client,
+                host._active_max_tokens,
+                host._active_tools or [],
+                host._sm_state.round_num,
+                query_text=combined,
+            )
+            return True
+        except Exception:
+            log.exception("STT fallback after native-audio error failed")
+        return None
+    return False
+
+
+def clear_pending_audio_wav(host: Any) -> None:
+    """Delete the pending recording after a chat error that did not fall back to STT."""
+    if host.audio_wav_path:
+        try:
+            os.remove(host.audio_wav_path)
+        except OSError as rem_err:
+            log.debug("Failed to remove audio_wav_path during error handling: %s", rem_err)
+        host.audio_wav_path = None
