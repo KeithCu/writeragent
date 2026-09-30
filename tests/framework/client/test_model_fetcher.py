@@ -667,6 +667,23 @@ class TestFetchAvailableSpeechModels:
         assert cfg.openrouter_speech_list_has_model("hexgrad/Kokoro-82M")
         assert not cfg.openrouter_speech_list_has_model("google/lyria-3-pro-preview")
 
+    def test_openrouter_tts_failure_is_not_cached(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = {
+            "data": [
+                {"id": "hexgrad/kokoro-82m", "architecture": {"output_modalities": ["speech"]}},
+            ]
+        }
+        with patch(
+            "plugin.framework.client.requests.sync_request",
+            side_effect=[OSError("down"), payload],
+        ) as mock_sync:
+            assert cfg.fetch_available_tts_models("https://openrouter.ai/api", api_key_override="sk-test") is None
+            ids = cfg.fetch_available_tts_models("https://openrouter.ai/api", api_key_override="sk-test")
+            assert mock_sync.call_count == 2
+        assert ids == ["hexgrad/kokoro-82m"]
+
     def test_response_format_cache_is_case_insensitive(self):
         from plugin.framework.client import model_fetcher as cfg
 

@@ -176,6 +176,13 @@ class OptionalFlushFileHandler(logging.FileHandler):
         super().close()
 
 
+# One handler shared by the writeragent logger and the root logger. Two handlers
+# on the same path rotate on separate fds: after the first rename, the other fd
+# keeps writing the inode that is now writeragent_debug.log.1, and that backup
+# is never size-checked, so it grows past the cap.
+_debug_file_handler: OptionalFlushFileHandler | None = None
+
+
 def redact_sensitive_payload_for_log(obj: Any) -> Any:
     """Deep copy of a request/response payload with audio/image base64 and long signature blobs replaced for safe debug logging."""
     out = deepcopy(obj)
@@ -213,14 +220,36 @@ def _strip_stray_handlers(logger: logging.Logger) -> bool:
 
 
 
+def _shared_debug_file_handler() -> OptionalFlushFileHandler:
+    """Return the process's debug-log handler, creating it when the path changes."""
+    global _debug_file_handler
+    path = _debug_log_path
+    if not isinstance(path, str) or not path:
+        raise RuntimeError("debug log path is not set")
+    current = _debug_file_handler
+    if current is not None and getattr(current, "baseFilename", "") == path:
+        return current
+    handler = OptionalFlushFileHandler(path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
+    _debug_file_handler = handler
+    return handler
+
+
 def _ensure_debug_file_handler(logger: logging.Logger) -> None:
     if not _debug_log_path:
         return
-    if _strip_stray_handlers(logger):
-        return
-    handler = OptionalFlushFileHandler(_debug_log_path, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
-    logger.addHandler(handler)
+    _strip_stray_handlers(logger)
+    handler = _shared_debug_file_handler()
+    # A previous handler on this path would rotate on its own fd. Keep one.
+    for existing in list(logger.handlers):
+        if existing is not handler and _is_matching_debug_handler(existing):
+            logger.removeHandler(existing)
+            try:
+                existing.close()
+            except Exception:
+                pass
+    if handler not in logger.handlers:
+        logger.addHandler(handler)
 
 
 def init_logging(ctx: Any | None = None) -> None:
@@ -258,6 +287,7 @@ def init_logging(ctx: Any | None = None) -> None:
             if _debug_log_path:
                 # plugin.* modules use logging.getLogger(__name__); root receives those records.
                 # writeragent.* uses the named logger below with propagate=False to avoid duplicates.
+                # Both loggers share one file handler so rotation has a single fd.
                 root_logger.setLevel(numeric_level)
                 _ensure_debug_file_handler(logger)
                 _ensure_debug_file_handler(root_logger)

@@ -173,7 +173,11 @@ class BatchingStreamQueue:
 
     def _schedule_timer(self) -> None:
         # crosshair: off
-        self._cancel_timer()
+        # One deadline per burst. The first CHUNK and the first THINKING each
+        # called this, and cancel-then-restart moved the 250 ms mark when the
+        # other kind arrived. Leave an armed timer alone. Caller holds _lock.
+        if self._timer is not None:
+            return
         self._timer = threading.Timer(self._interval, self._timer_flush)
         self._timer.daemon = True
         self._timer.start()

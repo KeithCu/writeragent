@@ -1062,6 +1062,28 @@ def test_batching_stream_queue_callbacks():
     assert raw.get_nowait() == (StreamQueueKind.CHUNK, "ab")
 
 
+def test_batching_stream_queue_interleaved_kinds_keep_deadline():
+    """A THINKING fragment must not restart the timer armed by the first CHUNK."""
+    raw = queue.Queue()
+    bq = BatchingStreamQueue(raw, batch_interval=10.0)
+    cancels: list[threading.Timer] = []
+    orig_cancel = threading.Timer.cancel
+
+    def spy_cancel(self):
+        cancels.append(self)
+        orig_cancel(self)
+
+    with patch.object(threading.Timer, "cancel", spy_cancel):
+        bq.put((StreamQueueKind.CHUNK, "a"))
+        armed = bq._timer
+        bq.put((StreamQueueKind.THINKING, "t"))
+        assert bq._timer is armed
+        assert cancels == []
+    bq.flush()
+    assert raw.get_nowait() == (StreamQueueKind.CHUNK, "a")
+    assert raw.get_nowait() == (StreamQueueKind.THINKING, "t")
+
+
 def test_batching_stream_queue_timer_emission(monkeypatch):
     """Timer fires and emits after the interval even without further puts (simulated)."""
     raw = queue.Queue()

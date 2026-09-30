@@ -1250,6 +1250,45 @@ def test_anthropic_accepts_openai_shaped_tools(client):
     assert assistant["content"] == [] or all(part.get("type") != "tool_use" for part in assistant["content"])
 
 
+def test_anthropic_merges_parallel_tool_results(client):
+    """One assistant turn's tool results must share a single user message."""
+    client.config["model"] = "claude-3-5-sonnet-20241022"
+    messages = [
+        {"role": "user", "content": "Do both"},
+        {"role": "assistant", "tool_calls": [
+            {"id": "t1", "function": {"name": "write_cells", "arguments": "{}"}},
+            {"id": "t2", "function": {"name": "read_cells", "arguments": "{}"}},
+        ]},
+        {"role": "tool", "tool_call_id": "t1", "content": "wrote"},
+        {"role": "tool", "tool_call_id": "t2", "content": "read"},
+    ]
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "anthropic"}
+        _method, _path, body, _headers = client.make_chat_request(messages, max_tokens=20)
+    data = json.loads(body)
+    results = [m for m in data["messages"] if any(
+        isinstance(part, dict) and part.get("type") == "tool_result" for part in (m.get("content") or [])
+    )]
+    assert len(results) == 1
+    assert results[0]["role"] == "user"
+    assert [part["tool_use_id"] for part in results[0]["content"]] == ["t1", "t2"]
+
+
+def test_anthropic_does_not_merge_tool_result_into_user_text(client):
+    client.config["model"] = "claude-3-5-sonnet-20241022"
+    messages = [
+        {"role": "user", "content": "Hello"},
+        {"role": "tool", "tool_call_id": "t1", "content": "wrote"},
+    ]
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "anthropic"}
+        _method, _path, body, _headers = client.make_chat_request(messages, max_tokens=20)
+    data = json.loads(body)
+    assert data["messages"][0] == {"role": "user", "content": "Hello"}
+    assert data["messages"][1]["role"] == "user"
+    assert data["messages"][1]["content"][0]["type"] == "tool_result"
+
+
 def test_anthropic_stream_tool_use_accumulates(client):
     from plugin.framework.async_stream import accumulate_delta
 

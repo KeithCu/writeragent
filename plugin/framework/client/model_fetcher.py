@@ -493,6 +493,8 @@ def _fetch_openrouter_modality_models(
 
     Together's ``/v1/models`` type enum has no speech or transcription value, so
     this returns None there and the Speech tab keeps curated catalog rows.
+    A failed lookup is not cached, same as ``fetch_available_models``: storing
+    None used to stick for the process and leave the Speech combo empty.
     """
     if modality not in ("speech", "transcription"):
         return None
@@ -521,7 +523,6 @@ def _fetch_openrouter_modality_models(
         log_label=f"fetch openrouter {modality} models",
     )
     if req_headers is None:
-        cache[cache_key] = None
         return None
 
     try:
@@ -538,7 +539,6 @@ def _fetch_openrouter_modality_models(
             return model_ids
     except Exception as e:
         log.warning("fetch openrouter %s models failed for %s: %s", modality, url, e)
-    cache[cache_key] = None
     return None
 
 
@@ -1102,8 +1102,9 @@ def has_native_vision(model_id: Any, endpoint: Any) -> bool:
     # 3. Dynamic provider metadata
     # 3a. OpenRouter / Together. Combobox population skips these hosts so the
     # dropdown stays LRU + defaults. Vision still needs architecture.input_modalities.
-    # fetch_available_models memoizes the GET for the process, including a failed
-    # lookup stored as None, so a miss here is one network call — not one per send.
+    # fetch_available_models memoizes a successful GET for the process. A failed
+    # lookup is not stored, so the next send retries. Do not cache None: a
+    # transient miss would hide vision until LibreOffice restarts.
     if provider in ("openrouter", "together"):
         is_owu = get_config_bool_safe("is_openwebui")
         suffix = get_api_version_suffix(endpoint_str, is_openwebui=is_owu)

@@ -43,6 +43,7 @@ class TestInitLogging:
         config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = None
         logging_mod._debug_log_path = None
+        logging_mod._debug_file_handler = None
         logging_mod._exception_hooks_installed = False
         for h in list(log.handlers):
             log.removeHandler(h)
@@ -58,6 +59,7 @@ class TestInitLogging:
                 except Exception:
                     pass
         logging_mod._debug_log_path = None
+        logging_mod._debug_file_handler = None
 
     def teardown_method(self):
         import plugin.framework.config as config_mod
@@ -65,6 +67,7 @@ class TestInitLogging:
 
         config_mod._resolved_config_path = self._saved_config_path
         logging_mod._debug_log_path = self._saved_debug_path
+        logging_mod._debug_file_handler = None
         logging_mod._exception_hooks_installed = self._saved_hooks
         logging.lastResort = self._saved_last_resort
         log.propagate = self._saved_propagate
@@ -175,6 +178,45 @@ class TestInitLogging:
                 init_logging(mock_ctx)
 
             assert (logging.lastResort) is None
+            self._release_debug_handlers()
+
+    def test_shared_handler_rotation_caps_backup(self):
+        import plugin.framework.logging as logging_mod
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            config_path = os.path.join(tmp, "writeragent.json")
+            with open(config_path, "w", encoding="utf-8") as fh:
+                fh.write("{}")
+
+            mock_ctx = MagicMock()
+            with (
+                patch("plugin.framework.config._resolve_config_path_from_ctx", return_value=config_path),
+                patch("plugin.framework.config.user_config_dir", return_value=tmp),
+            ):
+                init_logging(mock_ctx)
+
+            wa_handlers = [h for h in log.handlers if isinstance(h, logging.FileHandler)]
+            root_handlers = [h for h in logging.getLogger().handlers if isinstance(h, logging.FileHandler)]
+            assert len(wa_handlers) == 1
+            assert wa_handlers[0] is root_handlers[0]
+            handler = wa_handlers[0]
+
+            log.warning("A" * (logging_mod._MAX_DEBUG_LOG_BYTES + 64))
+            logging.FileHandler.flush(handler)
+            handler._rotate_if_large()
+
+            expected_log = os.path.join(tmp, "writeragent_debug.log")
+            backup = expected_log + ".1"
+            assert os.path.isfile(backup)
+            backup_size = os.path.getsize(backup)
+            assert backup_size > logging_mod._MAX_DEBUG_LOG_BYTES
+
+            logging.getLogger("plugin.framework.rotation_probe").warning("B" * 4096)
+            logging.FileHandler.flush(handler)
+            assert os.path.getsize(backup) == backup_size
+            with open(expected_log, encoding="utf-8") as fh:
+                live = fh.read()
+            assert "B" * 64 in live
             self._release_debug_handlers()
 
 

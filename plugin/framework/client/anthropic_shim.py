@@ -158,14 +158,29 @@ class AnthropicShim(BaseProviderShim):
                 else:
                     result_blocks.append({"type": "text", "text": str(content or "")})
 
-                converted.append({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": tool_use_id,
-                        "content": result_blocks,
-                    }],
-                })
+                block = {
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": result_blocks,
+                }
+                # The chat loop stores one message per tool call. Anthropic
+                # requires every tool_result for one assistant turn in a single
+                # user message; a separate user message per result is a 400.
+                prev = converted[-1] if converted else None
+                prev_content = prev.get("content") if isinstance(prev, dict) else None
+                if (
+                    isinstance(prev, dict)
+                    and prev.get("role") == "user"
+                    and isinstance(prev_content, list)
+                    and prev_content
+                    and all(
+                        isinstance(part, dict) and part.get("type") == "tool_result"
+                        for part in prev_content
+                    )
+                ):
+                    prev_content.append(block)
+                else:
+                    converted.append({"role": "user", "content": [block]})
                 continue
 
             # 2. Handle assistant messages with tool calls
