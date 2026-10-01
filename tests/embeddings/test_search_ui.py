@@ -258,7 +258,13 @@ class TestSearchDialog:
                 with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=empty_index):
                     got = _ready_search_path(mode, listing_root, Path("/meta"), Path("/db"))
 
-        assert got == expected
+        if expected is None:
+            assert got is None
+        else:
+            # str(Path("/ready")) is "\\ready" on Windows. The product returns
+            # the native filesystem string; compare path objects so both forms match.
+            assert got is not None
+            assert Path(got) == Path(expected)
         assert [call.kwargs["create_parent"] for call in path.call_args_list] == create_parent_calls
 
 
