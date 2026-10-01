@@ -118,7 +118,8 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'form_generate',
                  'form_list_controls'],
     'headers_footer': ['get_headers_footers', 'set_headers_footers'],
-    'images': [   'image_delete',
+    'images': [   'image_crop_and_highlight',
+                  'image_delete',
                   'image_download',
                   'image_generate',
                   'image_get_info',
@@ -967,6 +968,18 @@ headers_footer = _HeadersFooterProxy()
 class _ImagesProxy:
     """Proxy for images tools."""
 
+    def crop_and_highlight(self, name: str, *, crop_box: list[Any] | None = None, highlights: list[Any] | None = None, units: str | None = None, width_mm: float | None = None) -> dict[str, Any]:
+        """Cut an image down to a region and/or mark passages on it (highlighter, red box, underline) with boxes in the picture's OWN pixels: [x, y, width, height] from its top-left corner, inside width_px x height_px from image_get_info. If you only see a scaled copy, pass units='percent' (0-100 of the picture's width/height). crop_box and every highlight box use the same frame: the picture as it is now. The result is baked into the picture: the cut-away part is removed from the file and marks cannot drift. Afterwards the picture IS the region (new width_px/height_px). The frame keeps its width (or width_mm) and its height follows the new shape. Check the result with get_image.
+
+        Args:
+            name (required): Name of the image (from image_list).
+            crop_box (optional): Region to keep, [x, y, width, height]. Omit to keep the picture as shown (an existing crop stays).
+            highlights (optional): Marks to draw.
+            units (optional): Units of every box (default px). One of: px, percent.
+            width_mm (optional): Display width in millimetres (default: keep the current width).
+        """
+        return _rpc_call("image_crop_and_highlight", name=name, crop_box=crop_box, highlights=highlights, units=units, width_mm=width_mm)
+
     def delete(self, name: str, *, remove_frame: bool | None = None) -> dict[str, Any]:
         """Delete an image from the document.
 
@@ -1003,7 +1016,7 @@ class _ImagesProxy:
         return _rpc_call("image_generate", prompt=prompt, source_image=source_image, strength=strength, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, provider=provider, image_model=image_model)
 
     def get_info(self, name: str) -> dict[str, Any]:
-        """Get detailed info about a specific image: URL, dimensions, anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index.
+        """Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index.
 
         Args:
             name (required): Name of the image (from image_list).
@@ -1602,7 +1615,7 @@ class _ShapeProxy:
             line_color (optional): Line border color.
             line_width (optional): Line width (100ths of mm).
             text_color (optional): Text character color.
-            font_size (optional): Font size in points.
+            font_size (optional): Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size.
             font_name (optional): Font family name.
             rotation_angle (optional): Rotation angle in degrees.
         """
