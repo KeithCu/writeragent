@@ -96,11 +96,11 @@ This is the bridge between `smolagents` and WriterAgent's `LlmClient`. It provid
 
 ## 5. Web research report cache (fuzzy matching)
 
-Completed `web_research` / delegate `web_research` reports can be cached in the shared SQLite `web_cache` table (`kind="research"`). Keys are normalized query word lists (fluff stripped, min token length 3). New entries are stored as `{snowball_lang}|{word key}` (e.g. `english|elevator physics space`); legacy unprefixed keys still work.
+Completed `web_research` / delegate `web_research` reports can be cached in the shared SQLite `web_cache` table (`kind="research"`). Keys are normalized query word lists (fluff stripped, min token length 3). Shallow entries are stored as `{snowball_lang}|{word key}` (e.g. `english|elevator physics space`); legacy unprefixed keys still work. Deep research uses the same table with a `deep|` segment before the language (`deep|english|elevator physics space`).
 
 **Instruction fluff** ([`research_cache_fluff.py`](../../plugin/chatbot/research_cache_fluff.py)): web-research prompt filler words are listed as standard `_('…')` calls in `translated_research_cache_fluff()` — same gettext path as the rest of the extension (`make extract-strings`, `make auto-translate`). At runtime `get_research_fluff_words()` tokenizes those translated strings for the active LO UI locale and unions grammar stop words from [`stop_words.py`](../../plugin/writer/locale/stop_words.py) for the document/Snowball language (generated from [stopwords-iso](https://github.com/stopwords-iso/stopwords-iso) via `python scripts/generate_stop_words.py`).
 
-**Lookup order:** exact key (legacy or prefixed) → embedding match among same-language keys when local embeddings are configured and already warm → fuzzy stem match among same-language keys.
+**Lookup order:** exact key, then embedding match among same-language keys when local embeddings are configured and already warm, then fuzzy stem match among same-language keys. Exact, embedding, and fuzzy matches stay inside the same mode (shallow or `deep|`) and language. Shallow exact lookup tries the bare word key first, then the language-prefixed key. Deep lookup tries only the `deep|` key.
 
 **Embedding match:** when the local embeddings venv is configured, WriterAgent opportunistically stores vectors for research cache keys in a companion SQLite table (`web_cache_embeddings`). The web research path does not wait for cold model startup or old-row migration:
 

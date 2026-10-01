@@ -762,7 +762,10 @@ def terminate_persistent_editor() -> None:
 
 def _on_config_changed(**kwargs: Any) -> None:
     key = kwargs.get("key", "")
-    if key == "scripting.python_venv_path":
+    changed = kwargs.get("keys") or ()
+    # Settings OK emits one event with key="" and the changed names in keys.
+    # Matching only key dropped a venv-path change that was saved with other fields.
+    if key == "scripting.python_venv_path" or "scripting.python_venv_path" in changed:
         log.info("editor_host: scripting.python_venv_path changed, terminating background Monaco process")
         _PROBE_CACHE.clear()
         terminate_persistent_editor()

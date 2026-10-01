@@ -326,6 +326,22 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         return 320
 
 
+def header_third_button_kind(model: Any) -> str:
+    """Shared btn_latex slot: ``python_cell``, ``latex``, or ``""`` (hide).
+
+    Draw and Impress used to get LatexButtonListener because the slot only
+    special-cased Calc. The hamburger already shows Insert LaTeX for Writer
+    only, so other documents hide the button instead of opening that dialog.
+    """
+    from plugin.doc.doc_type import is_calc, is_writer
+
+    if is_calc(model):
+        return "python_cell"
+    if is_writer(model):
+        return "latex"
+    return ""
+
+
 class ChatPanelElement(unohelper.Base, XUIElement):
     """XUIElement wrapper; creates panel window in getRealInterface() via ContainerWindowProvider."""
 
@@ -585,8 +601,20 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     from plugin.doc.doc_type import doc_type_label_for_enum, get_document_type
 
                     dt = cached or doc_type_label_for_enum(get_document_type(model))
+                    from plugin.chatbot.chat_sidebar_mode import (
+                        mode_from_selector_with_flags,
+                        set_selector_mode_with_flags,
+                    )
+
                     flags = sidebar_mode_flags_for_doc_type(dt)
+                    # removeItems/addItems resets the combo to index 0 (Chat) and
+                    # fires ChatModeListener. Capturing first, then restoring after
+                    # populate, keeps Librarian/Web selected. The listener also
+                    # bails out while _in_refresh_controls is set; both are required
+                    # because a guarded listener still leaves the combo on Chat.
+                    prior_mode = mode_from_selector_with_flags(chat_mode_selector, flags)
                     populate_mode_selector_with_flags(chat_mode_selector, flags)
+                    set_selector_mode_with_flags(chat_mode_selector, prior_mode, flags)
             # Keep sidebar Voice checkbox in sync with Settings → Speech (audio.tts_enabled).
             # Settings apply emits config:changed; without this, chk_voice stays at wire-time state.
             chk_voice = get_optional("chk_voice")
@@ -930,6 +958,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 self.apply_target = apply_target
 
             def on_item_state_changed(self, rEvent: Any) -> None:
+                # Settings refresh rebuilds this combo. Model/image listeners
+                # already ignore that; without the same guard, removeItems
+                # applies Chat and render_session_history clears the transcript.
+                if getattr(self.panel, "_in_refresh_controls", False):
+                    return
                 mode = mode_from_selector_with_flags(self.selector, self.mode_flags)
                 self.apply_target(mode)
 
@@ -1010,16 +1043,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             attach_record_mouse_listener,
             attach_stop_mouse_listener,
         )
-        from plugin.doc.doc_type import is_calc
         from plugin.framework.uno_context import get_extension_url
 
         ext_url = get_extension_url(self.ctx)
-        calc_doc = is_calc(model)
 
         from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
 
-        third_btn: tuple[str, Any, Any, Any, Any]
-        if calc_doc:
+        third_kind = header_third_button_kind(model)
+        third_btn: tuple[str, Any, Any, Any, Any] | None
+        if third_kind == "python_cell":
             third_btn = (
                 "btn_latex",
                 PythonCellButtonListener(self.ctx),
@@ -1027,18 +1059,29 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 menu_icon_asset_rel("python_cell", ctx=self.ctx),
                 "",
             )
-        else:
+        elif third_kind == "latex":
             # Keep √x glyph; PNG toolbar icons use the DPI resolver.
             third_btn = ("btn_latex", LatexButtonListener(self.ctx), _("Insert LaTeX Math..."), None, "√x")
+        else:
+            third_btn = None
+            latex_ctrl = controls.get("btn_latex")
+            if latex_ctrl is not None and hasattr(latex_ctrl, "setVisible"):
+                latex_ctrl.setVisible(False)
 
-        for btn_id, listener_obj, tooltip_text, icon_rel_path, label_text in (
+        header_buttons: list[tuple[str, Any, Any, Any, Any]] = [
             ("btn_settings", SettingsButtonListener(self.ctx), _("Settings"), menu_icon_asset_rel("gear", ctx=self.ctx), ""),
             ("btn_python", PythonButtonListener(self.ctx), _("Run Python Script..."), menu_icon_asset_rel("python", ctx=self.ctx), ""),
-            third_btn,
+        ]
+        if third_btn is not None:
+            header_buttons.append(third_btn)
+        header_buttons.extend(
+            (
             ("btn_search", SearchButtonListener(self.ctx), _("Search Nearby Files..."), menu_icon_asset_rel("search", ctx=self.ctx), ""),
             # Hamburger stays ☰ — no shipped hamburger PNG yet.
             ("btn_hamburger", HamburgerButtonListener(self.ctx, self.xFrame), _("More actions..."), None, None),
-        ):
+            )
+        )
+        for btn_id, listener_obj, tooltip_text, icon_rel_path, label_text in header_buttons:
             if controls.get(btn_id):
                 try:
                     btn_ctrl = controls[btn_id]

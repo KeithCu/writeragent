@@ -88,10 +88,21 @@ def test_persist_rules_with_mock_db():
     assert mock_db.add_message.call_args_list == [
         (("user", "u"),),
         (("assistant", "a"),),
-        (("assistant", None),),
     ]
     # Tool results stay in-memory only.
     assert not any(c.args and c.args[0] == "tool" for c in mock_db.add_message.call_args_list)
+
+
+def test_load_failure_does_not_seed_system_row():
+    import json
+
+    mock_db = MagicMock()
+    mock_db.get_messages.side_effect = json.JSONDecodeError("bad", "doc", 0)
+    with patch("plugin.chatbot.panel.get_chat_history", return_value=mock_db):
+        session = ChatSession(system_prompt="Sys", session_id="sid-bad")
+
+    assert session.messages == []
+    mock_db.add_message.assert_not_called()
 
 
 def test_clear_resets_messages_and_document_context():

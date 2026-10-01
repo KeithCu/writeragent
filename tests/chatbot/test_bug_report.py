@@ -29,6 +29,15 @@ def test_build_github_issue_url_truncates_long_body():
     assert "truncated" in url
 
 
+def test_build_github_issue_url_keeps_exception_tail():
+    last = "ValueError: sidebar send failed uniquely"
+    traceback_body = ("frame line\n" * 2000) + last
+    url = br.build_github_issue_url(extra_body=traceback_body, ctx=None)
+    assert len(url) < 12000
+    assert "truncated" in url
+    assert "ValueError%3A+sidebar+send+failed+uniquely" in url or "ValueError%3A%20sidebar%20send%20failed%20uniquely" in url
+
+
 def test_collect_environment_block_includes_endpoint_and_model():
     with patch("plugin.framework.uno_context.resolve_package_extension_id", return_value=EXTENSION_ID_WRITERAGENT):
         with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="test-model"):

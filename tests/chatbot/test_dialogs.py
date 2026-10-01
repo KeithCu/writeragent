@@ -60,6 +60,34 @@ def _restore_com_sun_star_for_dialog_tests():
     yield
 
 
+def test_show_approval_dialog_disposes_without_flipping_yes():
+    from plugin.chatbot.dialogs import show_approval_dialog
+
+    ctx = MagicMock()
+    frame = MagicMock()
+    box = MagicMock()
+    box.execute.return_value = 2
+    box.dispose.side_effect = RuntimeError("dispose failed")
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value.createMessageBox.return_value = box
+
+    assert show_approval_dialog(ctx, "do it", tool_name="web_search", parent_frame=frame) is True
+    box.execute.assert_called_once()
+    box.dispose.assert_called_once()
+
+
+def test_show_approval_dialog_reject_still_disposes():
+    from plugin.chatbot.dialogs import show_approval_dialog
+
+    ctx = MagicMock()
+    frame = MagicMock()
+    box = MagicMock()
+    box.execute.return_value = 3
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value.createMessageBox.return_value = box
+
+    assert show_approval_dialog(ctx, "do it", parent_frame=frame) is False
+    box.dispose.assert_called_once()
+
+
 def test_uno_impl_to_control_type():
     assert _uno_impl_to_control_type("stardiv.Toolkit.UnoButtonControl") == "Button"
     assert _uno_impl_to_control_type("stardiv.Toolkit.UnoFixedTextControl") == "FixedText"

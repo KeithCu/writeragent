@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.librepy.settings import (
     _DownloadVecPackListener,
+    _extract_field,
     _populate_field,
     _scripting_field_specs,
 )
@@ -52,6 +53,33 @@ def test_populate_field_uses_setvalue_for_numeric():
     ctrl = _NumericCtrl()
     _populate_field(ctrl, {"name": "scripting__python_exec_timeout", "type": "int", "value": "42"})
     assert ctrl.value == 42.0
+
+
+def test_extract_field_checkbox_string_and_numeric_getvalue():
+    class _Box:
+        def supportsService(self, name):
+            return False
+
+        def getState(self):
+            return 1
+
+    class _Off:
+        def supportsService(self, name):
+            return False
+
+        def getState(self):
+            return 0
+
+    class _Spin:
+        def getText(self):
+            return "0"
+
+        def getValue(self):
+            return 7
+
+    assert _extract_field(_Box(), {"type": "bool"}) == "true"
+    assert _extract_field(_Off(), {"type": "bool"}) == "false"
+    assert _extract_field(_Spin(), {"type": "int"}) == "7"
 
 
 def test_venv_probe_progress_uses_xdl_control_ids():

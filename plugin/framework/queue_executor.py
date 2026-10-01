@@ -85,6 +85,20 @@ class SendCancelled(Exception):
     """Raised when main-thread work is skipped because the user stopped the send."""
 
 
+def wait_for_approval(event: threading.Event, stop_checker: Callable[[], bool] | None, timeout: float = 0.2) -> bool:
+    """Block until *event* is set, or the send is stopped.
+
+    Approval used to call ``event.wait()`` with no stop check. Closing the
+    sidebar latches stop and never signals the event, so the worker stayed
+    parked after the drain ended. A set event wins a race with stop.
+    """
+    while not event.is_set():
+        if stop_checker is not None and stop_checker():
+            return False
+        event.wait(timeout)
+    return True
+
+
 class SendCancellation:
     """Per-send cancellation: flag, registered HTTP clients, and optional hooks."""
 

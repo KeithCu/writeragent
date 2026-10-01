@@ -184,14 +184,16 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     """
 
     _c: dict[str, Any]
+    _on_dispose: Any
     _in_relayout: bool
     _root_window: Any
     _parent_window: Any
     _width_negotiated: bool
     _viewport_w: int
 
-    def __init__(self, controls: dict[str, Any]) -> None:
+    def __init__(self, controls: dict[str, Any], on_dispose: Any = None) -> None:
         self._c = controls
+        self._on_dispose = on_dispose
         self._snapshot: dict[str, tuple[int, int, int, int]] | None = None
         self._in_relayout = False
         self._root_window = None
@@ -205,12 +207,17 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         return self._last_response_rect
 
     def disposing(self, Source: Any) -> None:
-        if self._root_window and hasattr(self._root_window, "removeWindowListener"):
-            try:
-                self._root_window.removeWindowListener(self)
-            except Exception:
-                pass
+        # VCL calls this on deck close. ChatPanelElement.disposing is not
+        # invoked then, so the in-flight send stayed running. Do not
+        # removeWindowListener here: this listener is already disposing.
+        callback = self._on_dispose
+        self._on_dispose = None
         self._root_window = None
+        if callable(callback):
+            try:
+                callback()
+            except Exception:
+                log.exception("sidebar window dispose callback failed")
 
     def relayout_now(self, win: Any) -> None:
         if not win:

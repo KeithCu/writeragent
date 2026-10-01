@@ -264,6 +264,41 @@ def test_stop_deletes_empty_wav_when_handshake_fails(ctx, tmp_path):
     assert not wav_path.exists()
 
 
+def test_stdout_error_after_ready_keeps_nonempty_wav(ctx, tmp_path):
+    from plugin.chatbot.audio_recorder_state import AudioRecorderState
+
+    wav_path = tmp_path / "partial.wav"
+    wav_path.write_bytes(b"RIFF")
+    recorder = AudioRecorder(ctx)
+    recorder.state = AudioRecorderState(status="recording")
+    recorder.temp_filename = str(wav_path)
+    recorder._proc = MagicMock()
+
+    recorder._notify_recording_error("child died")
+
+    assert recorder.state.status == "error"
+    assert recorder.temp_filename == str(wav_path)
+    assert wav_path.read_bytes() == b"RIFF"
+
+
+def test_stdout_error_callback_does_not_apply_on_monitor(ctx, tmp_path):
+    from plugin.chatbot.audio_recorder_state import AudioRecorderState
+
+    wav_path = tmp_path / "partial.wav"
+    wav_path.write_bytes(b"RIFF")
+    recorder = AudioRecorder(ctx)
+    recorder.state = AudioRecorderState(status="recording")
+    recorder.temp_filename = str(wav_path)
+    seen: list[str] = []
+    recorder.set_auto_stop_callbacks(on_error=seen.append)
+
+    recorder._notify_recording_error("child died")
+
+    assert seen == ["child died"]
+    assert recorder.state.status == "recording"
+    assert wav_path.is_file()
+
+
 def test_audio_recorder_missing_venv(ctx):
     with (
         patch(

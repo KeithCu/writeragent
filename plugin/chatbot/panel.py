@@ -107,15 +107,27 @@ class ChatSession:
         # would keep summarizing against a stale first_kept_index.
         self.compaction = None
 
+        history_load_failed = False
         if session_id:
             try:
                 self.db = get_chat_history(session_id)
                 self.messages = self.db.get_messages()
             except Exception:
+                # JSONDecodeError and sqlite json.loads used to land here with
+                # messages still []. The seed below then add_message'd a system
+                # row without deleting the old ones (or over a truncated file).
                 log.exception("ChatSession history load failed")
+                history_load_failed = True
 
-        # If no history, or system prompt forced
-        if not self.messages and self.base_system_prompt:
+        # Empty new session still seeds and is written. A failed read (the
+        # backend opened, then get_messages raised) must not insert a system
+        # row: that replaced a corrupt history with a one-message session.
+        # If the backend never opened, there is no file to protect, so the
+        # prompt stays in memory for this run and nothing is written.
+        if history_load_failed:
+            if self.db is None and self.base_system_prompt:
+                self.set_system_context(self.base_system_prompt, "")
+        elif not self.messages and self.base_system_prompt:
             self.set_system_context(self.base_system_prompt, "")
             if self.db:
                 self.db.add_message("system", self.messages[0]["content"])
@@ -170,8 +182,10 @@ class ChatSession:
         if reasoning_replay:
             msg.update(reasoning_replay)
         self.messages.append(msg)
-        if self.db:
-            # Only persist the text content to history; tool calls are ephemeral.
+        # Tool calls stay out of history. content=None used to be written
+        # anyway, and message_to_dict stored JSON null for a tool-only turn.
+        # Memory keeps "" above; disk skips empty assistant text.
+        if self.db and content:
             self.db.add_message("assistant", content)
 
     def add_tool_result(self, tool_call_id: str, content: Any) -> None:
@@ -485,6 +499,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self.audio_recorder.set_auto_stop_callbacks(
                 on_auto_stop=lambda: self.queue_executor.post(self._on_audio_auto_stop),
                 on_silence_progress=lambda ms: self.queue_executor.post(self._on_audio_silence_progress, ms),
+                on_error=lambda msg: self.queue_executor.post(self._on_audio_recorder_error, msg),
             )
         else:
             self.audio_recorder = None
@@ -1086,6 +1101,20 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
         log.info("Audio silence pause detected — treating as Stop Rec")
         self.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
+
+    def _on_audio_recorder_error(self, msg: str) -> None:
+        """Child error after ready, on the UI thread.
+
+        The stdout monitor only posts here. Applying the recorder event on
+        that thread raised out of ReportErrorEffect and left the button on
+        Stop Rec. ERROR_OCCURRED drops the recording label.
+        """
+        recorder = self.audio_recorder
+        if recorder is not None:
+            recorder.apply_stdout_error(msg)
+        self._append_response("\n[Audio error: %s]\n" % msg)
+        self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+        self.sync_audio_slice()
 
     def _on_audio_silence_progress(self, silence_ms: int) -> None:
         from plugin.framework.i18n import _

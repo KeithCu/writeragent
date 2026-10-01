@@ -365,3 +365,92 @@ def test_refresh_controls_skips_chk_voice_setstate_when_already_matched():
         el._refresh_controls_from_config()
 
     chk.setState.assert_not_called()
+
+
+def test_header_third_button_is_writer_latex_calc_python_else_hidden():
+    from unittest.mock import patch
+
+    from plugin.chatbot.panel_factory import header_third_button_kind
+
+    with patch("plugin.doc.doc_type.is_calc", side_effect=lambda model: model == "calc"), patch(
+        "plugin.doc.doc_type.is_writer", side_effect=lambda model: model == "writer"
+    ):
+        assert header_third_button_kind("writer") == "latex"
+        assert header_third_button_kind("calc") == "python_cell"
+        assert header_third_button_kind("draw") == ""
+        assert header_third_button_kind("impress") == ""
+
+
+def test_refresh_restores_mode_captured_before_populate():
+    """populate resets the combo to Chat. Refresh must put the prior mode back."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, sidebar_mode_flags_for_doc_type
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = False
+    el.m_panelRootWindow = MagicMock()
+    el._update_backend_indicator = MagicMock()
+    el._get_document_model = MagicMock(return_value=MagicMock())
+    el.send_listener = MagicMock()
+    el.send_listener.cached_doc_type = "writer"
+    selector = MagicMock()
+    flags = sidebar_mode_flags_for_doc_type("writer")
+
+    def get_optional(_root, name):
+        if name == "chat_mode_selector":
+            return selector
+        return None
+
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru"), patch(
+        "plugin.chatbot.config_ui_helpers.populate_image_model_selector"
+    ), patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), patch(
+        "plugin.chatbot.panel_factory.get_config", return_value=""
+    ), patch(
+        "plugin.chatbot.panel_factory.get_current_endpoint", return_value=""
+    ), patch(
+        "plugin.chatbot.panel_factory.get_optional_control",
+        side_effect=get_optional,
+    ), patch(
+        "plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags",
+        return_value=CHAT_MODE_LIBRARIAN,
+    ) as read_mode, patch(
+        "plugin.chatbot.chat_sidebar_mode.populate_mode_selector_with_flags",
+    ) as populate, patch(
+        "plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags",
+    ) as restore:
+        order: list[str] = []
+        read_mode.side_effect = lambda *_args, **_kwargs: order.append("read") or CHAT_MODE_LIBRARIAN
+        populate.side_effect = lambda *_args, **_kwargs: order.append("populate")
+        restore.side_effect = lambda *_args, **_kwargs: order.append("restore")
+        el._refresh_controls_from_config()
+
+    assert order == ["read", "populate", "restore"]
+    read_mode.assert_called_once_with(selector, flags)
+    populate.assert_called_once_with(selector, flags)
+    restore.assert_called_once_with(selector, CHAT_MODE_LIBRARIAN, flags)
+
+
+def test_chat_mode_listener_ignores_refresh():
+    from unittest.mock import MagicMock
+
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = True
+    el._apply_sidebar_mode = MagicMock()
+    selector = MagicMock()
+    selector.getSelectedItemPos.side_effect = RuntimeError("disposed during refresh")
+    selector.getText.return_value = "Chat"
+    selector.addItemListener = MagicMock()
+    flags = SidebarModeFlags()
+    el._wire_chat_mode_listener(selector, MagicMock(), None, None, None, lambda _mode: None, flags)
+    listener = selector.addItemListener.call_args[0][0]
+    listener.on_item_state_changed(None)
+    el._apply_sidebar_mode.assert_not_called()
+
+    el._in_refresh_controls = False
+    listener.on_item_state_changed(None)
+    el._apply_sidebar_mode.assert_called_once()

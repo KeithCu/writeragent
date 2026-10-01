@@ -1130,10 +1130,34 @@ class LlmClient:
         kwargs["stream"] = True
         return self.request_with_tools(*args, **kwargs)
 
-    def chat_completion_sync(self, messages: list[Any], max_tokens: int = 512, model: str | None = None, response_format: Any = None, chat_extra: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> str:
+    def chat_completion_sync(self, messages: list[Any], max_tokens: int = 512, model: str | None = None, response_format: Any = None, chat_extra: Any = None, *, prepend_dev_build_system_prefix: bool = True, stop_checker: Any = None) -> str:
         """
         Synchronous chat completion (no streaming, no tools).
         Returns the assistant message content string.
+
+        ``finish_reason == "stop"`` is a normal completion. When
+        ``stop_checker`` is passed, a user stop (checker true, or this
+        client's stop latch) raises ``ToolExecutionError(code="USER_STOPPED")``
+        instead of ``""``. Callers that omit the checker keep the string return.
         """
-        result = self.request_with_tools(messages, max_tokens=max_tokens, tools=None, model=model, response_format=response_format, chat_extra=chat_extra, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+        result = self.request_with_tools(
+            messages,
+            max_tokens=max_tokens,
+            tools=None,
+            model=model,
+            response_format=response_format,
+            chat_extra=chat_extra,
+            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
+            stop_checker=stop_checker,
+        )
+        # request_with_tools reports Stop as an empty assistant message whose
+        # finish_reason is also "stop" — the same finish_reason a normal
+        # completion uses. Deep-research planning treated that "" as a finished
+        # plan and later cached a partial report. Only the checker or the
+        # client latch means the user stopped. No checker: grammar and forms
+        # still receive the historical string, including "".
+        if stop_checker is not None and (self._stopped or stop_checker()):
+            from plugin.framework.errors import ToolExecutionError
+
+            raise ToolExecutionError("LLM request stopped by user.", code="USER_STOPPED")
         return result.get("content") or ""

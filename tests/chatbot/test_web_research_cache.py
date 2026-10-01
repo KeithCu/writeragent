@@ -97,6 +97,104 @@ def test_lang_prefixed_cache_keys_round_trip():
     assert parse_research_cache_key("legacy english words") == ("english", "legacy english words")
 
 
+def test_deep_and_shallow_cache_keys_do_not_cross_match(tmp_path):
+    from plugin.chatbot.web_research_cache import research_cache_key_mode
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+
+    words = "elevator physics space"
+    shallow = format_research_cache_key("english", words)
+    deep = format_research_cache_key("english", words, mode="deep")
+    assert shallow == "english|elevator physics space"
+    assert deep == "deep|english|elevator physics space"
+    assert research_cache_key_mode(shallow) == ""
+    assert research_cache_key_mode(deep) == "deep"
+    assert parse_research_cache_key(deep) == ("english", words)
+    assert format_research_cache_key("english", "", mode="deep") == ""
+
+    db_file = str(tmp_path / "both.db")
+    _web_cache_set(db_file, "research", words, "BARE", 50 * 1024 * 1024)
+    _web_cache_set(db_file, "research", shallow, "PREFIXED", 50 * 1024 * 1024)
+    _web_cache_set(db_file, "research", deep, "DEEP", 50 * 1024 * 1024)
+
+    # Shallow exact order stays bare, then language-prefixed. Deep is not in that list.
+    bare_hit = lookup_research_cache(db_file, words, "english", 30, 40, 1)
+    assert bare_hit is not None
+    assert bare_hit[4] == "BARE"
+
+    deep_hit = lookup_research_cache(db_file, words, "english", 30, 40, 1, mode="deep")
+    assert deep_hit is not None
+    assert deep_hit[4] == "DEEP"
+    assert deep_hit[2] == deep
+
+    shallow_only = str(tmp_path / "shallow.db")
+    _web_cache_set(shallow_only, "research", shallow, "PREFIXED", 50 * 1024 * 1024)
+    _web_cache_set(shallow_only, "research", words, "BARE", 50 * 1024 * 1024)
+    assert lookup_research_cache(shallow_only, words, "english", 30, 40, 1, mode="deep") is None
+
+    deep_only = str(tmp_path / "deep.db")
+    _web_cache_set(deep_only, "research", deep, "DEEP", 50 * 1024 * 1024)
+    assert lookup_research_cache(deep_only, words, "english", 30, 40, 1) is None
+
+
+def test_deep_and_shallow_fuzzy_and_embedding_stay_in_mode(tmp_path):
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+
+    shallow_key = format_research_cache_key("english", SPACE_ELEVATOR_KEY_1)
+    deep_key = format_research_cache_key("english", SPACE_ELEVATOR_KEY_1, mode="deep")
+
+    shallow_db = str(tmp_path / "fuzzy_shallow.db")
+    _web_cache_set(shallow_db, "research", shallow_key, "shallow elevator", 50 * 1024 * 1024)
+    shallow_hit = lookup_research_cache(shallow_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8)
+    assert shallow_hit is not None
+    assert shallow_hit[0] == "hit_fuzzy"
+    assert shallow_hit[4] == "shallow elevator"
+    assert lookup_research_cache(shallow_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8, mode="deep") is None
+
+    deep_db = str(tmp_path / "fuzzy_deep.db")
+    _web_cache_set(deep_db, "research", deep_key, "deep elevator", 50 * 1024 * 1024)
+    deep_hit = lookup_research_cache(deep_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8, mode="deep")
+    assert deep_hit is not None
+    assert deep_hit[0] == "hit_fuzzy"
+    assert deep_hit[2] == deep_key
+    assert deep_hit[4] == "deep elevator"
+    assert lookup_research_cache(deep_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8) is None
+
+    embed_db = str(tmp_path / "embed.db")
+    pizza_shallow = "english|best nearby pizza"
+    pizza_deep = "deep|english|best nearby pizza"
+    _web_cache_set(embed_db, "research", pizza_shallow, "shallow pizza", 50 * 1024 * 1024)
+    _web_cache_set(embed_db, "research", pizza_deep, "deep pizza", 50 * 1024 * 1024)
+    # Shallow vector is a closer match. A mode-blind search would return it for both lookups.
+    store_research_cache_embeddings(
+        embed_db,
+        [
+            (pizza_shallow, "best nearby pizza", [1.0, 0.0]),
+            (pizza_deep, "best nearby pizza", [0.9, 0.1]),
+        ],
+        embedding_model="test-model",
+    )
+    with patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=True), \
+         patch("plugin.chatbot.web_research_cache._get_embedding_model_or_none", return_value="test-model"), \
+         patch(
+             "plugin.framework.client.embedding_client.embed_texts",
+             return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[1.0, 0.0]], indices=[0]),
+         ):
+        shallow_embed = lookup_research_cache(
+            embed_db, "good pizza around", "english", 30, 90, 8, ctx=object(), embedding_text="pizza around good",
+        )
+        deep_embed = lookup_research_cache(
+            embed_db, "good pizza around", "english", 30, 90, 8, ctx=object(), embedding_text="pizza around good", mode="deep",
+        )
+    assert shallow_embed is not None
+    assert shallow_embed[0] == "hit_embedding"
+    assert shallow_embed[2] == pizza_shallow
+    assert shallow_embed[4] == "shallow pizza"
+    assert deep_embed is not None
+    assert deep_embed[0] == "hit_embedding"
+    assert deep_embed[2] == pizza_deep
+    assert deep_embed[4] == "deep pizza"
+
+
 def test_research_cache_similarity_beats_union_jaccard_for_longer_repeat_query():
     a = stem_set_from_word_key(SPACE_ELEVATOR_KEY_1, "english")
     b = stem_set_from_word_key(SPACE_ELEVATOR_KEY_2, "english")

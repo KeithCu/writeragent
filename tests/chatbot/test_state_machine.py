@@ -8,8 +8,6 @@ from plugin.chatbot.state_machine import (
     ErrorEvent,
     SendHandlerUIEffect,
     CompleteJobEffect,
-    ProceedToChatEffect,
-    SpawnAudioWorkerEffect,
     SpawnAgentWorkerEffect,
     SpawnDirectImageEffect,
     SpawnWebWorkerEffect,
@@ -53,7 +51,7 @@ class TestSendHandlerStateMachine:
         assert isinstance(effects[2], SpawnWebWorkerEffect)
 
     def test_stop_event_agent_terminates(self):
-        state = SendHandlerState(handler_type="agent", status="running", round_num=2, max_rounds=10)
+        state = SendHandlerState(handler_type="agent", status="running")
         event = StopRequestedEvent()
 
         step = next_state(state, event)
@@ -74,7 +72,7 @@ class TestSendHandlerStateMachine:
         assert effects[2].terminal_status == "Stopped"
 
     def test_stop_event_other_terminates(self):
-        state = SendHandlerState(handler_type="web", status="running", round_num=2, max_rounds=10)
+        state = SendHandlerState(handler_type="web", status="running")
         event = StopRequestedEvent()
 
         step = next_state(state, event)
@@ -143,36 +141,12 @@ class TestSendHandlerStateMachine:
         assert new_state.last_error == "Network failure"
         assert len(effects) == 0
 
-    def test_round_counter_invariant(self):
-        # A mock test to verify that the next_state contract holds (e.g. no exceptions thrown)
-        state = SendHandlerState(handler_type="agent", status="running", round_num=5, max_rounds=10)
-        event = StreamDoneEvent(response={})
-
-        step = next_state(state, event)
-        new_state = step.state
-        assert new_state.round_num <= 10 # Post condition passes
-
-    def test_audio_stream_done_proceeds_to_chat(self):
-        state = SendHandlerState(
-            handler_type="audio",
-            status="running",
-            query_text="typed note",
-            model="m1",
-            doc_type_str="writer",
-        )
-        step = next_state(state, StreamDoneEvent(response="spoken words"))
-        assert any(isinstance(e, ProceedToChatEffect) for e in step.effects)
-        proceed = next(e for e in step.effects if isinstance(e, ProceedToChatEffect))
-        assert proceed.combined_text == "typed note\nspoken words"
-        assert proceed.model == "m1"
-        assert proceed.doc_type_str == "writer"
-
-    def test_audio_stream_done_empty_completes_ready(self):
-        state = SendHandlerState(handler_type="audio", status="running", query_text="")
-        step = next_state(state, StreamDoneEvent(response=""))
+    def test_stream_done_marks_ready(self):
+        state = SendHandlerState(handler_type="agent", status="running")
+        step = next_state(state, StreamDoneEvent(response={}))
+        assert step.state.status == "done"
         assert any(isinstance(e, CompleteJobEffect) and e.terminal_status == "Ready" for e in step.effects)
         assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "status" and e.text == "Ready" for e in step.effects)
-        assert not any(isinstance(e, ProceedToChatEffect) for e in step.effects)
 
 
 class TestSendHandlerHelpers:
@@ -189,19 +163,6 @@ class TestSendHandlerHelpers:
     def test_spawn_effects_agent(self):
         effects = spawn_effects_for_start("agent", "do work", "m", "writer")
         assert any(isinstance(e, SpawnAgentWorkerEffect) for e in effects)
-
-    def test_spawn_effects_audio_with_paths(self):
-        effects = spawn_effects_for_start("audio", "q", None, "", wav_path="/tmp/a.wav", stt_model="whisper")
-        assert any(isinstance(e, SpawnAudioWorkerEffect) for e in effects)
-
-    def test_spawn_effects_audio_without_paths(self):
-        effects = spawn_effects_for_start("audio", "q", None, "")
-        assert not any(isinstance(e, SpawnAudioWorkerEffect) for e in effects)
-
-    def test_ui_lines_audio(self):
-        status, append = ui_lines_for_handler_error("audio", "boom")
-        assert status == "Error"
-        assert "Transcription error: boom" in append
 
     def test_ui_lines_web(self):
         status, append = ui_lines_for_handler_error("web", "boom")

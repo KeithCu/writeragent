@@ -47,8 +47,9 @@ HISTORY_RENDER_BATCH_CHARS = 16384
 # Very noisy live scroll tracing. Keep available for sidebar scroll investigations,
 # but do not emit it by default even when log_level is DEBUG.
 RICH_SCROLL_VERBOSE_DEBUG = False
-# TEMP: set False (and revert ReadOnly/Tabstop below) when done experimenting.
-TEMP_RICH_CONTROL_EDITABLE = True
+# Transcript is read-only. Stick-to-bottom still dispatches .uno:SelectAll;
+# an editable field let that selection (and a click) rewrite the chat log.
+TEMP_RICH_CONTROL_EDITABLE = False
 _RICH_SCROLL_SEQ = 0
 
 
@@ -142,11 +143,15 @@ class RichTextChatWidget:
         role: str = "assistant",
         auto_scroll: bool = True,
         on_after_insert: Any = None,
-    ) -> None:
-        """Append formatted HTML message via the hidden Writer paste pipeline."""
+    ) -> bool:
+        """Append formatted HTML message via the hidden Writer paste pipeline.
+
+        True only when every element was inserted. A skipped element is False
+        so callers can put back text they removed before the copy.
+        """
         from plugin.chatbot.rich_text_paste import append_rich_text_via_clipboard
 
-        append_rich_text_via_clipboard(
+        return append_rich_text_via_clipboard(
             self.ctx,
             self.control,
             text,
@@ -190,9 +195,33 @@ class RichTextChatWidget:
         content = final_msg.get("content", "")
         if not content or not content.strip():
             return
+        # The streamed tail is already in the control. Truncating and then
+        # appending without a result check dropped it: a failed HTML copy, or
+        # a per-element exception reported as not a full insert, left the cut
+        # in place and nothing wrote the plain text back.
+        plain_tail = ""
+        if stream_start_len is not None:
+            try:
+                model = self.control.getModel() if self.control is not None else None
+                text = (model.Text or "") if model is not None else ""
+                plain_tail = text[stream_start_len:] if isinstance(text, str) else ""
+            except Exception:
+                log.exception("rerender_last_assistant_if_html: could not read plain tail")
         self.truncate(stream_start_len)
         # Insert at the cut. Scroll is SelectAll in Hidden mode, not reveal_caret.
-        self.append_rich_message(content, role="assistant")
+        full_insert = False
+        try:
+            full_insert = bool(self.append_rich_message(content, role="assistant"))
+        except Exception:
+            log.exception("rerender_last_assistant_if_html: formatted insert failed")
+            full_insert = False
+        if full_insert or stream_start_len is None:
+            return
+        # Partial formatted text sits at the same cut. Drop it, then put the
+        # streamed tail back — the copy did not replace it cleanly.
+        self.truncate(stream_start_len)
+        if plain_tail:
+            self.append_chunk(plain_tail)
 
     def append_user_message(self, text: str, on_after_insert: Any = None) -> None:
         """Append a formatted user message and optionally record control length after insert."""

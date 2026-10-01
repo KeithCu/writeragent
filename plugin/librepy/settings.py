@@ -9,9 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.chatbot.dialogs import TabListener, get_checkbox_state, get_control_text, get_optional, is_checkbox_control, load_writeragent_dialog_detail, msgbox, set_checkbox_state, set_control_text, set_control_visible, translate_dialog
+from plugin.chatbot.dialogs import TabListener, get_optional, load_writeragent_dialog_detail, msgbox, set_control_text, set_control_visible, translate_dialog
 from plugin.framework.uno_listeners import BaseActionListener
-from plugin.framework.config_schema import as_bool
 from plugin.framework.i18n import _
 from plugin.framework.logging import init_logging
 from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener, VenvProbeProgressDialog
@@ -49,16 +48,6 @@ def _scripting_field_specs() -> list[dict[str, Any]]:
     return build_module_field_specs("scripting", control_ids="prefixed", skip_librepy_exclude=True)
 
 
-def _set_ctrl_options(ctrl: Any, field: dict[str, Any]) -> None:
-    opts = field.get("options")
-    if not isinstance(opts, list):
-        return
-    labels = tuple(_(str(o.get("label", o.get("value", "")))) for o in opts if isinstance(o, dict))
-    model = ctrl.getModel()
-    if hasattr(model, "StringItemList"):
-        model.StringItemList = labels
-
-
 def _hide_settings_controls(dlg: Any, control_ids: tuple[str, ...]) -> None:
     """Hide optional XDL controls (e.g. WriterAgent-only rows on cached dialogs)."""
     for control_id in control_ids:
@@ -89,35 +78,26 @@ def _configure_librepy_settings_chrome(dlg: Any) -> None:
 
 
 def _populate_field(ctrl: Any, field: dict[str, Any]) -> None:
-    field_type = str(field.get("type") or "")
-    if is_checkbox_control(ctrl):
-        set_checkbox_state(ctrl, 1 if as_bool(field["value"]) else 0)
-        return
-    if field_type in ("int", "float") and hasattr(ctrl, "setValue"):
-        try:
-            ctrl.setValue(float(field["value"]))
-            return
-        except Exception:
-            log.debug("setValue failed for %s", field.get("name"), exc_info=True)
-    if hasattr(ctrl, "setText"):
-        if "options" in field:
-            _set_ctrl_options(ctrl, field)
-        ctrl.setText(str(field.get("value", "")))
-        return
-    set_control_text(ctrl, field["value"])
+    from plugin.chatbot.settings_fields import populate_settings_control
+
+    populate_settings_control(ctrl, field)
 
 
-def _extract_field(ctrl: Any) -> str:
-    if is_checkbox_control(ctrl):
-        return "true" if get_checkbox_state(ctrl) else "false"
-    if hasattr(ctrl, "getValue"):
-        try:
-            return str(ctrl.getValue())
-        except Exception:
-            log.debug("getValue failed", exc_info=True)
-    if hasattr(ctrl, "getText"):
-        return ctrl.getText()
-    return get_control_text(ctrl)
+def _extract_field(ctrl: Any, field: dict[str, Any] | None = None) -> str:
+    """LibrePy checkboxes stay ``\"true\"`` / ``\"false\"`` strings.
+
+    The shared reader returns a bool. Numeric fields use ``getValue`` (the
+    live spin value). ``getText`` on those controls is the inherited edit
+    text and can be stale.
+    """
+    from plugin.chatbot.settings_fields import read_settings_control
+
+    value = read_settings_control(ctrl, field)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return ""
+    return str(value)
 
 
 def open_librepy_settings(ctx: Any) -> None:
@@ -180,7 +160,7 @@ def open_librepy_settings(ctx: Any) -> None:
                 ctrl = get_optional(dlg, field["name"])
                 if ctrl is None:
                     continue
-                result[field["name"]] = _extract_field(ctrl)
+                result[field["name"]] = _extract_field(ctrl, field)
             apply_field_specs_result(ctx, result, field_specs)
     finally:
         if test_btn is not None and test_listener is not None:

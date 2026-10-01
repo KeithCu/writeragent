@@ -130,6 +130,7 @@ class AudioRecorder:
         self._silence_detector: SilenceDetector | None = None
         self._on_auto_stop: Callable[[], None] | None = None
         self._on_silence_progress: Callable[[int], None] | None = None
+        self._on_recording_error: Callable[[str], None] | None = None
         self.state = AudioRecorderState(status="idle")
         # Packet G native tests: skip venv/PortAudio spawn and use inject_wav.
         self._test_skip_spawn = False
@@ -144,10 +145,12 @@ class AudioRecorder:
         *,
         on_auto_stop: Callable[[], None] | None = None,
         on_silence_progress: Callable[[int], None] | None = None,
+        on_error: Callable[[str], None] | None = None,
     ) -> None:
-        """Register UI hooks for silence-based auto-stop (venv and host capture)."""
+        """Register UI hooks for silence-based auto-stop and child errors."""
         self._on_auto_stop = on_auto_stop
         self._on_silence_progress = on_silence_progress
+        self._on_recording_error = on_error
 
     def _notify_auto_stop(self, path: str | None = None) -> None:
         with self._auto_stop_lock:
@@ -161,6 +164,30 @@ class AudioRecorder:
             callback()
         except Exception as exc:
             log.debug("Failed to dispatch audio auto-stop callback: %s", exc)
+
+    def _notify_recording_error(self, msg: str) -> None:
+        """Stdout-monitor hook. Must not raise (ReportErrorEffect raises).
+
+        A child ``error`` after ready used to call ``_apply_event`` on the
+        monitor thread. That raised, and StopRecordingEffect then deleted a
+        non-empty WAV because status was already ``error``. The panel posts
+        ``on_error`` onto the UI thread, the same way silence auto-stop does.
+        """
+        callback = self._on_recording_error
+        if callback is not None:
+            try:
+                callback(msg)
+            except Exception as exc:
+                log.debug("Failed to dispatch audio error callback: %s", exc)
+            return
+        self.apply_stdout_error(msg)
+
+    def apply_stdout_error(self, msg: str) -> None:
+        """Apply a post-ready child error without escaping ReportErrorEffect."""
+        try:
+            self._apply_event(ErrorOccurredEvent(msg))
+        except RuntimeError:
+            log.warning("audio recorder: %s", msg)
 
     def _notify_silence_progress(self, ms: int) -> None:
         if self._on_silence_progress is None:
@@ -182,7 +209,7 @@ class AudioRecorder:
             proc,
             on_auto_stopped=lambda path: self._notify_auto_stop(path),
             on_silence_progress=self._notify_silence_progress,
-            on_error=lambda msg: self._apply_event(ErrorOccurredEvent(msg)),
+            on_error=self._notify_recording_error,
             handoff=handoff,
         )
 
@@ -436,7 +463,11 @@ class AudioRecorder:
                 terminate_recording_process(proc)
 
             if self.state.status == "error":
-                self._cleanup_failed_start()
+                # Failed start still deletes an empty file. A child error
+                # after ready hits this same branch, and _cleanup_failed_start
+                # used to unlink the WAV the child had already written.
+                if not _wav_file_has_bytes(self.temp_filename):
+                    self._cleanup_failed_start()
 
         elif isinstance(effect, ReportErrorEffect):
             raise RuntimeError(effect.error_message)

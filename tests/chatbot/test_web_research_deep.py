@@ -1,10 +1,13 @@
 # WriterAgent - tests for deep web research (adaptive loop + orchestrator)
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 
 from plugin.chatbot.web_research_deep import (
     ResearchProgress,
+    _ResearchAccumulator,
+    _process_one_sub_query,
     assess_research_coverage,
     parse_assessment_response,
     parse_follow_up_questions_response,
@@ -55,6 +58,32 @@ class TestDeepResearchParsers:
         trimmed = trim_context_to_word_limit(chunks, max_words=4)
         assert len(trimmed) == 1
         assert trimmed[0] == "four five"
+
+    def test_sub_query_citations_contribute_urls_not_learnings(self):
+        learning = "Elevators need a counterweight"
+        url = "https://example.com/elevators"
+        payload = (
+            '{"learnings": [{"insight": "%s", "sourceUrl": "%s"}], "followUpQuestions": []}'
+            % (learning, url)
+        )
+
+        def llm_chat(messages, max_tokens=0):
+            return payload
+
+        branch = _process_one_sub_query(
+            {"query": "elevator physics", "researchGoal": "mass"},
+            run_web_agent=lambda query, goal, params: "prose without a url",
+            llm_chat=llm_chat,
+            stop_checker=lambda: False,
+            acc=_ResearchAccumulator(),
+            max_sub_queries=3,
+            progress=ResearchProgress(),
+            status_callback=None,
+            on_progress=None,
+        )
+        assert branch is not None
+        assert url in branch["sources"]
+        assert learning not in branch["sources"]
 
     def test_research_progress_status_text(self):
         p = ResearchProgress(current_round=2, max_rounds=3, completed_queries=5, max_sub_queries=14, current_query="climate policy")
@@ -266,6 +295,80 @@ class TestRunDeepResearch:
         assert "https://a.test" in result
         assert "synthesis failed" in result.lower() or "automatic synthesis" in result.lower()
 
+    def test_user_stopped_during_extraction_is_not_partial_success(self):
+        from plugin.framework.errors import ToolExecutionError
+
+        extract_calls = {"n": 0}
+        synth_calls = {"n": 0}
+
+        def llm_router(messages):
+            combined = "\n".join(m["content"] for m in messages)
+            if "extract key learnings" in combined:
+                extract_calls["n"] += 1
+                if extract_calls["n"] == 1:
+                    raise ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")
+                return '{"learnings": [{"insight": "Finding X", "sourceUrl": "https://a.test"}], "followUpQuestions": []}'
+            if "plain-text research report" in combined or "Collected evidence" in combined:
+                synth_calls["n"] += 1
+                return "partial report that must not be cached"
+            return self._llm_router(messages)
+
+        def query_router(messages):
+            combined = "\n".join(m["content"] for m in messages)
+            if "search queries" in combined and "JSON array" in combined:
+                return (
+                    '[{"query": "q1", "researchGoal": "g1"}, '
+                    '{"query": "q2", "researchGoal": "g2"}]'
+                )
+            return llm_router(messages)
+
+        result = run_deep_research(
+            "topic",
+            None,
+            llm_chat=lambda msgs, _max: query_router(msgs),
+            run_web_agent=lambda *_args: "sub context",
+            stop_checker=None,
+            status_callback=None,
+            breadth=2,
+            max_rounds=1,
+            max_sub_queries=5,
+            concurrency=1,
+            plain_text_format="plain",
+            initial_search_snippet="preview",
+        )
+        assert isinstance(result, dict)
+        assert result.get("status") == "error"
+        assert result.get("code") == "USER_STOPPED"
+        assert synth_calls["n"] == 0
+        assert "partial report" not in str(result.get("message") or "")
+
+    def test_user_stopped_during_synthesis_is_not_partial_report(self):
+        from plugin.framework.errors import ToolExecutionError
+
+        def llm_router(messages):
+            combined = "\n".join(m["content"] for m in messages)
+            if "plain-text research report" in combined or "Collected evidence" in combined:
+                raise ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")
+            return self._llm_router(messages)
+
+        result = run_deep_research(
+            "main topic",
+            None,
+            llm_chat=lambda msgs, _max: llm_router(msgs),
+            run_web_agent=lambda sub_query, _goal, _history: "Sub-agent context for " + sub_query,
+            stop_checker=None,
+            status_callback=None,
+            breadth=1,
+            max_rounds=1,
+            max_sub_queries=5,
+            plain_text_format="Use plain text.",
+            initial_search_snippet="preview hit",
+        )
+        assert isinstance(result, dict)
+        assert result.get("code") == "USER_STOPPED"
+        assert "Finding X" not in str(result.get("message") or "")
+        assert "automatic synthesis" not in str(result.get("message") or "").lower()
+
 
 class TestWebResearchExecuteDeepKwarg:
     @patch("plugin.chatbot.web_research._run_web_agent")
@@ -387,3 +490,237 @@ def test_generate_research_plan_uses_llm_client_datetime_format():
 
     assert len(out) == 2
     assert f"Current time: {stamp}" in captured["user"]
+
+
+def test_chat_completion_sync_stop_checker_not_finish_reason():
+    from plugin.framework.client.llm_client import LlmClient
+    from plugin.framework.errors import ToolExecutionError
+
+    client = LlmClient.__new__(LlmClient)
+    client._stopped = False
+    messages = [{"role": "user", "content": "hi"}]
+    seen: dict[str, object] = {}
+
+    def fake_request(*_args, **kwargs):
+        seen.update(kwargs)
+        return {"role": "assistant", "content": "done", "finish_reason": "stop"}
+
+    client.request_with_tools = fake_request
+
+    def not_stopped() -> bool:
+        return False
+
+    def stopped() -> bool:
+        return True
+
+    assert client.chat_completion_sync(messages) == "done"
+    assert client.chat_completion_sync(messages, stop_checker=not_stopped) == "done"
+    assert seen.get("stop_checker") is not_stopped
+
+    with pytest.raises(ToolExecutionError) as raised:
+        client.chat_completion_sync(messages, stop_checker=stopped)
+    assert raised.value.code == "USER_STOPPED"
+
+    # The latch alone is not a stop for callers that never passed a checker.
+    client._stopped = True
+    assert client.chat_completion_sync(messages) == "done"
+    with pytest.raises(ToolExecutionError) as raised_latch:
+        client.chat_completion_sync(messages, stop_checker=not_stopped)
+    assert raised_latch.value.code == "USER_STOPPED"
+
+
+def _deep_preview_params(approval_callback, *, prompt: bool):
+    from plugin.chatbot.web_research import WebAgentRunParams
+
+    api = MagicMock()
+    api.config = {}
+    api.ctx = object()
+    model = MagicMock()
+    model.api = api
+    model.max_tokens = 32
+    return WebAgentRunParams(
+        smol_model=model,
+        max_steps=4,
+        cache_path=None,
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        cdp_enabled=False,
+        cdp_url=None,
+        stop_checker=None,
+        status_callback=None,
+        append_thinking_callback=None,
+        approval_callback=approval_callback,
+        chat_append_callback=None,
+        prompt_for_web_research=prompt,
+        outer_query="topic",
+        cancellation_scope=object(),
+    )
+
+
+def test_deep_preview_reject_skips_fetch_and_research_continues():
+    from plugin.chatbot.web_research import _run_deep_web_research
+
+    for decision in (False, (False, None)):
+        params = _deep_preview_params(lambda q, tool, args, decision=decision: decision, prompt=True)
+        with patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg, \
+             patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
+             patch("plugin.framework.config.get_config_int", return_value=1), \
+             patch("plugin.framework.config.get_config_int_safe", return_value=1):
+            out = _run_deep_web_research(
+                MagicMock(), "topic", None, params,
+                cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
+            )
+        assert out == "report"
+        ddg.assert_not_called()
+        assert run_deep.call_args.kwargs["initial_search_snippet"] == ""
+        assert callable(run_deep.call_args.kwargs["worker_factory"])
+
+
+def test_deep_preview_approval_uses_edited_query():
+    from plugin.chatbot.web_research import _run_deep_web_research
+
+    def approval(query, tool, args):
+        assert tool == "web_search"
+        assert query == "topic"
+        return True, "edited topic"
+
+    params = _deep_preview_params(approval, prompt=True)
+    with patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg, \
+         patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
+         patch("plugin.framework.config.get_config_int", return_value=1), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=1):
+        ddg.return_value.forward.return_value = "snippet text"
+        out = _run_deep_web_research(
+            MagicMock(), "topic", None, params,
+            cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
+        )
+    assert out == "report"
+    ddg.return_value.forward.assert_called_once_with("edited topic")
+    assert run_deep.call_args.kwargs["initial_search_snippet"] == "snippet text"
+
+
+class _RecordingClient:
+    instances: list["_RecordingClient"] = []
+
+    def __init__(self, config, ctx, cancellation_scope=None):
+        self.config = config
+        self.ctx = ctx
+        self.cancellation_scope = cancellation_scope
+        self._stopped = False
+        self.kinds: list[str] = []
+        self.saw_stop_checker = False
+        _RecordingClient.instances.append(self)
+
+    def chat_completion_sync(self, messages, max_tokens=512, **kwargs):
+        self.saw_stop_checker = "stop_checker" in kwargs
+        combined = "\n".join(str(m.get("content") or "") for m in messages)
+        if "extract key learnings" in combined:
+            self.kinds.append("extract")
+            if _RecordingClient.extract_raises:
+                from plugin.framework.errors import ToolExecutionError
+
+                raise ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")
+            return '{"learnings": [{"insight": "Finding X", "sourceUrl": "https://a.test"}], "followUpQuestions": []}'
+        if "plain-text research report" in combined or "Collected evidence" in combined:
+            self.kinds.append("synth")
+            if _RecordingClient.synth_raises:
+                from plugin.framework.errors import ToolExecutionError
+
+                raise ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")
+            return "Final synthesized report."
+        if "search queries" in combined and "JSON array" in combined:
+            self.kinds.append("queries")
+            return '[{"query": "sub one", "researchGoal": "goal one"}]'
+        if "evaluate whether web research" in combined or "Quality threshold" in combined:
+            self.kinds.append("assess")
+            return '{"score": 9, "knowledge_gaps": [], "suggested_queries": [], "stop": true}'
+        if '"questions"' in combined and "JSON object" in combined:
+            self.kinds.append("plan")
+            return '{"questions": ["Aspect A?"]}'
+        self.kinds.append("other")
+        return "{}"
+
+
+_RecordingClient.extract_raises = False
+_RecordingClient.synth_raises = False
+
+
+def _execute_deep_with_recording_client(tmp_path, *, extract_raises: bool, synth_raises: bool):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    _RecordingClient.instances = []
+    _RecordingClient.extract_raises = extract_raises
+    _RecordingClient.synth_raises = synth_raises
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    ctx.chat_append_callback = None
+    ctx.stop_checker = lambda: False
+    scope = object()
+    ctx.send_cancellation = scope
+
+    def _cfg_int(key):
+        if key == "web_cache_validity_days":
+            return 30
+        if "breadth" in key:
+            return 1
+        if key == "web_cache_max_mb":
+            return 50
+        return 8
+
+    def _cfg_int_safe(key):
+        if "max_rounds" in key:
+            return 1
+        if "sub_agent" in key:
+            return 0
+        return 50
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.config.get_config_int_safe", side_effect=_cfg_int_safe), \
+         patch("plugin.framework.config.get_api_config", return_value={"model": "test-model"}), \
+         patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
+         patch("plugin.framework.client.llm_client.LlmClient", _RecordingClient), \
+         patch("plugin.chatbot.web_research._run_web_agent", return_value="sub context"), \
+         patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg:
+        ddg.return_value.forward.return_value = "preview"
+        result = WebResearchTool().execute(ctx, query="Execute a new search query", deep=True)
+    return result, scope
+
+
+def test_user_stopped_during_sub_query_or_synthesis_is_not_cached(tmp_path):
+    from plugin.contrib.smolagents.default_tools import _web_cache_get, _web_cache_list_keys
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    for extract_raises, synth_raises in ((True, False), (False, True)):
+        result, scope = _execute_deep_with_recording_client(tmp_path, extract_raises=extract_raises, synth_raises=synth_raises)
+        assert result.get("status") == "error"
+        assert result.get("code") == "USER_STOPPED"
+        assert "Finding X" not in str(result.get("result") or "")
+        assert "automatic synthesis" not in str(result.get("message") or "").lower()
+        assert _web_cache_list_keys(db_file, "research", 30) == []
+        assert _web_cache_get(db_file, "research", "deep|english|execute", max_age_days=30) is None
+        assert _web_cache_get(db_file, "research", "english|execute", max_age_days=30) is None
+
+        instances = _RecordingClient.instances
+        assert len(instances) >= 2
+        parent = instances[0]
+        workers = instances[1:]
+        assert parent.cancellation_scope is scope
+        assert all(worker.cancellation_scope is scope for worker in workers)
+        assert all(worker.config is parent.config for worker in workers)
+        assert "extract" not in parent.kinds
+        assert any("extract" in worker.kinds for worker in workers)
+        assert parent.saw_stop_checker
+        if synth_raises:
+            assert "synth" in parent.kinds
+        else:
+            assert "synth" not in parent.kinds
+            assert all("synth" not in worker.kinds for worker in workers)

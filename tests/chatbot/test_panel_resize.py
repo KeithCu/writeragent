@@ -126,6 +126,33 @@ class TestComputeChatPanelLayout:
             assert rect.x + rect.width <= right, name
 
 class TestPanelResizeListenerIntegration:
+    def test_disposing_runs_callback_without_removing_listener(self):
+        # VCL disposing means the listener is already going away. Removing it
+        # from here used to be the only teardown, and it never cancelled the send.
+        calls: list[str] = []
+        listener = _PanelResizeListener({}, on_dispose=lambda: calls.append("dispose"))
+        root = MagicMock()
+        listener._root_window = root
+
+        listener.disposing(root)
+
+        assert calls == ["dispose"]
+        root.removeWindowListener.assert_not_called()
+        assert listener._root_window is None
+        listener.disposing(root)
+        assert calls == ["dispose"]
+
+    def test_one_arg_constructor_disposing_is_safe(self):
+        listener = _PanelResizeListener({})
+        listener.disposing(None)
+
+    def test_disposing_logs_callback_failure(self):
+        def boom() -> None:
+            raise RuntimeError("deck")
+
+        listener = _PanelResizeListener({}, on_dispose=boom)
+        listener.disposing(None)
+
     def test_listener_applies_layout_and_syncs_rich_control(self):
         controls = {
             name: _mock_control(x, y, w, h)

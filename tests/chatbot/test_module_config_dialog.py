@@ -10,12 +10,11 @@ from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.module_config_dialog import (
     ModuleConfigDialog,
-    _option_labels,
-    _set_field_options,
     apply_module_config_result,
     get_module_config_dialog_id,
     get_module_config_field_specs,
 )
+from plugin.chatbot.settings_fields import populate_settings_control
 
 
 def test_get_module_config_dialog_id_for_vision():
@@ -65,30 +64,23 @@ def test_manifest_vision_insert_mode_has_options():
     assert len(schema.get("options") or []) >= 2
 
 
-def test_option_labels_translates_select_labels():
+def test_populate_settings_control_sets_translated_option_labels():
+    model = type("M", (), {"StringItemList": ()})()
+    ctrl = type("C", (), {})()
+    ctrl.getModel = lambda: model  # type: ignore[method-assign]
+    ctrl.setText = lambda _text: None  # type: ignore[method-assign]
+
     field = {
         "name": "insert_mode",
         "options": [
             {"value": "html", "label": "Standard HTML"},
             {"value": "structured", "label": "Structured (layout / cell grid)"},
         ],
+        "value": "html",
     }
-    labels = _option_labels(field)
-    assert len(labels) == 2
-    assert "Standard HTML" in labels[0] or labels[0]
-
-
-def test_set_field_options_uses_string_item_list():
-    model = type("M", (), {"StringItemList": ()})()
-    ctrl = type("C", (), {})()
-    ctrl.getModel = lambda: model  # type: ignore[method-assign]
-
-    field = {
-        "name": "insert_mode",
-        "options": [{"value": "html", "label": "Standard HTML"}],
-    }
-    _set_field_options(ctrl, field)
-    assert model.StringItemList == ("Standard HTML",)
+    populate_settings_control(ctrl, field)
+    assert model.StringItemList[0]
+    assert "Standard HTML" in model.StringItemList[0]
 
 
 def test_apply_module_config_result_delegates_raw_values_to_config():
@@ -107,11 +99,36 @@ def test_apply_module_config_result_delegates_raw_values_to_config():
     }
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", side_effect=lambda key: {"demo.count": 1, "demo.mode": "fast"}[key]), \
-         patch("plugin.chatbot.settings_fields.set_config") as mock_set_config:
+         patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
         apply_module_config_result(ctx, "demo", {"count": "42", "mode": "Fast Mode"})
 
-    mock_set_config.assert_any_call("demo.count", "42")
-    mock_set_config.assert_any_call("demo.mode", "Fast Mode")
+    mock_set_configs.assert_called_once_with({"demo.count": "42", "demo.mode": "Fast Mode"})
+
+
+def test_extract_result_prefers_numeric_getvalue_over_stale_gettext():
+    """Numeric controls inherit getText. The live spin value is getValue."""
+    manifest = {
+        "name": "demo",
+        "config": {
+            "count": {"type": "int", "default": 1, "widget": "number"},
+        },
+    }
+
+    class _Spin:
+        def getText(self):
+            return "1"
+
+        def getValue(self):
+            return 42
+
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: _Spin() if name == "count" else None
+    dialog = ModuleConfigDialog(MagicMock(), "demo")
+    dialog._dlg = dlg
+    with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
+         patch("plugin.chatbot.settings_fields.get_config", return_value=1):
+        result = dialog._extract_result()
+    assert result == {"count": 42}
 
 
 def test_open_passes_ctx_to_get_extension_url():

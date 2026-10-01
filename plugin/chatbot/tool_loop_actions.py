@@ -31,7 +31,7 @@ from plugin.chatbot.tool_loop_state import (
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
 from plugin.framework.config import get_config_bool, get_current_endpoint
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, format_error_payload
+from plugin.framework.errors import ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.tool import ToolContext
@@ -141,8 +141,15 @@ def build_tool_execute_fn(
                         # Use setattr/getattr to avoid static attribute errors on Event.
                         setattr(event, "approved", False)
                         setattr(event, "query_override", None)
+                        from plugin.framework.queue_executor import wait_for_approval
+
                         q.put((StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event))
-                        event.wait()
+                        checker = stop_checker if stop_checker is not None else host.resolve_stop_checker()
+                        # event.wait() ignored Stop. Sidebar close latches the
+                        # checker and never sets the event, so this worker parked.
+                        if not wait_for_approval(event, checker):
+                            q.put((StreamQueueKind.STOPPED,))
+                            return (False, None)
                         if not getattr(event, "approved", False):
                             q.put((StreamQueueKind.STOPPED,))
                         return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
@@ -224,7 +231,8 @@ class ToolLoopEffectInterpreter:
         elif isinstance(effect, SpawnFinalStreamEffect):
             host._spawn_final_stream(host._active_batched_q or host._active_q, host._active_client, host._active_max_tokens)
         elif isinstance(effect, UpdateDocumentContextEffect):
-            self._refresh_document_context()
+            if self._refresh_document_context():
+                return True
         elif isinstance(effect, ToolLoopUIEffect):
             self._execute_ui_effect(effect)
         elif isinstance(effect, LogAgentEffect):
@@ -242,14 +250,29 @@ class ToolLoopEffectInterpreter:
             self._spawn_tool_worker(effect)
         return False
 
-    def _refresh_document_context(self) -> None:
+    def _refresh_document_context(self) -> bool:
+        """Refresh the document snapshot. Return True when the drain should stop.
+
+        A missing or disposed document used to be logged at debug and the
+        tool loop kept going with the previous snapshot. That is the same
+        failure _do_send already ends on.
+        """
         host = self.host
         try:
             doc = host._get_document_model() if hasattr(host, "_get_document_model") else None
-            if doc:
-                host.session.refresh_document_context(doc, host.ctx)
-        except Exception:
-            log.debug("Tool loop: failed to refresh document context after mutating tool", exc_info=True)
+            if not doc:
+                raise UnoObjectError("Document closed or unavailable.", code="DOCUMENT_UNAVAILABLE")
+            host.session.refresh_document_context(doc, host.ctx)
+            return False
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                log.debug("Tool loop: document disposed during context refresh", exc_info=True)
+            else:
+                log.exception("Tool loop: failed to refresh document context after mutating tool")
+            host._append_response("\n[Document closed or unavailable.]\n")
+            host._terminal_status = "Error"
+            host._set_status("Error")
+            return True
 
     def _execute_ui_effect(self, effect: ToolLoopUIEffect) -> None:
         host = self.host

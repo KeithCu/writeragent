@@ -112,6 +112,27 @@ class TestEnsureTrailingLineBreak:
             mock_insert.assert_not_called()
 
 
+class TestEnsureMessageSeparator:
+    def test_does_not_insert_when_text_already_ends_with_blank_line(self):
+        from plugin.chatbot.rich_text_paste import _ensure_message_separator
+
+        control = MagicMock()
+        model = MagicMock()
+        cursor = MagicMock()
+        model.createTextCursor.return_value = cursor
+        control.getModel.return_value = model
+
+        model.Text = "already\n\n"
+        with patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor") as mock_insert:
+            _ensure_message_separator(control)
+            mock_insert.assert_not_called()
+
+        model.Text = "needs gap"
+        with patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor") as mock_insert:
+            _ensure_message_separator(control)
+            mock_insert.assert_called_once_with(model, cursor, "\n\n")
+
+
 class TestAppendRichTextViaClipboard:
     def test_pipeline_order(self):
         control = MagicMock()
@@ -155,6 +176,43 @@ class TestAppendRichTextViaClipboard:
 
         assert seen == [42]
         doc.close.assert_called_once_with(True)
+
+    def test_not_success_when_later_element_skipped(self):
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = ""
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        good = _body_paragraph("kept")
+        bad = MagicMock()
+        bad.supportsService.return_value = False
+        bad.getPropertyValue.side_effect = Exception("not a list")
+        bad.createEnumeration.side_effect = RuntimeError("portion enum failed")
+        doc.getText.return_value.createEnumeration.return_value = _uno_enum([good, bad])
+        theme = MagicMock(user_color=1, assistant_color=2)
+        inserted: list[str] = []
+
+        def _capture(_model, _cursor, text, char_color=None, **kwargs):
+            inserted.append(text)
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
+             patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+             patch("plugin.chatbot.rich_text_paste.process_events_to_idle"), \
+             patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
+             patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
+             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
+             patch("plugin.chatbot.rich_text_paste._apply_sidebar_para_margins"), \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
+            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi</p>", role="assistant")
+
+        assert ok is False
+        assert "kept" in inserted
+        bad.createEnumeration.assert_called()
 
 class TestHistoryMessageBatching:
     def test_iter_batches_empty(self):
@@ -262,6 +320,27 @@ class TestHistoryMessageBatching:
         assert mock_copy.call_count == 2
         assert mock_scroll.call_count == 2
         assert doc.close.call_count == 2
+
+    def test_failed_hidden_writer_batch_does_not_skip_later_batches(self):
+        control = MagicMock()
+        control.getModel.return_value = MagicMock(Text="")
+        ctx = MagicMock()
+        doc = MagicMock()
+        chunk = "x" * 10000
+        items = [("user", chunk), ("assistant", chunk)]
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", side_effect=[None, doc]) as mock_create, \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text") as mock_append, \
+             patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=True) as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
+            append_rich_messages_via_clipboard(ctx, control, items, batch_chars=HISTORY_RENDER_BATCH_CHARS)
+
+        assert mock_create.call_count == 2
+        mock_cfg.assert_called_once_with(doc)
+        mock_append.assert_called_once()
+        mock_copy.assert_called_once()
+        doc.close.assert_called_once_with(True)
 
 
 class TestListPrefix:

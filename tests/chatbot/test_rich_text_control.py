@@ -531,6 +531,41 @@ class TestRichTextChatWidget:
         mock_trunc.assert_called_once_with(10)
         mock_append.assert_called_once_with("plain text", role="assistant")
 
+    def test_rerender_restores_plain_tail_when_formatted_insert_fails(self):
+        from plugin.chatbot.rich_text_control import RichTextChatWidget
+
+        prefix = "You: hi\n\n"
+        tail = "plain streamed answer"
+        start = len(prefix)
+        session = MagicMock()
+        session.messages = [{"role": "assistant", "content": "<p>formatted</p>"}]
+
+        def _widget() -> RichTextChatWidget:
+            control = MagicMock()
+            model = MagicMock()
+            model.Text = prefix + tail
+            control.getModel.return_value = model
+            return RichTextChatWidget(MagicMock(), control)
+
+        widget = _widget()
+        with patch.object(widget, "truncate") as mock_trunc, \
+             patch.object(widget, "append_rich_message", return_value=False) as mock_append, \
+             patch.object(widget, "append_chunk") as mock_chunk:
+            widget.rerender_last_assistant_if_html(session, start)
+
+        assert [c.args for c in mock_trunc.call_args_list] == [(start,), (start,)]
+        mock_append.assert_called_once_with("<p>formatted</p>", role="assistant")
+        mock_chunk.assert_called_once_with(tail)
+
+        widget = _widget()
+        with patch.object(widget, "truncate") as mock_trunc, \
+             patch.object(widget, "append_rich_message", side_effect=RuntimeError("element")), \
+             patch.object(widget, "append_chunk") as mock_chunk:
+            widget.rerender_last_assistant_if_html(session, start)
+
+        assert [c.args for c in mock_trunc.call_args_list] == [(start,), (start,)]
+        mock_chunk.assert_called_once_with(tail)
+
     def test_append_assistant_stream_chunk_skips_legacy_ai(self):
         from plugin.chatbot.rich_text_control import RichTextChatWidget
 

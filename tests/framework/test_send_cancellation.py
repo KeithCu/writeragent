@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +10,27 @@ import pytest
 from plugin.chatbot.smol_agent import WriterAgentSmolModel
 from plugin.doc.document_research_specialized import DelegateReadDocument
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.queue_executor import SendCancellation, QueueExecutor, SendCancelled, agent_session, default_executor, is_agent_active
+from plugin.framework.queue_executor import SendCancellation, QueueExecutor, SendCancelled, agent_session, default_executor, is_agent_active, wait_for_approval
+
+
+def test_wait_for_approval_set_event_wins_over_stop():
+    """A signaled approval must not lose to a stop that lands in the same wake."""
+    event = threading.Event()
+    event.set()
+    assert wait_for_approval(event, lambda: True, timeout=0.01) is True
+
+
+def test_wait_for_approval_stop_while_unset_returns_false():
+    """Sidebar close latches stop and never sets the approval event."""
+    event = threading.Event()
+    assert wait_for_approval(event, lambda: True, timeout=0.01) is False
+    assert event.is_set() is False
+
+
+def test_wait_for_approval_without_checker_waits_until_set():
+    event = threading.Event()
+    threading.Thread(target=event.set, daemon=True).start()
+    assert wait_for_approval(event, None, timeout=0.05) is True
 
 
 def test_send_cancellation_stops_registered_clients():

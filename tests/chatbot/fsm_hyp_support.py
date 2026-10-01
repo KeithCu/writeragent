@@ -176,14 +176,10 @@ def tool_loop_events(draw):
 
 @st.composite
 def send_handler_states(draw):
-    max_rounds = draw(st.integers(min_value=1, max_value=8))
     return SendHandlerState(
-        handler_type=draw(st.sampled_from(("agent", "audio", "image", "web"))),
+        handler_type=draw(st.sampled_from(("agent", "image", "web"))),
         status=draw(st.sampled_from(("ready", "starting", "running", "done", "stopped"))),
         query_text=draw(st.sampled_from(("", "hi", "q"))),
-        round_num=draw(st.integers(min_value=0, max_value=max_rounds)),
-        pending_tools=(),
-        max_rounds=max_rounds,
     )
 
 

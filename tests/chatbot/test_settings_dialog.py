@@ -13,7 +13,6 @@ def test_image_default_aspect_has_sidebar_matching_options():
         patch("plugin.chatbot.settings_dialog.get_config_int", return_value=512),
         patch("plugin.chatbot.settings_dialog.get_config_float", return_value=0.7),
         patch("plugin.chatbot.settings_dialog.get_config_bool", return_value=True),
-        patch("plugin.chatbot.settings_dialog.get_config", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value="m"),
         patch("plugin.chatbot.settings_dialog.get_image_model", return_value="img"),
@@ -52,15 +51,11 @@ def test_image_aspect_display_is_translated_value_stays_english():
         patch("plugin.chatbot.settings_dialog.get_config_int", return_value=512),
         patch("plugin.chatbot.settings_dialog.get_config_float", return_value=0.7),
         patch("plugin.chatbot.settings_dialog.get_config_bool", return_value=True),
-        patch("plugin.chatbot.settings_dialog.get_config", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value="m"),
         patch("plugin.chatbot.settings_dialog.get_image_model", return_value="img"),
         patch("plugin.chatbot.settings_dialog._get_module_field_specs", return_value=[]),
-        patch("plugin.chatbot.settings_dialog.set_config") as set_config,
-        patch("plugin.chatbot.settings_dialog.set_text_model"),
-        patch("plugin.chatbot.settings_dialog.set_image_model"),
-        patch("plugin.chatbot.settings_dialog.global_event_bus"),
+        patch("plugin.chatbot.settings_dialog.set_configs") as set_configs,
     ):
         specs = get_settings_field_specs(MagicMock())
         aspect = next(s for s in specs if s["name"] == "image_default_aspect")
@@ -68,7 +63,8 @@ def test_image_aspect_display_is_translated_value_stays_english():
         assert aspect["options"][0] == {"label": "正方形", "value": "Square"}
         apply_settings_result(MagicMock(), {"image_default_aspect": "正方形"})
 
-    saved = {call.args[0]: call.args[1] for call in set_config.call_args_list}
+    set_configs.assert_called_once()
+    saved = set_configs.call_args.args[0]
     assert saved["image_default_aspect"] == "Square"
 
 
@@ -90,7 +86,6 @@ def test_core_field_specs_omit_stt_model():
         patch("plugin.chatbot.settings_dialog.get_config_str", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_config_int", return_value=0),
         patch("plugin.chatbot.settings_dialog.get_config_float", return_value=0.0),
-        patch("plugin.chatbot.settings_dialog.get_config", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value=""),
     ):
@@ -98,6 +93,9 @@ def test_core_field_specs_omit_stt_model():
     names = {spec["name"] for spec in specs}
     assert "stt_model" not in names
     assert "audio__stt_model" not in names
+    # No XDL controls. OK used to write "" over the schema defaults.
+    assert "text_analytics_sentiment_model" not in names
+    assert "text_analytics_sentiment_engine" not in names
 
 
 def test_update_lru_for_audio_stt_model():
@@ -116,7 +114,7 @@ def test_apply_settings_writes_audio_stt_model():
     specs = [{"name": "audio__stt_model", "value": ""}]
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
          patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
         apply_settings_result(MagicMock(), {"audio__stt_model": "whisper-1"})
@@ -155,13 +153,14 @@ def test_apply_settings_result_tts_provider_and_voice():
     ]
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)):
+         patch("plugin.audio.tts_service.set_config") as tts_set:
         apply_settings_result(MagicMock(), {
             "audio__tts_provider": "Kokoro (Local Neural, ONNX CPU)",
             "audio__tts_voice": "af_bella (Kokoro US Female - Bella)",
         })
+        tts_set.assert_not_called()
         assert stored.get("audio.tts_provider") == "kokoro"
         assert stored.get("audio.tts_voice_kokoro") == "af_bella"
         assert stored.get("audio.tts_voice") == "af_bella"
@@ -192,13 +191,14 @@ def test_apply_settings_voice_display_label_stores_id_for_that_provider():
     ]
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)):
+         patch("plugin.audio.tts_service.set_config") as tts_set:
         apply_settings_result(MagicMock(), {
             "audio__tts_provider": "Piper (Local Fast Neural, CPU)",
             "audio__tts_voice": "French Female - Siwis",
         })
+        tts_set.assert_not_called()
         assert stored.get("audio.tts_voice_piper") == "fr_FR-siwis-medium"
         assert stored.get("audio.tts_voice") == "fr_FR-siwis-medium"
 
@@ -218,7 +218,7 @@ def test_apply_settings_result_tts_speed():
     ]
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"):
         # Select from dropdown
         apply_settings_result(MagicMock(), {"audio__tts_speed": "1.25x"})
@@ -256,7 +256,7 @@ def test_apply_settings_stt_provider_and_local_model():
     ]
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"):
         apply_settings_result(MagicMock(), {
             "audio__stt_provider": "Local Whisper (faster-whisper)",
@@ -271,3 +271,70 @@ def test_apply_settings_stt_provider_and_local_model():
         })
         assert stored.get("audio.stt_provider") == "local"
         assert stored.get("audio.stt_local_model") == "base"
+
+
+def test_apply_settings_result_one_batch_no_extra_emit():
+    """Endpoint, model, API key, and voice are one set_configs call.
+
+    LRU runs after the batch. This function must not emit config:changed
+    itself — that unconditional emit refreshed the sidebar mode combo even
+    when the batch wrote nothing.
+    """
+    from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
+    from plugin.chatbot.settings_dialog import apply_settings_result
+    from plugin.framework.url_utils import normalize_endpoint_url
+
+    raw_endpoint = "http://127.0.0.1:9/v1"
+    current = endpoint_from_selector_text(raw_endpoint)
+    key_slot = normalize_endpoint_url(current)
+    specs = [
+        {"name": "endpoint"},
+        {"name": "text_model"},
+        {"name": "api_key"},
+        {"name": "temperature"},
+        {
+            "name": "audio__tts_provider",
+            "options": [{"value": "kokoro", "label": "Kokoro (Local Neural, ONNX CPU)"}],
+        },
+        {"name": "audio__tts_voice"},
+    ]
+    order: list[str] = []
+
+    def _cfg(key: str):
+        if key == "text_model":
+            return "old-model"
+        if key == "api_keys_by_endpoint":
+            return {}
+        return ""
+
+    with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
+         patch("plugin.chatbot.settings_dialog.get_config", side_effect=_cfg), \
+         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: order.append("batch") or values) as batch, \
+         patch("plugin.chatbot.config_ui_helpers.update_lru_history", side_effect=lambda *args: order.append("lru")) as lru, \
+         patch("plugin.framework.event_bus.global_event_bus.emit") as emit, \
+         patch("plugin.framework.config.set_config") as single, \
+         patch("plugin.audio.tts_service.set_config") as tts_set:
+        apply_settings_result(MagicMock(), {
+            "endpoint": raw_endpoint,
+            "text_model": "new-model",
+            "api_key": "sk-test",
+            "temperature": "0.2",
+            "audio__tts_provider": "Kokoro (Local Neural, ONNX CPU)",
+            "audio__tts_voice": "af_bella",
+        })
+
+    batch.assert_called_once()
+    pending = batch.call_args.args[0]
+    assert pending["endpoint"] == raw_endpoint
+    assert pending["text_model"] == "new-model"
+    assert pending["temperature"] == "0.2"
+    assert pending["audio.tts_provider"] == "kokoro"
+    assert pending["audio.tts_voice"] == "af_bella"
+    assert pending["audio.tts_voice_kokoro"] == "af_bella"
+    assert pending["api_keys_by_endpoint"][key_slot] == "sk-test"
+    assert order[0] == "batch"
+    assert "lru" in order
+    lru.assert_any_call("new-model", "model_lru", current)
+    emit.assert_not_called()
+    single.assert_not_called()
+    tts_set.assert_not_called()

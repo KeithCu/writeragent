@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.tool import ToolBase
@@ -68,6 +68,10 @@ class WebAgentRunParams:
     visited_urls_lock: threading.Lock | None = None
     max_steps_override: int | None = None
     deep_sub_agent: bool = False
+    # Pool workers do not see the send thread's cancellation thread-local.
+    # LlmClient only auto-registers get_current_send_cancellation() on the
+    # constructing thread, so each worker must be handed this scope explicitly.
+    cancellation_scope: Any = None
 
 
 
@@ -171,12 +175,13 @@ def _write_research_cache(
     max_age_days: int,
     stem_lang: str,
     embedding_text: str | None = None,
+    mode: str = "",
 ) -> dict[str, Any]:
     from plugin.chatbot.web_research_cache import format_research_cache_key
     from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill, enqueue_research_cache_embedding_for_row
     from plugin.contrib.smolagents.default_tools import _web_cache_set
 
-    storage_key = format_research_cache_key(stem_lang, unique_key)
+    storage_key = format_research_cache_key(stem_lang, unique_key, mode=mode)
     _web_cache_set(cache_path, "research", storage_key, result_text, cache_max_mb * 1024 * 1024)
     if embedding_text:
         enqueue_research_cache_embedding_for_row(getattr(ctx, "ctx", ctx), cache_path, storage_key, embedding_text)
@@ -438,30 +443,30 @@ def _run_deep_web_research(
     """Breadth/depth research loop; each sub-query reuses the shallow ReAct sub-agent."""
     from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
     from plugin.framework.config import get_config_int, get_config_int_safe
+    from plugin.chatbot.smol_agent import WriterAgentSmolModel
     from plugin.chatbot.web_research_deep import run_deep_research
+    from plugin.framework.client.llm_client import LlmClient
 
-    llm_client = agent_params.smol_model.api
+    parent_client = agent_params.smol_model.api
 
     def llm_chat(messages: list[dict[str, str]], max_tok: int) -> str:
-        return llm_client.chat_completion_sync(messages, max_tokens=max_tok, prepend_dev_build_system_prefix=False)
+        # Planning and synthesis stay on this thread, outside the sub-query pool.
+        # chat_completion_sync raises USER_STOPPED when the checker fires; an
+        # empty string used to look like a finished plan and was cached.
+        return parent_client.chat_completion_sync(
+            messages,
+            max_tokens=max_tok,
+            prepend_dev_build_system_prefix=False,
+            stop_checker=agent_params.stop_checker,
+        )
 
     visited_urls: set[str] = set()
     visited_lock = threading.Lock()
-    deep_params = WebAgentRunParams(
-        smol_model=agent_params.smol_model,
-        max_steps=agent_params.max_steps,
-        cache_path=agent_params.cache_path,
-        cache_max_mb=agent_params.cache_max_mb,
-        cache_max_age_days=agent_params.cache_max_age_days,
-        cdp_enabled=agent_params.cdp_enabled,
-        cdp_url=agent_params.cdp_url,
-        stop_checker=agent_params.stop_checker,
-        status_callback=agent_params.status_callback,
-        append_thinking_callback=agent_params.append_thinking_callback,
-        approval_callback=agent_params.approval_callback,
-        chat_append_callback=agent_params.chat_append_callback,
-        prompt_for_web_research=agent_params.prompt_for_web_research,
-        outer_query=agent_params.outer_query,
+    # replace keeps the shared visited set/lock (and cancellation scope) by
+    # reference. A fresh WebAgentRunParams would copy the field list and drop
+    # any new field the next time one is added.
+    deep_params = replace(
+        agent_params,
         visited_urls=visited_urls,
         visited_urls_lock=visited_lock,
         deep_sub_agent=True,
@@ -472,15 +477,63 @@ def _run_deep_web_research(
     elif agent_params.max_steps > 0:
         deep_params.max_steps_override = max(agent_params.max_steps + 1, int(agent_params.max_steps * 1.5))
 
-    def run_sub_agent(sub_query: str, research_goal: str, sub_history: str | None) -> str | dict[str, Any]:
-        return _run_web_agent(ctx, sub_query, sub_history, deep_params, research_goal=research_goal or None)
+    def worker_factory() -> tuple[Any, Any]:
+        # One LlmClient owns one HTTP connection and is not safe on two threads.
+        # The deep pool (default concurrency 2) used to share the parent client,
+        # so sub-query sockets raced the planning request. Build a client on the
+        # worker. Pool threads have no send-cancellation thread-local, so pass
+        # the scope explicitly or Stop cannot close this socket.
+        worker_client = LlmClient(
+            parent_client.config,
+            parent_client.ctx,
+            cancellation_scope=agent_params.cancellation_scope,
+        )
+        worker_model = WriterAgentSmolModel(
+            worker_client,
+            max_tokens=agent_params.smol_model.max_tokens,
+            status_callback=agent_params.status_callback,
+            stop_checker=agent_params.stop_checker,
+        )
+        worker_params = replace(deep_params, smol_model=worker_model)
+
+        def run_sub_agent(sub_query: str, research_goal: str, sub_history: str | None) -> str | dict[str, Any]:
+            return _run_web_agent(ctx, sub_query, sub_history, worker_params, research_goal=research_goal or None)
+
+        def worker_llm_chat(messages: list[dict[str, str]], max_tok: int) -> str:
+            return worker_client.chat_completion_sync(
+                messages,
+                max_tokens=max_tok,
+                prepend_dev_build_system_prefix=False,
+                stop_checker=agent_params.stop_checker,
+            )
+
+        return run_sub_agent, worker_llm_chat
+
+    def _parent_runner_not_for_pool(sub_query: str, research_goal: str, sub_history: str | None) -> str:
+        del sub_query, research_goal, sub_history
+        raise RuntimeError("deep-research sub-queries must run on a worker LlmClient")
+
+    preview_query: str | None = query_str
+    if agent_params.prompt_for_web_research and agent_params.approval_callback:
+        # Same tuple-or-bool check as the web_search tool step. Reject or stop
+        # skips this planning fetch; there is no second approval UI.
+        approval_result = agent_params.approval_callback(query_str, "web_search", {"query": query_str})
+        if isinstance(approval_result, tuple):
+            proceed, query_override = approval_result[0], (approval_result[1] if len(approval_result) > 1 else None)
+        else:
+            proceed, query_override = approval_result, None
+        if not proceed:
+            preview_query = None
+        elif query_override is not None:
+            preview_query = str(query_override)
 
     initial_snippet = ""
-    try:
-        preview = DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)
-        initial_snippet = str(preview.forward(query_str))[:4000]
-    except Exception as preview_exc:
-        log.debug("deep_research preview search skipped: %s", preview_exc)
+    if preview_query is not None:
+        try:
+            preview = DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)
+            initial_snippet = str(preview.forward(preview_query))[:4000]
+        except Exception as preview_exc:
+            log.debug("deep_research preview search skipped: %s", preview_exc)
 
     if agent_params.status_callback:
         agent_params.status_callback("Deep research: starting...")
@@ -493,7 +546,8 @@ def _run_deep_web_research(
         query_str,
         history_text,
         llm_chat=llm_chat,
-        run_web_agent=run_sub_agent,
+        run_web_agent=_parent_runner_not_for_pool,
+        worker_factory=worker_factory,
         stop_checker=agent_params.stop_checker,
         status_callback=agent_params.status_callback,
         breadth=get_config_int("chatbot.deep_research_breadth"),
@@ -545,6 +599,12 @@ class WebResearchTool(ToolBase):
         doc_type = getattr(ctx, "doc_type", None)
         instruction = get_research_completion_instruction(doc_type)
 
+        # deep used to be read only after this lookup, so a shallow row for the
+        # same words was returned as a deep report and a deep row could be
+        # served to ordinary web_research. Mode selects the key before any hit.
+        deep = bool(kwargs.get("deep"))
+        cache_mode = "deep" if deep else ""
+
         if cache_enabled and cache_path and os.path.exists(cache_path) and unique_key:
             try:
                 from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill, lookup_research_cache
@@ -564,6 +624,7 @@ class WebResearchTool(ToolBase):
                     ctx=ctx.ctx,
                     embedding_percent=embedding_percent,
                     embedding_text=embedding_text,
+                    mode=cache_mode,
                 )
                 if hit is not None:
                     event, display_key, matched_raw_key, score, cached = hit
@@ -657,10 +718,8 @@ class WebResearchTool(ToolBase):
             chat_append_callback=chat_append_callback,
             prompt_for_web_research=prompt_for_web_research,
             outer_query=query_str,
+            cancellation_scope=cancel_scope,
         )
-
-
-        deep = bool(kwargs.get("deep"))
 
         try:
             if deep:
@@ -685,7 +744,7 @@ class WebResearchTool(ToolBase):
                     try:
                         raw_mb = get_config_int_safe("web_cache_max_mb")
                         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
-                        cache_fields = _write_research_cache(ctx, cache_path, unique_key, str(final_ans.get("result", "")), cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text)
+                        cache_fields = _write_research_cache(ctx, cache_path, unique_key, str(final_ans.get("result", "")), cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text, mode=cache_mode)
                     except Exception as e:
                         log.warning("Failed to write to web research cache: %s", e)
                 if cache_fields:
@@ -697,7 +756,7 @@ class WebResearchTool(ToolBase):
                 try:
                     raw_mb = get_config_int_safe("web_cache_max_mb")
                     cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
-                    cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text)
+                    cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text, mode=cache_mode)
                 except Exception as e:
                     log.warning("Failed to write to web research cache: %s", e)
 

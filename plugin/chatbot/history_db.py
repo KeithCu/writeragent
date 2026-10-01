@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import json
 import os
+import tempfile
 from typing import Any
 
 try:
@@ -141,14 +142,35 @@ class JSONHistory:
 
     def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         msg_dict = message_to_dict(role, content, tool_calls)
-        messages = self.get_messages()
+        try:
+            messages = self.get_messages()
+        except json.JSONDecodeError:
+            # open(..., "w") truncated the file before json.dump. A crash or a
+            # bad read then looked like an empty session and the next add
+            # replaced history with one row. Leave an unreadable file alone.
+            log.exception("JSONHistory: refusing to overwrite unreadable session %s", self.session_id)
+            return
         messages.append(msg_dict)
         try:
-            with open(self.file_path, "w", encoding="utf-8") as f:
-                json.dump(messages, f, indent=2)
+            self._replace_messages(messages)
             log.info(f"JSONHistory: Added message for session {self.session_id}")
         except (OSError, IOError, TypeError):
             log.exception("JSONHistory: Error saving message")
+
+    def _replace_messages(self, messages: list[dict[str, Any]]) -> None:
+        """Atomic replace in the session directory (same pattern as MemoryStore.write)."""
+        directory = self.history_dir or os.path.dirname(self.file_path) or "."
+        fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".history-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(messages, handle, indent=2)
+            os.replace(tmp_path, self.file_path)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def get_messages(self) -> list[dict[str, Any]]:
         if not os.path.exists(self.file_path):
@@ -158,7 +180,12 @@ class JSONHistory:
                 msgs = json.load(f)
             log.debug(f"JSONHistory: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
-        except (OSError, IOError, json.JSONDecodeError):
+        except json.JSONDecodeError:
+            # Callers (ChatSession open, add_message) must not treat a corrupt
+            # file as an empty history and write a fresh system row over it.
+            log.exception("JSONHistory: Error reading messages")
+            raise
+        except (OSError, IOError):
             log.exception("JSONHistory: Error reading messages")
             return []
 

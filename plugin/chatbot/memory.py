@@ -210,24 +210,42 @@ class MemoryTool(ToolBase):
         except OSError as e:
             return self._tool_error(f"Failed to read existing memory: {e}")
 
-        try:
-            parsed = json.loads(current) if current.strip() else {}
-            if not isinstance(parsed, dict):
-                # Not a JSON object: start over so the librarian can rebuild memory.
-                parsed = {}
-        except json.JSONDecodeError:
-            # Invalid JSON (e.g. legacy YAML): start over.
+        raw = current.strip()
+        if not raw:
             parsed = {}
+        else:
+            try:
+                parsed = json.loads(current)
+            except json.JSONDecodeError:
+                # Invalid JSON used to become {} and the write replaced USER.md
+                # with only the new key. Leave the file and tell the model.
+                return self._tool_error("USER.md is not valid JSON; left unchanged.")
+            if not isinstance(parsed, dict):
+                return self._tool_error("USER.md is not a JSON object; left unchanged.")
 
-        # Nested update
+        # Nested update. content "" used to store an empty string; pop the key.
         parts = key.split(".")
-        current_dict = parsed
-        for part in parts[:-1]:
-            if part not in current_dict or not isinstance(current_dict[part], dict):
-                current_dict[part] = {}
-            current_dict = current_dict[part]
-
-        current_dict[parts[-1]] = content
+        if content == "":
+            node: Any = parsed
+            for part in parts[:-1]:
+                child = node.get(part) if isinstance(node, dict) else None
+                if not isinstance(child, dict):
+                    node = None
+                    break
+                node = child
+            if isinstance(node, dict):
+                node.pop(parts[-1], None)
+        else:
+            # Bind the child before descending. A missing or non-dict node
+            # becomes {} so the next key is written on a dict, not on None.
+            current_dict: dict[str, Any] = parsed
+            for part in parts[:-1]:
+                child = current_dict.get(part)
+                if not isinstance(child, dict):
+                    child = {}
+                    current_dict[part] = child
+                current_dict = child
+            current_dict[parts[-1]] = content
 
         # Once a real name lands, the seed marker has served its purpose.
         # Leaving it in place made the seed-guidance re-ask name/color in

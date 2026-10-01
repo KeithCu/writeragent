@@ -1,7 +1,9 @@
+import queue
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.chatbot.send_handlers import SendHandlersMixin
+from plugin.chatbot.state_machine import EffectInterpreter, SendHandlerState
 from plugin.tests.testing_utils import MockContext, MockDocument
 import pytest
 pytest.importorskip("requests")
@@ -527,6 +529,118 @@ def test_do_send_direct_image_error():
                 # Verify error message is surfaced to user
                 assert "[image_generate: Failed to generate image]\n" in panel.responses
                 mock_registry.execute.assert_called_once()
+
+def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
+    """Run the send drain on this thread and stop at the first terminal item.
+
+    The real drain sets job_done on STREAM_DONE / STOPPED and does not also
+    run the wrapper's trailing STREAM_DONE sentinel.
+    """
+    q: queue.Queue = queue.Queue()
+    state = SendHandlerState(handler_type=handler_type, status="starting")
+    interpreter = EffectInterpreter(panel)
+
+    def fake_run_bg(func, **kwargs):
+        func()
+
+    def fake_drain_loop(drain_q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
+        while not drain_q.empty():
+            item = drain_q.get()
+            kind = item[0]
+            if kind == StreamQueueKind.CHUNK:
+                apply_chunk(item[1], False)
+            elif kind == StreamQueueKind.THINKING:
+                apply_chunk(item[1], True)
+            elif kind == StreamQueueKind.STREAM_DONE:
+                on_stream_done(item)
+                job_done[0] = True
+                return
+            elif kind == StreamQueueKind.STOPPED:
+                on_stopped()
+                job_done[0] = True
+                return
+            elif kind == StreamQueueKind.ERROR:
+                on_error(item[1])
+                job_done[0] = True
+                return
+        job_done[0] = True
+
+    with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
+        with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=fake_drain_loop):
+            panel._run_unified_worker_drain_loop(q, lambda: worker_fn(q), state, interpreter)
+
+
+def test_agent_stream_persists_visible_text_once_on_done():
+    panel = DummyChatbotPanel()
+
+    def worker(q) -> None:
+        q.put((StreamQueueKind.THINKING, "hidden"))
+        q.put((StreamQueueKind.CHUNK, "Hello "))
+        q.put((StreamQueueKind.CHUNK, "world"))
+        q.put((StreamQueueKind.STREAM_DONE, {}))
+
+    _drive_unified_drain(panel, worker, "agent")
+    panel.session.add_assistant_message.assert_called_once_with(content="Hello world")
+
+
+def test_agent_stop_stores_partial_or_placeholder():
+    panel = DummyChatbotPanel()
+
+    def worker(q) -> None:
+        q.put((StreamQueueKind.CHUNK, "partial"))
+        q.put((StreamQueueKind.STOPPED, None))
+
+    _drive_unified_drain(panel, worker, "agent")
+    panel.session.add_assistant_message.assert_called_once_with(content="partial")
+
+
+def test_agent_stop_with_no_chunks_stores_placeholder():
+    panel = DummyChatbotPanel()
+
+    def worker(q) -> None:
+        q.put((StreamQueueKind.STOPPED, None))
+
+    _drive_unified_drain(panel, worker, "agent")
+    panel.session.add_assistant_message.assert_called_once_with(content="No response.")
+
+
+def test_brainstorm_finish_runs_on_stream_done():
+    panel = DummyChatbotPanel()
+    panel.on_brainstorming_session_finished = MagicMock()
+    panel._in_brainstorming_mode = True
+
+    def worker(q) -> None:
+        q.put((StreamQueueKind.STREAM_DONE, {"brainstorming_finished": True, "spec_saved": True}))
+
+    _drive_unified_drain(panel, worker, "web")
+    panel.on_brainstorming_session_finished.assert_called_once_with(spec_saved=True)
+
+
+def test_writing_plan_finish_without_callback_clears_mode_flag():
+    panel = DummyChatbotPanel()
+    panel._in_writing_plan_mode = True
+
+    def worker(q) -> None:
+        q.put((StreamQueueKind.STREAM_DONE, {"writing_plan_finished": True}))
+
+    _drive_unified_drain(panel, worker, "web")
+    assert panel._in_writing_plan_mode is False
+
+
+def test_missing_agent_backend_does_not_store_user_row():
+    panel = DummyChatbotPanel()
+    panel.session.refresh_document_context = MagicMock()
+    panel.session.document_context = ""
+    state = SendHandlerState(handler_type="agent", status="starting")
+    interpreter = EffectInterpreter(panel)
+
+    with patch("plugin.chatbot.send_handlers.get_config", return_value="missing"):
+        with patch("plugin.chatbot.send_handlers.get_backend", return_value=None):
+            panel._execute_agent_backend_effect("hello", MockDocument(), "writer", state, interpreter)
+
+    panel.session.add_user_message.assert_not_called()
+    assert panel._terminal_status == "Error"
+
 
 def test_web_research_tool():
     # Setup mock context

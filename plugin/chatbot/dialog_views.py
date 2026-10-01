@@ -31,8 +31,8 @@ from plugin.framework.errors import format_error_payload, UnoObjectError, Config
 from plugin.framework.uno_context import get_desktop, get_extension_url, menu_icon_asset_url
 from plugin.framework.i18n import _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int
-from plugin.framework.config_schema import as_bool
 from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, get_tts_model, set_text_model
+from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
 from plugin.chatbot.history_db import HAS_SQLITE
@@ -40,7 +40,7 @@ from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener, VenvProbeP
 
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from .dialogs import (
-    TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state,
+    TabListener, is_checkbox_control, get_checkbox_state,
     get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog,
     load_writeragent_dialog, msgbox,
 )
@@ -482,24 +482,7 @@ class SettingsDialog:
         listener._schedule_debounced_models_fetch()
 
     def _populate_generic_field(self, ctrl: Any, field: dict[str, Any]) -> None:
-        if is_checkbox_control(ctrl):
-            set_checkbox_state(ctrl, 1 if as_bool(field["value"]) else 0)
-        elif hasattr(ctrl, "setText"):
-            if "options" in field:
-                self._set_ctrl_options(ctrl, field)
-            ctrl.setText(str(field.get("value", "")))
-        else:
-            set_control_text(ctrl, field["value"])
-
-    def _set_ctrl_options(self, ctrl: Any, field: dict[str, Any]) -> None:
-        try:
-            opts = field["options"]
-            labels = tuple(o.get("label", o.get("value", "")) for o in opts if isinstance(o, dict))
-            model = ctrl.getModel()
-            if hasattr(model, "StringItemList"):
-                model.StringItemList = labels
-        except Exception:
-            log.exception("Failed to set options for %s", field.get("name"))
+        populate_settings_control(ctrl, field)
 
     def _setup_endpoint_listener(self, ctrl: Any) -> None:
         if hasattr(ctrl, "addItemListener"):
@@ -532,20 +515,20 @@ class SettingsDialog:
         for field in field_specs:
             name = field["name"]
             ctrl = self._dlg.getControl(name)
+            # What was wrong: a control that is not on this dialog (no XDL
+            # widget, or getControl returned nothing) was stored as "". OK
+            # then wrote that empty string over the schema default. Skip it.
             if not ctrl:
-                result[name] = ""
                 continue
 
             try:
-                if is_checkbox_control(ctrl):
-                    result[name] = get_checkbox_state(ctrl) == 1
-                elif hasattr(ctrl, "getText"):
-                    result[name] = ctrl.getText()
-                else:
-                    result[name] = get_control_text(ctrl)
+                value = read_settings_control(ctrl, field)
             except Exception:
                 log.exception("Failed to extract field %s", name)
-                result[name] = ""
+                continue
+            if value is None:
+                continue
+            result[name] = value
         return result
 
     def _cleanup(self) -> None:
@@ -981,7 +964,6 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 get_config,
                 get_default_voice_for_locale,
                 get_voice_family,
-                set_scoped_tts_voice,
                 voice_choice_to_id,
                 voice_options_for_provider,
             )
@@ -1021,16 +1003,16 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 current_text = voice_ctrl.getText() if hasattr(voice_ctrl, "getText") else ""
                 # Display text is the parenthetical, not the id. Match this list.
                 current_id = voice_choice_to_id(current_text, catalog)
-                # get_scoped_tts_voice substitutes the first id when the saved
-                # voice is not in the list, which would hide the mismatch and
-                # skip the persist. Read the stored id itself.
+                # Read the stored id so an empty combo can show it. Do not write
+                # it back: opening Settings or switching provider used to call
+                # set_scoped_tts_voice here, so Cancel could not undo the change
+                # and a stale id was "repaired" on disk just by showing the
+                # fallback. apply_settings_result persists the combo on OK.
                 family = get_voice_family(provider, raw_model, endpoint)
                 stored = clean_voice_name(str(get_config(f"audio.tts_voice_{family}") or ""))
                 by_value = {opt["value"]: opt["label"] for opt in catalog}
                 if current_id in by_value:
                     chosen = current_id
-                    if stored != chosen:
-                        set_scoped_tts_voice(chosen, provider, raw_model, endpoint=endpoint)
                 elif not current_id and stored in by_value:
                     chosen = stored
                 else:
@@ -1046,7 +1028,6 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                         # whichever row the catalog listed first.
                         locale_default = get_default_voice_for_locale(family)
                         chosen = locale_default if locale_default in by_value else catalog[0]["value"]
-                    set_scoped_tts_voice(chosen, provider, raw_model, endpoint=endpoint)
 
                 target_label = by_value.get(chosen, "")
                 # Promote a raw voice id (or a previous family's label) to the catalog label.
@@ -1065,7 +1046,13 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
 
 
 class TtsVoiceListener(BaseListener, XItemListener, XTextListener):
-    """Saves user-selected voice scoped to the active provider and voice family."""
+    """Voice combo listener. The selection is stored only when Settings OK runs.
+
+    What was wrong: ``_on_change`` called ``set_scoped_tts_voice`` on every
+    pick, so ``audio.tts_voice*`` was saved before OK. Cancel left the new
+    voice on disk. The combo already shows the selection; ``sync_ui`` updates
+    it when the provider or model changes. ``apply_settings_result`` writes it.
+    """
 
     _dlg: Any
     _tts_listener: TtsSettingsListener
@@ -1081,42 +1068,8 @@ class TtsVoiceListener(BaseListener, XItemListener, XTextListener):
         self._on_change()
 
     def _on_change(self) -> None:
-        if self._tts_listener._syncing or not self._dlg:
-            return
-        try:
-            from plugin.audio.tts_service import (
-                clean_provider_name,
-                set_scoped_tts_voice,
-                voice_choice_to_id,
-                voice_options_for_provider,
-            )
-            prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
-            model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
-            voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
-
-            if not voice_ctrl or not hasattr(voice_ctrl, "getText"):
-                return
-
-            raw_voice = voice_ctrl.getText()
-            raw_prov = prov_ctrl.getText() if prov_ctrl and hasattr(prov_ctrl, "getText") else ""
-            raw_model = model_ctrl.getText() if model_ctrl and hasattr(model_ctrl, "getText") else ""
-            endpoint = _dialog_endpoint_url(self._dlg)
-            # Visible text has no id. Resolve against this provider's rows.
-            options = voice_options_for_provider(
-                raw_prov, raw_model, endpoint=endpoint, api_key=_dialog_api_key(self._dlg),
-            )
-            clean_voice = voice_choice_to_id(raw_voice, options)
-            if not clean_voice:
-                return
-
-            set_scoped_tts_voice(
-                clean_voice,
-                clean_provider_name(raw_prov),
-                raw_model,
-                endpoint=endpoint,
-            )
-        except Exception:
-            log.exception("Error saving scoped TTS voice on change")
+        # Combo already shows the pick. Do not write config; OK does.
+        return
 
 
 class _TtsTestProgressBox:

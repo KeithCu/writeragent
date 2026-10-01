@@ -1,8 +1,16 @@
 """Shared module.yaml settings field-spec helpers."""
 
+import json
 from unittest.mock import MagicMock, patch
 
-from plugin.chatbot.settings_fields import apply_field_specs_result, build_module_field_specs
+import pytest
+
+from plugin.chatbot.settings_fields import (
+    apply_field_specs_result,
+    build_module_field_specs,
+    populate_settings_control,
+    read_settings_control,
+)
 
 
 def test_build_module_field_specs_prefixed_and_flat():
@@ -56,13 +64,127 @@ def test_apply_field_specs_result_uses_config_key():
         {"name": "ignored", "config_key": "scripting.ignored"},
     ]
     with (
-        patch("plugin.chatbot.settings_fields.set_config") as mock_set,
-        patch("plugin.chatbot.settings_fields.global_event_bus") as mock_bus,
+        patch("plugin.chatbot.settings_fields.set_configs") as mock_set,
+        patch("plugin.framework.event_bus.global_event_bus.emit") as mock_emit,
     ):
         apply_field_specs_result(ctx, {"scripting__python_venv_path": "/opt/venv"}, specs)
 
-    mock_set.assert_called_once_with("scripting.python_venv_path", "/opt/venv")
-    mock_bus.emit.assert_called_once_with("config:changed", ctx=ctx)
+    mock_set.assert_called_once_with({"scripting.python_venv_path": "/opt/venv"})
+    # set_configs emits when a value changes. This function must not emit again.
+    mock_emit.assert_not_called()
+
+
+def test_apply_field_specs_result_skips_unknown_keys():
+    with patch("plugin.chatbot.settings_fields.set_configs") as mock_set:
+        apply_field_specs_result(MagicMock(), {"nope": "x"}, [{"name": "kept", "config_key": "scripting.kept"}])
+    mock_set.assert_not_called()
+
+
+def test_read_settings_control_skips_missing_and_checkbox_is_bool():
+    assert read_settings_control(None) is None
+
+    class _Box:
+        def supportsService(self, name):
+            return False
+
+        def getState(self):
+            return 1
+
+    assert read_settings_control(_Box(), {"type": "bool"}) is True
+
+
+def test_populate_settings_control_sets_string_item_list_and_numeric_value():
+    class _Model:
+        StringItemList = ()
+
+    class _Ctrl:
+        def __init__(self):
+            self.model = _Model()
+            self.value = None
+            self.text = None
+
+        def getModel(self):
+            return self.model
+
+        def setValue(self, value):
+            self.value = value
+
+        def setText(self, text):
+            self.text = text
+
+    ctrl = _Ctrl()
+    populate_settings_control(
+        ctrl,
+        {
+            "name": "count",
+            "type": "int",
+            "value": "7",
+            "options": [{"value": "7", "label": "Seven"}],
+        },
+    )
+    assert ctrl.model.StringItemList == ("Seven",)
+    assert ctrl.value == 7.0
+    assert ctrl.text is None
+
+
+def _config_json(path):
+    body = path.read_text(encoding="utf-8")
+    return json.loads(body[body.index("{") :])
+
+
+def test_set_configs_one_write_one_emit_and_validation_writes_nothing(tmp_path):
+    """Batch save: one write, one event. A bad value leaves the file untouched."""
+    from plugin.framework.config import get_config, get_config_int, reset_config_for_tests, set_configs
+    from plugin.framework.errors import ConfigValidationError
+
+    path = tmp_path / "writeragent.json"
+    path.write_text(json.dumps({"text_model": "keep", "python_venv_path": "/old"}), encoding="utf-8")
+    reset_config_for_tests()
+    try:
+        with (
+            patch("plugin.framework.config._config_path", return_value=str(path)),
+            patch("plugin.framework.event_bus.global_event_bus.emit") as emit,
+        ):
+            set_configs({"text_model": "alpha", "request_timeout": 45})
+            assert emit.call_count == 1
+            assert emit.call_args.args[0] == "config:changed"
+            assert emit.call_args.kwargs["key"] == ""
+            assert emit.call_args.kwargs["keys"] == ("text_model", "request_timeout")
+            assert get_config("text_model") == "alpha"
+            assert get_config_int("request_timeout") == 45
+            # An unrelated batch leaves the flat alias alone. Only staging the
+            # dotted key pops it (checked below).
+            assert _config_json(path)["python_venv_path"] == "/old"
+
+            emit.reset_mock()
+            set_configs({"text_model": "beta"})
+            emit.assert_called_once()
+            assert emit.call_args.kwargs["key"] == "text_model"
+            assert emit.call_args.kwargs["value"] == "beta"
+
+            emit.reset_mock()
+            before = path.read_text(encoding="utf-8")
+            set_configs({"text_model": "beta", "request_timeout": "45"})
+            emit.assert_not_called()
+            assert path.read_text(encoding="utf-8") == before
+
+            with pytest.raises(ConfigValidationError):
+                set_configs({"temperature": 9, "text_model": "should-not-land"})
+            emit.assert_not_called()
+            assert path.read_text(encoding="utf-8") == before
+            assert get_config("text_model") == "beta"
+
+            path.write_text(
+                json.dumps({"text_model": "beta", "python_venv_path": "/old"}),
+                encoding="utf-8",
+            )
+            reset_config_for_tests()
+            set_configs({"scripting.python_venv_path": "/opt/venv"})
+            written = _config_json(path)
+            assert written["scripting.python_venv_path"] == "/opt/venv"
+            assert "python_venv_path" not in written
+    finally:
+        reset_config_for_tests()
 
 
 def test_call_options_provider_skips_plugin_main_when_absent():

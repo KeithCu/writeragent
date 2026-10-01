@@ -180,22 +180,45 @@ def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
     return result
 
 
+def research_cache_key_mode(raw_key: str) -> str:
+    """``deep`` when the row is a deep-research report; shallow rows are ``""``."""
+    if str(raw_key or "").startswith("deep|"):
+        return "deep"
+    return ""
+
+
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2)
 def parse_research_cache_key(raw_key: str) -> tuple[str, str]:
-    """Return (snowball_lang, word_key). Legacy unprefixed keys are english."""
-    if "|" in raw_key:
-        lang, _unused, word_key = raw_key.partition("|")
+    """Return (snowball_lang, word_key). Legacy unprefixed keys are english.
+
+    Deep rows are stored as ``deep|{lang}|{words}``. Strip that leading
+    segment here so this stays a 2-tuple (deal post and hypothesis unpack it).
+    Mode is ``research_cache_key_mode``, not a third element.
+    """
+    # A shallow key never starts with deep|; stripping only that prefix keeps
+    # legacy ``english|words`` and bare keys on the old parse path.
+    key = raw_key[len("deep|"):] if raw_key.startswith("deep|") else raw_key
+    if "|" in key:
+        lang, _unused, word_key = key.partition("|")
         if lang in _SNOWBALL_LANGS:
             return lang, word_key
-    return "english", raw_key
+    return "english", key
 
 
 @deal.post(lambda result: isinstance(result, str))
-def format_research_cache_key(snowball_lang: str, word_key: str) -> str:
+def format_research_cache_key(snowball_lang: str, word_key: str, *, mode: str = "") -> str:
+    """Storage key. ``mode='deep'`` is ``deep|{lang}|{words}`` in the same file.
+
+    An empty word key is returned unchanged (a blank query must not become
+    ``english|`` or ``deep|english|``).
+    """
     if not word_key:
         return word_key
     lang = snowball_lang if snowball_lang in _SNOWBALL_LANGS else "english"
-    return f"{lang}|{word_key}"
+    body = f"{lang}|{word_key}"
+    if mode == "deep":
+        return f"deep|{body}"
+    return body
 
 
 def stem_set_from_word_key(word_key: str, snowball_lang: str) -> set[str]:
@@ -335,6 +358,7 @@ def _research_cache_embedding_rows(
     embedding_model: str,
     max_age_days: int,
     snowball_lang: str,
+    mode: str = "",
 ) -> list[tuple[str, list[float]]]:
     if not cache_path or not embedding_model:
         return []
@@ -358,7 +382,13 @@ def _research_cache_embedding_rows(
     if not isinstance(raw_rows, list):
         return out
     for raw_key, embedding_text, text_hash, dim, vector_json in raw_rows:
-        key_lang, word_key = parse_research_cache_key(str(raw_key))
+        raw_key_str = str(raw_key)
+        # Mode before language. parse strips deep|, so a deep row and a shallow
+        # row for the same words share a snowball language. Filtering only by
+        # language returned a shallow report for a deep lookup (and the reverse).
+        if research_cache_key_mode(raw_key_str) != mode:
+            continue
+        key_lang, word_key = parse_research_cache_key(raw_key_str)
         if key_lang != snowball_lang:
             continue
         stored_text = str(embedding_text or "").strip() or word_key
@@ -433,6 +463,7 @@ def find_embedding_research_match(
     similarity_min: float,
     embedding_text: str | None = None,
     embedding_model: str | None = None,
+    mode: str = "",
 ) -> tuple[str, float] | None:
     """Pick best stored-vector match. Caller falls back to Jaccard on any miss/error."""
     if not ctx or not cache_path or not word_key or not _research_cache_embedding_configured():
@@ -440,7 +471,7 @@ def find_embedding_research_match(
     model = (embedding_model or _get_embedding_model_or_none() or "").strip()
     if not model:
         return None
-    stored = _research_cache_embedding_rows(cache_path, embedding_model=model, max_age_days=max_age_days, snowball_lang=snowball_lang)
+    stored = _research_cache_embedding_rows(cache_path, embedding_model=model, max_age_days=max_age_days, snowball_lang=snowball_lang, mode=mode)
     if not stored:
         return None
 
@@ -570,8 +601,9 @@ def find_fuzzy_research_match(
     snowball_lang: str,
     jaccard_min: float,
     min_overlap: int,
+    mode: str = "",
 ) -> tuple[str, float] | None:
-    """Pick best-scoring stored key in the same language that passes both gates."""
+    """Pick best-scoring stored key in the same mode and language that passes both gates."""
     if not query_stems or not stored_keys:
         return None
 
@@ -579,6 +611,11 @@ def find_fuzzy_research_match(
     best_score = 0.0
 
     for raw_key in stored_keys:
+        # Mode before language. After deep| is stripped, both modes parse as
+        # the same language, so a language-only compare fuzzy-matched a deep
+        # report onto an ordinary web_research query.
+        if research_cache_key_mode(raw_key) != mode:
+            continue
         key_lang, word_key = parse_research_cache_key(raw_key)
         if key_lang != snowball_lang:
             continue
@@ -609,15 +646,27 @@ def lookup_research_cache(
     ctx: Any | None = None,
     embedding_percent: int | None = None,
     embedding_text: str | None = None,
+    mode: str = "",
 ) -> tuple[str, str, str | None, float, str] | None:
-    """Return (event, display_key, matched_raw_key, score, cached_value) or None on miss."""
+    """Return (event, display_key, matched_raw_key, score, cached_value) or None on miss.
+
+    Shallow lookup tries the bare word key, then the language-prefixed key.
+    ``mode='deep'`` tries only ``deep|{lang}|{words}`` so a shallow row is not
+    served as a deep report.
+    """
     from plugin.contrib.smolagents.default_tools import _web_cache_get, _web_cache_list_keys
 
     if not cache_path or not word_key:
         return None
 
-    prefixed = format_research_cache_key(snowball_lang, word_key)
-    for storage_key in (word_key, prefixed):
+    if mode == "deep":
+        # Do not fall through to the bare or shallow-prefixed key. Those rows
+        # are a different report (ordinary web_research / brainstorm), and
+        # returning them made Deep Research skip the live run.
+        exact_keys: tuple[str, ...] = (format_research_cache_key(snowball_lang, word_key, mode="deep"),)
+    else:
+        exact_keys = (word_key, format_research_cache_key(snowball_lang, word_key))
+    for storage_key in exact_keys:
         cached = _web_cache_get(cache_path, "research", storage_key, max_age_days=max_age_days)
         if cached is not None:
             matched = storage_key if storage_key != word_key else None
@@ -635,6 +684,7 @@ def lookup_research_cache(
                 max_age_days=max_age_days,
                 similarity_min=embedding_min,
                 embedding_text=embedding_text,
+                mode=mode,
             )
             if embedding is not None:
                 matched_raw_key, score = embedding
@@ -656,6 +706,7 @@ def lookup_research_cache(
         snowball_lang=snowball_lang,
         jaccard_min=jaccard_min,
         min_overlap=min_overlap,
+        mode=mode,
     )
     if fuzzy is None:
         return None

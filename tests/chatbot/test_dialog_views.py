@@ -1071,7 +1071,8 @@ def test_tts_settings_listener_together_voices_replace_alloy() -> None:
         # API order is uuid-2 then uuid-1. The combo sorts labels; the cache does not.
         assert list(voice_model.StringItemList) == ["voice-uuid-1", "voice-uuid-2"]
         assert voice_ctrl.setText.call_args[0][0] == "voice-uuid-1"
-        assert stored.get("audio.tts_voice_together") == "voice-uuid-1"
+        # Opening Settings shows the fallback. It must not repair the saved voice.
+        assert "audio.tts_voice_together" not in stored
         assert cfg.cached_tts_supported_voices("cartesia/sonic-2") == ["voice-uuid-2", "voice-uuid-1"]
     finally:
         cfg._tts_supported_voices.clear()
@@ -1197,8 +1198,8 @@ def test_tts_settings_listener_uses_cached_openrouter_voices():
             TtsSettingsListener(dlg, MagicMock()).sync_ui()
         assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
         assert voice_ctrl.setText.call_args[0][0] == "Kore"
-        assert stored.get("audio.tts_voice_openrouter") == "Kore"
-        assert stored.get("audio.tts_voice") == "Kore"
+        assert "audio.tts_voice_openrouter" not in stored
+        assert "audio.tts_voice" not in stored
     finally:
         cfg._tts_supported_voices.pop(model_id, None)
 
@@ -1250,18 +1251,19 @@ def test_tts_settings_listener_prefers_aoede_for_gemini():
     try:
         shown, stored, labels = sync(gemini, "alloy (OpenAI Neutral)", "alloy")
         assert shown == "Aoede"
-        assert stored.get("audio.tts_voice_openrouter") == "Aoede"
+        # Combo shows Aoede. Disk stays alloy until OK.
+        assert stored.get("audio.tts_voice_openrouter") == "alloy"
         # Preference picks Aoede; the combo stays in label order.
         assert labels == ("Achernar", "Aoede", "Zephyr")
 
         shown, stored, labels = sync(grok, "alloy (OpenAI Neutral)", "alloy")
         assert shown == "Achernar"
-        assert stored.get("audio.tts_voice_openrouter") == "Achernar"
+        assert stored.get("audio.tts_voice_openrouter") == "alloy"
 
-        # Visible in-list voice wins over Aoede.
+        # Visible in-list voice wins over Aoede in the combo, not on disk.
         shown, stored, labels = sync(gemini, "Zephyr", "alloy")
         assert shown == "Zephyr"
-        assert stored.get("audio.tts_voice_openrouter") == "Zephyr"
+        assert stored.get("audio.tts_voice_openrouter") == "alloy"
 
         # Empty combo: saved in-list id wins, including a saved Aoede.
         shown, stored, labels = sync(gemini, "", "Aoede")
@@ -1274,12 +1276,12 @@ def test_tts_settings_listener_prefers_aoede_for_gemini():
         cfg._tts_supported_voices[gemini] = ["Zephyr", "Puck", "Kore"]
         shown, stored, labels = sync(gemini, "alloy", "")
         assert shown == "Kore"
-        assert stored.get("audio.tts_voice_openrouter") == "Kore"
+        assert stored.get("audio.tts_voice_openrouter", "") == ""
 
         cfg._tts_supported_voices[gemini] = ["Puck", "aoede"]
         shown, stored, labels = sync("google/Gemini-2.5-flash-preview-tts", "alloy", "alloy")
         assert shown == "aoede"
-        assert stored.get("audio.tts_voice_openrouter") == "aoede"
+        assert stored.get("audio.tts_voice_openrouter") == "alloy"
     finally:
         cfg._tts_supported_voices.pop(gemini, None)
         cfg._tts_supported_voices.pop(grok, None)
@@ -1476,18 +1478,18 @@ def test_tts_test_voice_listener_speak_error_stays_in_dialog():
     assert mock_msgbox.call_args[0][2] == "Could not play the voice sample."
 
 
-def test_tts_voice_listener_on_change():
+def test_voice_combo_change_does_not_write_config_until_ok():
+    """Changing the voice combo must not touch writeragent.json. OK does."""
     from plugin.chatbot.dialog_views import TtsSettingsListener, TtsVoiceListener
+    from plugin.chatbot.settings_dialog import apply_settings_result
 
     dlg = MagicMock()
-    ctx = MagicMock()
-
     prov_ctrl = MagicMock()
     prov_ctrl.getText.return_value = "Piper (Local Fast Neural, CPU)"
     model_ctrl = MagicMock()
     model_ctrl.getText.return_value = ""
     voice_ctrl = MagicMock()
-    voice_ctrl.getText.return_value = "en_US-amy-medium (Piper US Female - Amy)"
+    voice_ctrl.getText.return_value = "US English Female - Amy"
 
     def get_optional_side_effect(d, name):
         if name == "audio__tts_provider":
@@ -1498,20 +1500,68 @@ def test_tts_voice_listener_on_change():
             return voice_ctrl
         return None
 
-    settings_listener = TtsSettingsListener(dlg, ctx)
-    voice_listener = TtsVoiceListener(dlg, settings_listener)
-
-    stored = {}
+    voice_listener = TtsVoiceListener(dlg, TtsSettingsListener(dlg, MagicMock()))
+    stored: dict[str, str] = {}
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
-         patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)):
+         patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
+         patch("plugin.framework.config.set_config", side_effect=lambda k, v, **kwargs: stored.__setitem__(k, v)):
         voice_listener._on_change()
-        assert stored.get("audio.tts_voice_piper") == "en_US-amy-medium"
-        assert stored.get("audio.tts_voice") == "en_US-amy-medium"
+        TtsSettingsListener(dlg, MagicMock()).sync_ui()
+    assert "audio.tts_voice" not in stored
+    assert "audio.tts_voice_piper" not in stored
 
-        # The list shows the parenthetical. That text still stores the id.
-        voice_ctrl.getText.return_value = "US English Female - Amy"
-        voice_listener._on_change()
-        assert stored.get("audio.tts_voice_piper") == "en_US-amy-medium"
+    specs = [
+        {
+            "name": "audio__tts_provider",
+            "options": [{"value": "piper", "label": "Piper (Local Fast Neural, CPU)"}],
+        },
+        {"name": "audio__tts_voice"},
+    ]
+    saved: dict[str, str] = {}
+    with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
+         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: saved.update(values)) as batch, \
+         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+         patch("plugin.audio.tts_service.set_config") as tts_set:
+        apply_settings_result(MagicMock(), {
+            "audio__tts_provider": "Piper (Local Fast Neural, CPU)",
+            "audio__tts_voice": "US English Female - Amy",
+        })
+    tts_set.assert_not_called()
+    batch.assert_called_once()
+    assert saved.get("audio.tts_voice_piper") == "en_US-amy-medium"
+    assert saved.get("audio.tts_voice") == "en_US-amy-medium"
+
+
+def test_extract_results_skips_missing_control_and_reads_checkbox_bool():
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    class _Text:
+        def getText(self):
+            return "hello"
+
+    class _Box:
+        def supportsService(self, name):
+            return False
+
+        def getState(self):
+            return 1
+
+    controls = {
+        "endpoint": _Text(),
+        "image_auto_gallery": _Box(),
+    }
+    view = SettingsDialog(MagicMock())
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: controls.get(name)
+    view._dlg = dlg
+    result = view._extract_results([
+        {"name": "endpoint"},
+        {"name": "image_auto_gallery", "type": "bool"},
+        {"name": "text_analytics_sentiment_model"},
+    ])
+    assert result["endpoint"] == "hello"
+    assert result["image_auto_gallery"] is True
+    assert "text_analytics_sentiment_model" not in result
 
 
 def test_stt_settings_listener_enables_one_model_control() -> None:

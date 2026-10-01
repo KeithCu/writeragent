@@ -17,9 +17,9 @@
 """Configuration I/O for WriterAgent.
 
 ``init_config(ctx)`` runs once at bootstrap (``MainBootstrapJob`` / ``bootstrap()``);
-the config path is cached. All other I/O — ``get_config``, ``set_config``, typed
-getters, ``get_api_config`` — does **not** take ``ctx``; use ``get_ctx()`` only for
-UNO operations.
+the config path is cached. All other I/O — ``get_config``, ``set_config``,
+``set_configs``, typed getters, ``get_api_config`` — does **not** take ``ctx``;
+use ``get_ctx()`` only for UNO operations.
 
 ``writeragent.json`` lives under the LibreOffice user profile (Linux:
 ``~/.config/libreoffice/{4,24}/user/``; macOS: ``~/Library/Application Support/LibreOffice/4/user/``;
@@ -32,10 +32,13 @@ comment lines pointing at ``docs/writeragent-config-schema.md`` on GitHub.
 Those comments are stripped on read. ``set_config`` does not validate, write,
 or emit ``config:changed`` when the coerced value already matches the stored
 value, or the schema default when that key is omitted from the file.
+``set_configs`` applies that same per-key rule, then validates and writes
+once. A validation error writes nothing and emits nothing. If nothing
+changed, it does not write or emit.
 
 Concurrency: workers and the UI both read and write ``writeragent.json``.
-``set_config`` / ``remove_config`` and **GET-path** persists (repairing
-broken JSON, coercing out-of-range numbers, upgrading old
+``set_config`` / ``set_configs`` / ``remove_config`` and **GET-path** persists
+(repairing broken JSON, coercing out-of-range numbers, upgrading old
 ``calc_prompt_max_tokens``) share ``_config_write_lock`` (an ``RLock`` so
 a helper already holding it can persist). Without that lock a
 background ``get_config`` could rewrite an older file over a key the UI
@@ -43,7 +46,10 @@ just saved. One ``config:changed`` event is emitted **after** the lock
 is released, with ``key``, ``value``, and ``old_value``, so listeners may
 call ``get_config`` / ``set_config`` without deadlocking. Callers that map
 a settings key onto a stored key (for example ``ai.endpoint`` → ``endpoint``)
-pass ``event_key`` so listeners still see the key that was set.
+pass ``event_key`` so listeners still see the key that was set. A batch
+that changes one key emits that key. A batch that changes more than one
+emits ``key=""`` — the bulk save Settings OK listeners already treat as
+"every module".
 
 Schema-backed coercion, option canonicalization, and min/max bounds live in
 ``config_schema.py``. Import those names from there. This module is path,
@@ -578,6 +584,48 @@ def _omitted_value_matches_schema_default(key: str, value: Any) -> bool:
     return value == schema_default
 
 
+def _stage_config_assignment(config_data: dict[str, Any], key: str, value: Any) -> tuple[bool, Any, Any]:
+    """Apply one ``set_config`` assignment to *config_data*. No validate or write.
+
+    Returns ``(changed, coerced, previous)``. An unchanged key (stored value,
+    or the schema default when the key is omitted) leaves the dict alone.
+    """
+    current_value = _raw_config_value_for_key(config_data, key)
+    previous = None if current_value is _config_schema._MISSING_VALUE else current_value
+    coerced = _config_schema.coerce_config_value(key, value, fallback_value=current_value)
+    # Unchanged means the coerced value already matches what is on disk.
+    # A present key compares to the stored value. An omitted key is not
+    # stored as None: dict.get returns None, None != the schema default,
+    # and Settings OK revalidated, rewrote, and emitted config:changed
+    # for every omitted default. The on-disk value of an omitted key is
+    # the schema default, so a match is not a write.
+    if config_data.get(key) == coerced or (
+        current_value is _config_schema._MISSING_VALUE
+        and _omitted_value_matches_schema_default(key, coerced)
+    ):
+        return False, coerced, previous
+
+    for dotted in _config_schema._dotted_fallback_keys(key):
+        config_data.pop(dotted, None)
+    if "." in key and key not in _DUAL_READ_DOTTED_KEYS_KEEP_FLAT:
+        config_data.pop(key.split(".", 1)[1], None)
+    config_data[key] = coerced
+    return True, coerced, previous
+
+
+def _validate_config_data(config_data: dict[str, Any], keys_label: str) -> dict[str, Any]:
+    """Validate *config_data* and return the dict that would be written."""
+    try:
+        test_config = _config_schema.WriterAgentConfig.from_dict(config_data)
+        test_config.validate()
+        return test_config.to_dict()
+    except ConfigValidationError:
+        raise
+    except Exception as e:
+        log.exception("Validation error saving config")
+        raise ConfigValidationError(f"Invalid configuration value for {keys_label}: {e}") from e
+
+
 def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
     """Set a config key to value. Creates file if needed. Omits defaults.
 
@@ -599,37 +647,11 @@ def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
             config_data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=False, fail_on_unrepairable=True)
         else:
             config_data = {}
-        current_value = _raw_config_value_for_key(config_data, key)
-        previous = None if current_value is _config_schema._MISSING_VALUE else current_value
-        value = _config_schema.coerce_config_value(key, value, fallback_value=current_value)
-        # Unchanged means the coerced value already matches what is on disk.
-        # A present key compares to the stored value. An omitted key is not
-        # stored as None: dict.get returns None, None != the schema default,
-        # and Settings OK revalidated, rewrote, and emitted config:changed
-        # for every omitted default. The on-disk value of an omitted key is
-        # the schema default, so a match is not a write.
-        if config_data.get(key) == value or (
-            current_value is _config_schema._MISSING_VALUE
-            and _omitted_value_matches_schema_default(key, value)
-        ):
+        changed, value, previous = _stage_config_assignment(config_data, key, value)
+        if not changed:
             return
 
-        test_data = dict(config_data)
-        for dotted in _config_schema._dotted_fallback_keys(key):
-            test_data.pop(dotted, None)
-        if "." in key and key not in _DUAL_READ_DOTTED_KEYS_KEEP_FLAT:
-            test_data.pop(key.split(".", 1)[1], None)
-        test_data[key] = value
-
-        try:
-            test_config = _config_schema.WriterAgentConfig.from_dict(test_data)
-            test_config.validate()
-            config_data = test_config.to_dict()
-        except ConfigValidationError as e:
-            raise e
-        except Exception as e:
-            log.exception("Validation error in set_config")
-            raise ConfigValidationError(f"Invalid configuration value for {key}: {e}") from e
+        config_data = _validate_config_data(config_data, key)
 
         try:
             _write_config_file(config_file_path, config_data)
@@ -641,6 +663,79 @@ def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
     # Handlers may get_config/set_config; do not hold the write lock across emit.
     if emit_changed:
         global_event_bus.emit("config:changed", key=event_key or key, value=value, old_value=previous, ctx=_emit_config_changed_ctx())
+
+
+def set_configs(values: dict[str, Any]) -> None:
+    """Set many keys with one load, one validate, one write, and one event.
+
+    What was wrong: Settings OK called ``set_config`` once per field. Each
+    call reloaded ``writeragent.json``, validated, wrote the file, and emitted
+    ``config:changed``, and the dialog emitted once more even when every
+    coerced value already matched disk. That extra event refreshed the sidebar
+    mode combo. A bad value could also leave the earlier keys already saved.
+
+    Each key is coerced and staged with the same dotted-key and omitted-default
+    rules as ``set_config``. The dict is validated once. A validation error
+    writes nothing and emits nothing. If no staged value changes the file,
+    this returns without writing or emitting. One changed key emits that key.
+    More than one emits ``key=""`` (bulk save) after the lock is released.
+    The event also carries ``keys`` (every staged name) so a listener can
+    match one key inside that bulk save.
+    """
+    if not values:
+        return
+    config_file_path = _config_path()
+    if not config_file_path:
+        raise ConfigError("Config path is empty", "CONFIG_PATH_ERROR")
+    emit_changed = False
+    emit_key = ""
+    emit_keys: tuple[str, ...] = ()
+    emit_value: Any = None
+    emit_previous: Any = None
+    with _config_write_lock:
+        if os.path.exists(config_file_path):
+            loaded = _load_config_dict(config_file_path, allow_repair=True, persist_repair=False, fail_on_unrepairable=True)
+        else:
+            loaded = {}
+        # Shallow copy: stage pops and replaces keys. *loaded* stays the file
+        # contents so a no-op after to_dict() (defaults omitted) does not write.
+        config_data = dict(loaded)
+        changed_keys: list[tuple[str, Any, Any]] = []
+        for key, value in values.items():
+            changed, coerced, previous = _stage_config_assignment(config_data, key, value)
+            if changed:
+                changed_keys.append((key, coerced, previous))
+        if not changed_keys:
+            return
+
+        keys_label = ", ".join(key for key, _coerced, _prev in changed_keys)
+        config_data = _validate_config_data(config_data, keys_label)
+        if config_data == loaded:
+            return
+
+        try:
+            _write_config_file(config_file_path, config_data)
+            _invalidate_config_cache()
+            emit_changed = True
+            # key="" is the bulk signal (one sidebar refresh). keys lists every
+            # staged key so a listener that restarts on one name (the editor
+            # venv) still sees it when Settings OK changed other fields too.
+            emit_keys = tuple(key for key, _coerced, _prev in changed_keys)
+            if len(changed_keys) == 1:
+                emit_key, emit_value, emit_previous = changed_keys[0]
+        except OSError as e:
+            log.exception("Error writing to %s", config_file_path)
+            raise ConfigError(f"Failed to save config: {e}", "CONFIG_SAVE_ERROR") from e
+    # Handlers may get_config/set_config; do not hold the write lock across emit.
+    if emit_changed:
+        global_event_bus.emit(
+            "config:changed",
+            key=emit_key,
+            keys=emit_keys,
+            value=emit_value,
+            old_value=emit_previous,
+            ctx=_emit_config_changed_ctx(),
+        )
 
 
 def remove_config(key: str) -> None:

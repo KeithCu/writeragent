@@ -201,8 +201,30 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     try:
         log.debug("Attaching _PanelResizeListener to root_window; controls=%s" % (sorted(k for k, v in controls.items() if v)))
         _tp = getattr(self, "toolpanel", None)
-        _resize = _PanelResizeListener(controls)
-        _resize._root_window = root_window  # for defensive self-removal in disposing()
+        def _release_sidebar_on_window_dispose() -> None:
+            # Same send-cancel and live-panel drop as ChatPanelElement.disposing.
+            # That method is not called when the deck closes. It still removes
+            # this listener when something else calls it.
+            from plugin.chatbot.panel_factory import unregister_debug_live_panel
+
+            unregister_debug_live_panel(self)
+            try:
+                from plugin.doc.live_panels import unregister_live_panel
+                from plugin.framework.uno_context import get_document_from_frame, get_runtime_uid
+
+                model = get_document_from_frame(self.xFrame) if getattr(self, "xFrame", None) else None
+                if model is not None:
+                    unregister_live_panel(get_runtime_uid(model))
+            except Exception as exc:
+                log.debug("live panel unregister on window dispose: %s", exc)
+            try:
+                if hasattr(self, "send_listener") and self.send_listener:
+                    self.send_listener.disposing(None)
+            except Exception as exc:
+                log.info("send_listener.disposing raised from window dispose: %s", exc)
+
+        _resize = _PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose)
+        _resize._root_window = root_window
         _resize._parent_window = getattr(_tp, "parent_window", None)
         root_window.addWindowListener(_resize)
         self._panel_resize_listener = _resize

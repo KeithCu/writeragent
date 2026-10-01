@@ -123,6 +123,18 @@ def test_update_document_context_effect_refreshes_session_context():
     assert host.session.system_context == ("base prompt", "fresh doc")
 
 
+def test_update_document_context_effect_stops_when_document_is_gone():
+    host = FakeHost()
+    host.document = None
+    interpreter = ToolLoopEffectInterpreter(host)
+
+    assert interpreter.execute(UpdateDocumentContextEffect()) is True
+    assert host.appended[-1][0] == "\n[Document closed or unavailable.]\n"
+    assert host._terminal_status == "Error"
+    assert host.statuses[-1] == "Error"
+    assert host.session.refresh_calls == []
+
+
 def test_spawn_llm_worker_effect_refreshes_tools_before_spawning():
     host = FakeHost()
     interpreter = ToolLoopEffectInterpreter(host)

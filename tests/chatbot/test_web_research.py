@@ -909,6 +909,72 @@ def test_web_research_caching_write(tmp_path):
         assert "execute" in cache_chat
 
 
+def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
+    """A shallow row must not satisfy deep=True, and a deep row must not satisfy ordinary research."""
+    from plugin.chatbot.web_research import WebResearchTool, _get_unique_words_key
+    from plugin.tests.testing_utils import MockContext
+    from plugin.contrib.smolagents.default_tools import _web_cache_get, _web_cache_set
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    setattr(ctx.ctx, "getServiceManager", MagicMock())
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    query = "Execute a new search query"
+    word_key = _get_unique_words_key(query, snowball_lang="english")
+    assert word_key == "execute"
+    shallow_key = "english|execute"
+    deep_key = "deep|english|execute"
+
+    def _cfg_int(key):
+        if key == "web_cache_validity_days":
+            return 30
+        if key == "web_research_cache_jaccard_percent":
+            return 40
+        # Overlap 1 would fuzzy-match the same word across modes if mode were ignored.
+        if key == "web_research_cache_min_overlap":
+            return 1
+        if key == "web_research_cache_embedding_percent":
+            return 75
+        return 50
+
+    _web_cache_set(db_file, "research", word_key, "BARE SHALLOW", 50 * 1024 * 1024)
+    _web_cache_set(db_file, "research", shallow_key, "PREFIXED SHALLOW", 50 * 1024 * 1024)
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
+         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
+         patch("plugin.chatbot.web_research._run_deep_web_research", return_value="DEEP REPORT") as mock_deep:
+        deep_res = WebResearchTool().execute(ctx, query=query, deep=True)
+
+    assert deep_res["status"] == "ok"
+    assert deep_res["result"] == "DEEP REPORT"
+    mock_deep.assert_called_once()
+    assert _web_cache_get(db_file, "research", deep_key, max_age_days=30) == "DEEP REPORT"
+    assert _web_cache_get(db_file, "research", word_key, max_age_days=30) == "BARE SHALLOW"
+    assert _web_cache_get(db_file, "research", shallow_key, max_age_days=30) == "PREFIXED SHALLOW"
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
+         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
+         patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
+        mock_exec.return_value.execute_safe.return_value = "LIVE SHALLOW"
+        shallow_res = WebResearchTool().execute(ctx, query=query)
+
+    # Bare key is still preferred for shallow exact lookup, not the deep row.
+    assert shallow_res["result"] == "BARE SHALLOW"
+    assert _web_cache_get(db_file, "research", deep_key, max_age_days=30) == "DEEP REPORT"
+
+
 def test_write_research_cache_enqueues_embedding_backfill(tmp_path):
     from plugin.chatbot.web_research import _write_research_cache
     from plugin.contrib.smolagents.default_tools import _web_cache_get

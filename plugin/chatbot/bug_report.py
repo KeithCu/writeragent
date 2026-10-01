@@ -212,13 +212,33 @@ def _truncate_body(body: str) -> str:
     return body[: _MAX_BODY_CHARS - len(suffix)] + suffix
 
 
+def _compose_issue_body(template: str, extra_body: str) -> str:
+    """Put the exception ahead of the environment block and keep its tail.
+
+    extra_body used to be appended, then _truncate_body kept the first
+    _MAX_BODY_CHARS. A long traceback's last line (the exception) was past
+    that cap and never reached the GitHub URL. The tail of extra_body is
+    kept first; the template fills whatever room remains.
+    """
+    extra = (extra_body or "").strip()
+    template = template or ""
+    if not extra:
+        return _truncate_body(template)
+    combined = f"{extra}\n{template}" if template else extra
+    if len(combined) <= _MAX_BODY_CHARS:
+        return combined
+    suffix = "\n\n[truncated]"
+    room = _MAX_BODY_CHARS - len(suffix)
+    if len(extra) >= room:
+        return extra[-room:] + suffix
+    template_room = room - len(extra) - 1
+    kept_template = template[: max(template_room, 0)]
+    return f"{extra}\n{kept_template}{suffix}"
+
+
 def build_github_issue_url(*, title: str = "", extra_body: str = "", ctx: Any | None = None) -> str:
     """Build a GitHub new-issue URL with title and pre-filled body."""
-    body = collect_environment_block(ctx)
-    extra = (extra_body or "").strip()
-    if extra:
-        body = f"{body}\n{extra}"
-    body = _truncate_body(body)
+    body = _compose_issue_body(collect_environment_block(ctx), extra_body)
 
     params: dict[str, str] = {"body": body}
     title_clean = (title or "").strip()

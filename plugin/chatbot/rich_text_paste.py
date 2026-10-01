@@ -452,9 +452,10 @@ def _copy_formatted_from_hidden_doc_to_control(
 
     inserted = False
     copy_failed_with_exception = False
+    element_skipped = False
 
     def _do_copy() -> None:
-        nonlocal inserted, copy_failed_with_exception
+        nonlocal inserted, copy_failed_with_exception, element_skipped
         try:
             if auto_scroll:
                 process_events_to_idle(ctx)
@@ -550,12 +551,17 @@ def _copy_formatted_from_hidden_doc_to_control(
                         _insert_string_at_rich_cursor(model, dest_cursor, line_prefix, default_color)
                         inserted = True
                 except Exception:
+                    # Skipping this element used to leave `inserted` true from
+                    # an earlier paragraph, so the copy reported success and
+                    # rerender threw away the plain tail. A skipped element
+                    # means the formatted copy is not complete.
+                    element_skipped = True
                     log.exception(
                         "_copy_formatted_from_hidden_doc_to_control: skip element role=%s",
                         role,
                     )
 
-            if inserted:
+            if inserted and not element_skipped:
                 if auto_scroll:
                     _scroll_rich_to_tail(control, ctx)
                 log_rich_scroll("copy_done", control=control, role=role, auto_scroll=int(auto_scroll))
@@ -573,9 +579,11 @@ def _copy_formatted_from_hidden_doc_to_control(
             _do_copy()
     else:
         _do_copy()
-    if inserted:
+    if inserted and not element_skipped:
         return True, None
-    reason = "exception" if copy_failed_with_exception else "no_content_inserted"
+    reason = "element_skipped" if element_skipped else (
+        "exception" if copy_failed_with_exception else "no_content_inserted"
+    )
     log.warning("_copy_formatted_from_hidden_doc_to_control: failed reason=%s role=%s", reason, role)
     return False, reason
 
@@ -614,8 +622,11 @@ def append_rich_messages_via_clipboard(
         try:
             doc = create_hidden_html_writer(ctx)
             if doc is None:
+                # This used to return out of the batch loop. One hidden-Writer
+                # failure then dropped every later history batch. The failure
+                # is only this batch; keep going so the rest still render.
                 log.warning("append_rich_messages_via_clipboard: hidden Writer unavailable")
-                return
+                continue
             configure_hidden_writer_for_chat(doc)
             batch_links: list[tuple[str, str]] = []
             for role, content in batch:
@@ -655,9 +666,15 @@ def _ensure_message_separator(control: Any) -> None:
     """Insert paragraph breaks without assigning model.Text (preserves rich formatting)."""
     try:
         model = control.getModel()
-        if model is None or not (model.Text or "").strip():
+        text = (model.Text or "") if model is not None else ""
+        if model is None or not text.strip():
             return
         if not hasattr(model, "createTextCursor"):
+            return
+        # Same gap _ensure_trailing_line_break already leaves. This helper
+        # used to insert \n\n whenever the control was non-empty, so a message
+        # that already ended in a blank line grew another one on every append.
+        if text.endswith("\n\n"):
             return
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
@@ -699,10 +716,14 @@ def append_rich_text_via_clipboard(
     style_window: Any = None,
     auto_scroll: bool = True,
     on_after_insert: Any = None,
-) -> None:
-    """Import HTML in a hidden Writer doc and copy formatted content directly into the RichText control."""
+) -> bool:
+    """Import HTML in a hidden Writer doc and copy formatted content directly into the RichText control.
+
+    Returns True only for a full insert. False when a later body element was
+    skipped, so a caller that already cut plain text can put it back.
+    """
     if not control or not text or not text.strip():
-        return
+        return False
     if role == "assistant":
         text = strip_legacy_ai_label(text)
     from plugin.calc.navigation import render_calc_cell_refs
@@ -715,7 +736,7 @@ def append_rich_text_via_clipboard(
         doc = create_hidden_html_writer(ctx)
         if doc is None:
             log.warning("append_rich_text_via_clipboard: hidden Writer unavailable")
-            return
+            return False
         configure_hidden_writer_for_chat(doc)
         append_rich_text(doc, text, role=role, style_window=style_window)
         log.debug("append_rich_text_via_clipboard: hidden doc ready len=%d role=%s", len(text), role)
@@ -758,7 +779,7 @@ def append_rich_text_via_clipboard(
                     log.exception("append_rich_text_via_clipboard: on_after_insert failed")
             log_rich_scroll("user_append_done", control=control, role=role)
         if inserted:
-            return
+            return True
     except Exception:
         log.exception("append_rich_text_via_clipboard failed")
     finally:
@@ -767,3 +788,4 @@ def append_rich_text_via_clipboard(
                 doc.close(True)
             except Exception:
                 pass
+    return False

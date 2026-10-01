@@ -215,6 +215,31 @@ class TestMemoryWriteConcurrency:
         assert ("name_source") in (data)  # name still unconfirmed → keep asking once
 
 
+def test_upsert_rejects_non_json_user_md(tmp_path):
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore(ctx)
+        store.write("user", "name: Andre\n")
+        before = store.read("user")
+        res = tool.execute(ctx, key="favorite_language", content="Python")
+    assert res["status"] != "ok"
+    assert store.read("user") == before
+
+
+def test_upsert_empty_content_pops_key(tmp_path):
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore(ctx)
+        store.write("user", json.dumps({"name": "Andre", "editor": {"vim": "Yes"}}))
+        res = tool.execute(ctx, key="name", content="")
+        assert res["status"] == "ok"
+        data = json.loads(store.read("user"))
+        assert "name" not in data
+        assert data["editor"]["vim"] == "Yes"
+
+
 def test_format_upsert_memory_chat_line_dropped_from_check_all_fqns():
     """Deep check-all run 32840960268: Prev 20:53."""
     from pathlib import Path
