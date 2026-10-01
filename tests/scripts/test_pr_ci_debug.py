@@ -72,3 +72,11 @@ def test_pr_ci_job_timeout_grows_only_for_debug() -> None:
         "matrix.os == 'windows-latest' && (inputs.ci_debug == true && 55 || 50)"
         in text
     )
+
+
+def test_pr_ci_no_redundant_typecheck_step() -> None:
+    """PR CI should not have a standalone 'Run typecheck' step because 'make test' already runs typecheck."""
+    text = _workflow()
+    assert "Run typecheck" not in text
+    assert "make test" in text
+

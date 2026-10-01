@@ -30,9 +30,6 @@ def test_pr_ci_mock_sidebar_skips_other_suites() -> None:
     text = _workflow()
     assert "if: ${{ inputs.test_mock_sidebar != true }}" in text
     assert "if: ${{ inputs.test_mock_sidebar == true }}" in text
-    typecheck = text.split("Run typecheck", 1)[1]
-    typecheck = typecheck.split("Build & install WriterAgent", 1)[0]
-    assert "inputs.test_mock_sidebar != true" in typecheck
     pytest_block = text.split("Run tests (Pytest + UNO)", 1)[1]
     pytest_block = pytest_block.split("Verify Core", 1)[0]
     assert "inputs.test_mock_sidebar != true" in pytest_block

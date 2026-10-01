@@ -161,11 +161,6 @@ jobs:
         run: |
           make vendor manifest compile-translations
 
-      - name: Run typecheck
-        if: ${{ inputs.test_mock_sidebar != true }}
-        run: |
-          make typecheck
-
       - name: Build & install WriterAgent extension
         run: |
           make build
