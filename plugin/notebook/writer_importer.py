@@ -43,7 +43,7 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.contrib.nbformat import read_ipynb
 from plugin.notebook.cell_registry import NotebookDocState, _cell_heading, _coerce_notebook_text, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
-from plugin.notebook.notebook_controls import _insert_code_input_in_flow, _insert_run_button_in_flow, _log_shape_add, _resolve_para_style, _style_control_paragraph, _text_area_width_units
+from plugin.notebook.notebook_controls import _CODE_FONT_NAME, _insert_code_input_in_flow, _insert_run_button_in_flow, _log_shape_add, _resolve_para_style, _style_control_paragraph, _text_area_width_units
 from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, _mm_to_units, insert_image_at_locator
 
 log = logging.getLogger("writeragent.notebook")
@@ -69,6 +69,9 @@ _STYLE_BODY = "Text Body"
 
 # Auto-created on import for Jupyter-like In [n]: gutter (1/100 mm margins).
 _STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
+# Used only when Preformatted Text is not in the document. Stdout left as
+# Text Body is a cell boundary, so a re-run would keep the old paragraph.
+_STYLE_NOTEBOOK_OUT = "WriterAgent Notebook Output"
 _NOTEBOOK_IN_CHAR_HEIGHT = 9
 _NOTEBOOK_IN_MARGIN_TOP = 200
 _NOTEBOOK_IN_MARGIN_BOTTOM = 40
@@ -309,6 +312,39 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
     except Exception:
         log.debug("notebook import could not update In keep properties", exc_info=True)
     return _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
+
+
+def output_para_style(doc: Any) -> str | None:
+    """Style name for cell stdout: Preformatted Text, or a created fallback.
+
+    ``_is_next_cell_boundary`` treats non-empty Text Body as the next cell.
+    When Preformatted Text does not resolve, ``_apply_para_style`` used to
+    leave the new paragraph as Text Body, ``clear_cell_output`` stopped
+    there, and the next run stacked another copy of stdout.
+    """
+    resolved = _resolve_para_style(doc, _STYLE_OUTPUT)
+    if resolved:
+        return resolved
+    para_styles = _get_para_styles(doc)
+    if para_styles is None:
+        return None
+    parent_body = _resolve_para_style(doc, _STYLE_BODY) or _STYLE_BODY
+    no_lang = _no_spellcheck_locale()
+    # FontPitch.FIXED (1): stay monospace if Liberation Mono is not installed.
+    _create_import_para_style(
+        doc,
+        para_styles,
+        _STYLE_NOTEBOOK_OUT,
+        parent_style=parent_body,
+        property_updates={
+            "CharFontName": _CODE_FONT_NAME,
+            "CharFontPitch": 1,
+            "CharLocale": no_lang,
+            "CharLocaleAsian": no_lang,
+            "CharLocaleComplex": no_lang,
+        },
+    )
+    return _resolve_para_style(doc, _STYLE_NOTEBOOK_OUT)
 
 
 # ---------------------------------------------------------------------------
@@ -1529,7 +1565,7 @@ def _import_cells(doc: Any, nb: Any, stats: dict[str, int], cell_count: int, run
             for kind, payload in segments:
                 if kind == "text":
                     if str(payload).strip():
-                        _append_body_text_block(doc, str(payload), _STYLE_OUTPUT, lead_break=True)
+                        _append_body_text_block(doc, str(payload), output_para_style(doc), lead_break=True)
                 else:
                     _append_paragraph_break_at_end(doc)
                     images_added = _import_image_outputs_in_flow(doc, [payload], idx, images_before=stats["images"], ctx=ctx)

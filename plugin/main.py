@@ -445,9 +445,6 @@ def _run_test_suite(test_func: Any, doc_checker: Callable[[Any], bool], test_nam
         msgbox(ctx, test_name, _("Tests failed to run: {0}").format(str(e)))
 
 
-_NOTEBOOK_RUN_CELL_PREFIX = "notebook.run_cell."
-
-
 def _dispatch_command(command: str) -> None:
     """Dispatch command using handler registry, falling back to module actions."""
     bootstrap()
@@ -461,12 +458,6 @@ def _dispatch_command(command: str) -> None:
             logging.getLogger("writeragent.main").debug("debug_sidebar omitted (release)")
         except Exception:
             logging.getLogger("writeragent.main").exception("chatbot.debug_sidebar failed")
-        return
-    if command.startswith(_NOTEBOOK_RUN_CELL_PREFIX):
-        from plugin.framework.uno_context import get_ctx
-        from plugin.notebook.notebook_runner import run_cell_by_hex
-
-        run_cell_by_hex(get_ctx(), command[len(_NOTEBOOK_RUN_CELL_PREFIX) :])
         return
     # First try the action registry
     handler = get_action_handler(command)

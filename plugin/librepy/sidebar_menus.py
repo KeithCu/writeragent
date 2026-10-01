@@ -121,17 +121,18 @@ def command_prefix_for_ctx(ctx: Any) -> str:
 
 
 def document_has_notebook_registry(doc: Any) -> bool:
-    """True when File → Open wrote ``WriterAgentNotebookJson`` on *doc*.
+    """True when *doc* has an imported notebook with at least one code cell.
 
     Addons.xcu ``Context=TextDocument`` is every Writer file. These commands
-    must not appear there — only on an imported notebook.
+    must not appear there — only on an imported notebook. A registry with no
+    code cells (markdown-only import) has nothing for Run All to execute.
     """
     if doc is None:
         return False
     try:
-        from plugin.notebook.cell_registry import load_registry
+        from plugin.notebook.cell_registry import has_notebook_registry
 
-        return load_registry(doc) is not None
+        return has_notebook_registry(doc)
     except Exception:
         log.debug("notebook registry check failed", exc_info=True)
         return False

@@ -14,6 +14,7 @@ from plugin.librepy.sidebar_menus import (
     show_python_sidebar_hamburger,
     wire_sidebar_header_buttons,
 )
+from plugin.notebook.cell_registry import NotebookDocState, new_code_cell_entry
 
 _CORE_ACTIONS = {
     "scripting.run_python_dialog",
@@ -77,7 +78,8 @@ def test_writer_hamburger_without_notebook_registry_omits_run_actions():
 
 
 def test_writer_hamburger_includes_notebook_run_actions():
-    with patch("plugin.notebook.cell_registry.load_registry", return_value=object()):
+    state = NotebookDocState(code_cells=[new_code_cell_entry(0, None, "nb_cell_0_code")])
+    with patch("plugin.notebook.cell_registry.load_registry", return_value=state):
         rows = librepy_hamburger_actions(
             is_calc_doc=False,
             is_writer_doc=True,
@@ -92,8 +94,24 @@ def test_writer_hamburger_includes_notebook_run_actions():
     assert actions.index("scripting.reset_python_session") < actions.index("notebook.run_all")
 
 
+def test_writer_hamburger_omits_run_actions_when_registry_has_no_code_cells():
+    with patch("plugin.notebook.cell_registry.load_registry", return_value=NotebookDocState(code_cells=[])):
+        rows = librepy_hamburger_actions(
+            is_calc_doc=False,
+            is_writer_doc=True,
+            is_draw_doc=False,
+            handler_lookup=_lookup,
+            doc=object(),
+        )
+    actions = [a for _label, a, _icon in rows]
+    assert "notebook.run_all" not in actions
+    assert "notebook.run_from_here" not in actions
+    assert "notebook.stop" not in actions
+
+
 def test_calc_hamburger_omits_notebook_even_with_registry():
-    with patch("plugin.notebook.cell_registry.load_registry", return_value=object()):
+    state = NotebookDocState(code_cells=[new_code_cell_entry(0, None, "nb_cell_0_code")])
+    with patch("plugin.notebook.cell_registry.load_registry", return_value=state):
         rows = librepy_hamburger_actions(
             is_calc_doc=True,
             is_writer_doc=False,

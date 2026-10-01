@@ -134,16 +134,8 @@ def _schedule_update_check(ctx: Any) -> None:
         log.warning("extension update check schedule failed: %s", e)
 
 
-_NOTEBOOK_RUN_CELL_PREFIX = "notebook.run_cell."
-
-
 def _dispatch_command(command: str, ctx: Any | None = None) -> None:
     bootstrap(ctx)
-    if command.startswith(_NOTEBOOK_RUN_CELL_PREFIX):
-        from plugin.notebook.notebook_runner import run_cell_by_hex
-
-        run_cell_by_hex(get_ctx() if ctx is None else ctx, command[len(_NOTEBOOK_RUN_CELL_PREFIX) :])
-        return
     handler = get_action_handler(command)
     if handler:
         try:

@@ -353,7 +353,6 @@ Do not fold document identity or PathSettings into the HTTP helpers. Tests: `tes
 |---------|----------|--------|
 | LibrePy | `org.extension.librepy:` | `url_utils.matches_librepy_dispatch_url` / `dispatch_command_from_url` (`main_core.py`) |
 | WriterAgent | `org.extension.writeragent:` | `main.py` ProtocolHandler (`url.Protocol == _DISPATCH_PROTOCOL`) |
-| Notebook cells | `org.extension.writeragent:notebook.run_cell.` | `notebook_runner.py` |
 | Review context menu | `org.extension.writeragent:writer.accept_change` etc. | `change_context_menu.py` |
 
 LibrePy’s extra `dispatch_command_from_url` exists because some LO paths populate `Complete` but not `Path`. WriterAgent’s handler compares `Protocol` only. **Stay separate per product** unless a third protocol appears.

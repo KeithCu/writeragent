@@ -80,7 +80,7 @@ Click **▶** beside any code cell to execute it. On an imported notebook, the s
 | Action | Behavior & Rules |
 |--------|------------------|
 | **Run one cell** | Click the in-flow **▶** push button immediately preceding the code `TextField`. |
-| **Run All** | Sidebar hamburger **Run All** on a notebook document only (`WriterAgentNotebookJson` present). Executes code cells in `state.code_cells` order. Empty fields are skipped. A missing code field is logged and skipped. A traceback is written under the failing cell and the batch continues (Jupyter). |
+| **Run All** | Sidebar hamburger **Run All** on a notebook document only (`WriterAgentNotebookJson` with at least one code cell). Executes code cells in `state.code_cells` order. Empty fields are skipped. A missing code field is logged and skipped. A traceback is written under the failing cell and the batch continues (Jupyter). |
 | **Run From Here** | Sidebar hamburger **Run From Here** on a notebook document only. Starts at the code cell at or after the current selection (code field or `nb_out_*` bookmark). Selection before the first code cell is the same as Run All. |
 | **Stop** | Sidebar hamburger **Stop** on a notebook document only. Skips code cells that have not started in a Run All / Run From Here sequence. The cell already executing runs until the worker returns: Stop and that wait share the UI thread, and the wait does not pump events (`pump_idle=False`, LayoutIdle). A ▶ during Run All is skipped (`busy`); Stop is not blocked by that guard between cells. |
 | **Shared variables** | All code cells in the document share one `notebook:…` Python namespace (like a Jupyter kernel). Variables assigned in earlier cells are available in later cells. |
@@ -100,7 +100,7 @@ Each imported cell is styled to mimic Jupyter notebook structure without raw lay
 | **Markdown** | Rendered CommonMark: ATX `#` → Heading 1, `##+` → Heading 2; lists as Writer bullet styles; blockquotes; inline bold/italics/code; hyperlinks; embedded images. |
 | **Code (Gutter)** | **`WriterAgent Notebook In`** style — `In [n]:` prompt with the small ▶ button (`nb_run_{hex}`) on that same paragraph. |
 | **Code (Body)** | In-flow `TextField` (`nb_cell_{index}_code`, Liberation Mono, light gray fill, hairline border) followed by invisible bookmark `nb_out_{hex}`. |
-| **Outputs** | Stream outputs and tracebacks rendered in Preformatted Text directly below the field. Re-running replaces existing stdout without duplicating paragraphs. |
+| **Outputs** | Stream outputs and tracebacks rendered in Preformatted Text directly below the field. If that style is missing, import and re-run create **WriterAgent Notebook Output** (monospace, parented on Text Body) so the paragraph is not Text Body — Text Body is a cell boundary, and a re-run would otherwise leave the old stdout in place. Re-running replaces existing stdout without duplicating paragraphs. |
 
 ---
 
@@ -298,5 +298,5 @@ g_ImplementationHelper.addImplementation(
 | `form_lookup.py` | [`plugin/notebook/form_lookup.py`](../../plugin/notebook/form_lookup.py) | Draw page indexer: control models/shapes by name (`getAnchor`), field code reading (`read_code_from_field`) |
 
 Entry Points:
-- [`plugin/main.py`](../../plugin/main.py) / [`plugin/main_core.py`](../../plugin/main_core.py): `notebook.run_cell.*` protocol dispatch, `notebook.run_all` / `run_from_here` / `stop` action handlers, and bootstrap listener wiring.
+- [`plugin/main.py`](../../plugin/main.py) / [`plugin/main_core.py`](../../plugin/main_core.py): `notebook.run_all` / `run_from_here` / `stop` action handlers, and bootstrap listener wiring. ▶ runs through `XActionListener` (`run_cell_for_doc_hex`), not a per-cell protocol URL.
 - [`plugin/scripting/session_manager.py`](../../plugin/scripting/session_manager.py): `notebook_session_id` management and **Reset Python Session** implementation.

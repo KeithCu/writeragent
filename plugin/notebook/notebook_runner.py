@@ -16,20 +16,17 @@ from plugin.chatbot.dialogs import msgbox
 from plugin.doc.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.async_stream import BlockingWaitStopped, run_blocking_in_thread
-from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document
 from plugin.notebook import form_lookup
-from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, _IN_PROMPT_RE, _format_in_prompt, _prepare_display_text, cell_id_to_hex, find_cell_by_hex, load_registry, save_registry
+from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, _IN_PROMPT_RE, _format_in_prompt, _prepare_display_text, find_cell_by_hex, load_registry, save_registry
 from plugin.notebook.notebook_controls import _doc_key, _resolve_para_style
-from plugin.notebook.writer_importer import _PARAGRAPH_BREAK, _STYLE_MD_H1, _STYLE_MD_H2, _STYLE_NOTEBOOK_IN, _STYLE_OUTPUT, _insert_image_in_flow, _strip_ansi
+from plugin.notebook.writer_importer import _PARAGRAPH_BREAK, _STYLE_MD_H1, _STYLE_MD_H2, _STYLE_NOTEBOOK_IN, _STYLE_NOTEBOOK_OUT, _insert_image_in_flow, _strip_ansi, output_para_style
 from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
 from plugin.scripting.session_manager import notebook_session_id
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger("writeragent.notebook")
-
-NOTEBOOK_RUN_CELL_URL_PREFIX = f"{EXTENSION_ID_WRITERAGENT}:notebook.run_cell."
 
 # Per-document re-entrancy guard. Shared ``notebook:…`` kernel must not run two
 # cells at once; a second ▶ used to interleave registry/output mutation when
@@ -186,7 +183,10 @@ def _style_is_heading12(para_style: str) -> bool:
 
 
 def _style_is_preformatted(para_style: str) -> bool:
-    return _style_compact(para_style) in ("preformattedtext", "preformatted")
+    # The fallback style is stdout, not a cell boundary. Missing that check
+    # made clear_cell_output stop and the next run stack another copy.
+    compact = _style_compact(para_style)
+    return compact in ("preformattedtext", "preformatted") or compact == _style_compact(_STYLE_NOTEBOOK_OUT)
 
 
 def _same_paragraph(a: Any, b: Any) -> bool:
@@ -877,7 +877,7 @@ def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *
     cursor = _cursor_after_bookmark(doc, cell.output_start_bookmark)
     if cursor is None:
         cursor = _find_cell_output_heading_end(doc, cell)
-    output_style = _resolve_para_style(doc, _STYLE_OUTPUT)
+    output_style = output_para_style(doc)
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
     if out_text.strip():
         display, _unused = _prepare_display_text(out_text)
@@ -1120,20 +1120,6 @@ def run_cell_for_doc_hex(ctx: Any, doc: Any, hex_id: str) -> None:
     # via apply_run_result. A modal here blocked the document and would make
     # Run All unusable. Keep msgbox only for the setup failures above.
     run_cell(ctx, doc, cell.cell_id)
-
-
-def run_cell_by_hex(ctx: Any, hex_id: str) -> None:
-    """Menu / protocol entry: ``notebook.run_cell.{hex}`` on the active Writer document."""
-    doc = get_active_document(ctx)
-    if doc is None:
-        msgbox(ctx, "WriterAgent", _("Open a Writer document first."))
-        return
-    run_cell_for_doc_hex(ctx, doc, hex_id)
-
-
-def run_cell_target_url(cell_id: str) -> str:
-    """Build the protocol URL for a play button on a code cell."""
-    return f"{NOTEBOOK_RUN_CELL_URL_PREFIX}{cell_id_to_hex(cell_id)}"
 
 
 def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:

@@ -30,7 +30,6 @@ from plugin.notebook.notebook_runner import (
     run_cell_for_doc_hex,
     run_cells,
     update_in_prompt,
-    run_cell_target_url,
 )
 
 
@@ -86,12 +85,6 @@ def _enum_of(items):
     enum.hasMoreElements.side_effect = [True] * len(items) + [False]
     enum.nextElement.side_effect = items
     return enum
-
-
-def test_run_cell_target_url():
-    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
-    url = run_cell_target_url(cell.cell_id)
-    assert url == f"org.extension.writeragent:notebook.run_cell.{cell_id_to_hex(cell.cell_id)}"
 
 
 def test_init_registry_execution_counter():
@@ -370,6 +363,8 @@ def test_is_next_cell_boundary_markdown_and_code():
     assert _is_next_cell_boundary("Heading 2", "1. Creating Arrays", None) is True
     assert _is_next_cell_boundary("Text Body", "A transpose swaps axes.", None) is True
     assert _is_next_cell_boundary("Preformatted Text", "Out [1]: 42", None) is False
+    # Fallback stdout style must not count as the next cell, or re-runs stack.
+    assert _is_next_cell_boundary("WriterAgent Notebook Output", "old stdout", None) is False
 
 
 def test_paragraph_string_uses_selection_when_nonempty():

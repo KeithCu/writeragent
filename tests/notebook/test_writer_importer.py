@@ -36,6 +36,7 @@ from plugin.notebook.writer_importer import (
     _STYLE_MD_H1,
     _STYLE_MD_H2,
     _STYLE_NOTEBOOK_IN,
+    _STYLE_NOTEBOOK_OUT,
     _append_body_paragraph,
     _append_body_text_block,
     _append_paragraph_break_at_end,
@@ -43,6 +44,7 @@ from plugin.notebook.writer_importer import (
     _create_import_para_style,
     _decode_notebook_image,
     _ensure_notebook_import_styles,
+    output_para_style,
     _format_outputs_for_body,
     _inline_backticks_to_html,
     _iter_markdown_blocks,
@@ -491,6 +493,44 @@ def test_ensure_notebook_import_styles_creates_and_resolves():
     assert in_style == _STYLE_NOTEBOOK_IN
     new_style.setPropertyValue.assert_any_call("ParaKeepTogether", False)
     new_style.setPropertyValue.assert_any_call("ParaKeepWithNext", False)
+
+
+def test_output_para_style_prefers_preformatted_text():
+    doc = MagicMock()
+    para_styles = MagicMock()
+    para_styles.hasByName.side_effect = lambda name: name == "Preformatted Text"
+    families = MagicMock()
+    families.getByName.return_value = para_styles
+    doc.getStyleFamilies.return_value = families
+
+    assert output_para_style(doc) == "Preformatted Text"
+    doc.createInstance.assert_not_called()
+
+
+def test_output_para_style_creates_fallback_when_preformatted_missing():
+    """Text Body stdout is a cell boundary; the fallback style is not."""
+    doc = MagicMock()
+    names = ["Text Body"]
+
+    para_styles = MagicMock()
+    para_styles.hasByName.side_effect = lambda name: name in names
+    para_styles.getElementNames.side_effect = lambda: list(names)
+
+    def _insert(name, _style):
+        names.append(name)
+
+    para_styles.insertByName.side_effect = _insert
+    families = MagicMock()
+    families.getByName.return_value = para_styles
+    doc.getStyleFamilies.return_value = families
+    doc.createInstance.return_value = MagicMock()
+
+    assert output_para_style(doc) == _STYLE_NOTEBOOK_OUT
+    assert names[-1] == _STYLE_NOTEBOOK_OUT
+    doc.createInstance.assert_called_once()
+    # Second call finds the style that was just inserted.
+    assert output_para_style(doc) == _STYLE_NOTEBOOK_OUT
+    doc.createInstance.assert_called_once()
 
 
 def test_apply_no_spellcheck_for_import_sets_zxx():

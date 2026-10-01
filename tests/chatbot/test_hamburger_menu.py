@@ -7,6 +7,7 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.hamburger_menu import show_hamburger_menu
+from plugin.notebook.cell_registry import NotebookDocState, new_code_cell_entry
 
 
 class TestHamburgerMenu:
@@ -87,7 +88,10 @@ class TestHamburgerMenu:
             patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
             patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
-            patch("plugin.notebook.cell_registry.load_registry", return_value=object()),
+            patch(
+                "plugin.notebook.cell_registry.load_registry",
+                return_value=NotebookDocState(code_cells=[new_code_cell_entry(0, None, "nb_cell_0_code")]),
+            ),
         ):
             show_hamburger_menu(ctx, MagicMock(), button_ctrl)
 
@@ -112,7 +116,10 @@ class TestHamburgerMenu:
             patch("plugin.chatbot.hamburger_menu.is_writer", return_value=False),
             patch("plugin.chatbot.hamburger_menu.is_calc", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
-            patch("plugin.notebook.cell_registry.load_registry", return_value=object()),
+            patch(
+                "plugin.notebook.cell_registry.load_registry",
+                return_value=NotebookDocState(code_cells=[new_code_cell_entry(0, None, "nb_cell_0_code")]),
+            ),
         ):
             show_hamburger_menu(ctx, MagicMock(), button_ctrl)
 

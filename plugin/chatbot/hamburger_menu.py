@@ -138,7 +138,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
 
         add_item(popup, _("Reset Python Session"), "scripting.reset_python_session", pos)
         pos += 1
-        # Not every Writer file: only File → Open of a .ipynb (registry UDProp).
+        # Not every Writer file: only an imported notebook that still has code cells.
         # Addons.xcu cannot express that, so these stay hamburger-only.
         from plugin.librepy.sidebar_menus import document_has_notebook_registry
 
