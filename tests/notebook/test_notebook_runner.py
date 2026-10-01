@@ -299,6 +299,17 @@ def test_insert_run_image_webp_mime():
     assert insert_flow.call_args.kwargs["mime"] == "image/webp"
 
 
+def test_insert_run_image_gif_mime():
+    from plugin.notebook.notebook_runner import _insert_run_image
+
+    doc = MagicMock()
+    payload = {"__wa_payload__": "image", "format": "gif", "data": b"GIF89a"}
+    with patch("plugin.notebook.notebook_runner._insert_image_in_flow", return_value=True) as insert_flow:
+        assert _insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
+    insert_flow.assert_called_once()
+    assert insert_flow.call_args.kwargs["mime"] == "image/gif"
+
+
 def test_shared_notebook_session_via_sandbox():
     from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions
     from plugin.scripting.venv.worker_harness import _execute_request

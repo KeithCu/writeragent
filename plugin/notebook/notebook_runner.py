@@ -774,6 +774,8 @@ def _insert_run_image(doc: Any, payload: dict[str, Any], *, ctx: Any, images_bef
         mime = "image/jpeg"
     elif fmt == "webp":
         mime = "image/webp"
+    elif fmt == "gif":
+        mime = "image/gif"
     else:
         mime = "image/png"
     return _insert_image_in_flow(doc, raw=bytes(raw), mime=mime, images_before=images_before, ctx=ctx, text_cursor=text_cursor)

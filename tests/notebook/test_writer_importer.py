@@ -51,6 +51,7 @@ from plugin.notebook.writer_importer import (
     _looks_like_html,
     _image_mime_from_bytes,
     _notebook_image_payload,
+    _gif_pixel_size,
     _png_pixel_size,
     _webp_pixel_size,
     _trim_trailing_empty_paragraph,
@@ -136,6 +137,20 @@ def test_notebook_image_payload_webp_when_no_png():
     data = {"image/webp": "abc", "text/plain": "hi"}
     assert _notebook_image_payload(data) == ("image/webp", "abc")
     both = {"image/png": "png", "image/webp": "webp"}
+    assert _notebook_image_payload(both) == ("image/png", "png")
+
+
+def test_image_mime_from_bytes_gif_is_not_png():
+    raw = b"GIF89a" + (32).to_bytes(2, "little") + (16).to_bytes(2, "little")
+    assert _image_mime_from_bytes(raw, "plot.png") == "image/gif"
+    assert _image_mime_from_bytes(b"not-an-image", "badge.gif") == "image/gif"
+    assert _gif_pixel_size(raw) == (32, 16)
+
+
+def test_notebook_image_payload_gif_when_no_png():
+    data = {"image/gif": "abc", "text/plain": "hi"}
+    assert _notebook_image_payload(data) == ("image/gif", "abc")
+    both = {"image/png": "png", "image/gif": "gif"}
     assert _notebook_image_payload(both) == ("image/png", "png")
 
 

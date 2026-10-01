@@ -53,7 +53,7 @@ _MAX_OUTPUTS_PER_CELL = 200
 _MAX_IMAGE_DECODE_BYTES = 8 * 1024 * 1024
 _MAX_IMAGE_DISPLAY_WIDTH_MM = 170
 _DEFAULT_IMAGE_HEIGHT_MM = 80
-_IMAGE_MIME_SUFFIX = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/webp": ".webp", "image/svg+xml": ".svg"}
+_IMAGE_MIME_SUFFIX = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/webp": ".webp", "image/gif": ".gif", "image/svg+xml": ".svg"}
 _NOTEBOOK_IN_CHAR_COLOR = 0x307FC1
 _HTTP_IMAGE_TIMEOUT_SEC = 2
 
@@ -1095,6 +1095,21 @@ def _webp_pixel_size(raw: bytes) -> tuple[int, int] | None:
     return None
 
 
+def _gif_pixel_size(raw: bytes) -> tuple[int, int] | None:
+    """Logical screen size from a GIF87a/GIF89a header.
+
+    Width and height are little-endian uint16 at offsets 6 and 8. Without
+    them the insert path uses a fixed box and the aspect ratio is wrong.
+    """
+    if len(raw) < 10 or raw[:6] not in (b"GIF87a", b"GIF89a"):
+        return None
+    width = int.from_bytes(raw[6:8], "little")
+    height = int.from_bytes(raw[8:10], "little")
+    if width < 1 or height < 1:
+        return None
+    return width, height
+
+
 def _image_mime_from_bytes(raw: bytes, path: str) -> str:
     if raw[:8] == b"\x89PNG\r\n\x1a\n":
         return "image/png"
@@ -1104,6 +1119,10 @@ def _image_mime_from_bytes(raw: bytes, path: str) -> str:
     # .png and GraphicProvider rejected it.
     if len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
         return "image/webp"
+    # Same failure as WebP: a .gif download labeled image/png was rejected
+    # or drawn as the wrong type by GraphicProvider.
+    if len(raw) >= 6 and raw[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
     lower = (path or "").lower()
     head = raw.lstrip()[:256].lower()
     if lower.endswith(".svg") or b"<svg" in head:
@@ -1112,6 +1131,8 @@ def _image_mime_from_bytes(raw: bytes, path: str) -> str:
         return "image/jpeg"
     if lower.endswith(".webp"):
         return "image/webp"
+    if lower.endswith(".gif"):
+        return "image/gif"
     return "image/png"
 
 
@@ -1125,6 +1146,8 @@ def _display_size_units(raw: bytes, mime: str, *, max_width_mm: float | None = N
         px_size = _jpeg_pixel_size(raw)
     elif mime == "image/webp":
         px_size = _webp_pixel_size(raw)
+    elif mime == "image/gif":
+        px_size = _gif_pixel_size(raw)
     elif mime == "image/svg+xml":
         px_size = _svg_pixel_size(raw)
     if px_size is not None:
@@ -1144,7 +1167,7 @@ def _display_size_units(raw: bytes, mime: str, *, max_width_mm: float | None = N
 
 def _notebook_image_payload(data: dict[str, Any]) -> tuple[str, str] | None:
     """Return (mime, base64) for the first supported image bundle in a notebook output."""
-    for mime in ("image/png", "image/jpeg", "image/jpg", "image/webp"):
+    for mime in ("image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"):
         if mime in data:
             b64 = _coerce_notebook_text(data[mime])
             if b64.strip():
@@ -1319,7 +1342,7 @@ def _outputs_contain_image(outputs: list[Any]) -> bool:
 
 
 def _import_image_outputs_in_flow(doc: Any, outputs: list[Any], cell_index: int, *, images_before: int, ctx: Any | None = None) -> int:
-    """Insert image/png, jpeg, or webp outputs in the document body. Returns number of images added."""
+    """Insert image/png, jpeg, webp, or gif outputs in the document body. Returns number of images added."""
     added = 0
     out_list = outputs or []
     if len(out_list) > _MAX_OUTPUTS_PER_CELL:
