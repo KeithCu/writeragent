@@ -52,6 +52,26 @@ from plugin.scripting.venv_worker import warm_venv_worker
 log = logging.getLogger("writeragent.scripting")
 
 
+def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str) -> None:
+    """Show Save / Save As / Delete / New failures. Those buttons used to only log."""
+    log.exception("%s failed in dialog", where)
+    from plugin.framework.errors import is_disposed_exception
+
+    text = _("The document is no longer open.") if is_disposed_exception(exc) else str(exc)
+    lbl = None
+    try:
+        lbl = dlg.getControl("InstructionLbl")
+    except Exception:
+        lbl = None
+    if lbl is not None:
+        try:
+            set_control_text(lbl, text)
+            return
+        except Exception:
+            log.exception("Could not update the script dialog status")
+    msgbox(ctx, _("Error"), text)
+
+
 def native_run_script_modeless_enabled(ctx: Any) -> bool:
     """When True, the plain-text Run Python Script dialog floats (document stays editable)."""
     return bool(get_config("scripting.native_run_script_modeless"))
@@ -359,8 +379,8 @@ class NativePythonScriptDialog:
                     res = owner._save_current_script(t)
                     if res:
                         set_control_text(lbl, res)
-                except Exception:
-                    log.exception("Save failed in dialog")
+                except Exception as exc:
+                    _report_script_dialog_error(ctx, dlg, exc, "Save")
 
             def disposing(self, Source: EventObject) -> None:
                 pass
@@ -421,8 +441,8 @@ class NativePythonScriptDialog:
                         save_user_script(name, t)
                         owner._refresh_script_dropdown(name)
                         set_control_text(lbl, _("Script '%s' saved to My Scripts.") % name)
-                except Exception:
-                    log.exception("Save As failed in dialog")
+                except Exception as exc:
+                    _report_script_dialog_error(ctx, dlg, exc, "Save As")
 
             def disposing(self, Source: EventObject) -> None:
                 pass
@@ -462,8 +482,8 @@ class NativePythonScriptDialog:
                             delete_user_script(real_name)
                         owner._refresh_script_dropdown()
                         set_control_text(lbl, _("Script '%s' deleted.") % real_name)
-                except Exception:
-                    log.exception("Delete failed in dialog")
+                except Exception as exc:
+                    _report_script_dialog_error(ctx, dlg, exc, "Delete")
 
             def disposing(self, Source: EventObject) -> None:
                 pass
@@ -516,8 +536,8 @@ class NativePythonScriptDialog:
                             set_control_text(ec, starter_code)
                         owner._refresh_script_dropdown(name)
                         set_control_text(lbl, _("Script '%s' created in My Scripts.") % name)
-                except Exception:
-                    log.exception("New script failed in dialog")
+                except Exception as exc:
+                    _report_script_dialog_error(ctx, dlg, exc, "New script")
 
             def disposing(self, Source: EventObject) -> None:
                 pass

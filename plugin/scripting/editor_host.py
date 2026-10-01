@@ -212,6 +212,7 @@ class PersistentEditor:
     _stderr_tail_max_chars: int
     _ready_event: threading.Event
     _closed_event: threading.Event
+    _save_lock: threading.Lock
 
     def __init__(self) -> None:
         self._proc: subprocess_types.Popen[bytes] | None = None
@@ -223,6 +224,8 @@ class PersistentEditor:
         self._stderr_tail_max_chars = 65536
         self._ready_event = threading.Event()
         self._closed_event = threading.Event()
+        self._save_lock = threading.Lock()
+        self._save_token: object | None = None
 
         self.sessions: dict[str, EditorSessionState] = {}
         self.focused_id: str | None = None
@@ -509,6 +512,12 @@ class PersistentEditor:
             else:
                 log.warning("editor_host: ignored incoming message from old process")
 
+    def _marshal_timeout(self) -> float:
+        """UI wait for a save/close. The script budget can be 600s; 60s used to overlap it."""
+        from plugin.scripting.config_limits import configured_python_exec_timeout
+
+        return float(configured_python_exec_timeout(self.ctx)) + 5.0
+
     def set_run_script_document(self, doc: Any | None) -> None:
         from plugin.scripting.document_scripts import document_scripts_identity
 
@@ -561,6 +570,14 @@ class PersistentEditor:
             if not isinstance(action, str):
                 action = "cell_save"
             captured = state
+            token = object()
+            self._save_token = token
+
+            def _send_save(payload: dict[str, Any]) -> None:
+                with self._save_lock:
+                    if self._save_token is not token:
+                        return
+                    self.send(payload, session=captured)
 
             def _handle_save() -> None:
                 try:
@@ -573,7 +590,7 @@ class PersistentEditor:
                         result = {"type": "saved", "ok": True}
                     if result.get("type") == "saved" or result.get("ok"):
                         captured.dirty = False
-                    self.send(result, session=captured)
+                    _send_save(result)
                     pending = captured.pending_load
                     if pending is not None and (result.get("type") == "saved" or result.get("ok")):
                         next_on_save = captured.pending_on_save
@@ -586,15 +603,16 @@ class PersistentEditor:
                             _activate_load(pending, next_on_save, next_on_closed or (lambda: None))
                 except Exception as e:
                     log.exception("Editor save handler failed")
-                    self.send(
+                    _send_save(
                         {"type": "error", "message": str(e), "traceback": exception_traceback(e)},
-                        session=captured,
                     )
 
             try:
-                self.executor.execute(_handle_save, timeout=60.0)
+                self.executor.execute(_handle_save, timeout=self._marshal_timeout())
             except TimeoutError:
                 log.exception("Editor save handler timed out")
+                with self._save_lock:
+                    self._save_token = None
                 self.send(
                     {"type": "error", "message": _("Saving the script timed out.")},
                     session=captured,
@@ -623,7 +641,12 @@ class PersistentEditor:
                         if not self.sessions:
                             set_active_session(None)
 
-            self.executor.execute(_handle_close)
+            try:
+                self.executor.execute(_handle_close, timeout=self._marshal_timeout())
+            except TimeoutError:
+                # A busy UI thread used to raise out of the pipe reader and
+                # terminate the editor child.
+                log.exception("Editor close handler timed out")
             return
 
         if kind == "ready":
@@ -651,7 +674,10 @@ class PersistentEditor:
                     self.focused_id = None
                     set_active_session(None)
 
-        self.executor.execute(_handle_close)
+        try:
+            self.executor.execute(_handle_close, timeout=self._marshal_timeout())
+        except TimeoutError:
+            log.exception("Editor disconnect handler timed out")
 
 
 _PERSISTENT_EDITOR = PersistentEditor()

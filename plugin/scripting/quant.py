@@ -71,6 +71,7 @@ _API = make_template_api(
         run_name="run_quant",
         style="run_import",
         data_expr="data",
+        invoke="runner",
     )
 )
 
@@ -144,4 +145,9 @@ def run_trusted_quant(
     if dr:
         context["range_a1"] = dr
 
-    return client_run_quant(uno_ctx, {"helper": name, "params": spec_params}, py_data, context=context or None)
+    return client_run_quant(
+        uno_ctx,
+        {"helper": name, "params": spec_params, "headers": bool(headers)},
+        py_data,
+        context=context or None,
+    )

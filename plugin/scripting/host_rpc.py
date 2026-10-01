@@ -308,6 +308,13 @@ def execute_tool(
         )
     if tool_name in _NAMED_SCRIPT_TOOLS:
         payload = args if isinstance(args, dict) else {}
+        from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
+
+        # =PY() recalc runs under sync_host_dispatch off the UI thread.
+        # execute_on_main_thread is refused there (deadlock hazard #402).
+        # User scripts are a config dict. Document scripts need UNO.
+        if in_sync_host_dispatch() and not on_main_thread():
+            return _execute_named_script_tool_off_main(tool_name, payload)
         from plugin.framework.queue_executor import execute_on_main_thread
 
         return execute_on_main_thread(
@@ -365,6 +372,40 @@ def execute_tool(
     from plugin.framework.queue_executor import execute_on_main_thread
 
     return execute_on_main_thread(_run)
+
+
+def _execute_named_script_tool_off_main(tool_name: str, payload: dict[str, Any]) -> Any:
+    """Named-script lookup during off-main ``=PY()``. No UNO, no main-thread wait."""
+    from plugin.scripting.document_scripts import get_user_scripts
+    from plugin.scripting.named_scripts import (
+        GET_NAMED_PYTHON_SCRIPT,
+        LIST_NAMED_PYTHON_SCRIPTS,
+        ORIGIN_USER,
+        host_get_named_python_script,
+        host_list_named_python_scripts,
+    )
+
+    user_scripts = get_user_scripts()
+    origin = str(payload.get("origin") or ORIGIN_USER)
+    if origin != ORIGIN_USER:
+        raise RuntimeError(
+            "Document scripts cannot be loaded during =PY() recalculation off the UI thread. "
+            "Use a user script (wa.scripts) or Run Python Script."
+        )
+    if tool_name == LIST_NAMED_PYTHON_SCRIPTS:
+        return host_list_named_python_scripts(user_scripts=user_scripts, document_scripts={})
+    if tool_name == GET_NAMED_PYTHON_SCRIPT:
+        name = str(payload.get("name") or "")
+        known = payload.get("known_hash")
+        known_hash = known if isinstance(known, str) else None
+        return host_get_named_python_script(
+            name=name,
+            origin=ORIGIN_USER,
+            known_hash=known_hash,
+            user_scripts=user_scripts,
+            document_scripts={},
+        )
+    raise RuntimeError(f"Unknown named-script tool {tool_name!r}")
 
 
 def _execute_named_script_tool(

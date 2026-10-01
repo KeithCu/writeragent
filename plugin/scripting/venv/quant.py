@@ -54,7 +54,7 @@ def fetch_historical_data(params: dict[str, Any], context: dict[str, Any]) -> di
         tickers = []
 
     if not tickers:
-        return _error_result("INVALID_PARAMS", "tickers parameter is required.")
+        return _error_result("INVALID_PARAMS", "tickers parameter is required.", helper="fetch_historical_data")
 
     start_date = params.get("start_date")
     end_date = params.get("end_date")
@@ -85,13 +85,19 @@ def fetch_historical_data(params: dict[str, Any], context: dict[str, Any]) -> di
         return _error_result("EXECUTION_ERROR", str(e), helper="fetch_historical_data")
 
 
-def technical_analysis(params: dict[str, Any], data: Any, context: dict[str, Any]) -> dict[str, Any]:
+def technical_analysis(
+    params: dict[str, Any],
+    data: Any,
+    context: dict[str, Any],
+    *,
+    headers: bool = True,
+) -> dict[str, Any]:
     try:
         importlib.import_module("pandas_ta")
     except ImportError:
         return _missing_package_error("technical_analysis", "pandas-ta")
         
-    res = _resolve_df(data)
+    res = _resolve_df(data, headers=headers)
     df = res.df
     indicators = params.get("indicators", ["macd", "rsi", "bbands"])
     
@@ -107,7 +113,11 @@ def technical_analysis(params: dict[str, Any], data: Any, context: dict[str, Any
                 elif ind.lower() == 'bbands':
                     df.ta.bbands(close=close_col, append=True)
         else:
-            return _error_result("MISSING_COLUMN", "Could not find 'Close' column for technical analysis.")
+            return _error_result(
+                "MISSING_COLUMN",
+                "Could not find 'Close' column for technical analysis.",
+                helper="technical_analysis",
+            )
             
         # Convert datetime again if needed
         for col in df.select_dtypes(include=['datetime64']).columns:
@@ -254,8 +264,9 @@ def run_quant(
 
     if helper == "fetch_historical_data":
         return fetch_historical_data(params, ctx)
+    headers = bool(spec_dict.get("headers", True))
     if helper == "technical_analysis":
-        return technical_analysis(params, data, ctx)
+        return technical_analysis(params, data, ctx, headers=headers)
     if helper == "portfolio_tearsheet":
         return portfolio_tearsheet(params, data, ctx)
     if helper == "efficient_frontier":

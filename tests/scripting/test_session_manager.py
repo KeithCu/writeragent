@@ -336,6 +336,38 @@ def test_record_active_calc_session_caches_scoped_dir(tmp_path: Path) -> None:
         session_manager.clear_active_calc_session()
 
 
+def test_off_main_two_workbooks_do_not_share_a_kernel() -> None:
+    from unittest.mock import MagicMock, patch
+
+    session_manager.clear_active_calc_session()
+    try:
+        session_manager.record_active_calc_session("calc:file:///a.ods")
+        session_manager.record_active_calc_session("calc:file:///b.ods")
+        assert session_manager.off_main_calc_session_is_unambiguous() is False
+        with (
+            patch.object(session_manager, "python_session_mode", return_value="shared"),
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        ):
+            assert session_manager.workbook_session_id(MagicMock(), doc=None) is None
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_clear_active_calc_session_logs_addin_cache_failure(caplog) -> None:
+    import logging
+    from unittest.mock import patch
+
+    with (
+        patch(
+            "plugin.calc.python.function.clear_python_addin_cache",
+            side_effect=RuntimeError("cache"),
+        ),
+        caplog.at_level(logging.DEBUG, logger="plugin.scripting.session_manager"),
+    ):
+        session_manager.clear_active_calc_session()
+    assert "clear_python_addin_cache failed" in caplog.text
+
+
 def test_workbook_session_id_resilient_when_is_calc_fails() -> None:
     """If is_calc throws, workbook_session_id falls back to doc URL directly."""
     from unittest.mock import MagicMock, patch

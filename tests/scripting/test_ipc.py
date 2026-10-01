@@ -268,6 +268,57 @@ def test_exchange_tool_call_returns_result_when_id_matches(monkeypatch):
     assert ipc.exchange_tool_call("get_named_python_script", {"name": "a"}) == {"n": 1}
 
 
+def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
+    """SIGALRM during the tool read used to desync the next cell. Consume the reply first."""
+    import signal
+
+    from plugin.scripting import ipc
+
+    written: dict[str, object] = {}
+    reads = {"n": 0}
+
+    def _alarm(seconds: int) -> int:
+        if seconds == 0:
+            return 1
+        return 0
+
+    clock = {"t": 0.0}
+
+    def _monotonic() -> float:
+        clock["t"] += 5.0
+        return clock["t"]
+
+    def _write(stream, message, **kwargs):
+        written["message"] = message
+
+    def _read(stream, **kwargs):
+        reads["n"] += 1
+        message = written["message"]
+        assert isinstance(message, dict)
+        return {"status": "ok", "id": message["id"], "result": {"n": 1}}
+
+    monkeypatch.setattr(signal, "alarm", _alarm)
+    monkeypatch.setattr(ipc.time, "monotonic", _monotonic)
+    monkeypatch.setattr(ipc, "write_pickle_frame", _write)
+    monkeypatch.setattr(ipc, "read_pickle_frame", _read)
+    with pytest.raises(TimeoutError, match="tool call"):
+        ipc.exchange_tool_call("get_named_python_script", {"name": "a"})
+    assert reads["n"] == 1
+
+
+def test_resume_script_alarm_rearms_only_when_time_remains(monkeypatch):
+    import signal
+
+    from plugin.scripting.ipc import _resume_script_alarm
+
+    armed: list[int] = []
+    monkeypatch.setattr(signal, "alarm", lambda seconds: armed.append(seconds) or 0)
+    assert _resume_script_alarm((5, __import__("time").monotonic())) is False
+    assert armed and armed[0] >= 1
+    assert _resume_script_alarm((1, __import__("time").monotonic() - 10)) is True
+    assert len(armed) == 1
+
+
 def test_exchange_tool_call_rejects_mismatched_id(monkeypatch):
     from plugin.scripting import ipc
 

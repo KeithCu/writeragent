@@ -448,16 +448,17 @@ def test_geometric_open_job_wires_unload_listener_when_scan_cannot_run():
 
 
 def test_record_desktop_calc_sessions_records_only_exactly_one_calc():
-    """Two Calcs must not be recorded — leftover then Isolated (recorded=2)."""
+    """Two open Calcs are both recorded so off-main Shared =PY() does not reuse the first kernel."""
     import plugin.calc.excel_py_convert.auto_open as mod
     from plugin.scripting.session_manager import (
         clear_active_calc_session,
+        off_main_calc_session_is_unambiguous,
         recorded_calc_session_count,
     )
 
     clear_active_calc_session()
-    one = CalcDocStub()
-    two = CalcDocStub()
+    one = CalcDocStub(url="file:///a.ods")
+    two = CalcDocStub(url="file:///b.ods")
     enum = MagicMock()
     enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [one, two]
@@ -469,7 +470,8 @@ def test_record_desktop_calc_sessions_records_only_exactly_one_calc():
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         ):
             mod._record_desktop_calc_sessions(MagicMock())
-        assert recorded_calc_session_count() == 0
+        assert recorded_calc_session_count() == 2
+        assert off_main_calc_session_is_unambiguous() is False
 
         enum2 = MagicMock()
         enum2.hasMoreElements.side_effect = [True, False]
@@ -520,6 +522,37 @@ def test_record_desktop_calc_sessions_drops_stale_closed_file_ids():
         assert recorded_calc_session_count() == 1
         assert off_main_calc_session_is_unambiguous()
         assert all("python_showcase_demo" not in sid for sid in recorded_calc_session_ids())
+    finally:
+        clear_active_calc_session()
+
+
+def test_prune_resets_a_live_worker_session():
+    import plugin.calc.excel_py_convert.auto_open as mod
+    from plugin.scripting.session_manager import clear_active_calc_session, record_active_calc_session
+
+    clear_active_calc_session()
+    record_active_calc_session("calc:file:///fixtures/python_showcase_demo.ods")
+    one = CalcDocStub(url="file:///live.ods")
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.side_effect = [one]
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    resets: list[str] = []
+    try:
+        with (
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch(
+                "plugin.scripting.venv_worker.PythonWorkerManager.pool_is_running",
+                return_value=True,
+            ),
+            patch(
+                "plugin.scripting.venv_worker.reset_python_session",
+                side_effect=lambda ctx, session_id: resets.append(session_id),
+            ),
+        ):
+            mod._record_desktop_calc_sessions(MagicMock())
+        assert resets == ["calc:file:///fixtures/python_showcase_demo.ods"]
     finally:
         clear_active_calc_session()
 

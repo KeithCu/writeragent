@@ -63,7 +63,7 @@ def test_text_analytics_templates_include_run_call():
         if h in temps:
             code = temps[h]
             assert ta.TEXT_ANALYTICS_HEADER_PREFIX not in code
-            assert f"from writeragent.scripting.text_analytics import {h}" in code
+            assert "from writeragent.scripting.text_analytics import run_text_analytics" in code
 
 
 def test_text_analytics_is_result_shapes():
@@ -78,6 +78,23 @@ def test_text_analytics_is_result_shapes():
 
     junk = {"foo": "bar"}
     assert ta.is_text_analytics_result(junk) is False
+
+    assert ta.is_text_analytics_result({"status": "ok", "helper": "diagnostics"}) is True
+    assert ta.is_text_analytics_result({"status": "error", "helper": "check"}) is True
+    assert ta.is_text_analytics_result(
+        {"status": "error", "code": "TEXT_ANALYTICS_ERROR", "helper": "sentiment"}
+    ) is True
+    assert ta.is_text_analytics_result(
+        {"status": "error", "code": "UNKNOWN_HELPER", "helper": "nope"}
+    ) is True
+
+
+def test_run_text_analytics_unknown_helper_is_an_error():
+    out = ta.run_text_analytics("not_a_real_helper", "hello")
+    assert out["status"] == "error"
+    assert out["code"] == "UNKNOWN_HELPER"
+    assert out["helper"] == "not_a_real_helper"
+    assert ta.is_text_analytics_result(out) is True
 
 
 def test_text_analytics_supports_and_names():
@@ -124,7 +141,8 @@ def test_text_analytics_topics_in_helernames_and_templates():
     temps = ta.get_text_analytics_script_templates()
     assert "topics" in temps
     code = temps["topics"]
-    assert 'topics(n_topics=4)' in code or '"n_topics":4' in code or '"n_topics": 4' in code
+    assert "run_text_analytics" in code
+    assert "'n_topics': 4" in code
 
 
 def test_text_analytics_topics_result_shape():
@@ -166,7 +184,8 @@ def test_text_analytics_sentiment_in_helernames_and_templates():
     temps = ta.get_text_analytics_script_templates()
     assert "sentiment" in temps
     code = temps["sentiment"]
-    assert "from writeragent.scripting.text_analytics import sentiment" in code
+    assert "from writeragent.scripting.text_analytics import run_text_analytics" in code
+    assert "'helper': 'sentiment'" in code
 
 
 def test_text_analytics_sentiment_uses_config_model_via_params():
@@ -192,6 +211,9 @@ def test_text_analytics_sentiment_result_shape_and_basic_logic():
         out = ta.run_text_analytics("sentiment", "This is a great success and very positive outcome for everyone.")
     except Exception:
         pytest.skip("transformers not available for sentiment test")
+    # A missing model used to come back as status ok. It is an error now.
+    if out.get("status") == "error":
+        pytest.skip("transformers not installed or no model for sentiment")
     assert out["status"] == "ok"
     res = out.get("result", {})
     if res.get("error") in (None, "MISSING_PACKAGE") or not res.get("sentiment"):
@@ -221,6 +243,8 @@ def test_text_analytics_sentiment_accepts_list_for_sections():
         out = ta.run_text_analytics("sentiment", secs)
     except Exception:
         pytest.skip("transformers not available")
+    if out.get("status") == "error":
+        pytest.skip("transformers not installed or no model for sentiment")
     assert out["status"] == "ok"
     res = out.get("result", {})
     if res.get("error") in (None, "MISSING_PACKAGE") or not res.get("per_section"):

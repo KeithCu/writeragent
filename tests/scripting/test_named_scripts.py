@@ -63,6 +63,14 @@ def test_extract_library_source_keeps_computed_assigns_and_rejects_loops():
         extract_library_source("FACTOR = 2\nfor i in range(3):\n    pass\n")
 
 
+def test_extract_library_source_rejects_calls_hidden_in_assignments():
+    """A call in an assignment used to run while the library loaded."""
+    with pytest.raises(ValueError, match="lines 2"):
+        extract_library_source("K = 1\nx = print('nope')\n")
+    with pytest.raises(ValueError, match="lines 1"):
+        extract_library_source("label: str = input()\n")
+
+
 def test_host_get_named_python_script_hash_short_circuit():
     code = "def add(a, b):\n    return a + b\n"
     digest = script_body_hash(code)
@@ -384,6 +392,31 @@ def test_host_rpc_named_script_allowed_when_tools_disabled():
             allowed_tools=allowed,
         )
     assert out["code"] == code
+
+
+def test_off_main_py_named_script_skips_main_thread_marshal():
+    from plugin.scripting.host_rpc import execute_tool
+
+    code = "def add(a, b):\n    return a + b\n"
+
+    def _must_not_marshal(fn):
+        raise AssertionError("execute_on_main_thread")
+
+    with (
+        patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
+        patch("plugin.framework.thread_guard.in_sync_host_dispatch", return_value=True),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=_must_not_marshal),
+    ):
+        out = execute_tool(GET_NAMED_PYTHON_SCRIPT, {"name": "Helpers", "origin": "user"})
+    assert out["code"] == code
+    with (
+        patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
+        patch("plugin.framework.thread_guard.in_sync_host_dispatch", return_value=True),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+    ):
+        with pytest.raises(RuntimeError, match="Document scripts"):
+            execute_tool(GET_NAMED_PYTHON_SCRIPT, {"name": "Helpers", "origin": "document"})
 
 
 def test_rpc_named_librepy_fallback_uses_exchange_tool_call():

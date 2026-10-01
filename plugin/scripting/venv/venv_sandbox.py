@@ -18,10 +18,14 @@ from __future__ import annotations
 
 import ast
 import datetime
+import decimal
+import fractions
 import importlib
 import logging
+import math
 import sys
 import threading
+import time
 from contextvars import ContextVar
 from typing import Any
 
@@ -176,6 +180,79 @@ def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
         executor.send_variables(bindings)
 
 
+# Leaves the host ``_SafeUnpickler`` accepts. Anything else is a script error,
+# not a worker kill: a rejected global used to terminate every workbook session.
+_HOST_PICKLE_LEAVES = (type(None), bool, int, float, str, bytes, bytearray, complex)
+
+
+def _coerce_host_pickle_scalar(obj: Any, pd_mod: Any) -> Any:
+    """Turn one value into a type LibreOffice's unpickler allows.
+
+    ``to_calc_compatible`` on the host never ran for these: the frame failed
+    to unpickle first. Timedelta uses Calc's fractional-day number (1.0 = 24h).
+    """
+    if isinstance(obj, _HOST_PICKLE_LEAVES):
+        return obj
+    if isinstance(obj, datetime.datetime):
+        return _strip_datetime_tz(obj).isoformat()
+    if isinstance(obj, datetime.date):
+        return obj.isoformat()
+    if isinstance(obj, datetime.time):
+        return obj.isoformat()
+    if isinstance(obj, datetime.timedelta):
+        return obj.total_seconds() / 86400.0
+    if isinstance(obj, (decimal.Decimal, fractions.Fraction)):
+        return float(obj)
+    if isinstance(obj, range):
+        return list(obj)
+    converted = _temporal_cell_to_stdlib(obj, pd_mod)
+    if isinstance(converted, datetime.timedelta):
+        return converted.total_seconds() / 86400.0
+    if isinstance(converted, (datetime.datetime, datetime.date, datetime.time)):
+        return _coerce_host_pickle_scalar(converted, pd_mod)
+    if converted is not obj:
+        return converted
+    return obj
+
+
+def _coerce_host_pickle_tree(obj: Any, pd_mod: Any) -> Any:
+    if isinstance(obj, dict):
+        return {str(k): _coerce_host_pickle_tree(v, pd_mod) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_coerce_host_pickle_tree(v, pd_mod) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_coerce_host_pickle_tree(v, pd_mod) for v in obj)
+    scalar = _coerce_host_pickle_scalar(obj, pd_mod)
+    if scalar is not obj and isinstance(scalar, (list, tuple, dict)):
+        return _coerce_host_pickle_tree(scalar, pd_mod)
+    return scalar
+
+
+def _reject_host_unpickleable(obj: Any, *, depth: int = 0) -> None:
+    """Raise when *obj* would be a hostile frame on the host unpickler.
+
+    The child can pickle many globals. The host only rebuilds builtins and a
+    few NumPy reconstructors, and a ``ValueError`` there kills the worker.
+    """
+    if depth > 64:
+        raise ValueError("Result is too deeply nested to cross the LibreOffice pickle boundary")
+    if isinstance(obj, _HOST_PICKLE_LEAVES):
+        return
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            _reject_host_unpickleable(key, depth=depth + 1)
+            _reject_host_unpickleable(value, depth=depth + 1)
+        return
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        for value in obj:
+            _reject_host_unpickleable(value, depth=depth + 1)
+        return
+    raise ValueError(
+        f"Result type {type(obj).__module__}.{type(obj).__name__} "
+        "cannot cross the LibreOffice pickle boundary"
+    )
+
+
 def serialize_result(obj: Any) -> Any:
     """Convert numpy/pandas and containers to JSON-safe values (split_grid for large numeric/mixed arrays).
 
@@ -185,7 +262,11 @@ def serialize_result(obj: Any) -> Any:
     the binary grid fast path.
     """
     try:
-        return _serialize_result_impl(obj)
+        out = _serialize_result_impl(obj)
+        # A type we did not convert must not leave the child: the host treats
+        # the unpickle error as a bad frame and restarts every workbook.
+        _reject_host_unpickleable(out)
+        return out
     except Exception:
         log.exception(
             "venv_sandbox serialize_result failed for value %s",
@@ -468,8 +549,11 @@ def _serialize_result_impl(obj: Any) -> Any:
                 return [serialize_result(v) for v in obj]
             else:
                 return tuple(serialize_result(v) for v in obj)
-        return child_pack_result(obj)
-    return obj
+        # Short lists skip split_grid and are pickled as Python objects. A date
+        # or Decimal in that list is a datetime/decimal global the host unpickler
+        # rejects, which used to kill the shared worker.
+        return child_pack_result(_coerce_host_pickle_tree(obj, pd_mod))
+    return _coerce_host_pickle_scalar(obj, pd_mod)
 
 
 
@@ -605,11 +689,34 @@ def _seed_shared_executor_once(
 
 
 
+def _seconds_left(deadline: float) -> int | None:
+    """Whole seconds still inside *deadline*, or None when the budget is spent.
+
+    ``signal.alarm`` is one-second granularity and ``alarm(0)`` cancels, so a
+    leftover fraction of a second still uses 1. The host read adds
+    ``HOST_IPC_READ_GRACE_SEC`` and still wins if the child never returns.
+    """
+    left = deadline - time.monotonic()
+    if left <= 0:
+        return None
+    return max(1, math.ceil(left))
+
+
+def _budget_timeout_error(timeout_sec: int) -> dict[str, Any]:
+    return {
+        "status": "error",
+        "message": (
+            f"Code execution exceeded the maximum execution time of {timeout_sec} seconds"
+        ),
+    }
+
+
 def _ensure_init_executed(
     init_session_id: str,
     init_script: str,
     *,
     timeout_sec: int,
+    deadline: float,
     init_script_hash: str | None = None,
 ) -> dict[str, Any] | None:
     """Run *init_script* once in the persistent init session. Returns error dict or None."""
@@ -626,6 +733,13 @@ def _ensure_init_executed(
             return None
 
     init_executor = _get_or_create_session_executor(init_session_id, timeout_sec)
+    # Init and the cell used to each get a fresh alarm for the full budget, so
+    # a slow init plus a slow cell outlived the single host read and killed
+    # the worker (every other workbook on that process).
+    left = _seconds_left(deadline)
+    if left is None:
+        return _budget_timeout_error(timeout_sec)
+    init_executor.timeout_seconds = left
     inject_auto_imports(init_executor, script)
     result = _run_on_executor(init_executor, script)
     if result.get("status") != "ok":
@@ -809,6 +923,7 @@ def run_sandboxed_code(
     """
     if timeout_sec is None:
         timeout_sec = python_exec_timeout_default()
+    deadline = time.monotonic() + float(timeout_sec)
 
     # Force non-interactive backend so plt.show() doesn't block in the subprocess.
     _ensure_mpl_agg()
@@ -823,6 +938,7 @@ def run_sandboxed_code(
                 init_sid,
                 init_script or "",
                 timeout_sec=timeout_sec,
+                deadline=deadline,
                 init_script_hash=init_script_hash,
             )
             if init_err is not None:
@@ -836,6 +952,11 @@ def run_sandboxed_code(
             executor = _new_executor(timeout_sec)
             if init_sid:
                 _seed_executor_from_init(executor, init_sid)
+
+        left = _seconds_left(deadline)
+        if left is None:
+            return _budget_timeout_error(timeout_sec)
+        executor.timeout_seconds = left
 
         inject_auto_imports(executor, code)
         ranges = _inject_data(executor, data)

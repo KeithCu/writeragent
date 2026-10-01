@@ -187,6 +187,9 @@ API_EXCLUDED_TOOLS = frozenset({
     # specialized_workflow_finished as a registered ToolBase, not via this proxy.
     "delegate_tool_domains",
     "specialized_workflow_finished",
+    # Re-entering the venv worker from a script deadlocks the pipe. The host
+    # already rejects the call; the generated proxy must not advertise it.
+    "run_venv_python_script",
 })
 
 

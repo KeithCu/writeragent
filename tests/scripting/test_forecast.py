@@ -191,6 +191,15 @@ def test_weekday_forecast_skips_weekends():
         assert pd.Timestamp(row[0]).dayofweek < 5
 
 
+def test_forecast_periods_are_capped():
+    rows = [{"Date": f"2024-01-{day:02d}", "Value": float(day)} for day in range(1, 10)]
+    result = forecast_time_series(pd.DataFrame(rows), periods=10**9, model="moving_average")
+    assert result["status"] == "ok", result
+    assert result["metrics"]["periods"] == 10_000
+    # The sheet table is capped separately. The horizon itself must not be 1e9.
+    assert len(result["tables"][0]["rows"]) < 10_000
+
+
 def test_duplicate_dates_are_aggregated():
     rows = [{"Date": f"2024-01-{day:02d}", "Value": float(day)} for day in range(1, 10)]
     rows.append({"Date": "2024-01-01", "Value": 100.0})

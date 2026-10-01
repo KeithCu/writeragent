@@ -144,7 +144,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'page_set_header_footer_text',
                 'page_set_style_properties'],
     'pivot_table': ['create_pivot_table', 'list_pivot_tables', 'refresh_pivot_table'],
-    'python': ['run_venv_python_script', 'symbolic_math'],
+    'python': ['symbolic_math'],
     'range': [   'named_range_add',
                  'named_range_create_from_titles',
                  'named_range_delete',
@@ -1372,16 +1372,6 @@ pivot_table = _PivotTableProxy()
 
 class _PythonProxy:
     """Proxy for python tools."""
-
-    def run_venv_python_script(self, code: str, *, data_range: str | None = None, data: list[Any] | None = None) -> dict[str, Any]:
-        """Run Python code. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). Optional data_range (one A1 address, comma-separated addresses, or an array) injects `data` / `ranges` (one address → `data` is that CalcRange; several → `data` is the `ranges` list). The host reads ranges on the main thread and sends shaped data over the efficient IPC path. For anything beyond tiny grids, use data_range (address) rather than passing values in the data parameter.
-
-        Args:
-            code (required): Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar).
-            data_range (optional): Optional A1 range(s) injected as CalcRange: one address → `data` is that range and `ranges == [data]`; two or more → `data` is the same list as `ranges`. Pass one address string, a comma/semicolon-separated string (e.g. 'A1:A10, C1:C10'), or an array of address strings.
-            data (optional): Optional 2D array of cell values as `data` (use data_range for bulk data; the host resolves addresses without putting values in the LLM context).
-        """
-        return _rpc_call("run_venv_python_script", code=code, data_range=data_range, data=data)
 
     def symbolic_math(self, helper: str, *, params: dict[str, Any] | None = None, task_hint: str | None = None, display_block: bool | None = None) -> dict[str, Any]:
         """Run a trusted SymPy symbolic math helper. Helpers: differentiate, integrate, latex_to_math_object, solve_equation, symbolic_simplify. On Writer, the result inserts as a Math object when LaTeX conversion succeeds. On Calc, results write to the active sheet.

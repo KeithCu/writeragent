@@ -16,8 +16,17 @@ def test_get_forecast_template_is_executable():
     code = get_forecast_template("forecast_time_series")
     assert code is not None
     assert "from writeragent.scripting.forecast import forecast_time_series" in code
-    assert "forecast_time_series" in code
+    assert "forecast_time_series(data," in code
+    assert "null" not in code
+    assert "false" not in code
     assert "# writeragent:forecast" not in code
+
+
+def test_optional_forecast_params_are_python_none():
+    code = get_forecast_template("decompose_time_series")
+    assert code is not None
+    assert "period=None" in code
+    assert "null" not in code
 
 
 def test_parse_forecast_script_header_round_trip():

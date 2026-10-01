@@ -209,11 +209,28 @@ def wait_for_recording_ready(proc: subprocess.Popen[str], *, timeout_sec: float 
 
 
 def _reap_recording_process(proc: subprocess.Popen[str], timeout_sec: float) -> None:
+    """Wait, then escalate to the process group. Drop the stderr drain only after exit.
+
+    ``terminate`` alone left a PortAudio thread holding the mic, and dropping
+    the drain at the same time filled the stderr pipe and stalled the child.
+    """
     try:
         proc.wait(timeout=timeout_sec)
     except subprocess.TimeoutExpired:
         proc.terminate()
-    _recording_stderr_drains.pop(id(proc), None)
+        try:
+            proc.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            from plugin.scripting.venv_worker import _kill_process_tree
+
+            _kill_process_tree(proc)
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                log.warning("audio recorder pid=%s still alive after kill", proc.pid)
+    drain = _recording_stderr_drains.pop(id(proc), None)
+    if drain is not None:
+        drain.join(timeout=1.0)
 
 
 def stop_recording_process(
@@ -426,15 +443,7 @@ def terminate_recording_process(proc: subprocess.Popen[str] | None) -> None:
                 write_json_line(proc.stdin, {"command": "stop"})
         except OSError:
             pass
-        try:
-            proc.terminate()
-            proc.wait(timeout=2)
-        except (subprocess.TimeoutExpired, OSError):
-            try:
-                proc.kill()
-            except OSError:
-                pass
-    _recording_stderr_drains.pop(id(proc), None)
+    _reap_recording_process(proc, 2.0)
 
 
 def make_temp_wav_path() -> str:

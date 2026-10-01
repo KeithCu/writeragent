@@ -466,6 +466,7 @@ def _picker_supports_fn(supports: str) -> Callable[[Any], bool]:
         try:
             return bool(_resolve_module_attr(supports)(doc))
         except Exception:
+            log.debug("script picker supports check failed for %s", supports, exc_info=True)
             return False
 
     return _supports

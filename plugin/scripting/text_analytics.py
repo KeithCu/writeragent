@@ -66,6 +66,7 @@ _API = make_template_api(
         shipped_templates=_SHIPPED_TEMPLATES,
         data_expr="text",
         context_expr="document_context",
+        invoke="runner",
         extra_comment_lines=("# Works on Writer documents (document text is injected on Run).",),
     )
 )
@@ -259,8 +260,16 @@ def is_text_analytics_result(value: Any) -> bool:
         return False
     # Error dicts must take this insert path. Falling through inserted the
     # raw dict as generic Writer text and reported success.
-    if value.get("status") == "error" and str(value.get("code") or "") == "TEXT_ANALYTICS_ERROR":
-        return True
+    if value.get("status") == "error":
+        code = str(value.get("code") or "")
+        helper = value.get("helper")
+        if code in ("TEXT_ANALYTICS_ERROR", "UNKNOWN_HELPER"):
+            return True
+        if isinstance(helper, str) and helper in HELPER_NAMES:
+            return True
+    helper_name = value.get("helper")
+    if isinstance(helper_name, str) and helper_name in ("diagnostics", "check"):
+        return value.get("status") in ("ok", "error")
     if value.get("status") != "ok":
         return False
     # Our results have a top-level "result" with known keys, or the helper dispatch shape.

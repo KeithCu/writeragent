@@ -406,7 +406,8 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
 
         clear_python_addin_cache()
     except Exception:
-        pass
+        # A failed clear used to leave cached =PY() scalars with no traceback.
+        log.debug("session_manager: clear_python_addin_cache failed", exc_info=True)
 
 
 
@@ -657,7 +658,8 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
 
         clear_python_addin_cache()
     except Exception:
-        pass
+        # A failed clear used to leave cached =PY() scalars with no traceback.
+        log.debug("session_manager: clear_python_addin_cache failed", exc_info=True)
     if res.get("status") != "ok":
 
         msg = res.get("message") or _("Could not reset Python session.")

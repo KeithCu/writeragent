@@ -193,6 +193,45 @@ def read_pickle_frame(
 _tool_call_lock = threading.Lock()
 
 
+def _pause_script_alarm() -> tuple[int, float] | None:
+    """Turn off SIGALRM for the tool_call read. Return (seconds left, monotonic start).
+
+    The script alarm used to fire inside this stdin read. The harness then wrote
+    an error frame while the host was still writing the tool reply, and the next
+    cell read that reply as a request.
+    """
+    try:
+        import signal
+
+        remaining = signal.alarm(0)
+    except (AttributeError, ValueError, OSError):
+        return None
+    if not remaining:
+        return None
+    return int(remaining), time.monotonic()
+
+
+def _resume_script_alarm(paused: tuple[int, float] | None) -> bool:
+    """Restore the script alarm. Return True when the budget was already spent.
+
+    The tool reply has been consumed by then, so the timeout is a normal script
+    error instead of a desynced pipe.
+    """
+    if paused is None:
+        return False
+    remaining, started = paused
+    left = remaining - (time.monotonic() - started)
+    if left <= 0:
+        return True
+    try:
+        import signal
+
+        signal.alarm(max(1, int(left + 0.999)))
+    except (AttributeError, ValueError, OSError):
+        return False
+    return False
+
+
 def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Write one tool_call frame and read its response. Check the echoed id.
 
@@ -202,17 +241,26 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     """
     call_id = str(uuid.uuid4())
     request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": args}
-    with _tool_call_lock:
-        write_pickle_frame(
-            sys.stdout.buffer,
-            request,
-            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-        )
-        response = read_pickle_frame(
-            sys.stdin.buffer,
-            require_dict=True,
-            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-            frame_label="tool_call response",
+    paused = _pause_script_alarm()
+    overdue = False
+    try:
+        with _tool_call_lock:
+            write_pickle_frame(
+                sys.stdout.buffer,
+                request,
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            )
+            response = read_pickle_frame(
+                sys.stdin.buffer,
+                require_dict=True,
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+                frame_label="tool_call response",
+            )
+    finally:
+        overdue = _resume_script_alarm(paused)
+    if overdue:
+        raise TimeoutError(
+            "Code execution exceeded the maximum execution time during a tool call"
         )
     if response is None:
         raise ConnectionError("Lost connection to LibreOffice host during tool call")

@@ -237,7 +237,7 @@ def invalidate_session_tables(
         con = _SESSION_CONNECTIONS.get(key)
     if con is None:
         return
-    raw = con._con if isinstance(con, GuardedDuckDBConnection) else con
+    raw = _raw_duckdb(con)
     for item in names:
         name = str(item).strip()
         if not name:
@@ -277,7 +277,7 @@ def _acquire_duckdb(session_id: str | None) -> tuple[Any, bool]:
 
 def _register_relation(con: Any, name: str, rel: Any) -> None:
     """Replace a prior registration so a recalc snapshot overwrites a stale table."""
-    raw = con._con if isinstance(con, GuardedDuckDBConnection) else con
+    raw = _raw_duckdb(con)
     try:
         if hasattr(raw, "unregister"):
             raw.unregister(name)
@@ -320,6 +320,12 @@ class ReadonlyViolation(ValueError):
     code: ClassVar[str] = "READONLY_VIOLATION"
 
 
+# Methods a script may call on session_duckdb() besides execute/sql/close.
+# __getattr__ used to forward every connection method, and ``_con`` was public,
+# so read_csv / ``con._con.execute`` skipped the read-only firewall.
+_GUARDED_FORWARDED = frozenset({"register", "unregister", "df"})
+
+
 class GuardedDuckDBConnection:
     """Delegate to an in-memory DuckDB connection; ``execute`` / ``sql`` use the firewall.
 
@@ -327,24 +333,31 @@ class GuardedDuckDBConnection:
     wrap — demos and ``=PY()`` should prefer ``session_duckdb()`` / ``run_sql``.
     """
 
-    _con: Any
-
     def __init__(self, con: Any) -> None:
-        self._con = con
+        self.__con = con
 
     def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
         _raise_if_write_or_escape(sql)
-        return self._con.execute(sql, *args, **kwargs)
+        return self.__con.execute(sql, *args, **kwargs)
 
     def sql(self, sql: str, *args: Any, **kwargs: Any) -> Any:
         _raise_if_write_or_escape(sql)
-        return self._con.sql(sql, *args, **kwargs)
+        return self.__con.sql(sql, *args, **kwargs)
 
     def close(self) -> None:
-        self._con.close()
+        self.__con.close()
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._con, name)
+        if name not in _GUARDED_FORWARDED:
+            raise AttributeError(f"{type(self).__name__!r} has no attribute {name!r}")
+        return getattr(self.__con, name)
+
+
+def _raw_duckdb(con: Any) -> Any:
+    """The connection inside a guard. Module code only — not ``session_duckdb()._con``."""
+    if isinstance(con, GuardedDuckDBConnection):
+        return con._GuardedDuckDBConnection__con
+    return con
 
 
 def _strip_sql_comments_and_strings(sql: str) -> tuple[str, list[str]]:
@@ -514,7 +527,7 @@ def _register_flat_files(
 ) -> None:
     if not flat_files:
         return
-    raw = con._con if isinstance(con, GuardedDuckDBConnection) else con
+    raw = _raw_duckdb(con)
     for name, path in flat_files.items():
         if not name or not path:
             continue

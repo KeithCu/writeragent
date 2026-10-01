@@ -6,7 +6,16 @@
 
 from __future__ import annotations
 
-from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+import io
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from fractions import Fraction
+
+import pytest
+
+from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+from plugin.scripting.payload_codec import host_unpack_data
+from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
 
 
 def test_run_sandboxed_code_injects_bindings():
@@ -14,3 +23,41 @@ def test_run_sandboxed_code_injects_bindings():
     out = run_sandboxed_code(code, bindings={"image": b"png-bytes"})
     assert out["status"] == "ok"
     assert out["result"] == b"png-bytes"
+
+
+def test_scalar_dates_and_numbers_round_trip_host_unpickle():
+    cases = [
+        (date(2026, 8, 13), "2026-08-13"),
+        (datetime(2026, 8, 13, 14, 30), "2026-08-13T14:30:00"),
+        (time(14, 30), "14:30:00"),
+        (timedelta(days=1, hours=12), 1.5),
+        (Decimal("1.25"), 1.25),
+        (Fraction(1, 4), 0.25),
+        (range(3), [0, 1, 2]),
+        ([date(2026, 1, 1), date(2026, 1, 2)], ["2026-01-01", "2026-01-02"]),
+    ]
+    for value, expected in cases:
+        wire = serialize_result(value)
+        buf = io.BytesIO()
+        write_pickle_frame(buf, {"status": "ok", "result": wire})
+        buf.seek(0)
+        unpacked = read_pickle_frame(buf, require_dict=True)
+        assert host_unpack_data(unpacked["result"]) == expected
+
+
+def test_pandas_timestamp_round_trips_as_iso():
+    pd = pytest.importorskip("pandas")
+    wire = serialize_result(pd.Timestamp("2026-08-13 14:30"))
+    buf = io.BytesIO()
+    write_pickle_frame(buf, {"status": "ok", "result": wire})
+    buf.seek(0)
+    unpacked = read_pickle_frame(buf, require_dict=True)
+    assert host_unpack_data(unpacked["result"]) == "2026-08-13T14:30:00"
+
+
+def test_unknown_result_type_stays_in_the_child():
+    class Weird:
+        pass
+
+    with pytest.raises(ValueError, match="pickle boundary"):
+        serialize_result(Weird())

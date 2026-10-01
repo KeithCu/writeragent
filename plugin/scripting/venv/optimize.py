@@ -15,6 +15,7 @@ from plugin.scripting.calc_functions_common import (
 from plugin.scripting.venv.coerce import (
     ok_result as _ok_result,
     error_result as _error_result,
+    parse_trusted_spec as _parse_trusted_spec,
     numeric_columns as _numeric_columns,
     resolve_df as _resolve_df,
     table_from_df as _table_from_df,
@@ -247,23 +248,10 @@ def run_optimize(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC."""
-    if isinstance(spec, str):
-        spec_dict: dict[str, Any] = {"helper": spec}
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
-        return _error_result("INVALID_SPEC", "spec must be a dict or helper name string")
-
-    helper = str(spec_dict.get("helper") or "").strip()
-    if not helper:
-        return _error_result("MISSING_HELPER", "spec.helper is required")
-    if helper not in HELPER_NAMES:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
-
-    params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
-    headers = bool(spec_dict.get("headers", True))
-    header_row = int(spec_dict.get("header_row", 0))
-    ctx = context if isinstance(context, dict) else {}
+    parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
+    if isinstance(parsed, dict):
+        return parsed
+    helper, params, headers, header_row, ctx, _spec = parsed
 
     try:
         result = _dispatch_helper(helper, data, params, headers=headers, header_row=header_row, context=ctx)

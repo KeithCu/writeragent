@@ -57,3 +57,21 @@ def test_run_symbolic_parse_error():
     result = run_symbolic({"helper": "symbolic_simplify", "params": {"expression": "((("}}, None, {})
     assert result["status"] == "error"
     assert result["code"] == "PARSE_ERROR"
+
+
+def test_overlong_expression_is_parse_error_without_evaluating():
+    from plugin.scripting.venv.symbolic import _MAX_SYMBOLIC_EXPR_CHARS
+
+    expr = "x+" * _MAX_SYMBOLIC_EXPR_CHARS
+    result = run_symbolic({"helper": "symbolic_simplify", "params": {"expression": expr}}, None, {})
+    assert result["status"] == "error"
+    assert result["code"] == "PARSE_ERROR"
+    assert "longer than" in result["message"]
+
+
+def test_latex_to_math_object_rejects_unparsed_text():
+    from plugin.scripting.venv.symbolic import latex_to_math_object
+
+    result = latex_to_math_object(latex="(((")
+    assert result["status"] == "error"
+    assert result["code"] == "PARSE_ERROR"

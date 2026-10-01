@@ -981,6 +981,82 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
     )
 
 
+def _attach_probe_group(
+    data: dict[str, Any],
+    probes: dict[str, Any] | None,
+    failure: str | None,
+    *,
+    group: str,
+    keys: tuple[str, ...] | list[str],
+    failure_key: str,
+) -> None:
+    """Merge one out-of-worker probe into *data*. Shared by both self-check entry points."""
+    packages = data.setdefault("p", {})
+    if isinstance(packages, dict) and probes:
+        packages.update(probes)
+    data[group] = list(keys)
+    if failure:
+        data[failure_key] = failure
+
+
+def _attach_external_probes(
+    python_exe: str,
+    data: dict[str, Any],
+    *,
+    include_audio: bool = True,
+    include_ui: bool = True,
+    include_nlp: bool = True,
+    include_vision: bool = True,
+    include_vector_search: bool = True,
+) -> None:
+    """Audio, UI, NLP, vision, and vector probes. Not the warm =PY() worker."""
+    if include_audio:
+        probes, failure = _probe_audio_packages(
+            python_exe,
+            timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+        )
+        _attach_probe_group(
+            data, probes, failure, group="audio", keys=_AUDIO_PACKAGE_KEYS, failure_key="audio_probe_failure"
+        )
+    if include_ui:
+        probes, failure = _probe_ui_packages(
+            python_exe,
+            timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+        )
+        _attach_probe_group(
+            data, probes, failure, group="ui", keys=list(_SANDBOX_SELF_CHECK_GROUPS[2][1]), failure_key="ui_probe_failure"
+        )
+    if include_nlp:
+        probes, failure = _probe_nlp_packages(
+            python_exe,
+            timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+        )
+        _attach_probe_group(
+            data, probes, failure, group="nlp", keys=_NLP_PACKAGE_KEYS, failure_key="nlp_probe_failure"
+        )
+    if include_vision:
+        probes, failure = _probe_vision_packages(
+            python_exe,
+            timeout=float(VISION_PROBE_TIMEOUT_SEC),
+        )
+        _attach_probe_group(
+            data, probes, failure, group="vision", keys=_VISION_PACKAGE_KEYS, failure_key="vision_probe_failure"
+        )
+    if include_vector_search:
+        probes, failure = _probe_vector_search_packages(
+            python_exe,
+            timeout=float(VECTOR_SEARCH_PROBE_TIMEOUT_SEC),
+        )
+        _attach_probe_group(
+            data,
+            probes,
+            failure,
+            group="vector_search",
+            keys=_VECTOR_SEARCH_PACKAGE_KEYS,
+            failure_key="vector_search_probe_failure",
+        )
+
+
 def run_venv_self_check_with_progress(
     python_exe: str,
     on_display: Callable[[str], None],
@@ -1073,16 +1149,14 @@ def run_venv_self_check_with_progress(
 
     if include_audio:
         _status(_("Audio & Speech: checking sounddevice, TTS, and local Whisper..."))
-        audio_probes, audio_failure = _probe_audio_packages(
+        _attach_external_probes(
             python_exe,
-            timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+            data,
+            include_ui=False,
+            include_nlp=False,
+            include_vision=False,
+            include_vector_search=False,
         )
-        packages = data.setdefault("p", {})
-        if isinstance(packages, dict) and audio_probes:
-            packages.update(audio_probes)
-        data["audio"] = list(_AUDIO_PACKAGE_KEYS)
-        if audio_failure:
-            data["audio_probe_failure"] = audio_failure
         _refresh(data, include_audio=True)
 
     for group_index, (group_title, packages) in enumerate(_SANDBOX_SELF_CHECK_GROUPS):
@@ -1147,28 +1221,25 @@ def run_venv_self_check_with_progress(
         _refresh(data, completed_groups=group_index + 1, include_audio=include_audio)
 
     _status(_("Text / NLP Libraries: loading (first run may take a while)..."))
-    nlp_probes, nlp_failure = _probe_nlp_packages(
+    _attach_external_probes(
         python_exe,
-        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+        data,
+        include_audio=False,
+        include_ui=False,
+        include_vision=False,
+        include_vector_search=False,
     )
-    packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and nlp_probes:
-        packages.update(nlp_probes)
-    if nlp_failure:
-        data["nlp_probe_failure"] = nlp_failure
     _refresh(data, completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT, include_audio=include_audio)
 
     _status(_("Vision Libraries: loading (first run may take a while)..."))
-    vision_probes, vision_failure = _probe_vision_packages(
+    _attach_external_probes(
         python_exe,
-        timeout=float(VISION_PROBE_TIMEOUT_SEC),
+        data,
+        include_audio=False,
+        include_ui=False,
+        include_nlp=False,
+        include_vector_search=False,
     )
-    packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and vision_probes:
-        packages.update(vision_probes)
-    data["vision"] = list(_VISION_PACKAGE_KEYS)
-    if vision_failure:
-        data["vision_probe_failure"] = vision_failure
     _refresh(
         data,
         completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
@@ -1178,16 +1249,14 @@ def run_venv_self_check_with_progress(
 
     if include_vector_search:
         _status(_("Vector Search Libraries: loading (first run may take a while)..."))
-        vector_search_probes, vector_search_failure = _probe_vector_search_packages(
+        _attach_external_probes(
             python_exe,
-            timeout=float(VECTOR_SEARCH_PROBE_TIMEOUT_SEC),
+            data,
+            include_audio=False,
+            include_ui=False,
+            include_nlp=False,
+            include_vision=False,
         )
-        packages = data.setdefault("p", {})
-        if isinstance(packages, dict) and vector_search_probes:
-            packages.update(vector_search_probes)
-        data["vector_search"] = list(_VECTOR_SEARCH_PACKAGE_KEYS)
-        if vector_search_failure:
-            data["vector_search_probe_failure"] = vector_search_failure
         _refresh(
             data,
             completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
@@ -1239,59 +1308,7 @@ def run_venv_self_check(python_exe: str, timeout: float | None = None) -> Tuple[
     if not isinstance(data, dict):
         return False, f"Unexpected output from test run: {data!r}"
 
-    audio_probes, audio_failure = _probe_audio_packages(
-        python_exe,
-        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
-    )
-    packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and audio_probes:
-        packages.update(audio_probes)
-    data["audio"] = list(_AUDIO_PACKAGE_KEYS)
-    if audio_failure:
-        data["audio_probe_failure"] = audio_failure
-
-    ui_probes, ui_failure = _probe_ui_packages(
-        python_exe,
-        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
-    )
-    packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and ui_probes:
-        packages.update(ui_probes)
-    if ui_failure:
-        data["ui_probe_failure"] = ui_failure
-
-    nlp_probes, nlp_failure = _probe_nlp_packages(
-        python_exe,
-        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
-    )
-    packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and nlp_probes:
-        packages.update(nlp_probes)
-    data["nlp"] = list(_NLP_PACKAGE_KEYS)
-    if nlp_failure:
-        data["nlp_probe_failure"] = nlp_failure
-
-    vision_probes, vision_failure = _probe_vision_packages(
-        python_exe,
-        timeout=float(VISION_PROBE_TIMEOUT_SEC),
-    )
-    packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and vision_probes:
-        packages.update(vision_probes)
-    data["vision"] = list(_VISION_PACKAGE_KEYS)
-    if vision_failure:
-        data["vision_probe_failure"] = vision_failure
-
-    vector_search_probes, vector_search_failure = _probe_vector_search_packages(
-        python_exe,
-        timeout=float(VECTOR_SEARCH_PROBE_TIMEOUT_SEC),
-    )
-    packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and vector_search_probes:
-        packages.update(vector_search_probes)
-    data["vector_search"] = list(_VECTOR_SEARCH_PACKAGE_KEYS)
-    if vector_search_failure:
-        data["vector_search_probe_failure"] = vector_search_failure
+    _attach_external_probes(python_exe, data)
 
     try:
         return True, _format_self_check_success(data)

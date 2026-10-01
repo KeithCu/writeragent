@@ -389,6 +389,36 @@ def ok_result(helper: str, **payload: Any) -> dict[str, Any]:
     return {"status": "ok", "helper": helper, **payload}
 
 
+def parse_trusted_spec(
+    spec: dict[str, Any] | str,
+    *,
+    helper_names: frozenset[str] | set[str],
+    context: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any], bool, int, dict[str, Any], dict[str, Any]] | dict[str, Any]:
+    """Shared preamble for run_analysis / run_forecast / run_optimize.
+
+    Returns ``(helper, params, headers, header_row, context, spec)`` or an error dict.
+    """
+    if isinstance(spec, str):
+        spec_dict: dict[str, Any] = {"helper": spec}
+    elif isinstance(spec, dict):
+        spec_dict = spec
+    else:
+        return error_result("INVALID_SPEC", "spec must be a dict or helper name string")
+
+    helper = str(spec_dict.get("helper") or "").strip()
+    if not helper:
+        return error_result("MISSING_HELPER", "spec.helper is required")
+    if helper not in helper_names:
+        return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
+
+    params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
+    headers = bool(spec_dict.get("headers", True))
+    header_row = int(spec_dict.get("header_row", 0))
+    ctx = context if isinstance(context, dict) else {}
+    return helper, params, headers, header_row, ctx, spec_dict
+
+
 def error_result(
     code: str,
     message: str,

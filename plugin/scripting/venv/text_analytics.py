@@ -601,7 +601,7 @@ def run_text_analytics(
 
     if helper in ("diagnostics", "check"):
         lang = params.get("lang") or (context or {}).get("lang")
-        return {"status": "ok", "result": check_diagnostics(lang=lang)}
+        return {"status": "ok", "helper": helper, "result": check_diagnostics(lang=lang)}
 
     # Preserve original list form for section-aware helpers (topics, sentiment).
     # Only join for helpers that expect a single string.
@@ -646,7 +646,13 @@ def run_text_analytics(
         topic_data = _extract_topics(raw_for_topics, n_topics=params.get("n_topics", 4))
         # Normalize into the same result envelope the rest of the system expects.
         if topic_data.get("error") == "MISSING_PACKAGE":
-            return {"status": "ok", "result": topic_data, "note": "install scikit-learn for topics"}
+            return {
+                "status": "error",
+                "code": "TEXT_ANALYTICS_ERROR",
+                "helper": helper,
+                "message": "install scikit-learn for topics",
+                "result": topic_data,
+            }
         return {"status": "ok", "result": {"topics": topic_data.get("topics", []), "assignments": topic_data.get("assignments"), "meta": {"n_topics": topic_data.get("n_sections") or len(topic_data.get("topics", [])) or None }}}
 
     if helper in ("sentiment", "polarity"):
@@ -655,8 +661,14 @@ def run_text_analytics(
         # Pass params so model can be overridden via JSON config (see WriterAgentConfig).
         sent_data = _extract_sentiment(raw_for_sent, params=params)
         if sent_data.get("error"):
-            # Surface missing package or load errors at result level
-            return {"status": "ok", "result": sent_data}
+            # A missing model used to be status ok, so the runner reported success.
+            return {
+                "status": "error",
+                "code": "TEXT_ANALYTICS_ERROR",
+                "helper": helper,
+                "message": str(sent_data.get("error")),
+                "result": sent_data,
+            }
         res = {
             "sentiment": sent_data.get("overall", {}),
             "meta": {"n_sections": sent_data.get("n_sections")}
@@ -665,5 +677,9 @@ def run_text_analytics(
             res["per_section"] = sent_data["per_section"]
         return {"status": "ok", "result": res}
 
-    # Default to full high-quality analysis
-    return analyze_text(str(text), lang=lang, context=context)
+    return {
+        "status": "error",
+        "code": "UNKNOWN_HELPER",
+        "helper": str(helper),
+        "message": f"Unknown text analytics helper {helper!r}",
+    }

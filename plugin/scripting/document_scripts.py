@@ -191,7 +191,9 @@ def set_calc_init_script(doc: Any, code: str) -> str | None:
 
         record_active_calc_session(None, build_python_eval_init_kwargs(doc))
     except Exception:
-        pass
+        # The document property is already updated. Swallowing this left the
+        # next off-main =PY() on the previous init script.
+        log.exception("document_scripts: failed to refresh the shared-kernel init cache")
     return res
 
 

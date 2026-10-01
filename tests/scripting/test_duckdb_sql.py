@@ -821,6 +821,11 @@ def test_session_duckdb_reuses_catalog_across_statements():
         con.execute("COPY (SELECT 1) TO 'out.csv'")
     with pytest.raises(ReadonlyViolation):
         con.sql("SELECT * FROM '/tmp/x.csv'")
+    with pytest.raises(AttributeError):
+        con.read_csv
+    with pytest.raises(AttributeError):
+        con._con
+    assert callable(con.register)
     con.close()
 
 

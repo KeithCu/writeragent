@@ -180,3 +180,14 @@ def test_picker_order_starts_with_vision_math_units_analysis():
         "optimize",
         "forecast",
     ]
+
+
+def test_picker_supports_logs_when_the_check_raises(caplog):
+    import logging
+
+    from plugin.scripting.domain_registry import _picker_supports_fn
+
+    fn = _picker_supports_fn("plugin.scripting.domain_registry:does_not_exist")
+    with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
+        assert fn(object()) is False
+    assert "supports check failed" in caplog.text

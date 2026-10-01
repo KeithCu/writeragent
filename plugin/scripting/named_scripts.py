@@ -60,6 +60,11 @@ def script_body_hash(code: str) -> str:
     return hashlib.sha256((code or "").encode("utf-8")).hexdigest()
 
 
+def _expr_has_call(node: ast.AST) -> bool:
+    """True when *node* contains a call that would run while the library loads."""
+    return any(isinstance(child, (ast.Call, ast.Await)) for child in ast.walk(node))
+
+
 def extract_library_source(code: str) -> str:
     """Keep defs, classes, imports, and name assignments. Drop module-level calls."""
     try:
@@ -75,9 +80,17 @@ def extract_library_source(code: str) -> str:
         elif isinstance(node, ast.Assign) and all(isinstance(t, ast.Name) for t in node.targets):
             # Name assignments stay, including ``SCALE = FACTOR * 2``. Only
             # constant assigns used to be kept, so the name vanished with no error.
-            keep.append(node)
+            # A call in the value still runs at import (``x = wa.writer...()``),
+            # which mutated the document when Run Python Script left tool RPC open.
+            if node.value is not None and _expr_has_call(node.value):
+                dropped.append(getattr(node, "lineno", 0))
+            else:
+                keep.append(node)
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
-            keep.append(node)
+            if _expr_has_call(node.value):
+                dropped.append(getattr(node, "lineno", 0))
+            else:
+                keep.append(node)
         elif isinstance(node, (ast.Expr, ast.Pass)):
             # Module-level calls are not library definitions. They are omitted.
             continue

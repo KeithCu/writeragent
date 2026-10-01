@@ -77,7 +77,7 @@ def test_build_run_import_template_has_header_and_import():
     )
     assert not body.startswith("# writeragent:")
     assert body.startswith("# Convert")
-    assert 'convert_quantity(10, "m/s", "km/h")' in body
+    assert "convert_quantity(10, 'm/s', 'km/h')" in body
     assert "from writeragent.scripting.units import convert_quantity" in body
 
 
@@ -93,7 +93,7 @@ def test_build_run_import_template_with_data():
         data_expr="data",
         positional_args=("value", "from", "to"),
     )
-    assert 'convert_quantity(data, "m/s", "km/h")' in body
+    assert "convert_quantity(data, 'm/s', 'km/h')" in body
 
 
 def test_parse_run_import_call_params_reads_body():

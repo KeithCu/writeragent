@@ -995,3 +995,20 @@ def test_audio_probe_lists_faster_whisper_as_optional_pip_package():
     assert _PROBE_KEY_TO_PIP["faster_whisper"] == "faster-whisper"
     assert _probe_key_to_pip("faster_whisper") == "faster-whisper"
 
+
+def test_attach_external_probes_shares_one_helper(monkeypatch):
+    from plugin.scripting import venv_diagnostics as vd
+
+    monkeypatch.setattr(vd, "_probe_audio_packages", lambda *args, **kwargs: ({"sounddevice": True}, None))
+    monkeypatch.setattr(vd, "_probe_ui_packages", lambda *args, **kwargs: ({}, None))
+    monkeypatch.setattr(vd, "_probe_nlp_packages", lambda *args, **kwargs: ({}, None))
+    monkeypatch.setattr(vd, "_probe_vision_packages", lambda *args, **kwargs: ({}, None))
+    monkeypatch.setattr(vd, "_probe_vector_search_packages", lambda *args, **kwargs: ({}, None))
+    data: dict = {}
+    vd._attach_external_probes("/usr/bin/python", data)
+    assert data["audio"]
+    assert "ui" in data
+    assert "nlp" in data
+    assert "vision" in data
+    assert "vector_search" in data
+

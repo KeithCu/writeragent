@@ -1,4 +1,5 @@
 import json
+import subprocess
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,34 @@ from plugin.scripting.audio_recorder_service import (
     stop_recording_process,
     wait_for_recording_ready,
 )
+
+
+def test_reap_kills_the_group_before_dropping_stderr(monkeypatch):
+    from plugin.scripting.audio_recorder_service import _reap_recording_process, _recording_stderr_drains
+
+    proc = MagicMock()
+    proc.pid = 99
+    proc.wait.side_effect = [
+        subprocess.TimeoutExpired(cmd="rec", timeout=1),
+        subprocess.TimeoutExpired(cmd="rec", timeout=1),
+        None,
+    ]
+    order: list[str] = []
+    proc.terminate.side_effect = lambda: order.append("terminate")
+    drain = MagicMock()
+    drain.join.side_effect = lambda timeout=None: order.append("join")
+    _recording_stderr_drains[id(proc)] = drain
+
+    def _kill(target):
+        order.append("kill")
+        assert target is proc
+
+    monkeypatch.setattr("plugin.scripting.venv_worker._kill_process_tree", _kill)
+    try:
+        _reap_recording_process(proc, 0.01)
+    finally:
+        _recording_stderr_drains.pop(id(proc), None)
+    assert order == ["terminate", "kill", "join"]
 
 
 def test_is_audio_recording_configured_true():

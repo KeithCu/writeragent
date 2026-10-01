@@ -629,6 +629,63 @@ def test_build_request_sets_heartbeat_on_trusted_action():
     assert request["data"]["domain"] == "embeddings_index"
 
 
+def test_bad_result_after_tool_call_does_not_replay(monkeypatch):
+    """host_unpack ValueError after a finished tool call must not resend the script."""
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    captured: dict[str, dict] = {}
+
+    def _write_frame(stdin, request, **kwargs):
+        captured["request"] = request
+
+    mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
+    reads = {"n": 0}
+
+    def _read(stdout, timeout_sec):
+        reads["n"] += 1
+        if reads["n"] == 1:
+            return pickle.dumps({"status": "host_request"}, protocol=5)
+        request = captured["request"]
+        return pickle.dumps(
+            {"status": "ok", "id": request["id"], "result": {"split_grid": "bad"}},
+            protocol=5,
+        )
+
+    mgr._read_response_bytes = _read  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    def _normalize(response):
+        raise ValueError("inconsistent split_grid")
+
+    mgr._normalize_response = _normalize  # type: ignore[method-assign]
+
+    dispatched = {"n": 0}
+
+    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None, **kwargs):
+        del response, stdin_write, on_worker_event, stop_checker, kwargs
+        dispatched["n"] += 1
+        # The first frame is the tool call. The next frame is the finished result.
+        return dispatched["n"] == 1
+
+    monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_intermediate_response", dispatch)
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "inconsistent split_grid" in result["message"]
+    assert "request" in captured
+    assert reads["n"] == 2
+    assert mgr._terminate_worker.call_count == 1
+
+
 def test_get_replaces_previous_interpreter_in_the_same_pool():
     from plugin.framework.constants import WORKER_POOL_DEFAULT
     from plugin.scripting import venv_worker
@@ -642,6 +699,76 @@ def test_get_replaces_previous_interpreter_in_the_same_pool():
         assert all(not key.endswith("python-a") for key in venv_worker._instances)
     finally:
         PythonWorkerManager.shutdown_all()
+
+
+def test_get_refreshes_env_for_the_next_spawn():
+    PythonWorkerManager.shutdown_all()
+    try:
+        first = PythonWorkerManager.get("/tmp/python-env", {"PATH": "/usr/bin", "A": "1"})
+        second = PythonWorkerManager.get("/tmp/python-env", {"PATH": "/usr/bin", "A": "1", "B": "2"})
+        assert first is second
+        assert second.env["B"] == "2"
+        assert second.env["WRITERAGENT_IS_WORKER"] == "1"
+    finally:
+        PythonWorkerManager.shutdown_all()
+
+
+def test_retired_worker_does_not_respawn():
+    from plugin.framework.constants import WORKER_POOL_DEFAULT
+
+    PythonWorkerManager.shutdown_all()
+    seen: list[bool] = []
+    real_terminate = PythonWorkerManager._terminate_worker
+
+    def _spy(self):
+        seen.append(self._retired)
+        return real_terminate(self)
+
+    try:
+        with patch.object(PythonWorkerManager, "_terminate_worker", _spy):
+            first = PythonWorkerManager.get(
+                "/tmp/python-old-path", {"PATH": "/usr/bin"}, pool=WORKER_POOL_DEFAULT
+            )
+            PythonWorkerManager.get("/tmp/python-new-path", {"PATH": "/usr/bin"}, pool=WORKER_POOL_DEFAULT)
+        assert first._retired is True
+        assert True in seen
+        with pytest.raises(RuntimeError, match="will not be restarted"):
+            first._ensure_running()
+        assert first._proc is None
+        assert PythonWorkerManager.pool_is_running("pool-that-was-never-started") is False
+    finally:
+        PythonWorkerManager.shutdown_all()
+
+
+def test_worker_harness_dies_with_parent(monkeypatch):
+    import ctypes
+
+    import plugin.scripting.venv.worker_harness as harness
+
+    calls: list[tuple] = []
+
+    class _Libc:
+        def prctl(self, *args):
+            calls.append(args)
+            return 0
+
+    monkeypatch.setattr(harness.sys, "platform", "linux")
+    monkeypatch.setattr(ctypes, "CDLL", lambda *args, **kwargs: _Libc())
+    monkeypatch.setattr(harness.os, "getppid", lambda: 50)
+    harness._die_with_parent()
+    assert calls == [(1, 9, 0, 0, 0)]
+
+    killed: list[int] = []
+    monkeypatch.setattr(harness.os, "getppid", lambda: 1)
+    monkeypatch.setattr(harness.os, "getpid", lambda: 123)
+    monkeypatch.setattr(harness.os, "kill", lambda pid, sig: killed.append(sig))
+    harness._die_with_parent()
+    assert killed == [9]
+
+    monkeypatch.setattr(harness.sys, "platform", "win32")
+    calls.clear()
+    harness._die_with_parent()
+    assert calls == []
 
 
 @patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10)
@@ -1148,6 +1275,32 @@ def test_shared_session_persists_after_soft_timeout():
         r3 = mgr.execute("result = x + 1", session_id=sid)
         assert r3["status"] == "ok"
         assert r3["result"] == 12346
+    finally:
+        mgr._terminate_worker()
+
+
+def test_init_and_cell_share_one_timeout_without_killing_worker():
+    """Init and the cell used to each get a full alarm, so the host read killed the worker."""
+    import plugin.scripting.venv_worker as vw
+
+    mgr = PythonWorkerManager(sys.executable, {"PATH": os.environ.get("PATH", "")})
+    sid = "test-shared-budget-session"
+    try:
+        with patch.object(vw, "HOST_IPC_READ_GRACE_SEC", 8.0):
+            slow = mgr.execute(
+                "import time\ntime.sleep(2)\nresult = 1",
+                session_id=sid,
+                timeout_sec=3,
+                init_script="import time\ntime.sleep(2)\n",
+                init_session_id=sid + ":init",
+                init_script_hash="budget-v1",
+            )
+        assert slow["status"] == "error"
+        assert "execution time" in slow.get("message", "").lower() or "timed out" in slow.get("message", "").lower()
+        assert mgr._proc is not None and mgr._proc.poll() is None
+        follow = mgr.execute("result = 7", session_id=sid)
+        assert follow["status"] == "ok"
+        assert follow["result"] == 7
     finally:
         mgr._terminate_worker()
 

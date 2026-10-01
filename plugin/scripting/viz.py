@@ -73,6 +73,7 @@ _API = make_template_api(
         run_name="run_viz",
         shipped_templates=_SHIPPED_TEMPLATES,
         data_expr="data",
+        leading_data=True,
         extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     )
 )

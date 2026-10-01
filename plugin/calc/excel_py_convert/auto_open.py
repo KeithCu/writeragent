@@ -35,15 +35,36 @@ _SAVE_DONE_EVENTS = frozenset({"OnSaveDone", "OnSaveAsDone", "OnSaveToDone"})
 _GEOMETRIC_OPEN_EVENTS = frozenset({"OnLoadFinished", "OnNew", "OnLoad", "OnCreate"})
 
 
-def _record_desktop_calc_sessions(ctx: Any) -> None:
-    """Record the leftover scalc only when it is the sole open Calc.
+def _drop_recorded_calc_session(ctx: Any, session_id: str) -> None:
+    """Forget *session_id* on the host and, if a worker is already up, in the child.
 
-    OnCreate Source is often the Writer keeper. Scanning *every* Calc made
-    leftover ``recorded=2`` / ``unambiguous=False`` (Shared drops session_id).
-    Two open workbooks stay Isolated by design. Cap stops MagicMock enums.
+    Spawning a venv only to reset a session that was never loaded would import
+    NumPy during document open. A live worker must drop the executor or the
+    next open of the same URL reuses it.
+    """
+    from plugin.scripting.session_manager import clear_active_calc_session
+    from plugin.scripting.venv_worker import PythonWorkerManager, reset_python_session
+
+    clear_active_calc_session(session_id)
+    if not PythonWorkerManager.pool_is_running():
+        return
+    try:
+        reset_python_session(ctx, session_id)
+    except Exception:
+        log.exception("excel_py lifecycle: reset_python_session failed for %s", session_id)
+
+
+def _record_desktop_calc_sessions(ctx: Any) -> None:
+    """Record every open Calc, and drop host ids that are no longer open.
+
+    One open workbook stays unambiguous so off-main Shared ``=PY()`` can reuse
+    it. Two open workbooks are recorded so the count is not 1 — that used to
+    run the second file inside the first file's kernel. Ids that are not among
+    the open files are pruned (showcase leftover ``calc:file:…``). Cap stops
+    MagicMock enums.
     """
     from plugin.framework.uno_context import get_desktop
-    from plugin.scripting.session_manager import calc_workbook_base_session_id, clear_active_calc_session, is_opencl_probe_session_id, recorded_calc_session_count, recorded_calc_session_ids
+    from plugin.scripting.session_manager import calc_workbook_base_session_id, is_opencl_probe_session_id, recorded_calc_session_count, recorded_calc_session_ids
 
     desktop = get_desktop(ctx)
     comps = getattr(desktop, "getComponents", lambda: None)()
@@ -80,15 +101,25 @@ def _record_desktop_calc_sessions(ctx: Any) -> None:
             if is_opencl_probe_session_id(url):
                 continue
             calcs.append(model)
+    live: set[str] = set()
     if len(calcs) == 1:
-        sid = calc_workbook_base_session_id(calcs[0])
+        live.add(calc_workbook_base_session_id(calcs[0]))
+    elif len(calcs) > 1:
+        # Recording only the sole visible Calc left a second workbook at
+        # recorded==1, so off-main Shared =PY() ran in the first file's kernel.
+        # Count > 1 makes the cache ambiguous and the new file stays isolated.
+        for model in calcs:
+            live.add(calc_workbook_base_session_id(model))
+    if live:
         # Opening a saved showcase file records calc:file:… in soffice. Closing
         # it does not always drop that id (OnUnload only discards the listener's
         # early uuid). The next factory OnNew must prune those leftovers or
         # Shared leftover stays recorded>1 / Isolated (A3 NameError).
+        # clear_active_calc_session forgets the host id only. The child executor
+        # stayed, so reopening the same URL reused init and cell state.
         for other in recorded_calc_session_ids():
-            if other != sid:
-                clear_active_calc_session(other)
+            if other not in live:
+                _drop_recorded_calc_session(ctx, other)
     log.info("excel_py lifecycle: desktop calc sessions scanned=%s calcs=%s recorded=%s", n, len(calcs), recorded_calc_session_count())
 
 

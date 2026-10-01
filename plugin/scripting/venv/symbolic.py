@@ -51,17 +51,72 @@ def _parse_transformations() -> tuple[Any, ...]:
     return _PARSE_TRANSFORMS
 
 
+_MAX_SYMBOLIC_EXPR_CHARS = 10_000
+
+
+def _sympy_name_dict(sp: Any) -> dict[str, Any]:
+    """Names a formula may use. Not the process globals, so parse_expr cannot import."""
+    names: dict[str, Any] = {}
+    # evaluate=False rewrites +/*/** into Add/Mul/Pow calls. Those constructors
+    # have to be in the dict or every formula fails with "name 'Add' is not defined".
+    # The dict is still a closed list: parse_expr cannot see process globals.
+    for name in (
+        "Abs",
+        "Add",
+        "And",
+        "E",
+        "Eq",
+        "Float",
+        "Ge",
+        "Gt",
+        "I",
+        "Integer",
+        "Le",
+        "Lt",
+        "Mul",
+        "Ne",
+        "Not",
+        "Or",
+        "Pow",
+        "Rational",
+        "Symbol",
+        "binomial",
+        "cos",
+        "exp",
+        "factorial",
+        "log",
+        "oo",
+        "pi",
+        "sin",
+        "sqrt",
+        "tan",
+    ):
+        obj = getattr(sp, name, None)
+        if obj is not None:
+            names[name] = obj
+    return names
+
+
 def _parse_expression(expr: str, *, helper: str) -> Any:
+    text = str(expr or "").strip()
+    if not text:
+        raise ValueError("empty expression")
+    if len(text) > _MAX_SYMBOLIC_EXPR_CHARS:
+        raise ValueError(f"expression longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
     sp = _require_sympy(helper)
     if sp is None:
         raise ValueError("MISSING_PACKAGE")
     from sympy.parsing.sympy_parser import parse_expr
-
-    text = str(expr or "").strip()
-    if not text:
-        raise ValueError("empty expression")
     try:
-        return parse_expr(text, transformations=_parse_transformations())
+        # evaluate=False: the transformed text is not run as Python. simplify /
+        # diff / integrate still compute after a successful parse.
+        return parse_expr(
+            text,
+            local_dict={},
+            global_dict=_sympy_name_dict(sp),
+            transformations=_parse_transformations(),
+            evaluate=False,
+        )
     except Exception as exc:
         raise ValueError(f"Could not parse expression: {exc}") from exc
 
@@ -147,6 +202,11 @@ def integrate_helper(*, expression: str, variable: str = "x", lower: str | None 
     return _ok_result(helper, latex=latex, text=str(result), variable=variable)
 
 
+# Templates import ``integrate``. The implementation name stays ``integrate_helper``
+# so it does not shadow sympy.integrate inside this module.
+integrate = integrate_helper
+
+
 def solve_equation(*, equation: str, variable: str = "x") -> dict[str, Any]:
     helper = "solve_equation"
     sp = _require_sympy(helper)
@@ -200,8 +260,12 @@ def latex_to_math_object(*, latex: str) -> dict[str, Any]:
         try:
             expr = _parse_expression(trimmed, helper=helper)
             trimmed = _to_latex(sp, expr)
-        except ValueError:
-            pass
+        except ValueError as exc:
+            # A failed plain-text parse used to be inserted as ok LaTeX. Math is
+            # first in post-venv routing, so the garbage became a math object.
+            if str(exc) == "MISSING_PACKAGE":
+                return _missing_package(helper)
+            return _error_result("PARSE_ERROR", str(exc), helper=helper)
     return _ok_result(helper, latex=trimmed, text=trimmed)
 
 

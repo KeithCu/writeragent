@@ -31,8 +31,8 @@ _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "kpi_summary": {"metrics": ["Column1"]},
     "detect_outliers": {},
     "quick_stats": {},
-    "format_currency": {"values": "data", "symbol": "$", "decimals": 2},
-    "format_percent": {"values": "data", "decimals": 1},
+    "format_currency": {"symbol": "$", "decimals": 2},
+    "format_percent": {"decimals": 1},
     "clean_and_prepare": {},
     "pivot_aggregate": {"index": "Category", "values": "Amount"},
     "group_summary": {"by": "Region", "metrics": ["Sales"]},
@@ -76,6 +76,7 @@ _ANALYSIS_VENV_EXPORTS = frozenset(
         "kpi_summary",
         "monte_carlo",
         "pivot_aggregate",
+        "quick_stats",
         "run_analysis",
         "run_regression",
     }
@@ -110,10 +111,7 @@ _API = make_template_api(
         import_module="writeragent.scripting.analysis",
         run_name="run_analysis",
         data_expr="data",
-        positional_args={
-            "format_currency": ("values", "symbol", "decimals"),
-            "format_percent": ("values", "decimals"),
-        },
+        leading_data=True,
     )
 )
 

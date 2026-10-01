@@ -174,7 +174,31 @@ def _init_logging() -> None:
         pass
 
 
+def _die_with_parent() -> None:
+    """Kill this child if the LibreOffice process dies while we are in native code.
+
+    stdin EOF already exits an idle harness. A C extension that never returns
+    to ``read`` used to keep the venv process (and the microphone, or a BLAS
+    thread) after soffice quit. Linux ``PR_SET_PDEATHSIG`` is the parent-death
+    signal; the ppid check covers the parent dying before prctl runs.
+    """
+    if sys.platform != "linux":
+        return
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        # PR_SET_PDEATHSIG = 1, SIGKILL = 9. Arguments after the signal are unused.
+        if libc.prctl(1, 9, 0, 0, 0) != 0:
+            return
+        if os.getppid() == 1:
+            os.kill(os.getpid(), 9)
+    except Exception:
+        return
+
+
 def main() -> None:
+    _die_with_parent()
     _init_logging()
     import logging
     log = logging.getLogger("worker_harness")

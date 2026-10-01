@@ -13,6 +13,7 @@ from typing import Any, cast
 from plugin.scripting.venv.coerce import (
     ok_result as _ok_result,
     error_result as _error_result,
+    parse_trusted_spec as _parse_trusted_spec,
     missing_package_error as _missing_package_error,
     numeric_columns as _numeric_columns,
     records_from_df as _records_from_df,
@@ -329,6 +330,24 @@ class QuickStats:
             metadata=self.metadata,
             writer_cleanup_hints={"markdown_table": _markdown_table(columns, rows)},
         )
+
+
+def quick_stats(
+    data: Any,
+    *,
+    numeric_columns: list[str] | None = None,
+    headers: bool = True,
+    header_row: int = 0,
+    sheet_hint: str | None = None,
+) -> dict[str, Any]:
+    """Template entry. ``QuickStats`` is the class; Run Python Script imports this name."""
+    return QuickStats(
+        data,
+        numeric_columns=numeric_columns,
+        headers=headers,
+        header_row=header_row,
+        sheet_hint=sheet_hint,
+    ).tooltip()
 
 
 def clean_and_prepare(
@@ -845,23 +864,10 @@ def run_analysis(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC and future tools."""
-    if isinstance(spec, str):
-        spec_dict: dict[str, Any] = {"helper": spec}
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
-        return _error_result("INVALID_SPEC", "spec must be a dict or helper name string")
-
-    helper = str(spec_dict.get("helper") or "").strip()
-    if not helper:
-        return _error_result("MISSING_HELPER", "spec.helper is required")
-    if helper not in HELPER_NAMES:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
-
-    params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
-    headers = bool(spec_dict.get("headers", True))
-    header_row = int(spec_dict.get("header_row", 0))
-    ctx = context if isinstance(context, dict) else {}
+    parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
+    if isinstance(parsed, dict):
+        return parsed
+    helper, params, headers, header_row, ctx, spec_dict = parsed
 
     try:
         result = _dispatch_helper(helper, data, params, headers=headers, header_row=header_row, context=ctx)

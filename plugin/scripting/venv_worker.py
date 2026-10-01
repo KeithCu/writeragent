@@ -229,6 +229,7 @@ class PythonWorkerManager:
     env: dict[str, str]
     _io_lock: threading.Lock
     _primed: bool
+    _retired: bool
 
     def __init__(self, exe: str, env: dict[str, str]) -> None:
         self.exe = exe
@@ -242,6 +243,7 @@ class PythonWorkerManager:
         self._io_owner: int | None = None
         self._serving_tool_call: bool = False
         self._primed = False
+        self._retired = False
         self._stderr_drain: StderrTail | None = None
         self._stdin_writer_thread: threading.Thread | None = None
 
@@ -263,6 +265,18 @@ class PythonWorkerManager:
             if mgr is None:
                 mgr = cls(exe, dict(env))
                 _instances[key] = mgr
+            else:
+                # The live process keeps the env it was spawned with. The next
+                # Popen (crash, or a path change) must see a later scrub, including
+                # WRITERAGENT_DEBUG_LOG_PATH once logging is up.
+                fresh = dict(env)
+                fresh["WRITERAGENT_IS_WORKER"] = "1"
+                mgr.env = fresh
+            for old in stale:
+                # In-flight execute holds _io_lock. Do not take it here: a tool
+                # call is waiting on the UI thread. The flag stops the retry
+                # from Popen-ing a child this registry no longer owns.
+                old._retired = True
         for old in stale:
             old._terminate_worker()
         return mgr
@@ -274,6 +288,16 @@ class PythonWorkerManager:
             for mgr in list(_instances.values()):
                 mgr._terminate_worker()
             _instances.clear()
+
+    @classmethod
+    def pool_is_running(cls, pool: str = WORKER_POOL_DEFAULT) -> bool:
+        """True when *pool* already has a live child. Does not spawn one."""
+        prefix = f"{pool}:"
+        with _registry_lock:
+            for key, mgr in _instances.items():
+                if key.startswith(prefix) and mgr._is_worker_alive():
+                    return True
+        return False
 
     def _is_worker_alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
@@ -551,7 +575,21 @@ class PythonWorkerManager:
                         f"Python worker response id mismatch.{_SHARED_WORKER_RESTART_HINT}",
                         details={"exe": self.exe},
                     )
-                return self._normalize_response(response)
+                try:
+                    # host_unpack_data runs after the script has finished. A bad
+                    # envelope used to hit the outer handler and replay the
+                    # request, so a tool call that already mutated the document
+                    # ran twice.
+                    return self._normalize_response(response)
+                except ValueError as e:
+                    log.warning("Python worker result rejected (not replaying): %s", e)
+                    self._terminate_worker()
+                    _clear_host_state_after_worker_death()
+                    return _worker_error(
+                        "WORKER_IPC_ERROR",
+                        f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}",
+                        details={"exe": self.exe},
+                    )
             except _NonReplayableIpcWriteTimeout as e:
                 log.warning("Python worker failed without replay: %s", e)
                 self._terminate_worker()
@@ -754,6 +792,10 @@ class PythonWorkerManager:
 
 
     def _ensure_running(self) -> None:
+        if self._retired:
+            raise RuntimeError(
+                "Python worker was replaced by a new venv path and will not be restarted"
+            )
         if self._proc is not None and self._proc.poll() is None:
             return
         self._terminate_worker()

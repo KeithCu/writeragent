@@ -72,10 +72,10 @@ _API = make_template_api(
         run_name="run_units",
         shipped_templates=_SHIPPED_TEMPLATES,
         data_expr="data",
+        # convert_quantity takes value, from_unit, to_unit positionally (``from``
+        # is not a keyword argument). parse/check are keyword-only.
         positional_args={
             "convert_quantity": ("value", "from", "to"),
-            "parse_quantity": ("quantity",),
-            "check_dimensionality": ("quantity_a", "quantity_b"),
         },
     )
 )

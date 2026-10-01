@@ -274,6 +274,30 @@ def script_uses_run_import(code: str, *, run_name: str) -> bool:
 # --- Templates ---
 
 
+def _python_literal(val: Any) -> str:
+    """Python source for a template argument. The string ``data`` is the range name."""
+    if val == "data":
+        return "data"
+    if val is None:
+        return "None"
+    if val is True:
+        return "True"
+    if val is False:
+        return "False"
+    if isinstance(val, str):
+        return repr(val)
+    if isinstance(val, float):
+        return repr(val)
+    if isinstance(val, int) and not isinstance(val, bool):
+        return repr(val)
+    if isinstance(val, (list, tuple)):
+        return "[" + ", ".join(_python_literal(item) for item in val) + "]"
+    if isinstance(val, dict):
+        parts = [f"{_python_literal(key)}: {_python_literal(item)}" for key, item in val.items()]
+        return "{" + ", ".join(parts) + "}"
+    return repr(val)
+
+
 def build_helper_script_template(
     *,
     tag: str,
@@ -288,6 +312,8 @@ def build_helper_script_template(
     extra_comment_lines: tuple[str, ...] = (),
     positional_args: tuple[str, ...] | None = None,
     compact_json: bool = True,
+    leading_data: bool = False,
+    invoke: str = "direct",
 ) -> str:
     """Build a Run Python Script template body."""
     import sys
@@ -316,22 +342,38 @@ def build_helper_script_template(
     default_extra = extra_comment_lines or ("# Edit the call below, then Run.",)
 
     def _format_param_val(val: Any) -> str:
-        if val == "data":
-            return "data"
-        return json.dumps(val, ensure_ascii=False)
+        # ``"data"`` is the injected range name, not a JSON string. json.dumps
+        # used to emit ``null`` / ``false``, which are not Python.
+        return _python_literal(val)
 
-    if positional_args:
-        args_str = ", ".join(_format_param_val(params[k]) for k in positional_args if k in params)
-    elif params:
-        args_str = ", ".join(f"{k}={_format_param_val(v)}" for k, v in params.items())
+    pos_keys = positional_args or ()
+    parts: list[str] = []
+    if leading_data:
+        parts.append(data_expr)
+    for key in pos_keys:
+        if key in params:
+            parts.append(_format_param_val(params[key]))
+    kw_parts = [
+        f"{key}={_format_param_val(val)}"
+        for key, val in params.items()
+        if key not in pos_keys
+    ]
+    args_str = ", ".join([*parts, *kw_parts])
+
+    import_name = run_name if invoke == "runner" else helper
+    if invoke == "runner":
+        spec_obj: dict[str, Any] = {"helper": helper}
+        if params:
+            spec_obj["params"] = params
+        call = f"{run_name}({_python_literal(spec_obj)}, {data_expr}, {context_expr})"
     else:
-        args_str = ""
+        call = f"{helper}({args_str})"
 
     body_lines = [
         f"# {description}",
         *default_extra,
-        f"from {import_module} import {helper}\n",
-        f"result = {helper}({args_str})",
+        f"from {import_module} import {import_name}\n",
+        f"result = {call}",
         "",
     ]
     return "\n".join(body_lines)
@@ -518,6 +560,11 @@ class DomainFacadeConfig:
     positional_args: dict[str, tuple[str, ...]] | None = None
     extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
     compact_json: bool = True
+    # Sheet helpers take the injected range as the first argument. Quant and
+    # text call ``run_*`` instead of the helper name (those callables do not
+    # match ``helper(**params)``).
+    leading_data: bool = False
+    invoke: str = "direct"
     require_prefix: bool = True
     on_bad_json: Literal["empty", "none", "raise"] = "raise"
 
@@ -541,6 +588,8 @@ def make_template_api(cfg: DomainFacadeConfig) -> Any:
             extra_comment_lines=cfg.extra_comment_lines,
             positional_args=pos,
             compact_json=cfg.compact_json,
+            leading_data=cfg.leading_data,
+            invoke=cfg.invoke,
         )
 
     def get_templates() -> dict[str, str]:

@@ -89,6 +89,8 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     assert "wa.shape.upsert(" in catalog
     assert "wa.footnote." not in catalog
     assert "wa.python.run_venv_python_script" not in catalog
+    assert not hasattr(api.python, "run_venv_python_script")
+    assert DOMAIN_TOOLS["python"] == ["symbolic_math"]
 
     tools = _domain_tools_map()
     assert tools is not None

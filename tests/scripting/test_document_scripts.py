@@ -591,6 +591,24 @@ def test_script_picker_message_types():
     assert "save" not in SCRIPT_PICKER_MESSAGE_TYPES
 
 
+def test_set_calc_init_script_logs_when_session_cache_fails(caplog) -> None:
+    import logging
+
+    from plugin.scripting import document_scripts as ds
+
+    with (
+        patch.object(ds, "get_document_scripts", return_value={}),
+        patch.object(ds, "set_document_scripts", return_value=None),
+        patch(
+            "plugin.scripting.session_manager.record_active_calc_session",
+            side_effect=RuntimeError("cache"),
+        ),
+        caplog.at_level(logging.ERROR, logger="plugin.scripting.document_scripts"),
+    ):
+        ds.set_calc_init_script(MagicMock(), "x = 1")
+    assert "failed to refresh the shared-kernel init cache" in caplog.text
+
+
 def test_document_scripts_uno_skips_windows_leftover_hidden_reopen() -> None:
     """GHA 34679494812: leftover_open=3 create_native_doc uid=41 then 30s hang."""
     from pathlib import Path

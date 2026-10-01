@@ -14,6 +14,26 @@ from plugin.scripting import editor_host as launch_mod
 from plugin.scripting.editor_host import PersistentEditor, _ASSETS_DIR
 
 
+def test_editor_save_timeout_clears_the_token_and_reports():
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = TimeoutError()
+    state = launch_mod.EditorSessionState(session_id="s1", mode="calc_cell", target={"cell": "A1"})
+    pe.register_session(state)
+    sent: list[dict] = []
+
+    def _send(message, *, session=None):
+        sent.append(message)
+
+    pe.send = _send  # type: ignore[method-assign]
+    with patch("plugin.scripting.config_limits.configured_python_exec_timeout", return_value=30):
+        pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
+    assert pe._save_token is None
+    assert sent and "timed out" in sent[0]["message"]
+    assert pe.executor.execute.call_args.kwargs["timeout"] == 35.0
+
+
 def test_launch_monaco_editor_reuses_running_process():
     ctx = MagicMock()
     sent_messages: list[dict] = []
