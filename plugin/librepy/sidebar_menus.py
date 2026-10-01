@@ -23,12 +23,8 @@ from plugin.framework.uno_listeners import BaseActionListener
 log = logging.getLogger("writeragent.librepy.sidebar_menus")
 
 # Header icon row in PythonSidebarDialog.xdl (not stretched by layout).
-HEADER_BUTTON_IDS = (
-    "btn_hdr_settings",
-    "btn_python",
-    "btn_latex",
-    "btn_hamburger",
-)
+HEADER_BUTTON_IDS = ("btn_hdr_settings", "btn_python", "btn_latex", "btn_hamburger")
+
 
 def _librepy_hamburger_specs() -> tuple[tuple[str, str, str | None, str], ...]:
     # Labels at call time so gettext sees the current locale.
@@ -52,11 +48,7 @@ def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
     """Load a PNG icon from extension assets/ as XGraphic."""
     try:
         from com.sun.star.beans import PropertyValue
-        from plugin.framework.uno_context import (
-            get_extension_url,
-            menu_icon_asset_url,
-            menu_icon_filesystem_paths,
-        )
+        from plugin.framework.uno_context import get_extension_url, menu_icon_asset_url, menu_icon_filesystem_paths
 
         clean_name = icon_filename.replace("assets/", "").lstrip("/")
         smgr = getattr(ctx, "getServiceManager", lambda: None)()
@@ -110,10 +102,7 @@ def invoke_action_handler(handler: Callable[..., Any] | None, frame: Any = None)
             if param.kind == inspect.Parameter.VAR_POSITIONAL:
                 wants_frame = frame is not None
                 break
-            if param.kind in (
-                inspect.Parameter.POSITIONAL_ONLY,
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            ):
+            if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
                 if param.default is inspect.Parameter.empty:
                     wants_frame = True
                     break
@@ -148,14 +137,7 @@ def document_has_notebook_registry(doc: Any) -> bool:
         return False
 
 
-def librepy_hamburger_actions(
-    *,
-    is_calc_doc: bool,
-    is_writer_doc: bool,
-    is_draw_doc: bool,
-    handler_lookup: Callable[[str], Any] | None = None,
-    doc: Any | None = None,
-) -> list[tuple[str, str, str | None]]:
+def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, is_draw_doc: bool, handler_lookup: Callable[[str], Any] | None = None, doc: Any | None = None) -> list[tuple[str, str, str | None]]:
     """Return (label, action, icon) rows that have a registered handler."""
     lookup = handler_lookup or get_action_handler
     out: list[tuple[str, str, str | None]] = []
@@ -180,17 +162,7 @@ def librepy_hamburger_actions(
     return out
 
 
-def add_popup_item(
-    menu: Any,
-    label: str,
-    action: str,
-    pos: int,
-    item_actions: dict[int, str],
-    next_id: list[int],
-    ctx: Any,
-    command_prefix: str,
-    icon_filename: str | None = None,
-) -> None:
+def add_popup_item(menu: Any, label: str, action: str, pos: int, item_actions: dict[int, str], next_id: list[int], ctx: Any, command_prefix: str, icon_filename: str | None = None) -> None:
     n_id = next_id[0]
     next_id[0] += 1
     menu.insertItem(n_id, label, 0, pos)
@@ -274,15 +246,8 @@ def show_librepy_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         item_actions: dict[int, str] = {}
         next_id = [1]
         pos = 0
-        for label, action, icon in librepy_hamburger_actions(
-            is_calc_doc=is_calc(model),
-            is_writer_doc=is_writer(model),
-            is_draw_doc=is_draw(model),
-            doc=model,
-        ):
-            add_popup_item(
-                popup, label, action, pos, item_actions, next_id, ctx, prefix, icon
-            )
+        for label, action, icon in librepy_hamburger_actions(is_calc_doc=is_calc(model), is_writer_doc=is_writer(model), is_draw_doc=is_draw(model), doc=model):
+            add_popup_item(popup, label, action, pos, item_actions, next_id, ctx, prefix, icon)
             pos += 1
 
         chosen_id = execute_popup_under_button(popup, button_ctrl)
@@ -319,13 +284,7 @@ class _HamburgerListener(BaseActionListener):
         show_python_sidebar_hamburger(self.ctx, self._frame, button_ctrl)
 
 
-def wire_sidebar_header_buttons(
-    ctx: Any,
-    frame: Any,
-    controls: dict[str, Any],
-    *,
-    calc_doc: bool,
-) -> None:
+def wire_sidebar_header_buttons(ctx: Any, frame: Any, controls: dict[str, Any], *, calc_doc: bool) -> None:
     """Wire Settings / Python / cell-or-LaTeX / hamburger; no Search (embeddings)."""
     from plugin.framework.uno_context import get_extension_url
 

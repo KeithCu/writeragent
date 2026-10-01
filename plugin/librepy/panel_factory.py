@@ -117,13 +117,7 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         min_w = self.getMinimalWidth()
         eff_w = sidebar_column_width(width, parent_w, current_w, min_w=min_w)
 
-        log.info(
-            "[LIBREPY LAYOUT] getHeightForWidth deck_hint=%s parent=%sx%s eff_w=%s",
-            width,
-            parent_w,
-            parent_h,
-            eff_w,
-        )
+        log.info("[LIBREPY LAYOUT] getHeightForWidth deck_hint=%s parent=%sx%s eff_w=%s", width, parent_w, parent_h, eff_w)
         with suppress_disposed("getHeightForWidth setPosSize", logger=log):
             self.PanelWindow.setPosSize(0, 0, eff_w, current_h, 15)
         rl = getattr(self, "resize_listener", None)
@@ -167,16 +161,10 @@ class PythonPanelElement(unohelper.Base, XUIElement):
 
                 self.controller = PythonSidebarController(self.ctx, root_window, self.xFrame)
                 self.toolpanel.resize_listener = getattr(self.controller, "resize_listener", None)
-                log.info(
-                    "[LIBREPY FIRST LAYOUT] root_w=%d (initial size on app start / sidebar show)",
-                    root_window.getPosSize().Width,
-                )
+                log.info("[LIBREPY FIRST LAYOUT] root_w=%d (initial size on app start / sidebar show)", root_window.getPosSize().Width)
             except Exception as e:
                 log.exception("PythonPanel getRealInterface failed")
-                raise UnoObjectError(
-                    "Failed to create LibrePy Python sidebar panel",
-                    details={"resource": self.ResourceURL},
-                ) from e
+                raise UnoObjectError("Failed to create LibrePy Python sidebar panel", details={"resource": self.ResourceURL}) from e
         # Panel is a Python UNO component; stubs do not overlap XInterface.
         return cast("XInterface", cast("object", self.toolpanel))
 
@@ -186,9 +174,7 @@ class PythonPanelElement(unohelper.Base, XUIElement):
         ctx = self.ctx
         if ctx is None:
             ctx = get_ctx()
-        provider = ctx.getServiceManager().createInstanceWithContext(
-            "com.sun.star.awt.ContainerWindowProvider", ctx
-        )
+        provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", ctx)
         self.m_panelRootWindow = provider.createContainerWindow(dialog_url, "", self.xParentWindow, None)
         if self.m_panelRootWindow and hasattr(self.m_panelRootWindow, "setVisible"):
             with suppress_disposed("setVisible", logger=log):
@@ -229,8 +215,4 @@ class PythonPanelFactory(unohelper.Base, XUIElementFactory):
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
-g_ImplementationHelper.addImplementation(
-    PythonPanelFactory,
-    _IMPL_NAME,
-    ("com.sun.star.ui.UIElementFactory",),
-)
+g_ImplementationHelper.addImplementation(PythonPanelFactory, _IMPL_NAME, ("com.sun.star.ui.UIElementFactory",))

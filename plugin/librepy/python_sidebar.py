@@ -11,26 +11,11 @@ from typing import Any
 
 from plugin.calc.navigation import navigate_to_cell
 from plugin.calc.python.cell_discovery import PythonCellInfo, list_python_cells_in_doc
-from plugin.calc.python.diagnostics import (
-    DiagnosticEntry,
-    DiagnosticFilter,
-    diagnostics_detail_text,
-    get_diagnostics_store,
-)
-from plugin.chatbot.dialogs import (
-    get_optional as get_optional_control,
-    set_control_text,
-    set_control_visible,
-    translate_dialog,
-)
+from plugin.calc.python.diagnostics import DiagnosticEntry, DiagnosticFilter, diagnostics_detail_text, get_diagnostics_store
+from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_visible, translate_dialog
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
-from plugin.framework.uno_listeners import (
-    BaseActionListener,
-    BaseActivationEventListener,
-    BaseItemListener,
-    BaseWindowListener,
-)
+from plugin.framework.uno_listeners import BaseActionListener, BaseActivationEventListener, BaseItemListener, BaseWindowListener
 from plugin.doc.doc_type import is_calc
 from plugin.scripting.document_scripts import get_calc_document_from_ctx
 from plugin.scripting.sandbox import resolve_venv_python
@@ -39,11 +24,7 @@ from plugin.scripting.session_manager import calc_workbook_base_session_id, pyth
 
 log = logging.getLogger(__name__)
 
-_FILTER_LABELS: tuple[tuple[str, DiagnosticFilter], ...] = (
-    (_("All"), "all"),
-    (_("Errors"), "errors"),
-    (_("Output"), "output"),
-)
+_FILTER_LABELS: tuple[tuple[str, DiagnosticFilter], ...] = ((_("All"), "all"), (_("Errors"), "errors"), (_("Output"), "output"))
 
 # PythonSidebarDialog.xdl: window 376, last button bottom 354.
 _BOTTOM_MARGIN = 20
@@ -51,53 +32,16 @@ _RIGHT_MARGIN = 12
 _MIN_FLEX_HEIGHT = 16
 _MIN_CONTROL_WIDTH = 20
 _FLEX_CONTROLS = ("status", "cells_list", "diag_list", "diag_detail")
-_CONTROL_IDS = (
-    *HEADER_BUTTON_IDS,
-    "status_label",
-    "status",
-    "btn_refresh",
-    "btn_edit_cell",
-    "btn_run_script",
-    "cells_label",
-    "cells_list",
-    "filter_label",
-    "filter_combo",
-    "diag_label",
-    "diag_list",
-    "diag_detail",
-    "btn_edit_init",
-    "btn_reset",
-    "btn_settings",
-)
+_CONTROL_IDS = (*HEADER_BUTTON_IDS, "status_label", "status", "btn_refresh", "btn_edit_cell", "btn_run_script", "cells_label", "cells_list", "filter_label", "filter_combo", "diag_label", "diag_list", "diag_detail", "btn_edit_init", "btn_reset", "btn_settings")
 
 _ROW3_BUTTONS = ("btn_refresh", "btn_edit_cell", "btn_run_script")
 _ROW2_BUTTONS = ("btn_edit_init", "btn_reset")
 
 # Calc =PY() browser; hidden in Writer so the header + venv status remain.
-_CALC_ONLY_IDS = (
-    "btn_refresh",
-    "btn_edit_cell",
-    "btn_run_script",
-    "cells_label",
-    "cells_list",
-    "filter_label",
-    "filter_combo",
-    "diag_label",
-    "diag_list",
-    "diag_detail",
-    "btn_edit_init",
-)
+_CALC_ONLY_IDS = ("btn_refresh", "btn_edit_cell", "btn_run_script", "cells_label", "cells_list", "filter_label", "filter_combo", "diag_label", "diag_list", "diag_detail", "btn_edit_init")
 
 
-def compute_python_sidebar_layout(
-    width: int,
-    height: int,
-    snapshot: dict[str, tuple[int, int, int, int]],
-    *,
-    bottom_margin: int = _BOTTOM_MARGIN,
-    min_flex_height: int = _MIN_FLEX_HEIGHT,
-    right_margin: int = _RIGHT_MARGIN,
-) -> dict[str, tuple[int, int, int, int]]:
+def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, tuple[int, int, int, int]], *, bottom_margin: int = _BOTTOM_MARGIN, min_flex_height: int = _MIN_FLEX_HEIGHT, right_margin: int = _RIGHT_MARGIN) -> dict[str, tuple[int, int, int, int]]:
     """Distribute height among flex fields and stretch/tile controls across the width."""
     if width <= 0 or height <= 0 or not snapshot:
         return {}
@@ -170,16 +114,7 @@ def compute_python_sidebar_layout(
         elif name in HEADER_BUTTON_IDS:
             nx = _ox
             nw = _ow
-        elif name in (
-            "status_label",
-            "status",
-            "cells_label",
-            "cells_list",
-            "diag_label",
-            "diag_list",
-            "diag_detail",
-            "btn_settings",
-        ):
+        elif name in ("status_label", "status", "cells_label", "cells_list", "diag_label", "diag_list", "diag_detail", "btn_settings"):
             nx = left_margin
             nw = content_width
         else:
@@ -268,13 +203,7 @@ class _PanelResizeListener(BaseWindowListener):
                 ctrl.setPosSize(nx, ny, nw, nh, 15)
 
         max_right = max((entry[0] + entry[2] for entry in layouts.values()), default=0)
-        log.info(
-            "[LIBREPY LAYOUT] relayout w=%d h=%d max_child_right=%d overflow=%s",
-            w,
-            h,
-            max_right,
-            "YES" if max_right > w - 2 else "no",
-        )
+        log.info("[LIBREPY LAYOUT] relayout w=%d h=%d max_child_right=%d overflow=%s", w, h, max_right, "YES" if max_right > w - 2 else "no")
 
 
 class _Activation(BaseActivationEventListener):
@@ -436,9 +365,7 @@ class PythonSidebarController:
     def _attach_resize_listener(self) -> None:
         """Snapshot XDL geometry and stretch content fields when the deck height changes."""
         try:
-            ids = _CONTROL_IDS if self._calc_panel else tuple(
-                cid for cid in _CONTROL_IDS if cid not in _CALC_ONLY_IDS
-            )
+            ids = _CONTROL_IDS if self._calc_panel else tuple(cid for cid in _CONTROL_IDS if cid not in _CALC_ONLY_IDS)
             controls = {cid: self._ctrl(cid) for cid in ids}
             listener = _PanelResizeListener(controls)
             listener._root_window = self.root
@@ -460,17 +387,9 @@ class PythonSidebarController:
             except Exception:
                 log.debug("filter combo init failed", exc_info=True)
 
-        bindings: list[tuple[str, Any]] = [
-            ("btn_reset", self._on_reset),
-            ("btn_settings", self._on_settings),
-        ]
+        bindings: list[tuple[str, Any]] = [("btn_reset", self._on_reset), ("btn_settings", self._on_settings)]
         if self._calc_panel:
-            bindings[0:0] = [
-                ("btn_refresh", self.refresh),
-                ("btn_edit_cell", self._on_edit_cell),
-                ("btn_run_script", self._on_run_script),
-                ("btn_edit_init", self._on_edit_init),
-            ]
+            bindings[0:0] = [("btn_refresh", self.refresh), ("btn_edit_cell", self._on_edit_cell), ("btn_run_script", self._on_run_script), ("btn_edit_init", self._on_edit_init)]
         for cid, handler in bindings:
             ctrl = self._ctrl(cid)
             if ctrl is None:
@@ -503,9 +422,7 @@ class PythonSidebarController:
 
         try:
             header = {cid: self._ctrl(cid) for cid in HEADER_BUTTON_IDS}
-            wire_sidebar_header_buttons(
-                self.ctx, self.frame, header, calc_doc=self._calc_panel
-            )
+            wire_sidebar_header_buttons(self.ctx, self.frame, header, calc_doc=self._calc_panel)
         except Exception:
             log.debug("wire header toolbar failed", exc_info=True)
 
@@ -575,19 +492,7 @@ class PythonSidebarController:
         enriched: list[DiagnosticEntry] = []
         for entry in self._diags:
             if not entry.address and entry.code in code_to_addr:
-                enriched.append(
-                    DiagnosticEntry(
-                        workbook_key=entry.workbook_key,
-                        code=entry.code,
-                        status=entry.status,
-                        message=entry.message,
-                        stdout=entry.stdout,
-                        traceback=entry.traceback,
-                        timestamp=entry.timestamp,
-                        sheet=entry.sheet,
-                        address=code_to_addr[entry.code],
-                    )
-                )
+                enriched.append(DiagnosticEntry(workbook_key=entry.workbook_key, code=entry.code, status=entry.status, message=entry.message, stdout=entry.stdout, traceback=entry.traceback, timestamp=entry.timestamp, sheet=entry.sheet, address=code_to_addr[entry.code]))
             else:
                 enriched.append(entry)
         self._diags = enriched

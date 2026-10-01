@@ -9,19 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.chatbot.dialogs import (
-    TabListener,
-    get_checkbox_state,
-    get_control_text,
-    get_optional,
-    is_checkbox_control,
-    load_writeragent_dialog_detail,
-    msgbox,
-    set_checkbox_state,
-    set_control_text,
-    set_control_visible,
-    translate_dialog,
-)
+from plugin.chatbot.dialogs import TabListener, get_checkbox_state, get_control_text, get_optional, is_checkbox_control, load_writeragent_dialog_detail, msgbox, set_checkbox_state, set_control_text, set_control_visible, translate_dialog
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.config_schema import as_bool
 from plugin.framework.i18n import _
@@ -31,11 +19,7 @@ from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener, VenvProbeP
 log = logging.getLogger(__name__)
 
 _SCRIPTING_TAB_PAGE = 3  # SettingsDialog.xdl Python page (page 3 of the multi-page dialog)
-_LIBREPY_HIDDEN_SCRIPTING_CONTROLS = (
-    "scripting__ppt_master_data_path",
-    "label_scripting__ppt_master_data_path",
-    "scripting__test_ppt_master_data",
-)
+_LIBREPY_HIDDEN_SCRIPTING_CONTROLS = ("scripting__ppt_master_data_path", "label_scripting__ppt_master_data_path", "scripting__test_ppt_master_data")
 
 
 class _DownloadVecPackListener(BaseActionListener):
@@ -55,9 +39,7 @@ class _DownloadVecPackListener(BaseActionListener):
             ok = run_vec_pack_download(on_display, on_status)
             return ok, ""
 
-        VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(
-            probe, title=_("Cython Accelerator Download")
-        )
+        VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(probe, title=_("Cython Accelerator Download"))
 
 
 def _scripting_field_specs() -> list[dict[str, Any]]:
@@ -154,12 +136,7 @@ def open_librepy_settings(ctx: Any) -> None:
     if dlg is None:
         log.error("LibrePy settings: SettingsDialog failed to load (null dialog)")
         detail = f"\n\n{load_detail}" if load_detail else ""
-        msgbox(
-            ctx,
-            _("Python Settings"),
-            _("Could not open Settings.") + detail,
-            box_type=3,
-        )
+        msgbox(ctx, _("Python Settings"), _("Could not open Settings.") + detail, box_type=3)
         return
 
     # UNO multi-page dialogs use model.Step (not Page); setPropertyValue("Page") fails on Linux.
@@ -187,9 +164,7 @@ def open_librepy_settings(ctx: Any) -> None:
     test_btn = get_optional(dlg, "scripting__test_venv")
     test_listener = None
     if test_btn is not None:
-        test_listener = ScriptingVenvTestListener(
-            ctx, dlg, include_vector_search=False, include_audio=False
-        )
+        test_listener = ScriptingVenvTestListener(ctx, dlg, include_vector_search=False, include_audio=False)
         test_btn.addActionListener(test_listener)
 
     download_btn = get_optional(dlg, "scripting__download_audio_binaries")
