@@ -149,3 +149,87 @@ def test_legacy_vec_chunks_migration(tmp_path):
         assert res_legacy is None
     finally:
         conn.close()
+
+
+@pytest.mark.skipif(
+    not hasattr(__import__("sqlite3").Connection, "enable_load_extension"),
+    reason="stdlib sqlite3 cannot load extensions",
+)
+def test_connect_corpus_db_keeps_stdlib_sqlite(tmp_path):
+    """Linux/Windows/Homebrew stay on stdlib sqlite3 when it can load extensions."""
+    import sqlite3
+
+    embeddings_sqlite._dbapi_mod = None
+    conn = embeddings_sqlite.connect_corpus_db(tmp_path / "corpus.db")
+    try:
+        assert type(conn) is sqlite3.Connection
+    finally:
+        conn.close()
+        embeddings_sqlite._dbapi_mod = None
+
+
+def test_connect_corpus_db_uses_pysqlite3_when_stdlib_cannot_load_extensions(tmp_path, monkeypatch):
+    """python.org macOS CPython omits enable_load_extension; pysqlite3 still loads vec0."""
+    import sqlite3
+
+    pysqlite3 = pytest.importorskip("pysqlite3.dbapi2")
+    embeddings_sqlite._dbapi_mod = None
+
+    def fake_hasattr(obj, name, _real=hasattr):
+        if name == "enable_load_extension" and obj is sqlite3.Connection:
+            return False
+        return _real(obj, name)
+
+    monkeypatch.setattr(embeddings_sqlite, "hasattr", fake_hasattr, raising=False)
+    conn = embeddings_sqlite.connect_corpus_db(tmp_path / "corpus.db")
+    try:
+        assert isinstance(conn, pysqlite3.Connection)
+        embeddings_sqlite.ensure_schema(conn, dim=4, with_fts=True, with_vec=True, model="test-model")
+        row = conn.execute("SELECT vec_version()").fetchone()
+        assert row is not None
+        assert row[0]
+    finally:
+        conn.close()
+        embeddings_sqlite._dbapi_mod = None
+
+
+def test_connect_corpus_db_stays_on_stdlib_without_pysqlite3(tmp_path, monkeypatch):
+    """Host Python without pysqlite3 can still open the corpus for metadata."""
+    import builtins
+    import sqlite3
+
+    embeddings_sqlite._dbapi_mod = None
+    real_import = builtins.__import__
+
+    def fake_hasattr(obj, name, _real=hasattr):
+        if name == "enable_load_extension" and obj is sqlite3.Connection:
+            return False
+        return _real(obj, name)
+
+    def fake_import(name, *args, **kwargs):
+        if name == "pysqlite3" or (isinstance(name, str) and name.startswith("pysqlite3.")):
+            raise ImportError("blocked")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(embeddings_sqlite, "hasattr", fake_hasattr, raising=False)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    conn = embeddings_sqlite.connect_corpus_db(tmp_path / "corpus.db")
+    try:
+        assert type(conn) is sqlite3.Connection
+        embeddings_sqlite.ensure_schema(conn)
+    finally:
+        conn.close()
+        embeddings_sqlite._dbapi_mod = None
+
+
+def test_load_vec_extension_names_pysqlite3_when_loader_missing():
+    """A connection that cannot load extensions gets the install hint, not AttributeError."""
+    import sqlite3
+
+    class _Conn:
+        def execute(self, sql, params=None):
+            del sql, params
+            raise sqlite3.OperationalError("no such function: vec_version")
+
+    with pytest.raises(ImportError, match="pysqlite3"):
+        embeddings_sqlite._load_vec_extension(_Conn())

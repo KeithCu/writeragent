@@ -13,7 +13,7 @@ import json
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 log = logging.getLogger(__name__)
 
@@ -78,12 +78,81 @@ def _import_sqlite_vec() -> Any:
         ) from exc
 
 
+# Resolved DB-API module. None until the first connect so import stays cheap
+# and tests can clear it. stdlib sqlite3 when that build can load extensions;
+# otherwise pysqlite3 if it is installed.
+_dbapi_mod: Any = None
+
+
+def _dbapi() -> Any:
+    """DB-API module for corpus connections.
+
+    What was wrong: ``conn.enable_load_extension`` raised AttributeError on
+    GitHub macos-latest CPython 3.13, so vec0 schema setup never ran.
+
+    How: python.org macOS CPython links SQLite built with
+    SQLITE_OMIT_LOAD_EXTENSION (Apple's libsqlite; CPython's
+    ``--enable-loadable-sqlite-extensions`` defaults off). The method is
+    absent from ``sqlite3.Connection``. sqlite-vec documents that error:
+    https://alexgarcia.xyz/sqlite-vec/python.html
+
+    Why this fixes it: pysqlite3 bundles SQLite with extension loading.
+    Connections use it only when stdlib sqlite3 cannot load extensions and
+    the package is installed, so Linux, Windows, and Homebrew Python stay on
+    stdlib sqlite3. A host interpreter without pysqlite3 (LibreOffice) still
+    opens the corpus for metadata; vec loading reports the install line.
+    """
+    global _dbapi_mod
+    if _dbapi_mod is not None:
+        return _dbapi_mod
+    if hasattr(sqlite3.Connection, "enable_load_extension"):
+        _dbapi_mod = sqlite3
+        return _dbapi_mod
+    try:
+        from pysqlite3 import dbapi2 as pysqlite3
+    except ImportError:
+        _dbapi_mod = sqlite3
+        return _dbapi_mod
+    if hasattr(pysqlite3.Connection, "enable_load_extension"):
+        _dbapi_mod = pysqlite3
+        return _dbapi_mod
+    _dbapi_mod = sqlite3
+    return _dbapi_mod
+
+
+def _conn_operational_error(conn: Any) -> type[BaseException]:
+    """OperationalError class for the DB-API that created *conn*.
+
+    pysqlite3.OperationalError does not subclass sqlite3.OperationalError.
+    Catching only the stdlib class lets a missing vec_version() or a bad FTS
+    query escape and abort the caller.
+    """
+    module_name = type(conn).__module__
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        return sqlite3.OperationalError
+    err = getattr(module, "OperationalError", None)
+    if isinstance(err, type) and issubclass(err, Exception):
+        return err
+    return sqlite3.OperationalError
+
+
 def _load_vec_extension(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("SELECT vec_version()")
         return
-    except sqlite3.OperationalError:
+    except _conn_operational_error(conn):
         pass
+
+    if not hasattr(conn, "enable_load_extension"):
+        # Same macOS stdlib gap as _dbapi. This connection was not opened on
+        # an extension-capable library (pysqlite3 missing in this interpreter).
+        raise ImportError(
+            "sqlite3.Connection.enable_load_extension is missing, so sqlite-vec "
+            "cannot load. Install pysqlite3, which bundles SQLite with extension "
+            f"loading. Install with: {_pip_install_hint()}"
+        )
 
     sqlite_vec = _import_sqlite_vec()
     conn.enable_load_extension(True)
@@ -108,13 +177,18 @@ CREATE VIRTUAL TABLE IF NOT EXISTS {tbl_name} USING vec0(
 
 
 def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:
-    """Open corpus.db with row factory."""
+    """Open corpus.db with row factory.
+
+    The DB-API module comes from ``_dbapi`` so macOS CPython without loadable
+    SQLite extensions still gets a connection that can load sqlite-vec.
+    """
+    dbapi = _dbapi()
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    conn.row_factory = sqlite3.Row
+    conn = dbapi.connect(str(path))
+    conn.row_factory = dbapi.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    return cast(sqlite3.Connection, conn)
 
 
 def ensure_schema(
@@ -505,7 +579,7 @@ def fts_corpus_search(
     """
     try:
         rows = conn.execute(sql, (match_expr, limit)).fetchall()
-    except sqlite3.OperationalError as exc:
+    except _conn_operational_error(conn) as exc:
         log.debug("FTS corpus search failed for %r: %s", match_expr, exc)
         return []
 

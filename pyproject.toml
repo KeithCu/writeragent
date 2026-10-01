@@ -105,6 +105,8 @@ dev = [
     "setuptools",
     "build",
     "sqlite-vec",
+    # python.org macOS CPython omits sqlite3.Connection.enable_load_extension.
+    "pysqlite3",
     "css-inline",
     "icu4py",
     "py-spy",

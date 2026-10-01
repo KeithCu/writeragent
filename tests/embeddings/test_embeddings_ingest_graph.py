@@ -52,12 +52,15 @@ def test_delete_stale_skips_vec_schema_until_dim_known(tmp_path):
 
 def _require_sqlite_vec() -> None:
     pytest.importorskip("sqlite_vec")
-    import sqlite3
+    from plugin.embeddings.venv.embeddings_sqlite import _dbapi
 
-    conn = sqlite3.connect(":memory:")
+    # connect_corpus_db uses pysqlite3 when stdlib sqlite3 cannot load
+    # extensions. Skip only if that opener still has no loader.
+    dbapi = _dbapi()
+    conn = dbapi.connect(":memory:")
     try:
         if not hasattr(conn, "enable_load_extension"):
-            pytest.skip("sqlite3 lacks enable_load_extension on this platform")
+            pytest.skip("sqlite cannot load extensions on this platform")
     finally:
         conn.close()
 
