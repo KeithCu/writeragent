@@ -10,23 +10,18 @@ from typing import Any
 
 from plugin.calc.tabular_egress import calc_anchor_from_selection, format_tabular_helper_for_calc, insert_tabular_result_into_calc
 from plugin.scripting.analysis import HELPER_NAMES
+from plugin.scripting.helper_domain import is_status_helper_result
 
 __all__ = ["calc_anchor_from_selection", "format_analysis_for_calc", "insert_analysis_result_into_calc", "is_analysis_result"]
 
 
 def is_analysis_result(value: Any) -> bool:
     """True when *value* matches the compact analysis helper result contract."""
-    if not isinstance(value, dict):
-        return False
-    if "status" not in value:
-        return False
-    helper = value.get("helper")
-    if isinstance(helper, str) and helper in HELPER_NAMES:
-        return True
-    if value.get("status") == "error":
-        code = str(value.get("code") or "")
-        return code == "ANALYSIS_ERROR" or "ANALYSIS" in code or code == "MISSING_PARAM"
-    return False
+    return is_status_helper_result(
+        value,
+        HELPER_NAMES,
+        frozenset({"ANALYSIS_ERROR", "MISSING_PARAM"}),
+    )
 
 
 def format_analysis_for_calc(result: dict[str, Any]) -> list[list[Any]]:

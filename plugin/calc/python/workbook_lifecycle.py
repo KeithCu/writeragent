@@ -59,6 +59,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
     _teardown_done: bool
     _calc_cleanup: bool
     _extra_session_ids: set[str]
+    _extra_doc_urls: set[str]
 
     def __init__(
         self,
@@ -77,11 +78,27 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         self._teardown_done = False
         self._calc_cleanup = calc_cleanup
         self._extra_session_ids = set()
+        self._extra_doc_urls = set()
 
     def note_session(self, session_id: str) -> None:
         """Remember another worker session on this same document (rps + notebook)."""
         if session_id and session_id != self._workbook_session_id:
             self._extra_session_ids.add(session_id)
+
+    def note_calc_identity(self, session_id: str, doc_url: str = "") -> None:
+        """Remember a session id this workbook grew after Save.
+
+        Bugfix: an unsaved file's worker id is ``calc:{uuid}``. After Save it
+        becomes ``calc:{file URL}``. The listener kept only the first id, so
+        close reset the uuid session and left the file-URL kernel warm.
+        """
+        if session_id and session_id != self._workbook_session_id:
+            self._extra_session_ids.add(self._workbook_session_id)
+            self._workbook_session_id = session_id
+        if doc_url and doc_url != self._doc_url:
+            if self._doc_url:
+                self._extra_doc_urls.add(self._doc_url)
+            self._doc_url = doc_url
 
     def on_document_event(self, Event: Any) -> None:
         try:
@@ -107,22 +124,27 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 FORMULA_LOCATION_CACHE.clear_document(self._lifecycle_key)
             except Exception:
                 log.debug("python_workbook_lifecycle: formula cache clear failed", exc_info=True)
+            session_ids = (self._workbook_session_id, *tuple(self._extra_session_ids))
             try:
                 from plugin.calc.python.function import clear_in_memory_spill_state
 
-                clear_in_memory_spill_state(doc_url=self._doc_url, lifecycle_key=self._lifecycle_key)
+                for url in (self._doc_url, *tuple(self._extra_doc_urls)):
+                    clear_in_memory_spill_state(doc_url=url, lifecycle_key=self._lifecycle_key)
             except Exception:
                 log.debug("python_workbook_lifecycle: spill state clear failed", exc_info=True)
             try:
                 from plugin.calc.python.geometric_recalc import clear_in_memory_geometric_state
 
-                clear_in_memory_geometric_state(workbook_key=self._workbook_session_id)
+                for sid in session_ids:
+                    clear_in_memory_geometric_state(workbook_key=sid)
             except Exception:
                 log.debug("python_workbook_lifecycle: geometric state clear failed", exc_info=True)
             try:
                 from plugin.scripting.session_manager import clear_active_calc_session
 
-                clear_active_calc_session(self._workbook_session_id)
+                for sid in session_ids:
+                    if isinstance(sid, str) and sid.startswith("calc:"):
+                        clear_active_calc_session(sid)
             except Exception:
                 log.debug("python_workbook_lifecycle: active session clear failed", exc_info=True)
         for sid in (self._workbook_session_id, *tuple(self._extra_session_ids)):
@@ -146,7 +168,9 @@ def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any) -> None:
     except Exception:
         doc_url = ""
     with _LOCK:
-        if key in _LISTENERS:
+        existing = _LISTENERS.get(key)
+        if existing is not None:
+            existing.note_calc_identity(session_id, doc_url)
             return
         listener = _CalcPythonUnloadListener(ctx, session_id, key, doc_url=doc_url)
         _LISTENERS[key] = listener

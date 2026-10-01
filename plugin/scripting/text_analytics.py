@@ -9,10 +9,11 @@ Compute is lazy-loaded from ``plugin.scripting.venv.text_analytics`` via ``__get
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
-from plugin.scripting._lazy_venv import make_getattr
+from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     header_prefix,
@@ -25,9 +26,12 @@ if TYPE_CHECKING:
 _TEXT_VENV_EXPORTS = frozenset({"analyze_text", "check_diagnostics", "run_text_analytics"})
 
 __getattr__ = make_getattr("text_analytics", _TEXT_VENV_EXPORTS)
+install_lazy_dir(globals(), _TEXT_VENV_EXPORTS)
 
 
 from plugin.scripting.calc_functions_common import TEXT_ANALYTICS_HELPER_NAMES as HELPER_NAMES
+
+log = logging.getLogger(__name__)
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "full": {},
@@ -185,7 +189,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
                     if ptext.strip():
                         current_parts.append(ptext)
             except Exception:
-                pass
+                log.debug("text analytics: skipped paragraph %s", para_index, exc_info=True)
             para_index += 1
 
         if current_parts:
@@ -253,6 +257,10 @@ def is_text_analytics_result(value: Any) -> bool:
     """True when *value* looks like a text analytics helper result."""
     if not isinstance(value, dict):
         return False
+    # Error dicts must take this insert path. Falling through inserted the
+    # raw dict as generic Writer text and reported success.
+    if value.get("status") == "error" and str(value.get("code") or "") == "TEXT_ANALYTICS_ERROR":
+        return True
     if value.get("status") != "ok":
         return False
     # Our results have a top-level "result" with known keys, or the helper dispatch shape.

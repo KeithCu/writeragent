@@ -397,6 +397,15 @@ def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
         mgr._terminate_worker()
 
 
+def test_execute_refuses_reentry_while_this_thread_owns_the_pipe():
+    mgr = PythonWorkerManager(sys.executable, {})
+    mgr._io_owner = threading.get_ident()
+    result = mgr.execute("result = 1", timeout_sec=1)
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_REENTRY"
+    assert not mgr._io_lock.locked()
+
+
 def test_large_stdin_write_completes_intact():
     mgr = PythonWorkerManager(sys.executable, {})
     stream = io.BytesIO()
@@ -610,6 +619,29 @@ def test_automatic_imports_explicit():
     r = _execute_request("import math\nresult = math.sqrt(25)", None)
     assert r["status"] == "ok"
     assert r["result"] == 5.0
+
+
+def test_build_request_sets_heartbeat_on_trusted_action():
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    request = mgr._build_request(action="run_trusted_action", allow_heartbeat=True, data={"domain": "embeddings_index"})
+    assert request["allow_heartbeat"] is True
+    assert request["action"] == "run_trusted_action"
+    assert request["data"]["domain"] == "embeddings_index"
+
+
+def test_get_replaces_previous_interpreter_in_the_same_pool():
+    from plugin.framework.constants import WORKER_POOL_DEFAULT
+    from plugin.scripting import venv_worker
+
+    PythonWorkerManager.shutdown_all()
+    first = PythonWorkerManager.get("/tmp/python-a", {"PATH": "/usr/bin"})
+    second = PythonWorkerManager.get("/tmp/python-b", {"PATH": "/usr/bin"}, pool=WORKER_POOL_DEFAULT)
+    try:
+        assert first is not second
+        assert PythonWorkerManager.get("/tmp/python-b", {"PATH": "/usr/bin"}) is second
+        assert all(not key.endswith("python-a") for key in venv_worker._instances)
+    finally:
+        PythonWorkerManager.shutdown_all()
 
 
 @patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10)
@@ -1047,6 +1079,8 @@ class TestExecuteOSErrorRetry:
         mgr.exe = "python"
         mgr._proc = None
         mgr._io_lock = threading.Lock()
+        mgr._io_owner = None
+        mgr._serving_tool_call = False
         mgr._primed = False
         mgr.env = {}
 
@@ -1215,6 +1249,7 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
         {"content": ["x"]},
         caller="script",
         allowed_tools=None,
+        script_session_id=None,
     )
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)

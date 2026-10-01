@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.scripting.named_scripts import (
     GET_NAMED_PYTHON_SCRIPT,
     LIST_NAMED_PYTHON_SCRIPTS,
@@ -10,6 +12,24 @@ from plugin.scripting.named_scripts import (
     python_identifier_from_script_name,
     script_body_hash,
 )
+
+
+def test_host_list_omits_workbook_init_script():
+    import pytest
+
+    listed = host_list_named_python_scripts(
+        user_scripts={"Mine": "a = 1"},
+        document_scripts={"INIT": "b = 1", "Init": "c = 1", "Hello": "d = 1"},
+    )
+    assert listed["document"] == ["Hello"]
+    with pytest.raises(RuntimeError, match="INIT"):
+        host_get_named_python_script(
+            name="INIT",
+            origin="document",
+            known_hash=None,
+            user_scripts={},
+            document_scripts={"INIT": "b = 1"},
+        )
 
 
 def test_python_identifier_from_script_name():
@@ -34,6 +54,13 @@ def test_extract_library_source_drops_toplevel_calls():
     assert "K = 3" in src
     assert "apply_document_content" not in src
     assert "print" not in src
+
+
+def test_extract_library_source_keeps_computed_assigns_and_rejects_loops():
+    src = extract_library_source("FACTOR = 2\nSCALE = FACTOR * 2\n")
+    assert "SCALE = FACTOR * 2" in src
+    with pytest.raises(ValueError, match="lines 2"):
+        extract_library_source("FACTOR = 2\nfor i in range(3):\n    pass\n")
 
 
 def test_host_get_named_python_script_hash_short_circuit():

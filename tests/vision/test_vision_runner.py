@@ -11,8 +11,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.vision.vision_runner import (
+    _resolve_locale_language,
     get_selected_image_bytes,
     resolve_vision_image_bytes,
     run_and_insert_vision_for_selection,
@@ -250,3 +251,70 @@ def test_run_and_insert_vision_for_selection_no_images(mock_pairs, _mock_merge):
         run_and_insert_vision_for_selection(ctx, doc, helper="extract_text")
     assert exc.value.code == "NO_IMAGE_SELECTED"
     mock_pairs.assert_called_once()
+
+
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.run_trusted_vision")
+@patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
+def test_run_and_insert_stops_on_error_and_reports_partial(mock_pairs, mock_run, _mock_merge):
+    ctx = MagicMock()
+    doc = MagicMock()
+    mock_pairs.return_value = [("Img1", MagicMock()), ("Img2", MagicMock()), ("Img3", MagicMock())]
+
+    def _run(_ctx, _doc, *, helper, params):
+        name = params["image_name"]
+        if name == "Img2":
+            return {"status": "error", "code": "VISION_ERROR", "helper": helper, "message": "boom"}
+        return {"status": "ok", "helper": helper, "full_text": name, "html": f"<p>{name}</p>", "metrics": {}, "warnings": []}
+
+    mock_run.side_effect = _run
+    with patch("plugin.vision.vision_egress.insert_vision_result") as insert:
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_text")
+
+    assert result["status"] == "error"
+    assert result["code"] == "VISION_ERROR"
+    assert result["message"] == "boom"
+    assert result["partial"] is True
+    assert result["inserted"] is True
+    assert result["images_processed"] == 1
+    assert result["image_names"] == ["Img1"]
+    assert result["failed_image"] == "Img2"
+    assert mock_run.call_count == 2
+    assert insert.call_count == 1
+
+
+def test_run_trusted_vision_rejects_unimplemented_helper_before_export():
+    with patch("plugin.vision.vision_runner.resolve_vision_image_bytes") as export, patch(
+        "plugin.vision.vision_runner.run_vision"
+    ) as rpc:
+        with pytest.raises(ToolExecutionError) as exc:
+            run_trusted_vision(MagicMock(), MagicMock(), helper="detect_objects")
+    assert exc.value.code == "UNKNOWN_HELPER"
+    assert "not implemented" in str(exc.value).lower()
+    export.assert_not_called()
+    rpc.assert_not_called()
+
+
+def test_resolve_locale_reraises_disposed_selection():
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock()
+    selection = MagicMock()
+    selection.getCount.return_value = 0
+    selection.getPropertyValue.side_effect = DisposedException("gone")
+    doc.CurrentController.Selection = selection
+    with pytest.raises(DocumentDisposedError):
+        _resolve_locale_language(MagicMock(), doc, None)
+
+
+def test_run_trusted_vision_rejects_oversized_image_before_rpc():
+    with patch("plugin.vision.vision_runner.VISION_IMAGE_MAX_BYTES", 4), patch(
+        "plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"12345"
+    ), patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})), patch(
+        "plugin.vision.vision_runner.run_vision"
+    ) as rpc:
+        with pytest.raises(ToolExecutionError) as exc:
+            run_trusted_vision(MagicMock(), MagicMock(), helper="extract_text")
+    assert exc.value.code == "IMAGE_TOO_LARGE"
+    rpc.assert_not_called()

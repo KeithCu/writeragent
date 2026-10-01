@@ -34,16 +34,9 @@ from plugin.framework.uno_context import get_desktop, normalize_doc_url
 from plugin.scripting.domain_registry import (
     ANALYSIS_SCRIPT_DISPLAY_PREFIX,
     DOC_SCRIPT_DISPLAY_PREFIX,
-    FORECAST_SCRIPT_DISPLAY_PREFIX,
-    MATH_SCRIPT_DISPLAY_PREFIX,
-    OPTIMIZE_SCRIPT_DISPLAY_PREFIX,
-    QUANT_SCRIPT_DISPLAY_PREFIX,
     SCRIPT_ORIGIN_DOCUMENT,
     SCRIPT_ORIGIN_USER,
-    SQL_SCRIPT_DISPLAY_PREFIX,
-    UNITS_SCRIPT_DISPLAY_PREFIX,
     VISION_SCRIPT_DISPLAY_PREFIX,
-    VIZ_SCRIPT_DISPLAY_PREFIX,
     get_picker_domains,
     parse_picker_display_name,
     picker_display_name,
@@ -56,6 +49,9 @@ DOCUMENT_SCRIPTS_UDPROP = "WriterAgentDocumentPythonScripts"
 _MAX_DOCUMENT_SCRIPTS_BYTES = 900_000
 _SOFT_WARN_SCRIPT_BYTES = 200_000
 _ENVELOPE_VERSION = 1
+# Workbook init lives in the same map as named document scripts. The picker and
+# wa.doc must not expose it; deleting "[Doc] INIT" used to wipe the init script.
+_CALC_INIT_SCRIPT_NAMES = frozenset({"INIT", "Init"})
 
 
 def document_scripts_identity(doc: Any) -> str:
@@ -159,7 +155,13 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> str | None:
     try:
         set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, _envelope_to_json(scripts))
         return None
-    except (UnoObjectError, Exception):
+    except (UnoObjectError, Exception) as exc:
+        # A disposed document is not "read-only". Callers that swallow the
+        # message used to keep writing as if the file were still open.
+        from plugin.framework.errors import is_disposed_exception
+
+        if is_disposed_exception(exc):
+            raise
         log.exception("document_scripts: failed to persist on document")
         return _(
             "Document is read-only or properties cannot be written. "
@@ -200,6 +202,10 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         doc = desktop.getCurrentComponent()
     except Exception:
         log.debug("document_scripts: could not resolve active Calc document", exc_info=True)
+        return None
+    if doc is not None and (is_writer(doc) or is_draw(doc)):
+        # Bugfix: with Writer focused and a Calc file open, enumerating the
+        # desktop bound that Calc. The Python deck already refuses this.
         return None
     if doc is None or not is_calc(doc):
         try:
@@ -293,60 +299,35 @@ def parse_vision_script_display_name(display: str) -> str | None:
     return parse_picker_display_name(VISION_SCRIPT_DISPLAY_PREFIX, display)
 
 
-def viz_script_display_name(name: str) -> str:
-    return picker_display_name(VIZ_SCRIPT_DISPLAY_PREFIX, name)
+def is_calc_init_script_name(name: str) -> bool:
+    """True for the workbook init entry stored beside named document scripts."""
+    return name in _CALC_INIT_SCRIPT_NAMES
 
 
-def parse_viz_script_display_name(display: str) -> str | None:
-    return parse_picker_display_name(VIZ_SCRIPT_DISPLAY_PREFIX, display)
+def script_origin_is_library(origin: str) -> bool:
+    """True for My Scripts and this-document rows. Builtin templates are read-only."""
+    return origin in ("", SCRIPT_ORIGIN_USER, SCRIPT_ORIGIN_DOCUMENT)
 
 
-def math_script_display_name(name: str) -> str:
-    return picker_display_name(MATH_SCRIPT_DISPLAY_PREFIX, name)
+def document_scripts_write_is_stale(session_doc: Any | None, session_doc_url: str | None) -> bool:
+    """True when the document opened with the editor is no longer that same file.
+
+    The picker used to save onto whichever window was focused. Writes stay on
+    the launch document, and are refused when that document's identity changed.
+    """
+    if session_doc is None or session_doc_url is None:
+        return False
+    # Bugfix: an untitled file captures "". After File → Save the same
+    # component has a URL. That is not a different document. Go stale only
+    # when a non-empty captured URL no longer matches.
+    if session_doc_url == "":
+        return False
+    return document_scripts_identity(session_doc) != session_doc_url
 
 
-def parse_math_script_display_name(display: str) -> str | None:
-    return parse_picker_display_name(MATH_SCRIPT_DISPLAY_PREFIX, display)
-
-
-def units_script_display_name(name: str) -> str:
-    return picker_display_name(UNITS_SCRIPT_DISPLAY_PREFIX, name)
-
-
-def parse_units_script_display_name(display: str) -> str | None:
-    return parse_picker_display_name(UNITS_SCRIPT_DISPLAY_PREFIX, display)
-
-
-def quant_script_display_name(name: str) -> str:
-    return picker_display_name(QUANT_SCRIPT_DISPLAY_PREFIX, name)
-
-
-def parse_quant_script_display_name(display: str) -> str | None:
-    return parse_picker_display_name(QUANT_SCRIPT_DISPLAY_PREFIX, display)
-
-
-def optimize_script_display_name(name: str) -> str:
-    return picker_display_name(OPTIMIZE_SCRIPT_DISPLAY_PREFIX, name)
-
-
-def parse_optimize_script_display_name(display: str) -> str | None:
-    return parse_picker_display_name(OPTIMIZE_SCRIPT_DISPLAY_PREFIX, display)
-
-
-def forecast_script_display_name(name: str) -> str:
-    return picker_display_name(FORECAST_SCRIPT_DISPLAY_PREFIX, name)
-
-
-def parse_forecast_script_display_name(display: str) -> str | None:
-    return parse_picker_display_name(FORECAST_SCRIPT_DISPLAY_PREFIX, display)
-
-
-def sql_script_display_name(name: str) -> str:
-    return picker_display_name(SQL_SCRIPT_DISPLAY_PREFIX, name)
-
-
-def parse_sql_script_display_name(display: str) -> str | None:
-    return parse_picker_display_name(SQL_SCRIPT_DISPLAY_PREFIX, display)
+def picker_document_scripts(scripts: dict[str, str]) -> dict[str, str]:
+    """Document scripts shown in the picker and ``wa.doc`` (init script omitted)."""
+    return {name: code for name, code in scripts.items() if not is_calc_init_script_name(name)}
 
 
 def resolve_script_picker_entry(display_name: str, origin_map: dict[str, str]) -> tuple[str, str]:
@@ -377,7 +358,7 @@ def build_xdl_script_picker_state(
         origin_map[name] = SCRIPT_ORIGIN_USER
         merged[name] = user_scripts[name]
 
-    for name in sorted(doc_scripts.keys()):
+    for name in sorted(picker_document_scripts(doc_scripts)):
         display = document_script_display_name(name)
         origin_map[display] = SCRIPT_ORIGIN_DOCUMENT
         merged[display] = doc_scripts[name]
@@ -402,7 +383,7 @@ def build_xdl_script_picker_state(
 
     items = (
         sorted(user_scripts.keys())
-        + [document_script_display_name(n) for n in sorted(doc_scripts.keys())]
+        + [document_script_display_name(n) for n in sorted(picker_document_scripts(doc_scripts))]
         + domain_items
     )
     return items, merged, origin_map
@@ -457,7 +438,7 @@ def build_scripts_list_message(
 
     doc_scripts: dict[str, str] = {}
     if doc is not None and not document_stale:
-        doc_scripts = get_document_scripts(doc)
+        doc_scripts = picker_document_scripts(get_document_scripts(doc))
 
     sections: list[dict[str, Any]] = [
         {"id": SCRIPT_ORIGIN_USER, "title": _("My Scripts"), "scripts": user_scripts},
@@ -583,11 +564,25 @@ def handle_editor_script_message(
         if not name:
             _send_list(status_error_text=_("Script name cannot be empty."))
             return True
+        if not script_origin_is_library(origin):
+            _send_list(
+                status_error_text=_(
+                    "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+                )
+            )
+            return True
         from plugin.framework.config import set_config
         from plugin.scripting.python_runner import resolve_run_script_name_config_key
 
         name_config_key = resolve_run_script_name_config_key(session_doc)
         if origin == SCRIPT_ORIGIN_DOCUMENT:
+            if document_scripts_write_is_stale(session_doc, session_doc_url):
+                _send_list(
+                    status_error_text=_(
+                        "Document changed — close and reopen Run Python Script to edit document scripts."
+                    )
+                )
+                return True
             if session_doc is None:
                 _send_list(status_error_text=_("No document is open to save scripts."))
                 return True
@@ -616,6 +611,13 @@ def handle_editor_script_message(
         overwrite = bool(msg.get("overwrite"))
         if session_doc is None:
             _send_list(status_error_text=_("No document is open to attach scripts."))
+            return True
+        if document_scripts_write_is_stale(session_doc, session_doc_url):
+            _send_list(
+                status_error_text=_(
+                    "Document changed — close and reopen Run Python Script to edit document scripts."
+                )
+            )
             return True
         err = attach_document_script(session_doc, name, script_code, overwrite=overwrite)
         if err:
@@ -652,9 +654,23 @@ def handle_editor_script_message(
         if not name:
             _send_list(status_error_text=_("Script name cannot be empty."))
             return True
+        if not script_origin_is_library(origin):
+            _send_list(
+                status_error_text=_(
+                    "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+                )
+            )
+            return True
         if origin == SCRIPT_ORIGIN_DOCUMENT:
             if session_doc is None:
                 _send_list(status_error_text=_("No document is open."))
+                return True
+            if document_scripts_write_is_stale(session_doc, session_doc_url):
+                _send_list(
+                    status_error_text=_(
+                        "Document changed — close and reopen Run Python Script to edit document scripts."
+                    )
+                )
                 return True
             err = delete_document_script(session_doc, name)
             if err:

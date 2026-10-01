@@ -500,7 +500,11 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
                 except Exception:
                     pass
         except Exception as reg_err:
+            # Bugfix: a failed preload used to log and continue, so the query
+            # then failed with "table not found". Flat-file registration already
+            # raises. Do the same here.
             log.warning("Failed to register preloaded table %s: %s", orig_name, reg_err)
+            raise
 
 
 def _register_flat_files(

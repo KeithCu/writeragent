@@ -162,8 +162,3 @@ def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any) -> l
             domain_prop["enum"] = [d for d in domain_prop["enum"] if d != _VISION_DOMAIN]
         out.append(patched)
     return out
-
-
-def vision_domain_hidden(ctx: Any) -> bool:
-    """True when the vision specialized domain must not appear in prompts or schemas."""
-    return not vision_venv_configured(ctx)

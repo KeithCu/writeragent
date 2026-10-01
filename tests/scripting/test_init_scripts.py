@@ -97,6 +97,19 @@ def test_numpy_load_allow_pickle_and_ctypeslib_rejected():
     assert "Forbidden call" in ctypes_call.get("message", "")
 
 
+def test_pandas_pickle_and_module_setattr_rejected():
+    pytest.importorskip("pandas")
+    pickled = run_sandboxed_code("import pandas as pd\nresult = pd.read_pickle('/no/such.pkl')")
+    assert pickled["status"] == "error"
+    assert "Forbidden call" in pickled.get("message", "")
+    mutated = run_sandboxed_code("import numpy as np\nsetattr(np, 'array', None)\nresult = 1")
+    assert mutated["status"] == "error"
+    assert "module or a type" in mutated.get("message", "")
+    instance_ok = run_sandboxed_code("class Box:\n    pass\nbox = Box()\nbox.n = 3\nresult = box.n")
+    assert instance_ok["status"] == "ok"
+    assert instance_ok["result"] == 3
+
+
 def test_shared_kernel_keeps_cell_override_of_init_name():
     """Re-seeding every cell used to state.update init names over cell rebinds."""
     init_sid = "calc:wb-override:init"

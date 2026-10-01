@@ -70,7 +70,7 @@ def open_init_script_editor(ctx: Any = None) -> bool:
             log.debug("init_script_editor: reset after save failed", exc_info=True)
         return {"type": "saved", "ok": True, "status_ok_text": _("Initialization script saved.")}
 
-    load_msg: dict[str, Any] = {"type": "load", "mode": "init_script", "language": "python", "code": initial, "title": _("Edit Initialization Script"), "save_as_plain": True, "plain_text_label": _("Save initialization script"), "resource": "init", "doc_url": ""}
+    load_msg: dict[str, Any] = {"type": "load", "mode": "init_script", "language": "python", "code": initial, "title": _("Edit Initialization Script"), "save_as_plain": True, "plain_text_label": _("Save initialization script"), "resource": "init", "doc_url": "", "show_data_binding": False}
     try:
         from plugin.scripting.document_scripts import document_scripts_identity
 

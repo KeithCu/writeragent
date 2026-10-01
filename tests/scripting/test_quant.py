@@ -85,7 +85,9 @@ def test_client_run_quant_happy_path(ctx):
     assert result["helper"] == "fetch_historical_data"
     mock_run.assert_called_once()
     kwargs = mock_run.call_args.kwargs
-    assert kwargs["session_id"] == "writeragent:quant"
+    # writeragent:* ids are not sandbox sessions; the client no longer forwards one.
+    assert "session_id" not in kwargs
+    assert kwargs["domain"] == "quant"
     assert kwargs["helper"] == "fetch_historical_data"
 
 
@@ -153,3 +155,12 @@ def test_portfolio_tearsheet_invalid_data():
     assert result["status"] == "error"
     assert result["code"] == "INVALID_DATA"
     assert result["helper"] == "portfolio_tearsheet"
+
+
+def test_is_quant_result_uses_helper_names_not_fetch_prefix():
+    from plugin.calc.quant_egress import is_quant_result
+
+    assert is_quant_result({"status": "ok", "helper": "fetch_historical_data"}) is True
+    assert is_quant_result({"status": "ok", "helper": "fetch_not_a_helper"}) is False
+    assert is_quant_result({"status": "error", "code": "QUANT_ERROR"}) is True
+    assert is_quant_result({"status": "error", "code": "OTHER"}) is False

@@ -22,11 +22,7 @@ def make_getattr(
     *,
     fallback: Callable[[str], Any] | None = None,
 ) -> Callable[[str], Any]:
-    """Return a PEP 562 ``__getattr__`` that lazy-loads *exports* from a venv submodule.
-
-    Later: add ``__dir__`` / ``__all__`` from *exports* so ``dir()``/``hasattr``
-    work without eager-importing the venv module.
-    """
+    """Return a PEP 562 ``__getattr__`` that lazy-loads *exports* from a venv submodule."""
 
     def __getattr__(name: str) -> Any:
         if name in exports:
@@ -36,3 +32,17 @@ def make_getattr(
         raise AttributeError(f"module 'plugin.scripting.{venv_module}' has no attribute {name!r}")
 
     return __getattr__
+
+
+def install_lazy_dir(module_globals: dict[str, Any], exports: frozenset[str], *extra: str) -> None:
+    """Publish lazy export names from ``dir()`` without importing the venv module.
+
+    The module dict is read when ``dir()`` runs, so names defined after this
+    call are still included.
+    """
+    lazy = set(exports).union(extra)
+
+    def __dir__() -> list[str]:
+        return sorted(set(module_globals) | lazy)
+
+    module_globals["__dir__"] = __dir__

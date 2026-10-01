@@ -301,3 +301,23 @@ def test_vision_client_passes_payload(mock_action):
     assert kwargs["params"] == {}
     assert kwargs["context"] == {"source": "selection"}
     assert kwargs["additional_data"] == {"image": b"png"}
+
+
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
+def test_pdf_docling_unavailable_does_not_call_paddle(mock_convert):
+    mock_convert.side_effect = ImportError("docling is not installed")
+    with patch("plugin.vision.venv.vision_paddle._decode_image_bytes") as decode, patch(
+        "plugin.vision.venv.vision_paddle._get_paddle_ocr"
+    ) as paddle:
+        result = run_vision({"helper": "extract_text", "params": {}}, b"%PDF-1.4 not-a-png", {})
+    decode.assert_not_called()
+    paddle.assert_not_called()
+    assert result["status"] == "error"
+    assert result["code"] == "DOCLING_UNAVAILABLE"
+
+
+def test_run_vision_rejects_oversized_image():
+    with patch("plugin.vision.venv.vision.VISION_IMAGE_MAX_BYTES", 4):
+        result = run_vision({"helper": "extract_text"}, b"12345", {})
+    assert result["status"] == "error"
+    assert result["code"] == "IMAGE_TOO_LARGE"

@@ -371,3 +371,41 @@ def test_extract_structure_real_docling_pdf_magic():
     joined = " ".join(str(c) for c in (table.get("columns") or []))
     assert joined.count("ASSETS:") <= 1
 
+
+def test_apply_pipeline_params_refuses_layout_config_without_get_engine_config():
+    class BadSpec:
+        pass
+
+    class OdOpts:
+        kind = "layout_object_detection"
+        model_spec = BadSpec()
+
+    pipeline = MagicMock()
+    pipeline.layout_options = OdOpts()
+    pipeline.table_structure_options = MagicMock()
+    pipeline.accelerator_options = MagicMock()
+    with patch.object(docling_mod, "_resolve_od_layout_model_spec", return_value=BadSpec()):
+        with pytest.raises(docling_mod.LayoutModelError, match="get_engine_config"):
+            docling_mod._apply_pipeline_params(pipeline, {"layout_model": "heron"}, for_structure=True)
+
+
+def test_apply_pipeline_params_does_not_swallow_layout_resolution_error():
+    class OdOpts:
+        kind = "layout_object_detection"
+        model_spec = object()
+
+    pipeline = MagicMock()
+    pipeline.layout_options = OdOpts()
+    pipeline.table_structure_options = MagicMock()
+    pipeline.accelerator_options = MagicMock()
+    with patch.object(docling_mod, "_resolve_od_layout_model_spec", side_effect=RuntimeError("spec unavailable")):
+        with pytest.raises(RuntimeError, match="spec unavailable"):
+            docling_mod._apply_pipeline_params(pipeline, {}, for_structure=True)
+
+
+def test_converter_cache_keeps_only_the_latest():
+    docling_mod._converter_cache.clear()
+    docling_mod._converter_cache[("old",)] = object()
+    docling_mod._store_converter(("new",), object())
+    assert list(docling_mod._converter_cache) == [("new",)]
+

@@ -3,9 +3,8 @@
 from typing import Any
 
 from plugin.framework.module_base import ModuleBase
-from .venv.vision import run_vision
 
-__all__ = ["VisionModule", "run_vision"]
+__all__ = ["VisionModule"]
 
 
 class VisionModule(ModuleBase):

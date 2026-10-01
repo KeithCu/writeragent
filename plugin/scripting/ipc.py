@@ -129,7 +129,7 @@ def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
 def read_frame_payload(
     stream: IO[bytes],
     *,
-    max_payload_bytes: int | None = None,
+    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
     frame_label: str = "IPC frame",
     read_exact: Callable[[int], bytes] | None = None,
 ) -> bytes | None:
@@ -179,7 +179,7 @@ def _decode_pickle_payload(
 def read_pickle_frame(
     stream: IO[bytes],
     *,
-    max_payload_bytes: int | None = None,
+    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
     frame_label: str = "IPC frame",
     require_dict: bool = False,
 ) -> Any | None:
@@ -203,7 +203,11 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     call_id = str(uuid.uuid4())
     request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": args}
     with _tool_call_lock:
-        write_pickle_frame(sys.stdout.buffer, request)
+        write_pickle_frame(
+            sys.stdout.buffer,
+            request,
+            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+        )
         response = read_pickle_frame(
             sys.stdin.buffer,
             require_dict=True,
@@ -225,7 +229,7 @@ def read_pickle_frame_with_timeout(
     stream: IO[bytes],
     timeout_sec: float,
     *,
-    max_payload_bytes: int | None = None,
+    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
     frame_label: str = "IPC frame",
     require_dict: bool = False,
     is_alive: Callable[[], bool] | None = None,
@@ -408,11 +412,19 @@ def _readline_with_timeout(stream: IO[str], timeout_sec: float | None) -> str:
     return stream.readline()
 
 
-def read_json_line(stream: IO[str], *, timeout_sec: float | None = None) -> dict[str, Any] | None:
+def read_json_line(
+    stream: IO[str],
+    *,
+    timeout_sec: float | None = None,
+    max_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
+) -> dict[str, Any] | None:
     """Read one newline-delimited JSON object. Return None on clean EOF."""
     line = _readline_with_timeout(stream, timeout_sec)
     if not line:
         return None
+    encoded = line.encode("utf-8", errors="replace")
+    if len(encoded) > max_bytes:
+        raise ValueError(f"JSON line exceeds {max_bytes} bytes")
     try:
         payload = json.loads(line.strip())
     except json.JSONDecodeError as exc:

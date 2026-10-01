@@ -10,18 +10,18 @@ from typing import Any
 
 from plugin.calc.python.function import to_calc_compatible
 from plugin.calc.tabular_egress import insert_tabular_result_into_calc
+from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES
+from plugin.scripting.helper_domain import is_status_helper_result
 
 
 def is_quant_result(value: Any) -> bool:
-    """True when *value* matches the compact quant helper result contract."""
-    if not isinstance(value, dict):
-        return False
-    if "status" not in value:
-        return False
-    helper = value.get("helper")
-    if isinstance(helper, str) and helper.startswith("fetch_") or helper in ["technical_analysis", "portfolio_tearsheet", "efficient_frontier"]:
-        return True
-    return value.get("status") == "error" and value.get("code") == "QUANT_ERROR"
+    """True when *value* matches the compact quant helper result contract.
+
+    ``and`` binds tighter than ``or``, so the old check treated every
+    ``fetch_*`` string as a quant helper even when it was not in
+    ``QUANT_HELPER_NAMES``.
+    """
+    return is_status_helper_result(value, QUANT_HELPER_NAMES, frozenset({"QUANT_ERROR"}))
 
 
 def _cell(value: Any) -> Any:

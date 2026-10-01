@@ -15,6 +15,7 @@ from typing import Any
 from plugin.vision.vision_common import (
     HELPER_NAMES,
     IMPLEMENTED_HELPERS,
+    VISION_IMAGE_MAX_BYTES,
     _error_result,
     fallback_engine_enabled,
     resolve_engine,
@@ -56,6 +57,12 @@ def _apply_paddle_fallback(
     params: dict[str, Any],
 ) -> dict[str, Any]:
     if docling_result.get("status") != "error":
+        return docling_result
+    from plugin.vision.vision_common import detect_vision_input_format
+
+    # Paddle decode is PNG/JPEG only. A PDF that Docling rejected must keep that
+    # error; decoding %PDF as an image only logs a second failure.
+    if detect_vision_input_format(image, params) == "pdf":
         return docling_result
     code = docling_result.get("code")
     api_mismatch = _docling_api_mismatch_error(docling_result)
@@ -117,6 +124,13 @@ def run_vision(
         return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
 
     params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
+
+    if isinstance(image, (bytes, bytearray)) and len(image) > VISION_IMAGE_MAX_BYTES:
+        return _error_result(
+            "IMAGE_TOO_LARGE",
+            f"Image is {len(image)} bytes; limit is {VISION_IMAGE_MAX_BYTES}.",
+            helper=helper,
+        )
 
     try:
         result = _dispatch_helper(helper, image, params)

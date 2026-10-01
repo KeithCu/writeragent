@@ -59,17 +59,34 @@ class TextAnalyticsDialog:
     def show(cls, ctx: Any) -> None:
         cls(ctx)
 
-    def close(self) -> None:
+    def close(self, *, toolkit_teardown: bool = False) -> None:
+        """Hide or dispose the dialog.
+
+        Bugfix: Esc / title-bar close on a closeable modeless dialog already
+        destroys the window. ``windowClosing`` must not ``dispose()`` again
+        (native crash, no Python traceback). The Close button disposes once.
+        """
         if self._closed:
             return
         self._closed = True
-        try:
-            if self._dlg is not None:
-                self._dlg.dispose()
-        # Best-effort dispose; failure is non-fatal.
-        except Exception:  # nosec B110
-            pass
+        dlg = self._dlg
         self._dlg = None
+        if dlg is None:
+            return
+        if toolkit_teardown:
+            try:
+                dlg.setVisible(False)
+            except Exception:
+                log.debug("text analytics: hide after windowClosing failed", exc_info=True)
+            return
+        try:
+            dlg.setVisible(False)
+        except Exception:
+            log.debug("text analytics: hide before dispose failed", exc_info=True)
+        try:
+            dlg.dispose()
+        except Exception:
+            log.debug("text analytics: dispose failed", exc_info=True)
 
     def _open(self) -> None:
         ctx = self._ctx
@@ -87,7 +104,7 @@ class TextAnalyticsDialog:
 
             class _TopWindowListener(unohelper.Base, XTopWindowListener):
                 def windowClosing(self, e: Any) -> None:
-                    owner.close()
+                    owner.close(toolkit_teardown=True)
 
                 def windowClosed(self, e: Any) -> None: pass
                 def windowOpened(self, e: Any) -> None: pass

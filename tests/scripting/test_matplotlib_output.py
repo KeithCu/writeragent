@@ -290,6 +290,31 @@ def test_run_sandboxed_dataframe_produces_envelope():
     assert res["result"]["columns"] == ["x", "y"]
 
 
+def test_serialize_result_small_numeric_dataframe_spills_body():
+    """A numeric DataFrame under BINARY_MIN_CELLS spills header and body, not the header alone."""
+    pd = pytest.importorskip("pandas")
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+    from plugin.calc.python.function import result_to_calc_grid, to_calc_compatible
+    from plugin.scripting.payload_codec import host_unpack_data, is_split_grid
+
+    df = pd.DataFrame({"a": np.arange(10), "b": np.arange(10) + 0.5})
+    res = serialize_result(df)
+    assert not is_split_grid(res["data"])
+    unpacked = host_unpack_data(res)
+    grid = result_to_calc_grid(unpacked)
+    assert grid[0] == ["a", "b"]
+    assert len(grid) == 11
+    coerced = to_calc_compatible(grid)
+    assert coerced[1] == (0, pytest.approx(0.5))
+
+    named = pd.Series(np.arange(5, dtype=float), name="x")
+    named_grid = result_to_calc_grid(host_unpack_data(serialize_result(named)))
+    assert named_grid[0] == ["x"]
+    assert len(named_grid) == 6
+    assert named_grid[1] == [pytest.approx(0.0)]
+
+
 def test_serialize_result_empty_dataframe_and_series():
     """0-row DataFrame / named empty Series → header-only envelope. Not a codec gap."""
     pd = pytest.importorskip("pandas")

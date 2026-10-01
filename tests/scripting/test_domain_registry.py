@@ -86,6 +86,24 @@ def test_script_header_needs_data_binding_on_calc_domains():
             doc=calc_doc,
         ) is True
         assert script_header_needs_data_binding("# writeragent:text helper=full params={}\n", doc=calc_doc) is False
+        assert script_header_needs_data_binding('print("hi")\n', doc=calc_doc) is False
+
+
+def test_script_header_needs_data_binding_for_direct_helper_templates():
+    from plugin.scripting.analysis import get_analysis_script_templates
+    from plugin.scripting.domain_registry import script_header_needs_data_binding
+    from plugin.scripting.duckdb_sql import get_sql_script_templates
+
+    calc_doc = object()
+    with patch("plugin.scripting.domain_registry.is_calc", return_value=True):
+        assert script_header_needs_data_binding(
+            get_analysis_script_templates()["describe_data"],
+            doc=calc_doc,
+        ) is True
+        assert script_header_needs_data_binding(
+            get_sql_script_templates()["query_sheet_sql"],
+            doc=calc_doc,
+        ) is True
 
 
 def test_picker_domains_are_cached():

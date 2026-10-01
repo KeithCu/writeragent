@@ -99,7 +99,10 @@ def test_reset_notebook_python_session_resets_count_when_worker_fails():
 def test_reset_workbook_python_session_dispatches_to_notebook():
     ctx = MagicMock()
     doc = _writer_doc()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
     with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager._calc_document", return_value=None),
         patch("plugin.scripting.session_manager._writer_document", return_value=doc),
         patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),

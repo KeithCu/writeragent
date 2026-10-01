@@ -41,6 +41,7 @@ def test_execute_and_insert_forecast_venv_path(mock_venv, mock_insert):
     assert "forecast_time_series" in outcome["status_ok_text"]
     mock_venv.assert_called_once()
     mock_insert.assert_called_once()
+    assert mock_insert.call_args.args[:2] == (doc, ctx)
 
 
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc")

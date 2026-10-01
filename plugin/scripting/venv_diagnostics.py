@@ -481,37 +481,59 @@ def _vector_search_probe_failed_hint() -> str:
     return _("Vector Search probe failed (see writeragent_debug.log).")
 
 
+def _run_json_probe(
+    python_exe: str,
+    script: str,
+    timeout: float,
+    *,
+    timeout_hint: str,
+    fail_hint: str,
+    log_label: str,
+    floor_timeout: bool = True,
+) -> tuple[dict[str, Any], str | None]:
+    """Run a one-shot ``python -c`` JSON probe outside the warm worker."""
+    limit = max(1.0, timeout) if floor_timeout else timeout
+    try:
+        proc = subprocess.run(
+            wrap_command_for_sandbox([python_exe, "-c", script]),
+            capture_output=True,
+            text=True,
+            timeout=limit,
+            env=scrub_subprocess_env(dict(os.environ)),
+            **get_subprocess_creationflags(),
+        )
+    except subprocess.TimeoutExpired:
+        return {}, timeout_hint
+    except OSError as exc:
+        log.warning("%s package probe could not run: %s", log_label, exc)
+        return {}, fail_hint
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()[:200]
+        log.warning("%s package probe exit %s: %s", log_label, proc.returncode, stderr)
+        return {}, fail_hint
+    try:
+        parsed = json.loads((proc.stdout or "").strip() or "{}")
+    except json.JSONDecodeError:
+        log.warning("%s package probe returned invalid JSON: %r", log_label, (proc.stdout or "")[:200])
+        return {}, fail_hint
+    if not isinstance(parsed, dict):
+        return {}, fail_hint
+    return parsed, None
+
+
 def _probe_nlp_packages(
     python_exe: str,
     timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
 ) -> Tuple[dict[str, Any], Optional[str]]:
     """Import-check Text/NLP stack in the real venv interpreter (not the sandboxed warm worker)."""
-    try:
-        proc = subprocess.run(
-            wrap_command_for_sandbox([python_exe, "-c", _NLP_PROBE_SCRIPT]),
-            capture_output=True,
-            text=True,
-            timeout=max(1.0, timeout),
-            env=scrub_subprocess_env(dict(os.environ)),
-            **get_subprocess_creationflags(),
-        )
-    except subprocess.TimeoutExpired:
-        return {}, _nlp_probe_timeout_hint()
-    except OSError as exc:
-        log.warning("Text/NLP package probe could not run: %s", exc)
-        return {}, _nlp_probe_failed_hint()
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()[:200]
-        log.warning("Text/NLP package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _nlp_probe_failed_hint()
-    try:
-        parsed = json.loads((proc.stdout or "").strip() or "{}")
-    except json.JSONDecodeError:
-        log.warning("Text/NLP package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _nlp_probe_failed_hint()
-    if not isinstance(parsed, dict):
-        return {}, _nlp_probe_failed_hint()
-    return parsed, None
+    return _run_json_probe(
+        python_exe,
+        _NLP_PROBE_SCRIPT,
+        timeout,
+        timeout_hint=_nlp_probe_timeout_hint(),
+        fail_hint=_nlp_probe_failed_hint(),
+        log_label="Text/NLP",
+    )
 
 
 def _probe_vector_search_packages(
@@ -519,32 +541,14 @@ def _probe_vector_search_packages(
     timeout: float = VECTOR_SEARCH_PROBE_TIMEOUT_SEC,
 ) -> Tuple[dict[str, Any], Optional[str]]:
     """Import-check embeddings stack in the real venv interpreter (not the sandboxed warm worker)."""
-    try:
-        proc = subprocess.run(
-            wrap_command_for_sandbox([python_exe, "-c", _VECTOR_SEARCH_PROBE_SCRIPT]),
-            capture_output=True,
-            text=True,
-            timeout=max(1.0, timeout),
-            env=scrub_subprocess_env(dict(os.environ)),
-            **get_subprocess_creationflags(),
-        )
-    except subprocess.TimeoutExpired:
-        return {}, _vector_search_probe_timeout_hint()
-    except OSError as exc:
-        log.warning("Vector Search package probe could not run: %s", exc)
-        return {}, _vector_search_probe_failed_hint()
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()[:200]
-        log.warning("Vector Search package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _vector_search_probe_failed_hint()
-    try:
-        parsed = json.loads((proc.stdout or "").strip() or "{}")
-    except json.JSONDecodeError:
-        log.warning("Vector Search package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _vector_search_probe_failed_hint()
-    if not isinstance(parsed, dict):
-        return {}, _vector_search_probe_failed_hint()
-    return parsed, None
+    return _run_json_probe(
+        python_exe,
+        _VECTOR_SEARCH_PROBE_SCRIPT,
+        timeout,
+        timeout_hint=_vector_search_probe_timeout_hint(),
+        fail_hint=_vector_search_probe_failed_hint(),
+        log_label="Vector Search",
+    )
 
 
 def _probe_vision_packages(
@@ -552,64 +556,30 @@ def _probe_vision_packages(
     timeout: float = VISION_PROBE_TIMEOUT_SEC,
 ) -> Tuple[dict[str, Any], Optional[str]]:
     """Import-check vision stack in the real venv interpreter (not the sandboxed warm worker)."""
-    try:
-        proc = subprocess.run(
-            wrap_command_for_sandbox([python_exe, "-c", _VISION_PROBE_SCRIPT]),
-            capture_output=True,
-            text=True,
-            timeout=max(1.0, timeout),
-            env=scrub_subprocess_env(dict(os.environ)),
-            **get_subprocess_creationflags(),
-        )
-    except subprocess.TimeoutExpired:
-        return {}, _vision_probe_timeout_hint()
-    except OSError as exc:
-        log.warning("Vision package probe could not run: %s", exc)
-        return {}, _vision_probe_failed_hint()
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()[:200]
-        log.warning("Vision package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _vision_probe_failed_hint()
-    try:
-        parsed = json.loads((proc.stdout or "").strip() or "{}")
-    except json.JSONDecodeError:
-        log.warning("Vision package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _vision_probe_failed_hint()
-    if not isinstance(parsed, dict):
-        return {}, _vision_probe_failed_hint()
-    return parsed, None
+    return _run_json_probe(
+        python_exe,
+        _VISION_PROBE_SCRIPT,
+        timeout,
+        timeout_hint=_vision_probe_timeout_hint(),
+        fail_hint=_vision_probe_failed_hint(),
+        log_label="Vision",
+    )
 
 
 def _probe_audio_packages(
     python_exe: str,
     timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
 ) -> tuple[dict[str, str | None], str | None]:
-    try:
-        proc = subprocess.run(
-            wrap_command_for_sandbox([python_exe, "-c", _AUDIO_PROBE_SCRIPT]),
-            capture_output=True,
-            timeout=timeout,
-            env=scrub_subprocess_env(dict(os.environ)),
-            text=True,
-            **get_subprocess_creationflags(),
-        )
-    except subprocess.TimeoutExpired:
-        return {}, _audio_probe_timeout_hint()
-    except OSError as exc:
-        log.warning("Audio package probe could not run: %s", exc)
-        return {}, _audio_probe_failed_hint()
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()[:200]
-        log.warning("Audio package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _audio_probe_failed_hint()
-    try:
-        parsed = json.loads((proc.stdout or "").strip() or "{}")
-    except json.JSONDecodeError:
-        log.warning("Audio package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _audio_probe_failed_hint()
-    if not isinstance(parsed, dict):
-        return {}, _audio_probe_failed_hint()
-    return parsed, None
+    # Audio keeps the caller timeout as-is (no 1s floor). The other probes floor it.
+    return _run_json_probe(
+        python_exe,
+        _AUDIO_PROBE_SCRIPT,
+        timeout,
+        timeout_hint=_audio_probe_timeout_hint(),
+        fail_hint=_audio_probe_failed_hint(),
+        log_label="Audio",
+        floor_timeout=False,
+    )
 
 
 # Editor GUI stacks. Probed in a one-shot subprocess so Qt/WebEngine never
@@ -645,32 +615,14 @@ def _probe_ui_packages(
     timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
 ) -> Tuple[dict[str, Any], Optional[str]]:
     """Import-check editor GUI packages outside the sandboxed warm worker."""
-    try:
-        proc = subprocess.run(
-            wrap_command_for_sandbox([python_exe, "-c", _UI_PROBE_SCRIPT]),
-            capture_output=True,
-            text=True,
-            timeout=max(1.0, timeout),
-            env=scrub_subprocess_env(dict(os.environ)),
-            **get_subprocess_creationflags(),
-        )
-    except subprocess.TimeoutExpired:
-        return {}, _("UI / Monaco probe timed out.")
-    except OSError as exc:
-        log.warning("UI package probe could not run: %s", exc)
-        return {}, _ui_probe_failed_hint()
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()[:200]
-        log.warning("UI package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _ui_probe_failed_hint()
-    try:
-        parsed = json.loads((proc.stdout or "").strip() or "{}")
-    except json.JSONDecodeError:
-        log.warning("UI package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _ui_probe_failed_hint()
-    if not isinstance(parsed, dict):
-        return {}, _ui_probe_failed_hint()
-    return parsed, None
+    return _run_json_probe(
+        python_exe,
+        _UI_PROBE_SCRIPT,
+        timeout,
+        timeout_hint=_("UI / Monaco probe timed out."),
+        fail_hint=_ui_probe_failed_hint(),
+        log_label="UI",
+    )
 
 
 _SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -701,10 +653,7 @@ def _package_probe_script(module: str) -> str:
     """Return a sandbox-safe one-import probe script for a whitelisted *module*."""
     if module not in _ALLOWED_PROBE_MODULES:
         raise ValueError(f"unsupported probe module: {module}")
-    if module == "PyQt6.QtWebEngineWidgets":
-        import_stmt = "import PyQt6.QtWebEngineWidgets"
-    else:
-        import_stmt = f"import {module}"
+    import_stmt = f"import {module}"
     return f"""
 try:
     {import_stmt}
@@ -1082,7 +1031,13 @@ def run_venv_self_check_with_progress(
 
     _status(_("Starting Python worker..."))
     try:
-        manager = PythonWorkerManager.get(python_exe, scrub_subprocess_env(dict(os.environ)))
+        from plugin.framework.constants import WORKER_POOL_DIAGNOSTICS
+
+        manager = PythonWorkerManager.get(
+            python_exe,
+            scrub_subprocess_env(dict(os.environ)),
+            pool=WORKER_POOL_DIAGNOSTICS,
+        )
     except OSError as e:
         return False, f"Could not run Python: {e}"
 
@@ -1146,8 +1101,21 @@ def run_venv_self_check_with_progress(
             _refresh(data, completed_groups=group_index + 1, include_audio=include_audio)
             continue
         checked: list[str] = []
+        packages_raw = data.get("p")
+        packages_seen: dict[Any, Any] = packages_raw if isinstance(packages_raw, dict) else {}
         for pkg in packages:
             _status(f"{group_title}: {pkg}")
+            # sympy and matplotlib are listed in more than one group.
+            if pkg in packages_seen:
+                checked.append(pkg)
+                _refresh(
+                    data,
+                    completed_groups=group_index,
+                    partial_group_keys=tuple(checked),
+                    partial_group_title=group_title,
+                    include_audio=include_audio,
+                )
+                continue
             try:
                 pkg_resp = manager.execute(_package_probe_script(pkg), timeout_sec=per_pkg_timeout)
             except OSError as e:
@@ -1250,7 +1218,13 @@ def run_venv_self_check(python_exe: str, timeout: float | None = None) -> Tuple[
 
     timeout_sec = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC if timeout is None else max(1, int(timeout))
     try:
-        manager = PythonWorkerManager.get(python_exe, scrub_subprocess_env(dict(os.environ)))
+        from plugin.framework.constants import WORKER_POOL_DIAGNOSTICS
+
+        manager = PythonWorkerManager.get(
+            python_exe,
+            scrub_subprocess_env(dict(os.environ)),
+            pool=WORKER_POOL_DIAGNOSTICS,
+        )
         response = manager.execute(_DIAGNOSTIC_SCRIPT, timeout_sec=timeout_sec)
     except OSError as e:
         return False, f"Could not run Python: {e}"

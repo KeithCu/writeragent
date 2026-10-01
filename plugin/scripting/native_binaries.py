@@ -149,6 +149,10 @@ def _download_url_to_file(
                     if total_size:
                         percent = int(downloaded * 100 / total_size)
                         on_status(f"Downloading {os.path.basename(dest_path)}: {percent}%")
+            if total_size and downloaded != total_size:
+                raise RuntimeError(
+                    f"Download of {os.path.basename(dest_path)} stopped at {downloaded} of {total_size} bytes"
+                )
         _atomic_replace_native(partial_path, dest_path)
     except urllib.error.HTTPError as err:
         raise RuntimeError(f"HTTP Error {err.code}: {err.reason} for URL: {url}") from err

@@ -13,6 +13,7 @@ realistic Calc-shaped grids only (rectangular 2D; uneven row lengths are rejecte
 
 from __future__ import annotations
 
+import array
 import ast
 import math
 import sys
@@ -36,6 +37,7 @@ from plugin.scripting.payload_codec import (
     host_pack_data,
     host_pack_multi_data,
     host_unpack_data,
+    host_unpack_split_grid,
     is_dataframe_payload,
     is_multi_data,
     is_numeric_coercible,
@@ -392,14 +394,14 @@ def test_round_trip_split_grid_1d():
 
 
 def test_child_unpack_single_entry_auto_scalar_and_integer_coercion():
-    """Verify that child_unpack_data automatically unpacks single-entry inputs into scalars and coerces float-integers."""
+    """Single-cell floats stay floats. A longer float64 column already did; 1×1 used to become int."""
     np = pytest.importorskip("numpy")
 
-    # 1. 1-element numeric list representing an integer float
+    # 1. 1-element numeric list representing a whole-number float
     wire_int_float = [100000.0]
     unpacked_int_float = child_unpack_data(wire_int_float)
-    assert isinstance(unpacked_int_float, int)
-    assert unpacked_int_float == 100000
+    assert isinstance(unpacked_int_float, float)
+    assert unpacked_int_float == 100000.0
 
     # 2. 1-element numeric list representing a real float
     wire_real_float = [3.14]
@@ -419,11 +421,11 @@ def test_child_unpack_single_entry_auto_scalar_and_integer_coercion():
     assert isinstance(unpacked_bool, bool)
     assert unpacked_bool is True
 
-    # 5. 1-element numpy array representing an integer float (e.g. from split-grid of shape (1,))
+    # 5. 1-element numpy array representing a whole-number float
     arr_int_float = np.array([100000.0])
     unpacked_arr_int_float = child_unpack_data(arr_int_float)
-    assert isinstance(unpacked_arr_int_float, int)
-    assert unpacked_arr_int_float == 100000
+    assert isinstance(unpacked_arr_int_float, float)
+    assert unpacked_arr_int_float == 100000.0
 
     # 6. Multi-element list or 2D list should NOT be unpacked to scalar
     assert isinstance(child_unpack_data([100000.0, 200000.0]), np.ndarray)
@@ -654,21 +656,33 @@ def test_split_grid_flat_row_10_shape() -> None:
 
 
 def test_child_pack_below_threshold_returns_list() -> None:
-    """Small ndarray egress below threshold returns the ndarray (not forced tolist or split_grid).
+    """Small ndarray egress below threshold is a nested list, not an ndarray or split_grid.
 
-    Per small_ndarray_result choice, we leave ndarray objects for sub-threshold pure numeric results
-    rather than converting to list. Host unpack and downstream (e.g. to_calc_compatible) accept ndarray.
+    Bugfix: returning the ndarray made a DataFrame under 100 cells spill only its
+    header, and a bare multi-cell array become one Calc string.
     """
     np = pytest.importorskip("numpy")
     n = max(1, BINARY_MIN_CELLS - 1)
     rows, cols = rect_shape_for_cell_count(n)
     small = np.arange(n, dtype=np.float64).reshape(rows, cols)
     wire = child_pack_result(small, force="auto")
-    # Not a split_grid (too small), and not auto-converted to list; ndarray is left as-is.
     assert not is_split_grid(wire)
-    assert isinstance(wire, np.ndarray)
-    assert wire.shape[0] == rows
-    # Also tolerate if some future change decides to list-ify small; the key is "no split envelope".
+    assert isinstance(wire, list)
+    assert len(wire) == rows
+    assert wire[0][0] == pytest.approx(0.0)
+
+
+def test_host_unpack_split_grid_rejects_short_buffer() -> None:
+    """Declared shape must match the float buffer. A short buffer is not a short grid."""
+    buf = array.array("d", [1.0])
+    envelope = {
+        "__wa_payload__": "split_grid",
+        "shape": [2, 2],
+        "buffer": buf.tobytes(),
+        "strings": {},
+    }
+    with pytest.raises(ValueError, match="buffer has 1 values"):
+        host_unpack_split_grid(envelope)
 
 
 def test_child_pack_numpy_scalar_types() -> None:
@@ -864,21 +878,18 @@ def test_split_grid_logical_coercion_at_calc_ingress():
 
 
 def test_split_grid_single_cell_scalar_coercion():
-    """Verify automatic scalar extraction and whole float to integer coercion for single cells."""
+    """Single-cell whole-number floats stay floats, matching a longer float64 column."""
     np = pytest.importorskip("numpy")
-    
-    # 1. 1-element list with a whole number float should become python int
-    assert child_unpack_data([100.0]) == 100
-    assert isinstance(child_unpack_data([100.0]), int)
-    
-    # 2. 1-element list with real float remains float
+
+    assert child_unpack_data([100.0]) == 100.0
+    assert isinstance(child_unpack_data([100.0]), float)
+
     assert child_unpack_data([3.14]) == pytest.approx(3.14)
     assert isinstance(child_unpack_data([3.14]), float)
-    
-    # 3. 1-element ndarray with integer float
+
     arr = np.array([42.0])
-    assert child_unpack_data(arr) == 42
-    assert isinstance(child_unpack_data(arr), int)
+    assert child_unpack_data(arr) == 42.0
+    assert isinstance(child_unpack_data(arr), float)
 
 
 def test_split_grid_lattice_promotion_comprehensive():

@@ -21,6 +21,8 @@ from plugin.scripting.document_scripts import (
     delete_user_script,
     document_script_display_name,
     document_scripts_identity,
+    document_scripts_write_is_stale,
+    get_calc_document_from_ctx,
     get_document_scripts,
     handle_editor_script_message,
     has_document_scripts,
@@ -47,6 +49,27 @@ def test_document_scripts_identity_uses_shared_trailing_slash_normalize():
     assert document_scripts_identity(doc) == "file:///tmp/doc.odt"
     doc.getURL.return_value = ""
     assert document_scripts_identity(doc) == ""
+
+
+def test_untitled_save_is_not_a_stale_document_script_write():
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///tmp/saved.ods"
+    assert document_scripts_write_is_stale(doc, "") is False
+    assert document_scripts_write_is_stale(doc, "file:///tmp/other.ods") is True
+
+
+def test_get_calc_document_from_ctx_does_not_fall_back_from_writer():
+    writer = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = writer
+    with (
+        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
+        patch("plugin.scripting.document_scripts.is_writer", return_value=True),
+        patch("plugin.scripting.document_scripts.is_draw", return_value=False),
+        patch("plugin.scripting.document_scripts.is_calc", return_value=False),
+    ):
+        assert get_calc_document_from_ctx(MagicMock()) is None
+    desktop.getComponents.assert_not_called()
 
 
 def test_get_document_scripts_empty():
@@ -514,6 +537,53 @@ def test_handle_editor_script_message_attach_requires_doc():
             send=sent.append,
         )
     assert sent[-1]["status_error_text"]
+
+
+def test_builtin_origin_delete_does_not_touch_user_scripts():
+    sent: list[dict] = []
+    with patch("plugin.scripting.document_scripts.delete_user_script") as mock_del:
+        handle_editor_script_message(
+            "delete_script",
+            {"name": "Plot", "origin": "viz"},
+            ctx=MagicMock(),
+            session_doc=MagicMock(),
+            session_doc_url="file:///a",
+            send=sent.append,
+        )
+    mock_del.assert_not_called()
+    assert "Copy to My Scripts" in sent[-1]["status_error_text"]
+
+
+def test_stale_document_save_does_not_write():
+    sent: list[dict] = []
+    with (
+        patch("plugin.scripting.document_scripts.document_scripts_identity", return_value="file:///other"),
+        patch("plugin.scripting.document_scripts.save_document_script") as mock_save,
+    ):
+        handle_editor_script_message(
+            "save_script",
+            {"name": "A", "code": "x = 1", "origin": "document"},
+            ctx=MagicMock(),
+            session_doc=MagicMock(),
+            session_doc_url="file:///original",
+            send=sent.append,
+        )
+    mock_save.assert_not_called()
+    assert "Document changed" in sent[-1]["status_error_text"]
+
+
+def test_init_script_omitted_from_picker():
+    with patch(
+        "plugin.scripting.document_scripts.get_document_scripts",
+        return_value={"INIT": "x = 1", "Hello": "y = 1"},
+    ), patch(
+        "plugin.scripting.domain_registry.get_picker_domains",
+        return_value=(),
+    ):
+        items, merged, _origins = build_xdl_script_picker_state(MagicMock(), MagicMock(), {})
+    assert document_script_display_name("Hello") in items
+    assert document_script_display_name("INIT") not in items
+    assert "x = 1" not in merged.values()
 
 
 def test_script_picker_message_types():

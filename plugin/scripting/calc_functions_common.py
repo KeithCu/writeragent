@@ -353,8 +353,6 @@ FORECAST_HELPER_NAMES = frozenset(
         "anomaly_detection_time_series",
     }
 )
-FORECAST_MAX_TABLE_ROWS = 50
-
 OPTIMIZE_HELPER_NAMES = frozenset(
     {
         "optimize_portfolio",
@@ -362,5 +360,4 @@ OPTIMIZE_HELPER_NAMES = frozenset(
         "solve_scheduling_problem",
     }
 )
-OPTIMIZE_MAX_TABLE_ROWS = 50
 

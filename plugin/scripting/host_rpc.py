@@ -27,7 +27,7 @@ import inspect
 import logging
 from typing import Any, Callable
 
-from plugin.scripting.ipc import pack_pickle_frame
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
 
 log = logging.getLogger(__name__)
 
@@ -299,6 +299,7 @@ def execute_tool(
     *,
     caller: str = "script",
     allowed_tools: frozenset[str] | None = None,
+    script_session_id: str | None = None,
 ) -> Any:
     """Dispatch a registered WriterAgent tool on the LO main thread (UNO-safe)."""
     if tool_name in _BLOCKED_FROM_VENV:
@@ -309,7 +310,13 @@ def execute_tool(
         payload = args if isinstance(args, dict) else {}
         from plugin.framework.queue_executor import execute_on_main_thread
 
-        return execute_on_main_thread(lambda: _execute_named_script_tool(tool_name, payload))
+        return execute_on_main_thread(
+            lambda: _execute_named_script_tool(
+                tool_name,
+                payload,
+                script_session_id=script_session_id,
+            )
+        )
     if allowed_tools is not None and tool_name not in allowed_tools:
         if not allowed_tools:
             raise RuntimeError(
@@ -360,7 +367,12 @@ def execute_tool(
     return execute_on_main_thread(_run)
 
 
-def _execute_named_script_tool(tool_name: str, payload: dict[str, Any]) -> Any:
+def _execute_named_script_tool(
+    tool_name: str,
+    payload: dict[str, Any],
+    *,
+    script_session_id: str | None = None,
+) -> Any:
     from plugin.framework.uno_context import get_active_document, get_ctx
     from plugin.scripting.document_scripts import get_document_scripts, get_user_scripts
     from plugin.scripting.named_scripts import (
@@ -374,9 +386,10 @@ def _execute_named_script_tool(tool_name: str, payload: dict[str, Any]) -> Any:
     user_scripts = get_user_scripts()
     uno_ctx = get_ctx()
     from plugin.scripting.session_manager import document_for_script_session
-    from plugin.scripting.venv_worker import inflight_script_session_id
 
-    doc = document_for_script_session(uno_ctx, inflight_script_session_id())
+    # Passed from the worker turn. A process-global was overwritten by the
+    # embeddings pool, so wa.doc followed the focused window.
+    doc = document_for_script_session(uno_ctx, script_session_id)
     if doc is None and uno_ctx is not None:
         doc = get_active_document(uno_ctx)
     document_scripts = get_document_scripts(doc) if doc is not None else {}
@@ -403,6 +416,7 @@ def handle_tool_call_frame(
     stdin_write: Callable[[bytes], None],
     allowed_tools: frozenset[str] | None = None,
     caller: str = "script",
+    script_session_id: str | None = None,
 ) -> bool:
     """Handle a worker ``tool_call`` frame. Returns True if the host should keep reading."""
     if not isinstance(response, dict) or response.get("type") != "tool_call":
@@ -419,10 +433,20 @@ def handle_tool_call_frame(
             args if isinstance(args, dict) else {},
             caller=caller,
             allowed_tools=allowed_tools,
+            script_session_id=script_session_id,
         )
         tool_response = {"status": "ok", "id": call_id, "result": res}
     except Exception as exc:
         log.exception("venv tool_call %s failed", tool_name)
         tool_response = {"status": "error", "id": call_id, "message": str(exc)}
-    stdin_write(pack_pickle_frame(tool_response))
+    try:
+        frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+    except IpcFrameError as exc:
+        # An oversized tool result used to be written anyway. The host read
+        # then killed the child and restarted every workbook's shared kernel.
+        frame = pack_pickle_frame(
+            {"status": "error", "id": call_id, "message": str(exc)},
+            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+        )
+    stdin_write(frame)
     return True

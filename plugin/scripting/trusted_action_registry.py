@@ -2,7 +2,10 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Declarative registry for worker harness run_trusted_action dispatch."""
+"""Declarative registry for worker harness run_trusted_action dispatch.
+
+These reviewed modules bypass the AST sandbox and run with full venv privileges.
+"""
 
 from __future__ import annotations
 

@@ -182,7 +182,9 @@ CALC_AUTHORIZED_IMPORTS: tuple[str, ...] = (
 
 # --- Subprocess environment ---
 
-_BLOCKED_ENV_SUBSTR = ("KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL")
+_BLOCKED_ENV_TOKENS = frozenset({"KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL"})
+# XAUTHORITY contains AUTH but is the X11 cookie path, not a credential name.
+_ENV_CREDENTIAL_ALLOW = frozenset({"XAUTHORITY"})
 # LibreOffice sets PYTHONHOME/PYTHONPATH to its bundled stdlib; letting these
 # leak into a venv subprocess causes SRE module mismatch and import failures.
 _BLOCKED_ENV_EXACT = {"PYTHONHOME", "PYTHONPATH", "LD_LIBRARY_PATH"}
@@ -202,6 +204,23 @@ _DEAL_SCRUB_VAL = 4 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
 _DEAL_BASENAME_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_PATH
 
 
+def _env_name_is_credential(name: str) -> bool:
+    """True when an env name is a credential, matched on ``_`` tokens.
+
+    Substring matching dropped ``XAUTHORITY`` (it contains ``AUTH``) and left
+    the Monaco subprocess without its X11 cookie. A token matches when it is
+    the blocked word or starts with it (``CREDENTIALS``, ``PASSWORDS``).
+    """
+    if name.upper() in _ENV_CREDENTIAL_ALLOW:
+        return False
+    tokens = [part for part in name.upper().replace("-", "_").split("_") if part]
+    for token in tokens:
+        for word in _BLOCKED_ENV_TOKENS:
+            if token == word or token.startswith(word):
+                return True
+    return False
+
+
 @deal.pre(
     lambda base: base is None
     or (
@@ -218,7 +237,7 @@ _DEAL_BASENAME_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_PATH
 )
 @deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
 @inverse_ensure(lambda base, result: all(k.upper() not in _BLOCKED_ENV_EXACT for k in result))
-@inverse_ensure(lambda base, result: all(not any(s in k.upper() for s in _BLOCKED_ENV_SUBSTR) for k in result))
+@inverse_ensure(lambda base, result: all(not _env_name_is_credential(k) for k in result))
 @deal.ensure(
     lambda base, result: (base is None or len(base) == 0)
     or (
@@ -236,7 +255,7 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
         ku = k.upper()
         if ku in _BLOCKED_ENV_EXACT:
             continue
-        if any(s in ku for s in _BLOCKED_ENV_SUBSTR):
+        if _env_name_is_credential(k):
             continue
         out[k] = v
     out.setdefault("PYTHONIOENCODING", "utf-8")

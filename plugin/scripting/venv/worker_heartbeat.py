@@ -21,7 +21,7 @@ FRAME_RESULT = "result"
 
 def write_frame(stream: BinaryIO, payload: dict[str, Any]) -> None:
     """Write one pickle frame (4-byte big-endian length prefix)."""
-    write_pickle_frame(stream, payload)
+    write_pickle_frame(stream, payload, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
 
 
 class HeartbeatEmitter:

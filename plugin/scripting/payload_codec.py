@@ -528,20 +528,37 @@ def is_image_payload(obj: Any) -> bool:
     return _is_image_payload_envelope(obj)
 
 
-def find_image_payloads(obj: Any) -> list[dict[str, Any]]:
-    """Recursively find all image payloads in the object."""
+def find_image_payloads(
+    obj: Any,
+    *,
+    _depth: int = 0,
+    _seen: set[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Recursively find all image payloads in the object.
+
+    Depth and an identity set stop a cyclic result from blowing the stack.
+    """
     # crosshair: off  # recursive Any dict/list (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
+    if _depth > 12:
+        return []
     if is_image_payload(obj):
         return [obj]
+    if isinstance(obj, (dict, list, tuple)):
+        if _seen is None:
+            _seen = set()
+        marker = id(obj)
+        if marker in _seen:
+            return []
+        _seen.add(marker)
     if isinstance(obj, dict):
         res = []
         for v in obj.values():
-            res.extend(find_image_payloads(v))
+            res.extend(find_image_payloads(v, _depth=_depth + 1, _seen=_seen))
         return res
     if isinstance(obj, (list, tuple)):
         res = []
         for x in obj:
-            res.extend(find_image_payloads(x))
+            res.extend(find_image_payloads(x, _depth=_depth + 1, _seen=_seen))
         return res
     return []
 
@@ -578,8 +595,9 @@ def _is_dataframe_envelope(envelope: object) -> bool:
     if "data" not in env_dict:
         return False
     data = env_dict.get("data")
-    # Accept list/tuple/dict (split_grid or nested), None, or ndarray (small numeric DF/Series data left as ndarray
-    # by child_pack_result below BINARY_MIN_CELLS per design choice; host unpack tolerates ndarray).
+    # Accept list/tuple/dict (split_grid or nested), None, or ndarray.
+    # Small numeric bodies are nested lists. An ndarray is still accepted so an
+    # older child that skipped list egress still counts as a dataframe envelope.
     return isinstance(data, (list, tuple, dict)) or data is None or _is_ndarray(data)
 
 
@@ -735,14 +753,15 @@ def _apply_column_kinds_to_ndarray(
     if uniform == "int":
         return arr.astype(np.int64)
     if uniform == "bool":
-        return arr.astype(np.bool_)
+        # Host unpack treats only 1.0 as True. astype(bool) made every non-zero True.
+        return arr == 1.0
     if uniform == "float":
         return arr
     if is_1d:
         if column_kinds[0] == "int":
             return arr.astype(np.int64)
         if column_kinds[0] == "bool":
-            return arr.astype(np.bool_)
+            return arr == 1.0
         return arr
 
     # If it's a mixed 2D ndarray, it must remain float64 to hold float columns.
@@ -1281,8 +1300,8 @@ def host_pack_split_grid(
 ) -> dict[str, Any]:
     """Pack a 1D flat list or 2D mixed grid using Strategy 3: Split-Grid Serialization.
 
-    The entire grid is flattened into a single contiguous double-precision float array
-    where all numbers are preserved, and empty cells or non-numeric strings are replaced with NaN.
+    The entire grid is flattened into a single contiguous float64 array. Integers past
+    the 53-bit mantissa are not preserved. Empty cells and non-numeric strings are NaN.
     A separate sparse dictionary mapping flat cell indexes to their string value is passed in parallel.
     """
     # crosshair: off
@@ -1420,6 +1439,14 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     shape = envelope["shape"]
     is_1d = len(shape) == 1
     nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
+    # Bugfix: the child reshape rejects a buffer that does not match shape.
+    # The host used to slice whatever bytes arrived, so a short buffer became a
+    # short grid while wire_cell_count still reported the declared shape.
+    expected_cells = int(nrows) * int(ncols)
+    if len(buf) != expected_cells:
+        raise ValueError(
+            f"split_grid buffer has {len(buf)} values but shape {list(shape)} needs {expected_cells}"
+        )
 
     # Convert keys of strings to integers in case legacy test harnesses sent stringified keys.
     # Production wire is length-prefixed Pickle5 carrying split_grid (or nested lists for < BINARY_MIN_CELLS).
@@ -1596,8 +1623,9 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
                     # Vectorized astype(int) casts valid float objects to Python ints in C
                     col_slice[valid_mask] = col_slice[valid_mask].astype(int)
                 elif is_bool:
-                    # Vectorized astype(bool) casts valid float objects to Python bools in C
-                    col_slice[valid_mask] = col_slice[valid_mask].astype(bool)
+                    # Host unpack: True only for 1.0. astype(bool) treated 2.0 as True.
+                    numeric = np.asarray(col_slice[valid_mask], dtype=np.float64)
+                    col_slice[valid_mask] = numeric == 1.0
 
         # 3. Sparse Strings Overlay
         # The 'strings' dictionary is sparse and indexes values row-major (flat 1D).
@@ -1630,16 +1658,12 @@ def _child_unpack_single_data(wire: Any) -> Any:
     # Single-cell ranges become scalars; multi-range outer list is handled by child_unpack_data.
     if np is not None and isinstance(unpacked, np.ndarray):
         if unpacked.size == 1:
-            val = unpacked.item()
-            if isinstance(val, float) and val.is_integer():
-                return int(val)
-            return val
+            # Keep 1.0 as float. int(val) made a 1×1 cell an int while a longer
+            # float64 column stayed 1.0.
+            return unpacked.item()
     elif isinstance(unpacked, (list, tuple)):
         if len(unpacked) == 1 and type(unpacked[0]) not in (list, tuple):
-            val = unpacked[0]
-            if isinstance(val, float) and val.is_integer():
-                return int(val)
-            return val
+            return unpacked[0]
 
         grid: list[Any] | list[list[Any]]
         if unpacked and (type(unpacked[0]) in (list, tuple)):
@@ -1815,10 +1839,16 @@ def child_pack_result(
                 shape = tuple(int(x) for x in result.shape)
                 if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
                     return child_pack_split_grid(result)
+                # Bugfix: the log said json_list egress, then the ndarray was returned
+                # unchanged. A DataFrame under 100 cells kept an ndarray body, and
+                # result_to_calc_grid dropped that body. A bare multi-cell array
+                # became one Calc string. Recurse on tolist() so the list path
+                # (grid_from_nested_list) is what actually goes on the wire.
                 log.debug(
                     "payload_codec child_pack json_list egress ndarray shape=%s (below_threshold)",
                     shape,
                 )
+                return child_pack_result(result.tolist(), min_cells=min_cells, force=force)
             elif isinstance(result, np.integer):
                 return int(result)
             elif isinstance(result, np.floating):

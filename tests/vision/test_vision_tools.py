@@ -317,3 +317,28 @@ def test_images_guidance_names_structure_tool():
     assert "extract_structure_from_image" in WRITER_IMAGES_RULES
     assert "extract_text_from_image" not in WRITER_IMAGES_RULES
     assert "text and structure" in WRITER_IMAGES_RULES.lower()
+
+
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
+def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, tool_ctx):
+    mock_run.return_value = {
+        "status": "error",
+        "code": "VISION_ERROR",
+        "helper": "extract_structure",
+        "message": "boom",
+        "partial": True,
+        "inserted": True,
+        "images_processed": 1,
+        "image_names": ["Img1"],
+        "failed_image": "Img2",
+    }
+    mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    result = ExtractStructureFromImage().execute(tool_ctx)
+    assert result["status"] == "error"
+    assert result["code"] == "VISION_ERROR"
+    assert result["details"]["partial"] is True
+    assert result["details"]["failed_image"] == "Img2"
+    assert result["details"]["images_processed"] == 1
+    assert result["details"]["image_names"] == ["Img1"]
+    assert result["details"]["inserted"] is True

@@ -16,6 +16,7 @@ from plugin.scripting.helper_domain import (
     parse_run_import_call_spec,
     prepend_run_import_document_bindings,
     rps_insert_failed_outcome,
+    script_uses_run_import,
 )
 
 
@@ -109,6 +110,23 @@ def test_parse_run_import_call_spec_reads_helper_and_params():
     )
     spec = parse_run_import_call_spec(code, run_name="run_text_analytics")
     assert spec == {"helper": "entities", "params": {"lang": "de"}}
+
+
+def test_print_is_not_a_run_import_or_helper_spec():
+    code = 'print("hi")\n'
+    assert script_uses_run_import(code, run_name="run_text_analytics") is False
+    assert parse_run_import_call_spec(code, run_name="run_text_analytics") is None
+
+
+def test_writeragent_import_call_is_a_helper_spec():
+    code = (
+        "from writeragent.scripting.units import convert_quantity\n"
+        'result = convert_quantity(10, "m", "km")\n'
+    )
+    spec = parse_run_import_call_spec(code, run_name="run_units")
+    assert spec is not None
+    assert spec["helper"] == "convert_quantity"
+    assert script_uses_run_import(code, run_name="run_text_analytics") is False
 
 
 def test_parse_run_import_call_null_byte_returns_none():
