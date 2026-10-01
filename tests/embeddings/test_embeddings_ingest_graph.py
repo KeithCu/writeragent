@@ -15,6 +15,130 @@ from plugin.embeddings.venv.embeddings_ingest_graph import delete_stale, embed_a
 from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count
 
 
+def _pysqlite3_shaped_module(monkeypatch) -> str:
+    """Module name whose OperationalError is not sqlite3.OperationalError.
+
+    Uses pysqlite3 when that class is installed and is not a stdlib subclass.
+    Otherwise registers a stand-in module. ``_conn_operational_error`` resolves
+    the class by importing ``type(conn).__module__`` and reading OperationalError.
+    """
+    import sqlite3
+    import sys
+    import types
+
+    try:
+        from pysqlite3 import dbapi2 as pysqlite3
+    except ImportError:
+        pysqlite3 = None
+    if pysqlite3 is not None:
+        err = getattr(pysqlite3, "OperationalError", None)
+        if isinstance(err, type) and issubclass(err, Exception) and not issubclass(err, sqlite3.OperationalError):
+            probe = pysqlite3.connect(":memory:")
+            try:
+                return type(probe).__module__
+            finally:
+                probe.close()
+
+    module_name = "writeragent_test_fake_pysqlite3"
+
+    class OperationalError(Exception):
+        """Stand-in for pysqlite3.OperationalError; not a sqlite3 subclass."""
+
+    fake = types.ModuleType(module_name)
+    fake.OperationalError = OperationalError
+    monkeypatch.setitem(sys.modules, module_name, fake)
+    return module_name
+
+
+def test_cold_model_metadata_swallows_pysqlite3_operational_error(tmp_path, monkeypatch):
+    """A missing model_metadata table must not abort when OperationalError is not sqlite3's."""
+    import sqlite3
+
+    from plugin.embeddings.venv.embeddings_sqlite import _conn_operational_error
+
+    module_name = _pysqlite3_shaped_module(monkeypatch)
+
+    class _Conn:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def execute(self, sql, params=()):
+            if isinstance(sql, str) and "SELECT dim FROM model_metadata" in sql:
+                raise _conn_operational_error(self)("no such table: model_metadata")
+            if params:
+                return self._inner.execute(sql, params)
+            return self._inner.execute(sql)
+
+        def commit(self):
+            return self._inner.commit()
+
+        def close(self):
+            return self._inner.close()
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    # Helper looks up OperationalError on the connection class's module.
+    _Conn.__module__ = module_name
+
+    def _connect(path):
+        return _Conn(connect_corpus_db(path))
+
+    probe = _connect(tmp_path / "probe.db")
+    try:
+        resolved = _conn_operational_error(probe)
+    finally:
+        probe.close()
+    assert resolved is not sqlite3.OperationalError
+    assert not issubclass(resolved, sqlite3.OperationalError)
+
+    monkeypatch.setattr("plugin.embeddings.venv.embeddings_ingest_graph.connect_corpus_db", _connect)
+    monkeypatch.setattr("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension", lambda conn: None)
+
+    meta_path = tmp_path / "corpus_meta.json"
+    meta_path.write_text(json.dumps({"embedding_model": "all-MiniLM-L6-v2"}), encoding="utf-8")
+    db_path = tmp_path / "corpus.db"
+    state = {
+        "db_path": str(db_path),
+        "meta_path": str(meta_path),
+        "model": "all-MiniLM-L6-v2",
+        "build_fts": True,
+        "build_vectors": True,
+        "chunks": [
+            {
+                "doc_url": "file:///tmp/a.odt",
+                "para_index": 0,
+                "char_start": 0,
+                "char_end": 12,
+                "content_hash": "abc",
+                "text": "hello world",
+            }
+        ],
+        "delete_keys": [],
+    }
+    delete_stale(state)
+
+    conn = connect_corpus_db(db_path)
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        assert "chunks" in tables
+        assert "model_metadata" in tables
+        assert "vec_chunks" not in tables
+    finally:
+        conn.close()
+
+    # embed_and_upsert_batches hits the same lookup before any vec0 DDL.
+    empty = {
+        "db_path": str(tmp_path / "embed.db"),
+        "meta_path": str(meta_path),
+        "model": "all-MiniLM-L6-v2",
+        "build_fts": False,
+        "build_vectors": True,
+        "chunks": [],
+    }
+    assert embed_and_upsert_batches(empty) == {"upserted": 0, "dim": 0}
+
+
 def test_delete_stale_skips_vec_schema_until_dim_known(tmp_path):
     """Cold build failed when delete_stale created vec_chunks before embed ran and knew dim."""
     db_path = tmp_path / "corpus.db"

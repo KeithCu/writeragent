@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import time
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
@@ -25,6 +24,7 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     delete_paragraph_keys,
     ensure_schema,
     upsert_chunk_with_vector,
+    _conn_operational_error,
     _dim_from_meta_path,
     model_slug,
 )
@@ -76,7 +76,12 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
 
     conn = connect_corpus_db(str(state["db_path"]))
     try:
-        # Try to resolve dimension from model_metadata in the DB first
+        # Cold corpus: model_metadata does not exist until ensure_schema.
+        # What was wrong: except sqlite3.OperationalError missed that lookup.
+        # How: macOS runners open the corpus with pysqlite3, because stdlib
+        # sqlite3 has no enable_load_extension. pysqlite3.OperationalError does
+        # not subclass sqlite3.OperationalError, so "no such table" aborted
+        # the node. Catch this connection's OperationalError and continue.
         if dim is None and build_vectors:
             try:
                 row = conn.execute(
@@ -85,7 +90,7 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
                 ).fetchone()
                 if row is not None:
                     dim = int(row["dim"])
-            except sqlite3.OperationalError:
+            except _conn_operational_error(conn):
                 pass
 
         # Cold build: embedding dim is unknown until embed runs; upsert creates vec_chunks.
@@ -129,7 +134,7 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
             _load_vec_extension(conn)
         schema_dim = _dim_from_meta_path(str(state.get("meta_path") or ""))
 
-        # Try to resolve dimension from model_metadata in the DB first
+        # Same cold-DB catch as delete_stale: this connection's OperationalError.
         if schema_dim is None and build_vectors:
             try:
                 row = conn.execute(
@@ -138,7 +143,7 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
                 ).fetchone()
                 if row is not None:
                     schema_dim = int(row["dim"])
-            except sqlite3.OperationalError:
+            except _conn_operational_error(conn):
                 pass
 
         with_vec = build_vectors and schema_dim is not None
