@@ -161,6 +161,8 @@ def test_apply_structured_insert_html_replaces_html_in_worker():
         out = apply_structured_insert_html(result, {"insert_mode": "structured"})
     assert out["html"].startswith("<table>")
     assert out["html"] != result["html"]
+    assert out["html_docling"] == "<p>docling export</p>"
+    assert result["html"] == "<p>docling export</p>"  # input dict not mutated
 
 
 def test_apply_structured_insert_html_skips_html_mode():

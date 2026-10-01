@@ -83,7 +83,7 @@ def test_insert_vision_result_calc(mock_calc):
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"):
         insert_vision_result(ctx, doc, result)
 
-    mock_calc.assert_called_once_with(doc, ctx, "<p>hi</p>")
+    mock_calc.assert_called_once_with(doc, ctx, "<p>hi</p>", image_name=None)
 
 
 @patch("plugin.calc.vision_egress.insert_vision_html_into_calc")
@@ -103,7 +103,7 @@ def test_insert_vision_result_calc_structured(mock_structured, mock_html):
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="structured"):
         insert_vision_result(ctx, doc, result, params={"insert_mode": "structured"})
 
-    mock_structured.assert_called_once_with(doc, ctx, result)
+    mock_structured.assert_called_once_with(doc, ctx, result, image_name=None)
     mock_html.assert_not_called()
 
 
@@ -238,4 +238,39 @@ def test_prepare_vision_writer_insert_prefers_image_name_over_selection():
     cursor.collapseToEnd.assert_called_once()
     dispatcher.executeDispatch.assert_called()
     assert mock_sel.call_count >= 0
+
+
+@patch("plugin.calc.vision_egress.insert_vision_html_into_calc")
+def test_insert_vision_result_calc_passes_image_name(mock_calc):
+    ctx = MagicMock()
+    doc = MagicMock()
+    result = {"status": "ok", "helper": "extract_text", "html": "<p>hi</p>"}
+    with patch("plugin.doc.doc_type.is_writer", return_value=False), patch(
+        "plugin.doc.doc_type.is_calc", return_value=True
+    ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"):
+        insert_vision_result(ctx, doc, result, params={"image_name": "Photo1"})
+    mock_calc.assert_called_once_with(doc, ctx, "<p>hi</p>", image_name="Photo1")
+
+
+@patch("plugin.calc.vision_egress.insert_vision_html_into_calc")
+@patch(
+    "plugin.calc.vision_egress.insert_vision_structure_into_calc",
+    side_effect=ToolExecutionError("No structured tables or text blocks to insert.", code="VISION_ERROR"),
+)
+def test_calc_structured_fallback_uses_html_docling(mock_structured, mock_html):
+    ctx = MagicMock()
+    doc = MagicMock()
+    result = {
+        "status": "ok",
+        "helper": "extract_structure",
+        "html": "<table><tr><td>layout</td></tr></table>",
+        "html_docling": "<p>original docling</p>",
+        "tables": [],
+    }
+    with patch("plugin.doc.doc_type.is_writer", return_value=False), patch(
+        "plugin.doc.doc_type.is_calc", return_value=True
+    ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="structured"):
+        insert_vision_result(ctx, doc, result, params={"insert_mode": "structured", "image_name": "Photo1"})
+    mock_structured.assert_called_once()
+    mock_html.assert_called_once_with(doc, ctx, "<p>original docling</p>", image_name="Photo1")
 

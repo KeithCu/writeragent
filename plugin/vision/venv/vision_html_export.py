@@ -12,9 +12,9 @@ import logging
 import re
 from typing import Any
 
-log = logging.getLogger(__name__)
+from plugin.vision.vision_common import CSS_INLINE_INSTALL_CMD  # noqa: F401  # pyright: ignore[reportUnusedImport]  # re-export; definition lives in vision_common
 
-CSS_INLINE_INSTALL_CMD = "pip install css-inline"
+log = logging.getLogger(__name__)
 
 # Docling inlines h2-h6 with color/margins only; StarWriter needs explicit size/weight.
 _LO_HEADING_INLINE: dict[str, str] = {
@@ -576,5 +576,9 @@ def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any])
     if not html.strip():
         return result
     updated = dict(result)
+    # Calc structured insert falls back to HTML when the cell grid is empty.
+    # Overwriting html used to make that fallback the bbox fragment, not Docling.
+    if "html_docling" not in updated:
+        updated["html_docling"] = result.get("html")
     updated["html"] = html
     return updated

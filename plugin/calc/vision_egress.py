@@ -120,11 +120,26 @@ def structure_calc_grid_has_content(grid: list[list[Any]]) -> bool:
     return True
 
 
-def calc_output_anchor_from_graphic(doc: Any) -> tuple[int, int]:
-    """Return (start_col, start_row) one row below the selected graphic's anchor cell."""
-    obj, _doc_type = _get_selected_graphic_object(doc)
-    if obj is None:
-        raise ToolExecutionError(_("Select an embedded image, then Run again."), code="NO_IMAGE_SELECTED")
+def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) -> tuple[int, int]:
+    """Return (start_col, start_row) one row below the graphic's anchor cell."""
+    # Writer already inserts by name; Calc used to ignore image_name and write under the selection.
+    # Named OCR then landed under whatever graphic happened to be selected. Resolve the named
+    # shape first so the insert uses that graphic's cell anchor, not a second selection lookup.
+    name = str(image_name or "").strip()
+    if name:
+        from plugin.doc.visual_helpers import get_graphic_object_by_name
+
+        obj = get_graphic_object_by_name(doc, name)
+        if obj is None:
+            raise ToolExecutionError(
+                _("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=name),
+                code="IMAGE_NOT_FOUND",
+                details={"image_name": name},
+            )
+    else:
+        obj, _doc_type = _get_selected_graphic_object(doc)
+        if obj is None:
+            raise ToolExecutionError(_("Select an embedded image, then Run again."), code="NO_IMAGE_SELECTED")
 
     anchor = None
     try:
@@ -146,18 +161,18 @@ def calc_output_anchor_from_graphic(doc: Any) -> tuple[int, int]:
     return col, row + 1
 
 
-def insert_vision_html_into_calc(doc: Any, uno_ctx: Any, html: str) -> None:
-    """Paste vision HTML into the cell below the selected graphic anchor."""
-    col, row = calc_output_anchor_from_graphic(doc)
+def insert_vision_html_into_calc(doc: Any, uno_ctx: Any, html: str, *, image_name: str | None = None) -> None:
+    """Paste vision HTML into the cell below the graphic anchor."""
+    col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
     # *row* is already one below the graphic anchor (see calc_output_anchor_from_graphic).
     cell_address = f"{index_to_column(col)}{row + 1}"
     insert_cell_html_rich(doc, uno_ctx, cell_address, html)
 
 
-def insert_vision_structure_into_calc(doc: Any, uno_ctx: Any, result: dict[str, Any]) -> int:
+def insert_vision_structure_into_calc(doc: Any, uno_ctx: Any, result: dict[str, Any], *, image_name: str | None = None) -> int:
     """Write extract_structure blocks/tables as native Calc cells below the graphic anchor."""
     del uno_ctx
-    col, row = calc_output_anchor_from_graphic(doc)
+    col, row = calc_output_anchor_from_graphic(doc, image_name=image_name)
     grid, merges = _vision_structure_calc_layout(result)
     if not structure_calc_grid_has_content(grid):
         raise ToolExecutionError(_("No structured tables or text blocks to insert."), code="VISION_ERROR", details={"vision_result": result})
