@@ -29,7 +29,9 @@ purpose (venv path, session mode, timeouts). Broken JSON is copied to
 
 Writes omit keys that still match defaults and prefix the file with ``//``
 comment lines pointing at ``docs/writeragent-config-schema.md`` on GitHub.
-Those comments are stripped on read.
+Those comments are stripped on read. ``set_config`` does not validate, write,
+or emit ``config:changed`` when the coerced value already matches the stored
+value, or the schema default when that key is omitted from the file.
 
 Concurrency: workers and the UI both read and write ``writeragent.json``.
 ``set_config`` / ``remove_config`` and **GET-path** persists (repairing
@@ -563,8 +565,26 @@ def _raw_config_value_for_key(config_data: dict[str, Any], key: str) -> Any:
     return _config_schema._MISSING_VALUE
 
 
+def _omitted_value_matches_schema_default(key: str, value: Any) -> bool:
+    """True when a coerced value is the schema default for a key not on disk.
+
+    Unknown keys have no default (``_resolve_default`` raises). Those still
+    go through validate and write.
+    """
+    try:
+        schema_default = _config_schema._resolve_default(key)
+    except ConfigError:
+        return False
+    return value == schema_default
+
+
 def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
     """Set a config key to value. Creates file if needed. Omits defaults.
+
+    Returns without validating, writing, or emitting ``config:changed`` when
+    the coerced value already matches disk: the stored value if the key is
+    present, or the schema default if the key is omitted. A missing key is
+    not stored as ``None``.
 
     ``event_key`` is the key listeners see. It differs from ``key`` when a
     settings field is stored under another name.
@@ -582,7 +602,16 @@ def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
         current_value = _raw_config_value_for_key(config_data, key)
         previous = None if current_value is _config_schema._MISSING_VALUE else current_value
         value = _config_schema.coerce_config_value(key, value, fallback_value=current_value)
-        if config_data.get(key) == value:
+        # Unchanged means the coerced value already matches what is on disk.
+        # A present key compares to the stored value. An omitted key is not
+        # stored as None: dict.get returns None, None != the schema default,
+        # and Settings OK revalidated, rewrote, and emitted config:changed
+        # for every omitted default. The on-disk value of an omitted key is
+        # the schema default, so a match is not a write.
+        if config_data.get(key) == value or (
+            current_value is _config_schema._MISSING_VALUE
+            and _omitted_value_matches_schema_default(key, value)
+        ):
             return
 
         test_data = dict(config_data)

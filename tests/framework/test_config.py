@@ -507,6 +507,40 @@ class TestConfigSyncFileIO:
         data = self._load_written()
         assert (data.get('text_model')) == ('other')
 
+    def test_set_config_omitted_default_does_not_write_or_emit(self):
+        """A key left out of the file is already the schema default.
+
+        Settings OK calls set_config for every field. dict.get used to return
+        None for an omitted key, None != default, and each call validated,
+        rewrote the file, and emitted config:changed.
+        """
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump({'text_model': 'custom-model'}, f)
+        reset_config_for_tests()
+        with open(self.config_path, encoding='utf-8') as f:
+            before = f.read()
+
+        with patch.object(global_event_bus, 'emit') as mock_emit:
+            set_config('request_timeout', 120)
+            mock_emit.assert_not_called()
+            # Settings passes the dialog string; coercion must happen first.
+            set_config('request_timeout', '120')
+            mock_emit.assert_not_called()
+
+        with open(self.config_path, encoding='utf-8') as f:
+            assert f.read() == before
+        assert (get_config_int('request_timeout')) == (120)
+
+        with patch.object(global_event_bus, 'emit') as mock_emit:
+            set_config('request_timeout', 60)
+            mock_emit.assert_called_once()
+            assert mock_emit.call_args.args[0] == "config:changed"
+            assert mock_emit.call_args.kwargs["key"] == "request_timeout"
+            assert mock_emit.call_args.kwargs["value"] == 60
+        data = self._load_written()
+        assert (data.get('request_timeout')) == (60)
+        assert (data.get('text_model')) == ('custom-model')
+
     def test_set_config_does_not_replace_unrepairable_json(self):
         original = "{ this is not json, but keep me"
         with open(self.config_path, 'w', encoding='utf-8') as f:
