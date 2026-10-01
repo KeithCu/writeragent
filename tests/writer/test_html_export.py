@@ -1,4 +1,4 @@
-
+import re
 
 from unittest.mock import MagicMock, patch
 
@@ -239,3 +239,33 @@ def test_an_empty_document_still_reads_as_empty():
     with patch.object(html_export, "_export_xhtml", return_value=""), \
          patch.object(html_export, "_autostyle_maps", return_value=({}, {}, None)):
         assert html_export.document_to_content(_content_doc(""), None, None) == ""
+def test_shorten_outline_anchor_ids_replaces_picture_data_in_heading_anchor():
+    from plugin.writer.html_export import shorten_outline_anchor_ids
+
+    # Shape of LibreOffice's XHTML export for a heading that holds an embedded picture.
+    long_id = "a__iVBORw0KGgoAAAANSUhEUgAAAxs" + "A" * 40000 + "ErkJgggAODOUTOJUIZODETESTE"
+    html = '<h1><a id="%s"><span/></a>AO DOUTO</h1><p><a href="#%s">ver</a></p>' % (long_id, long_id)
+    out = shorten_outline_anchor_ids(html)
+    ids = re.findall(r'id="([^"]*)"', out)
+    assert len(out) < 200 and ids and re.fullmatch(r"a__[0-9a-f]{8}", ids[0])
+    assert 'href="#%s"' % ids[0] in out  # links to the anchor follow it
+    assert shorten_outline_anchor_ids(html) == out  # stable across reads
+
+
+def test_shorten_outline_anchor_ids_keeps_short_and_other_ids():
+    from plugin.writer.html_export import shorten_outline_anchor_ids
+
+    long_bookmark = "x" * 500  # a user bookmark is not an outline anchor: agents may target it
+    html = '<h2><a id="a__Introducao"><span/></a>Introdução</h2><a id="_mcp_1"></a><a id="%s"></a>' % long_bookmark
+    assert shorten_outline_anchor_ids(html) == html
+
+
+def test_apply_image_export_options_shortens_anchor_with_or_without_images():
+    from plugin.writer.html_export import _apply_image_export_options
+
+    data = "data:image/png;base64," + "QUJD" * 100
+    html = '<h1><a id="a__%s"><span/></a><img src="%s"/>T</h1>' % ("QUJD" * 100, data)
+    with_images = _apply_image_export_options(html, include_images=True)
+    assert data in with_images and "a__QUJD" not in with_images
+    without = _apply_image_export_options(html, include_images=False)
+    assert "QUJD" not in without and 'src=""' in without

@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+import zlib
 from html import escape as html_escape
 from typing import Any, ClassVar, Iterator
 
@@ -75,10 +76,29 @@ def strip_embedded_image_data(html: str) -> str:
 
 
 
+# LibreOffice's XHTML export gives every heading an empty outline anchor, ``<a id="a__…">``,
+# named after the heading's text. A picture anchored inside the heading puts its whole base64
+# data into that name, so a heading holding one embedded screenshot came back with a
+# 40-65 KB id (twice the picture itself, once in the id and once in src), even with
+# include_images=false. Nothing in WriterAgent, nor the agent, uses these ids.
+# shorten_outline_anchor_ids gives a long id a short, stable name, in the id and in any
+# ``href="#…"`` that points to it.
+_MAX_OUTLINE_ANCHOR_ID = 200
+_LONG_OUTLINE_ANCHOR_RE = re.compile(r'(\b(?:id|href)="#?)(a__[^"]{%d,})(")' % _MAX_OUTLINE_ANCHOR_ID)
+
+
+def shorten_outline_anchor_ids(html: str) -> str:
+    """Replace outline anchor ids longer than ``_MAX_OUTLINE_ANCHOR_ID`` with ``a__<crc32>``."""
+    if not html or "a__" not in html:
+        return html
+    return _LONG_OUTLINE_ANCHOR_RE.sub(lambda m: "%sa__%08x%s" % (m.group(1), zlib.crc32(m.group(2).encode("utf-8")), m.group(3)), html)
+
+
 def _apply_image_export_options(content: str, *, include_images: bool) -> str:
-    if include_images or not content:
+    if not content:
         return content
-    return strip_embedded_image_data(content)
+    content = shorten_outline_anchor_ids(content)
+    return content if include_images else strip_embedded_image_data(content)
 
 
 def _ruby_parts(span: Any) -> tuple[str, str]:
