@@ -242,12 +242,17 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
     out.setdefault("PYTHONIOENCODING", "utf-8")
     out.setdefault("PYTHONUTF8", "1")
     out.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    # Child processes should log to the same writeragent_debug.log. Read the
+    # path at call time (logging may not be initialized at import). Use the
+    # public getter; a private import plus bare ``except Exception`` hid
+    # failures other than a missing logging module.
     try:
-        from plugin.framework.logging import _debug_log_path
-        if _debug_log_path:
-            out["WRITERAGENT_DEBUG_LOG_PATH"] = _debug_log_path
-    except Exception:
-        pass
+        from plugin.framework.logging import get_debug_log_path
+    except ImportError:
+        return out
+    debug_log_path = get_debug_log_path()
+    if debug_log_path:
+        out["WRITERAGENT_DEBUG_LOG_PATH"] = debug_log_path
     return out
 
 
@@ -593,18 +598,28 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
     lambda target_path, root_dir, result: (
         not result
         or os.path.commonpath(
-            [os.path.abspath(os.path.join(os.path.abspath(root_dir), target_path)), os.path.abspath(root_dir)]
+            [
+                os.path.realpath(os.path.join(os.path.realpath(root_dir), target_path)),
+                os.path.realpath(root_dir),
+            ]
         )
-        == os.path.abspath(root_dir)
+        == os.path.realpath(root_dir)
     )
 )
 def is_safe_workspace_path(target_path: str, root_dir: str) -> bool:
-    """Return True if *target_path* resolves strictly inside *root_dir* (prevents path traversal)."""
+    """Return True if *target_path* resolves strictly inside *root_dir*.
+
+    ``realpath`` follows symlinks. ``abspath`` only collapses ``..``, so a
+    link inside the root that pointed outside used to count as safe.
+    """
     if not target_path or not root_dir:
         return False
     try:
-        abs_root = os.path.abspath(root_dir)
-        abs_target = os.path.abspath(os.path.join(abs_root, target_path))
+        # abspath left symlink targets unchecked: root/link -> /etc/passwd
+        # stayed "inside" root because the link path itself was inside.
+        # realpath resolves that target before the commonpath comparison.
+        abs_root = os.path.realpath(root_dir)
+        abs_target = os.path.realpath(os.path.join(abs_root, target_path))
         return os.path.commonpath([abs_target, abs_root]) == abs_root
     except Exception:
         return False

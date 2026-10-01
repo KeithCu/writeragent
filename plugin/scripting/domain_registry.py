@@ -5,11 +5,15 @@
 """Ordered registry of trusted helper domains for RPS and the script picker.
 
 Domain compute / egress stay in domain modules. Callables use lazy imports to avoid cycles.
+
+Calc-only inserters are ``(doc, ctx, result)`` (same as ``insert_tabular_result_into_calc``).
+Writer/Draw inserters are ``(ctx, doc, result)``. ``build_rps_spec`` keeps that split.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -154,6 +158,17 @@ def _resolve_fn(path: str | None) -> Any:
     return _resolve_module_attr(path)
 
 
+# Opening block tags only. A substring count of "<p" / "<h" also matched
+# <pre>, <param>, <html>, <head>, <header>, and <hr>, so the status line
+# over-counted structure blocks when metrics omitted line_count.
+_VISION_BLOCK_OPEN_TAG = re.compile(r"<(?:p|h[1-6]|table)\b", re.IGNORECASE)
+
+
+def _vision_html_block_count(html: str) -> int:
+    """Count ``<p>``, ``<h1>``–``<h6>``, and ``<table>`` start tags in vision HTML."""
+    return len(_VISION_BLOCK_OPEN_TAG.findall(html))
+
+
 def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
     def insert(ctx: Any, doc: Any, result: dict[str, Any], **kwargs: Any) -> Any:
         fn = _resolve_fn(w.insert)
@@ -165,6 +180,11 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
                 ret = fn(ctx, doc, result, params=params)
             else:
                 ret = fn(ctx, doc, result)
+        elif w.post_venv_calc_only:
+            # Sheet egress is (doc, uno_ctx, result). Calling it as (ctx, doc, result)
+            # passed the component context into calc_anchor_from_selection, which then
+            # failed and the Run Python Script dialog reported an insert error.
+            ret = fn(doc, ctx, result)
         else:
             ret = fn(ctx, doc, result)
         if ret is not None:
@@ -191,8 +211,7 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
             if line_count is None and helper == "extract_structure":
                 line_count = metrics.get("block_count")
             if line_count is None:
-                html = str(result.get("html") or "")
-                line_count = html.count("<p") + html.count("<h") + html.count("<table")
+                line_count = _vision_html_block_count(str(result.get("html") or ""))
             if helper == "extract_structure":
                 table_count = metrics.get("table_count", 0)
                 status_ok = _("Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} tables). (took {time})").format(
@@ -364,8 +383,6 @@ _RUN_IMPORT_DATA_BINDING: dict[str, dict[str, bool]] = {
 
 def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
     """True when *code* uses a trusted helper that may bind Calc sheet data."""
-    import re
-
     if not code:
         return False
     for run_name, cfg in _RUN_IMPORT_DATA_BINDING.items():
@@ -502,9 +519,19 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
 )
 
 
+_picker_cache: list[PickerDomainSpec] | None = None
+
+
 def get_picker_domains() -> list[PickerDomainSpec]:
-    """Built-in helper sections for the script picker (lazy templates/supports)."""
-    return [_picker_builder_for(wiring)() for wiring in PICKER_WIRING]
+    """Built-in helper sections for the script picker (lazy templates/supports).
+
+    Cached like ``get_rps_domains``. ``title_fn`` still calls ``_()`` on use,
+    so a later catalog load is not frozen into the cached specs.
+    """
+    global _picker_cache
+    if _picker_cache is None:
+        _picker_cache = [_picker_builder_for(wiring)() for wiring in PICKER_WIRING]
+    return _picker_cache
 
 
 def picker_display_name(prefix: str, name: str) -> str:

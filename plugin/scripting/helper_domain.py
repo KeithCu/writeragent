@@ -114,10 +114,16 @@ def _literal_value(node: ast.AST) -> Any:
         return [_literal_value(elt) for elt in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_literal_value(elt) for elt in node.elts)
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and isinstance(node.operand, ast.Constant):
-        value = node.operand.value
-        if isinstance(value, int | float):
-            return -value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        # Recurse so -(-5) and {"n": -1} both resolve. The old check only
+        # accepted a top-level USub of a Constant, so nested unary and unary
+        # plus became None inside otherwise-literal params.
+        value = _literal_value(node.operand)
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return None
+        if isinstance(node.op, ast.UAdd):
+            return value
+        return -value
     return None
 
 
@@ -306,6 +312,33 @@ def _append_took(message: str, elapsed: float) -> str:
     return f"{err_msg} (took {format_elapsed_time(elapsed)})"
 
 
+def _elapsed_since(t0: float) -> float:
+    """Seconds since *t0*, or 0 while CrossHair is loaded.
+
+    ``perf_counter`` is NotDeterministic for the SMT solver. Outcome helpers
+    all need the same guard; repeating ``"crosshair" in sys.modules`` at each
+    site was the same check copied six times.
+    """
+    import sys
+
+    if "crosshair" in sys.modules:
+        return 0.0
+    return time.perf_counter() - t0
+
+
+def _exception_detail(error: BaseException) -> str:
+    """Text for an insert-failure dialog.
+
+    UNO often leaves ``str(exc)`` empty (or only a method name). An empty
+    string rendered as "Failed to insert result:  (took ...)".
+    """
+    detail = str(error).strip()
+    if detail:
+        return detail
+    fallback = repr(error).strip()
+    return fallback or type(error).__name__
+
+
 def rps_error_outcome(
     message: str,
     *,
@@ -313,10 +346,7 @@ def rps_error_outcome(
     traceback: str | None = None,
 ) -> dict[str, Any]:
     """Standard ``{ok: False, message}`` with elapsed time when not a timeout."""
-    import sys
-
-    # perf_counter under cover → NotDeterministic (SMT clock drift).
-    elapsed = 0.0 if "crosshair" in sys.modules else (time.perf_counter() - t0)
+    elapsed = _elapsed_since(t0)
     out: dict[str, Any] = {"ok": False, "message": _append_took(message, elapsed)}
     if traceback is not None:
         out["traceback"] = traceback
@@ -325,8 +355,6 @@ def rps_error_outcome(
 
 def rps_insert_failed_outcome(error: BaseException, *, t0: float) -> dict[str, Any]:
     """Outcome when domain insert/egress fails after a successful helper run."""
-    import sys
-
     # UNO often sets str(exc) to the method name only (e.g. insertDocumentFromURL);
     # log type/str/repr + traceback so Arch debug.log matches the RPS dialog.
     # Prefer exc_info=error so we still get a stack if called outside an except.
@@ -338,12 +366,12 @@ def rps_insert_failed_outcome(error: BaseException, *, t0: float) -> dict[str, A
         exc_info=error,
     )
 
-    elapsed_total = 0.0 if "crosshair" in sys.modules else (time.perf_counter() - t0)
+    elapsed_total = _elapsed_since(t0)
     formatted_time_total = format_elapsed_time(elapsed_total)
     return {
         "ok": False,
         "message": _("Failed to insert result: {error} (took {time})").format(
-            error=str(error),
+            error=_exception_detail(error),
             time=formatted_time_total,
         ),
     }
@@ -373,9 +401,7 @@ def plot_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    import sys
-
-    elapsed = 0.0 if "crosshair" in sys.modules else (time.perf_counter() - t0)
+    elapsed = _elapsed_since(t0)
     formatted_time = format_elapsed_time(elapsed)
     status_ok = _("Plot inserted ({title}). (took {time})").format(title=title, time=formatted_time)
     if helper:
@@ -394,9 +420,7 @@ def symbolic_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    import sys
-
-    elapsed = 0.0 if "crosshair" in sys.modules else (time.perf_counter() - t0)
+    elapsed = _elapsed_since(t0)
     formatted_time = format_elapsed_time(elapsed)
     preview = latex[:80] + ("…" if len(latex) > 80 else "")
     status_ok = _("Math '{helper}' completed. Inserted: {preview} (took {time})").format(
@@ -415,9 +439,7 @@ def units_insert_ok_outcome(
     stdout: str | None,
     result: Any,
 ) -> dict[str, Any]:
-    import sys
-
-    elapsed = 0.0 if "crosshair" in sys.modules else (time.perf_counter() - t0)
+    elapsed = _elapsed_since(t0)
     formatted_time = format_elapsed_time(elapsed)
     preview = formatted[:80] + ("…" if len(formatted) > 80 else "")
     status_ok = _("Units '{helper}' completed. Inserted: {preview} (took {time})").format(

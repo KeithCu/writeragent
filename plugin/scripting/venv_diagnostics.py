@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 from typing import Any, Callable, Optional, Tuple
 
 from plugin.framework.i18n import _
@@ -195,7 +196,14 @@ _TTS_INSTALL_CMD = (
 # Separate from the TTS recipe so a missing Whisper package does not print
 # the Kokoro/Piper install line (and the reverse).
 _WHISPER_INSTALL_CMD = "uv pip install faster-whisper"
-_AUDIO_LINUX_PORTAUDIO_HINT = _("On Linux also install system PortAudio: sudo pacman -S portaudio")
+
+
+def _audio_linux_portaudio_hint() -> str:
+    # Translate when shown. Module-level _() runs at import, often before
+    # init_i18n(ctx), and would store the startup-locale string for the process.
+    return _("On Linux also install system PortAudio: sudo pacman -S portaudio")
+
+
 # Hardware / non-PyPI probe keys must not appear in the copy-paste install footer.
 _NON_PIP_PROBE_KEYS = frozenset({"input_device"})
 # Probe import/key name → PyPI package name for the global install footer.
@@ -265,8 +273,14 @@ except Exception:
 
 print(json.dumps(out))
 """
-_AUDIO_PROBE_TIMEOUT_HINT = _("Audio probe timed out (sounddevice import failed or hung).")
-_AUDIO_PROBE_FAILED_HINT = _("Audio probe failed (see writeragent_debug.log).")
+def _audio_probe_timeout_hint() -> str:
+    return _("Audio probe timed out (sounddevice import failed or hung).")
+
+
+def _audio_probe_failed_hint() -> str:
+    return _("Audio probe failed (see writeragent_debug.log).")
+
+
 _TEXT_ANALYTICS_INSTALL_CMD = "uv pip install spacy textdescriptives transformers language-tool-python torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm"
 _NLP_PACKAGE_KEYS = ("spacy", "textdescriptives", "transformers", "language_tool_python")
 _NLP_OPTIONAL_KEYS = ("language_tool_python",)
@@ -297,10 +311,16 @@ except Exception:
 print(json.dumps(out))
 """
 
-_NLP_PROBE_TIMEOUT_HINT = _(
-    "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s on first check)."
-)
-_NLP_PROBE_FAILED_HINT = _("Text/NLP probe failed (see writeragent_debug.log).")
+def _nlp_probe_timeout_hint() -> str:
+    return _(
+        "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s on first check)."
+    )
+
+
+def _nlp_probe_failed_hint() -> str:
+    return _("Text/NLP probe failed (see writeragent_debug.log).")
+
+
 _VISION_PROBE_SCRIPT = """
 import json
 out = {}
@@ -347,10 +367,15 @@ except Exception:
 print(json.dumps(out))
 """
 
-_VISION_PROBE_TIMEOUT_HINT = _(
-    "Vision probe timed out (Docling import can take 10–30s on first check)."
-)
-_VISION_PROBE_FAILED_HINT = _("Vision probe failed (see writeragent_debug.log).")
+
+def _vision_probe_timeout_hint() -> str:
+    return _(
+        "Vision probe timed out (Docling import can take 10–30s on first check)."
+    )
+
+
+def _vision_probe_failed_hint() -> str:
+    return _("Vision probe failed (see writeragent_debug.log).")
 
 # Vector Search stack: probed outside the AST sandbox (WriterAgent embeddings only).
 _VECTOR_SEARCH_PACKAGE_KEYS = (
@@ -446,10 +471,14 @@ except Exception:
 print(json.dumps(out))
 """
 
-_VECTOR_SEARCH_PROBE_TIMEOUT_HINT = _(
-    "Vector Search probe timed out (sentence-transformers import can take 10–30s on first check)."
-)
-_VECTOR_SEARCH_PROBE_FAILED_HINT = _("Vector Search probe failed (see writeragent_debug.log).")
+def _vector_search_probe_timeout_hint() -> str:
+    return _(
+        "Vector Search probe timed out (sentence-transformers import can take 10–30s on first check)."
+    )
+
+
+def _vector_search_probe_failed_hint() -> str:
+    return _("Vector Search probe failed (see writeragent_debug.log).")
 
 
 def _probe_nlp_packages(
@@ -467,21 +496,21 @@ def _probe_nlp_packages(
             **get_subprocess_creationflags(),
         )
     except subprocess.TimeoutExpired:
-        return {}, _NLP_PROBE_TIMEOUT_HINT
+        return {}, _nlp_probe_timeout_hint()
     except OSError as exc:
         log.warning("Text/NLP package probe could not run: %s", exc)
-        return {}, _NLP_PROBE_FAILED_HINT
+        return {}, _nlp_probe_failed_hint()
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip()[:200]
         log.warning("Text/NLP package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _NLP_PROBE_FAILED_HINT
+        return {}, _nlp_probe_failed_hint()
     try:
         parsed = json.loads((proc.stdout or "").strip() or "{}")
     except json.JSONDecodeError:
         log.warning("Text/NLP package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _NLP_PROBE_FAILED_HINT
+        return {}, _nlp_probe_failed_hint()
     if not isinstance(parsed, dict):
-        return {}, _NLP_PROBE_FAILED_HINT
+        return {}, _nlp_probe_failed_hint()
     return parsed, None
 
 
@@ -500,21 +529,21 @@ def _probe_vector_search_packages(
             **get_subprocess_creationflags(),
         )
     except subprocess.TimeoutExpired:
-        return {}, _VECTOR_SEARCH_PROBE_TIMEOUT_HINT
+        return {}, _vector_search_probe_timeout_hint()
     except OSError as exc:
         log.warning("Vector Search package probe could not run: %s", exc)
-        return {}, _VECTOR_SEARCH_PROBE_FAILED_HINT
+        return {}, _vector_search_probe_failed_hint()
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip()[:200]
         log.warning("Vector Search package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _VECTOR_SEARCH_PROBE_FAILED_HINT
+        return {}, _vector_search_probe_failed_hint()
     try:
         parsed = json.loads((proc.stdout or "").strip() or "{}")
     except json.JSONDecodeError:
         log.warning("Vector Search package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _VECTOR_SEARCH_PROBE_FAILED_HINT
+        return {}, _vector_search_probe_failed_hint()
     if not isinstance(parsed, dict):
-        return {}, _VECTOR_SEARCH_PROBE_FAILED_HINT
+        return {}, _vector_search_probe_failed_hint()
     return parsed, None
 
 
@@ -533,21 +562,21 @@ def _probe_vision_packages(
             **get_subprocess_creationflags(),
         )
     except subprocess.TimeoutExpired:
-        return {}, _VISION_PROBE_TIMEOUT_HINT
+        return {}, _vision_probe_timeout_hint()
     except OSError as exc:
         log.warning("Vision package probe could not run: %s", exc)
-        return {}, _VISION_PROBE_FAILED_HINT
+        return {}, _vision_probe_failed_hint()
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip()[:200]
         log.warning("Vision package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _VISION_PROBE_FAILED_HINT
+        return {}, _vision_probe_failed_hint()
     try:
         parsed = json.loads((proc.stdout or "").strip() or "{}")
     except json.JSONDecodeError:
         log.warning("Vision package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _VISION_PROBE_FAILED_HINT
+        return {}, _vision_probe_failed_hint()
     if not isinstance(parsed, dict):
-        return {}, _VISION_PROBE_FAILED_HINT
+        return {}, _vision_probe_failed_hint()
     return parsed, None
 
 
@@ -565,21 +594,21 @@ def _probe_audio_packages(
             **get_subprocess_creationflags(),
         )
     except subprocess.TimeoutExpired:
-        return {}, _AUDIO_PROBE_TIMEOUT_HINT
+        return {}, _audio_probe_timeout_hint()
     except OSError as exc:
         log.warning("Audio package probe could not run: %s", exc)
-        return {}, _AUDIO_PROBE_FAILED_HINT
+        return {}, _audio_probe_failed_hint()
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip()[:200]
         log.warning("Audio package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _AUDIO_PROBE_FAILED_HINT
+        return {}, _audio_probe_failed_hint()
     try:
         parsed = json.loads((proc.stdout or "").strip() or "{}")
     except json.JSONDecodeError:
         log.warning("Audio package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _AUDIO_PROBE_FAILED_HINT
+        return {}, _audio_probe_failed_hint()
     if not isinstance(parsed, dict):
-        return {}, _AUDIO_PROBE_FAILED_HINT
+        return {}, _audio_probe_failed_hint()
     return parsed, None
 
 
@@ -605,7 +634,10 @@ for key, mod in pairs:
         out[key] = None
 print(json.dumps(out))
 """
-_UI_PROBE_FAILED_HINT = _("UI / Monaco probe failed (see writeragent_debug.log).")
+
+
+def _ui_probe_failed_hint() -> str:
+    return _("UI / Monaco probe failed (see writeragent_debug.log).")
 
 
 def _probe_ui_packages(
@@ -626,18 +658,18 @@ def _probe_ui_packages(
         return {}, _("UI / Monaco probe timed out.")
     except OSError as exc:
         log.warning("UI package probe could not run: %s", exc)
-        return {}, _UI_PROBE_FAILED_HINT
+        return {}, _ui_probe_failed_hint()
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip()[:200]
         log.warning("UI package probe exit %s: %s", proc.returncode, stderr)
-        return {}, _UI_PROBE_FAILED_HINT
+        return {}, _ui_probe_failed_hint()
     try:
         parsed = json.loads((proc.stdout or "").strip() or "{}")
     except json.JSONDecodeError:
         log.warning("UI package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
-        return {}, _UI_PROBE_FAILED_HINT
+        return {}, _ui_probe_failed_hint()
     if not isinstance(parsed, dict):
-        return {}, _UI_PROBE_FAILED_HINT
+        return {}, _ui_probe_failed_hint()
     return parsed, None
 
 
@@ -947,6 +979,8 @@ def _build_probe_display(
                 audio_failure = data.get("audio_probe_failure")
                 if audio_failure:
                     msg_lines.append(f"  {audio_failure}")
+                elif sys.platform.startswith("linux") and packages.get("sounddevice") != "present":
+                    msg_lines.append(f"  {_audio_linux_portaudio_hint()}")
                 elif packages.get("sounddevice") == "present" and packages.get("input_device") != "present":
                     msg_lines.append(f"  {_('No microphone input devices detected.')}")
                 tts_missing = [k for k in _TTS_OPTIONAL_KEYS if packages.get(k) != "present"]

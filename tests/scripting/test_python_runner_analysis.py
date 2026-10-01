@@ -39,6 +39,8 @@ def test_execute_and_insert_analysis_skips_fast_path(mock_venv, mock_run, mock_i
     mock_run.assert_not_called()
     mock_venv.assert_called_once()
     mock_insert.assert_called_once()
+    assert mock_insert.call_args.args[0] is doc
+    assert mock_insert.call_args.args[1] is ctx
 
 
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
@@ -61,3 +63,5 @@ def test_execute_and_insert_detects_analysis_result_from_venv(mock_insert, mock_
     assert outcome["ok"] is True
     assert "quick_stats" in outcome["status_ok_text"]
     mock_insert.assert_called_once()
+    assert mock_insert.call_args.args[0] is doc
+    assert mock_insert.call_args.args[1] is ctx

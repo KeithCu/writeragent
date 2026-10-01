@@ -35,6 +35,23 @@ def test_basic_unsafe_traversal_paths() -> None:
     assert is_safe_workspace_path("/etc/passwd", root) is False
 
 
+def test_symlink_outside_root_is_rejected(tmp_path) -> None:
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    secret = outside / "secret.txt"
+    secret.write_text("x", encoding="utf-8")
+    link = root / "link"
+    link.symlink_to(secret)
+    assert is_safe_workspace_path("link", str(root)) is False
+    inner = root / "inner"
+    inner.mkdir()
+    alias = root / "alias"
+    alias.symlink_to(inner)
+    assert is_safe_workspace_path("alias/file.txt", str(root)) is True
+
+
 def test_empty_inputs_return_false() -> None:
     assert is_safe_workspace_path("", "/home/user") is False
     assert is_safe_workspace_path("file.txt", "") is False
@@ -49,9 +66,9 @@ def test_hypothesis_path_containment_invariants(rel_path: str, root_dir: str) ->
     result = is_safe_workspace_path(rel_path, root_dir)
     assert isinstance(result, bool)
     if result:
-        # If True, target must be inside root_dir
-        abs_root = os.path.abspath(root_dir)
-        abs_target = os.path.abspath(os.path.join(abs_root, rel_path))
+        # True means the symlink-resolved target stays inside the resolved root.
+        abs_root = os.path.realpath(root_dir)
+        abs_target = os.path.realpath(os.path.join(abs_root, rel_path))
         assert os.path.commonpath([abs_target, abs_root]) == abs_root
 
 
