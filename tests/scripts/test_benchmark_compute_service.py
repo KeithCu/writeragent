@@ -160,7 +160,7 @@ def test_managed_benchmark_server_workers_and_shutdown(
 
     server = ManagedBenchmarkServer(max_threads=16, workers=3)
     assert server.settings.workers == 3
-    assert server.settings.threads == 16
+    assert server.settings.threads == 3
 
     with server as url:
         assert url.startswith("http://127.0.0.1:")

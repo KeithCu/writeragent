@@ -66,8 +66,12 @@ class VisionProcessPool(BaseProcessPool):
                 except Exception:
                     b64_val = image_b64
 
-        payload = {"id": req_id, "helper": helper, "image_bytes": image_bytes, "image_b64": b64_val, "file_path": file_path, "params": params or {}}
+        prefixes = () if allow_paths is None else tuple(str(p) for p in allow_paths)
+        payload = {"id": req_id, "helper": helper, "image_bytes": image_bytes, "image_b64": b64_val, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
 
+        # Queue until a worker is free. The caller's timeout is the bound;
+        # VISION_POOL_BUSY means that wait expired, not that the pool was busy
+        # at the moment the request arrived.
         deadline = time.monotonic() + eff_timeout
         worker = self.lease_any(timeout_sec=max(0.01, deadline - time.monotonic()))
         if worker is None:

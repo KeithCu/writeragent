@@ -37,6 +37,18 @@ def _session_lock(session_id: str) -> threading.Lock:
         return lock
 
 
+def release_session_lock(session_id: str) -> None:
+    """Drop the run lock for *session_id* after the sandbox session is reset.
+
+    Workers that still hold any sticky session skip process recycle, so this
+    map would otherwise keep one Lock per historical session until that
+    process exits. Reset runs on the worker thread while the pool holds the
+    lease, so the lock is not in use.
+    """
+    with _SESSION_RUN_LOCKS_GUARD:
+        _SESSION_RUN_LOCKS.pop(session_id, None)
+
+
 def clamp_timeout_sec(timeout_sec: float | int | None, *, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec) -> int:
     if timeout_sec is None:
         return default_timeout_sec

@@ -11,9 +11,7 @@
     "default_timeout_sec": 30,
     "max_timeout_sec": 600,
     "shared_kernel_ttl_sec": 3600.0,
-    "max_code_chars": 262144,
-    "max_inflight": 4,
-    "max_inflight_per_session": 2
+    "max_code_chars": 262144
   },
   "ocr": {
     "workers": 0,

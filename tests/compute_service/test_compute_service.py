@@ -510,48 +510,46 @@ class TestComputeSettings:
         assert s.host == "127.0.0.1"
         assert not s.auth_required
 
-    def test_max_threads_env_and_cli(self) -> None:
-        s = load_settings(environ={"PYTHON_COMPUTE_MAX_THREADS": "8", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.threads == 8
-        assert s.max_threads == 8
-        assert s.workers == 2  # default
-        s2 = load_settings(threads=4, workers=3, environ={"PYTHON_COMPUTE_MAX_THREADS": "8", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s2.threads == 4
-        assert s2.workers == 3
-
     def test_workers_default(self) -> None:
         s = load_settings(environ={})
         assert s.workers == 2
         assert s.max_workers == 2
+        assert s.threads == 2  # workers + ocr_workers, vision off
         direct = ComputeSettings()
         assert direct.workers == 2
         assert direct.max_workers == 2
+        assert direct.threads == 2
 
     def test_workers_env_and_cli(self) -> None:
         s = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.workers == 5
-        assert s.threads == 2  # default
+        assert s.threads == 5
         s2 = load_settings(workers=1, environ={"PYTHON_COMPUTE_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s2.workers == 1
+        assert s2.threads == 1
+        both = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "4", "PYTHON_COMPUTE_OCR_WORKERS": "2", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert both.threads == 6
 
-    def test_threads_and_workers_json(self, tmp_path) -> None:
+    def test_thread_count_keys_are_ignored(self, tmp_path) -> None:
+        ignored = load_settings(environ={"PYTHON_COMPUTE_THREADS": "9", "PYTHON_COMPUTE_MAX_THREADS": "8", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert ignored.threads == 2
         cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({"limits": {"threads": 24, "workers": 4}}), encoding="utf-8")
+        cfg.write_text(json.dumps({"limits": {"threads": 24, "max_threads": 12, "workers": 4}}), encoding="utf-8")
         s = load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.threads == 24
         assert s.workers == 4
+        assert s.threads == 4
 
-    def test_max_threads_json(self, tmp_path) -> None:
+    def test_inflight_keys_are_ignored(self, tmp_path) -> None:
+        ignored = load_settings(environ={"PYTHON_COMPUTE_MAX_INFLIGHT": "9", "PYTHON_COMPUTE_MAX_INFLIGHT_PER_SESSION": "3", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert ignored.workers == 2
         cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({"limits": {"max_threads": 12}}), encoding="utf-8")
+        cfg.write_text(json.dumps({"limits": {"max_inflight": 8, "max_inflight_per_session": 4, "workers": 3}}), encoding="utf-8")
         s = load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.threads == 12
+        assert s.workers == 3
 
-    def test_threads_and_workers_invalid(self) -> None:
+    def test_workers_invalid(self) -> None:
         from compute_service.config import ConfigError
 
-        with pytest.raises(ConfigError):
-            load_settings(threads=0, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         with pytest.raises(ConfigError):
             load_settings(workers=0, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 

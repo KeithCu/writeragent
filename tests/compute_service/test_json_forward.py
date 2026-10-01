@@ -235,6 +235,20 @@ class TestMultipartExecute:
         parts = parse_multipart_execute(body, content_type)
         assert parts.code == source.encode("utf-8")
 
+    def test_encoder_avoids_boundary_that_appears_in_data(self) -> None:
+        data = b"[1]\r\n--wa-compute\r\n[2]"
+        content_type, body = encode_multipart_execute({}, data, code="result = 1")
+        assert content_type.split("boundary=", 1)[1] != "wa-compute"
+        parts = parse_multipart_execute(body, content_type)
+        assert parts.data_json == data
+
+    def test_unterminated_multipart_is_rejected(self) -> None:
+        _content_type, body = _manual_multipart([("meta", b"{}"), ("code", b"result = 1")])
+        close = b"--wa-compute--\r\n"
+        assert body.endswith(close)
+        with pytest.raises(ExecuteRequestError, match="unterminated"):
+            parse_multipart_execute(body[: -len(close)], "multipart/form-data; boundary=wa-compute")
+
     def test_lf_body_and_quoted_boundary(self) -> None:
         code = b"result = 1"
         content_type, body = _manual_multipart(

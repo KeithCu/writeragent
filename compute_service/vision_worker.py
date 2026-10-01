@@ -23,7 +23,32 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+from compute_service.config import ocr_path_is_allowed
 from compute_service.worker_base import run_worker_stdio_loop
+
+
+def _read_allowed_image(file_path: str, allow_paths: Any, req_id: Any) -> tuple[bytes | None, dict[str, Any] | None]:
+    """Return ``(bytes, None)`` or ``(None, error)``.
+
+    The parent pool checks the allowlist before the IPC hop. Re-check here and
+    open the realpath: a symlink inside an allowed directory can point outside
+    between that check and ``open`` of the original string.
+    """
+    if not isinstance(file_path, str) or not file_path.strip():
+        return None, {"id": req_id, "status": "error", "code": "INVALID_FILE_PATH", "error": "file_path must be a non-empty string path"}
+    prefixes = allow_paths if isinstance(allow_paths, (list, tuple)) else ()
+    if not ocr_path_is_allowed(file_path, prefixes):
+        return None, {"id": req_id, "status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
+    resolved = os.path.realpath(os.path.expanduser(file_path.strip()))
+    if not os.path.exists(resolved):
+        return None, {"id": req_id, "status": "error", "code": "FILE_NOT_FOUND", "error": f"Image file not found: {file_path}"}
+    if not os.path.isfile(resolved):
+        return None, {"id": req_id, "status": "error", "code": "NOT_A_FILE", "error": f"Path is not a regular file: {file_path}"}
+    try:
+        with open(resolved, "rb") as f:
+            return f.read(), None
+    except Exception as exc:
+        return None, {"id": req_id, "status": "error", "code": "FILE_READ_ERROR", "error": f"Failed to read image file {file_path}: {exc}"}
 
 
 def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
@@ -35,18 +60,11 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
     image_bytes: bytes
     if file_path:
-        if not isinstance(file_path, str) or not file_path.strip():
-            return {"id": req_id, "status": "error", "code": "INVALID_FILE_PATH", "error": "file_path must be a non-empty string path"}
-        p = os.path.expanduser(file_path.strip())
-        if not os.path.exists(p):
-            return {"id": req_id, "status": "error", "code": "FILE_NOT_FOUND", "error": f"Image file not found: {file_path}"}
-        if not os.path.isfile(p):
-            return {"id": req_id, "status": "error", "code": "NOT_A_FILE", "error": f"Path is not a regular file: {file_path}"}
-        try:
-            with open(p, "rb") as f:
-                image_bytes = f.read()
-        except Exception as exc:
-            return {"id": req_id, "status": "error", "code": "FILE_READ_ERROR", "error": f"Failed to read image file {file_path}: {exc}"}
+        image_bytes_opt, err_body = _read_allowed_image(file_path, req.get("allow_paths"), req_id)
+        if err_body is not None:
+            return err_body
+        assert image_bytes_opt is not None
+        image_bytes = image_bytes_opt
     elif req.get("image_bytes") and isinstance(req["image_bytes"], (bytes, bytearray)):
         image_bytes = bytes(req["image_bytes"])
     elif image_b64:

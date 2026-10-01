@@ -208,32 +208,6 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
     """
     run_execute = execute_fn
     run_reset = reset_fn
-    inflight_sema = threading.BoundedSemaphore(settings.max_inflight)
-    session_inflight: dict[str, int] = {}
-    session_inflight_lock = threading.Lock()
-
-    def _acquire_inflight(session_id: str | None) -> str | None:
-        """Return an error code if rejected, else None. Caller must _release_inflight."""
-        if not inflight_sema.acquire(blocking=False):
-            return "INFLIGHT_LIMIT"
-        if session_id:
-            with session_inflight_lock:
-                used = session_inflight.get(session_id, 0)
-                if used >= settings.max_inflight_per_session:
-                    inflight_sema.release()
-                    return "SESSION_INFLIGHT_LIMIT"
-                session_inflight[session_id] = used + 1
-        return None
-
-    def _release_inflight(session_id: str | None) -> None:
-        if session_id:
-            with session_inflight_lock:
-                used = session_inflight.get(session_id, 0)
-                if used <= 1:
-                    session_inflight.pop(session_id, None)
-                else:
-                    session_inflight[session_id] = used - 1
-        inflight_sema.release()
 
     def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         nonlocal run_execute, run_reset
@@ -313,13 +287,6 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
 
             timeout_sec = timeout_ms_to_sec(parts.timeout_ms, default_timeout_sec=settings.default_timeout_sec, max_timeout_sec=settings.max_timeout_sec)
             sid = session_id
-            inflight_sid = sid if mode == "shared" else None
-            limit_code = _acquire_inflight(inflight_sid)
-            if limit_code is not None:
-                err_body = {"status": "error", "code": limit_code, "error": "Too many in-flight compute requests."}
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "503 Service Unavailable", err_body)
 
             log.info("exec /v1/execute id=%r mode=%s session=%r code_len=%d timeout=%ds", req_id, mode, sid, len(code), timeout_sec)
 
@@ -351,8 +318,6 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 if req_id is not None:
                     err_body["id"] = req_id
                 return _start_json(start_response, "500 Internal Server Error", err_body)
-            finally:
-                _release_inflight(inflight_sid)
 
         if path == "/v1/session/reset" and method == "POST":
             # Query-only session_id so L7 can stick to the host that owns the
@@ -400,8 +365,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 log.info("done /v1/session/reset id=%r session=%r status=%r duration=%.2fms", req_id, session_id, status, duration_ms)
 
                 if isinstance(result_payload, dict) and result_payload.get("status") == "error":
-                    # Lease failure — execute-style shape; 503 matches pool-busy /
-                    # inflight unavailability (reset is control-plane, not eval).
+                    # Lease failure. 503 because reset is control-plane, not an eval.
                     err_body = {"status": "error", "code": result_payload.get("code") or "WORKER_POOL_BUSY", "error": result_payload.get("error") or "Could not lease worker to reset session."}
                     if req_id is not None:
                         err_body["id"] = req_id
@@ -722,7 +686,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", dest="config_path", default=None, help="Path to python-compute.json (or set PYTHON_COMPUTE_CONFIG)")
     parser.add_argument("--host", default=None, help="Bind host (overrides config/env)")
     parser.add_argument("--port", type=int, default=None, help="Bind port (overrides config/env)")
-    parser.add_argument("--threads", "--max-threads", dest="threads", type=int, default=None, help=f"Number of HTTP server listener threads (default: {DEFAULT_SETTINGS.threads})")
     parser.add_argument("--workers", "--max-workers", dest="workers", type=int, default=None, help=f"Number of formula worker subprocesses (default: {DEFAULT_SETTINGS.workers})")
     parser.add_argument("--worker-max-tasks", dest="worker_max_tasks", type=int, default=None, help=f"Recycle formula worker process after N tasks (default: {DEFAULT_SETTINGS.worker_max_tasks})")
     parser.add_argument("--ocr-workers", dest="ocr_workers", type=int, default=None, help=f"Dedicated OCR/Vision worker subprocesses (default: {DEFAULT_SETTINGS.ocr_workers}, 0 to disable)")
@@ -737,7 +700,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         settings = load_settings(
-            config_path=args.config_path, host=args.host, port=args.port, threads=args.threads, workers=args.workers, worker_max_tasks=args.worker_max_tasks, ocr_workers=args.ocr_workers, ocr_timeout_sec=args.ocr_timeout_sec, ocr_max_tasks=args.ocr_max_tasks, api_key_file=args.api_key_file
+            config_path=args.config_path, host=args.host, port=args.port, workers=args.workers, worker_max_tasks=args.worker_max_tasks, ocr_workers=args.ocr_workers, ocr_timeout_sec=args.ocr_timeout_sec, ocr_max_tasks=args.ocr_max_tasks, api_key_file=args.api_key_file
         )
     except ConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)

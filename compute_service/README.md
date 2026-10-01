@@ -171,7 +171,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes` | `{"status": "error", "error": "Request body too large"}` |
-| **`503 Service Unavailable`** | Process or per-session in-flight cap (`INFLIGHT_LIMIT` / `SESSION_INFLIGHT_LIMIT`), or `/v1/session/reset` worker lease failure (`WORKER_POOL_BUSY`). coolwsd may map this to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
+| **`503 Service Unavailable`** | `/v1/session/reset` worker lease failure (`WORKER_POOL_BUSY`). coolwsd may map this to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception or JSON encoding failure | `{"id"?: "...", "status": "error", "error": "..."}` |
 
 ---
@@ -226,7 +226,6 @@ Example JSON: [`python-compute.example.json`](python-compute.example.json).
 | `PYTHON_COMPUTE_MAX_BODY_BYTES` | Request body cap | `33554432` (32 MiB) |
 | `PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC` | Default execution timeout in seconds | `30` |
 | `PYTHON_COMPUTE_MAX_TIMEOUT_SEC` | Upper bound clamp for `timeout_ms` | `600` |
-| `PYTHON_COMPUTE_THREADS` / `PYTHON_COMPUTE_MAX_THREADS` | Number of HTTP server listener threads | `2` |
 | `PYTHON_COMPUTE_WORKERS` / `PYTHON_COMPUTE_MAX_WORKERS` | Number of formula worker subprocesses | `2` |
 | `PYTHON_COMPUTE_WORKER_MAX_TASKS` | Tasks before recycling formula worker | `500` |
 | `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` | Session idle timeout in seconds before eviction | `3600` (1 hour) |
@@ -235,8 +234,6 @@ Example JSON: [`python-compute.example.json`](python-compute.example.json).
 | `PYTHON_COMPUTE_OCR_TIMEOUT_SEC` | OCR/Vision execution timeout in seconds | `60` |
 | `PYTHON_COMPUTE_OCR_MAX_TASKS` | Tasks before recycling OCR worker process | `100` |
 | `PYTHON_COMPUTE_MAX_CODE_CHARS` | Max `code` string length | `262144` |
-| `PYTHON_COMPUTE_MAX_INFLIGHT` | Process-wide concurrent `/v1/execute` (HTTP 503 over) | `max(threads, workers)*2` |
-| `PYTHON_COMPUTE_MAX_INFLIGHT_PER_SESSION` | Concurrent shared-kernel jobs per `session_id` | `2` |
 | `PYTHON_COMPUTE_OCR_ALLOW_PATHS` | `{os.pathsep}`-separated prefixes allowed for vision `file_path` (empty = deny) | `""` |
 
 Key file permissions: readable only by the service user (e.g. mode `0400`).
@@ -245,7 +242,7 @@ Key file permissions: readable only by the service user (e.g. mode `0400`).
 
 coolwsd is the only hop that should reach this process. Bind loopback, set the same Bearer secret as `security.python_compute.api_key`, and do **not** mount a host venv or docker.sock.
 
-`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. Prefer `image_b64`.
+`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Prefer `image_b64`. A vision call waits for a free OCR worker until its timeout, then returns `VISION_POOL_BUSY` in the JSON body.
 
 `--network=none` cannot be combined with `-p` (published ports need a network namespace). Publish to loopback on the host, or use an internal bridge **without a default route**. Tenant sockets still fail via the AST sandbox plus missing egress.
 
@@ -278,7 +275,7 @@ The Python Compute Service is structured as a resilient master HTTP server front
 
 ### 1. Master HTTP Router (~20MB RAM)
 - Ultra-thin network process that accepts HTTP connections, verifies Bearer authentication tokens, and forwards each job as a **length-prefixed Pickle 5 envelope** on the worker's stdin pipe. Large formula `data` / results are **raw JSON bytes** inside that envelope (not a second codec stage).
-- **Multi-Threaded HTTP Listener (`threads`, default `2`)**: Uses a `ThreadPoolExecutor` to handle concurrent HTTP connections, Kubernetes `/health` probes, and requests waiting on worker leases without socket stalls.
+- **HTTP listener**: One thread per formula worker and vision worker (2 with the stock defaults). Not a setting. A `ThreadPoolExecutor` accepts connections, including Kubernetes `/health` probes, without socket stalls.
 - **Unbreakable Design**: The master process never executes user code directly, ensuring that user errors, native crashes, or memory spikes cannot destabilize the HTTP service.
 
 ### Internal wire: JSON-forward

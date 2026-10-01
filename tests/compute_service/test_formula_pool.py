@@ -37,6 +37,20 @@ def cleanup_formula_pool():
 
 
 class TestFormulaPoolSupervisor:
+    def test_reset_session_drops_executor_lock(self) -> None:
+        from compute_service.executor import _SESSION_RUN_LOCKS, _session_lock
+        from compute_service.formula_worker import _handle_request
+
+        sid = "lock-reset-session"
+        _session_lock(sid)
+        assert sid in _SESSION_RUN_LOCKS
+        try:
+            res = _handle_request({"action": "reset_session", "session_id": sid})
+            assert res.get("status") == "ok"
+            assert sid not in _SESSION_RUN_LOCKS
+        finally:
+            _SESSION_RUN_LOCKS.pop(sid, None)
+
     def test_default_pool_workers(self) -> None:
         pool = FormulaProcessPool(default_timeout_sec=15)
         try:
@@ -535,7 +549,6 @@ class TestFormulaHttpEndpoint:
             host="127.0.0.1",
             port=port,
             api_key="formula-secret",
-            threads=2,
         )
         app = create_wsgi_app(settings)
         server = WSGIDualStackServer("127.0.0.1", port, max_threads=2)
@@ -620,55 +633,6 @@ class TestFormulaHttpEndpoint:
         assert body.get("status") == "error"
         assert body.get("id") == "div0"
         assert "error" in body
-
-    def test_http_inflight_limit_503(self) -> None:
-        port = get_free_port()
-        settings = ComputeSettings(
-            host="127.0.0.1",
-            port=port,
-            api_key="formula-secret",
-            workers=1,
-            threads=4,
-            max_inflight=1,
-        )
-        app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
-        server.set_app(app)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        time.sleep(0.15)
-        try:
-            holder: list[tuple[int, dict]] = []
-
-            def _slow() -> None:
-                holder.append(
-                    self._post(
-                        f"http://127.0.0.1:{port}",
-                        {
-                            "id": "hold",
-                            "code": "import time\ntime.sleep(1.2)\nresult = 1",
-                            "timeout_ms": 5000,
-                        },
-                        headers={"Authorization": "Bearer formula-secret"},
-                    )
-                )
-
-            slow = threading.Thread(target=_slow)
-            slow.start()
-            time.sleep(0.2)
-            status, body = self._post(
-                f"http://127.0.0.1:{port}",
-                {"id": "busy", "code": "result = 2"},
-                headers={"Authorization": "Bearer formula-secret"},
-            )
-            assert status == 503
-            assert body.get("code") == "INFLIGHT_LIMIT"
-            slow.join(timeout=8)
-            assert holder and holder[0][0] == 200
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=3)
 
     def test_execute_shared_session(self, formula_server: str) -> None:
         session_id = "session-http-123"

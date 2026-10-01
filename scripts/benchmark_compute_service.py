@@ -124,14 +124,11 @@ class ManagedBenchmarkServer:
         self.port = _get_free_port()
         self.max_threads = max_threads
         self.workers = workers
-        # ComputeSettings is a dataclass whose field is ``threads``.
-        # ``max_threads`` is a read-only alias property, so passing it as a
-        # constructor keyword raises TypeError. The listener still uses
-        # ``max_threads`` (WSGIDualStackServer); map it onto ``threads`` here.
+        # Listener threads inside settings follow workers. This bench sizes its
+        # own HTTP pool.
         self.settings = ComputeSettings(
             host="127.0.0.1",
             port=self.port,
-            threads=self.max_threads,
             workers=self.workers,
             log_level="WARN",
         )
@@ -359,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
         "--threads",
         type=int,
         default=32,
-        help="Server max_threads capacity (default: 32)",
+        help="HTTP listener threads for this bench (default: 32). Not a service setting.",
     )
     parser.add_argument(
         "--target-url",

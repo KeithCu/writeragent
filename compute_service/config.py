@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -83,7 +83,8 @@ class ComputeSettings:
     max_body_bytes: int = 32 * 1024 * 1024
     default_timeout_sec: int = 30
     max_timeout_sec: int = 600
-    threads: int = 2
+    # Listener threads. Not a setting: one per formula worker and vision worker.
+    threads: int = field(init=False, default=0)
     workers: int = 2
     worker_max_tasks: int = 500
     shared_kernel_ttl_sec: float = 3600.0
@@ -92,20 +93,16 @@ class ComputeSettings:
     ocr_timeout_sec: int = 60
     ocr_max_tasks: int = 100
     max_code_chars: int = 262144
-    max_inflight: int = 0  # 0 → computed in __post_init__ as max(threads, workers) * 2
-    max_inflight_per_session: int = 2
     ocr_allow_paths: tuple[str, ...] = ()
     log_level: str = "INFO"
     # Future: map authenticated principals to named profiles. Today always "default".
     default_principal: str = "default"
 
     def __post_init__(self) -> None:
-        if self.threads is None:
-            object.__setattr__(self, "threads", 2)
         if self.workers is None:
             object.__setattr__(self, "workers", 2)
-        if self.max_inflight is None or self.max_inflight == 0:
-            object.__setattr__(self, "max_inflight", max(self.threads, self.workers) * 2)
+        # One listener thread per subprocess that can run a job.
+        object.__setattr__(self, "threads", self.workers + self.ocr_workers)
         object.__setattr__(self, "ocr_allow_paths", _as_path_tuple(self.ocr_allow_paths))
         object.__setattr__(self, "shared_kernel_ttl_sec", float(self.shared_kernel_ttl_sec))
         object.__setattr__(self, "idle_worker_ttl_sec", float(self.idle_worker_ttl_sec))
@@ -153,10 +150,6 @@ class ComputeSettings:
             raise ConfigError("ocr_max_tasks must be >= 1")
         if self.max_code_chars < MIN_MAX_CODE_CHARS:
             raise ConfigError(f"max_code_chars must be >= {MIN_MAX_CODE_CHARS}")
-        if self.max_inflight < 1:
-            raise ConfigError("max_inflight must be >= 1")
-        if self.max_inflight_per_session < 1:
-            raise ConfigError("max_inflight_per_session must be >= 1")
         if self.shared_kernel_ttl_sec < 0:
             raise ConfigError("shared_kernel_ttl_sec must be >= 0")
         if self.idle_worker_ttl_sec < 0:
@@ -235,10 +228,6 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
             out["default_timeout_sec"] = limits["default_timeout_sec"]
         if "max_timeout_sec" in limits:
             out["max_timeout_sec"] = limits["max_timeout_sec"]
-        if "threads" in limits:
-            out["threads"] = limits["threads"]
-        elif "max_threads" in limits:
-            out["threads"] = limits["max_threads"]
         if "workers" in limits:
             out["workers"] = limits["workers"]
         elif "max_workers" in limits:
@@ -253,10 +242,6 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
             out["idle_worker_ttl_sec"] = limits["idle_worker_ttl_sec"]
         if "max_code_chars" in limits:
             out["max_code_chars"] = limits["max_code_chars"]
-        if "max_inflight" in limits:
-            out["max_inflight"] = limits["max_inflight"]
-        if "max_inflight_per_session" in limits:
-            out["max_inflight_per_session"] = limits["max_inflight_per_session"]
     ocr_cfg = raw.get("ocr")
     if isinstance(ocr_cfg, Mapping):
         if "workers" in ocr_cfg:
@@ -281,8 +266,6 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
         "max_body_bytes",
         "default_timeout_sec",
         "max_timeout_sec",
-        "threads",
-        "max_threads",
         "workers",
         "max_workers",
         "worker_max_tasks",
@@ -294,8 +277,6 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
         "ocr_max_tasks",
         "ocr_allow_paths",
         "max_code_chars",
-        "max_inflight",
-        "max_inflight_per_session",
         "log_level",
     ):
         if key in raw and key not in out:
@@ -304,10 +285,6 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
         out["shared_kernel_ttl_sec"] = out.pop("session_ttl_sec")
     else:
         out.pop("session_ttl_sec", None)
-    if "max_threads" in out and "threads" not in out:
-        out["threads"] = out.pop("max_threads")
-    else:
-        out.pop("max_threads", None)
     if "max_workers" in out and "workers" not in out:
         out["workers"] = out.pop("max_workers")
     else:
@@ -320,8 +297,6 @@ def load_settings(
     config_path: str | Path | None = None,
     host: str | None = None,
     port: int | None = None,
-    threads: int | None = None,
-    max_threads: int | None = None,
     workers: int | None = None,
     max_workers: int | None = None,
     worker_max_tasks: int | None = None,
@@ -353,10 +328,6 @@ def load_settings(
         values["default_timeout_sec"] = env["PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC"]
     if env.get("PYTHON_COMPUTE_MAX_TIMEOUT_SEC"):
         values["max_timeout_sec"] = env["PYTHON_COMPUTE_MAX_TIMEOUT_SEC"]
-    if env.get("PYTHON_COMPUTE_THREADS"):
-        values["threads"] = env["PYTHON_COMPUTE_THREADS"]
-    elif env.get("PYTHON_COMPUTE_MAX_THREADS"):
-        values["threads"] = env["PYTHON_COMPUTE_MAX_THREADS"]
 
     if env.get("PYTHON_COMPUTE_WORKERS"):
         values["workers"] = env["PYTHON_COMPUTE_WORKERS"]
@@ -379,10 +350,6 @@ def load_settings(
         values["ocr_max_tasks"] = env["PYTHON_COMPUTE_OCR_MAX_TASKS"]
     if env.get("PYTHON_COMPUTE_MAX_CODE_CHARS"):
         values["max_code_chars"] = env["PYTHON_COMPUTE_MAX_CODE_CHARS"]
-    if env.get("PYTHON_COMPUTE_MAX_INFLIGHT"):
-        values["max_inflight"] = env["PYTHON_COMPUTE_MAX_INFLIGHT"]
-    if env.get("PYTHON_COMPUTE_MAX_INFLIGHT_PER_SESSION"):
-        values["max_inflight_per_session"] = env["PYTHON_COMPUTE_MAX_INFLIGHT_PER_SESSION"]
     if env.get("PYTHON_COMPUTE_OCR_ALLOW_PATHS"):
         values["ocr_allow_paths"] = env["PYTHON_COMPUTE_OCR_ALLOW_PATHS"]
     if env.get("PYTHON_COMPUTE_LOG_LEVEL"):
@@ -397,10 +364,6 @@ def load_settings(
         values["host"] = host
     if port is not None:
         values["port"] = port
-    if threads is not None:
-        values["threads"] = threads
-    elif max_threads is not None:
-        values["threads"] = max_threads
 
     if workers is not None:
         values["workers"] = workers
@@ -425,19 +388,13 @@ def load_settings(
     elif chosen_key_file:
         values["api_key"] = _read_key_file(chosen_key_file)
 
-    for int_field in ("port", "max_body_bytes", "default_timeout_sec", "max_timeout_sec", "threads", "workers", "worker_max_tasks", "ocr_workers", "ocr_timeout_sec", "ocr_max_tasks", "max_code_chars", "max_inflight_per_session"):
+    for int_field in ("port", "max_body_bytes", "default_timeout_sec", "max_timeout_sec", "workers", "worker_max_tasks", "ocr_workers", "ocr_timeout_sec", "ocr_max_tasks", "max_code_chars"):
         if int_field in values:
             values[int_field] = _as_int(values[int_field], field=int_field)
 
     for float_field in ("shared_kernel_ttl_sec", "idle_worker_ttl_sec"):
         if float_field in values:
             values[float_field] = _as_float(values[float_field], field=float_field)
-
-    if "max_inflight" in values:
-        if values["max_inflight"] is None or values["max_inflight"] == "":
-            values.pop("max_inflight")
-        else:
-            values["max_inflight"] = _as_int(values["max_inflight"], field="max_inflight")
 
     if "ocr_allow_paths" in values:
         values["ocr_allow_paths"] = _as_path_tuple(values["ocr_allow_paths"])

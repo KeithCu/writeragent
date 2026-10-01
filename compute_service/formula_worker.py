@@ -24,7 +24,7 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.executor import execute_code
+from compute_service.executor import execute_code, release_session_lock
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, dumps_response
 from compute_service.worker_base import run_worker_stdio_loop
 
@@ -57,6 +57,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
 
             res = reset_sandbox_session(session_id)
+            # Sandbox reset does not touch the executor lock map in this process.
+            release_session_lock(session_id)
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id
             return res

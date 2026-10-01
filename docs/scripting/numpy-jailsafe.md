@@ -556,7 +556,7 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 
 | # | Topic | Status |
 |---|--------|--------|
-| G4 | No size / in-flight caps | **Service-side done** (`max_body_bytes`, `max_code_chars`, `max_inflight`, `max_inflight_per_session` in `compute_service`). WSD POST caps still deferred for Collabora |
+| G4 | No size / in-flight caps | **Service-side done** (`max_body_bytes`, `max_code_chars` in `compute_service`; a call waits for a worker until its timeout). WSD POST caps still deferred for Collabora |
 | G5 | Service isolation | Bearer verify when key set; empty key = open (dev); cgroup/network isolation still ops — [F4](#f4--compute-service-container-hardening) |
 | G6a | Pending timeout is passive | Done — AddIn one-shot `vcl::Timer` expires pending → `#N/A` without recalc |
 | G6c | LRU breaks AddIn.idl identity; sticky errors | Done — weak-ref identity map never evicts live entries; sticky retry = change params (documented) |

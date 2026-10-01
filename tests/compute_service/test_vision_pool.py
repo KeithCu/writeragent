@@ -11,6 +11,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 
 import pytest
 
@@ -21,6 +22,7 @@ from compute_service.vision_pool import (
     get_vision_pool,
     shutdown_vision_pool,
 )
+from compute_service.vision_worker import _handle_request
 
 
 def get_free_port() -> int:
@@ -112,6 +114,50 @@ class TestVisionPoolSupervisor:
             assert missing.get("code") == "FILE_NOT_FOUND"
         finally:
             pool.shutdown()
+
+    def test_busy_lease_waits_until_worker_is_free(self) -> None:
+        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
+        held = pool.lease_any(timeout_sec=1.0)
+        assert held is not None
+        result: list[dict] = []
+
+        def _run() -> None:
+            result.append(pool.execute(helper="extract_text", image_b64=_TINY_PNG_B64, req_id="v-wait", timeout_sec=15))
+
+        waiter = threading.Thread(target=_run)
+        waiter.start()
+        try:
+            # Longer than an immediate busy return, so a fail-fast lease would already be done.
+            time.sleep(0.3)
+            assert result == []
+            pool.release_worker(held)
+            held = None
+            waiter.join(timeout=20)
+            assert not waiter.is_alive()
+            assert result[0].get("code") != "VISION_POOL_BUSY"
+            assert result[0].get("id") == "v-wait"
+        finally:
+            if held is not None:
+                pool.release_worker(held)
+            waiter.join(timeout=5)
+            pool.shutdown()
+
+    def test_worker_denies_symlink_outside_allow_paths(self, tmp_path) -> None:
+        outside = tmp_path / "secret.png"
+        outside.write_bytes(b"secret-bytes")
+        allowed = tmp_path / "allowed"
+        allowed.mkdir()
+        link = allowed / "img.png"
+        link.symlink_to(outside)
+        denied = _handle_request({"id": "sym", "file_path": str(link), "allow_paths": [str(allowed)]})
+        assert denied.get("code") == "FILE_PATH_DENIED"
+
+        inside = allowed / "ok.png"
+        inside.write_bytes(b"png-bytes")
+        with patch("plugin.vision.venv.vision.run_vision", return_value={"status": "ok", "text": "x"}) as run:
+            ok = _handle_request({"id": "ok", "helper": "extract_text", "file_path": str(inside), "allow_paths": [str(allowed)]})
+        assert ok.get("status") == "ok"
+        assert run.call_args.kwargs["image"] == b"png-bytes"
 
     def test_worker_crash_recovery(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=10)
