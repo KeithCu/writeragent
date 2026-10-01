@@ -26,6 +26,7 @@ from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     _visible_portions as _shared_visible_portions,
 )
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.uno_context import new_blank_writer
 from . import xhtml_style_postprocess as xhtml_post
 from . import format as format_mod
@@ -805,9 +806,10 @@ def _range_to_content_via_temp_doc(
         if max_chars and len(content) > max_chars:
             content = content[:max_chars] + "\n\n[... truncated ...]"
         return content
-    except Exception:
+    except Exception as e:
+        # Same silent "ok with empty content" as the full read (relato #63): say why instead.
         log.exception("_range_to_content_via_temp_doc failed")
-        return ""
+        raise ToolExecutionError("Could not read that part of the document (%s)." % _reason(e)) from e
     finally:
         if temp_doc is not None:
             try:
@@ -889,6 +891,7 @@ def document_to_content(
         )
 
     # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
+    xhtml_error: Exception | None = None
     try:
         t_phase = time.perf_counter()
         xhtml = _export_xhtml(model, config_svc)
@@ -911,6 +914,7 @@ def document_to_content(
         content = _apply_image_export_options(content, include_images=include_images)
         content = _inject_exported_math_tex(model, ctx, content)
         content = _inject_ruby_from_model(model, content, fodt_has_ruby)
+        _raise_if_empty_export(model, content, "the XHTML export came back empty")
         if max_chars and len(content) > max_chars:
             content = content[:max_chars] + "\n\n[... truncated ...]"
         log.debug(
@@ -919,7 +923,8 @@ def document_to_content(
             len(content),
         )
         return _done(content, "xhtml")
-    except Exception:
+    except Exception as e:
+        xhtml_error = e
         log.exception("document_to_content (full, XHTML) failed; falling back to StarWriter")
 
     # Fallback: legacy StarWriter export (so reads never hard-fail).
@@ -935,6 +940,7 @@ def document_to_content(
             content = _apply_image_export_options(content, include_images=include_images)
             content = _inject_exported_math_tex(model, ctx, content)
             content = _inject_ruby_from_model(model, content, None)
+            _raise_if_empty_export(model, content, "the HTML export came back empty")
             if max_chars and len(content) > max_chars:
                 content = content[:max_chars] + "\n\n[... truncated ...]"
             log.debug(
@@ -943,9 +949,35 @@ def document_to_content(
                 len(content),
             )
             return _done(content, "starwriter")
-    except Exception:
+    except Exception as e:
+        # What was wrong: when both exports failed this returned "" and get_document_content
+        # answered status ok with empty content (relato #63: document_length 57003, content ""),
+        # so neither the agent nor the log reader could tell why. Why this fixes it: the failure
+        # surfaces as a tool error that names both reasons (a full /tmp, a filter error, ...).
         log.exception("document_to_content (full) failed")
-        return _done("", "failed")
+        raise ToolExecutionError(
+            "Could not read the document: the XHTML export failed (%s) and the HTML export "
+            "failed too (%s)." % (_reason(xhtml_error), _reason(e))) from e
+
+
+def _reason(error: Exception | None) -> str:
+    """Short text for an export failure: the message, or the exception type when it has none
+    (UNO exceptions often have an empty message)."""
+    if error is None:
+        return "unknown error"
+    return str(error).strip() or type(error).__name__
+
+
+def _raise_if_empty_export(model: Any, content: str, why: str) -> None:
+    """Raise when an export produced nothing although the document has text."""
+    if content and content.strip():
+        return
+    try:
+        has_text = bool(model.getText().getString().strip())
+    except Exception:
+        has_text = True
+    if has_text:
+        raise ToolExecutionError(why)
 
 
 def _supports_service(obj: Any, name: str) -> bool:
