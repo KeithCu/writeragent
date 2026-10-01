@@ -75,30 +75,10 @@ class PythonDiagnosticsStore:
         self._by_workbook: dict[str, deque[DiagnosticEntry]] = {}
         self._listeners: list[Any] = []
 
-    def record(
-        self,
-        *,
-        workbook_key: str,
-        code: str,
-        status: str,
-        message: str = "",
-        stdout: str = "",
-        traceback: str = "",
-        sheet: str = "",
-        address: str = "",
-    ) -> DiagnosticEntry:
+    def record(self, *, workbook_key: str, code: str, status: str, message: str = "", stdout: str = "", traceback: str = "", sheet: str = "", address: str = "") -> DiagnosticEntry:
         key = (workbook_key or "unknown").strip() or "unknown"
         snippet = (code or "")[:_CODE_SNIPPET_MAX]
-        entry = DiagnosticEntry(
-            workbook_key=key,
-            code=snippet,
-            status="ok" if status == "ok" else "error",
-            message=str(message or ""),
-            stdout=str(stdout or ""),
-            traceback=str(traceback or ""),
-            sheet=str(sheet or ""),
-            address=str(address or ""),
-        )
+        entry = DiagnosticEntry(workbook_key=key, code=snippet, status="ok" if status == "ok" else "error", message=str(message or ""), stdout=str(stdout or ""), traceback=str(traceback or ""), sheet=str(sheet or ""), address=str(address or ""))
         with self._lock:
             bucket = self._by_workbook.get(key)
             if bucket is None:
@@ -113,13 +93,7 @@ class PythonDiagnosticsStore:
                 pass
         return entry
 
-    def list_entries(
-        self,
-        workbook_key: str,
-        *,
-        filt: DiagnosticFilter = "all",
-        newest_first: bool = True,
-    ) -> list[DiagnosticEntry]:
+    def list_entries(self, workbook_key: str, *, filt: DiagnosticFilter = "all", newest_first: bool = True) -> list[DiagnosticEntry]:
         key = (workbook_key or "unknown").strip() or "unknown"
         with self._lock:
             bucket = list(self._by_workbook.get(key, ()))
@@ -164,40 +138,14 @@ def get_diagnostics_store() -> PythonDiagnosticsStore:
     return _STORE
 
 
-def record_python_eval(
-    *,
-    workbook_key: str,
-    code: str,
-    status: str,
-    message: str = "",
-    stdout: str = "",
-    traceback: str = "",
-    sheet: str = "",
-    address: str = "",
-) -> DiagnosticEntry:
+def record_python_eval(*, workbook_key: str, code: str, status: str, message: str = "", stdout: str = "", traceback: str = "", sheet: str = "", address: str = "") -> DiagnosticEntry:
     """Record one ``=PY()`` outcome (safe to call from formula evaluation)."""
-    return _STORE.record(
-        workbook_key=workbook_key,
-        code=code,
-        status=status,
-        message=message,
-        stdout=stdout,
-        traceback=traceback,
-        sheet=sheet,
-        address=address,
-    )
+    return _STORE.record(workbook_key=workbook_key, code=code, status=status, message=message, stdout=stdout, traceback=traceback, sheet=sheet, address=address)
 
 
 def diagnostics_detail_text(entry: DiagnosticEntry) -> str:
     """Multi-line detail for the diagnostics text area."""
-    lines = [
-        f"Cell: {entry.address or '(unknown)'}",
-        f"Status: {entry.status}",
-        f"Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(entry.timestamp))}",
-        "",
-        "Code:",
-        entry.code or "(empty)",
-    ]
+    lines = [f"Cell: {entry.address or '(unknown)'}", f"Status: {entry.status}", f"Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(entry.timestamp))}", "", "Code:", entry.code or "(empty)"]
     if entry.message:
         lines.extend(["", "Message:", entry.message.strip()])
     if entry.stdout:

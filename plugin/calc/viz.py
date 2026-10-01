@@ -23,11 +23,7 @@ class PlotDataTool(ToolBaseDummy):
     """Run trusted matplotlib/seaborn plot helpers on spreadsheet data."""
 
     name: str | None = "plot_data"
-    description: str = (
-        "Run a trusted visualization helper on spreadsheet data. "
-        f"Helpers: {_VIZ_HELPERS}. "
-        "Use data_range (A1 address string). On Calc, the chart inserts on the active sheet automatically."
-    )
+    description: str = f"Run a trusted visualization helper on spreadsheet data. Helpers: {_VIZ_HELPERS}. Use data_range (A1 address string). On Calc, the chart inserts on the active sheet automatically."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -66,9 +62,7 @@ class PlotDataTool(ToolBaseDummy):
             return self._tool_error("Provide data_range")
 
         if getattr(ctx, "active_domain", None) == "analysis" and kwargs.get("data") is not None:
-            return self._tool_error(
-                "analysis domain requires data_range (A1 address string) only for plot_data."
-            )
+            return self._tool_error("analysis domain requires data_range (A1 address string) only for plot_data.")
 
         dr = str(data_range).strip() if data_range else None
         params = kwargs.get("params") if isinstance(kwargs.get("params"), dict) else None
@@ -79,16 +73,7 @@ class PlotDataTool(ToolBaseDummy):
         from plugin.scripting.payload_codec import write_image_payload_to_temp
 
         def _run() -> dict[str, Any]:
-            return run_trusted_viz(
-                ctx.ctx,
-                ctx.doc,
-                helper=helper,
-                params=params,
-                data_range=dr,
-                data=kwargs.get("data"),
-                headers=headers,
-                task_hint=task_hint,
-            )
+            return run_trusted_viz(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=kwargs.get("data"), headers=headers, task_hint=task_hint)
 
         try:
             result = execute_on_main_thread(_run)

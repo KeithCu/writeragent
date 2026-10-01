@@ -20,10 +20,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.python.formula_edit import (
-    rebuild_python_formula_with_code_ref,
-    rebuild_python_formula_with_data,
-)
+from plugin.calc.python.formula_edit import rebuild_python_formula_with_code_ref, rebuild_python_formula_with_data
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell
@@ -132,13 +129,7 @@ def should_inline_code(code: str) -> bool:
     return len(code or "") <= INLINE_CODE_MAX_CHARS
 
 
-def formula_for_converted_cell(
-    cell: ConvertedCell,
-    *,
-    separator: str = ";",
-    excel_escape: bool = False,
-    use_script_bank: bool = True,
-) -> str:
+def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";", excel_escape: bool = False, use_script_bank: bool = True) -> str:
     """Build ``=PY`` for a converted cell.
 
     Inline when ``len(converted_code) <= 1000``; otherwise reference
@@ -148,20 +139,10 @@ def formula_for_converted_cell(
     args = list(cell.data_args)
     if use_script_bank and cell.cell and cell.sheet and not should_inline_code(cell.converted_code):
         try:
-            return rebuild_python_formula_with_code_ref(
-                code_bank_ref(cell.sheet, cell.cell, excel_bang=(separator == "," or excel_escape)),
-                args,
-                separator=separator,
-                excel_ranges=excel_escape or separator == ",",
-            )
+            return rebuild_python_formula_with_code_ref(code_bank_ref(cell.sheet, cell.cell, excel_bang=(separator == "," or excel_escape)), args, separator=separator, excel_ranges=excel_escape or separator == ",")
         except ValueError:
             pass
-    return rebuild_python_formula_with_data(
-        cell.converted_code,
-        args,
-        separator=separator,
-        excel_escape=excel_escape,
-    )
+    return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator, excel_escape=excel_escape)
 
 
 def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, str]], list[str]]:
@@ -189,10 +170,7 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
             continue
         if prev == cell.converted_code:
             continue
-        warnings.append(
-            f"script-bank collision at {code_sheet}!{a1}: "
-            f"{owners[key]} vs {cell.sheet}!{cell.cell} (keeping first)"
-        )
+        warnings.append(f"script-bank collision at {code_sheet}!{a1}: {owners[key]} vs {cell.sheet}!{cell.cell} (keeping first)")
     return banks, warnings
 
 
@@ -242,9 +220,7 @@ def collect_safety_warnings(code: str) -> list[str]:
                 warnings.append(f"import not in venv whitelist: {node.module}")
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "xl":
             if not _is_binding_xl_call(node):
-                warnings.append(
-                    "non-binding xl() call (sandbox xl only resolves \"%Pn%\" formula bindings; no live sheet reads)"
-                )
+                warnings.append('non-binding xl() call (sandbox xl only resolves "%Pn%" formula bindings; no live sheet reads)')
     return list(dict.fromkeys(warnings))
 
 

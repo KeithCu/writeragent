@@ -12,13 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.excel_py_convert.script_bank import (
-    collect_script_bank,
-    formula_for_converted_cell,
-    iter_a1_span,
-    report_safety_warnings,
-    write_script_bank_uno,
-)
+from plugin.calc.excel_py_convert.script_bank import collect_script_bank, formula_for_converted_cell, iter_a1_span, report_safety_warnings, write_script_bank_uno
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell

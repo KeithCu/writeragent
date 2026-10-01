@@ -28,12 +28,7 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent, TextEvent
     from com.sun.star.lang import EventObject
 
-from plugin.chatbot.dialogs import (
-    get_checkbox_state,
-    load_writeragent_dialog_detail,
-    set_checkbox_state,
-    set_control_text,
-)
+from plugin.chatbot.dialogs import get_checkbox_state, load_writeragent_dialog_detail, set_checkbox_state, set_control_text
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.scripting")
@@ -63,17 +58,7 @@ class NativePythonCellEditorDialog:
     _loading: bool
     _opened: bool
 
-    def __init__(
-        self,
-        ctx: Any,
-        *,
-        doc: Any,
-        cell: Any,
-        initial_code: str,
-        parsed_parts: Any,
-        code_cell: Any | None = None,
-        code_ref: str | None = None,
-    ) -> None:
+    def __init__(self, ctx: Any, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> None:
         self._ctx = ctx
         self._doc = doc
         self._cell = cell
@@ -92,16 +77,7 @@ class NativePythonCellEditorDialog:
     def is_open(self) -> bool:
         return not self._closed and self._dlg is not None
 
-    def retarget(
-        self,
-        *,
-        doc: Any,
-        cell: Any,
-        initial_code: str,
-        parsed_parts: Any,
-        code_cell: Any | None = None,
-        code_ref: str | None = None,
-    ) -> None:
+    def retarget(self, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> None:
         self._doc = doc
         self._cell = cell
         self._parsed_parts = parsed_parts
@@ -170,11 +146,7 @@ class NativePythonCellEditorDialog:
 
         # UNO often hands back distinct proxies for the same cell; identity (`is`)
         # would treat a self-ref as a follow. Address compare matches editor.py.
-        return (
-            bool(self._code_ref)
-            and self._code_cell is not None
-            and not _same_calc_cell(self._code_cell, self._cell)
-        )
+        return bool(self._code_ref) and self._code_cell is not None and not _same_calc_cell(self._code_cell, self._cell)
 
     def _apply_load(self, initial_code: str) -> None:
         from plugin.calc.python.editor import editor_load_save_as_plain
@@ -197,11 +169,7 @@ class NativePythonCellEditorDialog:
                     model.HelpText = _("A1:C1  or  A1:C1, C1:C5")
             except Exception:
                 log.debug("native cell editor: DataEdit HelpText failed", exc_info=True)
-        plain = editor_load_save_as_plain(
-            parsed_parts=self._parsed_parts,
-            initial_code=initial_code or "",
-            follow_code_ref=self._following_ref(),
-        )
+        plain = editor_load_save_as_plain(parsed_parts=self._parsed_parts, initial_code=initial_code or "", follow_code_ref=self._following_ref())
         set_checkbox_state(self._ctrl("ChkPlainText"), 1 if plain else 0)
         self._sync_data_enabled()
         self._set_status(_("Ready"))
@@ -232,11 +200,7 @@ class NativePythonCellEditorDialog:
         data_ctrl = self._ctrl("DataEdit")
         if data_ctrl is None:
             return
-        title = (
-            _("Data ranges apply only when saving as a =PY() formula.")
-            if disabled
-            else _("Calc injects `data` and `ranges` from these range(s) at runtime.")
-        )
+        title = _("Data ranges apply only when saving as a =PY() formula.") if disabled else _("Calc injects `data` and `ranges` from these range(s) at runtime.")
         try:
             model = data_ctrl.getModel()
             if model is not None and hasattr(model, "HelpText"):
@@ -278,16 +242,7 @@ class NativePythonCellEditorDialog:
         save_as_plain = bool(get_checkbox_state(self._ctrl("ChkPlainText")))
         follow = self._following_ref()
         binding = self._data_text() if follow or not save_as_plain else None
-        outcome = _apply_cell_save(
-            self._doc,
-            self._cell,
-            parsed_parts=self._parsed_parts,
-            new_code=self._code_text(),
-            save_as_plain=save_as_plain,
-            data_binding_text=binding,
-            code_cell=self._code_cell if follow else None,
-            code_ref=self._code_ref if follow else None,
-        )
+        outcome = _apply_cell_save(self._doc, self._cell, parsed_parts=self._parsed_parts, new_code=self._code_text(), save_as_plain=save_as_plain, data_binding_text=binding, code_cell=self._code_cell if follow else None, code_ref=self._code_ref if follow else None)
         if outcome.get("type") == "error":
             self._set_status(str(outcome.get("message") or _("Error")))
             return
@@ -304,13 +259,8 @@ class NativePythonCellEditorDialog:
         try:
             dlg, load_detail = load_writeragent_dialog_detail("PythonCellEditorDialog", self._ctx)
             if dlg is None:
-                log.error(
-                    "NativePythonCellEditorDialog: XDL load failed:\n%s",
-                    load_detail or "(no load detail captured)",
-                )
-                self._open_failure_detail = load_detail or _(
-                    "PythonCellEditorDialog could not be loaded from the extension."
-                )
+                log.error("NativePythonCellEditorDialog: XDL load failed:\n%s", load_detail or "(no load detail captured)")
+                self._open_failure_detail = load_detail or _("PythonCellEditorDialog could not be loaded from the extension.")
                 self.close()
                 return False
             self._dlg = dlg
@@ -407,16 +357,7 @@ class NativePythonCellEditorDialog:
                     log.debug("native cell editor: addTextListener %s failed", name, exc_info=True)
 
 
-def show_native_python_cell_editor(
-    ctx: Any,
-    *,
-    doc: Any,
-    cell: Any,
-    initial_code: str,
-    parsed_parts: Any,
-    code_cell: Any | None = None,
-    code_ref: str | None = None,
-) -> tuple[bool, str | None]:
+def show_native_python_cell_editor(ctx: Any, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> tuple[bool, str | None]:
     """Open or retarget the native cell editor. Returns (opened, failure_detail)."""
     global _active
     if _active is not None and _active.is_open:
@@ -430,24 +371,9 @@ def show_native_python_cell_editor(
                 _active._save()
                 if _active._dirty:
                     return True, None
-        _active.retarget(
-            doc=doc,
-            cell=cell,
-            initial_code=initial_code,
-            parsed_parts=parsed_parts,
-            code_cell=code_cell,
-            code_ref=code_ref,
-        )
+        _active.retarget(doc=doc, cell=cell, initial_code=initial_code, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
         return True, None
-    inst = NativePythonCellEditorDialog(
-        ctx,
-        doc=doc,
-        cell=cell,
-        initial_code=initial_code,
-        parsed_parts=parsed_parts,
-        code_cell=code_cell,
-        code_ref=code_ref,
-    )
+    inst = NativePythonCellEditorDialog(ctx, doc=doc, cell=cell, initial_code=initial_code, parsed_parts=parsed_parts, code_cell=code_cell, code_ref=code_ref)
     if inst._opened:
         _active = inst
         return True, None

@@ -22,21 +22,11 @@ if _this not in sys.path:
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
-ensure_plugin_on_path(
-    __file__,
-    levels_up=4,
-    also_add_plugin_dir=True,
-    also_add_lib=True,
-    also_add_vendor=True,
-)
+ensure_plugin_on_path(__file__, levels_up=4, also_add_plugin_dir=True, also_add_lib=True, also_add_vendor=True)
 
 import unohelper  # noqa: E402
 
 from plugin.calc.python.addin_impl import IMPL_NAME, PythonFunction  # noqa: E402
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
-g_ImplementationHelper.addImplementation(
-    PythonFunction,
-    IMPL_NAME,
-    ("com.sun.star.sheet.AddIn",),
-)
+g_ImplementationHelper.addImplementation(PythonFunction, IMPL_NAME, ("com.sun.star.sheet.AddIn",))

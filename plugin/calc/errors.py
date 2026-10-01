@@ -67,4 +67,3 @@ class DetectErrors(ToolCalcErrorBase):
         else:
             result = error_detector.detect_and_explain(range_str=None)
             return {"status": "ok", "result": result}
-

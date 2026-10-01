@@ -22,13 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from plugin.calc.address_utils import column_to_index, index_to_column
-from plugin.calc.python.formula_edit import (
-    _py_call_open_end,
-    format_data_binding_display,
-    parse_data_binding_text,
-    parse_python_formula,
-    py_formula_has_unquoted_code_ref,
-)
+from plugin.calc.python.formula_edit import _py_call_open_end, format_data_binding_display, parse_data_binding_text, parse_python_formula, py_formula_has_unquoted_code_ref
 from plugin.framework.errors import CalcError
 
 
@@ -36,12 +30,7 @@ from plugin.framework.errors import CalcError
 _MAX_COL = 16383  # XFD
 _MAX_ROW = 1_048_575  # 0-based last row of 1048576
 
-_TWOD_FORMULA_MSG = (
-    "A single formula cannot fill a 2-D range ({rows}×{cols}). "
-    "Use a 1-column or 1-row range for fill-down/across "
-    "(relative A1 refs adjust per cell), or pass an explicit array "
-    "with one value per cell."
-)
+_TWOD_FORMULA_MSG = "A single formula cannot fill a 2-D range ({rows}×{cols}). Use a 1-column or 1-row range for fill-down/across (relative A1 refs adjust per cell), or pass an explicit array with one value per cell."
 
 
 @dataclass(frozen=True)
@@ -86,11 +75,7 @@ class _Ref:
             return "ambiguous"
         if left != right:
             return "multi_row"
-        if self.end is None or (
-            self.start.col is not None
-            and self.end.col is not None
-            and self.start.col == self.end.col
-        ):
+        if self.end is None or (self.start.col is not None and self.end.col is not None and self.start.col == self.end.col):
             return "single_cell"
         return "same_row"
 

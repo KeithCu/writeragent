@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Formula dependency chain for Calc error diagnosis (``.uno:FormulaDepChain`` + fallback)."""
 
-
 # crosshair: off
 from __future__ import annotations
 

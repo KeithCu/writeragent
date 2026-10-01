@@ -43,18 +43,13 @@ class ToolCalcSpecialBase(ToolBase):
 
 class ToolCalcImageBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "images"
-    specialized_domain_description: ClassVar[str | None] = (
-        "Image manipulation and insertion in spreadsheets; image_list_nearby_files for folder discovery, "
-        "image_list for in-sheet graphics; edit a selected image with image_generate(source_image='selection')."
-    )
+    specialized_domain_description: ClassVar[str | None] = "Image manipulation and insertion in spreadsheets; image_list_nearby_files for folder discovery, image_list for in-sheet graphics; edit a selected image with image_generate(source_image='selection')."
     intent: str | None = "media"
 
 
 class ToolCalcVisionBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "vision"
-    specialized_domain_description: ClassVar[str | None] = (
-        "Extract text and structure (layout, tables) from embedded sheet graphics; extract_structure_from_image."
-    )
+    specialized_domain_description: ClassVar[str | None] = "Extract text and structure (layout, tables) from embedded sheet graphics; extract_structure_from_image."
     intent: str | None = "media"
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()
 
@@ -83,6 +78,7 @@ class ToolCalcConditionalBase(ToolCalcSpecialBase):
 
 class ToolCalcSheetBase(ToolCalcSpecialBase):
     """Base for sheet operations and sheet filtering (AutoFilter)."""
+
     specialized_domain: ClassVar[str | None] = "sheets"
     specialized_domain_description: ClassVar[str | None] = "Create, list, switch, protect, rename, and delete sheets; apply/clear AutoFilter operations."
     intent: str | None = "edit"
@@ -98,9 +94,7 @@ class ToolCalcChartBase(ToolCalcSpecialBase):
     """Charts domain (``manage_charts``); shared implementation also serves Writer/Draw via union ``uno_services`` on the concrete tool."""
 
     specialized_domain: ClassVar[str | None] = "charts"
-    specialized_domain_description: ClassVar[str | None] = (
-        "Create and edit charts on the active sheet or embedded chart in the document."
-    )
+    specialized_domain_description: ClassVar[str | None] = "Create and edit charts on the active sheet or embedded chart in the document."
     intent: str | None = "edit"
 
 
@@ -144,6 +138,7 @@ class ToolCalcErrorBase(ToolCalcSpecialBase):
 
 class ToolCalcSpecialTracking(ToolCalcSpecialBase):
     """Track changes (shared tool classes with Writer via multiple inheritance)."""
+
     specialized_domain: ClassVar[str | None] = "tracking"
     specialized_domain_description: ClassVar[str | None] = "Manage and review tracked changes in the spreadsheet."
     intent: str | None = "review"
@@ -153,8 +148,6 @@ class ToolCalcPythonBase(ToolCalcSpecialBase):
     """External venv Python (numpy/pandas stack); marker for delegation prompts."""
 
     specialized_domain: ClassVar[str | None] = "python"
-    specialized_domain_description: ClassVar[str | None] = (
-        "Run Python in the user-configured venv (subprocess). Assign output to variable `result` for JSON return."
-    )
+    specialized_domain_description: ClassVar[str | None] = "Run Python in the user-configured venv (subprocess). Assign output to variable `result` for JSON return."
     intent: str | None = "analyze"
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()

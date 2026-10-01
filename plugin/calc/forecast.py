@@ -56,10 +56,7 @@ class ForecastDataTool(ToolBaseDummy):
             props = cast("dict[str, Any]", p["properties"])
             props.pop("data", None)
             if "data_range" in props:
-                props["data_range"]["description"] = (
-                    "A1 range address (e.g. 'Sheet1.A1:D1000'). This is the only way "
-                    "to supply data. The host extracts the values out-of-band."
-                )
+                props["data_range"]["description"] = "A1 range address (e.g. 'Sheet1.A1:D1000'). This is the only way to supply data. The host extracts the values out-of-band."
         return p
 
     def is_async(self) -> bool:
@@ -74,10 +71,7 @@ class ForecastDataTool(ToolBaseDummy):
         data = kwargs.get("data")
 
         if getattr(ctx, "active_domain", None) in ("analysis", "forecast") and data is not None:
-            return self._tool_error(
-                "analysis/forecast domain requires data_range (A1 address string) only. "
-                "Do not pass raw data values — the host must resolve the range out-of-band."
-            )
+            return self._tool_error("analysis/forecast domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
 
         if not (data_range and str(data_range).strip()) and data is None:
             return self._tool_error("Provide data_range or data")
@@ -93,16 +87,7 @@ class ForecastDataTool(ToolBaseDummy):
         output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
         def _run() -> dict[str, Any]:
-            return run_trusted_forecast(
-                ctx.ctx,
-                ctx.doc,
-                helper=helper,
-                params=params,
-                data_range=dr,
-                data=data,
-                headers=headers,
-                task_hint=task_hint,
-            )
+            return run_trusted_forecast(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
 
         try:
             result = execute_on_main_thread(_run)
@@ -112,6 +97,7 @@ class ForecastDataTool(ToolBaseDummy):
             return self._tool_error(f"Failed to run forecast: {exc}")
 
         if output_range and result.get("status") == "ok":
+
             def _write() -> None:
                 cell_part = output_range.rsplit(".", 1)[-1] if output_range else output_range
                 col, row = parse_address(cell_part)
@@ -131,16 +117,7 @@ class ForecastDataTool(ToolBaseDummy):
             if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
 
                 def _auto_plot() -> dict[str, Any] | None:
-                    return run_auto_plot_after_forecast(
-                        ctx.ctx,
-                        ctx.doc,
-                        forecast_helper=helper,
-                        forecast_result=result,
-                        forecast_params=params,
-                        data_range=dr,
-                        auto_plot=auto_plot,
-                        task_hint=task_hint,
-                    )
+                    return run_auto_plot_after_forecast(ctx.ctx, ctx.doc, forecast_helper=helper, forecast_result=result, forecast_params=params, data_range=dr, auto_plot=auto_plot, task_hint=task_hint)
 
                 plot_result = execute_on_main_thread(_auto_plot)
             if plot_result is not None:

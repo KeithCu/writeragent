@@ -37,23 +37,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
-from plugin.calc.address_utils import (
-    index_to_column,
-    parse_address,
-    parse_range_string,
-    split_sheet_prefix,
-)
+from plugin.calc.address_utils import index_to_column, parse_address, parse_range_string, split_sheet_prefix
 from plugin.calc.calc_addin_data import split_python_addin_data_args
 from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
-from plugin.calc.python.formula_edit import (
-    escape_code_for_excel_formula,
-    format_data_binding_display,
-    format_py_data_range,
-    parse_data_binding_text,
-    parse_python_formula,
-    py_code_arg_is_cell_ref,
-    py_formula_has_unquoted_code_ref,
-)
+from plugin.calc.python.formula_edit import escape_code_for_excel_formula, format_data_binding_display, format_py_data_range, parse_data_binding_text, parse_python_formula, py_code_arg_is_cell_ref, py_formula_has_unquoted_code_ref
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -278,20 +265,10 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
 
 def geometric_cap_hit_user_message(sheet_name: str) -> str:
     """User-facing text when a sheet is left unchained. Users do not read logfiles."""
-    return _(
-        "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more Python "
-        "cells (discovery cap). The sheet was left unchained so a partial "
-        "list is not treated as complete."
-    ) % {"sheet": sheet_name, "cap": GEOMETRIC_DISCOVERY_CAP}
+    return _("Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more Python cells (discovery cap). The sheet was left unchained so a partial list is not treated as complete.") % {"sheet": sheet_name, "cap": GEOMETRIC_DISCOVERY_CAP}
 
 
-def notify_geometric_cap_hit(
-    ctx: Any,
-    sheet_name: str,
-    *,
-    already_notified: set[str] | None = None,
-    workbook_key: str = "",
-) -> bool:
+def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, already_notified: set[str] | None = None, workbook_key: str = "") -> bool:
     """Log the skip and show one message box per sheet. UI thread only.
 
     Returns True when a box was shown. A second call for the same sheet name
@@ -330,12 +307,7 @@ def notify_geometric_cap_hit(
     return True
 
 
-def _plan_action(
-    *,
-    desired: str | None,
-    data_args: list[str],
-    record: GeometricRecord | None,
-) -> tuple[Literal["append", "replace", "remove", "noop"], list[str]]:
+def _plan_action(*, desired: str | None, data_args: list[str], record: GeometricRecord | None) -> tuple[Literal["append", "replace", "remove", "noop"], list[str]]:
     last = data_args[-1] if data_args else None
     last_is_cell = last is not None and is_single_cell_arg(last)
 
@@ -352,12 +324,7 @@ def _plan_action(
         # the old address.
         return "noop", data_args
 
-    if (
-        record is not None
-        and last_is_cell
-        and last is not None
-        and same_cell_ref(last, record.predecessor)
-    ):
+    if record is not None and last_is_cell and last is not None and same_cell_ref(last, record.predecessor):
         return "replace", data_args[:-1] + [desired]
 
     return "append", data_args + [desired]
@@ -378,12 +345,7 @@ def _a1_shift(address: str, dcol: int, drow: int) -> str | None:
         return None
 
 
-def _rule2_candidate_score(
-    old: str,
-    rec: GeometricRecord,
-    live: str,
-    desired: str,
-) -> tuple[int, int] | None:
+def _rule2_candidate_score(old: str, rec: GeometricRecord, live: str, desired: str) -> tuple[int, int] | None:
     """``pred + (live − old)`` equals *desired* — the cell moved with its formula."""
     try:
         ocol, orow = parse_address(local_a1(old))
@@ -399,13 +361,7 @@ def _rule2_candidate_score(
     return None
 
 
-def _rehome_candidate_score(
-    old: str,
-    rec: GeometricRecord,
-    live: str,
-    desired: str,
-    live_keys: set[str],
-) -> tuple[int, int] | None:
+def _rehome_candidate_score(old: str, rec: GeometricRecord, live: str, desired: str, live_keys: set[str]) -> tuple[int, int] | None:
     """Match a homeless incoming record to a live noop cell. Lower is better.
 
     Rule 2 (0, absdelta): ``pred + (live - old)`` equals *desired* — the cell
@@ -423,12 +379,7 @@ def _rehome_candidate_score(
     return None
 
 
-def _incoming_is_displaced(
-    old: str,
-    rec: GeometricRecord,
-    live_keys: set[str],
-    desired_by_key: Mapping[str, str | None],
-) -> bool:
+def _incoming_is_displaced(old: str, rec: GeometricRecord, live_keys: set[str], desired_by_key: Mapping[str, str | None]) -> bool:
     """True when *old* is gone, first in the list, or pred ≠ that cell's desired."""
     if old not in live_keys:
         return True
@@ -438,12 +389,7 @@ def _incoming_is_displaced(
     return not same_cell_ref(rec.predecessor, live_desired)
 
 
-def _collect_rule2_claimed(
-    cells: list[GeometricCell],
-    incoming: Mapping[str, GeometricRecord],
-    live_keys: set[str],
-    desired_by_key: Mapping[str, str | None],
-) -> set[str]:
+def _collect_rule2_claimed(cells: list[GeometricCell], incoming: Mapping[str, GeometricRecord], live_keys: set[str], desired_by_key: Mapping[str, str | None]) -> set[str]:
     """Incoming keys a row/col delta will move. Assigned in sheet order.
 
     Only gone / pred-mismatched records are eligible. A live successor whose
@@ -479,12 +425,7 @@ def _collect_rule2_claimed(
     return claimed
 
 
-def _record_is_homeless(
-    old: str,
-    live_keys: set[str],
-    evicted: set[str],
-    rule2_claimed: set[str],
-) -> bool:
+def _record_is_homeless(old: str, live_keys: set[str], evicted: set[str], rule2_claimed: set[str]) -> bool:
     """Gone, rule-2 moved, or overwritten. Live unclaimed keys stay for in-place.
 
     Stale incoming pred (undo ``A3→A1`` while the formula is already ``;A2``)
@@ -496,18 +437,7 @@ def _record_is_homeless(
     return old in rule2_claimed
 
 
-def _rehome_or_keep_record(
-    working: dict[str, GeometricRecord],
-    incoming: Mapping[str, GeometricRecord],
-    live_keys: set[str],
-    key: str,
-    desired: str | None,
-    data_args: list[str],
-    *,
-    consumed: set[str],
-    evicted: set[str],
-    rule2_claimed: set[str],
-) -> None:
+def _rehome_or_keep_record(working: dict[str, GeometricRecord], incoming: Mapping[str, GeometricRecord], live_keys: set[str], key: str, desired: str | None, data_args: list[str], *, consumed: set[str], evicted: set[str], rule2_claimed: set[str]) -> None:
     """Keep a true live record, or rehome a homeless one after a row/col move.
 
     ``last == desired`` is a formula no-op. Do **not** bind ``working[key]``
@@ -539,21 +469,13 @@ def _rehome_or_keep_record(
             chosen, best = old, score
     if chosen is None:
         incoming_here = incoming.get(key)
-        if (
-            incoming_here is not None
-            and key not in consumed
-            and key not in evicted
-        ):
+        if incoming_here is not None and key not in consumed and key not in evicted:
             # Live-key record stays (pred may be stale after undo). Align
             # pred with the already-correct formula so later remove-field
             # still sees an ours marker.
             working[key] = GeometricRecord(predecessor=desired)
         else:
-            log.debug(
-                "geometric_recalc: no homeless match for %s (desired %s); not recording",
-                key,
-                desired,
-            )
+            log.debug("geometric_recalc: no homeless match for %s (desired %s); not recording", key, desired)
         return
     consumed.add(chosen)
     # Pop only while working[chosen] is still the incoming record. A prior
@@ -567,20 +489,10 @@ def _rehome_or_keep_record(
         # (4-cell: A4→A3 is displaced onto A5 after A3 claims A4).
         evicted.add(key)
     working[key] = GeometricRecord(predecessor=desired)
-    log.debug(
-        "geometric_recalc: rehomed attach record %s -> %s (pred %s)",
-        chosen,
-        key,
-        desired,
-    )
+    log.debug("geometric_recalc: rehomed attach record %s -> %s (pred %s)", chosen, key, desired)
 
 
-def compute_eval_index(
-    cells: list[GeometricCell],
-    formulas: Mapping[str, str],
-    records: Mapping[str, GeometricRecord],
-    workbook_key: str,
-) -> frozenset[EvalIndexKey]:
+def compute_eval_index(cells: list[GeometricCell], formulas: Mapping[str, str], records: Mapping[str, GeometricRecord], workbook_key: str) -> frozenset[EvalIndexKey]:
     """Strip-safe iff every discovered cell with that triple is in the map."""
     groups: dict[EvalIndexKey, list[str]] = {}
     for cell in cells:
@@ -598,14 +510,7 @@ def compute_eval_index(
     return frozenset(safe)
 
 
-def should_strip_eval_args(
-    *,
-    workbook_key: str | None,
-    resolved_code: str,
-    n_args: int,
-    strip_safe: Mapping[EvalIndexKey, bool] | frozenset[EvalIndexKey],
-    unambiguous: bool,
-) -> bool:
+def should_strip_eval_args(*, workbook_key: str | None, resolved_code: str, n_args: int, strip_safe: Mapping[EvalIndexKey, bool] | frozenset[EvalIndexKey], unambiguous: bool) -> bool:
     """Eval gate: strip only when the session is unambiguous and the triple is ours."""
     if not unambiguous or not workbook_key:
         return False
@@ -615,14 +520,7 @@ def should_strip_eval_args(
     return bool(strip_safe.get(key, False))
 
 
-def compute_sheet_repair(
-    cells: list[GeometricCell],
-    records: Mapping[str, GeometricRecord] | None = None,
-    *,
-    workbook_key: str,
-    sheet_name: str = "",
-    truncated: bool = False,
-) -> SheetRepairResult:
+def compute_sheet_repair(cells: list[GeometricCell], records: Mapping[str, GeometricRecord] | None = None, *, workbook_key: str, sheet_name: str = "", truncated: bool = False) -> SheetRepairResult:
     """List-diff + splice + eval-index for one sheet. No UNO.
 
     *cells* must already be row-major. Cap-hit (*truncated*) skips the whole
@@ -632,15 +530,7 @@ def compute_sheet_repair(
     incoming = {cell_map_key(k): v for k, v in dict(records or {}).items()}
     if discovery_cap_hit(len(cells), truncated=truncated):
         message = geometric_cap_hit_user_message(sheet_name or "?")
-        return SheetRepairResult(
-            skipped=True,
-            skip_reason="discovery_cap",
-            patches=(),
-            records=dict(incoming),
-            strip_safe=frozenset(),
-            user_message=message,
-            sheet_name=sheet_name,
-        )
+        return SheetRepairResult(skipped=True, skip_reason="discovery_cap", patches=(), records=dict(incoming), strip_safe=frozenset(), user_message=message, sheet_name=sheet_name)
 
     working = dict(incoming)
     patches: list[GeometricPatch] = []
@@ -648,16 +538,12 @@ def compute_sheet_repair(
     live_keys = {cell_map_key(cell.address) for cell in cells}
     desired_by_key: dict[str, str | None] = {}
     for i, cell in enumerate(cells):
-        desired_by_key[cell_map_key(cell.address)] = (
-            local_a1(cells[i - 1].address) if i > 0 else None
-        )
+        desired_by_key[cell_map_key(cell.address)] = local_a1(cells[i - 1].address) if i > 0 else None
     consumed: set[str] = set()
     evicted: set[str] = set()
     # Rule-2 targets first so a live stale pred (undo A3→A1) is not left
     # homeless for rule 1. 3+/4-cell row insert still moves claimed keys.
-    rule2_claimed = _collect_rule2_claimed(
-        cells, incoming, live_keys, desired_by_key
-    )
+    rule2_claimed = _collect_rule2_claimed(cells, incoming, live_keys, desired_by_key)
 
     for i, cell in enumerate(cells):
         data_args = formula_data_args(cell.formula)
@@ -667,41 +553,21 @@ def compute_sheet_repair(
         key = cell_map_key(cell.address)
         planned: tuple[Literal["append", "replace", "remove", "noop"], list[str]]
         if desired is not None:
-            pred_formula = new_formulas.get(
-                cells[i - 1].address, cells[i - 1].formula
-            )
+            pred_formula = new_formulas.get(cells[i - 1].address, cells[i - 1].formula)
             if formula_mentions_cell(pred_formula, cell.address):
                 # A1 already names A2 → attaching ;A1 onto A2 is Err:522.
                 record = working.get(key)
                 last = data_args[-1] if data_args else None
-                last_is_ours = (
-                    record is not None
-                    and last
-                    and is_single_cell_arg(last)
-                    and same_cell_ref(last, record.predecessor)
-                )
+                last_is_ours = record is not None and last and is_single_cell_arg(last) and same_cell_ref(last, record.predecessor)
                 if last_is_ours:
                     planned = ("remove", data_args[:-1])
                 else:
-                    log.debug(
-                        "geometric_recalc: skip attach %s onto %s "
-                        "(predecessor already refs successor; Err:522)",
-                        desired,
-                        key,
-                    )
+                    log.debug("geometric_recalc: skip attach %s onto %s (predecessor already refs successor; Err:522)", desired, key)
                     continue
             else:
-                planned = _plan_action(
-                    desired=desired,
-                    data_args=data_args,
-                    record=working.get(key),
-                )
+                planned = _plan_action(desired=desired, data_args=data_args, record=working.get(key))
         else:
-            planned = _plan_action(
-                desired=desired,
-                data_args=data_args,
-                record=working.get(key),
-            )
+            planned = _plan_action(desired=desired, data_args=data_args, record=working.get(key))
         action, new_args = planned
         if action == "noop":
             # Row insert that only moves PY cells: Calc already rewrote the
@@ -710,30 +576,12 @@ def compute_sheet_repair(
             # stayed at A2 (orphan) and unanimous-ours / replace went wrong.
             # Rehome when the old key is gone or rule-2 claimed. Do not invent
             # a record when the user authored the previous PY as real data (§9.5).
-            _rehome_or_keep_record(
-                working,
-                incoming,
-                live_keys,
-                key,
-                desired,
-                data_args,
-                consumed=consumed,
-                evicted=evicted,
-                rule2_claimed=rule2_claimed,
-            )
+            _rehome_or_keep_record(working, incoming, live_keys, key, desired, data_args, consumed=consumed, evicted=evicted, rule2_claimed=rule2_claimed)
             continue
         new_formula = rebuild_formula_with_data_args(cell.formula, new_args)
         if new_formula is None or new_formula == cell.formula:
             continue
-        patches.append(
-            GeometricPatch(
-                address=cell.address,
-                old_formula=cell.formula,
-                new_formula=new_formula,
-                action=action,
-                predecessor=desired,
-            )
-        )
+        patches.append(GeometricPatch(address=cell.address, old_formula=cell.formula, new_formula=new_formula, action=action, predecessor=desired))
         new_formulas[cell.address] = new_formula
         if action == "remove":
             working.pop(key, None)
@@ -744,14 +592,7 @@ def compute_sheet_repair(
     working = {addr: rec for addr, rec in working.items() if addr in live_keys}
 
     strip_safe = compute_eval_index(cells, new_formulas, working, workbook_key)
-    return SheetRepairResult(
-        skipped=False,
-        skip_reason=None,
-        patches=tuple(patches),
-        records=working,
-        strip_safe=strip_safe,
-        sheet_name=sheet_name,
-    )
+    return SheetRepairResult(skipped=False, skip_reason=None, patches=tuple(patches), records=working, strip_safe=strip_safe, sheet_name=sheet_name)
 
 
 # ---------------------------------------------------------------------------
@@ -840,24 +681,12 @@ def replace_geometric_strip_safe(workbook_key: str, safe: frozenset[EvalIndexKey
 
 def records_for_sheet(workbook_key: str, sheet_name: str) -> dict[str, GeometricRecord]:
     with _GEOMETRIC_LOCK:
-        return {
-            addr: rec
-            for (wk, sheet, addr), rec in GEOMETRIC_RECORDS.items()
-            if wk == workbook_key and sheet == sheet_name
-        }
+        return {addr: rec for (wk, sheet, addr), rec in GEOMETRIC_RECORDS.items() if wk == workbook_key and sheet == sheet_name}
 
 
-def replace_records_for_sheet(
-    workbook_key: str,
-    sheet_name: str,
-    records: Mapping[str, GeometricRecord],
-) -> None:
+def replace_records_for_sheet(workbook_key: str, sheet_name: str, records: Mapping[str, GeometricRecord]) -> None:
     with _GEOMETRIC_LOCK:
-        stale = [
-            key
-            for key in GEOMETRIC_RECORDS
-            if key[0] == workbook_key and key[1] == sheet_name
-        ]
+        stale = [key for key in GEOMETRIC_RECORDS if key[0] == workbook_key and key[1] == sheet_name]
         for key in stale:
             GEOMETRIC_RECORDS.pop(key, None)
         for addr, rec in records.items():
@@ -897,9 +726,7 @@ def load_geometric_registry_for_doc(doc: Any) -> str:
                         predecessor = pred.get("predecessor", "")
                     if not predecessor:
                         continue
-                    GEOMETRIC_RECORDS[
-                        (workbook_key, str(sheet_name), cell_map_key(str(addr)))
-                    ] = GeometricRecord(predecessor=local_a1(str(predecessor)))
+                    GEOMETRIC_RECORDS[(workbook_key, str(sheet_name), cell_map_key(str(addr)))] = GeometricRecord(predecessor=local_a1(str(predecessor)))
         GEOMETRIC_LOADED.add(workbook_key)
     except Exception:
         log.exception("Failed to load geometric registry from document property")
@@ -918,11 +745,7 @@ def save_geometric_registry_for_doc(doc: Any, workbook_key: str) -> None:
                 if wk != workbook_key:
                     continue
                 sheets.setdefault(sheet, {})[addr] = rec.predecessor
-        set_document_property(
-            doc,
-            GEOMETRIC_REGISTRY_PROP,
-            json.dumps({"workbook_key": workbook_key, "sheets": sheets}),
-        )
+        set_document_property(doc, GEOMETRIC_REGISTRY_PROP, json.dumps({"workbook_key": workbook_key, "sheets": sheets}))
     except Exception:
         log.exception("Failed to save geometric registry to document property")
 
@@ -944,12 +767,7 @@ def clear_in_memory_geometric_state(*, workbook_key: str = "") -> None:
         _STRIP_SAFE = frozenset()
 
 
-def maybe_strip_geometric_eval_args(
-    resolved_code: str,
-    args: list[Any],
-    *,
-    doc: Any = None,
-) -> list[Any]:
+def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any], *, doc: Any = None) -> list[Any]:
     """Drop the last split arg when the triple is strip-safe.
 
     Must run after ``split_python_addin_data_args`` and before
@@ -965,10 +783,7 @@ def maybe_strip_geometric_eval_args(
     if not args:
         return args
     from plugin.framework.thread_guard import on_main_thread
-    from plugin.scripting.session_manager import (
-        get_cached_calc_session_id,
-        off_main_calc_session_is_unambiguous,
-    )
+    from plugin.scripting.session_manager import get_cached_calc_session_id, off_main_calc_session_is_unambiguous
 
     workbook_key: str | None = None
     unambiguous = False
@@ -980,13 +795,7 @@ def maybe_strip_geometric_eval_args(
     else:
         unambiguous = off_main_calc_session_is_unambiguous()
         workbook_key = get_cached_calc_session_id() if unambiguous else None
-    if not should_strip_eval_args(
-        workbook_key=workbook_key,
-        resolved_code=resolved_code,
-        n_args=len(args),
-        strip_safe=current_geometric_strip_safe(),
-        unambiguous=unambiguous,
-    ):
+    if not should_strip_eval_args(workbook_key=workbook_key, resolved_code=resolved_code, n_args=len(args), strip_safe=current_geometric_strip_safe(), unambiguous=unambiguous):
         return args
     return args[:-1]
 
@@ -1025,9 +834,7 @@ def _resolved_code_for_discovered(doc: Any, sheet: Any, formula: str) -> str:
     return resolved_code_for_formula(canon)
 
 
-def geometric_cells_on_sheet(
-    doc: Any, sheet: Any
-) -> tuple[list[GeometricCell], str, bool]:
+def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell], str, bool]:
     """Discover one sheet as Phase 1 cells. Address is local A1 (per-sheet map).
 
     Third value is discovery ``truncated`` — cap-hit skip uses this, not
@@ -1040,14 +847,7 @@ def geometric_cells_on_sheet(
         name = str(sheet.getName() or "") or "Sheet"
     except Exception:
         name = "Sheet"
-    cells = [
-        GeometricCell(
-            address=local_a1(info.address),
-            formula=info.formula,
-            resolved_code=_resolved_code_for_discovered(doc, sheet, info.formula),
-        )
-        for info in discovery.cells
-    ]
+    cells = [GeometricCell(address=local_a1(info.address), formula=info.formula, resolved_code=_resolved_code_for_discovered(doc, sheet, info.formula)) for info in discovery.cells]
     return cells, name, discovery.truncated
 
 
@@ -1114,13 +914,7 @@ def _apply_patches_to_sheet(sheet: Any, patches: tuple[GeometricPatch, ...]) -> 
     return applied
 
 
-def _rebuild_strip_safe_from_doc(
-    ctx: Any,
-    doc: Any,
-    workbook_key: str,
-    *,
-    already_notified: set[str] | None = None,
-) -> None:
+def _rebuild_strip_safe_from_doc(ctx: Any, doc: Any, workbook_key: str, *, already_notified: set[str] | None = None) -> None:
     """Workbook-wide unanimous-ours. Cap-hit sheets are omitted (cannot prove)."""
     all_cells: list[GeometricCell] = []
     all_formulas: dict[str, str] = {}
@@ -1128,45 +922,22 @@ def _rebuild_strip_safe_from_doc(
     for sheet in _iter_sheets(doc):
         cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
         if discovery_cap_hit(len(cells), truncated=truncated):
-            notify_geometric_cap_hit(
-                ctx, name, already_notified=already_notified, workbook_key=workbook_key
-            )
+            notify_geometric_cap_hit(ctx, name, already_notified=already_notified, workbook_key=workbook_key)
             continue
         for cell in cells:
             scoped = f"{name}:{cell_map_key(cell.address)}"
-            all_cells.append(
-                GeometricCell(scoped, cell.formula, cell.resolved_code)
-            )
+            all_cells.append(GeometricCell(scoped, cell.formula, cell.resolved_code))
             all_formulas[scoped] = cell.formula
         for addr, rec in records_for_sheet(workbook_key, name).items():
             all_records[f"{name}:{addr}"] = rec
-    replace_geometric_strip_safe(
-        workbook_key,
-        compute_eval_index(all_cells, all_formulas, all_records, workbook_key),
-    )
+    replace_geometric_strip_safe(workbook_key, compute_eval_index(all_cells, all_formulas, all_records, workbook_key))
 
 
-def _repair_one_sheet(
-    ctx: Any,
-    doc: Any,
-    sheet: Any,
-    workbook_key: str,
-    *,
-    apply_patches: bool,
-    already_notified: set[str] | None = None,
-) -> SheetRepairResult:
+def _repair_one_sheet(ctx: Any, doc: Any, sheet: Any, workbook_key: str, *, apply_patches: bool, already_notified: set[str] | None = None) -> SheetRepairResult:
     cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
-    result = compute_sheet_repair(
-        cells,
-        records_for_sheet(workbook_key, name),
-        workbook_key=workbook_key,
-        sheet_name=name,
-        truncated=truncated,
-    )
+    result = compute_sheet_repair(cells, records_for_sheet(workbook_key, name), workbook_key=workbook_key, sheet_name=name, truncated=truncated)
     if result.skipped:
-        notify_geometric_cap_hit(
-            ctx, name, already_notified=already_notified, workbook_key=workbook_key
-        )
+        notify_geometric_cap_hit(ctx, name, already_notified=already_notified, workbook_key=workbook_key)
         return result
     if apply_patches and result.patches:
         _apply_patches_to_sheet(sheet, result.patches)
@@ -1179,11 +950,7 @@ def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = F
     global _GEOMETRIC_REPAIRING
     if doc is None or _GEOMETRIC_REPAIRING:
         return
-    workbook_key = (
-        record_geometric_calc_session(doc)
-        if already_loaded
-        else load_geometric_registry_for_doc(doc)
-    )
+    workbook_key = record_geometric_calc_session(doc) if already_loaded else load_geometric_registry_for_doc(doc)
     _GEOMETRIC_REPAIRING = True
     try:
         from plugin.calc.python.function import _undo_lock
@@ -1192,13 +959,7 @@ def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = F
         with _undo_lock(doc):
             for sheet in _iter_sheets(doc):
                 ensure_sheet_modify_listener(ctx, doc, sheet)
-                _repair_one_sheet(
-                    ctx,
-                    doc,
-                    sheet,
-                    workbook_key,
-                    apply_patches=True,
-                )
+                _repair_one_sheet(ctx, doc, sheet, workbook_key, apply_patches=True)
             save_geometric_registry_for_doc(doc, workbook_key)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
     finally:
@@ -1218,13 +979,7 @@ def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any) -> None:
 
         ensure_sheet_modify_listener(ctx, doc, sheet)
         with _undo_lock(doc):
-            _repair_one_sheet(
-                ctx,
-                doc,
-                sheet,
-                workbook_key,
-                apply_patches=True,
-            )
+            _repair_one_sheet(ctx, doc, sheet, workbook_key, apply_patches=True)
             save_geometric_registry_for_doc(doc, workbook_key)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
     finally:

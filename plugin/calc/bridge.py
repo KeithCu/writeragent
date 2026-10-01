@@ -25,13 +25,7 @@ plugin framework.
 import logging
 from typing import Any
 
-from plugin.calc.address_utils import (
-    column_to_index,
-    index_to_column,
-    parse_address,
-    parse_range_string,
-    split_sheet_prefix,
-)
+from plugin.calc.address_utils import column_to_index, index_to_column, parse_address, parse_range_string, split_sheet_prefix
 
 log = logging.getLogger("writeragent.calc")
 
@@ -95,9 +89,7 @@ class CalcBridge:
         sheets = self.doc.getSheets()
         if not sheets.hasByName(name):
             available = filter_agent_sheet_names(sheets.getElementNames())
-            raise ValueError(
-                "No sheet named '%s'. Available: %s" % (name, ", ".join(available))
-            )
+            raise ValueError("No sheet named '%s'. Available: %s" % (name, ", ".join(available)))
         return sheets.getByName(name)
 
     def resolve(self, ref: str, sheet_name: str | None = None) -> tuple[Any, str]:
@@ -109,10 +101,7 @@ class CalcBridge:
         """
         prefix, address = split_sheet_prefix(ref)
         if prefix is not None and sheet_name and prefix != sheet_name:
-            raise ValueError(
-                "Reference names sheet '%s' but sheet_name says '%s' — "
-                "pass one or the other." % (prefix, sheet_name)
-            )
+            raise ValueError("Reference names sheet '%s' but sheet_name says '%s' — pass one or the other." % (prefix, sheet_name))
         name = prefix or sheet_name
         sheet = self.get_sheet(name) if name else self.get_active_sheet()
         return sheet, address
@@ -210,9 +199,4 @@ class CalcBridge:
     @staticmethod
     def _range_to_str(range_addr: Any) -> str:
         """Convert a CellRangeAddress to a string."""
-        return "%s%d:%s%d" % (
-            index_to_column(range_addr.StartColumn),
-            range_addr.StartRow + 1,
-            index_to_column(range_addr.EndColumn),
-            range_addr.EndRow + 1,
-        )
+        return "%s%d:%s%d" % (index_to_column(range_addr.StartColumn), range_addr.StartRow + 1, index_to_column(range_addr.EndColumn), range_addr.EndRow + 1)

@@ -45,6 +45,7 @@ _NAME_TO_CODE: dict[str, int] = {name: idx for idx, name in enumerate(_FILTER_OP
 # Stable tuple of all FilterOperator2 names (for tool JSON schemas).
 FILTER_OPERATOR2_LABELS: tuple[str, ...] = _FILTER_OPERATOR2_CODE_NAMES
 
+
 # Dual-profile: Closed FilterOperator2 labels under CrossHair. Open ascii_bounded
 # DEAL_MAX_TOKEN still cost ~28m on name→code / connection / resolve (cover-all 35546602462).
 def _deal_filter_op_name_ok_pytest(name: object) -> bool:
@@ -55,9 +56,7 @@ def _deal_filter_op_name_ok_crosshair(name: object) -> bool:
     return isinstance(name, str) and name in _FILTER_OPERATOR2_CODE_NAMES
 
 
-_deal_filter_op_name_ok = (
-    _deal_filter_op_name_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_op_name_ok_pytest
-)
+_deal_filter_op_name_ok = _deal_filter_op_name_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_op_name_ok_pytest
 
 
 def _deal_filter_connection_ok_pytest(name: object) -> bool:
@@ -68,10 +67,7 @@ def _deal_filter_connection_ok_crosshair(name: object) -> bool:
     return name is None or name in ("AND", "OR", "and", "or", "")
 
 
-_deal_filter_connection_ok = (
-    _deal_filter_connection_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_connection_ok_pytest
-)
-
+_deal_filter_connection_ok = _deal_filter_connection_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_connection_ok_pytest
 
 
 @deal.pre(lambda code: isinstance(code, int) and -8 <= code < 32)
@@ -126,12 +122,7 @@ def resolve_filter_operator_code(operator: str) -> int:
     raise UnoObjectError(f"Unknown filter operator: {operator!r}")
 
 
-@deal.pre(
-    lambda raw, is_first: isinstance(raw, dict)
-    and len(raw) <= DEAL_MAX_CMD_ARGS
-    and (not isinstance(raw.get("operator"), str) or ascii_bounded(raw.get("operator"), DEAL_MAX_TOKEN))
-    and (not isinstance(raw.get("connection"), str) or ascii_bounded(raw.get("connection"), DEAL_MAX_TOKEN))
-)
+@deal.pre(lambda raw, is_first: isinstance(raw, dict) and len(raw) <= DEAL_MAX_CMD_ARGS and (not isinstance(raw.get("operator"), str) or ascii_bounded(raw.get("operator"), DEAL_MAX_TOKEN)) and (not isinstance(raw.get("connection"), str) or ascii_bounded(raw.get("connection"), DEAL_MAX_TOKEN)))
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 6)
 @deal.raises(UnoObjectError)
 def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[int, int, int, bool, float, str]:

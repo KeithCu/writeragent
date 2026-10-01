@@ -11,13 +11,7 @@ from typing import Any
 from plugin.calc.address_utils import format_address, parse_address, parse_range_string
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
-from plugin.calc.spreadsheet_import.models import (
-    CellRecord,
-    OutputCell,
-    OutputSheetModel,
-    PyCellExtract,
-    SheetModel,
-)
+from plugin.calc.spreadsheet_import.models import CellRecord, OutputCell, OutputSheetModel, PyCellExtract, SheetModel
 
 
 def _safe_number_format(cell: Any) -> int | None:
@@ -44,12 +38,7 @@ def _output_cell_from_record(cell: CellRecord, py_by_addr: dict[str, PyCellExtra
     if cell.type == "empty":
         return OutputCell(address=cell.address, value=None, formula=None, number_format=None)
     if cell.type == "constant":
-        return OutputCell(
-            address=cell.address,
-            value=cell.value,
-            formula=None,
-            number_format=cell.number_format,
-        )
+        return OutputCell(address=cell.address, value=cell.value, formula=None, number_format=cell.number_format)
     if cell.type == "py_formula":
         extract = py_by_addr.get(cell.address)
         formula = extract.normalized_formula if extract is not None else cell.formula
@@ -64,12 +53,7 @@ def build_output_model(model: SheetModel) -> OutputSheetModel:
     py_extracts = extract_py_cells(model)
     py_by_addr = {item.address: item for item in py_extracts}
     cells = {addr: _output_cell_from_record(record, py_by_addr) for addr, record in model.cells.items()}
-    return OutputSheetModel(
-        sheet_name=model.sheet_name,
-        used_range=model.used_range,
-        cells=cells,
-        py_extracts=py_extracts,
-    )
+    return OutputSheetModel(sheet_name=model.sheet_name, used_range=model.used_range, cells=cells, py_extracts=py_extracts)
 
 
 def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
@@ -124,18 +108,11 @@ def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
             except Exception as e:
                 # Fallback to writing individually if setArrayFormula fails
                 import logging
-                logging.getLogger("writeragent.calc").error(
-                    "Failed to set array formula %s on %s: %s", formula, range_str, e
-                )
+
+                logging.getLogger("writeragent.calc").error("Failed to set array formula %s on %s: %s", formula, range_str, e)
 
 
-
-def preserve_sheet_to_new_sheet(
-    doc: Any,
-    source_sheet: Any,
-    *,
-    target_name: str = "PythonImport",
-) -> OutputSheetModel:
+def preserve_sheet_to_new_sheet(doc: Any, source_sheet: Any, *, target_name: str = "PythonImport") -> OutputSheetModel:
     """Ingest *source_sheet*, preserve/normalize, and write to a new sheet in *doc*."""
     model = ingest_sheet(source_sheet)
     enrich_number_formats(source_sheet, model)

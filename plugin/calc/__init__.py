@@ -25,8 +25,6 @@ from plugin.framework.module_base import ModuleBase
 __all__ = ["CalcError", "CalcModule"]
 
 
-
-
 class CalcModule(ModuleBase):
     """Registers Calc tools for cells, sheets, formulas, charts."""
 

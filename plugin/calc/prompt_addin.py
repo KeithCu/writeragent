@@ -25,13 +25,7 @@ if TYPE_CHECKING:
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
-ensure_plugin_on_path(
-    __file__,
-    levels_up=3,
-    also_add_plugin_dir=True,
-    also_add_lib=True,
-    also_add_vendor=True,
-)
+ensure_plugin_on_path(__file__, levels_up=3, also_add_plugin_dir=True, also_add_lib=True, also_add_vendor=True)
 
 import unohelper  # noqa: E402
 
@@ -45,12 +39,7 @@ _PROMPT_SPEC = CalcFunctionSpec(
     programmatic_name="prompt",
     description="Generates text using an LLM.",
     arg_names=("message", "system_prompt", "model", "max_tokens"),
-    arg_descriptions=(
-        "The prompt to send to the LLM.",
-        "The system prompt to use.",
-        "The model to use.",
-        "The maximum number of tokens to generate.",
-    ),
+    arg_descriptions=("The prompt to send to the LLM.", "The system prompt to use.", "The model to use.", "The maximum number of tokens to generate."),
     optional_from=1,
 )
 
@@ -76,14 +65,7 @@ class PromptFunction(SingleFunctionAddInBase, _XPromptFunctionBase):  # pyright:
 
     def prompt(self, message: str, systemPrompt: Any, model: Any, maxTokens: Any) -> str:
         holder: list[LlmClient | None] = [self._llm_client]
-        result = execute_prompt_addin(
-            self.ctx,
-            message,
-            systemPrompt,
-            model,
-            maxTokens,
-            client_holder=holder,
-        )
+        result = execute_prompt_addin(self.ctx, message, systemPrompt, model, maxTokens, client_holder=holder)
         self._llm_client = holder[0]
         return result
 
@@ -92,8 +74,4 @@ class PromptFunction(SingleFunctionAddInBase, _XPromptFunctionBase):  # pyright:
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
-g_ImplementationHelper.addImplementation(
-    PromptFunction,
-    "org.extension.writeragent.PromptFunction",
-    ("com.sun.star.sheet.AddIn",),
-)
+g_ImplementationHelper.addImplementation(PromptFunction, "org.extension.writeragent.PromptFunction", ("com.sun.star.sheet.AddIn",))

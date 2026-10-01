@@ -30,27 +30,12 @@ from plugin.calc.python.formula_edit import escape_code_for_excel_formula, parse
 _PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
 # Calc ``Sheet.A1`` → Excel ``Sheet!A1`` for _xlws.PY deps (leave ranges without a sheet alone).
 _CALC_SHEET_REF_RE = re.compile(r"^((?:'[^']*(?:''[^']*)*')|[^'!.]+)\.(\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?)$")
-_DF_DATA_RE = re.compile(
-    r"pd\.DataFrame\(\s*(data(?:\[\s*(\d+)\s*\])?)\[1:\]\s*,\s*columns\s*=\s*(data(?:\[\s*(\d+)\s*\])?)\[0\]\s*\)",
-    re.IGNORECASE,
-)
-_TO_PANDAS_TRUE_RE = re.compile(
-    r"(ranges|data)(?:\[\s*(\d+)\s*\])?\.to_pandas\(\s*\)",
-    re.IGNORECASE,
-)
-_TO_PANDAS_FALSE_RE = re.compile(
-    r"(ranges|data)(?:\[\s*(\d+)\s*\])?\.to_pandas\(\s*header_row\s*=\s*None\s*\)",
-    re.IGNORECASE,
-)
-_OBJECT_SUPPRESS_RE = re.compile(
-    r"\n?# excel_py: returnType=1 \(Object\).*?\nresult = None\s*$",
-    re.DOTALL,
-)
+_DF_DATA_RE = re.compile(r"pd\.DataFrame\(\s*(data(?:\[\s*(\d+)\s*\])?)\[1:\]\s*,\s*columns\s*=\s*(data(?:\[\s*(\d+)\s*\])?)\[0\]\s*\)", re.IGNORECASE)
+_TO_PANDAS_TRUE_RE = re.compile(r"(ranges|data)(?:\[\s*(\d+)\s*\])?\.to_pandas\(\s*\)", re.IGNORECASE)
+_TO_PANDAS_FALSE_RE = re.compile(r"(ranges|data)(?:\[\s*(\d+)\s*\])?\.to_pandas\(\s*header_row\s*=\s*None\s*\)", re.IGNORECASE)
+_OBJECT_SUPPRESS_RE = re.compile(r"\n?# excel_py: returnType=1 \(Object\).*?\nresult = None\s*$", re.DOTALL)
 # Runnable DAG form uses quoted tokens; Excel package uses bare %Pn%.
-_QUOTED_P_TOKEN_RE = re.compile(
-    r"""xl\(\s*(['"])%P(\d+)%\1\s*(,\s*headers\s*=\s*(True|False))?\s*\)""",
-    re.IGNORECASE,
-)
+_QUOTED_P_TOKEN_RE = re.compile(r"""xl\(\s*(['"])%P(\d+)%\1\s*(,\s*headers\s*=\s*(True|False))?\s*\)""", re.IGNORECASE)
 _HAS_XL_BINDING_RE = re.compile(r"""xl\s*\(\s*['"]?%P\d+%""", re.IGNORECASE)
 
 # (sheet, cell, formula) or (sheet, cell, formula, report-cell-meta)
@@ -60,6 +45,7 @@ DagFormulaItem = tuple[str, str, str] | tuple[str, str, str, dict[str, Any]]
 def _xml_text_escape(text: str) -> str:
     """Escape &, <, > for XML text nodes (not an XML parser — no XXE surface)."""
     return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
 
 def _p_token(index: int) -> str:
     return f"%P{index + 2}%"
@@ -113,13 +99,7 @@ def _unquote_xl_binding_tokens(code: str) -> str:
     return _QUOTED_P_TOKEN_RE.sub(repl, code or "")
 
 
-def rewrite_dag_code_to_excel(
-    code: str,
-    data_args: list[str],
-    *,
-    header_modes: list[HeaderMode] | None = None,
-    strip_object_suppress: bool = True,
-) -> tuple[str, list[str], list[str]]:
+def rewrite_dag_code_to_excel(code: str, data_args: list[str], *, header_modes: list[HeaderMode] | None = None, strip_object_suppress: bool = True) -> tuple[str, list[str], list[str]]:
     """Rewrite DAG code to Excel package ``xl(%Pn%)`` / ``xl(%Pn%, headers=…)``.
 
     Returns ``(excel_code, deps, issues)``. Only *data* args are returned as deps
@@ -199,11 +179,7 @@ def rewrite_dag_code_to_excel(
     return text, deps, issues
 
 
-def _rewrite_data_names_ast(
-    code: str,
-    deps: list[str],
-    modes: list[HeaderMode],
-) -> tuple[str | None, list[str]]:
+def _rewrite_data_names_ast(code: str, deps: list[str], modes: list[HeaderMode]) -> tuple[str | None, list[str]]:
     """Rewrite ``data`` / ``data[i]`` / ``ranges[i]`` Name/Subscript nodes."""
     issues: list[str] = []
     try:
@@ -317,10 +293,7 @@ def xlws_py_formula(script_index: int, return_type: int, data_args: Sequence[str
 
 def python_scripts_xml(scripts: Sequence[str]) -> bytes:
     """Serialize ordered script bank to ``xl/pythonScripts.xml`` bytes (UTF-8)."""
-    chunks = [
-        '<?xml version="1.0" encoding="UTF-8"?>\n',
-        f'<pythonScripts xmlns="{_PY_NS}">\n',
-    ]
+    chunks = ['<?xml version="1.0" encoding="UTF-8"?>\n', f'<pythonScripts xmlns="{_PY_NS}">\n']
     for body in scripts:
         chunks.append(f"  <pythonScript><code>{_xml_text_escape(body or '')}</code></pythonScript>\n")
     chunks.append("</pythonScripts>\n")
@@ -361,27 +334,11 @@ def expand_placeholders_to_literals(code: str, deps: list[str]) -> str:
     return re.sub(r"%P(\d+)%", repl, code)
 
 
-def convert_dag_formula_to_excel(
-    formula: str,
-    *,
-    sheet: str = "Sheet1",
-    cell: str = "A1",
-    return_type: int = 0,
-    meta: dict[str, Any] | None = None,
-) -> ConvertedCell:
+def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: str = "A1", return_type: int = 0, meta: dict[str, Any] | None = None) -> ConvertedCell:
     """Convert one DAG-style ``=PY("…"; ranges)`` formula string to Excel shape."""
     parts = parse_python_formula(formula)
     if parts is None:
-        return ConvertedCell(
-            sheet=sheet,
-            cell=cell,
-            direction="excel",
-            original_code=formula,
-            converted_code="",
-            issues=["not a =PY/=PYTHON formula"],
-            converted=False,
-            return_type=return_type,
-        )
+        return ConvertedCell(sheet=sheet, cell=cell, direction="excel", original_code=formula, converted_code="", issues=["not a =PY/=PYTHON formula"], converted=False, return_type=return_type)
 
     from plugin.calc.python.formula_edit import format_data_binding_display, parse_data_binding_text
 
@@ -405,14 +362,7 @@ def convert_dag_formula_to_excel(
         for b in bindings_raw:
             if isinstance(b, dict):
                 raw = cast("dict[str, Any]", b)
-                bindings.append(
-                    BindingInfo(
-                        a1=str(raw.get("a1") or ""),
-                        header_mode=_as_header_mode(raw.get("header_mode") or "omit"),
-                        role=_as_dep_role(raw.get("role") or "data"),
-                        original_indices=list(raw.get("original_indices") or []),
-                    )
-                )
+                bindings.append(BindingInfo(a1=str(raw.get("a1") or ""), header_mode=_as_header_mode(raw.get("header_mode") or "omit"), role=_as_dep_role(raw.get("role") or "data"), original_indices=list(raw.get("original_indices") or [])))
 
     # Header modes aligned to normalized data_args order
     modes: list[HeaderMode] = []
@@ -457,12 +407,7 @@ def convert_dag_formula_to_excel(
     return out
 
 
-def convert_dag_cells_to_excel(
-    formulas: Sequence[DagFormulaItem],
-    *,
-    return_type: int = 0,
-    report_meta: dict[str, Any] | None = None,
-) -> ConversionReport:
+def convert_dag_cells_to_excel(formulas: Sequence[DagFormulaItem], *, return_type: int = 0, report_meta: dict[str, Any] | None = None) -> ConversionReport:
     """Convert DAG workbook formulas / report cells to Excel-shaped export."""
     report = ConversionReport(direction="excel")
     if report_meta and report_meta.get("source_path"):
@@ -474,9 +419,7 @@ def convert_dag_cells_to_excel(
         meta: dict[str, Any] = {}
         if len(item) == 4:
             meta = cast("tuple[str, str, str, dict[str, Any]]", item)[3]
-        report.cells.append(
-            convert_dag_formula_to_excel(formula, sheet=sheet, cell=cell, return_type=return_type, meta=meta)
-        )
+        report.cells.append(convert_dag_formula_to_excel(formula, sheet=sheet, cell=cell, return_type=return_type, meta=meta))
     assign_script_bank(report.cells)
     return report
 
@@ -491,17 +434,7 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
     for cell in dag_report.cells:
         if not cell.converted or not (cell.converted_code or "").strip():
             out.cells.append(
-                ConvertedCell(
-                    sheet=cell.sheet,
-                    cell=cell.cell,
-                    direction="excel",
-                    original_code=cell.converted_code or cell.original_code,
-                    converted_code="",
-                    issues=list(cell.issues) + ["skipped: not converted on DAG pass"],
-                    converted=False,
-                    return_type=cell.return_type,
-                    array_ref=cell.array_ref,
-                )
+                ConvertedCell(sheet=cell.sheet, cell=cell.cell, direction="excel", original_code=cell.converted_code or cell.original_code, converted_code="", issues=list(cell.issues) + ["skipped: not converted on DAG pass"], converted=False, return_type=cell.return_type, array_ref=cell.array_ref)
             )
             continue
         modes: list[HeaderMode] = []
@@ -512,11 +445,7 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
                 modes.append(_as_header_mode(b.header_mode))
         while len(modes) < len(cell.data_args):
             modes.append("omit")
-        excel_code, deps, issues = rewrite_dag_code_to_excel(
-            cell.converted_code,
-            list(cell.data_args),
-            header_modes=modes,
-        )
+        excel_code, deps, issues = rewrite_dag_code_to_excel(cell.converted_code, list(cell.data_args), header_modes=modes)
         if cell.ordering_args:
             issues.append("ignored ordering-only deps on reverse export")
         excel_deps = list(cell.excel_deps)

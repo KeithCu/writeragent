@@ -198,4 +198,3 @@ def vectorize_range(r1c1_ref: str, start_addr: str, end_addr: str) -> str:
         if start_a1 == end_a1:
             return start_a1
         return f"{start_a1}:{end_a1}"
-

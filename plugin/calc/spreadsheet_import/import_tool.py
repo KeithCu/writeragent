@@ -21,31 +21,14 @@ class ConvertSpreadsheetToPython(ToolBaseDummy):
     """Convert spreadsheet formulas to =PY() Python cells."""
 
     name: str | None = "convert_spreadsheet_to_python"
-    description: str = (
-        "Converts legacy Calc spreadsheet formulas to `=PY()` Python formulas "
-        "retaining cell constant values and number formats."
-    )
+    description: str = "Converts legacy Calc spreadsheet formulas to `=PY()` Python formulas retaining cell constant values and number formats."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "scope": {
-                "type": "string",
-                "enum": ["sheet", "selection"],
-                "description": "Conversion scope: 'sheet' for the entire active sheet, or 'selection' for selected cells.",
-            },
-            "output_mode": {
-                "type": "string",
-                "enum": ["new_sheet", "in_place"],
-                "description": "Where to place the converted cells: 'new_sheet' creates a new sheet 'PythonImport', 'in_place' modifies active sheet.",
-            },
-            "vectorize": {
-                "type": "boolean",
-                "description": "If True, auto-vectorizes homogeneous columns into single array-formulas when safe.",
-            },
-            "verify": {
-                "type": "boolean",
-                "description": "If True, forces Calc recalc and verifies converted cell values against original values.",
-            },
+            "scope": {"type": "string", "enum": ["sheet", "selection"], "description": "Conversion scope: 'sheet' for the entire active sheet, or 'selection' for selected cells."},
+            "output_mode": {"type": "string", "enum": ["new_sheet", "in_place"], "description": "Where to place the converted cells: 'new_sheet' creates a new sheet 'PythonImport', 'in_place' modifies active sheet."},
+            "vectorize": {"type": "boolean", "description": "If True, auto-vectorizes homogeneous columns into single array-formulas when safe."},
+            "verify": {"type": "boolean", "description": "If True, forces Calc recalc and verifies converted cell values against original values."},
         },
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -69,15 +52,7 @@ class ConvertSpreadsheetToPython(ToolBaseDummy):
         verify = kwargs.get("verify", True)
 
         try:
-            res = run_sheet_conversion(
-                ctx.ctx,
-                doc,
-                source_sheet,
-                scope=scope,
-                output_mode=output_mode,
-                vectorize=vectorize,
-                verify=verify,
-            )
+            res = run_sheet_conversion(ctx.ctx, doc, source_sheet, scope=scope, output_mode=output_mode, vectorize=vectorize, verify=verify)
             return {"status": "ok", **res}
         except Exception as e:
             log.exception("Chat tool convert_spreadsheet_to_python execution failed")

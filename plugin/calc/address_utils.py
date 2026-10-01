@@ -25,15 +25,7 @@ from __future__ import annotations
 
 import re
 
-from plugin.framework.deal_shim import (
-    DEAL_MAX_CELL_REF,
-    DEAL_MAX_COL_INDEX,
-    DEAL_MAX_COL_LETTERS,
-    DEAL_MAX_ROW_INDEX,
-    ascii_bounded,
-    deal,
-    inverse_ensure,
-)
+from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_COL_INDEX, DEAL_MAX_COL_LETTERS, DEAL_MAX_ROW_INDEX, ascii_bounded, deal, inverse_ensure
 
 
 # Pre must cap the int: `index >= 0` with no max lets CrossHair feed a giant
@@ -62,10 +54,7 @@ def index_to_column(index: int) -> str:
 # Cap letters so CrossHair cannot chase an unbounded inverse. Nested
 # index_to_column is skipped under CrossHair (import-time inverse_ensure
 # no-op); cheap @deal.post still runs so the function is analyzed.
-@deal.pre(
-    lambda col_str: ascii_bounded(col_str, DEAL_MAX_COL_LETTERS, min_len=1)
-    and col_str.isalpha()
-)
+@deal.pre(lambda col_str: ascii_bounded(col_str, DEAL_MAX_COL_LETTERS, min_len=1) and col_str.isalpha())
 @deal.post(lambda result: isinstance(result, int) and result >= 0)
 @inverse_ensure(lambda col_str, result: index_to_column(result) == col_str.upper())
 def column_to_index(col_str: str) -> int:
@@ -143,11 +132,7 @@ def parse_address(address: str) -> tuple[int, int]:
     # split_sheet_prefix / CalcBridge.resolve instead of silently dropping it.
     sheet, address = split_sheet_prefix(address)
     if sheet is not None:
-        raise ValueError(
-            f"Cell address '{sheet}.{address}' names a sheet, but this "
-            f"operation resolves the sheet separately. Pass the sheet via "
-            f"sheet_name, or drop the prefix."
-        )
+        raise ValueError(f"Cell address '{sheet}.{address}' names a sheet, but this operation resolves the sheet separately. Pass the sheet via sheet_name, or drop the prefix.")
     address = address.strip().upper()
     match = re.match(r"^([A-Z]+)([0-9]+)$", address)
     if not match:
@@ -165,11 +150,7 @@ def parse_address(address: str) -> tuple[int, int]:
 
 
 @deal.pre(lambda range_str: ascii_bounded(range_str, DEAL_MAX_CELL_REF, min_len=1))
-@deal.post(
-    lambda result: isinstance(result, tuple)
-    and len(result) == 2
-    and all(isinstance(p, tuple) and len(p) == 2 and p[0] >= 0 and p[1] >= 0 for p in result)
-)
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and all(isinstance(p, tuple) and len(p) == 2 and p[0] >= 0 and p[1] >= 0 for p in result))
 @deal.raises(ValueError)
 def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]]:
     """Convert cell range string to column/row indices.
@@ -190,11 +171,7 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     # crosshair: off
     sheet, range_str = split_sheet_prefix(range_str)
     if sheet is not None:
-        raise ValueError(
-            f"Range '{sheet}.{range_str}' names a sheet, but this operation "
-            f"resolves the sheet separately. Pass the sheet via sheet_name, "
-            f"or drop the prefix."
-        )
+        raise ValueError(f"Range '{sheet}.{range_str}' names a sheet, but this operation resolves the sheet separately. Pass the sheet via sheet_name, or drop the prefix.")
     range_str = range_str.strip().upper()
 
     pattern = r"^([A-Z]+)([0-9]+)(?::([A-Z]+)([0-9]+))?$"
@@ -224,13 +201,7 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
 # Nested parse_address is skipped under CrossHair (import-time inverse_ensure
 # no-op); cheap @deal.post still runs so the function is analyzed.
 @deal.pre(lambda col, row: isinstance(col, int) and 0 <= col <= DEAL_MAX_COL_INDEX and isinstance(row, int) and 0 <= row <= DEAL_MAX_ROW_INDEX)
-@deal.post(
-    lambda result: isinstance(result, str)
-    and bool(result)
-    and result[0].isalpha()
-    and result.isascii()
-    and result[-1].isdigit()
-)
+@deal.post(lambda result: isinstance(result, str) and bool(result) and result[0].isalpha() and result.isascii() and result[-1].isdigit())
 @inverse_ensure(lambda col, row, result: parse_address(result) == (col, row))
 def format_address(col: int, row: int) -> str:
     """Create cell address from column and row indices.

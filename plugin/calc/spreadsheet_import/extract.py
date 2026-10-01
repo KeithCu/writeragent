@@ -7,12 +7,7 @@
 from __future__ import annotations
 
 from plugin.calc.python.cell_discovery import canonicalize_py_formula_for_parse
-from plugin.calc.python.formula_edit import (
-    format_data_binding_display,
-    parse_data_binding_text,
-    parse_python_formula,
-    rebuild_python_formula_with_data,
-)
+from plugin.calc.python.formula_edit import format_data_binding_display, parse_data_binding_text, parse_python_formula, rebuild_python_formula_with_data
 from plugin.calc.spreadsheet_import.models import PyCellExtract, SheetModel
 
 
@@ -54,14 +49,5 @@ def extract_py_cells(model: SheetModel) -> list[PyCellExtract]:
         semantics = py_formula_semantics(normalized)
         assert semantics is not None
         code, data_args = semantics
-        extracts.append(
-            PyCellExtract(
-                address=addr,
-                original_formula=cell.formula,
-                normalized_formula=normalized,
-                code=code,
-                data_args=data_args,
-                changed=cell.formula != normalized,
-            ),
-        )
+        extracts.append(PyCellExtract(address=addr, original_formula=cell.formula, normalized_formula=normalized, code=code, data_args=data_args, changed=cell.formula != normalized))
     return extracts

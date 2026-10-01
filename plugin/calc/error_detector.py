@@ -85,7 +85,6 @@ def get_calc_error_name(error_code: int) -> str:
     return f"Unknown error ({error_code})"
 
 
-
 class ErrorDetector:
     """Detects and explains formula errors in the worksheet."""
 
@@ -228,13 +227,7 @@ class ErrorDetector:
             except Exception as e:
                 log.debug("FormulaDepChain unavailable for %s: %s", address, e)
 
-            result = {
-                "address": address.upper(),
-                "formula": cell_details.get("formula", ""),
-                "error": error_info,
-                "precedents": precedent_details,
-                "suggestion": suggestion,
-            }
+            result = {"address": address.upper(), "formula": cell_details.get("formula", ""), "error": error_info, "precedents": precedent_details, "suggestion": suggestion}
             if dependency_chain:
                 result["dependency_chain"] = dependency_chain
             return result

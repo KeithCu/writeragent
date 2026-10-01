@@ -13,10 +13,7 @@ from plugin.framework.deal_shim import CROSSHAIR_ENV, DEAL_MAX_SOURCE, str_bound
 
 # Quote-machine / typical formula alphabet. Pytest keeps Unicode (curly quotes);
 # CrossHair uses this closed set (normalize_lo_formula_for_parse 3:59, 32877875221).
-_LO_FORMULA_CHARS = frozenset(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-    "=();,\"'<>:+-*/^&%$.!_[]{}# \t\n"
-)
+_LO_FORMULA_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789=();,\"'<>:+-*/^&%$.!_[]{}# \t\n")
 _PREPROCESS_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
 
 
@@ -25,11 +22,7 @@ def _deal_lo_formula_ok_pytest(formula: object) -> bool:
 
 
 def _deal_lo_formula_ok_crosshair(formula: object) -> bool:
-    return (
-        isinstance(formula, str)
-        and len(formula) <= DEAL_MAX_SOURCE
-        and all(c in _LO_FORMULA_CHARS for c in formula)
-    )
+    return isinstance(formula, str) and len(formula) <= DEAL_MAX_SOURCE and all(c in _LO_FORMULA_CHARS for c in formula)
 
 
 _deal_lo_formula_ok = _deal_lo_formula_ok_crosshair if _PREPROCESS_CROSSHAIR else _deal_lo_formula_ok_pytest

@@ -17,22 +17,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.calc.address_utils import index_to_column
-from plugin.calc.python.formula_edit import (
-    cell_looks_python_like,
-    extract_python_code_loose,
-    normalize_formula_string,
-    parse_python_formula,
-)
+from plugin.calc.python.formula_edit import cell_looks_python_like, extract_python_code_loose, normalize_formula_string, parse_python_formula
 
 log = logging.getLogger(__name__)
 
 # LibreOffice stores registered add-ins as fully qualified names in getFormula().
 # LibrePy still registers as writeragent.PythonFunction (WA/LibrePy file compat).
 # Collabora Online stores pythoncompute GETPY — canonicalize via prefix rewrite.
-_ADDIN_PY_PREFIX_RE = re.compile(
-    r"^=\s*ORG\.EXTENSION\.(?:WRITERAGENT|LIBREPY)\.PYTHONFUNCTION\.(?:PYTHON|PY)\s*\(",
-    re.IGNORECASE,
-)
+_ADDIN_PY_PREFIX_RE = re.compile(r"^=\s*ORG\.EXTENSION\.(?:WRITERAGENT|LIBREPY)\.PYTHONFUNCTION\.(?:PYTHON|PY)\s*\(", re.IGNORECASE)
 
 # CellFlags.FORMULA = 16
 _CELL_FLAG_FORMULA = 16
@@ -103,9 +95,7 @@ def list_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None) -> 
     return discover_python_cells_on_sheet(sheet, sheet_name=sheet_name).cells
 
 
-def discover_python_cells_on_sheet(
-    sheet: Any, *, sheet_name: str | None = None
-) -> PythonSheetDiscovery:
+def discover_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None) -> PythonSheetDiscovery:
     """Discover PY cells and report whether the 100 / 50k caps truncated the list.
 
     After 100 PY cells we keep scanning for one more. Finding #101 (or hitting
@@ -151,16 +141,7 @@ def discover_python_cells_on_sheet(
             truncated = True
             return False
         code = extract_code_from_formula(str(formula))
-        found.append(
-            PythonCellInfo(
-                sheet=name,
-                row=row,
-                column=col,
-                address=_cell_address(name, row, col),
-                code=code,
-                formula=str(formula),
-            )
-        )
+        found.append(PythonCellInfo(sheet=name, row=row, column=col, address=_cell_address(name, row, col), code=code, formula=str(formula)))
         return True
 
     for i in range(count):

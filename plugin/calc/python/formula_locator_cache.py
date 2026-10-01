@@ -21,7 +21,7 @@ DEFAULT_DOC_CACHE_TTL_SECONDS = 300.0  # 5 minutes idle TTL
 # Handles Calc-escaped double-quotes ("") inside string literals and optional add-in
 # OriginalNames (WriterAgent / LibrePy, or Collabora GETPY before open-rewrite).
 _PY_FORMULA_CODE_REGEX = re.compile(
-    r'(?:ORG\.(?:EXTENSION\.[A-Z0-9_.]+|COLLABORAOFFICE\.SHEET\.ADDIN\.PYTHONCOMPUTEFUNCTIONS)\.)?'
+    r"(?:ORG\.(?:EXTENSION\.[A-Z0-9_.]+|COLLABORAOFFICE\.SHEET\.ADDIN\.PYTHONCOMPUTEFUNCTIONS)\.)?"
     r'(?:GETPYTHON|GETPY|PYTHON|PY)\s*\(\s*"((?:[^"]|"")*)"',
     re.IGNORECASE,
 )
@@ -85,10 +85,7 @@ class DocumentFormulaCache:
         """Update coordinates when a sheet is renamed."""
         self.last_accessed = time.monotonic()
         for code_str, coords in list(self._cache.items()):
-            self._cache[code_str] = [
-                (new_sheet_name if c[0] == old_sheet_name else c[0], c[1], c[2])
-                for c in coords
-            ]
+            self._cache[code_str] = [(new_sheet_name if c[0] == old_sheet_name else c[0], c[1], c[2]) for c in coords]
 
     def clear(self) -> None:
         self._cache.clear()
@@ -109,11 +106,7 @@ class FormulaLocationCache:
     _ttl_seconds: float
     _lock: threading.Lock
 
-    def __init__(
-        self,
-        max_formulas_per_doc: int = MAX_FORMULAS_PER_DOC,
-        ttl_seconds: float = DEFAULT_DOC_CACHE_TTL_SECONDS,
-    ) -> None:
+    def __init__(self, max_formulas_per_doc: int = MAX_FORMULAS_PER_DOC, ttl_seconds: float = DEFAULT_DOC_CACHE_TTL_SECONDS) -> None:
         self._max_formulas_per_doc = max_formulas_per_doc
         self._ttl_seconds = ttl_seconds
         self._lock = threading.Lock()
@@ -250,15 +243,7 @@ def is_matching_py_formula(formula: str, code_str: str) -> bool:
     return ext_norm == code_norm
 
 
-def _matching_cells_in_range(
-    sheet: Any,
-    cell_range: Any,
-    code_str: str,
-    *,
-    doc_url: str = "",
-    cache: FormulaLocationCache | None = None,
-    sheet_name: str = "",
-) -> list[tuple[Any, int, int]]:
+def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str, *, doc_url: str = "", cache: FormulaLocationCache | None = None, sheet_name: str = "") -> list[tuple[Any, int, int]]:
     """Matching formula cells in *cell_range*. A filled matrix of the same code is one origin."""
     addr = cell_range.getRangeAddress()
     hits: list[tuple[Any, int, int]] = []
@@ -292,13 +277,7 @@ def _matching_cells_in_range(
     return hits
 
 
-def search_sheet_for_formula(
-    sheet: Any,
-    code_str: str,
-    *,
-    doc_url: str = "",
-    cache: FormulaLocationCache | None = None,
-) -> tuple[Any, int, int] | None:
+def search_sheet_for_formula(sheet: Any, code_str: str, *, doc_url: str = "", cache: FormulaLocationCache | None = None) -> tuple[Any, int, int] | None:
     """Query formula cells on sheet. Returns a match only when exactly one origin matches.
 
     Duplicate ``=PY("same")`` cells are indistinguishable (XAddIn has no calling cell);
@@ -311,13 +290,7 @@ def search_sheet_for_formula(
     return None
 
 
-def collect_matching_formula_origins(
-    sheet: Any,
-    code_str: str,
-    *,
-    doc_url: str = "",
-    cache: FormulaLocationCache | None = None,
-) -> list[tuple[Any, int, int]]:
+def collect_matching_formula_origins(sheet: Any, code_str: str, *, doc_url: str = "", cache: FormulaLocationCache | None = None) -> list[tuple[Any, int, int]]:
     """All matching formula origins on *sheet* (one per queryContentCells range)."""
     found: list[tuple[Any, int, int]] = []
     try:
@@ -329,23 +302,13 @@ def collect_matching_formula_origins(
         sheet_name = sheet.getName() if hasattr(sheet, "getName") else "Sheet1"
         for i in range(count):
             cell_range = formula_cells.getByIndex(i)
-            found.extend(
-                _matching_cells_in_range(
-                    sheet, cell_range, code_str, doc_url=doc_url, cache=cache, sheet_name=sheet_name
-                )
-            )
+            found.extend(_matching_cells_in_range(sheet, cell_range, code_str, doc_url=doc_url, cache=cache, sheet_name=sheet_name))
     except Exception:
         log.debug("search_sheet_for_formula failed on sheet", exc_info=True)
     return found
 
 
-def locate_formula_cell_in_doc(
-    ctx: Any,
-    doc: Any,
-    code_str: str,
-    *,
-    cache: FormulaLocationCache | None = None,
-) -> tuple[Any, Any, tuple[int, int]] | None:
+def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str, *, cache: FormulaLocationCache | None = None) -> tuple[Any, Any, tuple[int, int]] | None:
     """Find unique (sheet, cell, (row, col)) for this Python formula in *doc*.
 
     Returns None when zero or two+ origins match: XAddIn has no calling cell, so
@@ -384,9 +347,7 @@ def locate_formula_cell_in_doc(
             count = sheets.getCount() if hasattr(sheets, "getCount") else 0
             for i in range(count):
                 sheet = sheets.getByIndex(i)
-                for cell, r, c in collect_matching_formula_origins(
-                    sheet, code_str, doc_url=doc_url, cache=active_cache
-                ):
+                for cell, r, c in collect_matching_formula_origins(sheet, code_str, doc_url=doc_url, cache=active_cache):
                     _add(sheet, cell, r, c)
                     if len(collected) > 1:
                         return None
@@ -408,13 +369,7 @@ def locate_formula_cell_in_doc(
     return (sheet, cell, coord)
 
 
-def locate_formula_cell(
-    ctx: Any,
-    sheet: Any,
-    code_str: str,
-    *,
-    cache: FormulaLocationCache | None = None,
-) -> tuple[int, int] | None:
+def locate_formula_cell(ctx: Any, sheet: Any, code_str: str, *, cache: FormulaLocationCache | None = None) -> tuple[int, int] | None:
     """Find (row, col) containing the Python formula on sheet."""
     try:
         from plugin.framework.thread_guard import on_main_thread
@@ -440,4 +395,3 @@ def locate_formula_cell(
         return (r, c)
 
     return None
-

@@ -50,17 +50,7 @@ def calc_selection_to_a1(doc: Any) -> str | None:
         return None
 
 
-def run_trusted_analysis(
-    uno_ctx: Any,
-    doc: Any,
-    *,
-    helper: str,
-    params: dict[str, Any] | None = None,
-    data_range: str | None = None,
-    data: Any = None,
-    headers: bool = True,
-    task_hint: str | None = None,
-) -> dict[str, Any]:
+def run_trusted_analysis(uno_ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, data_range: str | None = None, data: Any = None, headers: bool = True, task_hint: str | None = None) -> dict[str, Any]:
     """Fetch Calc data and run a trusted helper in the user venv."""
     name = str(helper or "").strip()
     if not name:

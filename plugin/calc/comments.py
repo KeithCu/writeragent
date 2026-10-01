@@ -29,15 +29,11 @@ def _parse_cell_ref(cell_ref: str) -> tuple[int, int]:
     return parse_address(cell_ref)
 
 
-
 def _split_cell_sheet(cell_ref: str, sheet_name: str | None) -> tuple[str, str | None]:
     """Let a sheet-qualified cell reference pick the sheet."""
     prefix, address = split_sheet_prefix(cell_ref)
     if prefix is not None and sheet_name and prefix != sheet_name:
-        raise ValueError(
-            "Reference names sheet '%s' but sheet_name says '%s' — "
-            "pass one or the other." % (prefix, sheet_name)
-        )
+        raise ValueError("Reference names sheet '%s' but sheet_name says '%s' — pass one or the other." % (prefix, sheet_name))
     return address, (prefix or sheet_name)
 
 
@@ -79,16 +75,7 @@ class ListCellComments(ToolCalcCommentBase):
     name: str | None = "list_cell_comments"
     intent: str | None = "review"
     description: str = "List all cell comments (annotations) in a Calc sheet. Returns cell address, author, date, and comment text."
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "sheet": {
-                "type": "string",
-                "description": "Sheet name (active sheet if omitted).",
-            }
-        },
-        "required": [],
-    }
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -125,17 +112,7 @@ class AddCellComment(ToolCalcCommentBase):
     description: str = "Add a comment (annotation) to a specific cell in a Calc sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {
-            "cell": {
-                "type": "string",
-                "description": "Cell address (e.g. 'B3' or 'Sheet1.B3').",
-            },
-            "text": {"type": "string", "description": "Comment text."},
-            "sheet": {
-                "type": "string",
-                "description": "Sheet name (active sheet if omitted).",
-            },
-        },
+        "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3')."}, "text": {"type": "string", "description": "Comment text."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}},
         "required": ["cell", "text"],
     }
     is_mutation: bool | None = True
@@ -181,20 +158,7 @@ class DeleteCellComment(ToolCalcCommentBase):
     name: str | None = "delete_cell_comment"
     intent: str | None = "review"
     description: str = "Delete the comment (annotation) from a specific cell."
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "cell": {
-                "type": "string",
-                "description": "Cell address (e.g. 'B3' or 'Sheet1.B3').",
-            },
-            "sheet": {
-                "type": "string",
-                "description": "Sheet name (active sheet if omitted).",
-            },
-        },
-        "required": ["cell"],
-    }
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3')."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": ["cell"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

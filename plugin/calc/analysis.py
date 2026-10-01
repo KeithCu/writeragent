@@ -85,8 +85,6 @@ def _get_cell_address(doc: Any, address_str: str) -> CellAddress:
     return resolve_cell_address(doc, address_str)
 
 
-
-
 class GoalSeekTool(ToolBaseDummy):
     """Find the value of a variable cell that results in a target formula value."""
 
@@ -344,10 +342,7 @@ class AnalyzeDataTool(ToolBaseDummy):
             "output_range": {"type": "string", "description": "Optional A1 anchor cell to write formatted results (Calc only)."},
             "headers": {"type": "boolean", "description": "First row contains column names (default true)."},
             "task_hint": {"type": "string", "description": "Optional hint echoed in result context."},
-            "auto_plot": {
-                "type": "boolean",
-                "description": "When true (or when task_hint mentions charts/plots), run a matching viz helper after successful analysis and insert the chart on Calc.",
-            },
+            "auto_plot": {"type": "boolean", "description": "When true (or when task_hint mentions charts/plots), run a matching viz helper after successful analysis and insert the chart on Calc."},
         },
         "required": ["helper"],
     }
@@ -372,10 +367,7 @@ class AnalyzeDataTool(ToolBaseDummy):
             # Defensive: ensure no raw data value path leaks even if class parameters changes.
             props.pop("data", None)
             if "data_range" in props:
-                props["data_range"]["description"] = (
-                    "A1 range address (e.g. 'Sheet1.A1:D1000'). This is the only way "
-                    "to supply data when using the analysis domain. The host extracts the values out-of-band."
-                )
+                props["data_range"]["description"] = "A1 range address (e.g. 'Sheet1.A1:D1000'). This is the only way to supply data when using the analysis domain. The host extracts the values out-of-band."
         return p
 
     def is_async(self) -> bool:
@@ -392,10 +384,7 @@ class AnalyzeDataTool(ToolBaseDummy):
         # Strict enforcement for the analysis domain (see get_parameters above and
         # docs/calc/analysis-sub-agent.md "Data Handoff").
         if getattr(ctx, "active_domain", None) == "analysis" and data is not None:
-            return self._tool_error(
-                "analysis domain requires data_range (A1 address string) only. "
-                "Do not pass raw data values — the host must resolve the range out-of-band."
-            )
+            return self._tool_error("analysis domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
 
         if not (data_range and str(data_range).strip()) and data is None:
             return self._tool_error("Provide data_range or data")
@@ -412,16 +401,7 @@ class AnalyzeDataTool(ToolBaseDummy):
         output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
         def _run() -> dict[str, Any]:
-            return run_trusted_analysis(
-                ctx.ctx,
-                ctx.doc,
-                helper=helper,
-                params=params,
-                data_range=dr,
-                data=data,
-                headers=headers,
-                task_hint=task_hint,
-            )
+            return run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
 
         try:
             result = execute_on_main_thread(_run)
@@ -451,16 +431,7 @@ class AnalyzeDataTool(ToolBaseDummy):
             if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
 
                 def _auto_plot() -> dict[str, Any] | None:
-                    return run_auto_plot_after_analysis(
-                        ctx.ctx,
-                        ctx.doc,
-                        analysis_helper=helper,
-                        analysis_result=result,
-                        analysis_params=params,
-                        data_range=dr,
-                        auto_plot=auto_plot,
-                        task_hint=task_hint,
-                    )
+                    return run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, auto_plot=auto_plot, task_hint=task_hint)
 
                 # Sub-agent worker thread: viz data reads use CalcBridge — marshal like plot_data.
                 plot_result = execute_on_main_thread(_auto_plot)

@@ -58,14 +58,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
     _doc_url: str
     _teardown_done: bool
 
-    def __init__(
-        self,
-        ctx: Any,
-        workbook_session_id: str,
-        lifecycle_key: str,
-        *,
-        doc_url: str = "",
-    ) -> None:
+    def __init__(self, ctx: Any, workbook_session_id: str, lifecycle_key: str, *, doc_url: str = "") -> None:
         super().__init__()
         self._ctx = ctx
         self._workbook_session_id = workbook_session_id
@@ -117,11 +110,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         try:
             res = reset_python_session(self._ctx, self._workbook_session_id)
             if res.get("status") != "ok":
-                log.debug(
-                    "python_workbook_lifecycle: reset on unload failed for %s: %s",
-                    self._workbook_session_id,
-                    res.get("message"),
-                )
+                log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", self._workbook_session_id, res.get("message"))
         except Exception:
             log.debug("python_workbook_lifecycle: reset on unload raised", exc_info=True)
 

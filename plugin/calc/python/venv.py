@@ -24,19 +24,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_ALL_VENV_DOCS = [
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-]
+_ALL_VENV_DOCS = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
-_DATA_RANGE_DESCRIPTION = (
-    "Optional A1 range(s) injected as CalcRange: one address → `data` is that range and "
-    "`ranges == [data]`; two or more → `data` is the same list as `ranges`. "
-    "Pass one address string, a comma/semicolon-separated string (e.g. 'A1:A10, C1:C10'), "
-    "or an array of address strings."
-)
+_DATA_RANGE_DESCRIPTION = "Optional A1 range(s) injected as CalcRange: one address → `data` is that range and `ranges == [data]`; two or more → `data` is the same list as `ranges`. Pass one address string, a comma/semicolon-separated string (e.g. 'A1:A10, C1:C10'), or an array of address strings."
 _DATA_RANGE_SCHEMA = {
     "description": _DATA_RANGE_DESCRIPTION,
     # Single type: Gemini function calling rejects oneOf. Execute still
@@ -47,80 +37,42 @@ _DATA_RANGE_SCHEMA = {
 _PARAMETERS_CALC = {
     "type": "object",
     "properties": {
-        "code": {
-            "type": "string",
-            "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar).",
-        },
+        "code": {"type": "string", "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar)."},
         "data_range": _DATA_RANGE_SCHEMA,
-        "data": {
-            "type": "array",
-            "items": {"type": "array", "items": {}},
-            "description": "Optional 2D array of cell values as `data` (use data_range for bulk data; the host resolves addresses without putting values in the LLM context).",
-        },
+        "data": {"type": "array", "items": {"type": "array", "items": {}}, "description": "Optional 2D array of cell values as `data` (use data_range for bulk data; the host resolves addresses without putting values in the LLM context)."},
     },
     "required": ["code"],
 }
 
-_PARAMETERS_NON_CALC = {
-    "type": "object",
-    "properties": {
-        "code": {
-            "type": "string",
-            "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar).",
-        },
-    },
-    "required": ["code"],
-}
+_PARAMETERS_NON_CALC = {"type": "object", "properties": {"code": {"type": "string", "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar)."}}, "required": ["code"]}
 
 # Superset advertised when the target app is unknown (e.g. MCP discovery with no document
 # open), so a caller heading for Calc still sees data_range. data_range/data are Calc-only.
 _PARAMETERS_NEUTRAL = {
     "type": "object",
     "properties": {
-        "code": {
-            "type": "string",
-            "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar).",
-        },
-        "data_range": {
-            **_DATA_RANGE_SCHEMA,
-            "description": "(Calc only) " + _DATA_RANGE_DESCRIPTION,
-        },
-        "data": {
-            "type": "array",
-            "items": {"type": "array", "items": {}},
-            "description": "(Calc only) Optional 2D array of cell values as `data` (prefer data_range for bulk data).",
-        },
+        "code": {"type": "string", "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar)."},
+        "data_range": {**_DATA_RANGE_SCHEMA, "description": "(Calc only) " + _DATA_RANGE_DESCRIPTION},
+        "data": {"type": "array", "items": {"type": "array", "items": {}}, "description": "(Calc only) Optional 2D array of cell values as `data` (prefer data_range for bulk data)."},
     },
     "required": ["code"],
 }
 
 _DESCRIPTION_CALC = (
-    "Run Python code. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
-    + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
-    + "Optional data_range (one A1 address, comma-separated addresses, or an array) injects "
+    "Run Python code. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). " + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE + "Optional data_range (one A1 address, comma-separated addresses, or an array) injects "
     "`data` / `ranges` (one address → `data` is that CalcRange; several → `data` is the `ranges` list). "
     "The host reads ranges on the main thread and sends shaped data over the efficient IPC path. "
     "For anything beyond tiny grids, use data_range (address) rather than passing values in the data parameter."
 )
 
-_DESCRIPTION_WRITER = (
-    "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
-    + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
-    + "Use document tools to read or change the file; this tool does not inject spreadsheet `data`."
-)
+_DESCRIPTION_WRITER = "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). " + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE + "Use document tools to read or change the file; this tool does not inject spreadsheet `data`."
 
-_DESCRIPTION_DRAW = (
-    "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
-    + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
-    + "Use document tools to read or change the slide/page; this tool does not inject spreadsheet `data`."
-)
+_DESCRIPTION_DRAW = "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). " + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE + "Use document tools to read or change the slide/page; this tool does not inject spreadsheet `data`."
 
 # Used when the target app is unknown (e.g. discovery with no document open): covers both
 # the Calc data_range path and the Writer/Draw no-injection path, to match the superset schema.
 _DESCRIPTION_NEUTRAL = (
-    "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
-    + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
-    + "In Calc, optional data_range injects `data` / `ranges` from one or more A1 addresses; "
+    "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). " + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE + "In Calc, optional data_range injects `data` / `ranges` from one or more A1 addresses; "
     "in Writer or Draw/Impress use document tools to read or change content (no spreadsheet `data` injection)."
 )
 
@@ -179,29 +131,16 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 return {"status": "error", "message": err}
         else:
             if kwargs.get("data_range") is not None or kwargs.get("data") is not None:
-                log.debug(
-                    "run_venv_python_script: ignoring data/data_range on doc_type=%s",
-                    ctx.doc_type,
-                )
+                log.debug("run_venv_python_script: ignoring data/data_range on doc_type=%s", ctx.doc_type)
 
-        res = run_code_in_user_venv(
-            ctx.ctx,
-            code,
-            data=py_data,
-            active_domain=ctx.active_domain,
-            python_tool_domain=ctx.python_tool_domain,
-        )
+        res = run_code_in_user_venv(ctx.ctx, code, data=py_data, active_domain=ctx.active_domain, python_tool_domain=ctx.python_tool_domain)
 
         result = res.get("result")
         if res.get("status") == "ok":
             images = find_image_payloads(result)
             if images:
                 img_paths = [write_image_payload_to_temp(img) for img in images]
-                out: dict[str, Any] = {
-                    "status": "ok",
-                    "message": f"{len(images)} plot(s) generated",
-                    "image_paths": img_paths,
-                }
+                out: dict[str, Any] = {"status": "ok", "message": f"{len(images)} plot(s) generated", "image_paths": img_paths}
                 if len(img_paths) == 1:
                     out["image_path"] = img_paths[0]
                 else:

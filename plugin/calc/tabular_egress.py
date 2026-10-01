@@ -46,14 +46,7 @@ def calc_anchor_from_selection(doc: Any) -> tuple[int, int]:
     return 0, 0
 
 
-def format_tabular_helper_for_calc(
-    result: dict[str, Any],
-    *,
-    domain_label: str,
-    default_helper: str,
-    failed_message: str,
-    metadata_keys: tuple[str, ...] = ("n_rows", "n_cols", "numeric_cols"),
-) -> list[list[Any]]:
+def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str, default_helper: str, failed_message: str, metadata_keys: tuple[str, ...] = ("n_rows", "n_cols", "numeric_cols")) -> list[list[Any]]:
     """Turn a tabular helper result dict into a row-major grid for ``write_formula_range``."""
     rows: list[list[Any]] = []
 
@@ -113,14 +106,7 @@ def format_tabular_helper_for_calc(
     return rows
 
 
-def insert_tabular_result_into_calc(
-    doc: Any,
-    uno_ctx: Any,
-    grid: list[list[Any]],
-    *,
-    start_col: int | None = None,
-    start_row: int | None = None,
-) -> int:
+def insert_tabular_result_into_calc(doc: Any, uno_ctx: Any, grid: list[list[Any]], *, start_col: int | None = None, start_row: int | None = None) -> int:
     """Write *grid* starting at *start_col*/*start_row* (or selection). Returns row count."""
     if start_col is None or start_row is None:
         col, row = calc_anchor_from_selection(doc)

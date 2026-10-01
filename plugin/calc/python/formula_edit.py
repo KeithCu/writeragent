@@ -14,16 +14,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from plugin.framework.deal_shim import (
-    DEAL_MAX_SHAPE_DIM,
-    DEAL_MAX_SOURCE,
-    DEAL_MAX_TOKEN,
-    UNDER_CROSSHAIR,
-    ascii_bounded,
-    deal,
-    inverse_ensure,
-    str_bounded,
-)
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal, inverse_ensure, str_bounded
 
 # Preferred display name for newly built formulas; PYTHON remains a backward-compatible alias.
 CALC_PYTHON_FN = "PY"
@@ -31,14 +22,7 @@ CALC_PYTHON_FN_ALIASES = ("PY", "PYTHON")
 # getFormula() stores add-ins as OriginalName (service.method), not the
 # Function Wizard token. Without these, follow-ref save cannot parse live cells.
 # Longest first so PYTHON is not parsed as PY + "THON".
-_CALC_PYTHON_FN_ALIASES_BY_LEN = (
-    "ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON",
-    "ORG.EXTENSION.LIBREPY.PYTHONFUNCTION.PYTHON",
-    "ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY",
-    "ORG.EXTENSION.LIBREPY.PYTHONFUNCTION.PY",
-    "PYTHON",
-    "PY",
-)
+_CALC_PYTHON_FN_ALIASES_BY_LEN = ("ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON", "ORG.EXTENSION.LIBREPY.PYTHONFUNCTION.PYTHON", "ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY", "ORG.EXTENSION.LIBREPY.PYTHONFUNCTION.PY", "PYTHON", "PY")
 _MAX_PYTHON_ALIAS_LEN = max(len(a) for a in _CALC_PYTHON_FN_ALIASES_BY_LEN)
 # Curly/smart quotes Calc sometimes stores in localized formulas.
 _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"})
@@ -118,11 +102,7 @@ def _deal_data_args_ok(data_args: object) -> bool:
 
     Items are A1 / range tokens (same alphabet as the formatters), not formula source.
     """
-    return (
-        isinstance(data_args, list)
-        and len(data_args) <= DEAL_MAX_SHAPE_DIM
-        and all(_deal_range_addr_ok(x) for x in data_args)
-    )
+    return isinstance(data_args, list) and len(data_args) <= DEAL_MAX_SHAPE_DIM and all(_deal_range_addr_ok(x) for x in data_args)
 
 
 def _parts_result_ok(result: PythonFormulaParts | None) -> bool:
@@ -130,24 +110,12 @@ def _parts_result_ok(result: PythonFormulaParts | None) -> bool:
     # cover-all 35526755391 (~7.5m / 103 examples). Nested ensure predicate as cover entry. Doable later: rename _deal_ + skip.
     if result is None:
         return True
-    return (
-        isinstance(result, PythonFormulaParts)
-        and isinstance(result.prefix, str)
-        and bool(result.prefix)
-        and _py_call_open_end(result.prefix, require_equals=True) == len(result.prefix)
-        and isinstance(result.code, str)
-        and isinstance(result.data_suffix, str)
-        and result.data_suffix.endswith(")")
-    )
+    return isinstance(result, PythonFormulaParts) and isinstance(result.prefix, str) and bool(result.prefix) and _py_call_open_end(result.prefix, require_equals=True) == len(result.prefix) and isinstance(result.code, str) and isinstance(result.data_suffix, str) and result.data_suffix.endswith(")")
 
 
 # Cap start to len(s): `start >= 0` alone lets CrossHair feed a giant int.
 # Nested end-bounds ensure (~2m deep) is skipped under CrossHair; cheap post stays.
-@deal.pre(
-    lambda s, start: str_bounded(s, DEAL_MAX_SOURCE)
-    and isinstance(start, int)
-    and 0 <= start <= len(s)
-)
+@deal.pre(lambda s, start: str_bounded(s, DEAL_MAX_SOURCE) and isinstance(start, int) and 0 <= start <= len(s))
 @deal.post(lambda result: result is None or (isinstance(result, tuple) and len(result) == 2))
 @inverse_ensure(lambda s, start, result: _quoted_parse_result_ok(s, start, result))
 def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
@@ -168,7 +136,6 @@ def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
         chars.append(ch)
         i += 1
     return None
-
 
 
 # cover-all 35526755391: ~13m / 68 examples under str_bounded Unicode. CrossHair ASCII-only; pytest keeps Unicode source.
@@ -228,12 +195,7 @@ def extract_python_code_loose(formula: str) -> str | None:
 # CrossHair (import-time inverse_ensure no-op); cheap @deal.post still runs.
 @deal.pre(lambda formula: str_bounded(formula, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
-@inverse_ensure(
-    lambda formula, result: "\u201c" not in result
-    and "\u201d" not in result
-    and "\u2018" not in result
-    and "\u2019" not in result
-)
+@inverse_ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result and "\u2018" not in result and "\u2019" not in result)
 def normalize_formula_string(formula: str) -> str:
     """Normalize LibreOffice ``getFormula()`` / ``FormulaLocal`` variants for parsing."""
     raw = (formula or "").strip().translate(_QUOTE_NORMALIZE)
@@ -323,10 +285,7 @@ _LEXER_COLLISION_XL_TEXT_RE = re.compile(r"\.text\s*\(")
 
 @deal.pre(lambda s, open_idx: str_bounded(s, DEAL_MAX_SOURCE) and isinstance(open_idx, int) and 0 <= open_idx < len(s))
 @deal.post(lambda result: isinstance(result, int) and result >= -1)
-@deal.ensure(
-    lambda s, open_idx, result: result == -1
-    or (0 <= open_idx <= result < len(s) and s[result] == ")")
-)
+@deal.ensure(lambda s, open_idx, result: result == -1 or (0 <= open_idx <= result < len(s) and s[result] == ")"))
 def _find_matching_paren(s: str, open_idx: int) -> int:
     # crosshair: off
     # cover-all 35526755391 (~4m). Paren walker as cover entry. Doable later: tiny balanced-paren alphabet.
@@ -378,12 +337,7 @@ def _rewrite_token_calls_body(code: str, token: str, rewrite_inner: Callable[[st
     return "".join(out)
 
 
-@deal.pre(
-    lambda code, token, rewrite_inner: str_bounded(code, DEAL_MAX_SOURCE)
-    and ascii_bounded(token, 32, min_len=1)
-    and token.isalpha()
-    and callable(rewrite_inner)
-)
+@deal.pre(lambda code, token, rewrite_inner: str_bounded(code, DEAL_MAX_SOURCE) and ascii_bounded(token, 32, min_len=1) and token.isalpha() and callable(rewrite_inner))
 @deal.post(lambda result: isinstance(result, str))
 def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], str]) -> str:  # pyright: ignore[reportUnusedFunction]
     """Deal-wrapped rewrite for pytest; sanitize/escape call ``_rewrite_token_calls_body``."""
@@ -657,20 +611,10 @@ def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_range
 
 
 # code is Python source (Unicode-legal); ascii_bounded would reject café comments.
-@deal.pre(
-    lambda code, data_args, *_unused, **__: str_bounded(code, DEAL_MAX_SOURCE + 256)
-    and _deal_data_args_ok(data_args)
-)
+@deal.pre(lambda code, data_args, *_unused, **__: str_bounded(code, DEAL_MAX_SOURCE + 256) and _deal_data_args_ok(data_args))
 @deal.post(lambda result: isinstance(result, str) and result.startswith(f"={CALC_PYTHON_FN}("))
 @deal.ensure(lambda *args, result=None, **kwargs: isinstance(result, str) and result.endswith(")"))
-def rebuild_python_formula_with_data(
-    code: str,
-    data_args: list[str],
-    *,
-    parts: PythonFormulaParts | None = None,
-    separator: str = ";",
-    excel_escape: bool = False,
-) -> str:
+def rebuild_python_formula_with_data(code: str, data_args: list[str], *, parts: PythonFormulaParts | None = None, separator: str = ";", excel_escape: bool = False) -> str:
     """Build ``=PY("…"; ranges…)`` from code and data arguments.
 
     Use ``separator=","`` and ``excel_escape=True`` when writing OOXML ``.xlsx``
@@ -735,13 +679,7 @@ def py_formula_has_unquoted_code_ref(formula: str) -> bool:
     return not body.strip().startswith('"')
 
 
-def rebuild_python_formula_with_code_ref(
-    code_ref: str,
-    data_args: list[str],
-    *,
-    separator: str = ";",
-    excel_ranges: bool = False,
-) -> str:
+def rebuild_python_formula_with_code_ref(code_ref: str, data_args: list[str], *, separator: str = ";", excel_ranges: bool = False) -> str:
     """Build ``=PY(Sheet.A1; ranges…)`` with code taken from a cell (Excel script-bank shape).
 
     Avoids Calc ``MAXSTRLEN`` by keeping Python source out of the formula string.

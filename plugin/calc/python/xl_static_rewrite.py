@@ -127,9 +127,7 @@ def migrate_bare_data_to_index0(code: str) -> str:
         if id(node) in skip_names:
             continue
         start = ast_source_offset(src, node.lineno, node.col_offset)
-        end = ast_source_offset(
-            src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset
-        )
+        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
         if start < 0 or end < 0 or end <= start:
             continue
         hits.append((start, end))
@@ -159,7 +157,6 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
         issues.append(f"Python source is not parseable: {exc}")
         return [], issues
 
-
     calls: list[_XlLiteralCall] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -170,9 +167,7 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
         if getattr(node, "lineno", None) is None:
             continue
         start = ast_source_offset(src, node.lineno, node.col_offset)
-        end = ast_source_offset(
-            src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset
-        )
+        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
         if start < 0 or end < 0 or end <= start:
             issues.append("xl() call without reliable source positions")
             continue
@@ -199,33 +194,14 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
         if not is_static_a1_literal(ref):
             issues.append(f"xl({ref!r}) is not a static A1/range address")
             continue
-        calls.append(
-            _XlLiteralCall(start=start, end=end, address=ref, header_mode=header_mode)
-        )
+        calls.append(_XlLiteralCall(start=start, end=end, address=ref, header_mode=header_mode))
     calls.sort(key=lambda c: c.start)
     return calls, issues
 
 
-@deal.pre(
-    lambda code, existing_data_args=None: str_bounded(code, DEAL_MAX_SOURCE)
-    and (
-        existing_data_args is None
-        or (
-            isinstance(existing_data_args, list)
-            and len(existing_data_args) <= DEAL_MAX_SHAPE_DIM
-            and all(str_bounded(x, DEAL_MAX_SOURCE) for x in existing_data_args)
-        )
-    )
-)
-@deal.post(
-    lambda result: isinstance(result, XlStaticRewriteResult)
-    and isinstance(result.code, str)
-    and isinstance(result.data_args, list)
-)
-def apply_xl_static_rewrite(
-    code: str,
-    existing_data_args: list[str] | None = None,
-) -> XlStaticRewriteResult:
+@deal.pre(lambda code, existing_data_args=None: str_bounded(code, DEAL_MAX_SOURCE) and (existing_data_args is None or (isinstance(existing_data_args, list) and len(existing_data_args) <= DEAL_MAX_SHAPE_DIM and all(str_bounded(x, DEAL_MAX_SOURCE) for x in existing_data_args))))
+@deal.post(lambda result: isinstance(result, XlStaticRewriteResult) and isinstance(result.code, str) and isinstance(result.data_args, list))
+def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = None) -> XlStaticRewriteResult:
     """Lift static ``xl("A1")`` literals onto data args and rewrite to ``data`` / ``data[i]``.
 
     Explicit *existing_data_args* (Monaco **Data:** field) stay first; new addresses append.
@@ -267,9 +243,4 @@ def apply_xl_static_rewrite(
         new_code = migrate_bare_data_to_index0(new_code)
 
     changed = new_code != code or data_args != existing
-    return XlStaticRewriteResult(
-        code=new_code,
-        data_args=data_args,
-        issues=[],
-        changed=changed,
-    )
+    return XlStaticRewriteResult(code=new_code, data_args=data_args, issues=[], changed=changed)

@@ -54,9 +54,7 @@ def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
         return False
 
 
-def insert_image_result_on_sheet(
-    ctx: Any, payload: dict[str, Any], *, code: str | None = None, doc: Any | None = None
-) -> None:
+def insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any], *, code: str | None = None, doc: Any | None = None) -> None:
     """Write image payload bytes to a temp file and insert as a cell-anchored shape on the target sheet.
 
     Posts execution asynchronously to the main VCL UI thread if invoked from a background worker thread.
@@ -76,9 +74,7 @@ def insert_image_result_on_sheet(
     _insert_image_result_on_sheet_impl(ctx, payload, code, doc)
 
 
-def _insert_image_result_on_sheet_impl(
-    ctx: Any, payload: dict[str, Any], code: str | None = None, doc: Any | None = None
-) -> None:
+def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: str | None = None, doc: Any | None = None) -> None:
     """Main-thread implementation of graphic shape creation and anchoring."""
     import uno
     from com.sun.star.awt import Size
@@ -123,9 +119,7 @@ def _insert_image_result_on_sheet_impl(
                 # the formula cell must NOT fall back to the controller's active sheet or active selection.
                 # Falling back causes plots to be inserted on whatever sheet/cell is active (e.g. analysis!A1
                 # during Ctrl+Shift+F9 recalc).
-                log.warning(
-                    "insert_image_result_on_sheet: could not locate formula cell for formula code; aborting egress to prevent wrong-sheet placement"
-                )
+                log.warning("insert_image_result_on_sheet: could not locate formula cell for formula code; aborting egress to prevent wrong-sheet placement")
                 return
 
         ctrl = doc.getCurrentController() if hasattr(doc, "getCurrentController") else None

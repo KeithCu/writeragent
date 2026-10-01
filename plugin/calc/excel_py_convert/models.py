@@ -25,10 +25,8 @@ HeaderMode = Literal["true", "false", "omit"]
 DepRole = Literal["data", "ordering"]
 
 # Canonical pointer for callers that need to cite the fidelity policy in logs/tests.
-EXCEL_DEP_TOKEN_FIDELITY = (
-    "excel_deps are for Excel round-trip fidelity only; Calc uses A1 data_args snapshots "
-    "(Table[#All] / ANCHORARRAY need real Calc support later — see models.py module doc)"
-)
+EXCEL_DEP_TOKEN_FIDELITY = "excel_deps are for Excel round-trip fidelity only; Calc uses A1 data_args snapshots (Table[#All] / ANCHORARRAY need real Calc support later — see models.py module doc)"
+
 
 @dataclass
 class SheetInfo:
@@ -71,14 +69,7 @@ class ExcelWorkbookModel:
         return {s.title: s.order for s in self.sheets}
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "scripts": list(self.scripts),
-            "cells": [asdict(c) for c in self.cells],
-            "sheets": [asdict(s) for s in self.sheets],
-            "tables": dict(self.tables),
-            "anchor_snapshots": dict(self.anchor_snapshots),
-            "source_path": self.source_path,
-        }
+        return {"scripts": list(self.scripts), "cells": [asdict(c) for c in self.cells], "sheets": [asdict(s) for s in self.sheets], "tables": dict(self.tables), "anchor_snapshots": dict(self.anchor_snapshots), "source_path": self.source_path}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ExcelWorkbookModel:
@@ -96,10 +87,7 @@ class ExcelWorkbookModel:
             )
             for c in data.get("cells") or []
         ]
-        sheets = [
-            SheetInfo(title=str(s["title"]), order=int(s["order"]), part_name=str(s.get("part_name") or ""))
-            for s in data.get("sheets") or []
-        ]
+        sheets = [SheetInfo(title=str(s["title"]), order=int(s["order"]), part_name=str(s.get("part_name") or "")) for s in data.get("sheets") or []]
         return cls(
             scripts=[str(s) for s in data.get("scripts") or []],
             cells=cells,
@@ -224,20 +212,9 @@ class ConversionReport:
         return all(c.converted for c in self.cells)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "direction": self.direction,
-            "source_path": self.source_path,
-            "ok": self.ok,
-            "issues": list(self.issues),
-            "cells": [c.to_dict() for c in self.cells],
-        }
+        return {"direction": self.direction, "source_path": self.source_path, "ok": self.ok, "issues": list(self.issues), "cells": [c.to_dict() for c in self.cells]}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ConversionReport:
         cells = [ConvertedCell.from_dict(c) for c in (data.get("cells") or []) if isinstance(c, dict)]
-        return cls(
-            direction=str(data.get("direction") or "dag"),
-            source_path=str(data.get("source_path") or ""),
-            cells=cells,
-            issues=[str(i) for i in (data.get("issues") or [])],
-        )
+        return cls(direction=str(data.get("direction") or "dag"), source_path=str(data.get("source_path") or ""), cells=cells, issues=[str(i) for i in (data.get("issues") or [])])

@@ -25,7 +25,6 @@ import uno
 from plugin.framework.errors import UnoObjectError
 
 
-
 def resolve_sheet(doc: Any, sheet_name: str | None = None) -> Any:
     """Return the target sheet (by name or active)."""
     if sheet_name:
@@ -39,7 +38,6 @@ def resolve_sheet(doc: Any, sheet_name: str | None = None) -> Any:
         if active is not None:
             return cast("Any", active)
     return cast("Any", doc.getSheets().getByIndex(0))
-
 
 
 def query_interface(obj: Any, typename: str) -> Any:
@@ -113,4 +111,3 @@ def get_cell_geometry_target(sheet: Any, cell: Any) -> Any:
     except Exception:
         pass
     return cell
-

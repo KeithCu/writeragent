@@ -46,35 +46,14 @@ import ast
 import re
 from dataclasses import dataclass
 
-from plugin.calc.excel_py_convert.models import (
-    BindingInfo,
-    ConvertedCell,
-    ConversionReport,
-    ExcelPyCell,
-    ExcelWorkbookModel,
-    HeaderMode,
-)
+from plugin.calc.excel_py_convert.models import BindingInfo, ConvertedCell, ConversionReport, ExcelPyCell, ExcelWorkbookModel, HeaderMode
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
-from plugin.framework.deal_shim import (
-    DEAL_MAX_CELL_REF,
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_PLACEHOLDER_INDEX,
-    DEAL_MAX_SOURCE,
-    DEAL_MAX_XL_EXPR,
-    UNDER_CROSSHAIR,
-    ascii_bounded,
-    inverse_ensure,
-    str_bounded,
-    deal,
-)
+from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_CMD_ARGS, DEAL_MAX_PLACEHOLDER_INDEX, DEAL_MAX_SOURCE, DEAL_MAX_XL_EXPR, UNDER_CROSSHAIR, ascii_bounded, inverse_ensure, str_bounded, deal
 
 # Identifier / placeholder / xl() alphabet. Pytest keeps Unicode ``str_bounded``
 # so real Excel scripts stay legal; CrossHair's unrestricted Unicode of length 16
 # is how regular cover synthesized ~193 junk examples of ``_normalize_excel_placeholders``.
-_EXCEL_PLACEHOLDER_CHARS = frozenset(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-    "%_#'\" \t\n\\()=,.:+-[]{}"
-)
+_EXCEL_PLACEHOLDER_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789%_#'\" \t\n\\()=,.:+-[]{}")
 # Tiny rewrite walk + convert lists. Defined before _deal_excel_src_ok so the
 # CrossHair src pre cannot exceed _skip_string's str_bounded(_DEAL_REWRITE_SRC).
 _DEAL_CONVERT_LIST = 1 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
@@ -93,11 +72,7 @@ def _deal_excel_src_ok_crosshair(src: object) -> bool:
     # Must not exceed _skip_string's str_bounded(_DEAL_REWRITE_SRC): CrossHair
     # used to pass len-2 src such as '\t"' into _find_xl_calls, then
     # _normalize_excel_placeholders called _skip_string and PreconditionFailed.
-    return (
-        isinstance(src, str)
-        and str_bounded(src, _DEAL_REWRITE_SRC)
-        and all(c in _EXCEL_PLACEHOLDER_CHARS for c in src)
-    )
+    return isinstance(src, str) and str_bounded(src, _DEAL_REWRITE_SRC) and all(c in _EXCEL_PLACEHOLDER_CHARS for c in src)
 
 
 # Import-time only — do not branch inside ``@deal.pre`` lambdas.
@@ -134,10 +109,7 @@ _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 _P_BARE_RE = re.compile(r"%P(\d+)%", re.IGNORECASE)
 # Equal-length stand-in so ``ast.parse`` accepts Excel scripts: ``%P2%`` → ``_P2_``.
 _P_SENTINEL_RE = re.compile(r"^_P(\d+)_$", re.IGNORECASE)
-_OBJECT_SUPPRESS = (
-    "\n# excel_py: returnType=1 (Object) — cell value egress suppressed until object cards ship\n"
-    "result = None"
-)
+_OBJECT_SUPPRESS = "\n# excel_py: returnType=1 (Object) — cell value egress suppressed until object cards ship\nresult = None"
 
 
 @dataclass
@@ -153,26 +125,15 @@ class _XlCall:
     raw: str = ""
 
 
-@deal.pre(
-    lambda p_num, *_unused, **__: isinstance(p_num, int)
-    and 2 <= p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX
-)
+@deal.pre(lambda p_num, *_unused, **__: isinstance(p_num, int) and 2 <= p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX)
 @deal.post(lambda result: isinstance(result, int) and 0 <= result <= DEAL_MAX_PLACEHOLDER_INDEX)
 def _placeholder_to_data_index(p_num: int) -> int:
     """Map Excel ``%Pk%`` to 0-based original dep index: ``%P2%`` → 0, ``%P3%`` → 1."""
     return p_num - 2
 
 
-@deal.pre(
-    lambda index, *_unused, **__: isinstance(index, int) and 0 <= index <= DEAL_MAX_PLACEHOLDER_INDEX
-)
-@deal.post(
-    lambda result: isinstance(result, str)
-    and result.startswith("xl(")
-    and result.endswith(")")
-    and '"%P' in result
-    and len(result) <= DEAL_MAX_XL_EXPR
-)
+@deal.pre(lambda index, *_unused, **__: isinstance(index, int) and 0 <= index <= DEAL_MAX_PLACEHOLDER_INDEX)
+@deal.post(lambda result: isinstance(result, str) and result.startswith("xl(") and result.endswith(")") and '"%P' in result and len(result) <= DEAL_MAX_XL_EXPR)
 def _xl_binding_expr(index: int, header_mode: str) -> str:
     """Runnable DAG ``xl("%Pn%", …)`` (quoted token; MS package uses bare ``%Pn%``)."""
     tok = f'"%P{index + 2}%"'
@@ -196,11 +157,7 @@ def _header_mode_from_keywords(node: ast.Call) -> HeaderMode:
     return "omit"
 
 
-@deal.pre(
-    lambda src, i, *_unused, **__: str_bounded(src, _DEAL_REWRITE_SRC)
-    and type(i) is int
-    and 0 <= i < len(src)
-)
+@deal.pre(lambda src, i, *_unused, **__: str_bounded(src, _DEAL_REWRITE_SRC) and type(i) is int and 0 <= i < len(src))
 def _skip_string(src: str, i: int) -> int:
     """Return index just past a string literal starting at *i* (quote char)."""
     quote = src[i]
@@ -306,7 +263,6 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
         issues.append(f"Python syntax error at {loc}: {msg}")
         return [], issues
 
-
     calls: list[_XlCall] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -331,28 +287,12 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
             dynamic = True
         else:
             p_num, literal, dynamic = _p_num_from_arg(node.args[0])
-        calls.append(
-            _XlCall(
-                start=start,
-                end=end,
-                p_num=p_num,
-                header_mode=header_mode,
-                literal=literal,
-                dynamic=dynamic,
-                raw=src[start:end],
-            )
-        )
+        calls.append(_XlCall(start=start, end=end, p_num=p_num, header_mode=header_mode, literal=literal, dynamic=dynamic, raw=src[start:end]))
     calls.sort(key=lambda c: c.start)
     return calls, issues
 
 
-@deal.pre(
-    lambda src, lineno, col: _deal_ast_offset_src_ok(src)
-    and type(lineno) is int
-    and type(col) is int
-    and 0 <= lineno <= _AST_OFFSET_MAX_LINENO
-    and 0 <= col <= _AST_OFFSET_MAX_COL
-)
+@deal.pre(lambda src, lineno, col: _deal_ast_offset_src_ok(src) and type(lineno) is int and type(col) is int and 0 <= lineno <= _AST_OFFSET_MAX_LINENO and 0 <= col <= _AST_OFFSET_MAX_COL)
 def ast_source_offset(src: str, lineno: int, col: int) -> int:
     """Map AST ``(lineno, col_offset)`` to an absolute character index in *src*.
 
@@ -379,30 +319,14 @@ def ast_source_offset(src: str, lineno: int, col: int) -> int:
 
 
 @deal.pre(
-    lambda code, num_deps, index_map=None, *_unused, **__: _deal_excel_src_ok(code or "")
-    and type(num_deps) is int
-    and 0 <= num_deps <= _DEAL_CONVERT_LIST
-    and (
-        index_map is None
-        or (
-            isinstance(index_map, dict)
-            and len(index_map) <= _DEAL_CONVERT_LIST
-            and all(
-                type(k) is int
-                and type(v) is int
-                and 0 <= k <= _DEAL_CONVERT_LIST
-                and 0 <= v <= _DEAL_CONVERT_LIST
-                for k, v in index_map.items()
-            )
-        )
+    lambda code, num_deps, index_map=None, *_unused, **__: (
+        _deal_excel_src_ok(code or "")
+        and type(num_deps) is int
+        and 0 <= num_deps <= _DEAL_CONVERT_LIST
+        and (index_map is None or (isinstance(index_map, dict) and len(index_map) <= _DEAL_CONVERT_LIST and all(type(k) is int and type(v) is int and 0 <= k <= _DEAL_CONVERT_LIST and 0 <= v <= _DEAL_CONVERT_LIST for k, v in index_map.items())))
     )
 )
-def rewrite_excel_code(
-    code: str,
-    *,
-    num_deps: int,
-    index_map: dict[int, int] | None = None,
-) -> tuple[str, list[str], list[str], dict[int, str]]:
+def rewrite_excel_code(code: str, *, num_deps: int, index_map: dict[int, int] | None = None) -> tuple[str, list[str], list[str], dict[int, str]]:
     """Normalize ``xl(...)`` bindings to runnable ``xl("%Pn%", …)``; leave other code intact.
 
     *index_map* maps original 0-based dep index → normalized binding index after dedup.
@@ -477,10 +401,7 @@ def _excel_execution_order(model: ExcelWorkbookModel) -> list[ExcelPyCell]:
     return cells
 
 
-@deal.pre(
-    lambda current, candidate: ascii_bounded(current or "", _DEAL_BINDING_A1_LEN)
-    and ascii_bounded(candidate or "", _DEAL_BINDING_A1_LEN)
-)
+@deal.pre(lambda current, candidate: ascii_bounded(current or "", _DEAL_BINDING_A1_LEN) and ascii_bounded(candidate or "", _DEAL_BINDING_A1_LEN))
 def _prefer_excel_dep_token(current: str, candidate: str) -> str:
     # crosshair: off
     # string branch leftover (cover-all 33569420452: ~977s est / 1812 ex despite ascii_bounded A1). Doable later.
@@ -498,30 +419,16 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
 
 
 @deal.pre(
-    lambda resolved, header_modes: type(resolved) is list
-    and len(resolved) <= _DEAL_RESOLVED_LEN
-    and all(
-        isinstance(r, ResolvedDep)
-        and r.kind in _RESOLVED_KINDS
-        and _deal_note_ok(r.note or "", _DEAL_NOTE_LEN)
-        and (r.a1 is None or ascii_bounded(r.a1, _DEAL_BINDING_A1_LEN))
-        and (r.original is None or ascii_bounded(r.original, _DEAL_BINDING_A1_LEN))
-        for r in resolved
-    )
-    and type(header_modes) is dict
-    and len(header_modes) <= _DEAL_RESOLVED_LEN
-    and all(
-        type(k) is int
-        and 0 <= k <= _DEAL_RESOLVED_LEN
-        and isinstance(v, str)
-        and v in ("omit", "true", "false")
-        for k, v in header_modes.items()
+    lambda resolved, header_modes: (
+        type(resolved) is list
+        and len(resolved) <= _DEAL_RESOLVED_LEN
+        and all(isinstance(r, ResolvedDep) and r.kind in _RESOLVED_KINDS and _deal_note_ok(r.note or "", _DEAL_NOTE_LEN) and (r.a1 is None or ascii_bounded(r.a1, _DEAL_BINDING_A1_LEN)) and (r.original is None or ascii_bounded(r.original, _DEAL_BINDING_A1_LEN)) for r in resolved)
+        and type(header_modes) is dict
+        and len(header_modes) <= _DEAL_RESOLVED_LEN
+        and all(type(k) is int and 0 <= k <= _DEAL_RESOLVED_LEN and isinstance(v, str) and v in ("omit", "true", "false") for k, v in header_modes.items())
     )
 )
-def _normalize_bindings(
-    resolved: list[ResolvedDep],
-    header_modes: dict[int, str],
-) -> tuple[list[BindingInfo], dict[int, int], list[str], list[str], list[str]]:
+def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str]) -> tuple[list[BindingInfo], dict[int, int], list[str], list[str], list[str]]:
     """Deduplicate resolved A1s; map original indices → normalized data indices.
 
     Returns ``(bindings, index_map, data_args, excel_deps, issues)``.
@@ -558,14 +465,7 @@ def _normalize_bindings(
         index_map[orig_i] = norm
         data_args.append(key)
         excel_deps.append((r.original or key).strip() or key)
-        bindings.append(
-            BindingInfo(
-                a1=key,
-                header_mode=header_modes.get(orig_i, "omit"),
-                role="data",
-                original_indices=[orig_i],
-            )
-        )
+        bindings.append(BindingInfo(a1=key, header_mode=header_modes.get(orig_i, "omit"), role="data", original_indices=[orig_i]))
     return bindings, index_map, data_args, excel_deps, issues
 
 
@@ -574,11 +474,7 @@ def _deal_convert_scripts_ok(model: object) -> bool:
     # let CrossHair build scripts=['\x00'] then PreconditionFailed inside
     # (check-all 33935176527). Pytest _deal_excel_src_ok is still str_bounded.
     scripts = getattr(model, "scripts", None)
-    return (
-        isinstance(scripts, list)
-        and len(scripts) <= _DEAL_CONVERT_LIST
-        and all(_deal_excel_src_ok(s) for s in scripts)
-    )
+    return isinstance(scripts, list) and len(scripts) <= _DEAL_CONVERT_LIST and all(_deal_excel_src_ok(s) for s in scripts)
 
 
 # CrossHair convert deps are exact two-char A1 (``A1``…``Z9``). Broader
@@ -598,12 +494,7 @@ def _deal_convert_dep_ok_pytest(dep: object) -> bool:
 def _deal_convert_dep_ok_crosshair(dep: object) -> bool:
     # Exact A1 so resolve_dep returns kind=range with empty note (passes the
     # off'd ``_normalize_bindings`` note bound without widening that pre).
-    return (
-        isinstance(dep, str)
-        and len(dep) == _DEAL_CONVERT_STR
-        and dep[0] in _CONVERT_DEP_A1_LETTER
-        and dep[1] in _CONVERT_DEP_A1_DIGIT
-    )
+    return isinstance(dep, str) and len(dep) == _DEAL_CONVERT_STR and dep[0] in _CONVERT_DEP_A1_LETTER and dep[1] in _CONVERT_DEP_A1_DIGIT
 
 
 _deal_convert_dep_ok = _deal_convert_dep_ok_crosshair if UNDER_CROSSHAIR else _deal_convert_dep_ok_pytest
@@ -613,38 +504,15 @@ def _deal_convert_cell_ok(cell: object) -> bool:
     """Cell fields ``convert_cell_to_dag`` requires; script_index range is body-checked."""
     script_index = getattr(cell, "script_index", None)
     deps = getattr(cell, "deps", None)
-    return (
-        type(script_index) is int
-        and isinstance(deps, list)
-        and len(deps) <= _DEAL_CONVERT_LIST
-        and all(_deal_convert_dep_ok(d) for d in deps)
-    )
+    return type(script_index) is int and isinstance(deps, list) and len(deps) <= _DEAL_CONVERT_LIST and all(_deal_convert_dep_ok(d) for d in deps)
 
 
-@deal.pre(
-    lambda model, cell, *_unused, **__: _deal_convert_scripts_ok(model) and _deal_convert_cell_ok(cell)
-)
-def convert_cell_to_dag(
-    model: ExcelWorkbookModel,
-    cell: ExcelPyCell,
-    *,
-    prior_in_order: list[ExcelPyCell] | None = None,
-    best_effort: bool = False,
-) -> ConvertedCell:
+@deal.pre(lambda model, cell, *_unused, **__: _deal_convert_scripts_ok(model) and _deal_convert_cell_ok(cell))
+def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_in_order: list[ExcelPyCell] | None = None, best_effort: bool = False) -> ConvertedCell:
     # crosshair: off
     # ExcelWorkbookModel + resolve_deps/rewrite stack (cover-all 33569420452: ~1195s est / 2217 ex despite tiny list deals). Doable later.
     """Convert one Excel PY cell: rewrite ``xl`` in code + attach ranges on ``=PY``."""
-    base = ConvertedCell(
-        sheet=cell.sheet,
-        cell=cell.cell,
-        direction="dag",
-        original_code="",
-        converted_code="",
-        return_type=cell.return_type,
-        array_ref=cell.array_ref,
-        script_index=cell.script_index,
-        converted=False,
-    )
+    base = ConvertedCell(sheet=cell.sheet, cell=cell.cell, direction="dag", original_code="", converted_code="", return_type=cell.return_type, array_ref=cell.array_ref, script_index=cell.script_index, converted=False)
     if cell.script_index < 0 or cell.script_index >= len(model.scripts):
         base.issues = [f"script_index {cell.script_index} out of range ({len(model.scripts)} scripts)"]
         return base
@@ -672,11 +540,7 @@ def convert_cell_to_dag(
         new_code = original
         rewrite_issues = list(rewrite_issues0)
     else:
-        new_code, rewrite_issues, _used, _hm2 = rewrite_excel_code(
-            original,
-            num_deps=len(cell.deps),
-            index_map=index_map if index_map else None,
-        )
+        new_code, rewrite_issues, _used, _hm2 = rewrite_excel_code(original, num_deps=len(cell.deps), index_map=index_map if index_map else None)
         issues.extend(i for i in rewrite_issues if i not in issues)
         dynamic = dynamic or any("dynamic xl()" in i for i in rewrite_issues)
 
@@ -685,9 +549,7 @@ def convert_cell_to_dag(
     prior = prior_in_order or []
     shared_kernel = bool(prior) or (not cell.deps and "xl(" not in original.replace(" ", ""))
     if shared_kernel and prior:
-        issues.append(
-            "shared-kernel workbook: enable shared session; converter does not add order edges"
-        )
+        issues.append("shared-kernel workbook: enable shared session; converter does not add order edges")
 
     if cell.return_type == 1:
         new_code = (new_code or "") + _OBJECT_SUPPRESS
@@ -733,12 +595,14 @@ def convert_cell_to_dag(
 
 
 @deal.pre(
-    lambda model, *_unused, **__: _deal_convert_scripts_ok(model)
-    and isinstance(model.cells, list)
-    and len(model.cells) <= _DEAL_CONVERT_LIST
-    # convert_cell_to_dag's cell.deps bound is tighter than this wrapper used to be
-    # (empty scripts + a 3-dep cell passed here, then PreconditionFailed inside).
-    and all(_deal_convert_cell_ok(c) for c in model.cells)
+    lambda model, *_unused, **__: (
+        _deal_convert_scripts_ok(model)
+        and isinstance(model.cells, list)
+        and len(model.cells) <= _DEAL_CONVERT_LIST
+        # convert_cell_to_dag's cell.deps bound is tighter than this wrapper used to be
+        # (empty scripts + a 3-dep cell passed here, then PreconditionFailed inside).
+        and all(_deal_convert_cell_ok(c) for c in model.cells)
+    )
 )
 def convert_model_to_dag(model: ExcelWorkbookModel, *, best_effort: bool = False) -> ConversionReport:
     """Convert every PY cell in *model* to DAG-style ``=PY`` formulas."""

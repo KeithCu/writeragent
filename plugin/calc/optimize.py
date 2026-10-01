@@ -55,10 +55,7 @@ class OptimizeDataTool(ToolBaseDummy):
             props = cast("dict[str, Any]", p["properties"])
             props.pop("data", None)
             if "data_range" in props:
-                props["data_range"]["description"] = (
-                    "A1 range address (e.g. 'Sheet1.A1:D1000'). This is the only way "
-                    "to supply data. The host extracts the values out-of-band."
-                )
+                props["data_range"]["description"] = "A1 range address (e.g. 'Sheet1.A1:D1000'). This is the only way to supply data. The host extracts the values out-of-band."
         return p
 
     def is_async(self) -> bool:
@@ -73,10 +70,7 @@ class OptimizeDataTool(ToolBaseDummy):
         data = kwargs.get("data")
 
         if getattr(ctx, "active_domain", None) in ("analysis", "optimize") and data is not None:
-            return self._tool_error(
-                "analysis/optimize domain requires data_range (A1 address string) only. "
-                "Do not pass raw data values — the host must resolve the range out-of-band."
-            )
+            return self._tool_error("analysis/optimize domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
 
         if not (data_range and str(data_range).strip()) and data is None:
             return self._tool_error("Provide data_range or data")
@@ -92,16 +86,7 @@ class OptimizeDataTool(ToolBaseDummy):
         output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
         def _run() -> dict[str, Any]:
-            return run_trusted_optimize(
-                ctx.ctx,
-                ctx.doc,
-                helper=helper,
-                params=params,
-                data_range=dr,
-                data=data,
-                headers=headers,
-                task_hint=task_hint,
-            )
+            return run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
 
         try:
             result = execute_on_main_thread(_run)
@@ -111,6 +96,7 @@ class OptimizeDataTool(ToolBaseDummy):
             return self._tool_error(f"Failed to run optimization: {exc}")
 
         if output_range and result.get("status") == "ok":
+
             def _write() -> None:
                 cell_part = output_range.rsplit(".", 1)[-1] if output_range else output_range
                 col, row = parse_address(cell_part)

@@ -140,9 +140,7 @@ def _system_clipboard(uno_ctx: Any) -> Any:
     if smgr is None:
         return None
     try:
-        return smgr.createInstanceWithContext(
-            "com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx
-        )
+        return smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx)
     except Exception:
         return None
 
@@ -207,31 +205,16 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
         hidden = format_support.create_property_value("Hidden", True)
         # Do not import chatbot.create_hidden_html_writer — this module ships
         # in LibrePy without chatbot.
-        _step(
-            "insert_cell_html_rich: loadComponentFromURL start "
-            "target=%s hidden=True flags=%s" % (_HTML_WRITER_TARGET, _HTML_WRITER_SEARCH_FLAGS)
-        )
+        _step("insert_cell_html_rich: loadComponentFromURL start target=%s hidden=True flags=%s" % (_HTML_WRITER_TARGET, _HTML_WRITER_SEARCH_FLAGS))
         writers_before = _desktop_writer_uids(desktop)
-        _step(
-            "insert_cell_html_rich: writers_open=%s uids=%s"
-            % (len(writers_before), writers_before)
-        )
-        temp_doc = desktop.loadComponentFromURL(
-            "private:factory/swriter",
-            _HTML_WRITER_TARGET,
-            _HTML_WRITER_SEARCH_FLAGS,
-            (hidden,),
-        )
+        _step("insert_cell_html_rich: writers_open=%s uids=%s" % (len(writers_before), writers_before))
+        temp_doc = desktop.loadComponentFromURL("private:factory/swriter", _HTML_WRITER_TARGET, _HTML_WRITER_SEARCH_FLAGS, (hidden,))
         temp_uid = _writer_runtime_uid(temp_doc) if temp_doc is not None else "-"
         reused_existing = bool(temp_uid != "-" and temp_uid in writers_before)
         # Never close the Windows keeper. After a successful paste we also
         # keep this Writer (see finally) — CREATE|GLOBAL reuses _wa_calc_html.
         close_temp = not reused_existing
-        _step(
-            "insert_cell_html_rich: loadComponentFromURL done "
-            "target=%s temp_uid=%s reused_existing=%s close_temp=%s"
-            % (_HTML_WRITER_TARGET, temp_uid, reused_existing, close_temp)
-        )
+        _step("insert_cell_html_rich: loadComponentFromURL done target=%s temp_uid=%s reused_existing=%s close_temp=%s" % (_HTML_WRITER_TARGET, temp_uid, reused_existing, close_temp))
         if temp_doc is None or not hasattr(temp_doc, "getText"):
             raise ToolExecutionError("Could not create temporary Writer document")
 
@@ -313,7 +296,4 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
             except Exception:
                 log.debug("temp Writer close failed", exc_info=True)
         elif temp_doc is not None:
-            _step(
-                "insert_cell_html_rich: close skipped pasted=%s reused_existing=%s"
-                % (pasted, not close_temp)
-            )
+            _step("insert_cell_html_rich: close skipped pasted=%s reused_existing=%s" % (pasted, not close_temp))

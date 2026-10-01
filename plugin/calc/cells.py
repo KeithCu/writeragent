@@ -21,7 +21,6 @@ Each tool is a ToolBase subclass that instantiates CalcBridge,
 CellInspector, and CellManipulator per call using ``ctx.doc``.
 """
 
-
 # crosshair: off
 from __future__ import annotations
 
@@ -110,18 +109,8 @@ def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
             return None
         preview_rows = min(rows, _READ_CELL_RANGE_PREVIEW_ROWS)
         end_row = int(addr.StartRow) + preview_rows - 1
-        local = (
-            f"{index_to_column(int(addr.StartColumn))}{int(addr.StartRow) + 1}:"
-            f"{index_to_column(int(addr.EndColumn))}{end_row + 1}"
-        )
-        return {
-            "rows": rows,
-            "columns": cols,
-            "cells": cells,
-            "preview_range": _format_sheet_address(range_name, local),
-            "start_column": int(addr.StartColumn),
-            "start_row": int(addr.StartRow),
-        }
+        local = f"{index_to_column(int(addr.StartColumn))}{int(addr.StartRow) + 1}:{index_to_column(int(addr.EndColumn))}{end_row + 1}"
+        return {"rows": rows, "columns": cols, "cells": cells, "preview_range": _format_sheet_address(range_name, local), "start_column": int(addr.StartColumn), "start_row": int(addr.StartRow)}
     except Exception:
         log.exception("Could not size range %s for read_cell_range cap; reading in full", range_name)
         return None
@@ -284,11 +273,7 @@ def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, 
         hint = " Write one value per row (each formula uses that row's cells)."
     elif rows == 1 and cols > 1:
         hint = " Write one value per column."
-    return (
-        f"Array has {n_vals} values but range {range_name} has {n_cells} cells "
-        f"({rows}×{cols}). JSON array must match range size exactly, or pass a "
-        f"single string to fill the whole range.{hint}"
-    )
+    return f"Array has {n_vals} values but range {range_name} has {n_cells} cells ({rows}×{cols}). JSON array must match range size exactly, or pass a single string to fill the whole range.{hint}"
 
 
 class ReadCellRange(ToolBase):
@@ -308,17 +293,7 @@ class ReadCellRange(ToolBase):
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {
-            "range": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": (
-                    'Cell range(s) (e.g. ["A1:D10"], ["Sheet1.A1:C5"], '
-                    '["\'Data Sheet\'!B2"]). Sheet prefixes target that sheet '
-                    "without switching the active sheet."
-                ),
-            }
-        },
+        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) (e.g. ["A1:D10"], ["Sheet1.A1:C5"], ["\'Data Sheet\'!B2"]). Sheet prefixes target that sheet without switching the active sheet.')}},
         "required": ["range"],
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -351,9 +326,7 @@ class ReadCellRange(ToolBase):
         payload: dict[str, Any] = {
             "status": "ok",
             "truncated": True,
-            "message": _READ_CELL_RANGE_TRUNCATED_MSG.format(
-                rows=preview["rows"], columns=preview["columns"], cells=preview["cells"]
-            ),
+            "message": _READ_CELL_RANGE_TRUNCATED_MSG.format(rows=preview["rows"], columns=preview["columns"], cells=preview["cells"]),
             "range": range_name,
             "preview_range": preview["preview_range"],
             "rows": preview["rows"],
@@ -389,8 +362,8 @@ class WriteCellRange(ToolBase):
         "dump the input or full spill into chat; do not write =PY onto DataRange (circular). If "
         "they asked for in-place unique rows, still land beside/new sheet and say where. "
         'Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). '
-        'Always use data.to_pandas() rather than pd.DataFrame(data) because to_pandas() uses row 0 as column headers; '
-        'pd.DataFrame(data) treats headers as data and generates synthetic numeric columns (0..N) that spill as a junk top row. '
+        "Always use data.to_pandas() rather than pd.DataFrame(data) because to_pandas() uses row 0 as column headers; "
+        "pd.DataFrame(data) treats headers as data and generates synthetic numeric columns (0..N) that spill as a junk top row. "
         "np.unique on mixed rows fails — NumPy object arrays cannot compare/hash mixed cell types. "
         "DO: to copy a block onto another sheet or place, pass source and dest range; do not pass "
         "values. Dest is the top-left (or a matching range whose start is used); the copied size is "
@@ -402,12 +375,7 @@ class WriteCellRange(ToolBase):
             "range": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": (
-                    'Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"]). '
-                    "Use a dot for other sheets (Sheet1.B2), never Excel Sheet1!B2. "
-                    "Sheet prefixes target that sheet without switching the active sheet. "
-                    "With source, this is the paste top-left (source extent is copied)."
-                ),
+                "description": ('Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"]). Use a dot for other sheets (Sheet1.B2), never Excel Sheet1!B2. Sheet prefixes target that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).'),
             },
             # Pin vs fill-down fork lives on values (not CALC_CORE FORMULAS
             # and not the main tool description). #657 replaced the old
@@ -424,7 +392,7 @@ class WriteCellRange(ToolBase):
                     "rate or tax column. In formulas, other sheets are Sheet.A1 "
                     "(dot), not Excel Sheet!A1. JSON array: exact per-cell contents; "
                     "must have exactly as many elements as cells in the range "
-                    "(e.g. '[\"a\", \"b\"]' for 2 cells). Repeating the same "
+                    '(e.g. \'["a", "b"]\' for 2 cells). Repeating the same '
                     "=B2*…-style formula in every element pins every row to the "
                     "first ref — use one formula string over the whole column "
                     "range instead. Empty string/array clears the range. "
@@ -434,22 +402,8 @@ class WriteCellRange(ToolBase):
                     "=PY() is still the spill path for Python reductions."
                 ),
             },
-            "array": {
-                "type": "boolean",
-                "description": (
-                    "Optional. true forces an array formula even for LET/XLOOKUP; "
-                    "false forces a scalar formula (setFormula / fill-down)."
-                ),
-            },
-            "source": {
-                "type": "string",
-                "description": (
-                    "Optional source block to copy (A1 or Sheet.A1, dot sheet prefix, "
-                    "never Excel Sheet1!A1). When set, dest range is the paste top-left "
-                    "(or a matching range whose start is used); copied size is the source "
-                    "extent. Do not pass values."
-                ),
-            },
+            "array": {"type": "boolean", "description": ("Optional. true forces an array formula even for LET/XLOOKUP; false forces a scalar formula (setFormula / fill-down).")},
+            "source": {"type": "string", "description": ("Optional source block to copy (A1 or Sheet.A1, dot sheet prefix, never Excel Sheet1!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.")},
         },
         "required": ["range"],
     }
@@ -474,10 +428,7 @@ class WriteCellRange(ToolBase):
         # source XOR values: a paste-copy must not also write/clear a values payload.
         if source:
             if _values_conflict_with_source(kwargs):
-                return self._tool_error(
-                    "Do not pass values when source is set. "
-                    "To copy a block, pass source and dest range only."
-                )
+                return self._tool_error("Do not pass values when source is set. To copy a block, pass source and dest range only.")
             try:
                 with WriterCompoundUndo(ctx.doc, "WriterAgent: Copy range"):
                     copied: dict[str, Any] | None = None
@@ -487,16 +438,8 @@ class WriteCellRange(ToolBase):
                         return self._tool_error("range is required")
                     msg = copied["message"]
                     if len(rn) > 1:
-                        msg = (
-                            f"Copied {copied['rows_copied']}×{copied['cols_copied']} "
-                            f"from {source} onto {len(rn)} ranges."
-                        )
-                    return {
-                        "status": "ok",
-                        "message": msg,
-                        "rows_copied": copied["rows_copied"],
-                        "cols_copied": copied["cols_copied"],
-                    }
+                        msg = f"Copied {copied['rows_copied']}×{copied['cols_copied']} from {source} onto {len(rn)} ranges."
+                    return {"status": "ok", "message": msg, "rows_copied": copied["rows_copied"], "cols_copied": copied["cols_copied"]}
             except Exception as e:
                 return self._tool_error(str(e))
         fov = kwargs.get("values")
@@ -523,9 +466,7 @@ class WriteCellRange(ToolBase):
                     continue
                 n_cells, rows, cols = shape
                 if n_vals != n_cells:
-                    return self._tool_error(
-                        _values_length_mismatch_message(r, n_vals, n_cells, rows, cols)
-                    )
+                    return self._tool_error(_values_length_mismatch_message(r, n_vals, n_cells, rows, cols))
 
         array_flag = kwargs.get("array")
         if array_flag is not None and not isinstance(array_flag, bool):
@@ -553,11 +494,7 @@ class InsertCellHtml(ToolBase):
 
     name: str | None = "insert_cell_html"
     intent: str | None = "edit"
-    description: str = (
-        "Parses HTML with the same filter as Writer and pastes rich text into one cell on the "
-        "active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded "
-        "objects. Clears existing cell text. Use set_style for table-wide borders."
-    )
+    description: str = "Parses HTML with the same filter as Writer and pastes rich text into one cell on the active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded objects. Clears existing cell text. Use set_style for table-wide borders."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'}, "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."}}, "required": ["cell", "html"]}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
@@ -710,18 +647,7 @@ class SetCellStyle(ToolBase):
         if err:
             return self._tool_error(err)
 
-        style_kwargs: dict[str, Any] = {
-            "bold": bold,
-            "italic": italic,
-            "bg_color": bg_color,
-            "font_color": font_color,
-            "font_size": font_size,
-            "h_align": h_align,
-            "v_align": v_align,
-            "wrap_text": wrap_text,
-            "border_color": border_color,
-            "number_format": number_format,
-        }
+        style_kwargs: dict[str, Any] = {"bold": bold, "italic": italic, "bg_color": bg_color, "font_color": font_color, "font_size": font_size, "h_align": h_align, "v_align": v_align, "wrap_text": wrap_text, "border_color": border_color, "number_format": number_format}
 
         if len(rn) == 0:
             return self._tool_error("range is required")
@@ -742,7 +668,11 @@ class MergeCells(ToolBase):
     name: str | None = "merge_cells"
     intent: str | None = "edit"
     description: str = "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')}, "center": {"type": "boolean", "description": "Center content (default: true)"}}, "required": ["range"]}
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')}, "center": {"type": "boolean", "description": "Center content (default: true)"}},
+        "required": ["range"],
+    }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
 
@@ -789,27 +719,9 @@ class SortRange(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).')},
-            "sort_column": {
-                "type": "integer",
-                "description": (
-                    "0-based index of the key column inside the range "
-                    "(0 = leftmost; default: 0). Use the numeric/metric column, "
-                    "not the label column, when sorting by amount."
-                ),
-            },
-            "ascending": {
-                "type": "boolean",
-                "description": (
-                    "true = smallest first (default); false = largest/highest first."
-                ),
-            },
-            "has_header": {
-                "type": "boolean",
-                "description": (
-                    "true when row 1 is labels; false only for a headerless block "
-                    "(default: true)."
-                ),
-            },
+            "sort_column": {"type": "integer", "description": ("0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.")},
+            "ascending": {"type": "boolean", "description": ("true = smallest first (default); false = largest/highest first.")},
+            "has_header": {"type": "boolean", "description": ("true when row 1 is labels; false only for a headerless block (default: true).")},
         },
         "required": ["range", "has_header"],
     }

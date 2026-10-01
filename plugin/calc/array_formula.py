@@ -17,12 +17,7 @@ from __future__ import annotations
 import re
 
 # Functions whose result is an array when they are what the formula returns.
-ARRAY_FUNCTIONS = frozenset({
-    "FILTER", "SORT", "SORTBY", "UNIQUE", "SEQUENCE", "RANDARRAY",
-    "TRANSPOSE", "MMULT", "MINVERSE", "FREQUENCY", "CHOOSECOLS",
-    "CHOOSEROWS", "HSTACK", "VSTACK", "TAKE", "DROP", "EXPAND", "WRAPROWS",
-    "WRAPCOLS", "TOCOL", "TOROW",
-})
+ARRAY_FUNCTIONS = frozenset({"FILTER", "SORT", "SORTBY", "UNIQUE", "SEQUENCE", "RANDARRAY", "TRANSPOSE", "MMULT", "MINVERSE", "FREQUENCY", "CHOOSECOLS", "CHOOSEROWS", "HSTACK", "VSTACK", "TAKE", "DROP", "EXPAND", "WRAPROWS", "WRAPCOLS", "TOCOL", "TOROW"})
 
 MAX_ARRAY_CELLS = 100_000
 

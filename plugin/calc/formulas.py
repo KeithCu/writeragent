@@ -60,21 +60,8 @@ class ListCalcFunctions(ToolBase):
     """Retrieve available spreadsheet functions inside LibreOffice Calc."""
 
     name: str | None = "list_calc_functions"
-    description: str = (
-        "Lists available Calc spreadsheet functions. "
-        "Use the 'filter' parameter to perform a case-insensitive search for a partial substring "
-        "anywhere in function names or descriptions to avoid context window bloat."
-    )
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "filter": {
-                "type": "string",
-                "description": "Optional substring to filter functions by (case-insensitive search anywhere in the name or description)."
-            }
-        },
-        "required": []
-    }
+    description: str = "Lists available Calc spreadsheet functions. Use the 'filter' parameter to perform a case-insensitive search for a partial substring anywhere in function names or descriptions to avoid context window bloat."
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"filter": {"type": "string", "description": "Optional substring to filter functions by (case-insensitive search anywhere in the name or description)."}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier: str = "core"
     is_mutation: bool | None = False
@@ -84,6 +71,7 @@ class ListCalcFunctions(ToolBase):
         uno_ctx = ctx.ctx
         if not uno_ctx:
             from plugin.framework.uno_context import get_ctx
+
             uno_ctx = get_ctx()
 
         if not uno_ctx:
@@ -91,9 +79,7 @@ class ListCalcFunctions(ToolBase):
 
         try:
             smgr = cast("Any", uno_ctx).getServiceManager()
-            func_descr_service = smgr.createInstanceWithContext(
-                "com.sun.star.sheet.FunctionDescriptions", uno_ctx
-            )
+            func_descr_service = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionDescriptions", uno_ctx)
             if not func_descr_service:
                 raise ToolExecutionError("FunctionDescriptions service not available.")
 
@@ -110,18 +96,9 @@ class ListCalcFunctions(ToolBase):
                 arguments = func_data.get("Arguments") or ()
                 arg_list = []
                 for a in arguments:
-                    arg_list.append({
-                        "name": getattr(a, "Name", ""),
-                        "description": getattr(a, "Description", ""),
-                        "optional": getattr(a, "IsOptional", False)
-                    })
+                    arg_list.append({"name": getattr(a, "Name", ""), "description": getattr(a, "Description", ""), "optional": getattr(a, "IsOptional", False)})
 
-                matched_functions.append({
-                    "name": name,
-                    "description": func_data.get("Description", ""),
-                    "category_id": func_data.get("Category", 0),
-                    "arguments": arg_list,
-                })
+                matched_functions.append({"name": name, "description": func_data.get("Description", ""), "category_id": func_data.get("Category", 0), "arguments": arg_list})
             log.info("Found %d matching Calc functions for filter '%s'", len(matched_functions), filter_str)
             return {"status": "ok", "functions": matched_functions}
         except Exception as e:
@@ -136,17 +113,8 @@ class EvaluateFormula(ToolCalcErrorBase):
     description: str = "Evaluates a Calc formula on a temporary duplicate sheet and returns the result or error, without modifying the active sheets."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {
-            "formula": {
-                "type": "string",
-                "description": "The formula to evaluate, e.g. '=SUM(A1:B2)' or '=A1*1.1'."
-            },
-            "cell": {
-                "type": "string",
-                "description": "Optional cell coordinate/address context to evaluate relative references from, e.g. 'C5' (defaults to 'A1')."
-            }
-        },
-        "required": ["formula"]
+        "properties": {"formula": {"type": "string", "description": "The formula to evaluate, e.g. '=SUM(A1:B2)' or '=A1*1.1'."}, "cell": {"type": "string", "description": "Optional cell coordinate/address context to evaluate relative references from, e.g. 'C5' (defaults to 'A1')."}},
+        "required": ["formula"],
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier: str = "specialized"
@@ -188,7 +156,7 @@ class EvaluateFormula(ToolCalcErrorBase):
             # Copy active sheet with all its data
             sheets.copyByName(active_name, temp_sheet_name, sheets.getCount())
             sheet = sheets.getByName(temp_sheet_name)
-            
+
             # Retrieve the cell by coordinates context
             try:
                 cell_range = sheet.getCellRangeByName(cell_address)
@@ -238,12 +206,7 @@ class EvaluateFormula(ToolCalcErrorBase):
             else:
                 result_type_str = "unknown"
 
-            return {
-                "status": "ok",
-                "formula": formula_string,
-                "result": result,
-                "result_type": result_type_str
-            }
+            return {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
         except Exception as e:
             log.exception("Formula evaluation failed")
             raise ToolExecutionError(f"Formula evaluation failed: {str(e)}") from e

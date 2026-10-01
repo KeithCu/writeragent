@@ -104,7 +104,7 @@ def _chart_document_from_host(host: Any) -> Any | None:
     """
     if host is None:
         return None
-    
+
     # 1. Try getEmbeddedObject (Standard for Writer TextEmbeddedObject)
     try:
         if hasattr(host, "getEmbeddedObject"):
@@ -118,7 +118,6 @@ def _chart_document_from_host(host: Any) -> Any | None:
                 return ed
     except Exception as e:
         log.debug("_chart_document_from_host getEmbeddedObject failed: %s", e)
-
 
     # 2. Try Model/Component properties (Standard for Shapes)
     try:
@@ -135,7 +134,7 @@ def _chart_document_from_host(host: Any) -> Any | None:
     # In Writer, TextEmbeddedObjects are also exposed as Shapes on the DrawPage
     try:
         name = getattr(host, "Name", None)
-        if name and hasattr(host, "getAnchor"): # Likely a Writer object
+        if name and hasattr(host, "getAnchor"):  # Likely a Writer object
             # We'll just assume the caller handles the doc-level search if this fails.
             pass
     except Exception:
@@ -185,10 +184,12 @@ def _axis_title_shape_string(shape: Any, value: str | None) -> str | None:
 def _process_events(ctx: Any = None) -> None:
     """Give LO a moment to process UI events and update object names/states."""
     import os
+
     if os.environ.get("WRITERAGENT_TESTING") == "1":
         return
     try:
         from plugin.framework.uno_context import get_desktop, get_ctx
+
         uctx = ctx or get_ctx()
         if not uctx:
             return
@@ -198,6 +199,7 @@ def _process_events(ctx: Any = None) -> None:
             return
 
         from plugin.framework.uno_context import process_events_to_idle
+
         process_events_to_idle(uctx)
     except Exception:
         # Avoid letting UI event processing crash the tool
@@ -206,28 +208,11 @@ def _process_events(ctx: Any = None) -> None:
 
 # Shared parameters for Create and Edit
 CHART_PROPERTIES = {
-    "sheet": {
-        "type": "string",
-        "description": "Sheet name where the chart should be placed (Calc only, defaults to active sheet)."
-    },
+    "sheet": {"type": "string", "description": "Sheet name where the chart should be placed (Calc only, defaults to active sheet)."},
     "data_range": {"type": "string", "description": "Cell range for chart data (Calc only, e.g. 'A1:B10')."},
-    "has_header": {
-        "type": "boolean",
-        "description": "Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true)."
-    },
-    "headers": {
-        "type": "array",
-        "items": {"type": "string"},
-        "description": "Category/series column headers (Writer/Draw only, e.g. ['Month', 'Sales', 'Expenses'])."
-    },
-    "rows": {
-        "type": "array",
-        "items": {
-            "type": "array",
-            "description": "Row containing category label as first element, followed by numeric values."
-        },
-        "description": "2D array of category labels and values (Writer/Draw only, e.g. [['Jan', 100, 80], ['Feb', 150, 110]])."
-    },
+    "has_header": {"type": "boolean", "description": "Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true)."},
+    "headers": {"type": "array", "items": {"type": "string"}, "description": "Category/series column headers (Writer/Draw only, e.g. ['Month', 'Sales', 'Expenses'])."},
+    "rows": {"type": "array", "items": {"type": "array", "description": "Row containing category label as first element, followed by numeric values."}, "description": "2D array of category labels and values (Writer/Draw only, e.g. [['Jan', 100, 80], ['Feb', 150, 110]])."},
     "chart_type": {"type": "string", "enum": list(CHART_SERVICE_MAP.keys()), "description": "Type of chart to create."},
     "title": {"type": "string", "description": "Chart title."},
     "is_3d": {"type": "boolean", "description": "Enable 3D mode."},
@@ -435,7 +420,6 @@ def _apply_chart_data_arrays(chart_doc: Any, headers: Any, rows: Any) -> None:
         log.exception("Failed to apply chart data arrays: %s", e)
 
 
-
 def _format_chart_exception_msg(e: Exception) -> str:
     """Format an exception into a non-empty descriptive string (handles UNO exception Message field)."""
     detail = getattr(e, "Message", None) or str(e)
@@ -458,7 +442,6 @@ def _get_all_calc_chart_names(doc: Any) -> set[str]:
     except Exception:
         pass
     return names
-
 
 
 def _find_calc_chart_and_sheet(doc: Any, chart_name: str) -> tuple[Any | None, Any | None]:
@@ -649,16 +632,9 @@ class UpsertChart(ToolBaseDummy):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["create", "edit"],
-                "description": "Action to perform: 'create' a new chart, or 'edit' an existing one."
-            },
-            "name": {
-                "type": "string",
-                "description": "Name of the chart to edit (required for action='edit', optional for action='create')."
-            },
-            **CHART_PROPERTIES
+            "action": {"type": "string", "enum": ["create", "edit"], "description": "Action to perform: 'create' a new chart, or 'edit' an existing one."},
+            "name": {"type": "string", "description": "Name of the chart to edit (required for action='edit', optional for action='create')."},
+            **CHART_PROPERTIES,
         },
         "required": ["action"],
     }
@@ -668,6 +644,7 @@ class UpsertChart(ToolBaseDummy):
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         import copy
         from typing import cast
+
         params = copy.deepcopy(self.parameters)
         if not params or "properties" not in params:
             return params
@@ -705,7 +682,7 @@ class UpsertChart(ToolBaseDummy):
         action = kwargs.get("action")
         doc = ctx.doc
         is_calc = supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument")
-        
+
         # Doc-type parameter checks (in addition to validate)
         if is_calc:
             if "headers" in kwargs or "rows" in kwargs:
@@ -794,9 +771,7 @@ class UpsertChart(ToolBaseDummy):
             except Exception:
                 pass
 
-        log.debug("Creating Calc chart: sheet=%s, rect=(%d,%d,%d,%d), range=(%d,%d,%d,%d)",
-                     sheet.getName(), rect.X, rect.Y, rect.Width, rect.Height,
-                     addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+        log.debug("Creating Calc chart: sheet=%s, rect=(%d,%d,%d,%d), range=(%d,%d,%d,%d)", sheet.getName(), rect.X, rect.Y, rect.Width, rect.Height, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
 
         existing_names = _get_all_calc_chart_names(ctx.doc)
         idx = len(existing_names)
@@ -816,7 +791,7 @@ class UpsertChart(ToolBaseDummy):
         chart_doc.setDiagram(chart_doc.createInstance(service))
 
         _apply_chart_styling(chart_doc, **kwargs)
-        #_process_events() causes a hang in tests
+        # _process_events() causes a hang in tests
         return {"status": "ok", "message": f"Chart '{name}' created on sheet '{sheet.getName()}'.", "name": name, "sheet": sheet.getName()}
 
     def _create_writer_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
@@ -824,6 +799,7 @@ class UpsertChart(ToolBaseDummy):
         Using a retry loop and event pumping to ensure the embedded model is initialized.
         """
         import time
+
         doc = ctx.doc
         text = doc.getText()
         log.info("Creating Writer chart. Current text length: %d", len(text.getString()))
@@ -853,8 +829,8 @@ class UpsertChart(ToolBaseDummy):
             # We use plain createInstance for Writer; createInstanceWithArguments can be flaky for OLE
             chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
             if not chart_obj:
-                 return self._tool_error("Failed to create TextEmbeddedObject instance.")
-            
+                return self._tool_error("Failed to create TextEmbeddedObject instance.")
+
             try:
                 log.debug("TextEmbeddedObject Implementation: %s", chart_obj.getImplementationName())
             except Exception:
@@ -863,14 +839,15 @@ class UpsertChart(ToolBaseDummy):
             # CRITICAL: Match proven working pattern from plugin/writer/math/math_mml_convert.py
             chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
             from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
             chart_obj.AnchorType = AS_CHARACTER
-            
+
             # Try to set name before insertion
             try:
                 chart_obj.Name = name
             except Exception:
                 pass
-            
+
             log.info("Created and configured TextEmbeddedObject with CLSID: %s", chart_obj.CLSID)
         except Exception as e:
             log.debug("Creation/config failed: %s", e)
@@ -893,6 +870,7 @@ class UpsertChart(ToolBaseDummy):
             log.debug("First insertion attempt failed (%s). Trying AT_PARAGRAPH anchor...", e)
             try:
                 from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+
                 chart_obj.AnchorType = AT_PARAGRAPH
                 text.insertTextContent(cursor, chart_obj, False)
                 log.info("Successfully inserted chart object with AT_PARAGRAPH.")
@@ -982,7 +960,7 @@ class UpsertChart(ToolBaseDummy):
                 if hasattr(chart_doc, "setModified"):
                     chart_doc.setModified(True)
                     log.debug("Called chart_doc.setModified(True) to notify view listeners.")
-                
+
                 # 2. Trigger layout/calculations update (com.sun.star.util.XRefreshable)
                 if hasattr(chart_doc, "refresh"):
                     chart_doc.refresh()
@@ -1101,109 +1079,40 @@ class ManageCharts(ToolCalcChartBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["list", "get_info", "create", "edit", "delete"],
-                "description": "The action to perform on the charts."
-            },
-            "name": {
-                "type": "string",
-                "description": "The name of the chart (required for get_info, edit, delete)."
-            },
-            "sheet": {
-                "type": "string",
-                "description": "Sheet name where the chart should be placed (Calc only, defaults to active sheet)."
-            },
-            "data_range": {
-                "type": "string",
-                "description": "Cell range for chart data (Calc only, required for create, e.g. 'A1:B10')."
-            },
-            "has_header": {
-                "type": "boolean",
-                "description": "Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true)."
-            },
-            "headers": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses'])."
-            },
+            "action": {"type": "string", "enum": ["list", "get_info", "create", "edit", "delete"], "description": "The action to perform on the charts."},
+            "name": {"type": "string", "description": "The name of the chart (required for get_info, edit, delete)."},
+            "sheet": {"type": "string", "description": "Sheet name where the chart should be placed (Calc only, defaults to active sheet)."},
+            "data_range": {"type": "string", "description": "Cell range for chart data (Calc only, required for create, e.g. 'A1:B10')."},
+            "has_header": {"type": "boolean", "description": "Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true)."},
+            "headers": {"type": "array", "items": {"type": "string"}, "description": "Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses'])."},
             "rows": {
                 "type": "array",
-                "items": {
-                    "type": "array",
-                    "description": "Row containing category label as first element, followed by numeric values."
-                },
-                "description": "2D array of category labels and values (Writer/Draw only, required for create, e.g. [['Jan', 100, 80], ['Feb', 150, 110]])."
+                "items": {"type": "array", "description": "Row containing category label as first element, followed by numeric values."},
+                "description": "2D array of category labels and values (Writer/Draw only, required for create, e.g. [['Jan', 100, 80], ['Feb', 150, 110]]).",
             },
-            "chart_type": {
-                "type": "string",
-                "enum": ["bar", "pie", "column", "line", "scatter", "area", "donut", "net", "stock", "bubble"],
-                "description": "Type of chart to create or update to (required for create)."
-            },
-            "title": {
-                "type": "string",
-                "description": "Chart title."
-            },
-            "subtitle": {
-                "type": "string",
-                "description": "Chart subtitle."
-            },
-            "is_3d": {
-                "type": "boolean",
-                "description": "Enable 3D mode."
-            },
-            "stacked": {
-                "type": "boolean",
-                "description": "Stacked data series."
-            },
-            "percent": {
-                "type": "boolean",
-                "description": "Percentage stacked."
-            },
-            "x_axis_title": {
-                "type": "string",
-                "description": "Title for X axis."
-            },
-            "y_axis_title": {
-                "type": "string",
-                "description": "Title for Y axis."
-            },
-            "legend_position": {
-                "type": "string",
-                "enum": ["none", "top", "bottom", "left", "right"],
-                "description": "Legend position."
-            },
-            "has_legend": {
-                "type": "boolean",
-                "description": "Whether the chart has a legend."
-            },
-            "position": {
-                "type": "string",
-                "description": "Cell address (Calc) or anchoring position (Writer/Draw)."
-            },
-            "bg_color": {
-                "type": "string",
-                "description": "Chart area background color (hex: #FF0000 or name: green)."
-            },
-            "colors": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of hex/named colors to apply to each data series."
-            }
+            "chart_type": {"type": "string", "enum": ["bar", "pie", "column", "line", "scatter", "area", "donut", "net", "stock", "bubble"], "description": "Type of chart to create or update to (required for create)."},
+            "title": {"type": "string", "description": "Chart title."},
+            "subtitle": {"type": "string", "description": "Chart subtitle."},
+            "is_3d": {"type": "boolean", "description": "Enable 3D mode."},
+            "stacked": {"type": "boolean", "description": "Stacked data series."},
+            "percent": {"type": "boolean", "description": "Percentage stacked."},
+            "x_axis_title": {"type": "string", "description": "Title for X axis."},
+            "y_axis_title": {"type": "string", "description": "Title for Y axis."},
+            "legend_position": {"type": "string", "enum": ["none", "top", "bottom", "left", "right"], "description": "Legend position."},
+            "has_legend": {"type": "boolean", "description": "Whether the chart has a legend."},
+            "position": {"type": "string", "description": "Cell address (Calc) or anchoring position (Writer/Draw)."},
+            "bg_color": {"type": "string", "description": "Chart area background color (hex: #FF0000 or name: green)."},
+            "colors": {"type": "array", "items": {"type": "string"}, "description": "List of hex/named colors to apply to each data series."},
         },
-        "required": ["action"]
+        "required": ["action"],
     }
-    uno_services: list[str] | None = [
-        "com.sun.star.sheet.SpreadsheetDocument",
-        "com.sun.star.text.TextDocument",
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument"
-    ]
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         import copy
         from typing import cast
+
         params = copy.deepcopy(self.parameters)
         if not params or "properties" not in params:
             return params

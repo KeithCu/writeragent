@@ -106,10 +106,7 @@ class ExecutePythonScript(ToolBaseDummy):
 
     name: str | None = "execute_python_script"
     intent: str | None = "analyze"
-    description: str = (
-        format_inprocess_import_policy_for_prompt()
-        + " The value of the last expression is returned. Each call starts with a clean environment."
-    )
+    description: str = format_inprocess_import_policy_for_prompt() + " The value of the last expression is returned. Each call starts with a clean environment."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {

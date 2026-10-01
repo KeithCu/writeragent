@@ -85,20 +85,7 @@ def format_quant_for_calc(result: dict[str, Any]) -> list[list[Any]]:
     return rows
 
 
-def insert_quant_result_into_calc(
-    doc: Any,
-    uno_ctx: Any,
-    result: dict[str, Any],
-    *,
-    start_col: int | None = None,
-    start_row: int | None = None,
-) -> int:
+def insert_quant_result_into_calc(doc: Any, uno_ctx: Any, result: dict[str, Any], *, start_col: int | None = None, start_row: int | None = None) -> int:
     """Write formatted quant output starting at *start_col*/*start_row* (or selection). Returns row count."""
     grid = format_quant_for_calc(result)
-    return insert_tabular_result_into_calc(
-        doc,
-        uno_ctx,
-        grid,
-        start_col=start_col,
-        start_row=start_row,
-    )
+    return insert_tabular_result_into_calc(doc, uno_ctx, grid, start_col=start_col, start_row=start_row)

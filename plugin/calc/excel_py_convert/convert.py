@@ -12,23 +12,10 @@ from typing import TYPE_CHECKING, Any
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
 
 from plugin.calc.excel_py_convert.parse_dag_formulas import iter_dag_py_formulas_xlsx
-from plugin.calc.excel_py_convert.parse_excel_ooxml import (
-    _findall,
-    _find_child,
-    _local,
-    _workbook_sheets,
-    load_excel_model,
-)
+from plugin.calc.excel_py_convert.parse_excel_ooxml import _findall, _find_child, _local, _workbook_sheets, load_excel_model
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, iter_a1_span
 from plugin.calc.excel_py_convert.to_dag import convert_model_to_dag
-from plugin.calc.excel_py_convert.to_excel import (
-    assign_script_bank,
-    convert_dag_cells_to_excel,
-    convert_dag_report_to_excel,
-    deps_for_xlws_export,
-    python_scripts_xml,
-    xlws_py_formula,
-)
+from plugin.calc.excel_py_convert.to_excel import assign_script_bank, convert_dag_cells_to_excel, convert_dag_report_to_excel, deps_for_xlws_export, python_scripts_xml, xlws_py_formula
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell
@@ -44,9 +31,7 @@ USE_PACKAGE_META = False
 
 _SSML_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _RE_A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
-_CONTENT_TYPES_PY_OVERRIDE = (
-    '<Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>'
-)
+_CONTENT_TYPES_PY_OVERRIDE = '<Override PartName="/xl/pythonScripts.xml" ContentType="application/xml"/>'
 
 
 def convert_to_dag(path: str | Path, *, best_effort: bool = False) -> ConversionReport:
@@ -108,15 +93,7 @@ def dag_report_to_meta_payload(report: ConversionReport) -> dict[str, Any]:
             "excel_deps": list(c.excel_deps),
             "ordering_args": list(c.ordering_args),
             "array_ref": c.array_ref,
-            "bindings": [
-                {
-                    "a1": b.a1,
-                    "header_mode": b.header_mode,
-                    "role": b.role,
-                    "original_indices": list(b.original_indices),
-                }
-                for b in c.bindings
-            ],
+            "bindings": [{"a1": b.a1, "header_mode": b.header_mode, "role": b.role, "original_indices": list(b.original_indices)} for b in c.bindings],
         }
     return out
 
@@ -191,14 +168,7 @@ def _triples_from_json(data: Any) -> list[tuple[str, str, str, dict[str, Any]]]:
     raise ValueError("JSON must be a dag report or list of {sheet, cell, formula}")
 
 
-def convert_path(
-    path: str | Path,
-    *,
-    direction: str,
-    out_report: str | Path | None = None,
-    best_effort: bool = False,
-    from_report: str | Path | None = None,
-) -> ConversionReport:
+def convert_path(path: str | Path, *, direction: str, out_report: str | Path | None = None, best_effort: bool = False, from_report: str | Path | None = None) -> ConversionReport:
     """Convert *path* in *direction* ``dag`` or ``excel``; optionally write JSON report.
 
     When ``direction == "excel"`` and *from_report* is a DAG conversion JSON,
@@ -248,13 +218,8 @@ def _clear_spill_range(ws: Any, anchor: str, array_ref: str) -> None:
 
 def _strip_python_in_excel_parts(out_path: Path) -> None:
     """Remove obsolete Python-in-Excel package parts after formula rewrite."""
-    drop_prefixes = (
-        "xl/pythonScripts",
-        "xl/python",
-    )
-    drop_exact = {
-        "xl/pythonScripts.xml",
-    }
+    drop_prefixes = ("xl/pythonScripts", "xl/python")
+    drop_exact = {"xl/pythonScripts.xml"}
     tmp = out_path.with_suffix(out_path.suffix + ".tmpstrip")
     with zipfile.ZipFile(out_path, "r") as zin, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout:
         for info in zin.infolist():
@@ -280,13 +245,7 @@ def _strip_python_in_excel_parts(out_path: Path) -> None:
     tmp.replace(out_path)
 
 
-def write_dag_formulas_xlsx(
-    source_xlsx: str | Path,
-    report: ConversionReport,
-    out_path: str | Path,
-    *,
-    strip_python_parts: bool = True,
-) -> None:
+def write_dag_formulas_xlsx(source_xlsx: str | Path, report: ConversionReport, out_path: str | Path, *, strip_python_parts: bool = True) -> None:
     """Copy *source_xlsx* and replace successfully converted PY cells with DAG formulas.
 
     - Parks rewritten Python on visible ``py_code_<Sheet>`` sheets at the **same A1**
@@ -300,11 +259,7 @@ def write_dag_formulas_xlsx(
     from openpyxl import load_workbook
     from openpyxl.utils.exceptions import IllegalCharacterError
 
-    from plugin.calc.excel_py_convert.script_bank import (
-        collect_script_bank,
-        report_safety_warnings,
-        write_script_bank_openpyxl,
-    )
+    from plugin.calc.excel_py_convert.script_bank import collect_script_bank, report_safety_warnings, write_script_bank_openpyxl
 
     source_xlsx = Path(source_xlsx)
     out_path = Path(out_path)
@@ -474,16 +429,10 @@ def _drop_py_code_sheets_from_workbook(wb_xml: bytes, rels_xml: bytes, drop_rids
             continue
         if (rel.attrib.get("Id") or "") in drop_rids:
             rels.remove(rel)
-    return ET.tostring(wb, encoding="utf-8", xml_declaration=True), ET.tostring(
-        rels, encoding="utf-8", xml_declaration=True
-    )
+    return ET.tostring(wb, encoding="utf-8", xml_declaration=True), ET.tostring(rels, encoding="utf-8", xml_declaration=True)
 
 
-def write_excel_python_xlsx(
-    source_xlsx: str | Path,
-    report: ConversionReport,
-    out_path: str | Path,
-) -> None:
+def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, out_path: str | Path) -> None:
     """Write native Excel Python-in-Excel package (stdlib ZipFile only).
 
     - Banks ``converted_code`` into ``xl/pythonScripts.xml`` (``xl(%Pn%)`` bodies)
@@ -555,9 +504,7 @@ def write_excel_python_xlsx(
                 try:
                     if cell.array_ref:
                         _clear_spill_xml(root, cell.cell, cell.array_ref)
-                    formula = xlws_py_formula(
-                        cell.script_index, cell.return_type, deps_for_xlws_export(cell)
-                    )
+                    formula = xlws_py_formula(cell.script_index, cell.return_type, deps_for_xlws_export(cell))
                     _set_cell_xlws_formula(root, cell.cell, formula, array_ref=cell.array_ref)
                 except Exception as exc:
                     errors.append(f"{cell.sheet}!{cell.cell}: {exc}")
@@ -578,9 +525,7 @@ def write_excel_python_xlsx(
                 name = info.filename
                 if name in drop_parts or name == PACKAGE_META_PART:
                     continue
-                if name.startswith("xl/worksheets/_rels/") and any(
-                    p.split("/")[-1] in name for p in drop_parts
-                ):
+                if name.startswith("xl/worksheets/_rels/") and any(p.split("/")[-1] in name for p in drop_parts):
                     # Drop sheet rels for removed py_code sheets when path matches.
                     base = name.rsplit("/", 1)[-1].replace(".rels", "")
                     if any(p.endswith(base) for p in drop_parts):
@@ -631,11 +576,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
     from plugin.calc.excel_py_convert.parse_dag_formulas import BANK_REF_RE
     from plugin.calc.excel_py_convert.script_bank import normalize_bank_a1
     from plugin.calc.python.cell_discovery import canonicalize_py_formula_for_parse, is_py_formula_text
-    from plugin.calc.python.formula_edit import (
-        CALC_PYTHON_FN,
-        escape_code_for_excel_formula,
-        parse_python_formula,
-    )
+    from plugin.calc.python.formula_edit import CALC_PYTHON_FN, escape_code_for_excel_formula, parse_python_formula
 
     meta_map = load_dag_meta_from_doc(doc)
     triples: list[tuple[str, str, str, dict[str, Any]]] = []
@@ -703,9 +644,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
                         continue
                     resolved = _bank_string(parts.code)
                     if resolved is not None:
-                        formula_out = (
-                            f'={CALC_PYTHON_FN}("{escape_code_for_excel_formula(resolved)}"{parts.data_suffix}'
-                        )
+                        formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_excel_formula(resolved)}"{parts.data_suffix}'
                     else:
                         formula_out = canonical
                     cell_meta: dict[str, Any] = {}

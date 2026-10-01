@@ -12,17 +12,12 @@ Wire packing wraps each range in a ``calc_range`` envelope; ``split_grid``
 remains a private storage optimization inside that envelope.
 """
 
-
 # crosshair: off
 from __future__ import annotations
 
 from typing import Any
 
-from plugin.scripting.calc_range import (
-    ensure_rectangular_2d,
-    is_calc_range_payload,
-    pack_calc_range_envelope,
-)
+from plugin.scripting.calc_range import ensure_rectangular_2d, is_calc_range_payload, pack_calc_range_envelope
 from plugin.scripting.config_limits import python_max_data_cells_default
 from plugin.scripting.payload_codec import ForceBinary, host_pack_data, is_multi_data, is_split_grid, wire_cell_count
 
@@ -114,8 +109,8 @@ def _is_legacy_single_column_range(items: list[Any]) -> bool:
 def split_python_addin_data_args(raw: Any) -> list[Any]:
     """Split the ``=PYTHON()`` varargs ``data`` parameter into individual formula arguments.
 
-    Calc packs all trailing arguments into ``sequence<any>``. Unit tests may pass a bare range
-  or scalar without the outer sequence wrapper.
+      Calc packs all trailing arguments into ``sequence<any>``. Unit tests may pass a bare range
+    or scalar without the outer sequence wrapper.
     """
     if raw is None:
         return []
@@ -132,11 +127,7 @@ def split_python_addin_data_args(raw: Any) -> list[Any]:
     return items
 
 
-def calc_addin_args_from_split(
-    args: list[Any],
-    true_strings: set[str] | None = None,
-    false_strings: set[str] | None = None,
-) -> list[list[Any]] | list[list[list[Any]]] | None:
+def calc_addin_args_from_split(args: list[Any], true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> list[list[Any]] | list[list[list[Any]]] | None:
     """Convert pre-split varargs into sandbox grids: one 2D grid or list of 2D grids."""
     if not args:
         return None
@@ -151,21 +142,13 @@ def calc_addin_args_from_split(
     return converted
 
 
-def calc_addin_args_to_python(
-    raw: Any,
-    true_strings: set[str] | None = None,
-    false_strings: set[str] | None = None,
-) -> list[list[Any]] | list[list[list[Any]]] | None:
+def calc_addin_args_to_python(raw: Any, true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> list[list[Any]] | list[list[list[Any]]] | None:
     """Convert varargs ``data`` into sandbox grids: one 2D grid or list of 2D grids."""
     return calc_addin_args_from_split(split_python_addin_data_args(raw), true_strings, false_strings)
 
 
 @deal.post(lambda result: result is None or isinstance(result, list))
-def calc_addin_data_to_python(
-    value: Any,
-    true_strings: set[str] | None = None,
-    false_strings: set[str] | None = None,
-) -> list[list[Any]] | None:
+def calc_addin_data_to_python(value: Any, true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> list[list[Any]] | None:
     """Convert a Calc ``=PYTHON()`` second argument into a rectangular 2D grid.
 
     - Missing / void → ``None`` (no ``data`` injection).
@@ -195,15 +178,10 @@ def calc_addin_data_to_python(
         return ensure_rectangular_2d(grid)
 
     # 1D sequence (single row range from Calc)
-    return [ [_unwrap_cell(c, true_strings, false_strings) for c in rows] ]
+    return [[_unwrap_cell(c, true_strings, false_strings) for c in rows]]
 
 
-def pack_calc_multi_data_for_wire(
-    py_data: list[list[list[Any]]],
-    *,
-    force: ForceBinary = "auto",
-    addresses: list[str | None] | None = None,
-) -> Any:
+def pack_calc_multi_data_for_wire(py_data: list[list[list[Any]]], *, force: ForceBinary = "auto", addresses: list[str | None] | None = None) -> Any:
     """Pack multiple Calc ranges as ``multi_data`` of ``calc_range`` envelopes."""
     if not py_data:
         return None
@@ -213,27 +191,15 @@ def pack_calc_multi_data_for_wire(
     for i, grid in enumerate(py_data):
         addr = addresses[i] if addresses and i < len(addresses) else None
         items.append(pack_calc_data_for_wire(grid, force=force, address=addr))
-    return {
-        "__wa_payload__": PAYLOAD_MULTI_DATA,
-        "items": items,
-    }
+    return {"__wa_payload__": PAYLOAD_MULTI_DATA, "items": items}
 
 
-def pack_calc_data_for_wire(
-    py_data: list[list[Any]] | list[Any] | None,
-    *,
-    force: ForceBinary = "auto",
-    address: str | None = None,
-) -> Any:
+def pack_calc_data_for_wire(py_data: list[list[Any]] | list[Any] | None, *, force: ForceBinary = "auto", address: str | None = None) -> Any:
     """Pack one Calc range as a ``calc_range`` envelope (inner list or split_grid)."""
     if py_data is None:
         return None
     grid = ensure_rectangular_2d(py_data)
-    return pack_calc_range_envelope(
-        grid,
-        address=address,
-        pack_inner=lambda g: host_pack_data(g, force=force),
-    )
+    return pack_calc_range_envelope(grid, address=address, pack_inner=lambda g: host_pack_data(g, force=force))
 
 
 def count_cells(data: Any) -> int:
@@ -257,11 +223,7 @@ def count_cells(data: Any) -> int:
     return len(data)
 
 
-def check_python_multi_data_size(
-    data: list[Any],
-    *,
-    max_cells: int | None = None,
-) -> str | None:
+def check_python_multi_data_size(data: list[Any], *, max_cells: int | None = None) -> str | None:
     """Return an error message if combined multi-range *data* exceeds *max_cells*."""
     limit = python_max_data_cells_default() if max_cells is None else max_cells
     n = sum(count_cells(item) for item in data)
@@ -270,11 +232,7 @@ def check_python_multi_data_size(
     return None
 
 
-def check_python_data_size(
-    data: Any,
-    *,
-    max_cells: int | None = None,
-) -> str | None:
+def check_python_data_size(data: Any, *, max_cells: int | None = None) -> str | None:
     """Return an error message if *data* exceeds *max_cells*, else ``None``.
 
     *max_cells* defaults to schema default for ``scripting.python_max_data_cells``; callers with

@@ -16,27 +16,10 @@ import threading
 import time
 from typing import Any, ClassVar, Iterator, cast
 
-from plugin.calc.calc_addin_data import (
-    calc_addin_args_from_split,
-    check_python_data_size,
-    check_python_multi_data_size,
-    count_cells,
-    pack_calc_data_for_wire,
-    pack_calc_multi_data_for_wire,
-    split_python_addin_data_args,
-)
-from plugin.calc.datetime_wire import (
-    coalesce_temporal_apply_rects,
-    duration_serial_from_iso,
-    match_iso_duration,
-    match_iso_temporal,
-    should_preserve_temporal_format,
-)
+from plugin.calc.calc_addin_data import calc_addin_args_from_split, check_python_data_size, check_python_multi_data_size, count_cells, pack_calc_data_for_wire, pack_calc_multi_data_for_wire, split_python_addin_data_args
+from plugin.calc.datetime_wire import coalesce_temporal_apply_rects, duration_serial_from_iso, match_iso_duration, match_iso_temporal, should_preserve_temporal_format
 from plugin.calc.inspector import _format_category_from_type
-from plugin.calc.python.formula_locator_cache import (
-    is_matching_py_formula,
-    locate_formula_cell_in_doc,
-)
+from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc
 from plugin.calc.python.image_egress import insert_image_result_on_sheet
 from plugin.framework.errors import format_error_message
 from plugin.framework.i18n import _
@@ -157,8 +140,6 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
     if isinstance(val, bool):
         return 1.0 if val else 0.0
 
-
-
     if isinstance(val, int):
         return float(val)
     if isinstance(val, float):
@@ -247,6 +228,7 @@ def _get_calc_doc(ctx: Any) -> Any | None:
         if not on_main_thread():
             return None
         from plugin.framework.uno_context import get_desktop
+
         desktop = get_desktop(ctx)
         doc = desktop.getCurrentComponent()
         if doc is not None and hasattr(doc, "getSheets"):
@@ -306,7 +288,6 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     return (doc_url, sheet_name, sid, code, origin)
 
 
-
 class WorkerResultSession:
     """Caches one worker list result across multiple =PY() calls in a recalc pass."""
 
@@ -321,14 +302,7 @@ class WorkerResultSession:
         self.next_index = 0
 
 
-def scalar_for_list_result(
-    ctx: Any,
-    code: str,
-    result: Any,
-    *,
-    worker_data: Any = None,
-    doc: Any | None = None,
-) -> float | str | bool:
+def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any = None, doc: Any | None = None) -> float | str | bool:
     """Return one Calc scalar per invocation when the worker produced a list."""
     flat: list[Any] = [to_calc_compatible(v) for v in flatten_result_values(result)]
     if not flat:
@@ -351,7 +325,6 @@ def scalar_for_list_result(
     if 0 <= idx < len(state.flat):
         return state.flat[idx]
     return state.flat[-1] if state.flat else ""
-
 
 
 # The spill registry tracks coordinates that were spilled by each formula cell.
@@ -385,6 +358,7 @@ def _undo_lock(doc: Any) -> Iterator[Any]:
         raw_doc = doc
         try:
             from plugin.framework.thread_guard import _unwrap_uno
+
             raw_doc = _unwrap_uno(doc)
         except Exception:
             pass
@@ -459,7 +433,7 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
                         try:
                             cell = sheet.getCellByPosition(fcol, frow)
                             formula = cell.getFormula()
-                            if not formula or not (("PYTHON" in formula or "PY" in formula)):
+                            if not formula or not ("PYTHON" in formula or "PY" in formula):
                                 # Clear previously spilled cells
                                 for r, c in value:
                                     if (r, c) != (frow, fcol):
@@ -484,12 +458,12 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
         SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
 
 
-
 def load_spill_registry_for_doc(doc: Any) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
     try:
         from plugin.doc.udprops import get_document_property
         import json
+
         raw = get_document_property(doc, "WriterAgentSpillRegistry", None)
         if not isinstance(raw, str) or not raw.strip():
             return
@@ -513,6 +487,7 @@ def save_spill_registry_for_doc(doc: Any) -> None:
     try:
         from plugin.doc.udprops import set_document_property
         import json
+
         doc_url = getattr(doc, "getURL", lambda: "")() or ""
         doc_spills = {}
         for key, value in SPILL_REGISTRY.items():
@@ -524,13 +499,7 @@ def save_spill_registry_for_doc(doc: Any) -> None:
         log.exception("Failed to save spill registry to document property")
 
 
-
-
-
-def _coerce_spill_value(
-    val: Any,
-    null_dt: datetime.date,
-) -> tuple[Any, dict[str, Any]]:
+def _coerce_spill_value(val: Any, null_dt: datetime.date) -> tuple[Any, dict[str, Any]]:
     """Convert raw grid cell value to Calc-compatible primitive plus temporal metadata.
 
     Returns (calc_val, meta) where meta has 'is_temporal', 'input_category', 'serial'.
@@ -625,18 +594,7 @@ def _coerce_spill_value(
     return to_calc_compatible(val), {"is_temporal": False, "is_empty": False}
 
 
-def perform_deferred_spill(
-    ctx: Any,
-    doc_url: str,
-    sheet_name: str,
-    formula_row: int,
-    formula_col: int,
-    grid: list[list[Any]],
-    doc: Any | None = None,
-    *,
-    code: str = "",
-    lifecycle_key: str = "",
-) -> None:
+def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row: int, formula_col: int, grid: list[list[Any]], doc: Any | None = None, *, code: str = "", lifecycle_key: str = "") -> None:
     """Clear old spilled cells and write new values deferred (collision check is done synchronously)."""
     try:
         from plugin.framework.thread_guard import on_main_thread
@@ -680,7 +638,7 @@ def perform_deferred_spill(
                     return
 
             reg_key = (doc_url, sheet_name, formula_row, formula_col)
-        
+
             # 1. Clear previously spilled cells
             previous_spills = SPILL_REGISTRY.get(reg_key, [])
             for r, c in previous_spills:
@@ -731,15 +689,11 @@ def perform_deferred_spill(
 
             # 4. Spill new values using setDataArray to avoid O(N) individual cell writes
             if num_cols > 1:
-                first_row_range = sheet.getCellRangeByPosition(
-                    formula_col + 1, formula_row, formula_col + num_cols - 1, formula_row
-                )
+                first_row_range = sheet.getCellRangeByPosition(formula_col + 1, formula_row, formula_col + num_cols - 1, formula_row)
                 first_row_range.setDataArray((tuple(coerced_grid[0][1:]),))
 
             if num_rows > 1:
-                remaining_range = sheet.getCellRangeByPosition(
-                    formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1
-                )
+                remaining_range = sheet.getCellRangeByPosition(formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1)
                 remaining_range.setDataArray(tuple(tuple(row) for row in coerced_grid[1:]))
 
             new_spills = []
@@ -760,9 +714,11 @@ def perform_deferred_spill(
                         locale = doc.getPropertyValue("CharLocale")
                         if not getattr(locale, "Language", None):
                             import uno
+
                             locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
                     except Exception:
                         import uno
+
                         locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
 
                     # Standard format keys (2=DATE, 4=TIME, 6=DATETIME, 43=DURATION)
@@ -858,10 +814,7 @@ def _spill_target_doc(ctx: Any, doc: Any | None) -> Any | None:
     if doc is not None:
         return doc
     from plugin.framework.thread_guard import on_main_thread
-    from plugin.scripting.session_manager import (
-        get_cached_calc_document,
-        record_active_calc_document,
-    )
+    from plugin.scripting.session_manager import get_cached_calc_document, record_active_calc_document
 
     if on_main_thread():
         resolved = _get_calc_doc(ctx)
@@ -885,12 +838,7 @@ def _off_main_may_auto_spill(doc: Any | None) -> bool:
     return recorded_calc_session_count() <= 1
 
 
-def _prepare_auto_spill(
-    ctx: Any,
-    code: str,
-    grid_to_spill: list[list[Any]],
-    target_doc: Any,
-) -> str | tuple[str, str, int, int] | None:
+def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> str | tuple[str, str, int, int] | None:
     """Locate the unique formula origin and check spill collisions (UNO / UI thread).
 
     Returns ``"#SPILL!"`` on collision, ``(doc_url, sheet_name, row, col)`` when the
@@ -911,9 +859,7 @@ def _prepare_auto_spill(
         LOADED_DOCUMENTS.add(doc_url)
 
     try:
-        from plugin.calc.python.sheet_modify import (
-            ensure_sheet_modify_listener,
-        )
+        from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
 
         ensure_sheet_modify_listener(ctx, target_doc, sheet)
     except Exception:
@@ -948,24 +894,12 @@ def _prepare_auto_spill(
             cell = sheet.getCellByPosition(target_c, target_r)
             cell_type = cell.getType()
             if cell_type != EMPTY:
-                log.debug(
-                    "Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty",
-                    (target_r, target_c),
-                    cell_type,
-                    cell.getValue() or cell.getString(),
-                    cell.getFormula(),
-                )
+                log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
                 return "#SPILL!"
     return (doc_url, sheet_name, formula_row, formula_col)
 
 
-def _queue_deferred_spill_write(
-    ctx: Any,
-    code: str,
-    grid_to_spill: list[list[Any]],
-    target_doc: Any,
-    prepared: tuple[str, str, int, int],
-) -> None:
+def _queue_deferred_spill_write(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: tuple[str, str, int, int]) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
     from plugin.framework.queue_executor import post_to_main_thread
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
@@ -974,50 +908,23 @@ def _queue_deferred_spill_write(
     spill_lifecycle = _lifecycle_key(target_doc)
 
     def _deferred_spill_on_main() -> None:
-        post_to_main_thread(
-            lambda: perform_deferred_spill(
-                ctx,
-                doc_url,
-                sheet_name,
-                formula_row,
-                formula_col,
-                grid_to_spill,
-                doc=target_doc,
-                code=code,
-                lifecycle_key=spill_lifecycle,
-            )
-        )
+        post_to_main_thread(lambda: perform_deferred_spill(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill, doc=target_doc, code=code, lifecycle_key=spill_lifecycle))
 
     t = threading.Timer(0.1, _deferred_spill_on_main)
     _register_spill_timer(spill_lifecycle, t)
     t.start()
 
 
-def _queue_off_main_auto_spill(
-    ctx: Any,
-    code: str,
-    grid_to_spill: list[list[Any]],
-    doc: Any | None,
-) -> None:
+def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any | None) -> None:
     """Resolve the document on the UI thread, then locate and write the spill.
 
     Yellow/off-main finalize must not touch UNO. Collision ``#SPILL!`` is too
     late to change the add-in return; the deferred path just skips the write.
     """
     from plugin.framework.queue_executor import post_to_main_thread
-    from plugin.scripting.session_manager import (
-        off_main_calc_session_is_unambiguous,
-        recorded_calc_session_count,
-    )
+    from plugin.scripting.session_manager import off_main_calc_session_is_unambiguous, recorded_calc_session_count
 
-    log.debug(
-        "Spill: scheduling off-main deferred locate code=%r has_doc=%s "
-        "recorded=%s unambiguous=%s",
-        code,
-        doc is not None,
-        recorded_calc_session_count(),
-        off_main_calc_session_is_unambiguous(),
-    )
+    log.debug("Spill: scheduling off-main deferred locate code=%r has_doc=%s recorded=%s unambiguous=%s", code, doc is not None, recorded_calc_session_count(), off_main_calc_session_is_unambiguous())
 
     def _on_main() -> None:
         from plugin.framework.thread_guard import on_main_thread
@@ -1040,17 +947,7 @@ def _queue_off_main_auto_spill(
         from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
         doc_url, sheet_name, formula_row, formula_col = prepared
-        perform_deferred_spill(
-            ctx,
-            doc_url,
-            sheet_name,
-            formula_row,
-            formula_col,
-            grid_to_spill,
-            doc=target_doc,
-            code=code,
-            lifecycle_key=_lifecycle_key(target_doc),
-        )
+        perform_deferred_spill(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill, doc=target_doc, code=code, lifecycle_key=_lifecycle_key(target_doc))
 
     def _deferred() -> None:
         post_to_main_thread(_on_main)
@@ -1060,15 +957,7 @@ def _queue_off_main_auto_spill(
     t.start()
 
 
-def finalize_python_return(
-    ctx: Any,
-    code: str,
-    result: Any,
-    *,
-    index_arg: Any = None,
-    worker_data: Any = None,
-    doc: Any | None = None,
-) -> float | str | bool | tuple[Any, ...]:
+def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any = None, worker_data: Any = None, doc: Any | None = None) -> float | str | bool | tuple[Any, ...]:
     """Map worker result to a single value Calc's add-in bridge accepts."""
     # Worker egress (payload_codec.child_pack_result + host_unpack_data) always yields plain
     # lists/scalars on the host — NumPy lives only in the venv subprocess, not in LO's Python.
@@ -1132,11 +1021,10 @@ def finalize_python_return(
             if idx < 0 or idx >= len(flat):
                 return f"Error: index {idx} out of range (result length {len(flat)})"
             return to_calc_compatible(flat[idx])
-        
+
         return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=doc)
 
     return to_calc_compatible(result)
-
 
 
 def _format_error_for_display(exc: BaseException) -> str:
@@ -1157,17 +1045,12 @@ def _format_python_addin_worker_error(message: str) -> str:
     text = (message or "").strip() or _("Unknown error")
     lower = text.lower()
     if "no python executable found under configured venv" in lower or "venv not found" in lower:
-        return _(
-            "Error: Python venv not found. Open Settings → Python, set the venv path, then Test."
-        )
+        return _("Error: Python venv not found. Open Settings → Python, set the venv path, then Test.")
     if "timed out" in lower or "timeout" in lower:
-        return _(
-            "Error: Python timed out. Open Settings → Python to raise the timeout, or Test the venv."
-        )
+        return _("Error: Python timed out. Open Settings → Python to raise the timeout, or Test the venv.")
     if text.startswith("Error:") or text.startswith("#"):
         return text
     return _("Error: {0}").format(text)
-
 
 
 def _code_uses_indexed_multi_data(code: str) -> bool:
@@ -1186,12 +1069,7 @@ def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
     formulas do not ``NameError`` (file joins then fail loud).
     """
     from plugin.framework.thread_guard import on_main_thread
-    from plugin.scripting.session_manager import (
-        get_cached_calc_scoped_dir,
-        get_cached_calc_session_id,
-        record_active_calc_scoped_dir,
-        scoped_dir_from_calc_session_id,
-    )
+    from plugin.scripting.session_manager import get_cached_calc_scoped_dir, get_cached_calc_session_id, record_active_calc_scoped_dir, scoped_dir_from_calc_session_id
 
     if doc is not None and on_main_thread():
         try:
@@ -1235,9 +1113,7 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
                 return get_cached_calc_init_kwargs()
         if target is not None:
             try:
-                from plugin.calc.python.workbook_lifecycle import (
-                    ensure_calc_workbook_unload_resets_python,
-                )
+                from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
 
                 ensure_calc_workbook_unload_resets_python(ctx, target)
             except Exception:
@@ -1252,7 +1128,6 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
     return {}
 
 
-
 def _py_timing_code_label(code: str) -> str:
     """Short greppable id: JSON helper name, else a compact code prefix."""
     src = code or ""
@@ -1262,36 +1137,11 @@ def _py_timing_code_label(code: str) -> str:
     return " ".join(src.split())[:48]
 
 
-def _emit_py_timing(
-    *,
-    code: str,
-    total_ms: int,
-    pack_ms: int,
-    ipc_ms: int,
-    image_ms: int,
-    cached: bool,
-    pass_start: float,
-    n: int,
-    pass_sum_ms: int,
-    last_end: float,
-) -> None:
+def _emit_py_timing(*, code: str, total_ms: int, pack_ms: int, ipc_ms: int, image_ms: int, cached: bool, pass_start: float, n: int, pass_sum_ms: int, last_end: float) -> None:
     """Log absolute per-call ms plus recalc-clump totals (DEBUG)."""
     pass_wall_ms = int(round((last_end - pass_start) * 1000))
     pass_outside_ms = max(0, pass_wall_ms - pass_sum_ms)
-    log.debug(
-        "py_timing code=%s n=%s total_ms=%s pack_ms=%s ipc_ms=%s image_ms=%s cached=%s | "
-        "pass_wall_ms=%s pass_sum_ms=%s pass_outside_ms=%s",
-        _py_timing_code_label(code),
-        n,
-        total_ms,
-        pack_ms,
-        ipc_ms,
-        image_ms,
-        1 if cached else 0,
-        pass_wall_ms,
-        pass_sum_ms,
-        pass_outside_ms,
-    )
+    log.debug("py_timing code=%s n=%s total_ms=%s pack_ms=%s ipc_ms=%s image_ms=%s cached=%s | pass_wall_ms=%s pass_sum_ms=%s pass_outside_ms=%s", _py_timing_code_label(code), n, total_ms, pack_ms, ipc_ms, image_ms, 1 if cached else 0, pass_wall_ms, pass_sum_ms, pass_outside_ms)
 
 
 def clear_python_addin_cache() -> None:
@@ -1305,12 +1155,7 @@ def _register_spill_timer(lifecycle_key: str, timer: threading.Timer) -> None:
         _PENDING_SPILL_TIMERS.append((lifecycle_key, timer))
 
 
-def start_deferred_sheet_timer(
-    delay_sec: float,
-    callback: Any,
-    *,
-    lifecycle_key: str = "",
-) -> threading.Timer:
+def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key: str = "") -> threading.Timer:
     """Shared 0.1s Timer for spill writes and geometric sheet-modify repair.
 
     Lives here so Layer C allows the same ``threading.Timer`` site as
@@ -1352,29 +1197,13 @@ def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -
     clear_python_addin_cache()
 
 
-def execute_python_addin(
-    ctx: Any,
-    code: str,
-    data: Any = None,
-    true_strings: set[str] | None = None,
-    false_strings: set[str] | None = None,
-    *,
-    doc: Any | None = None,
-) -> Any:
+def execute_python_addin(ctx: Any, code: str, data: Any = None, true_strings: set[str] | None = None, false_strings: set[str] | None = None, *, doc: Any | None = None) -> Any:
     """Run *code* in the user venv and return a Calc-compatible scalar (or error string)."""
     with sync_host_dispatch():
         return _execute_python_addin_impl(ctx, code, data, true_strings, false_strings, doc=doc)
 
 
-def _execute_python_addin_impl(
-    ctx: Any,
-    code: str,
-    data: Any = None,
-    true_strings: set[str] | None = None,
-    false_strings: set[str] | None = None,
-    *,
-    doc: Any | None = None,
-) -> Any:
+def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strings: set[str] | None = None, false_strings: set[str] | None = None, *, doc: Any | None = None) -> Any:
     log.debug("=== PYTHON(%r, data=%r) ===", code, data)
     timings = PYTHON_TIMINGS_LOG
     t_enter = time.perf_counter() if timings else 0.0
@@ -1403,10 +1232,7 @@ def _execute_python_addin_impl(
             from plugin.framework.thread_guard import on_main_thread
 
             if on_main_thread():
-                from plugin.scripting.session_manager import (
-                    _calc_document,
-                    record_active_calc_document,
-                )
+                from plugin.scripting.session_manager import _calc_document, record_active_calc_document
 
                 target_doc = _calc_document(ctx)
                 if target_doc is not None:
@@ -1415,10 +1241,7 @@ def _execute_python_addin_impl(
             # model is only for spill finalize — session_key / init_kwargs
             # must not call UNO on it from this thread.
         spill_doc = target_doc if target_doc is not None else _spill_target_doc(ctx, None)
-        from plugin.calc.python.geometric_recalc import (
-            ensure_geometric_strip_index_for_eval,
-            maybe_strip_geometric_eval_args,
-        )
+        from plugin.calc.python.geometric_recalc import ensure_geometric_strip_index_for_eval, maybe_strip_geometric_eval_args
 
         # Same-process hydrate: client/URP attach cannot fill soffice's map.
         ensure_geometric_strip_index_for_eval(target_doc, ctx)
@@ -1482,15 +1305,10 @@ def _execute_python_addin_impl(
             init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)
 
             from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
-            from plugin.scripting.session_manager import (
-                off_main_calc_session_is_unambiguous,
-                recorded_calc_session_count,
-                recorded_calc_session_ids,
-            )
+            from plugin.scripting.session_manager import off_main_calc_session_is_unambiguous, recorded_calc_session_count, recorded_calc_session_ids
 
             log.debug(
-                "PYTHON eval: target_doc=%s spill_doc=%s session_id=%r recorded=%s ids=%s "
-                "unambiguous=%s has_init=%s on_main=%s in_sync_host=%s",
+                "PYTHON eval: target_doc=%s spill_doc=%s session_id=%r recorded=%s ids=%s unambiguous=%s has_init=%s on_main=%s in_sync_host=%s",
                 target_doc is not None,
                 spill_doc is not None,
                 session_id,
@@ -1528,12 +1346,9 @@ def _execute_python_addin_impl(
                 if timings:
                     image_ms = int(round((time.perf_counter() - t_img) * 1000))
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")
-            final_ret = finalize_python_return(
-                ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=spill_doc
-            )
+            final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=spill_doc)
             log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)
             return final_ret
-
 
         err_msg = _format_python_addin_worker_error(str(res.get("message") or res.get("error") or ""))
         _record_py_diagnostic(ctx, code, res, status="error", message=err_msg)
@@ -1551,18 +1366,7 @@ def _execute_python_addin_impl(
             _PY_PASS_STATS.n = getattr(_PY_PASS_STATS, "n", 0) + 1
             _PY_PASS_STATS.sum_ms = getattr(_PY_PASS_STATS, "sum_ms", 0) + total_ms
             _PY_PASS_STATS.last_end = time.perf_counter()
-            _emit_py_timing(
-                code=code,
-                total_ms=total_ms,
-                pack_ms=pack_ms,
-                ipc_ms=ipc_ms,
-                image_ms=image_ms,
-                cached=used_cache,
-                pass_start=getattr(_PY_PASS_STATS, "pass_start", t_enter),
-                n=_PY_PASS_STATS.n,
-                pass_sum_ms=int(_PY_PASS_STATS.sum_ms),
-                last_end=_PY_PASS_STATS.last_end,
-            )
+            _emit_py_timing(code=code, total_ms=total_ms, pack_ms=pack_ms, ipc_ms=ipc_ms, image_ms=image_ms, cached=used_cache, pass_start=getattr(_PY_PASS_STATS, "pass_start", t_enter), n=_PY_PASS_STATS.n, pass_sum_ms=int(_PY_PASS_STATS.sum_ms), last_end=_PY_PASS_STATS.last_end)
 
 
 def _diagnostics_workbook_key(ctx: Any) -> str:
@@ -1583,15 +1387,7 @@ def _diagnostics_workbook_key(ctx: Any) -> str:
     return "unknown"
 
 
-def _record_py_diagnostic(
-    ctx: Any,
-    code: str,
-    res: dict[str, Any] | None,
-    *,
-    status: str,
-    message: str = "",
-    traceback: str = "",
-) -> None:
+def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, status: str, message: str = "", traceback: str = "") -> None:
     """Record stdout/errors for the LibrePy sidebar without extra UNO work.
 
     Skips successful evaluations with empty stdout so the log stays actionable.
@@ -1611,14 +1407,7 @@ def _record_py_diagnostic(
                 tb = str(raw_tb) if raw_tb else ""
         if status == "ok" and not (stdout or "").strip():
             return
-        record_python_eval(
-            workbook_key=_diagnostics_workbook_key(ctx),
-            code=code or "",
-            status=status,
-            message=msg,
-            stdout=stdout,
-            traceback=tb,
-        )
+        record_python_eval(workbook_key=_diagnostics_workbook_key(ctx), code=code or "", status=status, message=msg, stdout=stdout, traceback=tb)
     except Exception:
         # Never break formula evaluation for diagnostics UI.
         log.debug("record_python_eval failed", exc_info=True)

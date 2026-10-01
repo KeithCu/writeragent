@@ -27,11 +27,7 @@ def _append_blank(rows: list[list[Any]]) -> None:
         rows.append([])
 
 
-def _table_span_merges(
-    table: dict[str, Any],
-    *,
-    header_grid_row: int,
-) -> list[tuple[int, int, int, int]]:
+def _table_span_merges(table: dict[str, Any], *, header_grid_row: int) -> list[tuple[int, int, int, int]]:
     """Return (r1, c1, r2, c2) 0-based grid coords for Docling cell spans."""
     merges: list[tuple[int, int, int, int]] = []
     spans = table.get("spans")
@@ -82,9 +78,7 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
                 continue
             columns = table.get("columns")
             table_rows = table.get("rows")
-            if not (isinstance(columns, list) and columns) and not (
-                isinstance(table_rows, list) and table_rows
-            ):
+            if not (isinstance(columns, list) and columns) and not (isinstance(table_rows, list) and table_rows):
                 continue
             table_count += 1
             _append_blank(rows)
@@ -130,10 +124,7 @@ def calc_output_anchor_from_graphic(doc: Any) -> tuple[int, int]:
     """Return (start_col, start_row) one row below the selected graphic's anchor cell."""
     obj, _doc_type = _get_selected_graphic_object(doc)
     if obj is None:
-        raise ToolExecutionError(
-            _("Select an embedded image, then Run again."),
-            code="NO_IMAGE_SELECTED",
-        )
+        raise ToolExecutionError(_("Select an embedded image, then Run again."), code="NO_IMAGE_SELECTED")
 
     anchor = None
     try:
@@ -143,20 +134,14 @@ def calc_output_anchor_from_graphic(doc: Any) -> tuple[int, int]:
         anchor = None
 
     if anchor is None:
-        raise ToolExecutionError(
-            _("Anchor the image to a cell, select it, then Run again."),
-            code="NO_OUTPUT_ANCHOR",
-        )
+        raise ToolExecutionError(_("Anchor the image to a cell, select it, then Run again."), code="NO_OUTPUT_ANCHOR")
 
     try:
         addr = anchor.getCellAddress()
         col = int(addr.Column)
         row = int(addr.Row)
     except Exception:
-        raise ToolExecutionError(
-            _("Anchor the image to a cell, select it, then Run again."),
-            code="NO_OUTPUT_ANCHOR",
-        ) from None
+        raise ToolExecutionError(_("Anchor the image to a cell, select it, then Run again."), code="NO_OUTPUT_ANCHOR") from None
 
     return col, row + 1
 
@@ -175,11 +160,7 @@ def insert_vision_structure_into_calc(doc: Any, uno_ctx: Any, result: dict[str, 
     col, row = calc_output_anchor_from_graphic(doc)
     grid, merges = _vision_structure_calc_layout(result)
     if not structure_calc_grid_has_content(grid):
-        raise ToolExecutionError(
-            _("No structured tables or text blocks to insert."),
-            code="VISION_ERROR",
-            details={"vision_result": result},
-        )
+        raise ToolExecutionError(_("No structured tables or text blocks to insert."), code="VISION_ERROR", details={"vision_result": result})
     bridge = CalcBridge(doc)
     manipulator = CellManipulator(bridge)
     addr = f"{index_to_column(col)}{row + 1}"

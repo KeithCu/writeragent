@@ -12,10 +12,7 @@ from plugin.calc.excel_py_convert.parse_excel_ooxml import _findall, _find_child
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, normalize_bank_a1
 from plugin.calc.python.formula_edit import parse_python_formula
 
-BANK_REF_RE = re.compile(
-    rf"^({re.escape(CODE_SHEET_PREFIX)}[^.!]+)[.!](\$?[A-Za-z]+\$?\d+)$",
-    re.IGNORECASE,
-)
+BANK_REF_RE = re.compile(rf"^({re.escape(CODE_SHEET_PREFIX)}[^.!]+)[.!](\$?[A-Za-z]+\$?\d+)$", re.IGNORECASE)
 
 
 def _shared_strings(zf: zipfile.ZipFile) -> list[str]:

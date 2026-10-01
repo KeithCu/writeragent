@@ -13,13 +13,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.contrib.calc_formula_parser import (
-    FunctionNode,
-    OperandNode,
-    OperatorNode,
-    RangeNode,
-    parse_formula,
-)
+from plugin.contrib.calc_formula_parser import FunctionNode, OperandNode, OperatorNode, RangeNode, parse_formula
 from plugin.calc.python.formula_edit import sanitize_inline_py_code
 from plugin.calc.spreadsheet_import.models import TranslationResult
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
@@ -206,7 +200,7 @@ def _emit_switch(args: list[str]) -> str:
     res = default
     for i in range(len(cases) - 2, -1, -2):
         val = cases[i]
-        ret = cases[i+1]
+        ret = cases[i + 1]
         res = f"({ret} if {expr} == {val} else {res})"
     return res
 
@@ -223,35 +217,7 @@ def _emit_ifs(args: list[str]) -> str:
 
 
 # Functions that return arbitrary types — skip scalar float() wrap in translate_formula.
-_NO_SCALAR_WRAP_FUNCTIONS = frozenset(
-    {
-        "TRUE",
-        "FALSE",
-        "IF",
-        "IFS",
-        "SWITCH",
-        "AND",
-        "OR",
-        "NOT",
-        "ISBLANK",
-        "ISNUMBER",
-        "ISNA",
-        "ISERROR",
-        "ISTEXT",
-        "ISLOGICAL",
-        "ISERR",
-        "ISNONTEXT",
-        "ISFORMULA",
-        "ISREF",
-        "LINEST",
-        "LOGEST",
-        "MINVERSE",
-        "MMULT",
-        "MTRANS",
-        "MUNIT",
-        "TREND",
-    }
-)
+_NO_SCALAR_WRAP_FUNCTIONS = frozenset({"TRUE", "FALSE", "IF", "IFS", "SWITCH", "AND", "OR", "NOT", "ISBLANK", "ISNUMBER", "ISNA", "ISERROR", "ISTEXT", "ISLOGICAL", "ISERR", "ISNONTEXT", "ISFORMULA", "ISREF", "LINEST", "LOGEST", "MINVERSE", "MMULT", "MTRANS", "MUNIT", "TREND"})
 
 # Helpers and array-returning emitters — skip scalar float() wrap.
 _NO_FLOAT_WRAP_PREFIXES = (
@@ -497,25 +463,25 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     # Text (P2)
     "CONCATENATE": lambda a: f'"".join(str(x) for x in [{", ".join(a)}])',
     "CONCAT": lambda a: f'"".join(str(x) for x in np.asarray([{", ".join(a)}]).ravel())',
-    "LEFT": lambda a: f'str({a[0]})[:int({a[1]})]' if len(a) > 1 else f'str({a[0]})[:1]',
-    "RIGHT": lambda a: f'str({a[0]})[-int({a[1]}):]' if len(a) > 1 else f'str({a[0]})[-1:]',
-    "MID": lambda a: f'str({a[0]})[max(0, int({a[1]})-1) : max(0, int({a[1]})-1) + int({a[2]})]',
-    "LEN": lambda a: f'float(len(str({a[0]})))',
-    "LOWER": lambda a: f'str({a[0]}).lower()',
-    "UPPER": lambda a: f'str({a[0]}).upper()',
-    "PROPER": lambda a: f'str({a[0]}).title()',
-    "TRIM": lambda a: f'str({a[0]}).strip()',
-    "SUBSTITUTE": lambda a: f'str({a[0]}).replace(str({a[1]}), str({a[2]}))' if len(a) > 2 else f'str({a[0]}).replace(str({a[1]}), "")',
-    "REPLACE": lambda a: f'str({a[0]})[:max(0, int({a[1]})-1)] + str({a[3]}) + str({a[0]})[max(0, int({a[1]})-1) + int({a[2]}):]',
-    "FIND": lambda a: f'float(str({a[1]}).find(str({a[0]})) + 1)',
-    "SEARCH": lambda a: f'float(str({a[1]}).lower().find(str({a[0]}).lower()) + 1)',
-    "VALUE": lambda a: f'float({a[0]})',
+    "LEFT": lambda a: f"str({a[0]})[:int({a[1]})]" if len(a) > 1 else f"str({a[0]})[:1]",
+    "RIGHT": lambda a: f"str({a[0]})[-int({a[1]}):]" if len(a) > 1 else f"str({a[0]})[-1:]",
+    "MID": lambda a: f"str({a[0]})[max(0, int({a[1]})-1) : max(0, int({a[1]})-1) + int({a[2]})]",
+    "LEN": lambda a: f"float(len(str({a[0]})))",
+    "LOWER": lambda a: f"str({a[0]}).lower()",
+    "UPPER": lambda a: f"str({a[0]}).upper()",
+    "PROPER": lambda a: f"str({a[0]}).title()",
+    "TRIM": lambda a: f"str({a[0]}).strip()",
+    "SUBSTITUTE": lambda a: f"str({a[0]}).replace(str({a[1]}), str({a[2]}))" if len(a) > 2 else f'str({a[0]}).replace(str({a[1]}), "")',
+    "REPLACE": lambda a: f"str({a[0]})[:max(0, int({a[1]})-1)] + str({a[3]}) + str({a[0]})[max(0, int({a[1]})-1) + int({a[2]}):]",
+    "FIND": lambda a: f"float(str({a[1]}).find(str({a[0]})) + 1)",
+    "SEARCH": lambda a: f"float(str({a[1]}).lower().find(str({a[0]}).lower()) + 1)",
+    "VALUE": lambda a: f"float({a[0]})",
     # Date & Time (P2) — use auto-imported ``dt`` (datetime as dt)
-    "TODAY": lambda _a: 'float(dt.date.today().toordinal() - 693594)',
-    "NOW": lambda _a: 'float(dt.datetime.now().toordinal() - 693594)',
-    "YEAR": lambda a: f'float(dt.date.fromordinal(int({a[0]}) + 693594).year)',
-    "MONTH": lambda a: f'float(dt.date.fromordinal(int({a[0]}) + 693594).month)',
-    "DAY": lambda a: f'float(dt.date.fromordinal(int({a[0]}) + 693594).day)',
+    "TODAY": lambda _a: "float(dt.date.today().toordinal() - 693594)",
+    "NOW": lambda _a: "float(dt.datetime.now().toordinal() - 693594)",
+    "YEAR": lambda a: f"float(dt.date.fromordinal(int({a[0]}) + 693594).year)",
+    "MONTH": lambda a: f"float(dt.date.fromordinal(int({a[0]}) + 693594).month)",
+    "DAY": lambda a: f"float(dt.date.fromordinal(int({a[0]}) + 693594).day)",
     # Statistical (P2)
     "STDEV": lambda a: f"np.std({a[0]}, ddof=1)",
     "STDEVP": lambda a: f"np.std({a[0]}, ddof=0)",
@@ -523,10 +489,10 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "VARP": lambda a: f"np.var({a[0]}, ddof=0)",
     "TRANSPOSE": lambda a: f"np.asarray({a[0]}).T.tolist()",
     # Lookup & Reference (P2)
-    "VLOOKUP": lambda a: f'next((r[int({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), None)',
-    "HLOOKUP": lambda a: f'next((np.asarray({a[1]})[int({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), None)',
-    "INDEX": lambda a: f'np.asarray({a[0]})[int({a[1]})-1, int({a[2]})-1]' if len(a) > 2 else f'np.asarray({a[0]})[int({a[1]})-1]',
-    "MATCH": lambda a: f'float(next((i+1 for i, val in enumerate(np.asarray({a[1]}).ravel()) if val == {a[0]}), -1))',
+    "VLOOKUP": lambda a: f"next((r[int({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), None)",
+    "HLOOKUP": lambda a: f"next((np.asarray({a[1]})[int({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), None)",
+    "INDEX": lambda a: f"np.asarray({a[0]})[int({a[1]})-1, int({a[2]})-1]" if len(a) > 2 else f"np.asarray({a[0]})[int({a[1]})-1]",
+    "MATCH": lambda a: f"float(next((i+1 for i, val in enumerate(np.asarray({a[1]}).ravel()) if val == {a[0]}), -1))",
     # Logical (P2)
     "IFERROR": lambda a: f"calc.iferror(lambda: {a[0]}, {a[1]})",
     "IFNA": lambda a: f"calc.ifna(lambda: {a[0]}, {a[1]})",
@@ -550,7 +516,6 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "REPT": lambda a: f"calc.rept({a[0]}, {a[1]})",
     "EXACT": lambda a: f"(str({a[0]}) == str({a[1]}))",
     "ARABIC": lambda a: f"calc.arabic({a[0]})",
-
     "BAHTTEXT": lambda a: f"calc.bahttext({a[0]})",
     "CLEAN": lambda a: f"calc.clean({a[0]})",
     "DOLLAR": lambda a: f"calc.dollar({', '.join(a)})",
@@ -599,21 +564,11 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "LOOKUP": lambda a: f"calc.lookup({', '.join(a)})",
     "MEDIAN": lambda a: f"np.median({a[0]})",
     "COUNTBLANK": lambda a: f"sum(1 for x in np.asarray({a[0]}).ravel() if x is None or x == '')",
-    "ROUNDUP": lambda a: f"np.ceil({a[0]} * 10**int({a[1]})) / 10**int({a[1]})"
-    if len(a) > 1
-    else f"np.ceil({a[0]})",
-    "ROUNDDOWN": lambda a: f"np.floor({a[0]} * 10**int({a[1]})) / 10**int({a[1]})"
-    if len(a) > 1
-    else f"np.floor({a[0]})",
-    "CEILING": lambda a: f"np.ceil({a[0]})"
-    if len(a) == 1
-    else f"np.ceil({a[0]} / {a[1]}) * {a[1]}",
-    "FLOOR": lambda a: f"np.floor({a[0]})"
-    if len(a) == 1
-    else f"np.floor({a[0]} / {a[1]}) * {a[1]}",
-    "LOG": lambda a: f"np.log({a[0]}) / np.log({a[1]})"
-    if len(a) > 1
-    else f"np.log10({a[0]})",
+    "ROUNDUP": lambda a: f"np.ceil({a[0]} * 10**int({a[1]})) / 10**int({a[1]})" if len(a) > 1 else f"np.ceil({a[0]})",
+    "ROUNDDOWN": lambda a: f"np.floor({a[0]} * 10**int({a[1]})) / 10**int({a[1]})" if len(a) > 1 else f"np.floor({a[0]})",
+    "CEILING": lambda a: f"np.ceil({a[0]})" if len(a) == 1 else f"np.ceil({a[0]} / {a[1]}) * {a[1]}",
+    "FLOOR": lambda a: f"np.floor({a[0]})" if len(a) == 1 else f"np.floor({a[0]} / {a[1]}) * {a[1]}",
+    "LOG": lambda a: f"np.log({a[0]}) / np.log({a[1]})" if len(a) > 1 else f"np.log10({a[0]})",
     "QUOTIENT": lambda a: f"{a[0]} // {a[1]}",
     "EDATE": lambda a: f"calc.edate({a[0]}, {a[1]})",
     "DATEDIF": lambda a: f"calc.datedif({', '.join(a)})",
@@ -867,5 +822,3 @@ def translate_formula(formula: str, cell_addr: str | None = None) -> Translation
         return TranslationResult(ok=False, reason="PARSE_ERROR")
 
     return TranslationResult(ok=True, code=sanitize_inline_py_code(body), data_ranges=list(state.ranges))
-
-

@@ -9,19 +9,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-CellType = Literal[
-    "empty",
-    "constant",
-    "formula",
-    "py_formula",
-    "prompt",
-    "array_formula",
-    "error",
-]
+CellType = Literal["empty", "constant", "formula", "py_formula", "prompt", "array_formula", "error"]
 
-FORMULA_LIKE_TYPES: frozenset[CellType] = frozenset(
-    {"formula", "py_formula", "array_formula", "error"},
-)
+FORMULA_LIKE_TYPES: frozenset[CellType] = frozenset({"formula", "py_formula", "array_formula", "error"})
 
 
 @dataclass
@@ -51,13 +41,7 @@ class SheetModel:
     circular_groups: list[list[str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "sheet_name": self.sheet_name,
-            "used_range": self.used_range,
-            "cells": {addr: cell.to_dict() for addr, cell in self.cells.items()},
-            "formula_order": list(self.formula_order),
-            "circular_groups": [list(group) for group in self.circular_groups],
-        }
+        return {"sheet_name": self.sheet_name, "used_range": self.used_range, "cells": {addr: cell.to_dict() for addr, cell in self.cells.items()}, "formula_order": list(self.formula_order), "circular_groups": [list(group) for group in self.circular_groups]}
 
 
 @dataclass
@@ -122,21 +106,13 @@ class ConversionReport:
     pass_through: list[str] = field(default_factory=list)
 
     def conversion_rate(self, *, formula_denominator: int | None = None) -> float:
-        denom = formula_denominator if formula_denominator is not None else (
-            len(self.converted) + len(self.skipped) + len(self.pass_through)
-        )
+        denom = formula_denominator if formula_denominator is not None else (len(self.converted) + len(self.skipped) + len(self.pass_through))
         if denom <= 0:
             return 0.0
         return len(self.converted) / denom
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "converted": list(self.converted),
-            "skipped": [item.to_dict() for item in self.skipped],
-            "normalized_py": list(self.normalized_py),
-            "pass_through": list(self.pass_through),
-            "conversion_rate": self.conversion_rate(),
-        }
+        return {"converted": list(self.converted), "skipped": [item.to_dict() for item in self.skipped], "normalized_py": list(self.normalized_py), "pass_through": list(self.pass_through), "conversion_rate": self.conversion_rate()}
 
     def summary(self) -> str:
         total = len(self.converted) + len(self.skipped) + len(self.pass_through)
@@ -162,11 +138,7 @@ class VerifyResult:
     skipped: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "passed": list(self.passed),
-            "failed": [item.to_dict() for item in self.failed],
-            "skipped": list(self.skipped),
-        }
+        return {"passed": list(self.passed), "failed": [item.to_dict() for item in self.failed], "skipped": list(self.skipped)}
 
 
 @dataclass
@@ -180,11 +152,4 @@ class OutputSheetModel:
     array_formulas: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "sheet_name": self.sheet_name,
-            "used_range": self.used_range,
-            "cells": {addr: cell.to_dict() for addr, cell in self.cells.items()},
-            "py_extracts": [item.to_dict() for item in self.py_extracts],
-            "array_formulas": dict(self.array_formulas),
-        }
-
+        return {"sheet_name": self.sheet_name, "used_range": self.used_range, "cells": {addr: cell.to_dict() for addr, cell in self.cells.items()}, "py_extracts": [item.to_dict() for item in self.py_extracts], "array_formulas": dict(self.array_formulas)}

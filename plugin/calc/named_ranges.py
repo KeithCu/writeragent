@@ -20,11 +20,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.address_utils import (
-    index_to_column,
-    parse_address,
-    split_sheet_prefix,
-)
+from plugin.calc.address_utils import index_to_column, parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.errors import UnoObjectError, suppress_disposed
@@ -35,28 +31,13 @@ if TYPE_CHECKING:
 log = logging.getLogger("writeragent.calc")
 
 # NamedRangeFlag bitmask mappings (com.sun.star.sheet.NamedRangeFlag)
-_FLAG_NAME_TO_BIT: dict[str, int] = {
-    "filter_criteria": 1,
-    "print_area": 2,
-    "column_header": 4,
-    "row_header": 8,
-}
+_FLAG_NAME_TO_BIT: dict[str, int] = {"filter_criteria": 1, "print_area": 2, "column_header": 4, "row_header": 8}
 
 _BIT_TO_FLAG_NAME: dict[int, str] = {v: k for k, v in _FLAG_NAME_TO_BIT.items()}
 
 # Gemini rejects oneOf; advertise the LLM-friendly form. _parse_flags still
 # accepts a comma-string or integer bitmask if sent.
-_FLAGS_SCHEMA: dict[str, Any] = {
-    "description": (
-        "Range type flags as an array of names: 'filter_criteria', 'print_area', "
-        "'column_header', 'row_header'."
-    ),
-    "type": "array",
-    "items": {
-        "type": "string",
-        "enum": list(_FLAG_NAME_TO_BIT.keys()),
-    },
-}
+_FLAGS_SCHEMA: dict[str, Any] = {"description": ("Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'."), "type": "array", "items": {"type": "string", "enum": list(_FLAG_NAME_TO_BIT.keys())}}
 
 
 def _parse_flags(flags: list[str] | str | int | None) -> int:
@@ -155,23 +136,11 @@ def _extract_range_info(nr: Any, scope: str, doc: Any = None) -> dict[str, Any]:
             s_idx = getattr(pos, "Sheet", 0)
             c_idx = getattr(pos, "Column", 0)
             r_idx = getattr(pos, "Row", 0)
-            base_info = {
-                "sheet_index": s_idx,
-                "column": c_idx,
-                "row": r_idx,
-                "address": f"{index_to_column(c_idx)}{r_idx + 1}",
-            }
+            base_info = {"sheet_index": s_idx, "column": c_idx, "row": r_idx, "address": f"{index_to_column(c_idx)}{r_idx + 1}"}
         except Exception:
             pass
 
-    info: dict[str, Any] = {
-        "name": name,
-        "scope": scope,
-        "content": content,
-        "type_code": type_code,
-        "flags": flags,
-        "base_position": base_info,
-    }
+    info: dict[str, Any] = {"name": name, "scope": scope, "content": content, "type_code": type_code, "flags": flags, "base_position": base_info}
 
     # If this named range refers to concrete cells, resolve coordinates
     if hasattr(nr, "getReferredCells"):
@@ -209,19 +178,8 @@ class NamedRangeList(ToolCalcRangeBase):
 
     name: str | None = "named_range_list"
     intent: str | None = "navigate"
-    description: str = (
-        "Lists named ranges and their formulas/reference targets. "
-        "Supports filtering by scope ('global', 'all', or a specific sheet name)."
-    )
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "scope": {
-                "type": "string",
-                "description": "Scope to list: 'global' (default), 'all' (global + all sheets), or specific sheet name.",
-            }
-        },
-    }
+    description: str = "Lists named ranges and their formulas/reference targets. Supports filtering by scope ('global', 'all', or a specific sheet name)."
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"scope": {"type": "string", "description": "Scope to list: 'global' (default), 'all' (global + all sheets), or specific sheet name."}}}
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -272,13 +230,7 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
     description: str = "Retrieves detailed metadata, reference coordinates, flags, and base address for a specific named range."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "The name of the defined range to inspect."},
-            "scope": {
-                "type": "string",
-                "description": "Scope where the name is defined: 'global' (default) or sheet name. Omit to search global then active sheet.",
-            },
-        },
+        "properties": {"name": {"type": "string", "description": "The name of the defined range to inspect."}, "scope": {"type": "string", "description": "Scope where the name is defined: 'global' (default) or sheet name. Omit to search global then active sheet."}},
         "required": ["name"],
     }
     is_mutation: bool | None = False
@@ -331,29 +283,14 @@ class NamedRangeAdd(ToolCalcRangeBase):
 
     name: str | None = "named_range_add"
     intent: str | None = "edit"
-    description: str = (
-        "Defines a new named range or formula expression in the workbook (global) or specific sheet. "
-        "Can specify base reference cell and type flags (e.g. 'print_area', 'filter_criteria')."
-    )
+    description: str = "Defines a new named range or formula expression in the workbook (global) or specific sheet. Can specify base reference cell and type flags (e.g. 'print_area', 'filter_criteria')."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "name": {
-                "type": "string",
-                "description": "Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces.",
-            },
-            "content": {
-                "type": "string",
-                "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)').",
-            },
-            "scope": {
-                "type": "string",
-                "description": "Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1').",
-            },
-            "base_cell": {
-                "type": "string",
-                "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0.",
-            },
+            "name": {"type": "string", "description": "Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces."},
+            "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)')."},
+            "scope": {"type": "string", "description": "Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1')."},
+            "base_cell": {"type": "string", "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0."},
             "flags": _FLAGS_SCHEMA,
         },
         "required": ["name", "content"],
@@ -387,10 +324,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
 
             container.addNewByName(name, content, pos, type_mask)
             log.info("Named range added: [%s] %s -> %s (flags=%d)", effective_scope, name, content, type_mask)
-            return {
-                "status": "ok",
-                "message": f"Named range '{name}' added successfully in scope '{effective_scope}' pointing to '{content}'.",
-            }
+            return {"status": "ok", "message": f"Named range '{name}' added successfully in scope '{effective_scope}' pointing to '{content}'."}
         except Exception as e:
             log.exception("Add named range failed for %s", name)
             return self._tool_error(f"Failed to add named range: {str(e)}", code="NAMED_RANGE_ERROR")
@@ -401,19 +335,14 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
     name: str | None = "named_range_edit"
     intent: str | None = "edit"
-    description: str = (
-        "Modifies an existing named range: rename, update formula/range content, change base reference position, or update flags."
-    )
+    description: str = "Modifies an existing named range: rename, update formula/range content, change base reference position, or update flags."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Current name of the range to edit."},
             "new_name": {"type": "string", "description": "New name for the range if renaming."},
             "content": {"type": "string", "description": "New formula or range address content."},
-            "scope": {
-                "type": "string",
-                "description": "Scope where the named range exists: 'global' (default) or specific sheet name.",
-            },
+            "scope": {"type": "string", "description": "Scope where the named range exists: 'global' (default) or specific sheet name."},
             "base_cell": {"type": "string", "description": "New base cell reference for relative coordinates."},
             "flags": _FLAGS_SCHEMA,
         },
@@ -467,10 +396,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
                 final_name = name
 
             log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)
-            return {
-                "status": "ok",
-                "message": f"Named range '{final_name}' updated successfully in scope '{effective_scope}'.",
-            }
+            return {"status": "ok", "message": f"Named range '{final_name}' updated successfully in scope '{effective_scope}'."}
         except Exception as e:
             log.exception("Edit named range failed for %s", name)
             return self._tool_error(f"Failed to edit named range: {str(e)}", code="NAMED_RANGE_ERROR")
@@ -482,17 +408,7 @@ class NamedRangeDelete(ToolCalcRangeBase):
     name: str | None = "named_range_delete"
     intent: str | None = "edit"
     description: str = "Deletes an existing named range from global or sheet-specific scope."
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "Name of the range to delete."},
-            "scope": {
-                "type": "string",
-                "description": "Scope of the named range: 'global' (default) or specific sheet name.",
-            },
-        },
-        "required": ["name"],
-    }
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the range to delete."}, "scope": {"type": "string", "description": "Scope of the named range: 'global' (default) or specific sheet name."}}, "required": ["name"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -520,27 +436,13 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
 
     name: str | None = "named_range_create_from_titles"
     intent: str | None = "edit"
-    description: str = (
-        "Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. "
-        "Border specifies where headers are located ('top', 'bottom', 'left', 'right')."
-    )
+    description: str = "Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. Border specifies where headers are located ('top', 'bottom', 'left', 'right')."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "range": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "The table cell range containing both headers and data (e.g. [\"A1:D20\"] or [\"Sheet1.A1:D20\"]).",
-            },
-            "border": {
-                "type": "string",
-                "description": "Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'.",
-                "enum": ["top", "bottom", "left", "right"],
-            },
-            "scope": {
-                "type": "string",
-                "description": "Container scope for creating the names: 'global' (default) or specific sheet name.",
-            },
+            "range": {"type": "array", "items": {"type": "string"}, "description": 'The table cell range containing both headers and data (e.g. ["A1:D20"] or ["Sheet1.A1:D20"]).'},
+            "border": {"type": "string", "description": "Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'.", "enum": ["top", "bottom", "left", "right"]},
+            "scope": {"type": "string", "description": "Container scope for creating the names: 'global' (default) or specific sheet name."},
         },
         "required": ["range"],
     }
@@ -548,6 +450,7 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         import uno
+
         bridge = CalcBridge(ctx.doc)
         range_str = kwargs["range"][0].strip()
         border_str = kwargs.get("border", "top")
@@ -559,29 +462,14 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
         try:
             from com.sun.star.sheet.Border import BOTTOM, LEFT, RIGHT, TOP
 
-            border_map: dict[str, Any] = {
-                "TOP": TOP,
-                "BOTTOM": BOTTOM,
-                "LEFT": LEFT,
-                "RIGHT": RIGHT,
-            }
+            border_map: dict[str, Any] = {"TOP": TOP, "BOTTOM": BOTTOM, "LEFT": LEFT, "RIGHT": RIGHT}
         except Exception:
             try:
                 import uno
 
-                border_map = {
-                    "TOP": uno.Enum("com.sun.star.sheet.Border", "TOP"),
-                    "BOTTOM": uno.Enum("com.sun.star.sheet.Border", "BOTTOM"),
-                    "LEFT": uno.Enum("com.sun.star.sheet.Border", "LEFT"),
-                    "RIGHT": uno.Enum("com.sun.star.sheet.Border", "RIGHT"),
-                }
+                border_map = {"TOP": uno.Enum("com.sun.star.sheet.Border", "TOP"), "BOTTOM": uno.Enum("com.sun.star.sheet.Border", "BOTTOM"), "LEFT": uno.Enum("com.sun.star.sheet.Border", "LEFT"), "RIGHT": uno.Enum("com.sun.star.sheet.Border", "RIGHT")}
             except Exception:
-                border_map = {
-                    "TOP": 0,
-                    "BOTTOM": 1,
-                    "LEFT": 2,
-                    "RIGHT": 3,
-                }
+                border_map = {"TOP": 0, "BOTTOM": 1, "LEFT": 2, "RIGHT": 3}
 
         if border_clean not in border_map:
             return self._tool_error(f"Invalid border '{border_str}'. Supported borders: 'top', 'bottom', 'left', 'right'.", code="INVALID_BORDER")
@@ -596,10 +484,7 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
             container.addNewFromTitles(range_addr, border_map[border_clean])
 
             log.info("Named ranges created from titles: [%s] range=%s border=%s", effective_scope, range_str, border_clean)
-            return {
-                "status": "ok",
-                "message": f"Named ranges created from titles along border '{border_str}' for range '{range_str}' in scope '{effective_scope}'.",
-            }
+            return {"status": "ok", "message": f"Named ranges created from titles along border '{border_str}' for range '{range_str}' in scope '{effective_scope}'."}
         except Exception as e:
             log.exception("Create named ranges from titles failed for %s", range_str)
             return self._tool_error(f"Failed to create named ranges from titles: {str(e)}", code="NAMED_RANGE_ERROR")

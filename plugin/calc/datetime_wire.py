@@ -139,11 +139,7 @@ def should_preserve_temporal_format(input_category: str, serial: float, dest_cat
     return False
 
 
-def is_compatible_temporal_template(
-    input_category: str,
-    template_category: str | None,
-    format_code: object | None = None,
-) -> bool:
+def is_compatible_temporal_template(input_category: str, template_category: str | None, format_code: object | None = None) -> bool:
     """P1: whether a nearest-above NumberFormat may be inherited for this gated input.
 
     Stricter than M1 preserve: date does not inherit datetime (detect yields a
@@ -165,7 +161,6 @@ def is_compatible_temporal_template(
     if input_category == "datetime" and template_category in ("datetime", "date"):
         return True
     return False
-
 
 
 def resolve_s25_row_empties(row: list[FormatDecision]) -> list[FormatDecision]:

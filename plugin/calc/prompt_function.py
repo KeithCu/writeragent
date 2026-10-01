@@ -19,10 +19,7 @@ from plugin.framework.thread_guard import sync_host_dispatch
 log = logging.getLogger(__name__)
 
 # Default system prompt for Calc =PROMPT() when systemPrompt arg and extend_selection_system_prompt are empty.
-CALC_PROMPT_CELL_SYSTEM_PROMPT = (
-    "Answer the user's request directly in plain text suitable for a spreadsheet cell. "
-    "Do not use HTML or markdown fences unless the user asks for them."
-)
+CALC_PROMPT_CELL_SYSTEM_PROMPT = "Answer the user's request directly in plain text suitable for a spreadsheet cell. Do not use HTML or markdown fences unless the user asks for them."
 
 # Cap diagnostic cell text so Calc stays readable when reasoning excerpts are long.
 _EMPTY_DIAGNOSTIC_MAX_LEN = 500
@@ -40,12 +37,7 @@ def _format_empty_prompt_diagnostic(result: Mapping[str, Any], *, model: str) ->
     """Visible cell message when the provider returned no assistant text (never a silent blank)."""
     usage = result.get("usage")
     usage_dict = usage if isinstance(usage, dict) else {}
-    parts = [
-        f"finish_reason={result.get('finish_reason')!r}",
-        f"completion_tokens={usage_dict.get('completion_tokens', '?')}",
-        f"reasoning_tokens={usage_dict.get('reasoning_tokens', '?')}",
-        f"model={model}",
-    ]
+    parts = [f"finish_reason={result.get('finish_reason')!r}", f"completion_tokens={usage_dict.get('completion_tokens', '?')}", f"reasoning_tokens={usage_dict.get('reasoning_tokens', '?')}", f"model={model}"]
 
     msg = "Error: model returned no text. " + "; ".join(parts) + "."
     for key in ("reasoning", "reasoning_content"):
@@ -64,43 +56,17 @@ def _format_empty_prompt_diagnostic(result: Mapping[str, Any], *, model: str) ->
 def _call_prompt_llm(ctx: Any, client: LlmClient, messages: list[dict[str, str]], max_tokens: int) -> dict[str, Any]:
     # =PY() does not use run_blocking_in_thread: processEventsToIdle on the
     # recalc stack re-enters the formula engine (#VALUE!). Same constraint here.
-    result = run_blocking_in_thread(
-        ctx,
-        client.request_with_tools,
-        messages,
-        max_tokens=max_tokens,
-        tools=None,
-        stream=False,
-        pump_idle=False,
-    )
+    result = run_blocking_in_thread(ctx, client.request_with_tools, messages, max_tokens=max_tokens, tools=None, stream=False, pump_idle=False)
     return result if isinstance(result, dict) else {}
 
 
-def execute_prompt_addin(
-    ctx: Any,
-    message: str,
-    system_prompt: Any,
-    model: Any,
-    max_tokens: Any,
-    *,
-    client_holder: list[LlmClient | None],
-) -> str:
+def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any, max_tokens: Any, *, client_holder: list[LlmClient | None]) -> str:
     """Call the chat API for =PROMPT(); *client_holder* is a one-element list for reuse across recalcs."""
     with sync_host_dispatch():
-        return _execute_prompt_addin_impl(
-            ctx, message, system_prompt, model, max_tokens, client_holder=client_holder
-        )
+        return _execute_prompt_addin_impl(ctx, message, system_prompt, model, max_tokens, client_holder=client_holder)
 
 
-def _execute_prompt_addin_impl(
-    ctx: Any,
-    message: str,
-    system_prompt: Any,
-    model: Any,
-    max_tokens: Any,
-    *,
-    client_holder: list[LlmClient | None],
-) -> str:
+def _execute_prompt_addin_impl(ctx: Any, message: str, system_prompt: Any, model: Any, max_tokens: Any, *, client_holder: list[LlmClient | None]) -> str:
     # NOTE: We do not recommend HTML formatting in the system prompt for cell calculations
     # (unlike the sidebar chat window which supports rich HTML). Thus, we do not strip HTML
     # tags here. If users see raw tags in cells, they can prompt for plain text output.

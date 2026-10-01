@@ -24,28 +24,9 @@ log = logging.getLogger(__name__)
 
 IMPL_NAME = "org.extension.writeragent.PythonFunction"
 
-_PYTHON_ARGS = (
-    "The Python code to execute. Assign output to 'result'.",
-    "Optional one or more ranges injected as data (one range: data is that "
-    "CalcRange; several: data is the ranges list — use data[i] or ranges[i]), "
-    "or a single-cell index for matrix formulas (e.g. ROW(A1)-ROW($A$1)).",
-)
-_PYTHON_SPEC = CalcFunctionSpec(
-    display_name="PYTHON",
-    programmatic_name="python",
-    description="Executes Python code in the configured venv and returns the result.",
-    arg_names=("code", "data"),
-    arg_descriptions=_PYTHON_ARGS,
-    optional_from=1,
-)
-_PY_SPEC = CalcFunctionSpec(
-    display_name="PY",
-    programmatic_name="py",
-    description="Executes Python code in the configured venv and returns the result.",
-    arg_names=("code", "data"),
-    arg_descriptions=_PYTHON_ARGS,
-    optional_from=1,
-)
+_PYTHON_ARGS = ("The Python code to execute. Assign output to 'result'.", "Optional one or more ranges injected as data (one range: data is that CalcRange; several: data is the ranges list — use data[i] or ranges[i]), or a single-cell index for matrix formulas (e.g. ROW(A1)-ROW($A$1)).")
+_PYTHON_SPEC = CalcFunctionSpec(display_name="PYTHON", programmatic_name="python", description="Executes Python code in the configured venv and returns the result.", arg_names=("code", "data"), arg_descriptions=_PYTHON_ARGS, optional_from=1)
+_PY_SPEC = CalcFunctionSpec(display_name="PY", programmatic_name="py", description="Executes Python code in the configured venv and returns the result.", arg_names=("code", "data"), arg_descriptions=_PYTHON_ARGS, optional_from=1)
 PYTHON_FUNCTION_SPECS = (_PY_SPEC, _PYTHON_SPEC)
 
 try:

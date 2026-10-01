@@ -30,11 +30,7 @@ def _forecast_table(forecast_result: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def merge_forecast_plot_data(
-    history_data: Any,
-    forecast_result: dict[str, Any],
-    forecast_params: dict[str, Any] | None,
-) -> list[list[Any]] | None:
+def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None) -> list[list[Any]] | None:
     """Merge historical range data with forecast table rows for band plotting."""
     import pandas as pd
 
@@ -92,12 +88,7 @@ def merge_forecast_plot_data(
     return [plot_cols, *hist_rows, *fc_rows]
 
 
-def build_viz_request(
-    forecast_helper: str,
-    *,
-    forecast_result: dict[str, Any],
-    forecast_params: dict[str, Any] | None,
-) -> tuple[str, dict[str, Any]] | None:
+def build_viz_request(forecast_helper: str, *, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None) -> tuple[str, dict[str, Any]] | None:
     """Return (viz_helper, viz_params) for a completed forecast result."""
     if forecast_helper != "forecast_time_series":
         return None
@@ -109,11 +100,7 @@ def build_viz_request(
     params = dict(forecast_params or {})
     value_col = str(params.get("value_col", "Value"))
     columns = forecast_table.get("columns") or []
-    viz_params: dict[str, Any] = {
-        "date_col": "date",
-        "value_col": value_col,
-        "forecast_col": "forecast",
-    }
+    viz_params: dict[str, Any] = {"date_col": "date", "value_col": value_col, "forecast_col": "forecast"}
     if "lower" in columns:
         viz_params["lower_col"] = "lower"
     if "upper" in columns:
@@ -121,27 +108,13 @@ def build_viz_request(
     return "time_series_plot", viz_params
 
 
-def run_auto_plot_after_forecast(
-    uno_ctx: Any,
-    doc: Any,
-    *,
-    forecast_helper: str,
-    forecast_result: dict[str, Any],
-    forecast_params: dict[str, Any] | None,
-    data_range: str | None,
-    auto_plot: bool,
-    task_hint: str | None,
-) -> dict[str, Any] | None:
+def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str, forecast_result: dict[str, Any], forecast_params: dict[str, Any] | None, data_range: str | None, auto_plot: bool, task_hint: str | None) -> dict[str, Any] | None:
     """Run time_series_plot with merged history + forecast when auto-plot triggers."""
     if forecast_result.get("status") != "ok":
         return None
     if not should_auto_plot(helper=forecast_helper, auto_plot=auto_plot, task_hint=task_hint):
         return None
-    request = build_viz_request(
-        forecast_helper,
-        forecast_result=forecast_result,
-        forecast_params=forecast_params,
-    )
+    request = build_viz_request(forecast_helper, forecast_result=forecast_result, forecast_params=forecast_params)
     if request is None:
         return None
     viz_helper, viz_params = request
@@ -162,12 +135,4 @@ def run_auto_plot_after_forecast(
 
     from plugin.scripting.viz import run_trusted_viz
 
-    return run_trusted_viz(
-        uno_ctx,
-        doc,
-        helper=viz_helper,
-        params=viz_params,
-        data=merged,
-        data_range=None,
-        task_hint=task_hint,
-    )
+    return run_trusted_viz(uno_ctx, doc, helper=viz_helper, params=viz_params, data=merged, data_range=None, task_hint=task_hint)

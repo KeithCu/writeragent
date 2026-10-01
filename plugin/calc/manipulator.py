@@ -51,14 +51,7 @@ from plugin.calc import CalcError
 from plugin.calc.address_utils import index_to_column
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, result_range, returns_array
 from plugin.calc.formula_fill import expand_single_formula
-from plugin.calc.datetime_wire import (
-    coalesce_temporal_apply_rects,
-    duration_serial_from_iso,
-    is_compatible_temporal_template,
-    match_iso_duration,
-    match_iso_temporal,
-    should_preserve_temporal_format,
-)
+from plugin.calc.datetime_wire import coalesce_temporal_apply_rects, duration_serial_from_iso, is_compatible_temporal_template, match_iso_duration, match_iso_temporal, should_preserve_temporal_format
 from plugin.calc.error_detector import get_calc_error_name
 from plugin.calc.inspector import _format_category_from_type
 from plugin.framework.errors import safe_json_loads
@@ -230,7 +223,6 @@ class CellManipulator:
         """Get a human-readable name for a Calc error code."""
         return get_calc_error_name(error_code)
 
-
     def _apply_style_properties(self, obj: Any, bold: bool | None, italic: bool | None, bg_color: int | None, font_color: int | None, font_size: float | None, h_align: str | None, v_align: str | None, wrap_text: bool | None, border_color: int | None) -> None:
         """Apply common style properties to a cell or range object."""
         if bold is not None:
@@ -392,7 +384,9 @@ class CellManipulator:
             log.exception("Style application failed for %s", address_or_range)
             raise CalcError(str(e)) from e
 
-    def _set_range_style(self, range_str: str, bold: bool | None = None, italic: bool | None = None, bg_color: int | None = None, font_color: int | None = None, font_size: float | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: int | None = None) -> None:
+    def _set_range_style(
+        self, range_str: str, bold: bool | None = None, italic: bool | None = None, bg_color: int | None = None, font_color: int | None = None, font_size: float | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: int | None = None
+    ) -> None:
         cell_range = self.bridge.resolve_range_or_address(range_str)
         self._apply_style_properties(cell_range, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
 
@@ -611,15 +605,7 @@ class CellManipulator:
             meta["restore_format"] = True
             return value, "", meta
 
-    def _find_column_temporal_templates(
-        self,
-        sheet: Any,
-        formats: Any,
-        columns_needing_templates: dict[int, str],
-        scan_start_row: int,
-        category_cache: dict[int, str | None],
-        max_scan: int = 100,
-    ) -> dict[int, int]:
+    def _find_column_temporal_templates(self, sheet: Any, formats: Any, columns_needing_templates: dict[int, str], scan_start_row: int, category_cache: dict[int, str | None], max_scan: int = 100) -> dict[int, int]:
         """Find inherited NumberFormat keys by scanning upward in each column (P1).
 
         Args:
@@ -773,14 +759,8 @@ class CellManipulator:
                 # Ordinary 1-D formulas now adjust relative A1 refs; =PY
                 # span-peeks DataRange (multi-row → verbatim). 2-D + one
                 # formula is refused. LO fill/series can be revisited later.
-                if (
-                    isinstance(formula_or_values, str)
-                    and formula_or_values.startswith("=")
-                    and total_cells > 1
-                ):
-                    values = expand_single_formula(
-                        formula_or_values, num_rows, num_cols
-                    )
+                if isinstance(formula_or_values, str) and formula_or_values.startswith("=") and total_cells > 1:
+                    values = expand_single_formula(formula_or_values, num_rows, num_cols)
                 else:
                     values = [formula_or_values] * total_cells
 
@@ -884,9 +864,7 @@ class CellManipulator:
 
                 column_templates: dict[int, int] = {}
                 if cols_needing:
-                    column_templates = self._find_column_temporal_templates(
-                        sheet, formats, cols_needing, start[1], category_cache
-                    )
+                    column_templates = self._find_column_temporal_templates(sheet, formats, cols_needing, start[1], category_cache)
 
                 # Build row decisions: None | "empty" | ("apply", key) | ("preserve", None)
                 decisions: list[list[tuple[str, int | None] | str | None]] = []
@@ -964,11 +942,7 @@ class CellManipulator:
                 err = int(cell.Error)
                 if err:
                     shown = cell.getString()
-                    raise CalcError(
-                        "The formula returns an error (%s, code %d) — e.g. "
-                        "FILTER with no matching row gives #CALC!."
-                        % (shown or "error", err)
-                    )
+                    raise CalcError("The formula returns an error (%s, code %d) — e.g. FILTER with no matching row gives #CALC!." % (shown or "error", err))
                 sizes.append(int(round(cell.getValue())))
         finally:
             for row in (0, 1):
@@ -984,14 +958,10 @@ class CellManipulator:
     def _array_block(sheet: Any, col: int, row: int) -> Any | None:
         """Range address of the array formula covering (*col*, *row*), or None."""
         try:
-            cursor = sheet.createCursorByRange(
-                sheet.getCellRangeByPosition(col, row, col, row)
-            )
+            cursor = sheet.createCursorByRange(sheet.getCellRangeByPosition(col, row, col, row))
             cursor.collapseToCurrentArray()
             addr = cursor.getRangeAddress()
-            rng = sheet.getCellRangeByPosition(
-                addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow
-            )
+            rng = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
             if not rng.getArrayFormula():
                 return None
             return addr
@@ -1013,43 +983,25 @@ class CellManipulator:
         rows, cols = self._measure_array(sheet, formula, avoid_col=c2)
 
         def block_name(a: int, b: int, c: int, d: int) -> str:
-            return "%s%d:%s%d" % (
-                index_to_column(a), b + 1, index_to_column(c), d + 1,
-            )
+            return "%s%d:%s%d" % (index_to_column(a), b + 1, index_to_column(c), d + 1)
 
         notes: list[str] = []
         if explicit:
             target = (c1, r1, c2, r2)
             height, width = r2 - r1 + 1, c2 - c1 + 1
             if rows > height or cols > width:
-                notes.append(
-                    "The result is %d x %d but the range is %d x %d: "
-                    "the rest is cut (result_does_not_fit)."
-                    % (rows, cols, height, width)
-                )
+                notes.append("The result is %d x %d but the range is %d x %d: the rest is cut (result_does_not_fit)." % (rows, cols, height, width))
             elif rows < height or cols < width:
-                notes.append(
-                    "The result is %d x %d, smaller than the range: "
-                    "the extra cells show #N/A." % (rows, cols)
-                )
+                notes.append("The result is %d x %d, smaller than the range: the extra cells show #N/A." % (rows, cols))
         else:
             if rows * cols > MAX_ARRAY_CELLS:
-                raise CalcError(
-                    "The result is %d x %d cells, over the %d-cell limit."
-                    % (rows, cols, MAX_ARRAY_CELLS)
-                )
+                raise CalcError("The result is %d x %d cells, over the %d-cell limit." % (rows, cols, MAX_ARRAY_CELLS))
             target = result_range(c1, r1, rows, cols)
 
         # Rewriting the same array formula in place is an update.
         existing = self._array_block(sheet, c1, r1)
-        if (
-            existing is not None
-            and (existing.StartColumn, existing.StartRow) == (c1, r1)
-        ):
-            sheet.getCellRangeByPosition(
-                existing.StartColumn, existing.StartRow,
-                existing.EndColumn, existing.EndRow,
-            ).setArrayFormula("")
+        if existing is not None and (existing.StartColumn, existing.StartRow) == (c1, r1):
+            sheet.getCellRangeByPosition(existing.StartColumn, existing.StartRow, existing.EndColumn, existing.EndRow).setArrayFormula("")
 
         t_c1, t_r1, t_c2, t_r2 = target
         occupied: list[tuple[int, int]] = []
@@ -1062,16 +1014,7 @@ class CellManipulator:
                     occupied.append((col, row))
         if occupied:
             block_c, block_r = occupied[0]
-            raise CalcError(
-                "The result needs %s, but %d cell(s) there are not empty "
-                "(first: %s). Nothing was written; clear them or start "
-                "elsewhere."
-                % (
-                    block_name(*target),
-                    len(occupied),
-                    "%s%d" % (index_to_column(block_c), block_r + 1),
-                )
-            )
+            raise CalcError("The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere." % (block_name(*target), len(occupied), "%s%d" % (index_to_column(block_c), block_r + 1)))
 
         rng = sheet.getCellRangeByPosition(*target)
         rng.setArrayFormula(formula)
@@ -1082,19 +1025,9 @@ class CellManipulator:
                 rng.clearContents(23)
             except Exception:
                 pass
-            raise CalcError(
-                "The formula returns an error (%s, code %d)."
-                % (anchor.getString() or "error", int(anchor.Error))
-            )
+            raise CalcError("The formula returns an error (%s, code %d)." % (anchor.getString() or "error", int(anchor.Error)))
         preview = [list(r) for r in rng.getDataArray()[:5]]
-        payload: dict[str, Any] = {
-            "message": "Array formula entered on %s (%d x %d)."
-            % (block_name(*target), rows, cols),
-            "array_range": block_name(*target),
-            "rows": rows,
-            "cols": cols,
-            "preview": preview,
-        }
+        payload: dict[str, Any] = {"message": "Array formula entered on %s (%d x %d)." % (block_name(*target), rows, cols), "array_range": block_name(*target), "rows": rows, "cols": cols, "preview": preview}
         if notes:
             payload["warning"] = " ".join(notes)
         log.info("%s", payload["message"])

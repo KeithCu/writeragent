@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 log = logging.getLogger("writeragent.calc")
 
 
-
 class SearchInSpreadsheet(ToolCalcSearchBase):
     """Search for text in the spreadsheet."""
 
@@ -50,15 +49,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
         max_results = kwargs.get("max_results", 50)
         all_sheets = kwargs.get("all_sheets", False)
 
-        matches = search_spreadsheet_cells(
-            ctx.doc,
-            pattern,
-            regex=use_regex,
-            case_sensitive=case_sensitive,
-            max_results=max_results,
-            all_sheets=all_sheets,
-            sheet_name=kwargs.get("sheet"),
-        )
+        matches = search_spreadsheet_cells(ctx.doc, pattern, regex=use_regex, case_sensitive=case_sensitive, max_results=max_results, all_sheets=all_sheets, sheet_name=kwargs.get("sheet"))
 
         return {"status": "ok", "matches": matches, "count": len(matches)}
 

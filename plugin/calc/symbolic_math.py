@@ -24,19 +24,11 @@ class SymbolicMathTool(ToolCalcPythonBase):
 
     name: str | None = "symbolic_math"
     specialized_cross_cutting: ClassVar[bool] = True
-    description: str = (
-        "Run a trusted SymPy symbolic math helper. "
-        f"Helpers: {_SYMBOLIC_HELPERS}. "
-        "On Writer, the result inserts as a Math object when LaTeX conversion succeeds. "
-        "On Calc, results write to the active sheet."
-    )
+    description: str = f"Run a trusted SymPy symbolic math helper. Helpers: {_SYMBOLIC_HELPERS}. On Writer, the result inserts as a Math object when LaTeX conversion succeeds. On Calc, results write to the active sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "helper": {
-                "type": "string",
-                "description": "Symbolic helper name (e.g. solve_equation, symbolic_simplify, integrate).",
-            },
+            "helper": {"type": "string", "description": "Symbolic helper name (e.g. solve_equation, symbolic_simplify, integrate)."},
             "params": {"type": "object", "description": "Helper-specific parameters (expression, equation, variable, …)."},
             "task_hint": {"type": "string", "description": "Optional hint echoed in result context."},
             "display_block": {"type": "boolean", "description": "Writer only: insert as display (block) math."},
@@ -62,13 +54,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
         from plugin.scripting.symbolic import run_trusted_symbolic
 
         def _run() -> dict[str, Any]:
-            return run_trusted_symbolic(
-                ctx.ctx,
-                ctx.doc,
-                helper=helper,
-                params=params,
-                task_hint=task_hint,
-            )
+            return run_trusted_symbolic(ctx.ctx, ctx.doc, helper=helper, params=params, task_hint=task_hint)
 
         try:
             result = execute_on_main_thread(_run)

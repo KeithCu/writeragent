@@ -27,11 +27,4 @@ from plugin.writer.specialized.forms import FormEditControl as WriterFormEditCon
 from plugin.writer.specialized.forms import FormGenerate as WriterFormGenerate
 from plugin.writer.specialized.forms import FormListControls as WriterFormListControls
 
-__all__ = [
-    "WriterFormCreate",
-    "WriterFormCreateControl",
-    "WriterFormDeleteControl",
-    "WriterFormEditControl",
-    "WriterFormGenerate",
-    "WriterFormListControls",
-]
+__all__ = ["WriterFormCreate", "WriterFormCreateControl", "WriterFormDeleteControl", "WriterFormEditControl", "WriterFormGenerate", "WriterFormListControls"]

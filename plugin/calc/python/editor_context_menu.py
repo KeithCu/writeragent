@@ -88,6 +88,7 @@ def _get_interceptor() -> Any:
                     return IGNORED
 
                 import uno
+
                 factory = cast("Any", container).queryInterface(uno.getTypeByName("com.sun.star.lang.XMultiServiceFactory"))
                 if factory is None:
                     return IGNORED

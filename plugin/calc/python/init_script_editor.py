@@ -12,17 +12,8 @@ from typing import Any
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.config import get_config
 from plugin.framework.i18n import _
-from plugin.scripting.document_scripts import (
-    get_calc_document_from_ctx,
-    get_calc_init_script,
-    set_calc_init_script,
-)
-from plugin.scripting.editor_host import (
-    launch_monaco_editor,
-    monaco_editor_available,
-    probe_webview_import,
-    resolve_editor_python,
-)
+from plugin.scripting.document_scripts import get_calc_document_from_ctx, get_calc_init_script, set_calc_init_script
+from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available, probe_webview_import, resolve_editor_python
 from plugin.scripting.editor_ipc import failure_message
 from plugin.scripting.session_manager import reset_workbook_python_session
 
@@ -49,48 +40,21 @@ def open_init_script_editor(ctx: Any = None) -> bool:
     exe, monaco_available = monaco_editor_available(uno_ctx)
     if not monaco_available:
         if get_config("scripting.force_internal_script_editor"):
-            msgbox(
-                uno_ctx,
-                _("Edit Initialization Script"),
-                _(
-                    "The Monaco editor is disabled by "
-                    '"scripting.force_internal_script_editor" in writeragent.json.'
-                ),
-                box_type=3,
-            )
+            msgbox(uno_ctx, _("Edit Initialization Script"), _('The Monaco editor is disabled by "scripting.force_internal_script_editor" in writeragent.json.'), box_type=3)
             return False
         if not exe:
             _unused, err = resolve_editor_python(uno_ctx)
-            msgbox(
-                uno_ctx,
-                _("Edit Initialization Script"),
-                err or _("Configure a Python venv path in Settings → Python."),
-                box_type=3,
-            )
+            msgbox(uno_ctx, _("Edit Initialization Script"), err or _("Configure a Python venv path in Settings → Python."), box_type=3)
             return False
         webview_ok, webview_detail = probe_webview_import(exe)
         if not webview_ok:
-            msg = failure_message(
-                _("Cannot import webview (pywebview) in the configured venv."),
-                detail=webview_detail,
-            )
-            msgbox_with_report(
-                uno_ctx,
-                _("Edit Initialization Script"),
-                msg,
-                box_type=3,
-                reportable=True,
-            )
+            msg = failure_message(_("Cannot import webview (pywebview) in the configured venv."), detail=webview_detail)
+            msgbox_with_report(uno_ctx, _("Edit Initialization Script"), msg, box_type=3, reportable=True)
             return False
 
     if not exe:
         _unused, err = resolve_editor_python(uno_ctx)
-        msgbox(
-            uno_ctx,
-            _("Edit Initialization Script"),
-            err or _("Configure a Python venv path in Settings → Python."),
-            box_type=3,
-        )
+        msgbox(uno_ctx, _("Edit Initialization Script"), err or _("Configure a Python venv path in Settings → Python."), box_type=3)
         return False
 
     initial = get_calc_init_script(doc) or ""
@@ -106,17 +70,7 @@ def open_init_script_editor(ctx: Any = None) -> bool:
             log.debug("init_script_editor: reset after save failed", exc_info=True)
         return {"type": "saved", "ok": True, "status_ok_text": _("Initialization script saved.")}
 
-    load_msg: dict[str, Any] = {
-        "type": "load",
-        "mode": "init_script",
-        "language": "python",
-        "code": initial,
-        "title": _("Edit Initialization Script"),
-        "save_as_plain": True,
-        "plain_text_label": _("Save initialization script"),
-        "resource": "init",
-        "doc_url": "",
-    }
+    load_msg: dict[str, Any] = {"type": "load", "mode": "init_script", "language": "python", "code": initial, "title": _("Edit Initialization Script"), "save_as_plain": True, "plain_text_label": _("Save initialization script"), "resource": "init", "doc_url": ""}
     try:
         from plugin.scripting.document_scripts import document_scripts_identity
 

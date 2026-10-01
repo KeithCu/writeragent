@@ -51,12 +51,7 @@ def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "")
     """Find an array/spill snapshot for *anchor* (bare or Sheet!A1)."""
     cleaned = anchor.replace("$", "").strip()
     snaps = model.anchor_snapshots
-    for key in (
-        cleaned,
-        cleaned.upper(),
-        f"{sheet_hint}!{cleaned}" if sheet_hint and "!" not in cleaned else "",
-        f"'{sheet_hint}'!{cleaned}" if sheet_hint and "!" not in cleaned else "",
-    ):
+    for key in (cleaned, cleaned.upper(), f"{sheet_hint}!{cleaned}" if sheet_hint and "!" not in cleaned else "", f"'{sheet_hint}'!{cleaned}" if sheet_hint and "!" not in cleaned else ""):
         if key and key in snaps:
             return snaps[key]
     # Case-insensitive scan
@@ -148,12 +143,7 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
             if snap:
                 return ResolvedDep(original=raw, a1=snap, kind="anchor_snapshot", note=f"ANCHORARRAY({anchor}) → {snap}")
             # Fail closed: do not silently shrink ANCHORARRAY to a single cell.
-            return ResolvedDep(
-                original=raw,
-                a1="",
-                kind="unresolved",
-                note=f"ANCHORARRAY({anchor}) snapshot unavailable",
-            )
+            return ResolvedDep(original=raw, a1="", kind="unresolved", note=f"ANCHORARRAY({anchor}) snapshot unavailable")
 
     if _has_spill_shape(raw):
         spill_src = raw.replace("$", "")
@@ -181,11 +171,6 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
     return ResolvedDep(original=raw, a1="", kind="unresolved", note=f"unrecognized dep {raw!r}")
 
 
-@deal.pre(
-    lambda deps, model, sheet_hint="": isinstance(deps, list)
-    and len(deps) <= DEAL_MAX_CMD_ARGS
-    and all(str_bounded(d, DEAL_MAX_SOURCE) for d in deps)
-    and str_bounded(sheet_hint, DEAL_MAX_SOURCE)
-)
+@deal.pre(lambda deps, model, sheet_hint="": isinstance(deps, list) and len(deps) <= DEAL_MAX_CMD_ARGS and all(str_bounded(d, DEAL_MAX_SOURCE) for d in deps) and str_bounded(sheet_hint, DEAL_MAX_SOURCE))
 def resolve_deps(deps: list[str], model: ExcelWorkbookModel, *, sheet_hint: str = "") -> list[ResolvedDep]:
     return [resolve_dep(d, model, sheet_hint=sheet_hint) for d in deps]

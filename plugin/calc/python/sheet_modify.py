@@ -90,15 +90,7 @@ def _cancel_pending(key: tuple[str, str]) -> None:
             pass
 
 
-def schedule_sheet_modify_pass(
-    ctx: Any,
-    doc: Any,
-    sheet: Any,
-    *,
-    doc_url: str = "",
-    sheet_name: str = "",
-    delay_sec: float = _MODIFY_DELAY_SEC,
-) -> None:
+def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
     """Debounce: cancel the sheet's pending timer, start a new 0.1s UI-thread pass.
 
     Same shape as ``perform_deferred_spill`` (Timer → ``post_to_main_thread``).
@@ -114,11 +106,7 @@ def schedule_sheet_modify_pass(
     def _fire() -> None:
         from plugin.framework.queue_executor import post_to_main_thread
 
-        post_to_main_thread(
-            lambda: run_sheet_modify_pass(
-                ctx, doc, sheet, doc_url=url, sheet_name=name
-            )
-        )
+        post_to_main_thread(lambda: run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name))
 
     lifecycle_key = ""
     if doc is not None:
@@ -131,21 +119,12 @@ def schedule_sheet_modify_pass(
     from plugin.calc.python.function import start_deferred_sheet_timer
 
     # Timer lives in function.py (Layer C allowlist) — same 0.1s spill site.
-    timer = start_deferred_sheet_timer(
-        delay_sec, _fire, lifecycle_key=lifecycle_key
-    )
+    timer = start_deferred_sheet_timer(delay_sec, _fire, lifecycle_key=lifecycle_key)
     with _PENDING_LOCK:
         _PENDING_TIMERS[key] = timer
 
 
-def flush_sheet_modify_pass_for_tests(
-    ctx: Any,
-    doc: Any,
-    sheet: Any,
-    *,
-    doc_url: str = "",
-    sheet_name: str = "",
-) -> None:
+def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
     """Cancel debounce and run the pass on this thread. Tests only."""
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
@@ -153,14 +132,7 @@ def flush_sheet_modify_pass_for_tests(
     run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name)
 
 
-def run_sheet_modify_pass(
-    ctx: Any,
-    doc: Any,
-    sheet: Any,
-    *,
-    doc_url: str = "",
-    sheet_name: str = "",
-) -> None:
+def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
     """UI-thread jobs after the shared debounce. Spill and geometric stay separate.
 
     Spill: ``CalcSpillModifyListener.modified`` (``SPILL_REGISTRY`` walk only).
@@ -192,10 +164,7 @@ def run_sheet_modify_pass(
         CalcSpillModifyListener(ctx, url, name).modified(SimpleNamespace(Source=sheet))
 
         # Job 2 — geometric list-diff. Own discovery; skip when flag is off.
-        from plugin.calc.python.geometric_recalc import (
-            geometric_flag_enabled,
-            reconcile_geometric_sheet,
-        )
+        from plugin.calc.python.geometric_recalc import geometric_flag_enabled, reconcile_geometric_sheet
 
         if geometric_flag_enabled() and doc is not None:
             reconcile_geometric_sheet(ctx, doc, sheet)
@@ -205,12 +174,7 @@ def run_sheet_modify_pass(
         _DISPATCHING = False
 
 
-def dispatch_sheet_modified(
-    ctx: Any,
-    doc_url: str,
-    sheet_name: str,
-    event: Any,
-) -> None:
+def dispatch_sheet_modified(ctx: Any, doc_url: str, sheet_name: str, event: Any) -> None:
     """Shared ``modified`` entry. Debounces; does not walk ``SPILL_REGISTRY``."""
     from plugin.calc.python.geometric_recalc import is_geometric_repairing
     from plugin.framework.thread_guard import on_main_thread
@@ -225,9 +189,7 @@ def dispatch_sheet_modified(
     from plugin.calc.python.function import _get_calc_doc
 
     doc = _get_calc_doc(ctx)
-    schedule_sheet_modify_pass(
-        ctx, doc, sheet, doc_url=doc_url, sheet_name=sheet_name
-    )
+    schedule_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=sheet_name)
 
 
 def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:

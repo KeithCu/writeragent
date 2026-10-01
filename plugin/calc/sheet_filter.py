@@ -31,23 +31,13 @@ import uno
 from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
-from plugin.calc.sheet_filter_criteria import (
-    FILTER_OPERATOR2_LABELS,
-    filter_operator2_code_to_name,
-    parse_sheet_filter_criterion,
-)
+from plugin.calc.sheet_filter_criteria import FILTER_OPERATOR2_LABELS, filter_operator2_code_to_name, parse_sheet_filter_criterion
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
-
-
-
-
-
-
 
 
 def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
@@ -149,7 +139,7 @@ class ApplySheetFilter(ToolCalcSheetBase):
         "type": "object",
         "description": "See criteria for AND/OR chaining.",
         "properties": {
-            "range": {"type": "array", "items": {"type": "string"}, "description": "Range to filter (e.g. [\"A1:D20\"])."},
+            "range": {"type": "array", "items": {"type": "string"}, "description": 'Range to filter (e.g. ["A1:D20"]).'},
             "has_header": {"type": "boolean", "description": "First row is headers only (default true)."},
             "criteria": {"type": "array", "items": _CRITERION_ITEM_SCHEMA, "description": _CRITERIA_ARRAY_DESCRIPTION, "minItems": 1},
         },
@@ -197,7 +187,7 @@ class ClearSheetFilter(ToolCalcSheetBase):
     description: str = "Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as apply_sheet_filter. delegate_to_specialized_calc_toolset(domain='sheets')."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same data range used when applying the filter (e.g. [\"A1:D20\"])."}, "has_header": {"type": "boolean", "description": "Should match apply_sheet_filter (default true)."}},
+        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": 'Same data range used when applying the filter (e.g. ["A1:D20"]).'}, "has_header": {"type": "boolean", "description": "Should match apply_sheet_filter (default true)."}},
         "required": ["range"],
     }
     is_mutation: bool | None = True

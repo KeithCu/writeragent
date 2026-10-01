@@ -15,12 +15,7 @@ if TYPE_CHECKING:
 from plugin.calc.address_utils import format_address
 from plugin.calc.python.formula_edit import normalize_formula_string
 from plugin.calc.spreadsheet_import.extract import is_py_formula_text
-from plugin.calc.spreadsheet_import.graph import (
-    attach_graph_to_model,
-    extract_cell_refs,
-    filter_refs_to_scope,
-    is_calc_error_display,
-)
+from plugin.calc.spreadsheet_import.graph import attach_graph_to_model, extract_cell_refs, filter_refs_to_scope, is_calc_error_display
 from plugin.calc.spreadsheet_import.models import CellRecord, CellType, SheetModel
 
 _PROMPT_HEAD_RE = re.compile(r"^=\s*PROMPT\s*\(", re.IGNORECASE)
@@ -73,14 +68,7 @@ def classify_cell(raw_val: Any, raw_formula: str) -> tuple[CellType, Any, str | 
     return "empty", None, None, None
 
 
-def ingest_from_arrays(
-    *,
-    sheet_name: str,
-    start_col: int,
-    start_row: int,
-    data_array: Sequence[Sequence[Any]],
-    formula_array: Sequence[Sequence[str]],
-) -> SheetModel:
+def ingest_from_arrays(*, sheet_name: str, start_col: int, start_row: int, data_array: Sequence[Sequence[Any]], formula_array: Sequence[Sequence[str]]) -> SheetModel:
     """Build a :class:`SheetModel` from mocked or UNO-fetched 2D arrays."""
     if len(data_array) != len(formula_array):
         raise ValueError("data_array and formula_array row counts differ")
@@ -104,15 +92,7 @@ def ingest_from_arrays(
             abs_col = start_col + col_idx
             address = format_address(abs_col, abs_row)
             cell_type, value, formula, error_code = classify_cell(raw_val, raw_formula)
-            cells[address] = CellRecord(
-                address=address,
-                type=cell_type,
-                value=value,
-                formula=formula,
-                number_format=None,
-                precedents=[],
-                error_code=error_code,
-            )
+            cells[address] = CellRecord(address=address, type=cell_type, value=value, formula=formula, number_format=None, precedents=[], error_code=error_code)
 
     scope = frozenset(cells)
     for cell in cells.values():
@@ -139,22 +119,11 @@ def ingest_sheet(sheet: Any, *, range_addr: Any | None = None) -> SheetModel:
     addr = range_addr if range_addr is not None else _used_range_address(sheet)
     sheet_name = sheet.getName() if hasattr(sheet, "getName") else ""
 
-    cell_range = sheet.getCellRangeByPosition(
-        addr.StartColumn,
-        addr.StartRow,
-        addr.EndColumn,
-        addr.EndRow,
-    )
+    cell_range = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
     data_array = cell_range.getDataArray()
     formula_array = cell_range.getFormulaArray()
 
-    return ingest_from_arrays(
-        sheet_name=sheet_name,
-        start_col=addr.StartColumn,
-        start_row=addr.StartRow,
-        data_array=data_array,
-        formula_array=formula_array,
-    )
+    return ingest_from_arrays(sheet_name=sheet_name, start_col=addr.StartColumn, start_row=addr.StartRow, data_array=data_array, formula_array=formula_array)
 
 
 def used_range_string_from_address(addr: Any) -> str:

@@ -10,13 +10,7 @@ import math
 from typing import Any
 
 from plugin.calc.spreadsheet_import.graph import is_calc_error_display
-from plugin.calc.spreadsheet_import.models import (
-    ConversionReport,
-    OutputSheetModel,
-    SheetModel,
-    VerifyMismatch,
-    VerifyResult,
-)
+from plugin.calc.spreadsheet_import.models import ConversionReport, OutputSheetModel, SheetModel, VerifyMismatch, VerifyResult
 
 
 def _values_equal(expected: Any, actual: Any, *, rtol: float) -> tuple[bool, str]:
@@ -42,14 +36,7 @@ def _values_equal(expected: Any, actual: Any, *, rtol: float) -> tuple[bool, str
         return expected == actual, f"other {expected!r} vs {actual!r}"
 
 
-def verify_converted_cells(
-    source: SheetModel,
-    output: OutputSheetModel,
-    report: ConversionReport,
-    *,
-    rtol: float = 1e-9,
-    actual_values: dict[str, Any] | None = None,
-) -> VerifyResult:
+def verify_converted_cells(source: SheetModel, output: OutputSheetModel, report: ConversionReport, *, rtol: float = 1e-9, actual_values: dict[str, Any] | None = None) -> VerifyResult:
     """Compare cell values to *source* ingest oracle.
 
     When *actual_values* is omitted (no LibreOffice recalc), only checks that
@@ -63,14 +50,7 @@ def verify_converted_cells(
             continue
         oc = output.cells.get(addr)
         if oc is None or not oc.formula or not oc.formula.lstrip().upper().startswith("=PY"):
-            result.failed.append(
-                VerifyMismatch(
-                    address=addr,
-                    expected="=PY(...)",
-                    actual=oc.formula if oc else None,
-                    message="missing PY formula",
-                ),
-            )
+            result.failed.append(VerifyMismatch(address=addr, expected="=PY(...)", actual=oc.formula if oc else None, message="missing PY formula"))
             continue
         if actual_values is not None:
             expected = source.cells[addr].value
@@ -79,9 +59,7 @@ def verify_converted_cells(
             if ok:
                 result.passed.append(addr)
             else:
-                result.failed.append(
-                    VerifyMismatch(address=addr, expected=expected, actual=actual, message=msg),
-                )
+                result.failed.append(VerifyMismatch(address=addr, expected=expected, actual=actual, message=msg))
         else:
             result.passed.append(addr)
     return result
@@ -93,14 +71,7 @@ def verify_output_formulas_present(output: OutputSheetModel, report: ConversionR
     for addr in report.converted:
         oc = output.cells.get(addr)
         if oc is None or not oc.formula or not oc.formula.upper().startswith("=PY"):
-            result.failed.append(
-                VerifyMismatch(
-                    address=addr,
-                    expected="=PY(...)",
-                    actual=oc.formula if oc else None,
-                    message="missing PY formula",
-                ),
-            )
+            result.failed.append(VerifyMismatch(address=addr, expected="=PY(...)", actual=oc.formula if oc else None, message="missing PY formula"))
         else:
             result.passed.append(addr)
     return result

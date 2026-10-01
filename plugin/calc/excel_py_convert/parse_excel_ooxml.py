@@ -19,10 +19,7 @@ from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel,
 _NS_OD_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 _RE_A1_CELL = re.compile(r"^\$?([A-Za-z]+)\$?(\d+)$")
-_RE_XLWS_PY = re.compile(
-    r"(?:_xlfn\.)?_xlws\.PY\s*\(\s*(\d+)\s*,\s*(\d+)(.*)\)$",
-    re.IGNORECASE | re.DOTALL,
-)
+_RE_XLWS_PY = re.compile(r"(?:_xlfn\.)?_xlws\.PY\s*\(\s*(\d+)\s*,\s*(\d+)(.*)\)$", re.IGNORECASE | re.DOTALL)
 
 
 def _local(tag: str) -> str:
@@ -54,13 +51,7 @@ def _col_row(a1: str) -> tuple[int, int]:
 
 
 def _unescape_xml(text: str) -> str:
-    return (
-        text.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", '"')
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
-    )
+    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&apos;", "'").replace("&amp;", "&")
 
 
 def split_top_level_args(tail: str) -> list[str]:
@@ -350,19 +341,7 @@ def _iter_py_cells(ws_root: ET.Element, sheet_title: str) -> list[ExcelPyCell]:
             continue
         script_index, return_type, deps = parsed
         row, col = _col_row(a1)
-        cells.append(
-            ExcelPyCell(
-                sheet=sheet_title,
-                cell=a1,
-                script_index=script_index,
-                return_type=return_type,
-                deps=deps,
-                formula_raw=formula if formula.startswith("=") else f"={formula}",
-                array_ref=(f.attrib.get("ref") or "").replace("$", ""),
-                row=row,
-                col=col,
-            )
-        )
+        cells.append(ExcelPyCell(sheet=sheet_title, cell=a1, script_index=script_index, return_type=return_type, deps=deps, formula_raw=formula if formula.startswith("=") else f"={formula}", array_ref=(f.attrib.get("ref") or "").replace("$", ""), row=row, col=col))
     return cells
 
 
@@ -394,14 +373,7 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
         for c in cells:
             if not c.row or not c.col:
                 c.row, c.col = _col_row(c.cell)
-        return ExcelWorkbookModel(
-            scripts=scripts,
-            cells=cells,
-            sheets=sheets,
-            tables=tables,
-            anchor_snapshots=anchors,
-            source_path=str(path),
-        )
+        return ExcelWorkbookModel(scripts=scripts, cells=cells, sheets=sheets, tables=tables, anchor_snapshots=anchors, source_path=str(path))
 
 
 def _enrich_anchors_openpyxl(model: ExcelWorkbookModel, path: Path) -> None:
@@ -421,9 +393,7 @@ def _enrich_anchors_openpyxl(model: ExcelWorkbookModel, path: Path) -> None:
                 if not ref:
                     continue
                 cleaned = str(ref).replace("$", "")
-                model.anchor_snapshots[_qualify_sheet_ref(name, str(anchor))] = (
-                    cleaned if "!" in cleaned else _qualify_sheet_ref(name, cleaned)
-                )
+                model.anchor_snapshots[_qualify_sheet_ref(name, str(anchor))] = cleaned if "!" in cleaned else _qualify_sheet_ref(name, cleaned)
                 model.anchor_snapshots.setdefault(str(anchor), cleaned)
     finally:
         wb.close()

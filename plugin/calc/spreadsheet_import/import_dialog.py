@@ -76,12 +76,7 @@ def fetch_actual_values(sheet: Any, addresses: list[str]) -> dict[str, Any]:
                         try:
                             v = cell.getValue()
                             # Text results (e.g. TEXT/MONTH) keep getValue()==0; use display.
-                            if (
-                                v == 0.0
-                                and display
-                                and display.strip() not in ("", "0", "0.0", "0.00")
-                                and not any(ch.isdigit() for ch in display)
-                            ):
+                            if v == 0.0 and display and display.strip() not in ("", "0", "0.0", "0.00") and not any(ch.isdigit() for ch in display):
                                 actual_values[addr] = display.strip()
                             else:
                                 actual_values[addr] = v
@@ -95,16 +90,7 @@ def fetch_actual_values(sheet: Any, addresses: list[str]) -> dict[str, Any]:
     return actual_values
 
 
-def run_sheet_conversion(
-    ctx: Any,
-    doc: Any,
-    source_sheet: Any,
-    *,
-    scope: str = "sheet",
-    output_mode: str = "new_sheet",
-    vectorize: bool = True,
-    verify: bool = True,
-) -> dict[str, Any]:
+def run_sheet_conversion(ctx: Any, doc: Any, source_sheet: Any, *, scope: str = "sheet", output_mode: str = "new_sheet", vectorize: bool = True, verify: bool = True) -> dict[str, Any]:
     """Execute the Conversion Pipeline using ingest, emit, apply, and verify."""
     range_addr = None
     if scope == "selection":
@@ -116,6 +102,7 @@ def run_sheet_conversion(
     # 1. Ingest Sheet
     model = ingest_sheet(source_sheet, range_addr=range_addr)
     from plugin.calc.spreadsheet_import.preserve import enrich_number_formats
+
     enrich_number_formats(source_sheet, model)
 
     sheet_bounds: dict[str, tuple[int, int]] = {}
@@ -131,11 +118,7 @@ def run_sheet_conversion(
         log.exception("Failed to collect workbook sheet bounds for range clipping")
 
     # 2. Translate and Build Converted Output Model
-    output, report = build_converted_output_model(
-        model,
-        vectorize=vectorize,
-        sheet_bounds=sheet_bounds or None,
-    )
+    output, report = build_converted_output_model(model, vectorize=vectorize, sheet_bounds=sheet_bounds or None)
 
     # 3. Resolve Target Sheet
     target_sheet = None
@@ -163,11 +146,7 @@ def run_sheet_conversion(
         verify_res = verify_converted_cells(model, output, report, actual_values=actual_values)
         failed_verifications = [item.to_dict() for item in verify_res.failed]
 
-    return {
-        "report": report.to_dict(),
-        "summary": report.summary(),
-        "failed_verifications": failed_verifications,
-    }
+    return {"report": report.to_dict(), "summary": report.summary(), "failed_verifications": failed_verifications}
 
 
 def show_import_dialog(ctx: Any) -> None:
@@ -203,15 +182,7 @@ def show_import_dialog(ctx: Any) -> None:
                     vectorize = get_checkbox_state(dlg.getControl("OptVector"))
                     verify = get_checkbox_state(dlg.getControl("OptVerify"))
 
-                    res = run_sheet_conversion(
-                        ctx,
-                        doc,
-                        source_sheet,
-                        scope=scope,
-                        output_mode=output_mode,
-                        vectorize=vectorize,
-                        verify=verify,
-                    )
+                    res = run_sheet_conversion(ctx, doc, source_sheet, scope=scope, output_mode=output_mode, vectorize=vectorize, verify=verify)
                     _outcome = res
                     dlg.endDialog(1)
                 except Exception as e:

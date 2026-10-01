@@ -43,13 +43,7 @@ def _record_desktop_calc_sessions(ctx: Any) -> None:
     Two open workbooks stay Isolated by design. Cap stops MagicMock enums.
     """
     from plugin.framework.uno_context import get_desktop
-    from plugin.scripting.session_manager import (
-        calc_workbook_base_session_id,
-        clear_active_calc_session,
-        is_opencl_probe_session_id,
-        recorded_calc_session_count,
-        recorded_calc_session_ids,
-    )
+    from plugin.scripting.session_manager import calc_workbook_base_session_id, clear_active_calc_session, is_opencl_probe_session_id, recorded_calc_session_count, recorded_calc_session_ids
 
     desktop = get_desktop(ctx)
     comps = getattr(desktop, "getComponents", lambda: None)()
@@ -95,12 +89,7 @@ def _record_desktop_calc_sessions(ctx: Any) -> None:
         for other in recorded_calc_session_ids():
             if other != sid:
                 clear_active_calc_session(other)
-    log.info(
-        "excel_py lifecycle: desktop calc sessions scanned=%s calcs=%s recorded=%s",
-        n,
-        len(calcs),
-        recorded_calc_session_count(),
-    )
+    log.info("excel_py lifecycle: desktop calc sessions scanned=%s calcs=%s recorded=%s", n, len(calcs), recorded_calc_session_count())
 
 
 def _geometric_open_job(ctx: Any, doc: Any) -> None:
@@ -113,9 +102,7 @@ def _geometric_open_job(ctx: Any, doc: Any) -> None:
     # showcase file drops that id — client-side clear cannot reach soffice.
     if _is_calc_doc(doc):
         try:
-            from plugin.calc.python.workbook_lifecycle import (
-                ensure_calc_workbook_unload_resets_python,
-            )
+            from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
 
             ensure_calc_workbook_unload_resets_python(ctx, doc)
         except Exception:
@@ -188,21 +175,12 @@ def maybe_convert_excel_py_document(ctx: Any, doc: Any) -> bool:
             log.info("excel_py auto-open: no convertible PY cells in %s", path)
             return False
         if not report.ok:
-            log.warning(
-                "excel_py auto-open: fail-closed (leaving original open) for %s: %s",
-                path,
-                "; ".join(report.issues)
-                or "; ".join(f"{c.sheet}!{c.cell}: {', '.join(c.issues)}" for c in report.cells if c.issues),
-            )
+            log.warning("excel_py auto-open: fail-closed (leaving original open) for %s: %s", path, "; ".join(report.issues) or "; ".join(f"{c.sheet}!{c.cell}: {', '.join(c.issues)}" for c in report.cells if c.issues))
             return False
 
         errors = apply_dag_formulas_to_calc_doc(doc, report)
         if errors:
-            log.warning(
-                "excel_py auto-open: UNO apply failed (leaving formulas as imported) for %s: %s",
-                path,
-                "; ".join(errors),
-            )
+            log.warning("excel_py auto-open: UNO apply failed (leaving formulas as imported) for %s: %s", path, "; ".join(errors))
             return False
         set_document_property(doc, _CONVERTED_PROP, "1")
         try:
@@ -229,11 +207,7 @@ def maybe_convert_excel_py_document(ctx: Any, doc: Any) -> bool:
 def _save_fail_message(path: Path, detail: str) -> str:
     from plugin.framework.i18n import _
 
-    return _(
-        "Could not write Microsoft Excel Python package parts for:\n{0}\n\n"
-        "The file was saved with LibreOffice =PY formulas. "
-        "Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n\n{1}"
-    ).format(path, detail)
+    return _("Could not write Microsoft Excel Python package parts for:\n{0}\n\nThe file was saved with LibreOffice =PY formulas. Excel will not see pythonScripts.xml / _xlws.PY until export succeeds.\n\n{1}").format(path, detail)
 
 
 def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
@@ -346,17 +320,10 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                     # Shared ``=PY()`` ran Isolated (A1=41, A3 NameError).
                     if name in _GEOMETRIC_OPEN_EVENTS:
                         try:
-                            log.info(
-                                "excel_py lifecycle: geometric on_open event=%s has_doc=%s",
-                                name,
-                                doc is not None,
-                            )
+                            log.info("excel_py lifecycle: geometric on_open event=%s has_doc=%s", name, doc is not None)
                             _run_geometric_on_open(ctx, doc)
                         except Exception:
-                            log.warning(
-                                "geometric recalc on open failed",
-                                exc_info=True,
-                            )
+                            log.warning("geometric recalc on open failed", exc_info=True)
                     if doc is None:
                         return
                     if name == "OnLoadFinished":
@@ -364,9 +331,7 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                         from plugin.framework.queue_executor import execute_on_main_thread
 
                         try:
-                            from plugin.calc.python.collabora_formula import (
-                                maybe_rewrite_collabora_py_formulas,
-                            )
+                            from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
 
                             # First arg is the callable; passing ctx here made
                             # execute_on_main_thread treat the UNO context as fn
@@ -378,10 +343,7 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                             # from a mis-wired execute_on_main_thread) so UNO tests still
                             # pass; only the log shows it. Narrow or re-raise after the
                             # listener is proven not to abort OnLoadFinished.
-                            log.warning(
-                                "collabora PY rewrite on open failed",
-                                exc_info=True,
-                            )
+                            log.warning("collabora PY rewrite on open failed", exc_info=True)
                         return
                     if name in _SAVE_DONE_EVENTS:
                         maybe_export_excel_py_on_save(ctx, doc)

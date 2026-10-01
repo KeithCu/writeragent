@@ -42,13 +42,13 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
     name: str | None = "query_folder_sql"
     description: str = (
         "Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). "
-        "Prefer stable table identity: tables={name: {sheet: \"Sales_Analytics\"}} (sheet used range) "
-        "or {named_range: \"SalesData\"} (Calc named/database range). "
-        "Absolute range: {range: \"Sales.A1:F500\"} stays frozen A1. "
-        "Sibling sheet used-range: files={name: \"budget.xlsx#Sales\"} (dict key is the SQL table). "
+        'Prefer stable table identity: tables={name: {sheet: "Sales_Analytics"}} (sheet used range) '
+        'or {named_range: "SalesData"} (Calc named/database range). '
+        'Absolute range: {range: "Sales.A1:F500"} stays frozen A1. '
+        'Sibling sheet used-range: files={name: "budget.xlsx#Sales"} (dict key is the SQL table). '
         "Flat files: CSV/TSV, Parquet, JSON/JSONL/NDJSON (DuckDB read_*). "
         "Spreadsheets (.xlsx/.xls/.ods) use the LibreOffice import path. "
-        "Optional tables file=\"budget.xlsx\" reads that sibling instead of the active doc. "
+        'Optional tables file="budget.xlsx" reads that sibling instead of the active doc. '
         "Host prepares all UNO data + validates. "
         "Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message "
         "when the result is incomplete. COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes fail with READONLY_VIOLATION."
@@ -56,23 +56,12 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "sql": {
-                "type": "string",
-                "description": (
-                    "Read-only SQL (SELECT/CTE/in-memory VIEW). "
-                    "COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes are rejected. "
-                    "Results longer than 200 rows are truncated and flagged."
-                ),
-            },
+            "sql": {"type": "string", "description": ("Read-only SQL (SELECT/CTE/in-memory VIEW). COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes are rejected. Results longer than 200 rows are truncated and flagged.")},
             "files": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},
                 "description": (
-                    "Folder files as name -> basename/spec. "
-                    "Flat: {\"ledger\": \"ledger.parquet\"}, {\"events\": \"events.json\"}. "
-                    "Sibling spreadsheet used-range: {\"sales\": \"budget.xlsx#Sales\"} "
-                    "(#SheetName is the sheet identity; the dict key is the SQL table). "
-                    "A list of basenames is still accepted."
+                    'Folder files as name -> basename/spec. Flat: {"ledger": "ledger.parquet"}, {"events": "events.json"}. Sibling spreadsheet used-range: {"sales": "budget.xlsx#Sales"} (#SheetName is the sheet identity; the dict key is the SQL table). A list of basenames is still accepted.'
                 ),
             },
             "data_range": {"type": "string", "description": "Frozen A1 on the active sheet (e.g. 'Sheet1.A1:F500'). Becomes table 'data'. Prefer tables={data: {sheet}} or {named_range} for stable identity."},
@@ -82,30 +71,14 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
                 "additionalProperties": {
                     "type": "object",
                     "properties": {
-                        "sheet": {
-                            "type": "string",
-                            "description": "Sheet name: register that sheet's used range (resolved at read time).",
-                        },
-                        "named_range": {
-                            "type": "string",
-                            "description": "Calc named range or database range; current referred bounds at read time.",
-                        },
-                        "range": {
-                            "type": "string",
-                            "description": "Frozen absolute A1 (e.g. 'Sales.A1:F500'). Does not grow with inserts.",
-                        },
-                        "file": {
-                            "type": "string",
-                            "description": "Sibling workbook basename, optionally #SheetName (budget.xlsx#Sales).",
-                        },
+                        "sheet": {"type": "string", "description": "Sheet name: register that sheet's used range (resolved at read time)."},
+                        "named_range": {"type": "string", "description": "Calc named range or database range; current referred bounds at read time."},
+                        "range": {"type": "string", "description": "Frozen absolute A1 (e.g. 'Sales.A1:F500'). Does not grow with inserts."},
+                        "file": {"type": "string", "description": "Sibling workbook basename, optionally #SheetName (budget.xlsx#Sales)."},
                         "headers": {"type": "boolean"},
                     },
                 },
-                "description": (
-                    "Multi-table catalog. Exactly one identity per entry: sheet, named_range, or range. "
-                    "e.g. {\"sales\": {\"sheet\": \"Sales_Analytics\"}, \"costs\": {\"named_range\": \"CostData\"}}. "
-                    "Mix with files."
-                ),
+                "description": ('Multi-table catalog. Exactly one identity per entry: sheet, named_range, or range. e.g. {"sales": {"sheet": "Sales_Analytics"}, "costs": {"named_range": "CostData"}}. Mix with files.'),
             },
             "task_hint": {"type": "string", "description": "Optional hint for logging/context."},
         },
@@ -126,7 +99,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
         if isinstance(files_raw, (list, tuple)):
             files = [str(x) for x in files_raw if str(x).strip()]
         elif isinstance(files_raw, dict):
-            files = {str(k): str(v) for k,v in files_raw.items() if str(v).strip()}
+            files = {str(k): str(v) for k, v in files_raw.items() if str(v).strip()}
         else:
             files = []
 
@@ -159,10 +132,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
                     grid = read_table_source_grid(ctx.ctx, ctx.doc, scoped, parsed)
                     preloaded[str(tbl_name)] = {"grid": grid, "headers": bool(parsed["headers"])}
                 except ToolExecutionError as exc:
-                    return self._tool_error(
-                        f"Failed to read table '{tbl_name}': {exc}",
-                        code=getattr(exc, "code", "DUCKDB_SQL_ERROR"),
-                    )
+                    return self._tool_error(f"Failed to read table '{tbl_name}': {exc}", code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
                 except Exception as e:
                     return self._tool_error(f"Failed to read table '{tbl_name}': {e}")
 
@@ -187,26 +157,18 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
 
                 ext = os.path.splitext(bn)[1].lower()
                 if not scoped:
-                    return self._tool_error(
-                        "A saved document folder is required to read sibling files",
-                        code="MISSING_SCOPED_DIR",
-                    )
+                    return self._tool_error("A saved document folder is required to read sibling files", code="MISSING_SCOPED_DIR")
                 full_path = os.path.join(scoped, bn)
                 if not os.path.isfile(full_path):
                     # Used to append the basename to direct_files so DuckDB failed
                     # later with a generic IO / missing-FROM error.
-                    return self._tool_error(
-                        f"Folder file {bn!r} was not found under the document folder",
-                        code="MISSING_FILE",
-                    )
+                    return self._tool_error(f"Folder file {bn!r} was not found under the document folder", code="MISSING_FILE")
                 if ext in OFFICE_EXTS:
                     # Office files that exist must preload or fail loud. A silent
                     # (None, None) skip used to append the basename to direct_files
                     # so SQL ran without the table and looked like a missing FROM.
                     try:
-                        _tbl, office_grid = _read_sibling_office_file_as_grid(
-                            ctx.ctx, full_path, sheet_hint=sheet_hint
-                        )
+                        _tbl, office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, sheet_hint=sheet_hint)
                     except ToolExecutionError as exc:
                         return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
                     use_name = name_hint or bn
@@ -216,10 +178,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
                     use_name = name_hint or bn
                     flat_files[use_name] = full_path
                     continue
-                return self._tool_error(
-                    unsupported_flat_type_message(bn, ext),
-                    code="UNSUPPORTED_FILE_TYPE",
-                )
+                return self._tool_error(unsupported_flat_type_message(bn, ext), code="UNSUPPORTED_FILE_TYPE")
 
             # Enforce the same data size limit used for analysis / =PY()
             max_cells = configured_python_max_data_cells(ctx.ctx)
@@ -284,11 +243,7 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
     if isinstance(spec, str):
         spec = {"range": spec}
     if not isinstance(spec, dict):
-        raise ToolExecutionError(
-            f"Table spec must be a string range or an object with sheet, "
-            f"named_range, or range; got {type(spec).__name__}",
-            code="DUCKDB_SQL_ERROR",
-        )
+        raise ToolExecutionError(f"Table spec must be a string range or an object with sheet, named_range, or range; got {type(spec).__name__}", code="DUCKDB_SQL_ERROR")
 
     headers = bool(spec.get("headers", default_headers))
     file_spec = str(spec.get("file") or "").strip() or None
@@ -303,11 +258,7 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
         hash_sheet = sheet_part.strip() or None
         if hash_sheet:
             if sheet and sheet != hash_sheet:
-                raise ToolExecutionError(
-                    f"Table spec file {file_spec!r}# sheet {hash_sheet!r} "
-                    f"disagrees with sheet {sheet!r}",
-                    code="DUCKDB_SQL_ERROR",
-                )
+                raise ToolExecutionError(f"Table spec file {file_spec!r}# sheet {hash_sheet!r} disagrees with sheet {sheet!r}", code="DUCKDB_SQL_ERROR")
             sheet = hash_sheet
     elif file_spec:
         file_spec = os.path.basename(file_spec)
@@ -321,30 +272,16 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
         present.append("range")
 
     if len(present) > 1:
-        raise ToolExecutionError(
-            f"Table spec must use exactly one of sheet, named_range, or range "
-            f"(got {', '.join(present)})",
-            code="DUCKDB_SQL_ERROR",
-        )
+        raise ToolExecutionError(f"Table spec must use exactly one of sheet, named_range, or range (got {', '.join(present)})", code="DUCKDB_SQL_ERROR")
     if not present:
         if file_spec:
             kind = "sheet"
         else:
-            raise ToolExecutionError(
-                "Table spec needs sheet (used range), named_range, or range (absolute A1)",
-                code="DUCKDB_SQL_ERROR",
-            )
+            raise ToolExecutionError("Table spec needs sheet (used range), named_range, or range (absolute A1)", code="DUCKDB_SQL_ERROR")
     else:
         kind = present[0]
 
-    return {
-        "kind": kind,
-        "sheet": sheet,
-        "named_range": named_range,
-        "range": range_a1,
-        "file": file_spec,
-        "headers": headers,
-    }
+    return {"kind": kind, "sheet": sheet, "named_range": named_range, "range": range_a1, "file": file_spec, "headers": headers}
 
 
 def _container_element_names(container: Any) -> list[str]:
@@ -443,10 +380,7 @@ def _named_object_to_qualified_a1(doc: Any, obj: Any, *, label: str) -> str:
         except Exception:
             addr = None
     if addr is None:
-        raise ToolExecutionError(
-            f"{label} does not refer to a cell range",
-            code="DUCKDB_SQL_ERROR",
-        )
+        raise ToolExecutionError(f"{label} does not refer to a cell range", code="DUCKDB_SQL_ERROR")
     return _range_address_to_qualified_a1(doc, addr)
 
 
@@ -484,10 +418,7 @@ def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
             return _named_object_to_qualified_a1(model, dbr, label=f"Database range {name!r}")
         available = _available_named_sources(model)
         extra = f" Available: {available}" if available else ""
-        raise ToolExecutionError(
-            f"No named range or database range named {name!r}.{extra}",
-            code="DUCKDB_SQL_ERROR",
-        )
+        raise ToolExecutionError(f"No named range or database range named {name!r}.{extra}", code="DUCKDB_SQL_ERROR")
 
     if kind == "range":
         return str(parsed.get("range") or "")
@@ -507,37 +438,19 @@ def read_model_table_grid(model: Any, parsed: dict[str, Any]) -> list[list[Any]]
     return values_from_inspector_range(raw)
 
 
-def read_table_source_grid(
-    ctx: Any,
-    active_doc: Any,
-    scoped_dir: str | None,
-    parsed: dict[str, Any],
-) -> list[list[Any]]:
+def read_table_source_grid(ctx: Any, active_doc: Any, scoped_dir: str | None, parsed: dict[str, Any]) -> list[list[Any]]:
     """Read a catalog entry: active doc, or sibling ``file`` opened hidden."""
     file_bn = parsed.get("file")
     if not file_bn:
         grid = read_model_table_grid(active_doc, parsed)
         if parsed.get("kind") in ("sheet", "named_range") and not _grid_has_usable_values(grid):
-            raise ToolExecutionError(
-                f"Table identity {parsed.get('kind')} resolved to an empty range; "
-                "nothing to register for SQL",
-                code="DUCKDB_SQL_ERROR",
-            )
+            raise ToolExecutionError(f"Table identity {parsed.get('kind')} resolved to an empty range; nothing to register for SQL", code="DUCKDB_SQL_ERROR")
         return grid
 
     full_path = os.path.join(scoped_dir, str(file_bn)) if scoped_dir else str(file_bn)
     if not os.path.isfile(full_path):
-        raise ToolExecutionError(
-            f"Sibling spreadsheet {file_bn!r} not found under the document folder",
-            code="DUCKDB_SQL_ERROR",
-        )
-    _tbl, grid = _read_sibling_office_file_as_grid(
-        ctx,
-        full_path,
-        sheet_hint=parsed.get("sheet"),
-        named_range=parsed.get("named_range"),
-        range_a1=parsed.get("range"),
-    )
+        raise ToolExecutionError(f"Sibling spreadsheet {file_bn!r} not found under the document folder", code="DUCKDB_SQL_ERROR")
+    _tbl, grid = _read_sibling_office_file_as_grid(ctx, full_path, sheet_hint=parsed.get("sheet"), named_range=parsed.get("named_range"), range_a1=parsed.get("range"))
     return grid
 
 
@@ -592,10 +505,7 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
         if tmp.exists():
             tmp.unlink()
         url = uno.systemPathToFileUrl(str(tmp.resolve()))
-        props = (
-            create_property_value("FilterName", "calc8"),
-            create_property_value("Overwrite", True),
-        )
+        props = (create_property_value("FilterName", "calc8"), create_property_value("Overwrite", True))
         store(url, props)
         os.replace(str(tmp), str(dest))
     except Exception:
@@ -632,12 +542,7 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cac
     ``_source_is_open_workbook`` here — after a hidden open the source
     *is* loaded, which would skip every miss write.
     """
-    from plugin.calc.ods_cache import (
-        cache_entry_paths,
-        is_cacheable_office_source,
-        ods_cache_enabled,
-        write_sidecar_meta,
-    )
+    from plugin.calc.ods_cache import cache_entry_paths, is_cacheable_office_source, ods_cache_enabled, write_sidecar_meta
 
     if cache_hit or not opened_flag:
         return
@@ -654,14 +559,7 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cac
         log.exception("Failed to write ODS cache for %s", full_path)
 
 
-def _read_sibling_office_file_as_grid(
-    ctx: Any,
-    full_path: str,
-    sheet_hint: str | None = None,
-    *,
-    named_range: str | None = None,
-    range_a1: str | None = None,
-) -> tuple[str, list[list[Any]]]:
+def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str | None = None, *, named_range: str | None = None, range_a1: str | None = None) -> tuple[str, list[list[Any]]]:
     """Open a sibling .xlsx/.ods hidden+readonly and read a table identity.
 
     Default / ``#SheetName`` is that sheet's used range (same
@@ -676,32 +574,11 @@ def _read_sibling_office_file_as_grid(
     does not register a hash filename.
     """
     if named_range:
-        parsed: dict[str, Any] = {
-            "kind": "named_range",
-            "sheet": None,
-            "named_range": named_range,
-            "range": None,
-            "file": os.path.basename(full_path),
-            "headers": True,
-        }
+        parsed: dict[str, Any] = {"kind": "named_range", "sheet": None, "named_range": named_range, "range": None, "file": os.path.basename(full_path), "headers": True}
     elif range_a1:
-        parsed = {
-            "kind": "range",
-            "sheet": None,
-            "named_range": None,
-            "range": range_a1,
-            "file": os.path.basename(full_path),
-            "headers": True,
-        }
+        parsed = {"kind": "range", "sheet": None, "named_range": None, "range": range_a1, "file": os.path.basename(full_path), "headers": True}
     else:
-        parsed = {
-            "kind": "sheet",
-            "sheet": (sheet_hint or "").strip() or None,
-            "named_range": None,
-            "range": None,
-            "file": os.path.basename(full_path),
-            "headers": True,
-        }
+        parsed = {"kind": "sheet", "sheet": (sheet_hint or "").strip() or None, "named_range": None, "range": None, "file": os.path.basename(full_path), "headers": True}
 
     open_path, cache_hit = _resolve_sibling_open_path(ctx, full_path)
     model = None
@@ -730,18 +607,10 @@ def _read_sibling_office_file_as_grid(
             grid = read_model_table_grid(model, parsed)
         except ToolExecutionError as exc:
             identity = parsed.get("sheet") or parsed.get("named_range")
-            raise _sibling_office_error(
-                full_path,
-                str(exc),
-                sheet=str(identity) if identity else None,
-            ) from exc
+            raise _sibling_office_error(full_path, str(exc), sheet=str(identity) if identity else None) from exc
         if parsed["kind"] in ("sheet", "named_range") and not _grid_has_usable_values(grid):
             identity = parsed.get("named_range") or parsed.get("sheet") or os.path.basename(full_path)
-            raise _sibling_office_error(
-                full_path,
-                "used range is empty; nothing to register for SQL",
-                sheet=str(identity) if identity else None,
-            )
+            raise _sibling_office_error(full_path, "used range is empty; nothing to register for SQL", sheet=str(identity) if identity else None)
 
         _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, cache_hit=cache_hit)
 

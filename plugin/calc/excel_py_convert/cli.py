@@ -19,40 +19,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("path", type=Path, help="Input .xlsx or .json fixture / dag report")
     parser.add_argument("--to", choices=("dag", "excel"), required=True, dest="direction")
     parser.add_argument("-o", "--report", type=Path, help="Write JSON conversion report")
-    parser.add_argument(
-        "--from-report",
-        type=Path,
-        help="DAG conversion JSON for --to excel (preserves return_type / data_args)",
-    )
-    parser.add_argument(
-        "--write-xlsx",
-        type=Path,
-        help="Write workbook: DAG =PY (--to dag) or native Excel PY package (--to excel)",
-    )
-    parser.add_argument(
-        "--best-effort",
-        action="store_true",
-        help="Emit partial conversions even when some cells fail (default: fail-closed)",
-    )
+    parser.add_argument("--from-report", type=Path, help="DAG conversion JSON for --to excel (preserves return_type / data_args)")
+    parser.add_argument("--write-xlsx", type=Path, help="Write workbook: DAG =PY (--to dag) or native Excel PY package (--to excel)")
+    parser.add_argument("--best-effort", action="store_true", help="Emit partial conversions even when some cells fail (default: fail-closed)")
     args = parser.parse_args(argv)
 
-    from plugin.calc.excel_py_convert.convert import (
-        convert_path,
-        write_dag_formulas_xlsx,
-        write_excel_python_xlsx,
-    )
+    from plugin.calc.excel_py_convert.convert import convert_path, write_dag_formulas_xlsx, write_excel_python_xlsx
 
     if args.from_report and args.direction != "excel":
         print("--from-report only valid with --to excel", file=sys.stderr)
         return 2
 
-    report = convert_path(
-        args.path,
-        direction=args.direction,
-        out_report=args.report,
-        best_effort=args.best_effort,
-        from_report=args.from_report,
-    )
+    report = convert_path(args.path, direction=args.direction, out_report=args.report, best_effort=args.best_effort, from_report=args.from_report)
     if args.write_xlsx:
         if args.path.suffix.lower() != ".xlsx":
             print("--write-xlsx requires an .xlsx source (package shell)", file=sys.stderr)

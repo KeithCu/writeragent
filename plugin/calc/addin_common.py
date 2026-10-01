@@ -105,7 +105,7 @@ class SingleFunctionAddInBase(unohelper.Base):
 
     # Future: case-insensitive programmatic name matching (e.g. XLSX import lowercases PYTHON → python).
     # Uncomment and replace the methods above when ready to try.
-    '''
+    """
     def _matches_programmatic_name(self, name: str) -> bool:
         # Calc may pass display or programmatic id; XLSX import often lowercases PYTHON → python.
         return name.lower() == self._spec.programmatic_name.lower()
@@ -157,7 +157,7 @@ class SingleFunctionAddInBase(unohelper.Base):
 
     def getDisplayCategoryName(self, aProgrammaticName: str) -> str:
         return "Add-In" if self._matches_programmatic_name(aProgrammaticName) else ""
-    '''
+    """
 
     def getLocale(self) -> Any:
         return self.ctx.ServiceManager.createInstance("com.sun.star.lang.Locale", ("en", "US", ""))

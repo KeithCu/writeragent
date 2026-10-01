@@ -17,18 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 # Calc error display strings (subset used at ingest when value is a string).
-_CALC_ERROR_STRINGS = frozenset(
-    {
-        "#NULL!",
-        "#DIV/0!",
-        "#VALUE!",
-        "#REF!",
-        "#NAME?",
-        "#NUM!",
-        "#N/A",
-        "#ERROR!",
-    },
-)
+_CALC_ERROR_STRINGS = frozenset({"#NULL!", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#N/A", "#ERROR!"})
 
 
 def is_calc_error_display(value: object) -> str | None:
@@ -40,10 +29,7 @@ def is_calc_error_display(value: object) -> str | None:
     return None
 
 
-_RANGE_REF_PATTERN = re.compile(
-    r"\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?",
-    re.IGNORECASE,
-)
+_RANGE_REF_PATTERN = re.compile(r"\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?", re.IGNORECASE)
 
 
 def extract_range_refs(formula: str) -> list[str]:
@@ -100,9 +86,7 @@ def build_dependency_graph(model: SheetModel) -> dict[str, list[str]]:
     return graph
 
 
-def topological_formula_order(
-    graph: dict[str, list[str]],
-) -> tuple[list[str], list[list[str]]]:
+def topological_formula_order(graph: dict[str, list[str]]) -> tuple[list[str], list[list[str]]]:
     """Return (acyclic_topo_order, circular_groups).
 
     Formula cells in cycles are listed in *circular_groups* and omitted from

@@ -43,8 +43,6 @@ def condition_operator_code_to_name(code: int) -> str:
     return str(int(code))
 
 
-
-
 def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
     """Convert a conditional entry to a readable dict."""
     result: dict[str, Any] = {"index": idx}
@@ -110,7 +108,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
     name: str | None = "list_conditional_formats"
     intent: str | None = "navigate"
     description: str = "List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Cell range (e.g. [\"A1:D10\"]). If omitted, scans used area."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range (e.g. ["A1:D10"]). If omitted, scans used area.'}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -159,7 +157,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "range": {"type": "array", "items": {"type": "string"}, "description": "Cell range to apply the rule to (e.g. [\"A1:D10\"])."},
+            "range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range to apply the rule to (e.g. ["A1:D10"]).'},
             "operator": {"type": "string", "enum": ["EQUAL", "NOT_EQUAL", "GREATER", "GREATER_EQUAL", "LESS", "LESS_EQUAL", "BETWEEN", "NOT_BETWEEN", "FORMULA", "DUPLICATE", "NOT_DUPLICATE"], "description": "Condition operator."},
             "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
             "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
@@ -181,18 +179,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             try:
                 from com.sun.star.sheet.ConditionOperator import BETWEEN, EQUAL, FORMULA, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, NONE, NOT_BETWEEN, NOT_EQUAL
 
-                op_map: dict[str, Any] = {
-                    "NONE": NONE,
-                    "EQUAL": EQUAL,
-                    "NOT_EQUAL": NOT_EQUAL,
-                    "GREATER": GREATER,
-                    "GREATER_EQUAL": GREATER_EQUAL,
-                    "LESS": LESS,
-                    "LESS_EQUAL": LESS_EQUAL,
-                    "BETWEEN": BETWEEN,
-                    "NOT_BETWEEN": NOT_BETWEEN,
-                    "FORMULA": FORMULA,
-                }
+                op_map: dict[str, Any] = {"NONE": NONE, "EQUAL": EQUAL, "NOT_EQUAL": NOT_EQUAL, "GREATER": GREATER, "GREATER_EQUAL": GREATER_EQUAL, "LESS": LESS, "LESS_EQUAL": LESS_EQUAL, "BETWEEN": BETWEEN, "NOT_BETWEEN": NOT_BETWEEN, "FORMULA": FORMULA}
             except (ImportError, AttributeError):
                 try:
                     import uno
@@ -210,18 +197,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
                         "FORMULA": uno.Enum("com.sun.star.sheet.ConditionOperator", "FORMULA"),
                     }
                 except Exception:
-                    op_map = {
-                        "NONE": 0,
-                        "EQUAL": 1,
-                        "NOT_EQUAL": 2,
-                        "GREATER": 3,
-                        "GREATER_EQUAL": 4,
-                        "LESS": 5,
-                        "LESS_EQUAL": 6,
-                        "BETWEEN": 7,
-                        "NOT_BETWEEN": 8,
-                        "FORMULA": 9,
-                    }
+                    op_map = {"NONE": 0, "EQUAL": 1, "NOT_EQUAL": 2, "GREATER": 3, "GREATER_EQUAL": 4, "LESS": 5, "LESS_EQUAL": 6, "BETWEEN": 7, "NOT_BETWEEN": 8, "FORMULA": 9}
 
             try:
                 from com.sun.star.sheet import ConditionOperator2 as CO2
@@ -263,10 +239,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 
                     return SimpleNamespace(Name=name, Value=val)
 
-            props = [
-                _create_pv("Operator", op_val),
-                _create_pv("Formula1", formula1),
-            ]
+            props = [_create_pv("Operator", op_val), _create_pv("Formula1", formula1)]
             if formula2:
                 props.append(_create_pv("Formula2", formula2))
             props.append(_create_pv("StyleName", style_name))
@@ -290,7 +263,11 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
     name: str | None = "remove_conditional_formats"
     intent: str | None = "edit"
     description: str = "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Cell range (e.g. [\"A1:D10\"])."}, "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."}}, "required": ["range"]}
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range (e.g. ["A1:D10"]).'}, "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."}},
+        "required": ["range"],
+    }
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

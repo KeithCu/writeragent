@@ -14,24 +14,14 @@ _SHEET_COL_ONLY_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_ ]*)\.([A-Z]+):\2$", re.I
 _LOCAL_COL_ONLY_RE = re.compile(r"^([A-Z]+):\1$", re.IGNORECASE)
 
 
-def clip_workbook_data_ranges(
-    ranges: list[str],
-    *,
-    sheet_bounds: dict[str, tuple[int, int]] | None,
-    current_sheet: str | None = None,
-) -> list[str]:
+def clip_workbook_data_ranges(ranges: list[str], *, sheet_bounds: dict[str, tuple[int, int]] | None, current_sheet: str | None = None) -> list[str]:
     """Clip ``SHEET.F:F`` style refs to ``SHEET.F1:F{used_row}`` when bounds are known."""
     if not sheet_bounds:
         return list(ranges)
     return [_clip_one_range(r, sheet_bounds, current_sheet=current_sheet) for r in ranges]
 
 
-def _clip_one_range(
-    range_ref: str,
-    sheet_bounds: dict[str, tuple[int, int]],
-    *,
-    current_sheet: str | None = None,
-) -> str:
+def _clip_one_range(range_ref: str, sheet_bounds: dict[str, tuple[int, int]], *, current_sheet: str | None = None) -> str:
     normalized = str(range_ref).strip().replace("$", "")
     quoted_sheet: str | None = None
     bare_sheet: str | None = None

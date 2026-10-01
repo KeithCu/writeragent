@@ -60,7 +60,6 @@ class ListSheets(ToolCalcSheetBase):
             raise ToolExecutionError(str(e)) from e
 
 
-
 class SwitchSheet(ToolCalcSheetBase):
     """Switch to a specified sheet."""
 
@@ -95,26 +94,10 @@ class CreateSheet(ToolCalcSheetBase):
 
     name: str | None = "create_sheet"
     intent: str | None = "edit"
-    description: str = (
-        "Creates a new empty sheet (tab exists; no cells copied). "
-        "create_sheet is not Sample/deliverable populate — after create, "
-        "write_formula_range with source to copy a block onto the new sheet."
-    )
+    description: str = "Creates a new empty sheet (tab exists; no cells copied). create_sheet is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {
-            "sheet": {
-                "type": "string",
-                "description": (
-                    "Exact new sheet title from the request; preserve spaces "
-                    "(do not snake_case or invent aliases)."
-                ),
-            },
-            "position": {
-                "type": "integer",
-                "description": "Sheet position (0-based). Appended to end if not specified.",
-            },
-        },
+        "properties": {"sheet": {"type": "string", "description": ("Exact new sheet title from the request; preserve spaces (do not snake_case or invent aliases).")}, "position": {"type": "integer", "description": "Sheet position (0-based). Appended to end if not specified."}},
         "required": ["sheet"],
     }
     is_mutation: bool | None = True
@@ -135,11 +118,7 @@ class CreateSheet(ToolCalcSheetBase):
             # Inner-only ok string used to stop here; the outer never saw it.
             # Same `instruction` field as web research so specialized finish
             # can forward the create≠populate nudge to the main agent.
-            return {
-                "status": "ok",
-                "message": result,
-                "instruction": get_sheets_create_completion_instruction(),
-            }
+            return {"status": "ok", "message": result, "instruction": get_sheets_create_completion_instruction()}
         except Exception as e:
             log.exception("Sheet creation failed for %s", sheet_name)
             raise ToolExecutionError(str(e)) from e
