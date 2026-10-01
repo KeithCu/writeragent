@@ -22,12 +22,7 @@ import time
 from typing import Any
 
 from compute_service.config import ComputeSettings
-from compute_service.json_forward import (
-    COMPUTE_MAX_PAYLOAD_BYTES,
-    WIRE_JSON_FORWARD,
-    WIRE_PICKLE,
-    decode_worker_result,
-)
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, WIRE_PICKLE, decode_worker_result
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker
 
 log = logging.getLogger("compute_service.formula")
@@ -45,15 +40,7 @@ class FormulaProcessPool(BaseProcessPool):
 
     shared_kernel_ttl_sec: float
 
-    def __init__(
-        self,
-        settings: ComputeSettings | int | None = None,
-        num_workers: int | None = None,
-        default_timeout_sec: int | None = None,
-        max_tasks: int | None = None,
-        shared_kernel_ttl_sec: float | None = None,
-        idle_worker_ttl_sec: float | None = None,
-    ) -> None:
+    def __init__(self, settings: ComputeSettings | int | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, shared_kernel_ttl_sec: float | None = None, idle_worker_ttl_sec: float | None = None) -> None:
         if isinstance(settings, int):
             num_workers = settings
             settings = None
@@ -64,15 +51,7 @@ class FormulaProcessPool(BaseProcessPool):
         eff_shared_ttl = cfg.shared_kernel_ttl_sec if shared_kernel_ttl_sec is None else shared_kernel_ttl_sec
         eff_idle_ttl = cfg.idle_worker_ttl_sec if idle_worker_ttl_sec is None else idle_worker_ttl_sec
 
-        super().__init__(
-            script_path=_WORKER_SCRIPT,
-            num_workers=eff_num_workers,
-            default_timeout_sec=eff_timeout,
-            max_tasks=eff_max_tasks,
-            worker_name="Formula worker",
-            idle_worker_ttl_sec=eff_idle_ttl,
-            max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES,
-        )
+        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
         self._active_sessions: dict[str, BaseProcessWorker] = {}
         self._worker_sessions: dict[BaseProcessWorker, set[str]] = {}
         self._session_last_activity: dict[str, float] = {}
@@ -174,22 +153,14 @@ class FormulaProcessPool(BaseProcessPool):
         leased = self.lease_specific(worker, timeout_sec=timeout_sec)
         if leased is None:
             # Same status/code/error shape as execute pool-busy; HTTP maps to 503.
-            return {
-                "status": "error",
-                "code": "WORKER_POOL_BUSY",
-                "error": "Could not lease worker to reset session.",
-            }
+            return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Could not lease worker to reset session."}
         try:
             res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
             return res
         finally:
             self.release_worker(leased)
 
-    def check_dependencies(
-        self,
-        packages: list[str] | None = None,
-        timeout_sec: float = 10.0,
-    ) -> tuple[bool, str | None]:
+    def check_dependencies(self, packages: list[str] | None = None, timeout_sec: float = 10.0) -> tuple[bool, str | None]:
         """Ask an idle worker to verify required dependencies (e.g. numpy, sympy).
 
         Returns (success, error_message).
@@ -203,38 +174,21 @@ class FormulaProcessPool(BaseProcessPool):
             return False, "Failed to lease a formula worker subprocess for dependency check."
 
         try:
-            payload = {
-                "action": "check_dependencies",
-                "packages": target_packages,
-            }
+            payload = {"action": "check_dependencies", "packages": target_packages}
             res = leased.execute(payload, timeout_sec=timeout_sec)
             if res.get("status") == "ok":
                 return True, None
             missing = res.get("missing")
             if missing and isinstance(missing, list):
                 missing_str = ", ".join(str(m) for m in missing)
-                return False, (
-                    f"Error: {missing_str} is not installed in the current Python environment.\n"
-                    "Please start the server using './compute_service/start.sh' or activate the correct virtual environment."
-                )
+                return False, (f"Error: {missing_str} is not installed in the current Python environment.\nPlease start the server using './compute_service/start.sh' or activate the correct virtual environment.")
             err = res.get("error") or "Unknown error during worker dependency check."
             return False, str(err)
         finally:
             self.release_worker(leased)
 
     def execute(
-        self,
-        code: str,
-        data: Any = None,
-        session_id: str | None = None,
-        timeout_sec: int | None = None,
-        *,
-        mode: str = "isolated",
-        init_script: str | None = None,
-        req_id: str | None = None,
-        data_json: bytes | None = None,
-        wire: str = WIRE_JSON_FORWARD,
-        decode_result: bool = True,
+        self, code: str, data: Any = None, session_id: str | None = None, timeout_sec: int | None = None, *, mode: str = "isolated", init_script: str | None = None, req_id: str | None = None, data_json: bytes | None = None, wire: str = WIRE_JSON_FORWARD, decode_result: bool = True
     ) -> dict[str, Any]:
         """Execute formula code on an appropriate worker subprocess.
 
@@ -245,27 +199,12 @@ class FormulaProcessPool(BaseProcessPool):
         it can forward ``result_json`` without a second dumps.
         """
         if self._is_shutdown or not self.workers:
-            return {
-                "id": req_id,
-                "status": "error",
-                "code": "SERVICE_SHUTDOWN",
-                "error": "Formula compute pool is shutting down.",
-            }
+            return {"id": req_id, "status": "error", "code": "SERVICE_SHUTDOWN", "error": "Formula compute pool is shutting down."}
 
         eff_timeout = float(timeout_sec or self.default_timeout_sec)
         deadline = time.monotonic() + eff_timeout
 
-        payload = self._build_execute_payload(
-            code=code,
-            data=data,
-            data_json=data_json,
-            session_id=session_id,
-            mode=mode,
-            timeout_sec=int(eff_timeout),
-            init_script=init_script,
-            req_id=req_id,
-            wire=wire,
-        )
+        payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, mode=mode, timeout_sec=int(eff_timeout), init_script=init_script, req_id=req_id, wire=wire)
 
         leased: BaseProcessWorker | None
         # Snapshot workers under the pool lock to avoid a TOCTOU race with
@@ -286,12 +225,7 @@ class FormulaProcessPool(BaseProcessPool):
             busy_err = "All formula workers are currently busy and request timed out waiting for worker lease."
 
         if leased is None:
-            return {
-                "id": req_id,
-                "status": "error",
-                "code": busy_code,
-                "error": busy_err,
-            }
+            return {"id": req_id, "status": "error", "code": busy_code, "error": busy_err}
 
         if mode == "shared" and session_id:
             with self._cond:
@@ -315,27 +249,8 @@ class FormulaProcessPool(BaseProcessPool):
             self.release_worker(leased)
 
     @staticmethod
-    def _build_execute_payload(
-        *,
-        code: str,
-        data: Any,
-        data_json: bytes | None,
-        session_id: str | None,
-        mode: str,
-        timeout_sec: int,
-        init_script: str | None,
-        req_id: str | None,
-        wire: str,
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "id": req_id,
-            "code": code,
-            "session_id": session_id,
-            "mode": mode,
-            "timeout_sec": timeout_sec,
-            "init_script": init_script,
-            "wire": wire if wire in (WIRE_JSON_FORWARD, WIRE_PICKLE) else WIRE_JSON_FORWARD,
-        }
+    def _build_execute_payload(*, code: str, data: Any, data_json: bytes | None, session_id: str | None, mode: str, timeout_sec: int, init_script: str | None, req_id: str | None, wire: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "timeout_sec": timeout_sec, "init_script": init_script, "wire": wire if wire in (WIRE_JSON_FORWARD, WIRE_PICKLE) else WIRE_JSON_FORWARD}
         if payload["wire"] == WIRE_JSON_FORWARD:
             blob = data_json
             if blob is None and data is not None:

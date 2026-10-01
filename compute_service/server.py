@@ -29,13 +29,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from compute_service import __version__
-from compute_service.config import (
-    DEFAULT_SETTINGS,
-    ComputeSettings,
-    ConfigError,
-    load_settings,
-    ocr_path_is_allowed,
-)
+from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, load_settings, ocr_path_is_allowed
 
 log = logging.getLogger("compute_service")
 
@@ -46,11 +40,7 @@ ResetFn = Callable[..., dict[str, Any]]
 def setup_logging(level_name: str = "INFO") -> None:
     """Configure standard logging format and level for the compute service."""
     level = getattr(logging, level_name.upper(), logging.INFO)
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        force=True,
-    )
+    logging.basicConfig(level=level, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", force=True)
     log.setLevel(level)
 
 
@@ -62,12 +52,7 @@ def check_dependencies(pool: Any = None) -> None:
         pool = get_formula_pool()
     ok, err = pool.check_dependencies(["numpy", "sympy"])
     if not ok:
-        print(
-            err
-            or "Error: Required dependencies are not installed in the worker Python environment.\n"
-            "Please start the server using './compute_service/start.sh' or activate the correct virtual environment.",
-            file=sys.stderr,
-        )
+        print(err or "Error: Required dependencies are not installed in the worker Python environment.\nPlease start the server using './compute_service/start.sh' or activate the correct virtual environment.", file=sys.stderr)
         from compute_service.formula_pool import shutdown_formula_pool
 
         shutdown_formula_pool()
@@ -78,13 +63,7 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, allow_nan=False).encode("utf-8")
 
 
-def _source_text_from_part(
-    raw: Any,
-    *,
-    limit: int,
-    label: str,
-    required: bool,
-) -> tuple[str | None, dict[str, Any] | None]:
+def _source_text_from_part(raw: Any, *, limit: int, label: str, required: bool) -> tuple[str | None, dict[str, Any] | None]:
     """Return ``(text, error_body)`` for peel text or a multipart byte part.
 
     Multipart ``code`` / ``init_script`` are raw UTF-8. They used to be JSON
@@ -95,11 +74,7 @@ def _source_text_from_part(
     """
     if isinstance(raw, (bytes, bytearray)):
         if len(raw) > limit:
-            return None, {
-                "status": "error",
-                "code": "CODE_TOO_LARGE",
-                "error": f"{label} exceeds max_code_chars ({limit}).",
-            }
+            return None, {"status": "error", "code": "CODE_TOO_LARGE", "error": f"{label} exceeds max_code_chars ({limit})."}
         if len(raw) == 0:
             if required:
                 return None, {"status": "error", "error": "Missing 'code' string parameter."}
@@ -116,11 +91,7 @@ def _source_text_from_part(
         if required and raw == "":
             return None, {"status": "error", "error": "Missing 'code' string parameter."}
         if required and len(raw) > limit:
-            return None, {
-                "status": "error",
-                "code": "CODE_TOO_LARGE",
-                "error": f"{label} exceeds max_code_chars ({limit}).",
-            }
+            return None, {"status": "error", "code": "CODE_TOO_LARGE", "error": f"{label} exceeds max_code_chars ({limit})."}
         return raw, None
 
     if required:
@@ -128,96 +99,44 @@ def _source_text_from_part(
     return None, None
 
 
-def _start_raw_json(
-    start_response: Any,
-    status: str,
-    body: bytes,
-    *,
-    extra_headers: list[tuple[str, str]] | None = None,
-) -> list[bytes]:
+def _start_raw_json(start_response: Any, status: str, body: bytes, *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
     """Send already-encoded JSON bytes (worker result_json) without re-dumps."""
-    headers = [
-        ("Content-Type", "application/json"),
-        ("Content-Length", str(len(body))),
-    ]
+    headers = [("Content-Type", "application/json"), ("Content-Length", str(len(body)))]
     if extra_headers:
         headers.extend(extra_headers)
     start_response(status, headers)
     return [body]
 
 
-def _start_json(
-    start_response: Any,
-    status: str,
-    payload: dict[str, Any],
-    *,
-    extra_headers: list[tuple[str, str]] | None = None,
-) -> list[bytes]:
-    return _start_raw_json(
-        start_response,
-        status,
-        _json_bytes(payload),
-        extra_headers=extra_headers,
-    )
+def _start_json(start_response: Any, status: str, payload: dict[str, Any], *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
+    return _start_raw_json(start_response, status, _json_bytes(payload), extra_headers=extra_headers)
 
 
-def _read_request_body(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-    start_response: Any,
-) -> tuple[bytes | None, list[bytes] | None]:
+def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[bytes | None, list[bytes] | None]:
     """Read a bounded POST body. Returns ``(body, None)`` or ``(None, error_body)``."""
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
-        return None, _start_json(
-            start_response,
-            "400 Bad Request",
-            {"status": "error", "error": "Missing Content-Length"},
-        )
+        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Missing Content-Length"})
     try:
         content_length = int(raw_len)
     except (TypeError, ValueError):
-        return None, _start_json(
-            start_response,
-            "400 Bad Request",
-            {"status": "error", "error": "Invalid Content-Length"},
-        )
+        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid Content-Length"})
     if content_length <= 0:
-        return None, _start_json(
-            start_response,
-            "400 Bad Request",
-            {"status": "error", "error": "Invalid Content-Length"},
-        )
+        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid Content-Length"})
     if content_length > settings.max_body_bytes:
-        return None, _start_json(
-            start_response,
-            "413 Payload Too Large",
-            {"status": "error", "error": "Request body too large"},
-        )
+        return None, _start_json(start_response, "413 Payload Too Large", {"status": "error", "error": "Request body too large"})
 
     try:
         body = environ["wsgi.input"].read(content_length)
     except Exception:
-        return None, _start_json(
-            start_response,
-            "400 Bad Request",
-            {"status": "error", "error": "Failed to read request body"},
-        )
+        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Failed to read request body"})
     # Guard against partial reads (non-wsgiref WSGI servers may return fewer bytes).
     if len(body) != content_length:
-        return None, _start_json(
-            start_response,
-            "400 Bad Request",
-            {"status": "error", "error": "Request body truncated"},
-        )
+        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Request body truncated"})
     return body, None
 
 
-def _read_request_json(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-    start_response: Any,
-) -> tuple[dict[str, Any] | None, list[bytes] | None]:
+def _read_request_json(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[dict[str, Any] | None, list[bytes] | None]:
     """Parse a POST JSON object. Returns ``(payload, None)`` or ``(None, error_body)``."""
     body, err_resp = _read_request_body(environ, settings, start_response)
     if err_resp is not None:
@@ -226,26 +145,14 @@ def _read_request_json(
     try:
         req_data = json.loads(body.decode("utf-8"))
     except Exception:
-        return None, _start_json(
-            start_response,
-            "400 Bad Request",
-            {"status": "error", "error": "Invalid JSON"},
-        )
+        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid JSON"})
 
     if not isinstance(req_data, dict):
-        return None, _start_json(
-            start_response,
-            "400 Bad Request",
-            {"status": "error", "error": "JSON body must be an object"},
-        )
+        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "JSON body must be an object"})
     return req_data, None
 
 
-def _read_optional_request_json(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-    start_response: Any,
-) -> tuple[dict[str, Any] | None, list[bytes] | None]:
+def _read_optional_request_json(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[dict[str, Any] | None, list[bytes] | None]:
     """Parse an optional POST JSON object. Missing or empty body is ``{}``.
 
     ``/v1/session/reset`` allows an empty body (correlation ``id`` only).
@@ -257,26 +164,15 @@ def _read_optional_request_json(
     try:
         content_length = int(raw_len)
     except (TypeError, ValueError):
-        return None, _start_json(
-            start_response,
-            "400 Bad Request",
-            {"status": "error", "error": "Invalid Content-Length"},
-        )
+        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid Content-Length"})
     if content_length < 0:
-        return None, _start_json(
-            start_response,
-            "400 Bad Request",
-            {"status": "error", "error": "Invalid Content-Length"},
-        )
+        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid Content-Length"})
     if content_length == 0:
         return {}, None
     return _read_request_json(environ, settings, start_response)
 
 
-def authenticate_request(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-) -> tuple[str | None, str | None]:
+def authenticate_request(environ: dict[str, Any], settings: ComputeSettings) -> tuple[str | None, str | None]:
     """Validate Authorization when an API key is configured.
 
     Returns ``(principal, error)``. *principal* is ``settings.default_principal``
@@ -303,12 +199,7 @@ def authenticate_request(
     return settings.default_principal, None
 
 
-def create_wsgi_app(
-    settings: ComputeSettings,
-    *,
-    execute_fn: ExecuteFn | None = None,
-    reset_fn: ResetFn | None = None,
-) -> Callable[[dict[str, Any], Any], list[bytes]]:
+def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None = None, reset_fn: ResetFn | None = None) -> Callable[[dict[str, Any], Any], list[bytes]]:
     """Build a WSGI app bound to *settings* (and optional test hooks).
 
     Executor / pool imports are deferred until the first ``/v1/execute`` or
@@ -350,34 +241,20 @@ def create_wsgi_app(
         method = environ.get("REQUEST_METHOD", "GET")
 
         if path == "/health" and method == "GET":
-            return _start_json(
-                start_response,
-                "200 OK",
-                {"status": "healthy", "service": "python-compute", "version": __version__},
-            )
+            return _start_json(start_response, "200 OK", {"status": "healthy", "service": "python-compute", "version": __version__})
 
         if path == "/v1/execute" and method == "POST":
             _principal, auth_err = authenticate_request(environ, settings)
             if auth_err is not None:
                 # Generic body — do not reveal whether the key was missing vs wrong.
-                return _start_json(
-                    start_response,
-                    "401 Unauthorized",
-                    {"status": "error", "error": "Unauthorized"},
-                    extra_headers=[("WWW-Authenticate", "Bearer")],
-                )
+                return _start_json(start_response, "401 Unauthorized", {"status": "error", "error": "Unauthorized"}, extra_headers=[("WWW-Authenticate", "Bearer")])
 
             raw_body, err_resp = _read_request_body(environ, settings, start_response)
             if err_resp is not None:
                 return err_resp
             assert raw_body is not None
 
-            from compute_service.json_forward import (
-                WIRE_JSON_FORWARD,
-                ExecuteRequestError,
-                is_multipart_content_type,
-                parse_execute_request,
-            )
+            from compute_service.json_forward import WIRE_JSON_FORWARD, ExecuteRequestError, is_multipart_content_type, parse_execute_request
 
             content_type = environ.get("CONTENT_TYPE") or ""
             try:
@@ -386,25 +263,12 @@ def create_wsgi_app(
                 # keep until kit ships multipart, then delete that branch.
                 parts = parse_execute_request(raw_body, content_type)
             except ExecuteRequestError:
-                err = (
-                    "Invalid multipart execute body"
-                    if is_multipart_content_type(content_type)
-                    else "Invalid JSON"
-                )
-                return _start_json(
-                    start_response,
-                    "400 Bad Request",
-                    {"status": "error", "error": err},
-                )
+                err = "Invalid multipart execute body" if is_multipart_content_type(content_type) else "Invalid JSON"
+                return _start_json(start_response, "400 Bad Request", {"status": "error", "error": err})
 
             req_id = parts.req_id
 
-            code, err_body = _source_text_from_part(
-                parts.code,
-                limit=settings.max_code_chars,
-                label="code",
-                required=True,
-            )
+            code, err_body = _source_text_from_part(parts.code, limit=settings.max_code_chars, label="code", required=True)
             if err_body is not None:
                 if req_id is not None:
                     err_body["id"] = req_id
@@ -412,10 +276,7 @@ def create_wsgi_app(
             assert code is not None
 
             if parts.has_session_id:
-                err_body = {
-                    "status": "error",
-                    "error": "session_id must be provided as a URL query parameter (?session_id=...), not in the request body.",
-                }
+                err_body = {"status": "error", "error": "session_id must be provided as a URL query parameter (?session_id=...), not in the request body."}
                 if req_id is not None:
                     err_body["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", err_body)
@@ -430,20 +291,12 @@ def create_wsgi_app(
                 mode = "isolated"
 
             if mode == "shared" and not session_id:
-                err_body = {
-                    "status": "error",
-                    "error": "mode='shared' requires a 'session_id' URL query parameter (?session_id=...).",
-                }
+                err_body = {"status": "error", "error": "mode='shared' requires a 'session_id' URL query parameter (?session_id=...)."}
                 if req_id is not None:
                     err_body["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", err_body)
 
-            init_script, err_body = _source_text_from_part(
-                parts.init_script,
-                limit=settings.max_code_chars,
-                label="init_script",
-                required=False,
-            )
+            init_script, err_body = _source_text_from_part(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False)
             if err_body is not None:
                 if req_id is not None:
                     err_body["id"] = req_id
@@ -458,54 +311,24 @@ def create_wsgi_app(
                 formula_pool = get_formula_pool(settings)
                 run_execute = lambda **kw: formula_pool.execute(**kw)
 
-            timeout_sec = timeout_ms_to_sec(
-                parts.timeout_ms,
-                default_timeout_sec=settings.default_timeout_sec,
-                max_timeout_sec=settings.max_timeout_sec,
-            )
+            timeout_sec = timeout_ms_to_sec(parts.timeout_ms, default_timeout_sec=settings.default_timeout_sec, max_timeout_sec=settings.max_timeout_sec)
             sid = session_id
             inflight_sid = sid if mode == "shared" else None
             limit_code = _acquire_inflight(inflight_sid)
             if limit_code is not None:
-                err_body = {
-                    "status": "error",
-                    "code": limit_code,
-                    "error": "Too many in-flight compute requests.",
-                }
+                err_body = {"status": "error", "code": limit_code, "error": "Too many in-flight compute requests."}
                 if req_id is not None:
                     err_body["id"] = req_id
                 return _start_json(start_response, "503 Service Unavailable", err_body)
 
-            log.info(
-                "exec /v1/execute id=%r mode=%s session=%r code_len=%d timeout=%ds",
-                req_id,
-                mode,
-                sid,
-                len(code),
-                timeout_sec,
-            )
+            log.info("exec /v1/execute id=%r mode=%s session=%r code_len=%d timeout=%ds", req_id, mode, sid, len(code), timeout_sec)
 
             start_t = time.perf_counter()
             try:
-                result_payload = run_execute(
-                    code=code,
-                    data_json=parts.data_json,
-                    session_id=sid,
-                    timeout_sec=timeout_sec,
-                    mode=mode,
-                    init_script=init_script,
-                    req_id=req_id,
-                    wire=WIRE_JSON_FORWARD,
-                    decode_result=False,
-                )
+                result_payload = run_execute(code=code, data_json=parts.data_json, session_id=sid, timeout_sec=timeout_sec, mode=mode, init_script=init_script, req_id=req_id, wire=WIRE_JSON_FORWARD, decode_result=False)
                 duration_ms = (time.perf_counter() - start_t) * 1000.0
                 status = result_payload.get("status") if isinstance(result_payload, dict) else None
-                log.info(
-                    "done /v1/execute id=%r status=%r duration=%.2fms",
-                    req_id,
-                    status,
-                    duration_ms,
-                )
+                log.info("done /v1/execute id=%r status=%r duration=%.2fms", req_id, status, duration_ms)
 
                 if isinstance(result_payload, dict):
                     raw_out = result_payload.get("result_json")
@@ -520,22 +343,14 @@ def create_wsgi_app(
                     err_body = {"status": "error", "error": f"JSON encode failed: {e}"}
                     if req_id is not None:
                         err_body["id"] = req_id
-                    return _start_json(
-                        start_response,
-                        "500 Internal Server Error",
-                        err_body,
-                    )
+                    return _start_json(start_response, "500 Internal Server Error", err_body)
             except Exception as e:
                 duration_ms = (time.perf_counter() - start_t) * 1000.0
                 log.exception("fail /v1/execute id=%r duration=%.2fms: %s", req_id, duration_ms, e)
                 err_body = {"status": "error", "error": f"Server execution failure: {e}"}
                 if req_id is not None:
                     err_body["id"] = req_id
-                return _start_json(
-                    start_response,
-                    "500 Internal Server Error",
-                    err_body,
-                )
+                return _start_json(start_response, "500 Internal Server Error", err_body)
             finally:
                 _release_inflight(inflight_sid)
 
@@ -545,12 +360,7 @@ def create_wsgi_app(
             # DocumentBroker destroy; unknown / already-gone is still ok.
             _principal, auth_err = authenticate_request(environ, settings)
             if auth_err is not None:
-                return _start_json(
-                    start_response,
-                    "401 Unauthorized",
-                    {"status": "error", "error": "Unauthorized"},
-                    extra_headers=[("WWW-Authenticate", "Bearer")],
-                )
+                return _start_json(start_response, "401 Unauthorized", {"status": "error", "error": "Unauthorized"}, extra_headers=[("WWW-Authenticate", "Bearer")])
 
             req_data, err_resp = _read_optional_request_json(environ, settings, start_response)
             if err_resp is not None:
@@ -560,13 +370,7 @@ def create_wsgi_app(
             req_id = req_data.get("id")
 
             if "session_id" in req_data:
-                err_body = {
-                    "status": "error",
-                    "error": (
-                        "session_id must be provided as a URL query parameter "
-                        "(?session_id=...), not in the JSON body."
-                    ),
-                }
+                err_body = {"status": "error", "error": ("session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.")}
                 if req_id is not None:
                     err_body["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", err_body)
@@ -577,10 +381,7 @@ def create_wsgi_app(
             session_id = session_ids[0].strip() if session_ids and session_ids[0].strip() else None
 
             if not session_id:
-                err_body = {
-                    "status": "error",
-                    "error": "Missing 'session_id' URL query parameter (?session_id=...).",
-                }
+                err_body = {"status": "error", "error": "Missing 'session_id' URL query parameter (?session_id=...)."}
                 if req_id is not None:
                     err_body["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", err_body)
@@ -596,22 +397,12 @@ def create_wsgi_app(
                 result_payload = run_reset(session_id)
                 duration_ms = (time.perf_counter() - start_t) * 1000.0
                 status = result_payload.get("status") if isinstance(result_payload, dict) else None
-                log.info(
-                    "done /v1/session/reset id=%r session=%r status=%r duration=%.2fms",
-                    req_id,
-                    session_id,
-                    status,
-                    duration_ms,
-                )
+                log.info("done /v1/session/reset id=%r session=%r status=%r duration=%.2fms", req_id, session_id, status, duration_ms)
 
                 if isinstance(result_payload, dict) and result_payload.get("status") == "error":
                     # Lease failure — execute-style shape; 503 matches pool-busy /
                     # inflight unavailability (reset is control-plane, not eval).
-                    err_body = {
-                        "status": "error",
-                        "code": result_payload.get("code") or "WORKER_POOL_BUSY",
-                        "error": result_payload.get("error") or "Could not lease worker to reset session.",
-                    }
+                    err_body = {"status": "error", "code": result_payload.get("code") or "WORKER_POOL_BUSY", "error": result_payload.get("error") or "Could not lease worker to reset session."}
                     if req_id is not None:
                         err_body["id"] = req_id
                     return _start_json(start_response, "503 Service Unavailable", err_body)
@@ -622,31 +413,16 @@ def create_wsgi_app(
                 return _start_json(start_response, "200 OK", ok_body)
             except Exception as e:
                 duration_ms = (time.perf_counter() - start_t) * 1000.0
-                log.exception(
-                    "fail /v1/session/reset id=%r session=%r duration=%.2fms: %s",
-                    req_id,
-                    session_id,
-                    duration_ms,
-                    e,
-                )
+                log.exception("fail /v1/session/reset id=%r session=%r duration=%.2fms: %s", req_id, session_id, duration_ms, e)
                 err_body = {"status": "error", "error": f"Server execution failure: {e}"}
                 if req_id is not None:
                     err_body["id"] = req_id
-                return _start_json(
-                    start_response,
-                    "500 Internal Server Error",
-                    err_body,
-                )
+                return _start_json(start_response, "500 Internal Server Error", err_body)
 
         if path == "/v1/vision" and method == "POST":
             _principal, auth_err = authenticate_request(environ, settings)
             if auth_err is not None:
-                return _start_json(
-                    start_response,
-                    "401 Unauthorized",
-                    {"status": "error", "error": "Unauthorized"},
-                    extra_headers=[("WWW-Authenticate", "Bearer")],
-                )
+                return _start_json(start_response, "401 Unauthorized", {"status": "error", "error": "Unauthorized"}, extra_headers=[("WWW-Authenticate", "Bearer")])
 
             req_data, err_resp = _read_request_json(environ, settings, start_response)
             if err_resp is not None:
@@ -662,20 +438,13 @@ def create_wsgi_app(
             path_str = file_path if isinstance(file_path, str) and file_path.strip() else None
 
             if not b64_str and not path_str:
-                vision_err_body: dict[str, Any] = {
-                    "status": "error",
-                    "error": "Missing image input: either 'image_b64' (base64 string buffer) or 'file_path' (server path) is required.",
-                }
+                vision_err_body: dict[str, Any] = {"status": "error", "error": "Missing image input: either 'image_b64' (base64 string buffer) or 'file_path' (server path) is required."}
                 if req_id is not None:
                     vision_err_body["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", vision_err_body)
 
             if path_str and not ocr_path_is_allowed(path_str, settings.ocr_allow_paths):
-                denied: dict[str, Any] = {
-                    "status": "error",
-                    "code": "FILE_PATH_DENIED",
-                    "error": "file_path is not under ocr.allow_paths (default deny).",
-                }
+                denied: dict[str, Any] = {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
                 if req_id is not None:
                     denied["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", denied)
@@ -690,15 +459,7 @@ def create_wsgi_app(
 
             vision_pool = get_vision_pool(settings)
             try:
-                result_payload = vision_pool.execute(
-                    helper=helper,
-                    image_b64=b64_str,
-                    file_path=path_str,
-                    params=params if isinstance(params, dict) else {},
-                    timeout_sec=timeout_sec_opt,
-                    req_id=req_id,
-                    allow_paths=settings.ocr_allow_paths,
-                )
+                result_payload = vision_pool.execute(helper=helper, image_b64=b64_str, file_path=path_str, params=params if isinstance(params, dict) else {}, timeout_sec=timeout_sec_opt, req_id=req_id, allow_paths=settings.ocr_allow_paths)
                 if req_id is not None and isinstance(result_payload, dict):
                     result_payload["id"] = req_id
                 try:
@@ -707,21 +468,13 @@ def create_wsgi_app(
                     err_body = {"status": "error", "error": f"JSON encode failed: {e}"}
                     if req_id is not None:
                         err_body["id"] = req_id
-                    return _start_json(
-                        start_response,
-                        "500 Internal Server Error",
-                        err_body,
-                    )
+                    return _start_json(start_response, "500 Internal Server Error", err_body)
             except Exception as e:
                 log.exception("fail /v1/vision id=%r: %s", req_id, e)
                 err_body = {"status": "error", "error": f"Server execution failure: {e}"}
                 if req_id is not None:
                     err_body["id"] = req_id
-                return _start_json(
-                    start_response,
-                    "500 Internal Server Error",
-                    err_body,
-                )
+                return _start_json(start_response, "500 Internal Server Error", err_body)
 
         start_response("404 Not Found", [("Content-Type", "text/plain")])
         return [b"Not Found"]
@@ -745,13 +498,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     # Match TCPServer: tuple[str,int] is invariant vs the AF_INET/AF_INET6 union.
     server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
 
-    def __init__(
-        self,
-        server_address: tuple[str, int],
-        RequestHandlerClass: Any,
-        bind_and_activate: bool = True,
-        max_threads: int | None = None,
-    ) -> None:
+    def __init__(self, server_address: tuple[str, int], RequestHandlerClass: Any, bind_and_activate: bool = True, max_threads: int | None = None) -> None:
         self.sockets: list[socket.socket] = []
         # Own shutdown state: BaseServer uses name-mangled ``__is_shut_down`` / ``__shutdown_request``
         # that type checkers cannot see; our multi-socket ``serve_forever`` must pair with ``shutdown``.
@@ -765,16 +512,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         bind_addresses: list[tuple[socket.AddressFamily, str]] = []
         if host in ("", "127.0.0.1", "::1", "localhost"):
             # Secure default: bind only to local loopback interface.
-            bind_addresses = [
-                (socket.AF_INET, "127.0.0.1"),
-                (socket.AF_INET6, "::1"),
-            ]
+            bind_addresses = [(socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")]
         elif host in ("0.0.0.0", "::"):
             # Wildcard binds (e.g. for Docker/container networking) allowed only when explicitly requested via HOST env.
-            bind_addresses = [
-                (socket.AF_INET, "0.0.0.0"),
-                (socket.AF_INET6, "::"),
-            ]
+            bind_addresses = [(socket.AF_INET, "0.0.0.0"), (socket.AF_INET6, "::")]
         else:
             try:
                 infos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
@@ -903,19 +644,8 @@ class WSGIDualStackServer:
             server_name: str
             server_port: int
 
-            def __init__(
-                self,
-                server_address: tuple[str, int],
-                RequestHandlerClass: Any,
-                bind_and_activate: bool = True,
-            ) -> None:
-                DualStackThreadPoolHTTPServer.__init__(
-                    self,
-                    server_address,
-                    RequestHandlerClass,
-                    bind_and_activate,
-                    max_threads=max_threads,
-                )
+            def __init__(self, server_address: tuple[str, int], RequestHandlerClass: Any, bind_and_activate: bool = True) -> None:
+                DualStackThreadPoolHTTPServer.__init__(self, server_address, RequestHandlerClass, bind_and_activate, max_threads=max_threads)
                 self.server_name = socket.getfqdn(str(self.server_address[0]))
                 self.server_port = self.server_address[1]
                 self.setup_environ()
@@ -938,14 +668,7 @@ class WSGIDualStackServer:
 def run_server(settings: ComputeSettings) -> None:
     setup_logging(settings.log_level)
     auth_note = "auth=yes" if settings.auth_required else "auth=no (insecure)"
-    log.info(
-        "Starting Python Compute Service on %s:%d (%s, workers=%d, ocr_workers=%d)...",
-        settings.host,
-        settings.port,
-        auth_note,
-        settings.workers,
-        settings.ocr_workers,
-    )
+    log.info("Starting Python Compute Service on %s:%d (%s, workers=%d, ocr_workers=%d)...", settings.host, settings.port, auth_note, settings.workers, settings.ocr_workers)
     # Host-only Cython status. Workers unpack / pack ndarrays without loading.
     from plugin.scripting.payload_codec import get_cython_status_info, load_cython_accelerator
 
@@ -995,67 +718,17 @@ def run_server(settings: ComputeSettings) -> None:
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Standalone Python compute service for Collabora Online =PY()",
-    )
-    parser.add_argument(
-        "--config",
-        dest="config_path",
-        default=None,
-        help="Path to python-compute.json (or set PYTHON_COMPUTE_CONFIG)",
-    )
+    parser = argparse.ArgumentParser(description="Standalone Python compute service for Collabora Online =PY()")
+    parser.add_argument("--config", dest="config_path", default=None, help="Path to python-compute.json (or set PYTHON_COMPUTE_CONFIG)")
     parser.add_argument("--host", default=None, help="Bind host (overrides config/env)")
     parser.add_argument("--port", type=int, default=None, help="Bind port (overrides config/env)")
-    parser.add_argument(
-        "--threads",
-        "--max-threads",
-        dest="threads",
-        type=int,
-        default=None,
-        help=f"Number of HTTP server listener threads (default: {DEFAULT_SETTINGS.threads})",
-    )
-    parser.add_argument(
-        "--workers",
-        "--max-workers",
-        dest="workers",
-        type=int,
-        default=None,
-        help=f"Number of formula worker subprocesses (default: {DEFAULT_SETTINGS.workers})",
-    )
-    parser.add_argument(
-        "--worker-max-tasks",
-        dest="worker_max_tasks",
-        type=int,
-        default=None,
-        help=f"Recycle formula worker process after N tasks (default: {DEFAULT_SETTINGS.worker_max_tasks})",
-    )
-    parser.add_argument(
-        "--ocr-workers",
-        dest="ocr_workers",
-        type=int,
-        default=None,
-        help=f"Dedicated OCR/Vision worker subprocesses (default: {DEFAULT_SETTINGS.ocr_workers}, 0 to disable)",
-    )
-    parser.add_argument(
-        "--ocr-timeout",
-        dest="ocr_timeout_sec",
-        type=int,
-        default=None,
-        help=f"Execution timeout for vision tasks in seconds (default: {DEFAULT_SETTINGS.ocr_timeout_sec})",
-    )
-    parser.add_argument(
-        "--ocr-max-tasks",
-        dest="ocr_max_tasks",
-        type=int,
-        default=None,
-        help=f"Recycle OCR worker process after N tasks (default: {DEFAULT_SETTINGS.ocr_max_tasks})",
-    )
-    parser.add_argument(
-        "--api-key-file",
-        dest="api_key_file",
-        default=None,
-        help="Read Bearer shared secret from this file (preferred over argv secrets)",
-    )
+    parser.add_argument("--threads", "--max-threads", dest="threads", type=int, default=None, help=f"Number of HTTP server listener threads (default: {DEFAULT_SETTINGS.threads})")
+    parser.add_argument("--workers", "--max-workers", dest="workers", type=int, default=None, help=f"Number of formula worker subprocesses (default: {DEFAULT_SETTINGS.workers})")
+    parser.add_argument("--worker-max-tasks", dest="worker_max_tasks", type=int, default=None, help=f"Recycle formula worker process after N tasks (default: {DEFAULT_SETTINGS.worker_max_tasks})")
+    parser.add_argument("--ocr-workers", dest="ocr_workers", type=int, default=None, help=f"Dedicated OCR/Vision worker subprocesses (default: {DEFAULT_SETTINGS.ocr_workers}, 0 to disable)")
+    parser.add_argument("--ocr-timeout", dest="ocr_timeout_sec", type=int, default=None, help=f"Execution timeout for vision tasks in seconds (default: {DEFAULT_SETTINGS.ocr_timeout_sec})")
+    parser.add_argument("--ocr-max-tasks", dest="ocr_max_tasks", type=int, default=None, help=f"Recycle OCR worker process after N tasks (default: {DEFAULT_SETTINGS.ocr_max_tasks})")
+    parser.add_argument("--api-key-file", dest="api_key_file", default=None, help="Read Bearer shared secret from this file (preferred over argv secrets)")
     return parser
 
 
@@ -1064,16 +737,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         settings = load_settings(
-            config_path=args.config_path,
-            host=args.host,
-            port=args.port,
-            threads=args.threads,
-            workers=args.workers,
-            worker_max_tasks=args.worker_max_tasks,
-            ocr_workers=args.ocr_workers,
-            ocr_timeout_sec=args.ocr_timeout_sec,
-            ocr_max_tasks=args.ocr_max_tasks,
-            api_key_file=args.api_key_file,
+            config_path=args.config_path, host=args.host, port=args.port, threads=args.threads, workers=args.workers, worker_max_tasks=args.worker_max_tasks, ocr_workers=args.ocr_workers, ocr_timeout_sec=args.ocr_timeout_sec, ocr_max_tasks=args.ocr_max_tasks, api_key_file=args.api_key_file
         )
     except ConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)

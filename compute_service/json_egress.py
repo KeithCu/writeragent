@@ -10,15 +10,7 @@ import base64
 import math
 from typing import Any
 
-from plugin.scripting.payload_codec import (
-    PAYLOAD_DATAFRAME,
-    find_image_payloads,
-    host_unpack_data,
-    is_dataframe_payload,
-    is_image_payload,
-    is_multi_data,
-    is_split_grid,
-)
+from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME, find_image_payloads, host_unpack_data, is_dataframe_payload, is_image_payload, is_multi_data, is_split_grid
 
 
 def _is_ndarray(obj: object) -> bool:
@@ -68,10 +60,7 @@ def _image_to_json(payload: dict[str, Any]) -> dict[str, Any]:
         data_b64 = data
     else:
         data_b64 = ""
-    return {
-        "format": str(payload.get("format") or "png"),
-        "data_b64": data_b64,
-    }
+    return {"format": str(payload.get("format") or "png"), "data_b64": data_b64}
 
 
 def to_dumb_json_value(obj: Any) -> Any:
@@ -125,11 +114,7 @@ def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
     status = payload.get("status")
     if status != "ok":
         err = payload.get("error") or payload.get("message") or "execution failed"
-        out: dict[str, Any] = {
-            "status": "error",
-            "error": str(err),
-            "stdout": payload.get("stdout") or "",
-        }
+        out: dict[str, Any] = {"status": "error", "error": str(err), "stdout": payload.get("stdout") or ""}
         # Keep message for older tests during transition
         out["message"] = out["error"]
         return sanitize_for_strict_json(out)
@@ -141,14 +126,7 @@ def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
     if is_image_payload(result) or (isinstance(result, dict) and result.get("__wa_payload__") == "image"):
         images.append(_image_to_json(result if isinstance(result, dict) else {}))
         result_out: Any = None
-    elif (
-        isinstance(result, dict)
-        and is_multi_data(result)
-        and all(
-            is_image_payload(x) or (isinstance(x, dict) and x.get("__wa_payload__") == "image")
-            for x in (result.get("items") or [])
-        )
-    ):
+    elif isinstance(result, dict) and is_multi_data(result) and all(is_image_payload(x) or (isinstance(x, dict) and x.get("__wa_payload__") == "image") for x in (result.get("items") or [])):
         for item in result.get("items") or []:
             images.append(_image_to_json(item if isinstance(item, dict) else {}))
         result_out = None
@@ -158,11 +136,7 @@ def normalize_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
             images.append(_image_to_json(img))
         result_out = to_dumb_json_value(result)
 
-    out = {
-        "status": "ok",
-        "result": result_out,
-        "stdout": payload.get("stdout") or "",
-    }
+    out = {"status": "ok", "result": result_out, "stdout": payload.get("stdout") or ""}
     if images:
         out["images"] = images
     return sanitize_for_strict_json(out)

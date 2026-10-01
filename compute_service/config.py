@@ -425,20 +425,7 @@ def load_settings(
     elif chosen_key_file:
         values["api_key"] = _read_key_file(chosen_key_file)
 
-    for int_field in (
-        "port",
-        "max_body_bytes",
-        "default_timeout_sec",
-        "max_timeout_sec",
-        "threads",
-        "workers",
-        "worker_max_tasks",
-        "ocr_workers",
-        "ocr_timeout_sec",
-        "ocr_max_tasks",
-        "max_code_chars",
-        "max_inflight_per_session",
-    ):
+    for int_field in ("port", "max_body_bytes", "default_timeout_sec", "max_timeout_sec", "threads", "workers", "worker_max_tasks", "ocr_workers", "ocr_timeout_sec", "ocr_max_tasks", "max_code_chars", "max_inflight_per_session"):
         if int_field in values:
             values[int_field] = _as_int(values[int_field], field=int_field)
 

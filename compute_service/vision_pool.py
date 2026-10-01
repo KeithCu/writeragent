@@ -29,14 +29,7 @@ _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "vision_worker.py")
 class VisionProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for Vision/OCR."""
 
-    def __init__(
-        self,
-        settings: ComputeSettings | int | None = None,
-        num_workers: int | None = None,
-        default_timeout_sec: int | None = None,
-        max_tasks: int | None = None,
-        idle_worker_ttl_sec: float | None = None,
-    ) -> None:
+    def __init__(self, settings: ComputeSettings | int | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, idle_worker_ttl_sec: float | None = None) -> None:
         if isinstance(settings, int):
             num_workers = settings
             settings = None
@@ -46,44 +39,18 @@ class VisionProcessPool(BaseProcessPool):
         eff_max_tasks = cfg.ocr_max_tasks if max_tasks is None else max_tasks
         eff_idle_ttl = cfg.idle_worker_ttl_sec if idle_worker_ttl_sec is None else idle_worker_ttl_sec
 
-        super().__init__(
-            script_path=_WORKER_SCRIPT,
-            num_workers=eff_num_workers,
-            default_timeout_sec=eff_timeout,
-            max_tasks=eff_max_tasks,
-            worker_name="Vision worker",
-            idle_worker_ttl_sec=eff_idle_ttl,
-        )
+        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Vision worker", idle_worker_ttl_sec=eff_idle_ttl)
 
-    def execute(
-        self,
-        helper: str,
-        image_b64: str | bytes | None = None,
-        file_path: str | None = None,
-        params: dict[str, Any] | None = None,
-        timeout_sec: int | None = None,
-        req_id: str | None = None,
-        allow_paths: tuple[str, ...] | list[str] | None = None,
-    ) -> dict[str, Any]:
+    def execute(self, helper: str, image_b64: str | bytes | None = None, file_path: str | None = None, params: dict[str, Any] | None = None, timeout_sec: int | None = None, req_id: str | None = None, allow_paths: tuple[str, ...] | list[str] | None = None) -> dict[str, Any]:
         """Execute a vision task on an available worker process."""
         if file_path:
             from compute_service.config import ocr_path_is_allowed
 
             prefixes = () if allow_paths is None else allow_paths
             if not ocr_path_is_allowed(file_path, prefixes):
-                return {
-                    "id": req_id,
-                    "status": "error",
-                    "code": "FILE_PATH_DENIED",
-                    "error": "file_path is not under ocr.allow_paths (default deny).",
-                }
+                return {"id": req_id, "status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
         if not self.is_enabled():
-            return {
-                "id": req_id,
-                "status": "error",
-                "code": "VISION_SERVICE_DISABLED",
-                "error": "Vision / OCR service is not enabled on this instance (ocr_workers=0).",
-            }
+            return {"id": req_id, "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "Vision / OCR service is not enabled on this instance (ocr_workers=0)."}
 
         eff_timeout = float(timeout_sec or self.default_timeout_sec)
         b64_val = None
@@ -99,24 +66,12 @@ class VisionProcessPool(BaseProcessPool):
                 except Exception:
                     b64_val = image_b64
 
-        payload = {
-            "id": req_id,
-            "helper": helper,
-            "image_bytes": image_bytes,
-            "image_b64": b64_val,
-            "file_path": file_path,
-            "params": params or {},
-        }
+        payload = {"id": req_id, "helper": helper, "image_bytes": image_bytes, "image_b64": b64_val, "file_path": file_path, "params": params or {}}
 
         deadline = time.monotonic() + eff_timeout
         worker = self.lease_any(timeout_sec=max(0.01, deadline - time.monotonic()))
         if worker is None:
-            return {
-                "id": req_id,
-                "status": "error",
-                "code": "VISION_POOL_BUSY",
-                "error": "All vision workers are currently busy and request timed out waiting for worker lease.",
-            }
+            return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
 
         try:
             res = worker.execute(payload, timeout_sec=max(0.01, deadline - time.monotonic()))

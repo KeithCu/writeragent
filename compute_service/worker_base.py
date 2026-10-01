@@ -28,12 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
-from plugin.scripting.ipc import (
-    DEFAULT_MAX_PAYLOAD_BYTES,
-    read_pickle_frame,
-    read_pickle_frame_with_timeout,
-    write_pickle_frame,
-)
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame
 from plugin.scripting.sandbox import optimize_popen_pipes
 
 log = logging.getLogger("compute_service.worker")
@@ -42,11 +37,7 @@ _SPAWN_READY_TIMEOUT_SEC = 15.0
 _STDERR_SNIPPET = 500
 
 
-def run_worker_stdio_loop(
-    handler: Callable[[dict[str, Any]], dict[str, Any]],
-    *,
-    max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
-) -> int:
+def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> int:
     """Standard binary Pickle 5 stdio worker loop for child subprocesses."""
     stdin_bin = sys.stdin.buffer
     stdout_bin = sys.stdout.buffer
@@ -84,14 +75,7 @@ class BaseProcessWorker:
     lock: threading.Lock
     tasks_executed: int
 
-    def __init__(
-        self,
-        worker_id: int,
-        script_path: str,
-        worker_name: str = "Worker",
-        *,
-        max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
-    ) -> None:
+    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> None:
         self.worker_id = worker_id
         self.script_path = script_path
         self.worker_name = worker_name
@@ -116,40 +100,14 @@ class BaseProcessWorker:
         cmd = [sys.executable, self.script_path]
         try:
             # **creationflags kwargs make the type checker treat this as Popen[str].
-            proc = cast(
-                "subprocess.Popen[bytes]",
-                subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    bufsize=0,
-                    text=False,
-                    **get_subprocess_creationflags(),
-                ),
-            )
+            proc = cast("subprocess.Popen[bytes]", subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, text=False, **get_subprocess_creationflags()))
             self.process = proc
             optimize_popen_pipes(proc)
-            self._stderr_drain = start_stderr_drain(
-                proc.stderr,
-                name=f"{self.worker_name}-stderr-{self.worker_id}",
-            )
+            self._stderr_drain = start_stderr_drain(proc.stderr, name=f"{self.worker_name}-stderr-{self.worker_id}")
             if proc.stdout is not None:
-                ready_data = read_pickle_frame_with_timeout(
-                    proc.stdout,
-                    _SPAWN_READY_TIMEOUT_SEC,
-                    is_alive=self.is_alive,
-                    max_payload_bytes=self.max_payload_bytes,
-                    require_dict=True,
-                )
+                ready_data = read_pickle_frame_with_timeout(proc.stdout, _SPAWN_READY_TIMEOUT_SEC, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, require_dict=True)
                 if isinstance(ready_data, dict):
-                    log.info(
-                        "%s #%d spawned (pid=%s, status=%s)",
-                        self.worker_name,
-                        self.worker_id,
-                        ready_data.get("pid", proc.pid),
-                        ready_data.get("status"),
-                    )
+                    log.info("%s #%d spawned (pid=%s, status=%s)", self.worker_name, self.worker_id, ready_data.get("pid", proc.pid), ready_data.get("status"))
             self.tasks_executed = 0
         except subprocess.TimeoutExpired:
             # Handshake hang: child may still be importing, or stdout was not pickle.
@@ -158,24 +116,12 @@ class BaseProcessWorker:
             spawned = self.process
             rc = spawned.poll() if spawned is not None else None
             extra = f" stderr={snippet!r}" if snippet else " stderr=<empty>"
-            log.error(
-                "%s #%d spawn handshake timed out (returncode=%s)%s",
-                self.worker_name,
-                self.worker_id,
-                rc,
-                extra,
-            )
+            log.error("%s #%d spawn handshake timed out (returncode=%s)%s", self.worker_name, self.worker_id, rc, extra)
             self.kill()
         except Exception as exc:
             snippet = self._stderr_snippet()
             extra = f" stderr={snippet!r}" if snippet else " stderr=<empty>"
-            log.error(
-                "Failed to spawn %s #%d: %s%s",
-                self.worker_name,
-                self.worker_id,
-                exc,
-                extra,
-            )
+            log.error("Failed to spawn %s #%d: %s%s", self.worker_name, self.worker_id, exc, extra)
             self.kill()
 
     def is_alive(self) -> bool:
@@ -202,83 +148,46 @@ class BaseProcessWorker:
             if not self.is_alive():
                 self._spawn()
                 if not self.is_alive():
-                    return {
-                        "status": "error",
-                        "code": "WORKER_SPAWN_FAILED",
-                        "error": f"{self.worker_name} #{self.worker_id} could not be started.",
-                    }
+                    return {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": f"{self.worker_name} #{self.worker_id} could not be started."}
 
             assert self.process is not None
             assert self.process.stdin is not None
             assert self.process.stdout is not None
 
             try:
-                write_pickle_frame(
-                    self.process.stdin,
-                    payload,
-                    max_payload_bytes=self.max_payload_bytes,
-                )
+                write_pickle_frame(self.process.stdin, payload, max_payload_bytes=self.max_payload_bytes)
             except (BrokenPipeError, OSError) as exc:
                 snippet = self._stderr_snippet()
                 self.kill()
                 err = f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}"
                 if snippet:
                     err = f"{err}\n{snippet}"
-                return {
-                    "status": "error",
-                    "code": "WORKER_PIPE_BROKEN",
-                    "error": err,
-                }
+                return {"status": "error", "code": "WORKER_PIPE_BROKEN", "error": err}
 
             try:
-                resp = read_pickle_frame_with_timeout(
-                    self.process.stdout,
-                    timeout_sec,
-                    is_alive=self.is_alive,
-                    max_payload_bytes=self.max_payload_bytes,
-                )
+                resp = read_pickle_frame_with_timeout(self.process.stdout, timeout_sec, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes)
             except subprocess.TimeoutExpired:
-                log.warning(
-                    "%s execution timed out after %.1fs on worker #%d; terminating pid=%s",
-                    self.worker_name,
-                    timeout_sec,
-                    self.worker_id,
-                    self.process.pid,
-                )
+                log.warning("%s execution timed out after %.1fs on worker #%d; terminating pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid)
                 snippet = self._stderr_snippet()
                 self.kill()
                 msg = f"Execution exceeded maximum timeout of {int(timeout_sec)} seconds."
                 if snippet:
                     msg = f"{msg}\n{snippet}"
-                return {
-                    "status": "error",
-                    "code": "EXECUTION_TIMEOUT",
-                    "error": msg,
-                    "message": msg,
-                }
+                return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
             except Exception as exc:
                 snippet = self._stderr_snippet()
                 self.kill()
                 err = f"{self.worker_name} error: {exc}"
                 if snippet:
                     err = f"{err}\n{snippet}"
-                return {
-                    "status": "error",
-                    "code": "WORKER_CRASHED",
-                    "error": err,
-                    "message": err,
-                }
+                return {"status": "error", "code": "WORKER_CRASHED", "error": err, "message": err}
             if resp is None or not isinstance(resp, dict):
                 snippet = self._stderr_snippet()
                 self.kill()
                 err = f"No response returned from {self.worker_name}."
                 if snippet:
                     err = f"{err}\n{snippet}"
-                return {
-                    "status": "error",
-                    "code": "EMPTY_RESPONSE",
-                    "error": err,
-                }
+                return {"status": "error", "code": "EMPTY_RESPONSE", "error": err}
             self.tasks_executed += 1
             return resp
 
@@ -297,16 +206,7 @@ class BaseProcessPool:
     _lock: threading.Lock
     _cond: threading.Condition
 
-    def __init__(
-        self,
-        script_path: str,
-        num_workers: int = 1,
-        default_timeout_sec: int = 30,
-        max_tasks: int = 500,
-        worker_name: str = "Worker",
-        idle_worker_ttl_sec: float | None = None,
-        max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
-    ) -> None:
+    def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> None:
         self.script_path = script_path
         self.num_workers = max(0, num_workers)
         self.default_timeout_sec = default_timeout_sec
@@ -325,12 +225,7 @@ class BaseProcessPool:
         if self.num_workers > 0:
             now = time.monotonic()
             for i in range(self.num_workers):
-                w = BaseProcessWorker(
-                    i + 1,
-                    script_path=script_path,
-                    worker_name=worker_name,
-                    max_payload_bytes=max_payload_bytes,
-                )
+                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes)
                 self.workers.append(w)
                 self._idle.add(w)
                 self._worker_last_active[w] = now
@@ -377,12 +272,7 @@ class BaseProcessPool:
                         self._idle.add(w)
                 self._cond.notify_all()
         if stale:
-            log.info(
-                "Idle worker reaper terminated %d %s(s) idle for >%.1fs",
-                len(stale),
-                self.worker_name,
-                self.idle_worker_ttl_sec,
-            )
+            log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(stale), self.worker_name, self.idle_worker_ttl_sec)
 
     def is_enabled(self) -> bool:
         return self.num_workers > 0 and not self._is_shutdown
@@ -427,12 +317,7 @@ class BaseProcessPool:
     def release_worker(self, worker: BaseProcessWorker) -> None:
         """Return worker to idle set, recycling if max_tasks reached."""
         if self.should_recycle_worker(worker):
-            log.info(
-                "Recycling %s #%d after %d tasks to refresh memory",
-                self.worker_name,
-                worker.worker_id,
-                worker.tasks_executed,
-            )
+            log.info("Recycling %s #%d after %d tasks to refresh memory", self.worker_name, worker.worker_id, worker.tasks_executed)
             worker.kill()
             # Re-spawn so the next lease does not pay spawn latency inside execute().
             # Affinity hashing uses this wrapper list, not process liveness.

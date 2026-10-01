@@ -36,37 +36,17 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     image_bytes: bytes
     if file_path:
         if not isinstance(file_path, str) or not file_path.strip():
-            return {
-                "id": req_id,
-                "status": "error",
-                "code": "INVALID_FILE_PATH",
-                "error": "file_path must be a non-empty string path",
-            }
+            return {"id": req_id, "status": "error", "code": "INVALID_FILE_PATH", "error": "file_path must be a non-empty string path"}
         p = os.path.expanduser(file_path.strip())
         if not os.path.exists(p):
-            return {
-                "id": req_id,
-                "status": "error",
-                "code": "FILE_NOT_FOUND",
-                "error": f"Image file not found: {file_path}",
-            }
+            return {"id": req_id, "status": "error", "code": "FILE_NOT_FOUND", "error": f"Image file not found: {file_path}"}
         if not os.path.isfile(p):
-            return {
-                "id": req_id,
-                "status": "error",
-                "code": "NOT_A_FILE",
-                "error": f"Path is not a regular file: {file_path}",
-            }
+            return {"id": req_id, "status": "error", "code": "NOT_A_FILE", "error": f"Path is not a regular file: {file_path}"}
         try:
             with open(p, "rb") as f:
                 image_bytes = f.read()
         except Exception as exc:
-            return {
-                "id": req_id,
-                "status": "error",
-                "code": "FILE_READ_ERROR",
-                "error": f"Failed to read image file {file_path}: {exc}",
-            }
+            return {"id": req_id, "status": "error", "code": "FILE_READ_ERROR", "error": f"Failed to read image file {file_path}: {exc}"}
     elif req.get("image_bytes") and isinstance(req["image_bytes"], (bytes, bytearray)):
         image_bytes = bytes(req["image_bytes"])
     elif image_b64:
@@ -76,26 +56,11 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             elif isinstance(image_b64, (bytes, bytearray)):
                 image_bytes = bytes(image_b64)
             else:
-                return {
-                    "id": req_id,
-                    "status": "error",
-                    "code": "INVALID_IMAGE",
-                    "error": "image_b64 must be base64 string or raw bytes",
-                }
+                return {"id": req_id, "status": "error", "code": "INVALID_IMAGE", "error": "image_b64 must be base64 string or raw bytes"}
         except Exception as exc:
-            return {
-                "id": req_id,
-                "status": "error",
-                "code": "INVALID_BASE64",
-                "error": f"Base64 decode failed: {exc}",
-            }
+            return {"id": req_id, "status": "error", "code": "INVALID_BASE64", "error": f"Base64 decode failed: {exc}"}
     else:
-        return {
-            "id": req_id,
-            "status": "error",
-            "code": "MISSING_IMAGE_SOURCE",
-            "error": "Either 'image_b64' (base64 string buffer), 'image_bytes', or 'file_path' (server filesystem path) must be provided.",
-        }
+        return {"id": req_id, "status": "error", "code": "MISSING_IMAGE_SOURCE", "error": "Either 'image_b64' (base64 string buffer), 'image_bytes', or 'file_path' (server filesystem path) must be provided."}
 
     from plugin.vision.venv.vision import run_vision
 
@@ -106,13 +71,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             res["id"] = req_id
         return res
     except Exception as exc:
-        return {
-            "id": req_id,
-            "status": "error",
-            "code": "VISION_WORKER_ERROR",
-            "error": str(exc),
-            "traceback": traceback.format_exc(),
-        }
+        return {"id": req_id, "status": "error", "code": "VISION_WORKER_ERROR", "error": str(exc), "traceback": traceback.format_exc()}
 
 
 def main() -> int:

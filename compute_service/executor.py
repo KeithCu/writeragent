@@ -37,12 +37,7 @@ def _session_lock(session_id: str) -> threading.Lock:
         return lock
 
 
-def clamp_timeout_sec(
-    timeout_sec: float | int | None,
-    *,
-    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
-    max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec,
-) -> int:
+def clamp_timeout_sec(timeout_sec: float | int | None, *, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec) -> int:
     if timeout_sec is None:
         return default_timeout_sec
     try:
@@ -52,42 +47,21 @@ def clamp_timeout_sec(
     return max(1, min(max_timeout_sec, sec))
 
 
-def timeout_ms_to_sec(
-    timeout_ms: Any,
-    *,
-    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
-    max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec,
-) -> int:
+def timeout_ms_to_sec(timeout_ms: Any, *, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec) -> int:
     if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)):
         return default_timeout_sec
     if timeout_ms <= 0:
         return default_timeout_sec
     # Round up so 1500ms → 2s, not 1s
-    return clamp_timeout_sec(
-        (int(timeout_ms) + 999) // 1000,
-        default_timeout_sec=default_timeout_sec,
-        max_timeout_sec=max_timeout_sec,
-    )
+    return clamp_timeout_sec((int(timeout_ms) + 999) // 1000, default_timeout_sec=default_timeout_sec, max_timeout_sec=max_timeout_sec)
 
 
 def execute_code(
-    code: str,
-    data: Any = None,
-    session_id: str | None = None,
-    timeout_sec: int | None = None,
-    *,
-    mode: str = "isolated",
-    init_script: str | None = None,
-    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
-    max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec,
+    code: str, data: Any = None, session_id: str | None = None, timeout_sec: int | None = None, *, mode: str = "isolated", init_script: str | None = None, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec
 ) -> dict[str, Any]:
     """Execute *code* under AST sandboxing; return §8-shaped dumb-JSON payload."""
     # Always pass an explicit timeout so the sandbox never consults WriterAgent defaults.
-    timeout_sec = clamp_timeout_sec(
-        timeout_sec,
-        default_timeout_sec=default_timeout_sec,
-        max_timeout_sec=max_timeout_sec,
-    )
+    timeout_sec = clamp_timeout_sec(timeout_sec, default_timeout_sec=default_timeout_sec, max_timeout_sec=max_timeout_sec)
 
     # Shared kernel only when explicitly requested *and* a session id is provided.
     use_session: str | None = None
@@ -107,15 +81,7 @@ def execute_code(
             init_sid = f"isolated:{init_hash}:init"
 
     def _run() -> dict[str, Any]:
-        return run_sandboxed_code(
-            code=code,
-            data=data,
-            session_id=use_session,
-            timeout_sec=timeout_sec,
-            init_script=init_code,
-            init_session_id=init_sid,
-            init_script_hash=init_hash,
-        )
+        return run_sandboxed_code(code=code, data=data, session_id=use_session, timeout_sec=timeout_sec, init_script=init_code, init_session_id=init_sid, init_script_hash=init_hash)
 
     if use_session is not None:
         with _session_lock(use_session):

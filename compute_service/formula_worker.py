@@ -25,11 +25,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from compute_service.executor import execute_code
-from compute_service.json_forward import (
-    COMPUTE_MAX_PAYLOAD_BYTES,
-    WIRE_JSON_FORWARD,
-    dumps_response,
-)
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, dumps_response
 from compute_service.worker_base import run_worker_stdio_loop
 
 # Do not load the Cython accelerator here. Default compute wire is JSON-forward
@@ -52,13 +48,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             except Exception:
                 missing.append(str(pkg))
         if missing:
-            return {
-                "id": req_id,
-                "status": "error",
-                "code": "MISSING_DEPENDENCIES",
-                "missing": missing,
-                "error": f"Missing required dependencies in worker environment: {', '.join(missing)}",
-            }
+            return {"id": req_id, "status": "error", "code": "MISSING_DEPENDENCIES", "missing": missing, "error": f"Missing required dependencies in worker environment: {', '.join(missing)}"}
         return {"id": req_id, "status": "ok"}
 
     if action == "reset_session":
@@ -74,12 +64,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
     code = req.get("code")
     if not code or not isinstance(code, str):
-        return {
-            "id": req_id,
-            "status": "error",
-            "code": "MISSING_CODE",
-            "error": "Missing or invalid 'code' parameter",
-        }
+        return {"id": req_id, "status": "error", "code": "MISSING_CODE", "error": "Missing or invalid 'code' parameter"}
 
     session_id = req.get("session_id")
     mode = req.get("mode") or "isolated"
@@ -89,27 +74,14 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
     try:
         data = _load_request_data(req)
-        res = execute_code(
-            code=code,
-            data=data,
-            session_id=session_id,
-            timeout_sec=timeout_sec,
-            mode=mode,
-            init_script=init_script,
-        )
+        res = execute_code(code=code, data=data, session_id=session_id, timeout_sec=timeout_sec, mode=mode, init_script=init_script)
         if req_id is not None and isinstance(res, dict):
             res["id"] = req_id
         if json_forward:
             return _json_forward_envelope(res, req_id=req_id)
         return res
     except Exception as exc:
-        err = {
-            "id": req_id,
-            "status": "error",
-            "code": "WORKER_EXECUTION_ERROR",
-            "error": str(exc),
-            "traceback": traceback.format_exc(),
-        }
+        err = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": str(exc), "traceback": traceback.format_exc()}
         if json_forward:
             return _json_forward_envelope(err, req_id=req_id)
         return err
@@ -137,23 +109,12 @@ def _json_forward_envelope(res: dict[str, Any], *, req_id: Any) -> dict[str, Any
     try:
         result_json = dumps_response(res)
     except (TypeError, ValueError) as exc:
-        fallback = {
-            "status": "error",
-            "error": f"JSON encode failed: {exc}",
-        }
+        fallback = {"status": "error", "error": f"JSON encode failed: {exc}"}
         if req_id is not None:
             fallback["id"] = req_id
         result_json = dumps_response(fallback)
-        return {
-            "id": req_id,
-            "status": "error",
-            "result_json": result_json,
-        }
-    return {
-        "id": req_id,
-        "status": res.get("status"),
-        "result_json": result_json,
-    }
+        return {"id": req_id, "status": "error", "result_json": result_json}
+    return {"id": req_id, "status": res.get("status"), "result_json": result_json}
 
 
 def main() -> int:

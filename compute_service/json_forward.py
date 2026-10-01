@@ -35,9 +35,7 @@ _MAX_MULTIPART_PARTS = 8
 _PART_NAMES = frozenset({"meta", "code", "init_script", "data"})
 _FORBIDDEN_META_KEYS = ("code", "data", "data_json", "init_script")
 _ALLOWED_CTE = frozenset({"7bit", "8bit", "binary"})
-_BOUNDARY_TOKEN_CHARS = frozenset(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'()+_,-./:=?"
-)
+_BOUNDARY_TOKEN_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'()+_,-./:=?")
 
 WIRE_JSON_FORWARD = "json_forward"
 WIRE_PICKLE = "pickle"
@@ -98,14 +96,7 @@ def is_multipart_content_type(content_type: str | None) -> bool:
     return content_type.split(";", 1)[0].strip().lower().startswith("multipart/")
 
 
-def encode_multipart_execute(
-    meta: dict[str, Any],
-    data_json: bytes | None = None,
-    *,
-    code: str | bytes,
-    init_script: str | bytes | None = None,
-    boundary: str | None = None,
-) -> tuple[str, bytes]:
+def encode_multipart_execute(meta: dict[str, Any], data_json: bytes | None = None, *, code: str | bytes, init_script: str | bytes | None = None, boundary: str | None = None) -> tuple[str, bytes]:
     """Build kit multipart. Returns ``(Content-Type, body bytes)``.
 
     ``meta`` is ``id`` / ``mode`` / ``timeout_ms`` only. ``code`` and
@@ -124,18 +115,9 @@ def encode_multipart_execute(
     chosen = _pick_boundary(payloads, boundary or "wa-compute")
 
     def _part(name: str, content_type: str, payload: bytes) -> bytes:
-        return (
-            f"--{chosen}\r\n"
-            f'Content-Disposition: form-data; name="{name}"\r\n'
-            f"Content-Type: {content_type}\r\n"
-            f"Content-Transfer-Encoding: 8bit\r\n"
-            f"\r\n"
-        ).encode("ascii") + payload + b"\r\n"
+        return (f'--{chosen}\r\nContent-Disposition: form-data; name="{name}"\r\nContent-Type: {content_type}\r\nContent-Transfer-Encoding: 8bit\r\n\r\n').encode("ascii") + payload + b"\r\n"
 
-    chunks = [
-        _part("meta", "application/json", meta_bytes),
-        _part("code", "text/plain; charset=utf-8", code_bytes),
-    ]
+    chunks = [_part("meta", "application/json", meta_bytes), _part("code", "text/plain; charset=utf-8", code_bytes)]
     if init_bytes is not None:
         chunks.append(_part("init_script", "text/plain; charset=utf-8", init_bytes))
     if data_json is not None:
@@ -159,15 +141,7 @@ def parse_multipart_execute(body: bytes, content_type: str) -> ExecuteRequestPar
     boundary = _boundary_from_content_type(content_type)
     named = _scan_multipart_parts(bytes(body), boundary)
     req_id, mode, timeout_ms, has_session_id = _parse_meta_object(named["meta"])
-    return ExecuteRequestParts(
-        req_id=req_id,
-        code=named.get("code"),
-        mode=mode,
-        timeout_ms=timeout_ms,
-        init_script=named.get("init_script"),
-        data_json=named.get("data"),
-        has_session_id=has_session_id,
-    )
+    return ExecuteRequestParts(req_id=req_id, code=named.get("code"), mode=mode, timeout_ms=timeout_ms, init_script=named.get("init_script"), data_json=named.get("data"), has_session_id=has_session_id)
 
 
 def _as_source_bytes(value: str | bytes, *, label: str) -> bytes:
@@ -550,15 +524,7 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
         i = _skip_ws(buf, i + 1)
         if i != len(buf):
             raise ExecuteRequestError("Trailing data after JSON object")
-        return ExecuteRequestParts(
-            req_id=None,
-            code=None,
-            mode=None,
-            timeout_ms=None,
-            init_script=None,
-            data_json=None,
-            has_session_id=False,
-        )
+        return ExecuteRequestParts(req_id=None, code=None, mode=None, timeout_ms=None, init_script=None, data_json=None, has_session_id=False)
 
     while True:
         i = _skip_ws(buf, i)
@@ -609,15 +575,7 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
         if nxt < len(buf) and buf[nxt] == 0x7D:
             raise ExecuteRequestError("Trailing comma in JSON object")
 
-    return ExecuteRequestParts(
-        req_id=fields.get("id"),
-        code=fields.get("code"),
-        mode=fields.get("mode"),
-        timeout_ms=fields.get("timeout_ms"),
-        init_script=fields.get("init_script"),
-        data_json=data_json,
-        has_session_id=has_session_id,
-    )
+    return ExecuteRequestParts(req_id=fields.get("id"), code=fields.get("code"), mode=fields.get("mode"), timeout_ms=fields.get("timeout_ms"), init_script=fields.get("init_script"), data_json=data_json, has_session_id=has_session_id)
 
 
 def _coerce_data_json_field(value_slice: bytes) -> bytes:
