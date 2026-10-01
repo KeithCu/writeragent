@@ -252,8 +252,8 @@ class TestEndpointCombinedListener:
                 with patch('plugin.framework.config.get_config', return_value=''):
                     with patch('plugin.framework.config.get_current_endpoint', return_value='http://localhost:11434'):
                         speech_ids = ['mistralai/voxtral-mini-transcribe', 'openai/whisper-large-v3']
-                        listener.fetch_available_stt_models = lambda endpoint, api_key_override=None: list(speech_ids)
-                        listener.fetch_available_image_models = lambda endpoint, api_key_override=None: []
+                        listener.cached_stt_models = lambda endpoint, api_key_override=None: list(speech_ids)
+                        listener.cached_image_models = lambda endpoint, api_key_override=None: []
                         listener.populate_combobox_with_lru = track_populate
                         listener._apply_dropdowns(
                             'https://openrouter.ai/api',
@@ -753,7 +753,7 @@ def test_apply_dropdowns_updates_tts_combobox() -> None:
             with patch("plugin.framework.config.get_config", return_value=""):
                 with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"):
                     speech_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
-                    listener.fetch_available_tts_models = lambda endpoint, api_key_override=None: list(speech_ids)
+                    listener.cached_tts_models = lambda endpoint, api_key_override=None: list(speech_ids)
                     listener.populate_combobox_with_lru = track_populate
                     listener._apply_dropdowns(
                         "https://openrouter.ai/api",
@@ -871,6 +871,14 @@ def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:
         return ""
 
     try:
+        with patch("plugin.framework.client.model_fetcher.get_config", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+             patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync:
+            # The modality GET belongs in the background fetch, which fills the cache.
+            cfg.fetch_available_tts_models("https://openrouter.ai/api")
+            assert any("output_modalities=speech" in call.args[0] for call in mock_sync.call_args_list)
+            assert not any("output_modalities=audio" in call.args[0] for call in mock_sync.call_args_list)
+            mock_sync.reset_mock()
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.get_config", side_effect=mock_get_config), \
              patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="https://openrouter.ai/api"), \
@@ -883,9 +891,7 @@ def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:
                 models=["openrouter/fusion"],
                 skip_fetch=False,
             )
-        urls = [call.args[0] for call in mock_sync.call_args_list]
-        assert any("output_modalities=speech" in url for url in urls)
-        assert not any("output_modalities=audio" in url for url in urls)
+            mock_sync.assert_not_called()
     finally:
         for key in list(cfg._model_fetch_tts_cache):
             if "openrouter.ai" in key:
@@ -906,6 +912,9 @@ def test_bg_fetch_together_warms_voices() -> None:
 
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), MagicMock())
     listener.fetch_available_models = lambda *args, **kwargs: ["cartesia/sonic"]
+    listener.fetch_available_image_models = lambda *args, **kwargs: []
+    listener.fetch_available_tts_models = lambda *args, **kwargs: None
+    listener.fetch_available_stt_models = lambda *args, **kwargs: None
     listener.post_to_main_thread = lambda fn: None
     listener._debounce_gen = 1
 
@@ -917,6 +926,96 @@ def test_bg_fetch_together_warms_voices() -> None:
         mock_voices.reset_mock()
         listener._bg_fetch(1, "https://openrouter.ai/api")
         mock_voices.assert_not_called()
+
+
+def test_warm_openrouter_catalog_does_not_http_until_test_connection() -> None:
+    """A process that already has the lists must not GET again on Settings open."""
+    from plugin.chatbot.dialog_views import EndpointCombinedListener, TestConnectionListener
+    from plugin.framework.client import model_fetcher as cfg
+
+    endpoint = "https://openrouter.ai/api"
+    key = "sk-warm-catalog"
+
+    def body(url, **kwargs):
+        if url.endswith("/images/models"):
+            return {"data": [{"id": "google/gemini-2.5-flash-image"}]}
+        if "output_modalities=speech" in url:
+            return {"data": [{"id": "hexgrad/kokoro-82m", "architecture": {"output_modalities": ["speech"]}}]}
+        if "output_modalities=transcription" in url:
+            return {"data": [{"id": "openai/whisper-large-v3"}]}
+        if url.endswith("/models"):
+            return {"data": [{"id": "openrouter/fusion"}]}
+        raise AssertionError(url)
+
+    combo = MagicMock()
+    combo.getText.return_value = endpoint
+    api = MagicMock()
+    api.getText.return_value = key
+
+    def get_optional_side_effect(dlg, name):
+        if name == "api_key":
+            return api
+        return None
+
+    cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+    try:
+        with patch("plugin.framework.client.requests.sync_request", side_effect=body) as mock_sync, \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""), \
+             patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+             patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value=endpoint):
+            cfg.fetch_available_models(endpoint, api_key_override=key)
+            cfg.fetch_available_image_models(endpoint, api_key_override=key)
+            cfg.fetch_available_tts_models(endpoint, api_key_override=key)
+            cfg.fetch_available_stt_models(endpoint, api_key_override=key)
+            assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key)
+            mock_sync.reset_mock()
+
+            listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+            listener._schedule_debounced_models_fetch()
+            mock_sync.assert_not_called()
+            assert listener._timer is None
+
+            listener.run_in_background = lambda fn, name=None: fn()
+            listener.post_to_main_thread = lambda fn: None
+            rechecked = []
+
+            def recheck() -> None:
+                rechecked.append(True)
+                listener.force_catalog_refresh()
+
+            with patch("plugin.chatbot.quick_setup.check_endpoint_connection", return_value=(True, "ok", [])), \
+                 patch("plugin.framework.worker_pool.run_in_background", side_effect=lambda fn, **kwargs: fn()), \
+                 patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()):
+                TestConnectionListener(MagicMock(), MagicMock(), catalog_recheck=recheck).on_action_performed(MagicMock())
+
+            assert rechecked == [True]
+            urls = [call.args[0] for call in mock_sync.call_args_list]
+            assert any(url.endswith("/v1/models") for url in urls)
+            assert any(url.endswith("/v1/images/models") for url in urls)
+            assert any("output_modalities=speech" in url for url in urls)
+            assert any("output_modalities=transcription" in url for url in urls)
+    finally:
+        cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+        cfg._tts_supported_voices.pop("hexgrad/kokoro-82m", None)
+
+
+def test_close_cancels_catalog_fetch_that_has_not_started() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    combo = MagicMock()
+    combo.getText.return_value = "https://openrouter.ai/api"
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    listener.settings_catalog_is_warm = lambda *args, **kwargs: False
+    listener.fetch_available_models = MagicMock()
+    listener._schedule_debounced_models_fetch()
+    timer = listener._timer
+    try:
+        listener.close()
+        listener._run_fetch(listener._debounce_gen - 1)
+        listener.fetch_available_models.assert_not_called()
+    finally:
+        if timer is not None:
+            timer.cancel()
 
 
 def test_tts_settings_listener_together_voices_replace_alloy() -> None:
