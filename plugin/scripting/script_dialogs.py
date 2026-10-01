@@ -110,8 +110,13 @@ def show_new_script_dialog(
 
         if edit is not None:
             edit.setFocus()
-        dlg.execute()
-        dlg.dispose()
+        try:
+            dlg.execute()
+        finally:
+            try:
+                dlg.dispose()
+            except Exception:
+                log.debug("show_new_script_dialog: dispose failed", exc_info=True)
         if _outcome is None:
             return None
         return _outcome[0]

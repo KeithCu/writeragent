@@ -107,20 +107,46 @@ def test_workbook_session_id_with_explicit_doc() -> None:
 
 
 def test_reset_workbook_python_session_prefers_calc() -> None:
-    """When both Calc and Writer are open/available, reset routes to Calc first."""
+    """With no focused window, reset still prefers an open Calc workbook."""
     from unittest.mock import MagicMock, patch
 
     ctx = MagicMock()
     mock_calc = MagicMock()
     mock_writer = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
 
     with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager._calc_document", return_value=mock_calc),
         patch("plugin.scripting.session_manager._writer_document", return_value=mock_writer),
         patch("plugin.scripting.session_manager._reset_calc_python_sessions") as mock_reset_calc,
     ):
         session_manager.reset_workbook_python_session(ctx)
         mock_reset_calc.assert_called_once_with(ctx, mock_calc)
+
+
+def test_reset_workbook_python_session_uses_focused_writer() -> None:
+    """Menubar reset follows the focused window instead of a background Calc workbook."""
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    writer = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = writer
+
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_writer", side_effect=lambda doc: doc is writer),
+        patch("plugin.scripting.session_manager.is_draw", return_value=False),
+        patch("plugin.scripting.session_manager.is_calc", return_value=False),
+        patch("plugin.scripting.session_manager._has_notebook_registry", return_value=False),
+        patch("plugin.scripting.session_manager._reset_rps_python_session") as mock_rps,
+        patch("plugin.scripting.session_manager._reset_calc_python_sessions") as mock_calc,
+    ):
+        session_manager.reset_workbook_python_session(ctx)
+    mock_rps.assert_called_once_with(ctx, writer)
+    mock_calc.assert_not_called()
 
 
 def test_document_for_script_session_matches_url_not_focused() -> None:

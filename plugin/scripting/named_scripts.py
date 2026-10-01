@@ -291,9 +291,11 @@ def bind_named_scripts_executor(executor: Any) -> None:
 
 
 def host_list_named_python_scripts(*, user_scripts: dict[str, str], document_scripts: dict[str, str]) -> dict[str, list[str]]:
+    from plugin.scripting.document_scripts import picker_document_scripts
+
     return {
         ORIGIN_USER: sorted(user_scripts.keys()),
-        ORIGIN_DOCUMENT: sorted(document_scripts.keys()),
+        ORIGIN_DOCUMENT: sorted(picker_document_scripts(document_scripts)),
     }
 
 
@@ -305,9 +307,15 @@ def host_get_named_python_script(
     user_scripts: dict[str, str],
     document_scripts: dict[str, str],
 ) -> dict[str, Any]:
-    store = user_scripts if origin == ORIGIN_USER else document_scripts
     if origin not in (ORIGIN_USER, ORIGIN_DOCUMENT):
         raise RuntimeError(f"Unknown named-script origin {origin!r}")
+    if origin == ORIGIN_DOCUMENT:
+        from plugin.scripting.document_scripts import is_calc_init_script_name
+
+        # INIT is the workbook init script, not a wa.doc library.
+        if is_calc_init_script_name(name):
+            raise RuntimeError(f"No {origin} script named {name!r}")
+    store = user_scripts if origin == ORIGIN_USER else document_scripts
     code = store.get(name)
     if not isinstance(code, str):
         raise RuntimeError(f"No {origin} script named {name!r}")

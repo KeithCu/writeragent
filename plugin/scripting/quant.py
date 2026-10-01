@@ -13,7 +13,7 @@ import logging
 from typing import Any
 
 from plugin.calc.analysis_runner import calc_tool_context
-from plugin.scripting._lazy_venv import make_getattr
+from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
 from plugin.calc.calc_addin_data import _resolve_python_data
 from plugin.doc.doc_type import is_calc, is_writer
 from plugin.scripting.client import run_quant as client_run_quant
@@ -53,6 +53,7 @@ _QUANT_VENV_EXPORTS = frozenset(
 )
 
 __getattr__ = make_getattr("quant", _QUANT_VENV_EXPORTS)
+install_lazy_dir(globals(), _QUANT_VENV_EXPORTS)
 
 
 # --- Templates ---

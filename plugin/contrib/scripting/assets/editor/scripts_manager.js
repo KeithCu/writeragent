@@ -177,7 +177,7 @@
   }
 
   function isBuiltInHelperOrigin(origin) {
-    return origin === "analysis" || origin === "vision";
+    return origin !== "user" && origin !== "document" && origin !== "";
   }
 
   function builtInHelperReadOnlyMessage() {

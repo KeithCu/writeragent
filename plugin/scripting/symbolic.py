@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.doc.doc_type import is_calc, is_writer
-from plugin.scripting._lazy_venv import make_getattr
+from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
 from plugin.scripting.client import run_symbolic as client_run_symbolic
 from plugin.scripting.helper_domain import (
     header_prefix,
@@ -50,6 +50,7 @@ _SYMBOLIC_VENV_EXPORTS = frozenset(
 )
 
 __getattr__ = make_getattr("symbolic", _SYMBOLIC_VENV_EXPORTS)
+install_lazy_dir(globals(), _SYMBOLIC_VENV_EXPORTS)
 
 
 # --- Templates ---
@@ -186,18 +187,9 @@ def insert_symbolic_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any
 
 def insert_symbolic_result_into_calc(doc: Any, ctx: Any, result: dict[str, Any]) -> int:
     """Write symbolic result rows on the active Calc sheet."""
-    from plugin.calc.analysis_egress import calc_anchor_from_selection
-    from plugin.calc.address_utils import index_to_column
-    from plugin.calc.bridge import CalcBridge
-    from plugin.calc.manipulator import CellManipulator
+    from plugin.calc.tabular_egress import insert_tabular_result_into_calc
 
-    grid = format_symbolic_for_calc(result)
-    col, row = calc_anchor_from_selection(doc)
-    bridge = CalcBridge(doc)
-    manipulator = CellManipulator(bridge)
-    addr = f"{index_to_column(col)}{row + 1}"
-    manipulator.write_formula_range(addr, grid)
-    return len(grid)
+    return insert_tabular_result_into_calc(doc, ctx, format_symbolic_for_calc(result))
 
 
 def insert_symbolic_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any], *, display_block: bool = False) -> int:

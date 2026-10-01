@@ -659,7 +659,18 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
         _reset_calc_python_sessions(ctx, doc)
         return
 
-    # Prioritize Calc document if one is active/open
+    # The menubar handler is registered with no document. Reset the focused
+    # window. Searching every open component used to clear a background Calc
+    # kernel when the user pressed reset from Writer.
+    try:
+        current = get_desktop(ctx).getCurrentComponent()
+    except Exception:
+        current = None
+    if is_writer(current) or is_draw(current) or is_calc(current):
+        reset_workbook_python_session(ctx, current)
+        return
+
+    # No current component (headless): keep the open-document search.
     calc_doc = _calc_document(ctx)
     if calc_doc is not None:
         _reset_calc_python_sessions(ctx, calc_doc)

@@ -203,7 +203,11 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     call_id = str(uuid.uuid4())
     request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": args}
     with _tool_call_lock:
-        write_pickle_frame(sys.stdout.buffer, request)
+        write_pickle_frame(
+            sys.stdout.buffer,
+            request,
+            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+        )
         response = read_pickle_frame(
             sys.stdin.buffer,
             require_dict=True,

@@ -12,6 +12,24 @@ from plugin.scripting.named_scripts import (
 )
 
 
+def test_host_list_omits_workbook_init_script():
+    import pytest
+
+    listed = host_list_named_python_scripts(
+        user_scripts={"Mine": "a = 1"},
+        document_scripts={"INIT": "b = 1", "Init": "c = 1", "Hello": "d = 1"},
+    )
+    assert listed["document"] == ["Hello"]
+    with pytest.raises(RuntimeError, match="INIT"):
+        host_get_named_python_script(
+            name="INIT",
+            origin="document",
+            known_hash=None,
+            user_scripts={},
+            document_scripts={"INIT": "b = 1"},
+        )
+
+
 def test_python_identifier_from_script_name():
     assert python_identifier_from_script_name("Hello World") == "Hello_World"
     assert python_identifier_from_script_name("  spaced  ") == "spaced"

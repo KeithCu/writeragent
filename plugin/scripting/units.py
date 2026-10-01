@@ -14,7 +14,7 @@ from typing import Any
 from plugin.doc.doc_type import is_calc, is_writer
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
-from plugin.scripting._lazy_venv import make_getattr
+from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
 from plugin.scripting.client import run_units as client_run_units
 from plugin.scripting.helper_domain import (
     header_prefix,
@@ -50,6 +50,7 @@ _UNITS_VENV_EXPORTS = frozenset(
 )
 
 __getattr__ = make_getattr("units", _UNITS_VENV_EXPORTS)
+install_lazy_dir(globals(), _UNITS_VENV_EXPORTS)
 
 OUTPUT_STYLES = frozenset({"formatted", "detailed"})
 _FORMATTED_DEFAULT_HELPERS = frozenset({"convert_quantity", "parse_quantity"})
@@ -228,19 +229,11 @@ def insert_units_result_into_calc(
     output_style: str | None = None,
 ) -> int:
     """Write units result rows on the active Calc sheet."""
-    from plugin.calc.analysis_egress import calc_anchor_from_selection
-    from plugin.calc.address_utils import index_to_column
-    from plugin.calc.bridge import CalcBridge
-    from plugin.calc.manipulator import CellManipulator
+    from plugin.calc.tabular_egress import insert_tabular_result_into_calc
 
     helper = str(result.get("helper") or "")
     grid = format_units_for_calc(result, output_style=resolve_output_style(helper, output_style))
-    col, row = calc_anchor_from_selection(doc)
-    bridge = CalcBridge(doc)
-    manipulator = CellManipulator(bridge)
-    addr = f"{index_to_column(col)}{row + 1}"
-    manipulator.write_formula_range(addr, grid)
-    return len(grid)
+    return insert_tabular_result_into_calc(doc, ctx, grid)
 
 
 def insert_units_result_into_doc(

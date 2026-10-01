@@ -735,14 +735,15 @@ def _apply_column_kinds_to_ndarray(
     if uniform == "int":
         return arr.astype(np.int64)
     if uniform == "bool":
-        return arr.astype(np.bool_)
+        # Host unpack treats only 1.0 as True. astype(bool) made every non-zero True.
+        return arr == 1.0
     if uniform == "float":
         return arr
     if is_1d:
         if column_kinds[0] == "int":
             return arr.astype(np.int64)
         if column_kinds[0] == "bool":
-            return arr.astype(np.bool_)
+            return arr == 1.0
         return arr
 
     # If it's a mixed 2D ndarray, it must remain float64 to hold float columns.
@@ -1281,8 +1282,8 @@ def host_pack_split_grid(
 ) -> dict[str, Any]:
     """Pack a 1D flat list or 2D mixed grid using Strategy 3: Split-Grid Serialization.
 
-    The entire grid is flattened into a single contiguous double-precision float array
-    where all numbers are preserved, and empty cells or non-numeric strings are replaced with NaN.
+    The entire grid is flattened into a single contiguous float64 array. Integers past
+    the 53-bit mantissa are not preserved. Empty cells and non-numeric strings are NaN.
     A separate sparse dictionary mapping flat cell indexes to their string value is passed in parallel.
     """
     # crosshair: off
@@ -1596,8 +1597,9 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
                     # Vectorized astype(int) casts valid float objects to Python ints in C
                     col_slice[valid_mask] = col_slice[valid_mask].astype(int)
                 elif is_bool:
-                    # Vectorized astype(bool) casts valid float objects to Python bools in C
-                    col_slice[valid_mask] = col_slice[valid_mask].astype(bool)
+                    # Host unpack: True only for 1.0. astype(bool) treated 2.0 as True.
+                    numeric = np.asarray(col_slice[valid_mask], dtype=np.float64)
+                    col_slice[valid_mask] = numeric == 1.0
 
         # 3. Sparse Strings Overlay
         # The 'strings' dictionary is sparse and indexes values row-major (flat 1D).
@@ -1630,16 +1632,12 @@ def _child_unpack_single_data(wire: Any) -> Any:
     # Single-cell ranges become scalars; multi-range outer list is handled by child_unpack_data.
     if np is not None and isinstance(unpacked, np.ndarray):
         if unpacked.size == 1:
-            val = unpacked.item()
-            if isinstance(val, float) and val.is_integer():
-                return int(val)
-            return val
+            # Keep 1.0 as float. int(val) made a 1×1 cell an int while a longer
+            # float64 column stayed 1.0.
+            return unpacked.item()
     elif isinstance(unpacked, (list, tuple)):
         if len(unpacked) == 1 and type(unpacked[0]) not in (list, tuple):
-            val = unpacked[0]
-            if isinstance(val, float) and val.is_integer():
-                return int(val)
-            return val
+            return unpacked[0]
 
         grid: list[Any] | list[list[Any]]
         if unpacked and (type(unpacked[0]) in (list, tuple)):

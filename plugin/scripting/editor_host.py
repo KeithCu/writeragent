@@ -341,33 +341,18 @@ class PersistentEditor:
                 raise RuntimeError(f"Editor process closed stdin. {detail}") from e
 
     def read_stderr_tail(self, max_bytes: int = 65536) -> str:
-        """Best-effort read of child stderr (for startup failure messages)."""
+        """Return stderr already captured by the drain thread.
+
+        A second ``select``/read on the same pipe races that thread and can
+        drop the traceback from a spawn-failure dialog.
+        """
         with self._stderr_tail_lock:
-            if self._stderr_tail:
-                text = "\n".join(self._stderr_tail)
-                if len(text) > max_bytes:
-                    return text[-max_bytes:].strip()
-                return text.strip()
-        if self._proc is None or sys.platform == "win32":
-            return ""
-        stderr = self._proc.stderr
-        if stderr is None:
-            return ""
-        chunks: list[bytes] = []
-        try:
-            while len(b"".join(chunks)) < max_bytes:
-                ready, _unused_w, _unused_x = select.select([stderr], [], [], 0)
-                if not ready:
-                    break
-                piece = stderr.read(512)
-                if not piece:
-                    break
-                chunks.append(piece)
-        except Exception:
-            log.debug("read_stderr_tail failed", exc_info=True)
-        if not chunks:
-            return ""
-        return b"".join(chunks).decode("utf-8", errors="replace").strip()
+            if not self._stderr_tail:
+                return ""
+            text = "\n".join(self._stderr_tail)
+        if len(text) > max_bytes:
+            return text[-max_bytes:].strip()
+        return text.strip()
 
     def _append_stderr_line(self, line: str) -> None:
         if not line:
@@ -523,15 +508,6 @@ class PersistentEditor:
         self.run_script_doc = doc
         self.run_script_doc_url = document_scripts_identity(doc) if doc is not None else None
 
-    def _resolve_run_script_doc(self) -> Any | None:
-        from plugin.scripting.document_scripts import get_active_document_for_scripts
-
-        if self.ctx is not None:
-            active = get_active_document_for_scripts(self.ctx)
-            if active is not None:
-                return active
-        return self.run_script_doc
-
     def _dispatch_incoming(self, msg: dict[str, Any]) -> None:
         kind = message_type(msg)
         if kind in SCRIPT_PICKER_MESSAGE_TYPES:
@@ -541,7 +517,10 @@ class PersistentEditor:
                     kind,
                     msg,
                     ctx=self.ctx,
-                    session_doc=self._resolve_run_script_doc(),
+                    # Launch document, not whichever window is focused now.
+                    # _resolve_run_script_doc used to return the active doc, so a
+                    # focus change saved the script into the newly focused file.
+                    session_doc=self.run_script_doc,
                     session_doc_url=self.run_script_doc_url,
                     send=self.send,
                 )
@@ -976,8 +955,11 @@ def launch_monaco_editor(
         session.send(stamped)
     except Exception as e:
         log.exception("Failed to send load to editor")
-        set_active_session(None)
         ipc_detail = "\n\n".join(filter(None, [session.read_stderr_tail(), exception_traceback(e)]))
+        # Same as the ready-timeout path: a live child with no session makes
+        # the next open skip the webview probe.
+        terminate_persistent_editor()
+        set_active_session(None)
         msg = failure_message(_("Could not talk to the Python editor."), detail=ipc_detail)
         msgbox_with_report(
             ctx,

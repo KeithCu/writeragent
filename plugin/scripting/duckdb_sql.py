@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from plugin.scripting._lazy_venv import make_getattr
+from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
 from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, parse_helper_script_header
 
 # --- Constants (host) ---
@@ -53,6 +53,7 @@ _SQL_VENV_EXPORTS = frozenset(
 )
 
 __getattr__ = make_getattr("duckdb_sql", _SQL_VENV_EXPORTS)
+install_lazy_dir(globals(), _SQL_VENV_EXPORTS)
 
 
 # --- Templates for Run Python Script (Calc) ---

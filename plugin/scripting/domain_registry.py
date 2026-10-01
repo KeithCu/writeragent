@@ -166,7 +166,14 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
             else:
                 ret = fn(ctx, doc, result)
         else:
-            ret = fn(ctx, doc, result)
+            # Calc-only inserters are (doc, uno_ctx, result). Calling them as
+            # (ctx, doc) made CalcBridge treat the UNO context as the spreadsheet
+            # and the Run Python Script path reported "Failed to insert result"
+            # after a successful helper run. Chat tools already pass (doc, ctx).
+            if w.post_venv_calc_only:
+                ret = fn(doc, ctx, result)
+            else:
+                ret = fn(ctx, doc, result)
         if ret is not None:
             return int(ret)
         return None
@@ -361,6 +368,40 @@ _RUN_IMPORT_DATA_BINDING: dict[str, dict[str, bool]] = {
     "run_forecast": {"calc_only": True},
 }
 
+# Current templates call the helper directly (``result = describe_data(...)``),
+# not ``run_analysis(``. The import plus that call is what should show Data.
+_IMPORT_DATA_BINDING: tuple[tuple[str, bool], ...] = (
+    ("writeragent.scripting.analysis", True),
+    ("writeragent.scripting.viz", False),
+    ("writeragent.scripting.quant", True),
+    ("writeragent.scripting.optimize", True),
+    ("writeragent.scripting.forecast", True),
+    ("writeragent.scripting.duckdb_sql", True),
+)
+
+
+def _imported_names_are_called(code: str, module: str) -> bool:
+    """True when *code* imports a name from *module* and calls that name."""
+    import ast
+
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, TypeError, ValueError):
+        return False
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == module:
+            for alias in node.names:
+                bound = alias.asname or alias.name
+                if bound and bound != "*":
+                    names.add(bound)
+    if not names:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names:
+            return True
+    return False
+
 
 def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
     """True when *code* uses a trusted helper that may bind Calc sheet data."""
@@ -374,6 +415,13 @@ def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
         if cfg.get("calc_only") and not is_calc(doc):
             continue
         return True
+    if re.search(r"\bquery_folder_sql\s*\(", code) and is_calc(doc):
+        return True
+    for module, calc_only in _IMPORT_DATA_BINDING:
+        if calc_only and not is_calc(doc):
+            continue
+        if _imported_names_are_called(code, module):
+            return True
     return False
 
 

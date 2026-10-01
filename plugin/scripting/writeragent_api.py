@@ -30,7 +30,7 @@ def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:
 
             return execute_tool(tool_name, kwargs, caller="script")
         except Exception as e:
-            raise RuntimeError(f"Failed to execute tool in-process: {e}")
+            raise RuntimeError(f"Failed to execute tool in-process: {e}") from e
 
     from plugin.scripting.ipc import exchange_tool_call
 

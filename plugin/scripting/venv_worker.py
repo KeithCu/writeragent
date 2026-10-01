@@ -68,26 +68,6 @@ class _NonReplayableIpcWriteTimeout(RuntimeError):
 
 _SHARED_WORKER_RESTART_HINT = " Shared Python process restarted (all workbooks)."
 
-# Session id of the script currently inside _execute_ipc_unlocked. Tool RPC runs
-# on the UI thread while this worker thread waits, so a contextvar would not
-# cross. Named-script fetch (wa.doc) reads it to pick the session's document
-# instead of whichever window is focused.
-_inflight_script_session_id: str | None = None
-_inflight_script_session_lock = threading.Lock()
-
-
-def set_inflight_script_session(session_id: str | None) -> None:
-    """Record the workbook session for the in-flight worker turn (or clear it)."""
-    global _inflight_script_session_id
-    with _inflight_script_session_lock:
-        _inflight_script_session_id = session_id if isinstance(session_id, str) and session_id.strip() else None
-
-
-def inflight_script_session_id() -> str | None:
-    """Session id of the script whose tool_call is running, if any."""
-    with _inflight_script_session_lock:
-        return _inflight_script_session_id
-
 
 def _clear_host_state_after_worker_death() -> None:
     """IPC is desynced after a kill; drop add-in scalar cache so the next turn is cold.
@@ -143,6 +123,7 @@ def _maybe_dispatch_intermediate_response(
     caller: str = "script",
     on_worker_event: Callable[[dict[str, Any]], None] | None = None,
     stop_checker: Callable[[], bool] | None = None,
+    script_session_id: str | None = None,
 ) -> bool:
     """Handle tool_call (any build) then ppt-master llm_request / worker_event frames."""
     from plugin.scripting.host_rpc import handle_tool_call_frame
@@ -154,6 +135,7 @@ def _maybe_dispatch_intermediate_response(
         stdin_write=stdin_write,
         allowed_tools=allowed_tools,
         caller=caller,
+        script_session_id=script_session_id,
     ):
         return True
     return _maybe_dispatch_ppt_master_response(
@@ -254,6 +236,11 @@ class PythonWorkerManager:
         self.env["WRITERAGENT_IS_WORKER"] = "1"
         self._proc: subprocess.Popen[Any] | None = None
         self._io_lock = threading.Lock()
+        # Owner of _io_lock. A script tool that calls this pool again on the
+        # same thread (or on the UI thread while we are inside tool_call)
+        # deadlocks the pipe. RLock would interleave frames, so we refuse.
+        self._io_owner: int | None = None
+        self._serving_tool_call: bool = False
         self._primed = False
         self._stderr_drain: StderrTail | None = None
         self._stdin_writer_thread: threading.Thread | None = None
@@ -290,9 +277,39 @@ class PythonWorkerManager:
         self._primed = True
         return None
 
+    def _reentry_error(self) -> dict[str, Any] | None:
+        """Refuse a nested execute that would deadlock this worker's pipe."""
+        from plugin.framework.thread_guard import on_main_thread
+
+        me = threading.get_ident()
+        if self._io_owner == me or (self._serving_tool_call and on_main_thread()):
+            return _worker_error(
+                "WORKER_REENTRY",
+                "This Python tool called back into the same worker and would deadlock the script pipe.",
+            )
+        return None
+
+    def _acquire_io(self) -> dict[str, Any] | None:
+        err = self._reentry_error()
+        if err is not None:
+            return err
+        self._io_lock.acquire()
+        self._io_owner = threading.get_ident()
+        return None
+
+    def _release_io(self) -> None:
+        self._serving_tool_call = False
+        self._io_owner = None
+        self._io_lock.release()
+
     def _ensure_warmed(self) -> dict[str, Any] | None:
-        with self._io_lock:
+        err = self._acquire_io()
+        if err is not None:
+            return err
+        try:
             return self._ensure_warmed_unlocked()
+        finally:
+            self._release_io()
 
     def warm(self) -> None:
         """Spawn the worker and trigger auto-imports (numpy etc.) so the next real execute is instant."""
@@ -375,21 +392,17 @@ class PythonWorkerManager:
             allow_heartbeat=allow_heartbeat,
             timeout_sec=timeout_sec,
         )
-        set_inflight_script_session(session_id)
-        try:
-            return self._execute_ipc_attempts(
-                request,
-                timeout_sec=timeout_sec,
-                allow_heartbeat=allow_heartbeat,
-                heartbeat_grace_sec=heartbeat_grace_sec,
-                on_heartbeat=on_heartbeat,
-                on_worker_event=on_worker_event,
-                stop_checker=stop_checker,
-                python_tool_domain=python_tool_domain,
-                caller=caller,
-            )
-        finally:
-            set_inflight_script_session(None)
+        return self._execute_ipc_attempts(
+            request,
+            timeout_sec=timeout_sec,
+            allow_heartbeat=allow_heartbeat,
+            heartbeat_grace_sec=heartbeat_grace_sec,
+            on_heartbeat=on_heartbeat,
+            on_worker_event=on_worker_event,
+            stop_checker=stop_checker,
+            python_tool_domain=python_tool_domain,
+            caller=caller,
+        )
 
     def _execute_ipc_attempts(
         self,
@@ -420,6 +433,8 @@ class PythonWorkerManager:
                 from plugin.scripting.host_rpc import resolve_allowed_tools
 
                 allowed_tools = resolve_allowed_tools(python_tool_domain)
+                raw_session = request.get("session_id")
+                script_session_id = raw_session.strip() if isinstance(raw_session, str) and raw_session.strip() else None
 
                 # A tool_call frame can already have mutated the document. A later
                 # pipe error must not resend the original script (the write-timeout
@@ -445,32 +460,38 @@ class PythonWorkerManager:
                         response = unpack_pickle_frame(response_bytes)
                         if not isinstance(response, dict):
                             raise RuntimeError("Worker response must be a dict")
-                        if isinstance(response, dict):
-                            def _stdin_write(blob: bytes) -> None:
-                                try:
-                                    self._write_bytes_with_timeout(
-                                        stdin,
-                                        blob,
-                                        timeout_sec=write_timeout_sec,
-                                        label="host RPC response",
-                                    )
-                                except subprocess.TimeoutExpired as exc:
-                                    # The worker requested host work before this write. Retrying the
-                                    # whole turn could duplicate UNO mutations already performed.
-                                    raise _NonReplayableIpcWriteTimeout(
-                                        f"host RPC response timed out after {write_timeout_sec:g} seconds"
-                                    ) from exc
 
-                            if _maybe_dispatch_intermediate_response(
+                        def _stdin_write(blob: bytes) -> None:
+                            try:
+                                self._write_bytes_with_timeout(
+                                    stdin,
+                                    blob,
+                                    timeout_sec=write_timeout_sec,
+                                    label="host RPC response",
+                                )
+                            except subprocess.TimeoutExpired as exc:
+                                # The worker requested host work before this write. Retrying the
+                                # whole turn could duplicate UNO mutations already performed.
+                                raise _NonReplayableIpcWriteTimeout(
+                                    f"host RPC response timed out after {write_timeout_sec:g} seconds"
+                                ) from exc
+
+                        self._serving_tool_call = True
+                        try:
+                            is_intermediate = _maybe_dispatch_intermediate_response(
                                 response,
                                 stdin_write=_stdin_write,
                                 allowed_tools=allowed_tools,
                                 caller=caller,
                                 on_worker_event=on_worker_event,
                                 stop_checker=stop_checker,
-                            ):
-                                dispatched_intermediate = True
-                                continue
+                                script_session_id=script_session_id,
+                            )
+                        finally:
+                            self._serving_tool_call = False
+                        if is_intermediate:
+                            dispatched_intermediate = True
+                            continue
                         break
                 except subprocess.TimeoutExpired as e:
                     # User code / C-extension hung: killing and replaying would double the wait.
@@ -491,6 +512,22 @@ class PythonWorkerManager:
                     return _worker_error(
                         "WORKER_IPC_ERROR",
                         f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}",
+                        details={"exe": self.exe},
+                    )
+                req_id = request.get("id")
+                if response.get("id") != req_id:
+                    # exchange_tool_call already checks ids. A mismatched terminal
+                    # frame used to be accepted, so one cell could receive another's result.
+                    log.warning(
+                        "Python worker response id %r does not match request %r",
+                        response.get("id"),
+                        req_id,
+                    )
+                    self._terminate_worker()
+                    _clear_host_state_after_worker_death()
+                    return _worker_error(
+                        "WORKER_IPC_ERROR",
+                        f"Python worker response id mismatch.{_SHARED_WORKER_RESTART_HINT}",
                         details={"exe": self.exe},
                     )
                 return self._normalize_response(response)
@@ -547,7 +584,10 @@ class PythonWorkerManager:
         if timeout_sec is None:
             timeout_sec = python_exec_timeout_default()
 
-        with self._io_lock:
+        reentry = self._acquire_io()
+        if reentry is not None:
+            return reentry
+        try:
             warm_err = self._ensure_warmed_unlocked()
             if warm_err is not None:
                 return warm_err
@@ -566,6 +606,8 @@ class PythonWorkerManager:
                 on_heartbeat=on_heartbeat,
                 python_tool_domain=python_tool_domain,
             )
+        finally:
+            self._release_io()
 
     def execute_ppt_master_turn(
         self,
@@ -583,7 +625,10 @@ class PythonWorkerManager:
                 "WORKER_IPC_ERROR",
                 "PPT-Master is not available in this extension build.",
             )
-        with self._io_lock:
+        reentry = self._acquire_io()
+        if reentry is not None:
+            return reentry
+        try:
             warm_err = self._ensure_warmed_unlocked()
             if warm_err is not None:
                 return warm_err
@@ -596,6 +641,8 @@ class PythonWorkerManager:
                 stop_checker=stop_checker,
                 caller="ppt_master_venv",
             )
+        finally:
+            self._release_io()
         if raw.get("status") == "error":
             return raw
         inner = raw.get("result")

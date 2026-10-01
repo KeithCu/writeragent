@@ -397,6 +397,15 @@ def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
         mgr._terminate_worker()
 
 
+def test_execute_refuses_reentry_while_this_thread_owns_the_pipe():
+    mgr = PythonWorkerManager(sys.executable, {})
+    mgr._io_owner = threading.get_ident()
+    result = mgr.execute("result = 1", timeout_sec=1)
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_REENTRY"
+    assert not mgr._io_lock.locked()
+
+
 def test_large_stdin_write_completes_intact():
     mgr = PythonWorkerManager(sys.executable, {})
     stream = io.BytesIO()
@@ -1047,6 +1056,8 @@ class TestExecuteOSErrorRetry:
         mgr.exe = "python"
         mgr._proc = None
         mgr._io_lock = threading.Lock()
+        mgr._io_owner = None
+        mgr._serving_tool_call = False
         mgr._primed = False
         mgr.env = {}
 
@@ -1215,6 +1226,7 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
         {"content": ["x"]},
         caller="script",
         allowed_tools=None,
+        script_session_id=None,
     )
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)

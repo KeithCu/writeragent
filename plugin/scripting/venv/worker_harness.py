@@ -26,7 +26,12 @@ if _PROJECT_ROOT not in sys.path:
 from plugin.framework.uno_bootstrap import register_alias_importer
 register_alias_importer()
 
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame
+from plugin.scripting.ipc import (
+    DEFAULT_MAX_PAYLOAD_BYTES,
+    IpcFrameError,
+    read_pickle_frame,
+    write_pickle_frame,
+)
 from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code, serialize_result
 
 
@@ -190,6 +195,12 @@ def main() -> None:
             log.debug("Received request id=%s action=%s", req_id, request.get("action") or "execute")
             response = _handle_request(request, stdout=stdout)
             log.debug("Finished request id=%s, response status=%s", req_id, response.get("status") if response else "none")
+        except IpcFrameError as e:
+            # A bad length prefix leaves unread bytes on the pipe. Writing an
+            # error frame here desynchronizes the next request, and the host
+            # then kills the shared kernel for every workbook.
+            log.warning("IPC frame error on request id=%s: %s", req_id, e)
+            break
         except ValueError as e:
             log.warning("Invalid pickle request on request id=%s: %s", req_id, e)
             response = {"status": "error", "message": f"Invalid pickle request: {e}"}
@@ -202,10 +213,14 @@ def main() -> None:
 
         response["id"] = req_id
         try:
-            write_pickle_frame(stdout, response)
+            write_pickle_frame(stdout, response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except Exception as e:
             err_response = {"id": req_id, "status": "error", "message": f"Pickle serialization failed: {e}"}
-            write_pickle_frame(stdout, err_response)
+            try:
+                write_pickle_frame(stdout, err_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+            except Exception:
+                log.exception("Failed to write capped error frame for request id=%s", req_id)
+                break
 
 
 

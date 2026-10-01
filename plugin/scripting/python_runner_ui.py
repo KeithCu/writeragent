@@ -44,6 +44,7 @@ from plugin.scripting.document_scripts import (
     resolve_script_picker_entry,
     save_document_script,
     save_user_script,
+    script_origin_is_library,
 )
 from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
 from plugin.scripting.venv_worker import warm_venv_worker
@@ -291,6 +292,8 @@ class NativePythonScriptDialog:
         if display_name:
             real_name, origin = resolve_script_picker_entry(display_name, self._script_origin_map)
             self._current_scripts[display_name] = t
+            if not script_origin_is_library(origin):
+                return _("Built-in helpers are read-only. Use Copy to My Scripts to customize.")
             if origin == SCRIPT_ORIGIN_DOCUMENT:
                 if self._doc is None:
                     return _("No document is open to save scripts.")
@@ -436,6 +439,12 @@ class NativePythonScriptDialog:
                     lbl = dlg.getControl("InstructionLbl")
 
                     real_name, origin = resolve_script_picker_entry(display_name, owner._script_origin_map)
+                    if not script_origin_is_library(origin):
+                        set_control_text(
+                            lbl,
+                            _("Built-in helpers are read-only. Use Copy to My Scripts to customize."),
+                        )
+                        return
                     if show_approval_dialog(
                         ctx,
                         _("Are you sure you want to delete script '%s'?") % real_name,
@@ -445,7 +454,10 @@ class NativePythonScriptDialog:
                             if doc is None:
                                 set_control_text(lbl, _("No document is open."))
                                 return
-                            delete_document_script(doc, real_name)
+                            err = delete_document_script(doc, real_name)
+                            if err:
+                                set_control_text(lbl, err)
+                                return
                         else:
                             delete_user_script(real_name)
                         owner._refresh_script_dropdown()

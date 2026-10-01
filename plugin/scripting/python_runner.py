@@ -218,112 +218,8 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
 
 def insert_result_into_draw(doc: Any, uno_ctx: Any, result: Any) -> None:
     """Insert the result of a Python script into a Draw/Impress document."""
+    del doc, result
     msgbox(uno_ctx, _("Info"), _("Result insertion into Draw/Impress is not yet supported. PRs welcome!"))
-    return
-
-    # The code below is experimental and currently disabled.
-    """
-    try:
-        from plugin.draw.bridge import DrawBridge
-        bridge = DrawBridge(doc)
-        log.debug(f"insert_result_into_draw: doc={doc!r}")
-        
-        page = bridge.get_active_page()
-        log.debug(f"insert_result_into_draw: active_page={page!r}")
-        
-        if page is None:
-            # Try to get first page directly if bridge failed
-            if hasattr(doc, "getDrawPages"):
-                pages = doc.getDrawPages()
-                if pages and pages.getCount() > 0:
-                    page = pages.getByIndex(0)
-                    log.debug(f"insert_result_into_draw: fallback to first page={page!r}")
-
-        if page is None:
-            log.error(f"insert_result_into_draw: No page found. doc services: {getattr(doc, 'getAvailableServiceNames', lambda: [])()!r}")
-            msgbox(uno_ctx, _("Error"), _("No active page found in Draw/Impress."))
-            return
-
-        # Determine if we should insert a Table or a Text box
-        table_data = None
-        if isinstance(result, list) and result and isinstance(result[0], (list, tuple, dict)):
-            table_data = result
-        elif isinstance(result, dict):
-            # Look for the first list of dicts/lists to use as a table
-            for v in result.values():
-                if isinstance(v, list) and v and isinstance(v[0], (list, tuple, dict)):
-                    table_data = v
-                    break
-
-        if table_data:
-            # Prepare data (headers + rows)
-            if isinstance(table_data[0], dict):
-                headers = list(table_data[0].keys())
-                rows = [[str(row.get(h, "")) for h in headers] for row in table_data]
-                final_data = [headers] + rows
-            else:
-                final_data = [[str(c) for c in r] for r in table_data]
-
-            num_rows = len(final_data)
-            num_cols = len(final_data[0])
-
-            # 1. Insert as TableShape
-            # We set the dimensions via properties immediately after creation
-            shape = doc.createInstance("com.sun.star.drawing.TableShape")
-            
-            # These properties are key to setting dimensions correctly during/immediately after creation
-            for name, val in [("Rows", num_rows), ("Columns", num_cols)]:
-                try:
-                    shape.setPropertyValue(name, val)
-                except Exception:
-                    pass
-
-            page.add(shape)
-
-            # Set a default size (15cm x 10cm) - units are 100ths of mm
-            from com.sun.star.awt import Size, Point
-            shape.setSize(Size(15000, 10000))
-            shape.setPosition(Point(1000, 1000))
-            
-            # Model access (XTable)
-            table = None
-            if hasattr(shape, "Model"):
-                table = shape.Model
-            elif hasattr(shape, "Table"):
-                table = shape.Table
-            
-            if table:
-                from plugin.draw.tables import _ensure_table_dims, fill_table_cells
-
-                try:
-                    _ensure_table_dims(table, num_rows, num_cols)
-                    fill_table_cells(table, final_data)
-                except Exception:
-                    log.exception("Error filling table cells")
-            else:
-                # Fallback to text if table model is inaccessible
-                shape.setString(str(result))
-        else:
-            # 2. Insert as TextShape
-            shape = doc.createInstance("com.sun.star.drawing.TextShape")
-            page.add(shape)
-            from com.sun.star.awt import Size, Point
-            shape.setSize(Size(10000, 5000))
-            shape.setPosition(Point(1000, 1000))
-            
-            # Format result as text
-            if isinstance(result, (dict, list)):
-                import json
-                text_val = json.dumps(result, indent=2)
-            else:
-                text_val = str(result)
-            
-            shape.setString(text_val)
-
-    except Exception as e:
-        log.exception("Failed to insert result into Draw")
-        msgbox(uno_ctx, _("Error"), _("Failed to insert result into Draw: %s") % str(e))
-    """
 
 
 
@@ -589,7 +485,9 @@ def _run_python_monaco(
                 doc_scripts = get_document_scripts(doc)
                 real_doc_name = parse_document_script_display_name(last_name) or last_name
                 if real_doc_name in doc_scripts:
-                    save_document_script(doc, real_doc_name, code)
+                    err = save_document_script(doc, real_doc_name, code)
+                    if err:
+                        return {"type": "error", "message": err}
         if action == "save":
             return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
         outcome = execute_and_insert_result(ctx, doc, code, data_range=data_binding)

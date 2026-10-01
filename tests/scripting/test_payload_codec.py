@@ -392,14 +392,14 @@ def test_round_trip_split_grid_1d():
 
 
 def test_child_unpack_single_entry_auto_scalar_and_integer_coercion():
-    """Verify that child_unpack_data automatically unpacks single-entry inputs into scalars and coerces float-integers."""
+    """Single-cell floats stay floats. A longer float64 column already did; 1×1 used to become int."""
     np = pytest.importorskip("numpy")
 
-    # 1. 1-element numeric list representing an integer float
+    # 1. 1-element numeric list representing a whole-number float
     wire_int_float = [100000.0]
     unpacked_int_float = child_unpack_data(wire_int_float)
-    assert isinstance(unpacked_int_float, int)
-    assert unpacked_int_float == 100000
+    assert isinstance(unpacked_int_float, float)
+    assert unpacked_int_float == 100000.0
 
     # 2. 1-element numeric list representing a real float
     wire_real_float = [3.14]
@@ -419,11 +419,11 @@ def test_child_unpack_single_entry_auto_scalar_and_integer_coercion():
     assert isinstance(unpacked_bool, bool)
     assert unpacked_bool is True
 
-    # 5. 1-element numpy array representing an integer float (e.g. from split-grid of shape (1,))
+    # 5. 1-element numpy array representing a whole-number float
     arr_int_float = np.array([100000.0])
     unpacked_arr_int_float = child_unpack_data(arr_int_float)
-    assert isinstance(unpacked_arr_int_float, int)
-    assert unpacked_arr_int_float == 100000
+    assert isinstance(unpacked_arr_int_float, float)
+    assert unpacked_arr_int_float == 100000.0
 
     # 6. Multi-element list or 2D list should NOT be unpacked to scalar
     assert isinstance(child_unpack_data([100000.0, 200000.0]), np.ndarray)
@@ -864,21 +864,18 @@ def test_split_grid_logical_coercion_at_calc_ingress():
 
 
 def test_split_grid_single_cell_scalar_coercion():
-    """Verify automatic scalar extraction and whole float to integer coercion for single cells."""
+    """Single-cell whole-number floats stay floats, matching a longer float64 column."""
     np = pytest.importorskip("numpy")
-    
-    # 1. 1-element list with a whole number float should become python int
-    assert child_unpack_data([100.0]) == 100
-    assert isinstance(child_unpack_data([100.0]), int)
-    
-    # 2. 1-element list with real float remains float
+
+    assert child_unpack_data([100.0]) == 100.0
+    assert isinstance(child_unpack_data([100.0]), float)
+
     assert child_unpack_data([3.14]) == pytest.approx(3.14)
     assert isinstance(child_unpack_data([3.14]), float)
-    
-    # 3. 1-element ndarray with integer float
+
     arr = np.array([42.0])
-    assert child_unpack_data(arr) == 42
-    assert isinstance(child_unpack_data(arr), int)
+    assert child_unpack_data(arr) == 42.0
+    assert isinstance(child_unpack_data(arr), float)
 
 
 def test_split_grid_lattice_promotion_comprehensive():

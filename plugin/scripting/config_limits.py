@@ -189,13 +189,10 @@ def resolve_python_exec_timeout(
 
 def configured_python_exec_timeout(ctx: Any) -> int:
     """Read Settings value for scripting.python_exec_timeout and clamp to schema bounds."""
-    from plugin.framework.config import get_config_int
+    del ctx
+    from plugin.framework.config import get_config_int_safe
 
-    try:
-        val = get_config_int(_TIMEOUT_CONFIG_KEY)
-    except Exception:
-        val = python_exec_timeout_default()
-    return _clamp_timeout(val)
+    return _clamp_timeout(get_config_int_safe(_TIMEOUT_CONFIG_KEY))
 
 
 def embeddings_worker_timeout_sec(_ctx: Any | None = None) -> int:
@@ -227,6 +224,7 @@ def _clamp_max_data_cells(value: int) -> int:
 
 def configured_python_max_data_cells(ctx: Any) -> int:
     """Read Settings value for scripting.python_max_data_cells and clamp to schema bounds."""
-    from plugin.framework.config import get_config_int
+    del ctx
+    from plugin.framework.config import get_config_int_safe
 
-    return _clamp_max_data_cells(get_config_int(_DATA_CELLS_CONFIG_KEY))
+    return _clamp_max_data_cells(get_config_int_safe(_DATA_CELLS_CONFIG_KEY))

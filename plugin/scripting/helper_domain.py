@@ -16,7 +16,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
 from plugin.framework.i18n import _
@@ -135,13 +135,58 @@ def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] 
     return params if isinstance(params, dict) else None
 
 
+def _writeragent_imported_names(tree: ast.AST) -> set[str]:
+    """Names brought in by ``from writeragent... import``.
+
+    Direct helper templates call those names (``convert_quantity(...)``). A bare
+    ``print(...)`` must not be treated as a helper spec.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        module = node.module or ""
+        if module != "writeragent" and not module.startswith("writeragent."):
+            continue
+        for alias in node.names:
+            bound = alias.asname or alias.name
+            if bound and bound != "*":
+                names.add(bound)
+    return names
+
+
+def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]:
+    """Literal params from ``helper(...)`` (units positional style and kwargs)."""
+    params: dict[str, Any] = {}
+    if node.keywords and any(kw.arg is None for kw in node.keywords):
+        for kw in node.keywords:
+            if kw.arg is None:
+                val = _literal_value(kw.value)
+                if isinstance(val, dict):
+                    params.update(val)
+    for kw in node.keywords:
+        if kw.arg is not None:
+            params[kw.arg] = _literal_value(kw.value)
+    if node.args:
+        if len(node.args) == 3:
+            params.setdefault("value", _literal_value(node.args[0]))
+            params.setdefault("from", _literal_value(node.args[1]))
+            params.setdefault("to", _literal_value(node.args[2]))
+        elif len(node.args) == 1:
+            params.setdefault("quantity", _literal_value(node.args[0]))
+        elif len(node.args) == 2:
+            params.setdefault("quantity_a", _literal_value(node.args[0]))
+            params.setdefault("quantity_b", _literal_value(node.args[1]))
+    return {"helper": helper, "params": params}
+
+
 @deal.pre(
     lambda code, run_name="": str_bounded(code, DEAL_MAX_SOURCE)
     and ascii_bounded(run_name, DEAL_MAX_TOKEN)
 )
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
-    """Return the first positional spec dict from ``run_name({...}, ...)`` or direct helper call when literal."""
+    """Return the first positional spec dict from ``run_name({...}, ...)`` or a writeragent helper call."""
     if not code:
         return None
     import sys
@@ -154,6 +199,8 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
         tree = ast.parse(code)
     except (SyntaxError, TypeError, ValueError):
         return None
+    imported = _writeragent_imported_names(tree)
+    direct_spec: dict[str, Any] | None = None
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -168,34 +215,16 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
                 return spec
             if isinstance(spec, str):
                 return {"helper": spec, "params": {}}
-        elif func.id != run_name and not func.id.startswith("run_"):
-            # Check for standard call signature: helper(arg1, arg2, kw1=val1)
-            params = {}
-            # 1. Unpacked dict kwarg helper(**{...})
-            if node.keywords and any(kw.arg is None for kw in node.keywords):
-                for kw in node.keywords:
-                    if kw.arg is None:
-                        val = _literal_value(kw.value)
-                        if isinstance(val, dict):
-                            params.update(val)
-            # 2. Standard keyword args helper(kw1=val1)
-            for kw in node.keywords:
-                if kw.arg is not None:
-                    params[kw.arg] = _literal_value(kw.value)
-            # 3. Positional args helper(val, from, to)
-            if node.args:
-                if len(node.args) == 3:
-                    # Positional convert_quantity(value, from, to)
-                    params.setdefault("value", _literal_value(node.args[0]))
-                    params.setdefault("from", _literal_value(node.args[1]))
-                    params.setdefault("to", _literal_value(node.args[2]))
-                elif len(node.args) == 1:
-                    params.setdefault("quantity", _literal_value(node.args[0]))
-                elif len(node.args) == 2:
-                    params.setdefault("quantity_a", _literal_value(node.args[0]))
-                    params.setdefault("quantity_b", _literal_value(node.args[1]))
-            return {"helper": func.id, "params": params}
-    return None
+        elif (
+            direct_spec is None
+            and func.id in imported
+            and not func.id.startswith("run_")
+        ):
+            # Prefer run_name when both exist. Only imported writeragent names
+            # count: print("hi") used to become helper="print" and prepend the
+            # whole Writer document on Run Python Script.
+            direct_spec = _spec_from_direct_helper_call(node, func.id)
+    return direct_spec
 
 
 def prepend_run_import_document_bindings(code: str, *, bindings: dict[str, Any]) -> str:
@@ -209,11 +238,27 @@ def prepend_run_import_document_bindings(code: str, *, bindings: dict[str, Any])
     return "\n".join(lines) + code
 
 
+def _source_calls_name(code: str, name: str) -> bool:
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, TypeError, ValueError):
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name:
+            return True
+    return False
+
+
 def script_uses_run_import(code: str, *, run_name: str) -> bool:
-    """True when *code* contains a call to *run_name*."""
+    """True when *code* contains a call to *run_name*.
+
+    Direct helper calls are not this. Using the spec parser here treated
+    ``print("hi")`` as ``run_text_analytics`` and prepended the Writer body.
+    The substring fallback covers a call the AST cannot parse.
+    """
     if not code or not run_name:
         return False
-    return parse_run_import_call_spec(code, run_name=run_name) is not None or f"{run_name}(" in code
+    return _source_calls_name(code, run_name) or f"{run_name}(" in code
 
 
 # --- Templates ---
@@ -495,5 +540,81 @@ def make_template_api(cfg: DomainFacadeConfig) -> Any:
         get_templates=get_templates,
         parse_header=parse_header,
     )
+
+
+def is_status_helper_result(
+    value: Any,
+    names: frozenset[str] | set[str],
+    exact_error_codes: frozenset[str],
+) -> bool:
+    """True when *value* is a helper status dict for *names* or an exact error code.
+
+    Substring matches (``"FORECAST" in code``) and ``fetch_*`` prefixes used to
+    accept helpers that were not in the domain's name set.
+    """
+    if not isinstance(value, dict) or "status" not in value:
+        return False
+    helper = value.get("helper")
+    if isinstance(helper, str) and helper in names:
+        return True
+    if value.get("status") != "error":
+        return False
+    return str(value.get("code") or "") in exact_error_codes
+
+
+def run_trusted_calc_data_helper(
+    uno_ctx: Any,
+    doc: Any,
+    *,
+    helper: str,
+    params: dict[str, Any] | None,
+    data_range: str | None,
+    data: Any,
+    headers: bool,
+    task_hint: str | None,
+    helper_names: frozenset[str] | set[str],
+    error_code: str,
+    empty_data_message: str,
+    client_run: Callable[..., dict[str, Any]],
+) -> dict[str, Any]:
+    """Fetch Calc data and run one trusted sheet helper. Forecast and optimize share this."""
+    from plugin.calc.analysis_runner import calc_tool_context
+    from plugin.calc.bridge import CalcBridge
+    from plugin.calc.calc_addin_data import _resolve_python_data
+    from plugin.framework.errors import ToolExecutionError
+
+    name = str(helper or "").strip()
+    if not name:
+        raise ToolExecutionError("helper is required", code=error_code)
+    if name not in helper_names:
+        raise ToolExecutionError(f"Unknown helper {name!r}", code=error_code)
+
+    dr = str(data_range).strip() if data_range else None
+    if not dr and data is None:
+        raise ToolExecutionError("Provide data_range or data", code=error_code)
+
+    tool_ctx = calc_tool_context(uno_ctx, doc)
+    py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
+    if err:
+        raise ToolExecutionError(err, code=error_code)
+    if py_data is None:
+        raise ToolExecutionError(empty_data_message, code=error_code)
+
+    spec: dict[str, Any] = {"helper": name, "headers": bool(headers)}
+    if isinstance(params, dict) and params:
+        spec["params"] = params
+
+    context: dict[str, Any] = {}
+    try:
+        bridge = CalcBridge(doc)
+        context["sheet_name"] = bridge.get_active_sheet().getName()
+    except Exception:
+        pass
+    if task_hint:
+        context["task_hint"] = str(task_hint)
+    if dr:
+        context["range_a1"] = dr
+
+    return client_run(uno_ctx, spec, py_data, context=context or None)
 
 

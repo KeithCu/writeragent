@@ -39,6 +39,7 @@ def test_execute_and_insert_analysis_skips_fast_path(mock_venv, mock_run, mock_i
     mock_run.assert_not_called()
     mock_venv.assert_called_once()
     mock_insert.assert_called_once()
+    assert mock_insert.call_args.args[:2] == (doc, ctx)
 
 
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
