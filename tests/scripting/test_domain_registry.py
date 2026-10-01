@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from plugin.scripting.domain_registry import (
@@ -103,6 +104,53 @@ def test_script_header_needs_data_binding_for_direct_helper_templates():
             get_sql_script_templates()["query_sheet_sql"],
             doc=calc_doc,
         ) is True
+
+
+def test_picker_domains_are_cached():
+    assert get_picker_domains() is get_picker_domains()
+
+
+def test_calc_only_insert_passes_document_then_context():
+    """Calc egress is (doc, ctx, result). Swapping those args inserts into the wrong object."""
+    from plugin.scripting.domain_registry import build_rps_spec
+
+    ctx, doc = object(), object()
+    result = {"helper": "x"}
+    for wiring in WIRING_TABLE:
+        seen: dict[str, tuple[object, ...]] = {}
+
+        def _record(*args: object, **_kwargs: object) -> int:
+            seen["args"] = args
+            return 2
+
+        spec = build_rps_spec(wiring)
+        assert spec.insert is not None
+        with patch("plugin.scripting.domain_registry._resolve_fn", return_value=_record):
+            spec.insert(ctx, doc, result)
+        if wiring.post_venv_calc_only:
+            assert seen["args"] == (doc, ctx, result), wiring.id
+        else:
+            assert seen["args"] == (ctx, doc, result), wiring.id
+
+
+def test_vision_html_block_count_ignores_tag_prefixes():
+    from plugin.scripting.domain_registry import build_rps_spec
+
+    wiring = next(w for w in WIRING_TABLE if w.id == "vision")
+    spec = build_rps_spec(wiring)
+    html = (
+        "<html><head><title>t</title></head><header></header><hr>"
+        "<pre>no</pre><param name='p'/><p>a</p><p class='x'>b</p>"
+        "<h2>c</h2><table><tr><td>d</td></tr></table>"
+    )
+    assert spec.format_ok is not None
+    out = spec.format_ok(
+        meta=SimpleNamespace(helper="extract_structure"),
+        result={"helper": "extract_structure", "html": html, "metrics": {"table_count": 1}},
+        t0=0.0,
+    )
+    assert "4 blocks" in out["status_ok_text"]
+    assert "1 tables" in out["status_ok_text"]
 
 
 def test_picker_domains_unique_origins_and_prefixes():

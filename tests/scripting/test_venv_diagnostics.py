@@ -174,6 +174,26 @@ def test_build_probe_display_includes_nlp_when_keys_present():
     assert "spacy" in msg
 
 
+def test_build_probe_display_linux_portaudio_hint_when_sounddevice_missing():
+    data = {
+        "v": "3.12.0",
+        "p": {"sounddevice": None},
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "audio": ["sounddevice"],
+        "nlp": [],
+        "vision": [],
+        "vector_search": [],
+        "data_eng": [],
+    }
+    msg = _build_probe_display(data, completed_groups=8, include_audio=True)
+    if sys.platform.startswith("linux"):
+        assert "PortAudio" in msg
+    else:
+        assert "PortAudio" not in msg
+
+
 def test_build_probe_display_omits_install_footer_while_progressive():
     """Mid-Test refresh must not show a partial uv/pip install recipe."""
     data = {
@@ -741,6 +761,20 @@ def test_run_venv_self_check_batch_path_reports_duckdb():
     assert ok is True
     assert "Data Engineering Libraries: pint" in msg
     assert "duckdb" in msg
+
+
+def test_probe_hints_translate_at_call_time(monkeypatch) -> None:
+    """Module-level _() used to freeze the catalog from import, before init_i18n(ctx)."""
+    import plugin.scripting.venv_diagnostics as diag
+
+    def fake_translate(message: str) -> str:
+        return f"LOCALE:{message}"
+
+    monkeypatch.setattr(diag, "_", fake_translate)
+    hint = diag._nlp_probe_timeout_hint()
+    assert hint.startswith("LOCALE:")
+    assert "timed out" in hint
+    assert diag._audio_linux_portaudio_hint().startswith("LOCALE:")
 
 
 def test_probe_nlp_packages_subprocess_timeout():

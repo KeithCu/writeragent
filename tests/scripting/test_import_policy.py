@@ -174,6 +174,34 @@ def test_venv_policy_does_not_advertise_duckdb():
     assert "duckdb" in venv_authorized_top_level_modules()
 
 
+def test_venv_stdlib_extra_matches_authorized_stdlib() -> None:
+    """The pre-3.10 fallback set must match sys.stdlib_module_names or prompts drift."""
+    import sys
+
+    from plugin.scripting.import_policy import _VENV_STDLIB_EXTRA, _venv_package_modules, _venv_stdlib_modules
+    from plugin.scripting.sandbox import BASE_BUILTIN_MODULES
+
+    authorized = set(venv_authorized_top_level_modules())
+    expected = frozenset(
+        name
+        for name in authorized
+        if name in sys.stdlib_module_names and name not in set(BASE_BUILTIN_MODULES)
+    )
+    assert _VENV_STDLIB_EXTRA == expected
+    stdlib = set(_venv_stdlib_modules())
+    packages = set(_venv_package_modules())
+    assert stdlib.isdisjoint(packages)
+    for name in authorized:
+        if name in sys.stdlib_module_names:
+            assert name in stdlib
+            assert name not in packages
+
+
+def test_compact_policy_lists_network_block_without_string_prepend() -> None:
+    policy = format_venv_import_policy_for_prompt(compact=True)
+    assert "socket, requests, urllib, urllib3, http, httpx, ssl" in policy
+
+
 def test_format_units_helper_hint():
     hint = format_units_helper_hint()
     assert "Units Helpers" in hint

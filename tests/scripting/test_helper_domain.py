@@ -164,6 +164,26 @@ def test_prepend_run_import_document_bindings_uses_generic_comment():
     assert out.endswith("result = 1\n")
 
 
+def test_parse_run_import_call_params_nested_unary():
+    code = (
+        'result = run_units({"helper": "h", "params": {"n": -5, "items": [-1, 2], '
+        '"pos": +3, "dbl": -(-4)}}, None, {})\n'
+    )
+    params = parse_run_import_call_params(code, run_name="run_units")
+    assert params == {"n": -5, "items": [-1, 2], "pos": 3, "dbl": 4}
+
+
+def test_rps_insert_failed_outcome_empty_str_uses_repr():
+    class Blank(Exception):
+        def __str__(self) -> str:
+            return "  "
+
+    out = rps_insert_failed_outcome(Blank(), t0=0.0)
+    assert out["ok"] is False
+    assert "Blank()" in out["message"]
+    assert "result:  (" not in out["message"]
+
+
 def test_rps_insert_failed_outcome_logs_type_str_repr(caplog):
     """RPS insert-fail path must log str/repr so Arch debug shows UNO errors."""
     err = RuntimeError("insertDocumentFromURL")

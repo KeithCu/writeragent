@@ -31,7 +31,12 @@ class TrustedActionWiring:
         mod_name, attr_name = self.handler.rsplit(":", 1)
         mod = importlib.import_module(mod_name)
         fn = getattr(mod, attr_name)
-        return fn(data, heartbeat_fn=heartbeat_fn)
+        # supports_heartbeat is the contract that the handler accepts
+        # heartbeat_fn. Passing it anyway raises TypeError for a handler
+        # that does not take that keyword (and does not take **kwargs).
+        if self.supports_heartbeat:
+            return fn(data, heartbeat_fn=heartbeat_fn)
+        return fn(data)
 
 
 _TRUSTED_ACTION_WIRING: tuple[TrustedActionWiring, ...] = (

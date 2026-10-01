@@ -62,3 +62,5 @@ def test_execute_and_insert_detects_analysis_result_from_venv(mock_insert, mock_
     assert outcome["ok"] is True
     assert "quick_stats" in outcome["status_ok_text"]
     mock_insert.assert_called_once()
+    assert mock_insert.call_args.args[0] is doc
+    assert mock_insert.call_args.args[1] is ctx

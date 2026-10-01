@@ -81,6 +81,15 @@ def test_hypothesis_wrap_command_invariants(cmd: list[str]) -> None:
         assert wrapped[-len(cmd):] == cmd
 
 
+def test_scrub_copies_public_debug_log_path(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "plugin.framework.logging.get_debug_log_path",
+        lambda: "/tmp/writeragent_debug.log",
+    )
+    out = scrub_subprocess_env({"PATH": "/usr/bin"})
+    assert out["WRITERAGENT_DEBUG_LOG_PATH"] == "/tmp/writeragent_debug.log"
+
+
 def test_drops_secrets_and_lo_overrides() -> None:
     out = scrub_subprocess_env(
         {
