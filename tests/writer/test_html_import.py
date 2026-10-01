@@ -370,6 +370,19 @@ def test_swap_image_placeholders_turns_each_named_frame_into_a_marker():
     assert swapped.count(kept[0].marker) == 1 and "Pelotas." in swapped
 
 
+def test_swap_image_placeholders_keeps_a_picture_inside_a_heading():
+    # The export puts a <p> between the wrapper and the <img> when the picture sits in a heading;
+    # the edit was refused as "an image without its data" before.
+    from plugin.writer.html_import import _swap_image_placeholders
+
+    content = ('<h1 data-lo-style="Heading1"><a id="a__1423bb33"><span/></a><span class="graphic-fr1" id="Image2">'
+               '<p><img alt="" src=""/></p></span>AO DOUTO JUIZO</h1>')
+    swapped, kept = _swap_image_placeholders(_graphics_doc("Image2"), content)
+    assert [k.name for k in kept] == ["Image2"]
+    assert "<img" not in swapped and "<p>" not in swapped and swapped.count(kept[0].marker) == 1
+    assert "AO DOUTO JUIZO</h1>" in swapped
+
+
 def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
     """Losing a signature silently is worse than failing before anything changed."""
     import pytest

@@ -586,8 +586,11 @@ def _parked_cursor(cursor: Any) -> Any:
 # clear:both <div>. Imported as is, the picture was lost: the edit deleted the original with the
 # old text and the import made nothing (a signature vanished on "Accept all"), and the clear:both
 # <div> became an extra empty paragraph that shifted the next data-lo-style by one.
+# A picture inside a heading comes back with a <p> between the wrapper and the <img>
+# (<span id="Name"><p><img src=""/></p></span>); without that optional <p> the pattern missed
+# it and the whole edit was refused as "an image without its data".
 _IMAGE_PLACEHOLDER_RE = re.compile(
-    r'<(div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*<img\b[^>]*\bsrc=""[^>]*>\s*</\1>'
+    r'<(div|span)\b[^>]*\bid="([^"]+)"[^>]*>\s*(?:<p\b[^>]*>\s*)?<img\b[^>]*\bsrc=""[^>]*>\s*(?:</p>\s*)?</\1>'
     r'(?:\s*<div style="clear:both;[^"]*">(?:\s|&nbsp;|\xa0)*</div>)?',
     re.IGNORECASE)
 _EMPTY_IMG_RE = re.compile(r'<img\b[^>]*\bsrc=""', re.IGNORECASE)
