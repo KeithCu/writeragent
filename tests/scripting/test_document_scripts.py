@@ -21,6 +21,8 @@ from plugin.scripting.document_scripts import (
     delete_user_script,
     document_script_display_name,
     document_scripts_identity,
+    document_scripts_write_is_stale,
+    get_calc_document_from_ctx,
     get_document_scripts,
     handle_editor_script_message,
     has_document_scripts,
@@ -47,6 +49,27 @@ def test_document_scripts_identity_uses_shared_trailing_slash_normalize():
     assert document_scripts_identity(doc) == "file:///tmp/doc.odt"
     doc.getURL.return_value = ""
     assert document_scripts_identity(doc) == ""
+
+
+def test_untitled_save_is_not_a_stale_document_script_write():
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///tmp/saved.ods"
+    assert document_scripts_write_is_stale(doc, "") is False
+    assert document_scripts_write_is_stale(doc, "file:///tmp/other.ods") is True
+
+
+def test_get_calc_document_from_ctx_does_not_fall_back_from_writer():
+    writer = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = writer
+    with (
+        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
+        patch("plugin.scripting.document_scripts.is_writer", return_value=True),
+        patch("plugin.scripting.document_scripts.is_draw", return_value=False),
+        patch("plugin.scripting.document_scripts.is_calc", return_value=False),
+    ):
+        assert get_calc_document_from_ctx(MagicMock()) is None
+    desktop.getComponents.assert_not_called()
 
 
 def test_get_document_scripts_empty():

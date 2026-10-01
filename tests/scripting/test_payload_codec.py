@@ -13,6 +13,7 @@ realistic Calc-shaped grids only (rectangular 2D; uneven row lengths are rejecte
 
 from __future__ import annotations
 
+import array
 import ast
 import math
 import sys
@@ -36,6 +37,7 @@ from plugin.scripting.payload_codec import (
     host_pack_data,
     host_pack_multi_data,
     host_unpack_data,
+    host_unpack_split_grid,
     is_dataframe_payload,
     is_multi_data,
     is_numeric_coercible,
@@ -654,21 +656,33 @@ def test_split_grid_flat_row_10_shape() -> None:
 
 
 def test_child_pack_below_threshold_returns_list() -> None:
-    """Small ndarray egress below threshold returns the ndarray (not forced tolist or split_grid).
+    """Small ndarray egress below threshold is a nested list, not an ndarray or split_grid.
 
-    Per small_ndarray_result choice, we leave ndarray objects for sub-threshold pure numeric results
-    rather than converting to list. Host unpack and downstream (e.g. to_calc_compatible) accept ndarray.
+    Bugfix: returning the ndarray made a DataFrame under 100 cells spill only its
+    header, and a bare multi-cell array become one Calc string.
     """
     np = pytest.importorskip("numpy")
     n = max(1, BINARY_MIN_CELLS - 1)
     rows, cols = rect_shape_for_cell_count(n)
     small = np.arange(n, dtype=np.float64).reshape(rows, cols)
     wire = child_pack_result(small, force="auto")
-    # Not a split_grid (too small), and not auto-converted to list; ndarray is left as-is.
     assert not is_split_grid(wire)
-    assert isinstance(wire, np.ndarray)
-    assert wire.shape[0] == rows
-    # Also tolerate if some future change decides to list-ify small; the key is "no split envelope".
+    assert isinstance(wire, list)
+    assert len(wire) == rows
+    assert wire[0][0] == pytest.approx(0.0)
+
+
+def test_host_unpack_split_grid_rejects_short_buffer() -> None:
+    """Declared shape must match the float buffer. A short buffer is not a short grid."""
+    buf = array.array("d", [1.0])
+    envelope = {
+        "__wa_payload__": "split_grid",
+        "shape": [2, 2],
+        "buffer": buf.tobytes(),
+        "strings": {},
+    }
+    with pytest.raises(ValueError, match="buffer has 1 values"):
+        host_unpack_split_grid(envelope)
 
 
 def test_child_pack_numpy_scalar_types() -> None:

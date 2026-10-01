@@ -18,7 +18,7 @@ from hypothesis import strategies as st
 
 import deal
 from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH
-from plugin.scripting.sandbox import scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.scripting.sandbox import _env_name_is_credential, scrub_subprocess_env, wrap_command_for_sandbox
 from tests.harness.strip_bundle import deal_pre_present
 from tests.harness.vhs_budget import vhs_max_examples
 
@@ -26,7 +26,6 @@ _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGET = "plugin.scripting.sandbox.scrub_subprocess_env"
 _CROSSHAIR_TARGET_WRAP = "plugin.scripting.sandbox.wrap_command_for_sandbox"
 
-_BLOCKED_SUBSTR = ("KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL")
 _BLOCKED_EXACT = {"PYTHONHOME", "PYTHONPATH", "LD_LIBRARY_PATH"}
 
 
@@ -46,7 +45,7 @@ def _assert_scrubbed(out: dict[str, str]) -> None:
         assert isinstance(k, str) and isinstance(v, str)
         ku = k.upper()
         assert ku not in _BLOCKED_EXACT
-        assert not any(s in ku for s in _BLOCKED_SUBSTR)
+        assert not _env_name_is_credential(k)
 
 
 def test_none_and_empty_return_empty() -> None:
@@ -92,6 +91,7 @@ def test_drops_secrets_and_lo_overrides() -> None:
             "PYTHONPATH": "/lo/lib",
             "LD_LIBRARY_PATH": "/lo",
             "HOME": "/home/u",
+            "XAUTHORITY": "/home/u/.Xauthority",
         }
     )
     _assert_scrubbed(out)
@@ -99,6 +99,7 @@ def test_drops_secrets_and_lo_overrides() -> None:
     assert out["HOME"] == "/home/u"
     assert "API_KEY" not in out
     assert "PYTHONHOME" not in out
+    assert out["XAUTHORITY"] == "/home/u/.Xauthority"
     assert out["PYTHONIOENCODING"] == "utf-8"
     assert out["PYTHONUTF8"] == "1"
     assert out["PYTHONDONTWRITEBYTECODE"] == "1"

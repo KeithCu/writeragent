@@ -60,33 +60,32 @@ def script_body_hash(code: str) -> str:
     return hashlib.sha256((code or "").encode("utf-8")).hexdigest()
 
 
-def _is_simple_constant(node: ast.AST) -> bool:
-    if isinstance(node, ast.Constant):
-        return True
-    if isinstance(node, (ast.Tuple, ast.List)):
-        return all(_is_simple_constant(elt) for elt in node.elts)
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
-        return _is_simple_constant(node.operand)
-    return False
-
-
 def extract_library_source(code: str) -> str:
-    """Keep defs/classes/imports/constant assigns; drop module-level calls."""
+    """Keep defs, classes, imports, and name assignments. Drop module-level calls."""
     try:
         tree = ast.parse(code or "")
     except SyntaxError as exc:
         raise ValueError(f"Named script is not valid Python: {exc}") from exc
 
     keep: list[ast.stmt] = []
+    dropped: list[int] = []
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom)):
             keep.append(node)
-        elif isinstance(node, ast.Assign):
-            if all(isinstance(t, ast.Name) for t in node.targets) and _is_simple_constant(node.value):
-                keep.append(node)
-        elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name) and node.value is not None and _is_simple_constant(node.value):
-                keep.append(node)
+        elif isinstance(node, ast.Assign) and all(isinstance(t, ast.Name) for t in node.targets):
+            # Name assignments stay, including ``SCALE = FACTOR * 2``. Only
+            # constant assigns used to be kept, so the name vanished with no error.
+            keep.append(node)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+            keep.append(node)
+        elif isinstance(node, (ast.Expr, ast.Pass)):
+            # Module-level calls are not library definitions. They are omitted.
+            continue
+        else:
+            dropped.append(getattr(node, "lineno", 0))
+    if dropped:
+        lines = ", ".join(str(n) for n in dropped)
+        raise ValueError(f"Named script has statements that are not library definitions (lines {lines})")
     if not keep:
         return ""
     return ast.unparse(ast.Module(body=keep, type_ignores=[]))

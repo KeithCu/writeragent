@@ -96,6 +96,19 @@ def test_dataframe_egress_includes_header_row():
     assert dataframe_to_labeled_grid(["X"], [[9]], include_header=False) == [[9]]
 
 
+def test_result_to_calc_grid_ndarray_body_is_data():
+    """A leftover ndarray body is the grid, not an empty body under the header."""
+    np = pytest.importorskip("numpy")
+    envelope = {
+        "__wa_payload__": PAYLOAD_DATAFRAME,
+        "columns": ["a", "b"],
+        "data": np.array([[1.0, 2.0], [3.0, 4.0]]),
+    }
+    assert result_to_calc_grid(envelope) == [["a", "b"], [1.0, 2.0], [3.0, 4.0]]
+    bare = result_to_calc_grid(np.arange(3))
+    assert bare == [0, 1, 2]
+
+
 def test_dataframe_to_labeled_grid_zero_row_is_header_only():
     """0-row DataFrame envelope spills the header row only — not an error and not a new payload kind."""
     assert dataframe_to_labeled_grid(["A", "B"], []) == [["A", "B"]]

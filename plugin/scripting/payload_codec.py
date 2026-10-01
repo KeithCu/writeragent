@@ -528,20 +528,37 @@ def is_image_payload(obj: Any) -> bool:
     return _is_image_payload_envelope(obj)
 
 
-def find_image_payloads(obj: Any) -> list[dict[str, Any]]:
-    """Recursively find all image payloads in the object."""
+def find_image_payloads(
+    obj: Any,
+    *,
+    _depth: int = 0,
+    _seen: set[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Recursively find all image payloads in the object.
+
+    Depth and an identity set stop a cyclic result from blowing the stack.
+    """
     # crosshair: off  # recursive Any dict/list (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
+    if _depth > 12:
+        return []
     if is_image_payload(obj):
         return [obj]
+    if isinstance(obj, (dict, list, tuple)):
+        if _seen is None:
+            _seen = set()
+        marker = id(obj)
+        if marker in _seen:
+            return []
+        _seen.add(marker)
     if isinstance(obj, dict):
         res = []
         for v in obj.values():
-            res.extend(find_image_payloads(v))
+            res.extend(find_image_payloads(v, _depth=_depth + 1, _seen=_seen))
         return res
     if isinstance(obj, (list, tuple)):
         res = []
         for x in obj:
-            res.extend(find_image_payloads(x))
+            res.extend(find_image_payloads(x, _depth=_depth + 1, _seen=_seen))
         return res
     return []
 
@@ -578,8 +595,9 @@ def _is_dataframe_envelope(envelope: object) -> bool:
     if "data" not in env_dict:
         return False
     data = env_dict.get("data")
-    # Accept list/tuple/dict (split_grid or nested), None, or ndarray (small numeric DF/Series data left as ndarray
-    # by child_pack_result below BINARY_MIN_CELLS per design choice; host unpack tolerates ndarray).
+    # Accept list/tuple/dict (split_grid or nested), None, or ndarray.
+    # Small numeric bodies are nested lists. An ndarray is still accepted so an
+    # older child that skipped list egress still counts as a dataframe envelope.
     return isinstance(data, (list, tuple, dict)) or data is None or _is_ndarray(data)
 
 
@@ -1421,6 +1439,14 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     shape = envelope["shape"]
     is_1d = len(shape) == 1
     nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
+    # Bugfix: the child reshape rejects a buffer that does not match shape.
+    # The host used to slice whatever bytes arrived, so a short buffer became a
+    # short grid while wire_cell_count still reported the declared shape.
+    expected_cells = int(nrows) * int(ncols)
+    if len(buf) != expected_cells:
+        raise ValueError(
+            f"split_grid buffer has {len(buf)} values but shape {list(shape)} needs {expected_cells}"
+        )
 
     # Convert keys of strings to integers in case legacy test harnesses sent stringified keys.
     # Production wire is length-prefixed Pickle5 carrying split_grid (or nested lists for < BINARY_MIN_CELLS).
@@ -1813,10 +1839,16 @@ def child_pack_result(
                 shape = tuple(int(x) for x in result.shape)
                 if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
                     return child_pack_split_grid(result)
+                # Bugfix: the log said json_list egress, then the ndarray was returned
+                # unchanged. A DataFrame under 100 cells kept an ndarray body, and
+                # result_to_calc_grid dropped that body. A bare multi-cell array
+                # became one Calc string. Recurse on tolist() so the list path
+                # (grid_from_nested_list) is what actually goes on the wire.
                 log.debug(
                     "payload_codec child_pack json_list egress ndarray shape=%s (below_threshold)",
                     shape,
                 )
+                return child_pack_result(result.tolist(), min_cells=min_cells, force=force)
             elif isinstance(result, np.integer):
                 return int(result)
             elif isinstance(result, np.floating):

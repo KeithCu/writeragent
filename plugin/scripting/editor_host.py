@@ -85,7 +85,14 @@ def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
     """Environment for editor subprocess (venv python + GUI session variables)."""
     env = scrub_subprocess_env(dict(os.environ))
     env["WRITERAGENT_EDITOR_ASSETS"] = assets_dir or _ASSETS_DIR
-    for key in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "LD_LIBRARY_PATH"):
+    for key in (
+        "DISPLAY",
+        "XAUTHORITY",
+        "WAYLAND_DISPLAY",
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "LD_LIBRARY_PATH",
+    ):
         if key in os.environ and key not in env:
             env[key] = os.environ[key]
     return env
