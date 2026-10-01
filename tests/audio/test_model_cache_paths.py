@@ -10,7 +10,10 @@ from plugin.audio.model_cache_paths import KOKORO_MODEL_FILENAME, KOKORO_VOICES_
 def _home(monkeypatch, tmp_path: Path) -> Path:
     home = tmp_path / "home"
     home.mkdir()
+    # Path.home() reads HOME on POSIX and USERPROFILE on Windows
+    # (ntpath.expanduser). HOME alone still resolves the runner profile.
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     monkeypatch.delenv("KOKORO_MODEL_PATH", raising=False)
     monkeypatch.delenv("KOKORO_VOICES_PATH", raising=False)
