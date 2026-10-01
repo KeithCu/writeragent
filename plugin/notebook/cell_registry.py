@@ -63,6 +63,7 @@ __all__ = [
 # Data Models
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class NotebookCodeCell:
     """One imported code cell — stable ``cell_id`` survives renumbering in Phase 3."""
@@ -79,14 +80,7 @@ class NotebookCodeCell:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NotebookCodeCell:
-        return cls(
-            cell_id=str(data["cell_id"]),
-            index=int(data["index"]),
-            code_field_name=str(data["code_field_name"]),
-            execution_count=data.get("execution_count"),
-            output_start_bookmark=str(data.get("output_start_bookmark") or ""),
-            last_run_status=data.get("last_run_status"),
-        )
+        return cls(cell_id=str(data["cell_id"]), index=int(data["index"]), code_field_name=str(data["code_field_name"]), execution_count=data.get("execution_count"), output_start_bookmark=str(data.get("output_start_bookmark") or ""), last_run_status=data.get("last_run_status"))
 
 
 @dataclass
@@ -97,12 +91,7 @@ class NotebookDocState:
     next_execution_count: int = 1
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "version": self.version,
-            "source_path": self.source_path,
-            "code_cells": [c.to_dict() for c in self.code_cells],
-            "next_execution_count": self.next_execution_count,
-        }
+        return {"version": self.version, "source_path": self.source_path, "code_cells": [c.to_dict() for c in self.code_cells], "next_execution_count": self.next_execution_count}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NotebookDocState:
@@ -115,17 +104,13 @@ class NotebookDocState:
                 if cell.execution_count is not None:
                     max_ec = max(max_ec, int(cell.execution_count))
             next_ec = max_ec + 1 if max_ec else 1
-        return cls(
-            version=int(data.get("version") or _REGISTRY_VERSION),
-            source_path=str(data.get("source_path") or ""),
-            code_cells=cells,
-            next_execution_count=int(next_ec),
-        )
+        return cls(version=int(data.get("version") or _REGISTRY_VERSION), source_path=str(data.get("source_path") or ""), code_cells=cells, next_execution_count=int(next_ec))
 
 
 # ---------------------------------------------------------------------------
 # Cell Text & Prompt Formatting
 # ---------------------------------------------------------------------------
+
 
 def _coerce_notebook_text(value: Any) -> str:
     """Normalize nbformat text field (str or list of lines) to a single string."""
@@ -164,6 +149,7 @@ def _cell_heading(idx: int, cell_type: str, execution_count: Any | None = None) 
 # Cell Identity & Creation
 # ---------------------------------------------------------------------------
 
+
 def cell_id_to_hex(cell_id: str) -> str:
     return cell_id.replace("-", "")
 
@@ -191,11 +177,7 @@ def _bookmark_name_for_cell_id(cell_id: str) -> str:
     return f"nb_out_{cell_id_to_hex(cell_id)}"
 
 
-def new_code_cell_entry(
-    index: int,
-    execution_count: Any | None,
-    code_field_name: str,
-) -> NotebookCodeCell:
+def new_code_cell_entry(index: int, execution_count: Any | None, code_field_name: str) -> NotebookCodeCell:
     """Create a registry entry with a new stable ``cell_id`` and output bookmark name."""
     cell_id = str(uuid.uuid4())
     ec: int | None
@@ -206,18 +188,13 @@ def new_code_cell_entry(
             ec = int(execution_count)
         except (TypeError, ValueError):
             ec = None
-    return NotebookCodeCell(
-        cell_id=cell_id,
-        index=index,
-        code_field_name=code_field_name,
-        execution_count=ec,
-        output_start_bookmark=_bookmark_name_for_cell_id(cell_id),
-    )
+    return NotebookCodeCell(cell_id=cell_id, index=index, code_field_name=code_field_name, execution_count=ec, output_start_bookmark=_bookmark_name_for_cell_id(cell_id))
 
 
 # ---------------------------------------------------------------------------
 # Document Persistence & Bookmarks
 # ---------------------------------------------------------------------------
+
 
 def state_to_json(state: NotebookDocState) -> str:
     return json.dumps(state.to_dict(), separators=(",", ":"))
@@ -300,4 +277,3 @@ def init_registry_execution_counter(state: NotebookDocState) -> None:
     venv session is a new kernel on import. Re-runs still increment by 1.
     """
     state.next_execution_count = 1
-

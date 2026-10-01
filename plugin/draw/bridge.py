@@ -168,7 +168,7 @@ class DrawBridge:
         if index is None:
             index = pages.getCount()
         new_page = pages.insertNewByIndex(index)
-        
+
         if switch:
             controller = self.doc.getCurrentController()
             if controller is not None and hasattr(controller, "setCurrentPage"):
@@ -194,13 +194,7 @@ class DrawBridge:
             self.set_current_page_index(index + 1)
         return new_page
 
-    def insert_slide_from_master(
-        self,
-        master_index: int | None = None,
-        master_name: str | None = None,
-        after_index: int | None = None,
-        switch: bool = True,
-    ) -> tuple[Any, int]:
+    def insert_slide_from_master(self, master_index: int | None = None, master_name: str | None = None, after_index: int | None = None, switch: bool = True) -> tuple[Any, int]:
         """Insert a slide after after_index (default: active), assign master, jump to new slide."""
         pages = self.get_pages()
         if after_index is None:
@@ -284,7 +278,7 @@ class DrawBridge:
                         return page.getNumber() - 1
                     except Exception:
                         pass
-                
+
                 # Fallback: compare pages by UNO identity (PyUNO wrappers can differ).
                 from plugin.framework.uno_context import uno_same
 

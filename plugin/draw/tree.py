@@ -45,19 +45,7 @@ _NEAR_EMPTY_RE = re.compile(r"^[\s._\-–—•·□■☐☑☒╳]+$")
 
 # Shapes that can hold paper-form text. Lines/connectors/graphics/tables/OLE
 # are not fill targets even when getString exists.
-_NON_FILLABLE_TYPE_MARKERS = (
-    "LineShape",
-    "ConnectorShape",
-    "GroupShape",
-    "GraphicObjectShape",
-    "OLE2Shape",
-    "TableShape",
-    "PluginShape",
-    "MediaShape",
-    "ControlShape",
-    "PageShape",
-    "MeasureShape",
-)
+_NON_FILLABLE_TYPE_MARKERS = ("LineShape", "ConnectorShape", "GroupShape", "GraphicObjectShape", "OLE2Shape", "TableShape", "PluginShape", "MediaShape", "ControlShape", "PageShape", "MeasureShape")
 
 # 2 mm of import slop when deciding left/above alignment.
 _LABEL_ALIGN_SLACK = 200

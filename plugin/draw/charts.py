@@ -25,12 +25,7 @@ from plugin.calc.charts import ManageCharts as CalcManageCharts
 
 log = logging.getLogger("writeragent.draw")
 
-_ALL_CHART_DOCS = [
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.text.TextDocument",
-]
+_ALL_CHART_DOCS = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
 
 
 class ManageCharts(CalcManageCharts, ToolDrawChartBase):  # type: ignore[misc]

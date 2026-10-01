@@ -57,12 +57,7 @@ def mcp_endpoint_url(host: str, port: int, use_ssl: bool = False) -> str:
 
 # Shared with log.error on bind failure and the Toggle/Status/Settings msgbox so users
 # see the same actionable text that used to live only in writeragent_debug.log (#379).
-_PORT_IN_USE_GUIDANCE = (
-    "The port is in use by another process. "
-    "Close whatever is holding it, or set mcp.mcp_port in Settings "
-    "(or writeragent.json) to a free port, then try again. "
-    "A local preview/viewer server may default to the same port."
-)
+_PORT_IN_USE_GUIDANCE = "The port is in use by another process. Close whatever is holding it, or set mcp.mcp_port in Settings (or writeragent.json) to a free port, then try again. A local preview/viewer server may default to the same port."
 
 # errno.EADDRINUSE is 98 (Linux) / 48 (macOS); Windows uses winerror 10048 (WSAEADDRINUSE).
 _PORT_IN_USE_ERRNOS = frozenset({98, 48, 10048})
@@ -309,13 +304,4 @@ class HttpServer:
     def get_status(self) -> dict[str, Any]:
         scheme = "https" if self.use_ssl else "http"
         base_url = "%s://%s:%s" % (scheme, self.host, self.port)
-        return {
-            "running": self._running,
-            "host": self.host,
-            "port": self.port,
-            "ssl": self.use_ssl,
-            "url": base_url,
-            "mcp_url": mcp_endpoint_url(self.host, self.port, self.use_ssl),
-            "routes": self.route_registry.route_count,
-            "thread_alive": (self._thread.is_alive() if self._thread else False),
-        }
+        return {"running": self._running, "host": self.host, "port": self.port, "ssl": self.use_ssl, "url": base_url, "mcp_url": mcp_endpoint_url(self.host, self.port, self.use_ssl), "routes": self.route_registry.route_count, "thread_alive": (self._thread.is_alive() if self._thread else False)}

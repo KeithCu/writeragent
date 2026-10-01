@@ -34,10 +34,7 @@ def get_selected_image_bytes(ctx: Any, doc: Any) -> bytes:
     """Export the currently selected embedded graphic as raw PNG bytes."""
     b64 = get_selected_image_base64(doc, ctx)
     if not b64:
-        raise ToolExecutionError(
-            _("Select an embedded image (or a range containing images), then Run again."),
-            code="NO_IMAGE_SELECTED",
-        )
+        raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
     return base64.b64decode(b64)
 
 
@@ -49,18 +46,10 @@ def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = N
 
     graphic_obj = _get_graphic_object(doc, name)
     if graphic_obj is None:
-        raise ToolExecutionError(
-            _("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=name),
-            code="IMAGE_NOT_FOUND",
-            details={"image_name": name},
-        )
+        raise ToolExecutionError(_("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=name), code="IMAGE_NOT_FOUND", details={"image_name": name})
     png_bytes = export_graphic_object_to_bytes(ctx, graphic_obj)
     if not png_bytes:
-        raise ToolExecutionError(
-            _("Image '{name}' could not be exported.").format(name=name),
-            code="IMAGE_NOT_FOUND",
-            details={"image_name": name},
-        )
+        raise ToolExecutionError(_("Image '{name}' could not be exported.").format(name=name), code="IMAGE_NOT_FOUND", details={"image_name": name})
     return png_bytes
 
 
@@ -91,6 +80,7 @@ def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
     # 3. Fall back to LibreOffice UI locale
     try:
         from plugin.framework.i18n import get_lo_locale
+
         lo_locale = get_lo_locale(ctx)
         if lo_locale:
             return lo_locale.split("_")[0].split("-")[0].lower()
@@ -100,13 +90,7 @@ def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
     return "en"
 
 
-def run_trusted_vision(
-    ctx: Any,
-    doc: Any,
-    *,
-    helper: str,
-    params: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """Export graphic bytes and run a trusted vision helper in the user venv."""
     name = str(helper or "").strip()
     if not name:
@@ -143,14 +127,7 @@ def run_trusted_vision(
     return run_vision(ctx, spec, png_bytes, context=context)
 
 
-def run_and_insert_vision_for_selection(
-    ctx: Any,
-    doc: Any,
-    *,
-    helper: str,
-    params: dict[str, Any] | None = None,
-    insert_into_document: bool = True,
-) -> dict[str, Any]:
+def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True) -> dict[str, Any]:
     """OCR each graphic in the selection (or one named image) and optionally insert.
 
     Discovers named graphics while the selection is intact, then OCRs and inserts
@@ -176,10 +153,7 @@ def run_and_insert_vision_for_selection(
         pairs = graphic_objects_in_selection(doc)
         target_names = [n for n, _unused in pairs if n]
         if not target_names:
-            raise ToolExecutionError(
-                _("Select an embedded image (or a range containing images), then Run again."),
-                code="NO_IMAGE_SELECTED",
-            )
+            raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
 
     results: list[dict[str, Any]] = []
     for image_name in target_names:
@@ -207,11 +181,7 @@ def run_and_insert_vision_for_selection(
 
     inserted = bool(insert_into_document)
     if inserted:
-        message = (
-            _("OCR complete ({count} images).").format(count=len(results))
-            if len(results) > 1
-            else _("OCR complete.")
-        )
+        message = _("OCR complete ({count} images).").format(count=len(results)) if len(results) > 1 else _("OCR complete.")
     else:
         message = _("OCR complete (text returned only; not inserted).")
 

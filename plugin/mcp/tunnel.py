@@ -48,10 +48,7 @@ _CLOUDFLARE_ANY_URL_RE = re.compile(r"(https://[\w.-]+)")
 _BORE_URL_RE = re.compile(r"listening at ([\w.\-]+:\d+)")
 _TAILSCALE_URL_RE = re.compile(r"Available at (https://[\w.\-]+/)")
 
-_TAILSCALE_RESET_COMMANDS = (
-    ["tailscale", "funnel", "reset"],
-    ["tailscale", "serve", "reset"],
-)
+_TAILSCALE_RESET_COMMANDS = (["tailscale", "funnel", "reset"], ["tailscale", "serve", "reset"])
 
 _REDACT_FLAGS = frozenset({"--authtoken", "--token", "--secret"})
 
@@ -64,31 +61,11 @@ def build_cloudflare_command(port: int, provider_token: str = "") -> list[str]:
     """
     token = (provider_token or "").strip()
     if token:
-        return [
-            "cloudflared",
-            "tunnel",
-            "--no-autoupdate",
-            "run",
-            "--token",
-            token,
-        ]
-    return [
-        "cloudflared",
-        "tunnel",
-        "--no-autoupdate",
-        "--url",
-        "http://localhost:%s" % int(port),
-    ]
+        return ["cloudflared", "tunnel", "--no-autoupdate", "run", "--token", token]
+    return ["cloudflared", "tunnel", "--no-autoupdate", "--url", "http://localhost:%s" % int(port)]
 
 
-_CLOUDFLARE_IGNORED_HOSTS = frozenset({
-    "cloudflare.com",
-    "www.cloudflare.com",
-    "developers.cloudflare.com",
-    "blog.cloudflare.com",
-    "pkg.cloudflare.com",
-    "github.com",
-})
+_CLOUDFLARE_IGNORED_HOSTS = frozenset({"cloudflare.com", "www.cloudflare.com", "developers.cloudflare.com", "blog.cloudflare.com", "pkg.cloudflare.com", "github.com"})
 
 
 def parse_cloudflare_url(line: str) -> Optional[str]:
@@ -165,15 +142,7 @@ def parse_bore_url(line: str) -> Optional[str]:
 
 def build_ngrok_command(port: int, authtoken: str = "") -> list[str]:
     # Empty token → rely on ngrok CLI config / env (prior behavior).
-    cmd = [
-        "ngrok",
-        "http",
-        "http://localhost:%s" % int(port),
-        "--log",
-        "stdout",
-        "--log-format",
-        "json",
-    ]
+    cmd = ["ngrok", "http", "http://localhost:%s" % int(port), "--log", "stdout", "--log-format", "json"]
     token = (authtoken or "").strip()
     if token:
         cmd.extend(["--authtoken", token])
@@ -200,10 +169,7 @@ def detect_tunnel_auth_error(provider: str, line: str) -> Optional[str]:
     provider = (provider or "").strip().lower()
 
     if provider == "ngrok":
-        if "ERR_NGROK_105" in line or (
-            "authtoken" in lower
-            and ("required" in lower or "invalid" in lower or "unauthorized" in lower)
-        ):
+        if "ERR_NGROK_105" in line or ("authtoken" in lower and ("required" in lower or "invalid" in lower or "unauthorized" in lower)):
             return "ngrok authtoken required or invalid"
         if line.startswith("{"):
             try:
@@ -216,16 +182,7 @@ def detect_tunnel_auth_error(provider: str, line: str) -> Optional[str]:
                     return "ngrok authtoken required or invalid"
 
     if provider == "cloudflare":
-        if any(
-            phrase in lower
-            for phrase in (
-                "unauthorized",
-                "invalid token",
-                "invalid tunnel token",
-                "failed to parse tunnel token",
-                "bad tunnel token",
-            )
-        ):
+        if any(phrase in lower for phrase in ("unauthorized", "invalid token", "invalid tunnel token", "failed to parse tunnel token", "bad tunnel token")):
             return "cloudflare tunnel token invalid or unauthorized"
 
     if provider == "bore" and ("unauthorized" in lower or "invalid secret" in lower):
@@ -250,13 +207,7 @@ def parse_tailscale_url(line: str) -> Optional[str]:
 def _tailscale_reset() -> None:
     for cmd in _TAILSCALE_RESET_COMMANDS:
         try:
-            subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=5,
-                creationflags=_CREATION_FLAGS,
-            )
+            subprocess.run(cmd, capture_output=True, text=True, timeout=5, creationflags=_CREATION_FLAGS)
             log.debug("Tailscale reset: %s", " ".join(cmd))
         except Exception:
             log.debug("Tailscale reset failed: %s", " ".join(cmd), exc_info=True)
@@ -267,42 +218,15 @@ PROVIDERS: dict[str, dict[str, Any]] = {
     "cloudflare": {
         "label": "Cloudflare",
         "version_args": ["cloudflared", "--version"],
-        "install_url": (
-            "https://developers.cloudflare.com/cloudflare-one/connections/"
-            "connect-networks/downloads/"
-        ),
+        "install_url": ("https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"),
         "build_command": build_cloudflare_command,
         "parse_line": parse_cloudflare_url,
         "pre_start": None,
         "post_stop": None,
     },
-    "bore": {
-        "label": "Bore",
-        "version_args": ["bore", "--version"],
-        "install_url": "https://github.com/ekzhang/bore/releases",
-        "build_command": build_bore_command,
-        "parse_line": parse_bore_url,
-        "pre_start": None,
-        "post_stop": None,
-    },
-    "ngrok": {
-        "label": "Ngrok",
-        "version_args": ["ngrok", "version"],
-        "install_url": "https://ngrok.com/download",
-        "build_command": build_ngrok_command,
-        "parse_line": parse_ngrok_url,
-        "pre_start": None,
-        "post_stop": None,
-    },
-    "tailscale": {
-        "label": "Tailscale",
-        "version_args": ["tailscale", "version"],
-        "install_url": "https://tailscale.com/download",
-        "build_command": build_tailscale_command,
-        "parse_line": parse_tailscale_url,
-        "pre_start": _tailscale_reset,
-        "post_stop": _tailscale_reset,
-    },
+    "bore": {"label": "Bore", "version_args": ["bore", "--version"], "install_url": "https://github.com/ekzhang/bore/releases", "build_command": build_bore_command, "parse_line": parse_bore_url, "pre_start": None, "post_stop": None},
+    "ngrok": {"label": "Ngrok", "version_args": ["ngrok", "version"], "install_url": "https://ngrok.com/download", "build_command": build_ngrok_command, "parse_line": parse_ngrok_url, "pre_start": None, "post_stop": None},
+    "tailscale": {"label": "Tailscale", "version_args": ["tailscale", "version"], "install_url": "https://tailscale.com/download", "build_command": build_tailscale_command, "parse_line": parse_tailscale_url, "pre_start": _tailscale_reset, "post_stop": _tailscale_reset},
 }
 
 
@@ -322,22 +246,12 @@ def binary_available(provider: str) -> bool:
     version_args = info["version_args"]
     install_url = info["install_url"]
     try:
-        result = subprocess.run(
-            version_args,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=_CREATION_FLAGS,
-        )
+        result = subprocess.run(version_args, capture_output=True, text=True, timeout=10, creationflags=_CREATION_FLAGS)
         ver = (result.stdout or result.stderr or "").strip()
         log.info("%s version: %s", provider, ver or "(empty)")
         return True
     except FileNotFoundError:
-        log.exception(
-            "%s binary not found on PATH. Install from: %s",
-            version_args[0],
-            install_url,
-        )
+        log.exception("%s binary not found on PATH. Install from: %s", version_args[0], install_url)
         return False
     except Exception:
         log.exception("Error checking %s binary", provider)
@@ -365,19 +279,7 @@ def _build_provider_command(provider: str, port: int, provider_token: str) -> li
 
 
 import dataclasses
-from plugin.mcp.tunnel_state import (
-    DEFAULT_MAX_RETRIES,
-    CancelRetryTimerEffect,
-    NotifyUrlAcquiredEffect,
-    ScheduleRetryTimerEffect,
-    StartProcessEffect,
-    TerminateProcessEffect,
-    TunnelEvent,
-    TunnelEventKind,
-    TunnelState,
-    TunnelStatus,
-    next_state,
-)
+from plugin.mcp.tunnel_state import DEFAULT_MAX_RETRIES, CancelRetryTimerEffect, NotifyUrlAcquiredEffect, ScheduleRetryTimerEffect, StartProcessEffect, TerminateProcessEffect, TunnelEvent, TunnelEventKind, TunnelState, TunnelStatus, next_state
 
 
 class TunnelManager:
@@ -512,12 +414,7 @@ class TunnelManager:
                 provider = effect.provider
                 info = PROVIDERS.get(provider)
                 if not info:
-                    self._state = dataclasses.replace(
-                        self._state,
-                        status=TunnelStatus.FAILED,
-                        last_error="unknown tunnel provider: %s" % provider,
-                        desired_running=False,
-                    )
+                    self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="unknown tunnel provider: %s" % provider, desired_running=False)
                     continue
 
                 pre_start: Optional[Callable[[], None]] = info.get("pre_start")
@@ -526,12 +423,7 @@ class TunnelManager:
                         pre_start()
                     except Exception:
                         log.exception("Tunnel pre_start failed for %s", provider)
-                        self._state = dataclasses.replace(
-                            self._state,
-                            status=TunnelStatus.FAILED,
-                            last_error="%s pre_start failed" % provider,
-                            desired_running=False,
-                        )
+                        self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="%s pre_start failed" % provider, desired_running=False)
                         continue
 
                 parse_line: Callable[[str], Optional[str]] = info["parse_line"]
@@ -545,67 +437,33 @@ class TunnelManager:
                         auth_err = detect_tunnel_auth_error(provider, line)
                         if auth_err:
                             log.error("MCP tunnel auth error (%s): %s", provider, auth_err)
-                            self._dispatch_unlocked(
-                                TunnelEvent(
-                                    TunnelEventKind.PROCESS_EXITED,
-                                    {"rc": 1, "auth_error": auth_err},
-                                )
-                            )
+                            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": auth_err}))
                             return
                         url = parse_line(line)
                         if url:
                             log.info("MCP tunnel URL (%s): %s", provider, url)
-                            self._dispatch_unlocked(
-                                TunnelEvent(
-                                    TunnelEventKind.URL_ACQUIRED,
-                                    {"url": url},
-                                )
-                            )
+                            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.URL_ACQUIRED, {"url": url}))
 
                 def _on_exit(rc: int) -> None:
                     log.info("MCP tunnel process (%s) exited with code %s", provider, rc)
                     with self._lock:
                         self._process = None
-                        self._dispatch_unlocked(
-                            TunnelEvent(
-                                TunnelEventKind.PROCESS_EXITED,
-                                {"rc": rc},
-                            )
-                        )
+                        self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": rc}))
 
                 try:
                     from plugin.framework.worker_pool import AsyncProcess
 
                     # Some CLIs (cloudflared) print the URL on stderr more often than stdout.
-                    self._process = AsyncProcess(
-                        cmd,
-                        stdout_cb=_on_line,
-                        stderr_cb=_on_line,
-                        on_exit_cb=_on_exit,
-                        creationflags=_CREATION_FLAGS,
-                    )
+                    self._process = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, creationflags=_CREATION_FLAGS)
                     self._process.start()
                 except FileNotFoundError:
                     log.exception("%s binary not found", info["version_args"][0])
                     self._process = None
-                    self._dispatch_unlocked(
-                        TunnelEvent(
-                            TunnelEventKind.PROCESS_EXITED,
-                            {
-                                "rc": 1,
-                                "auth_error": "%s binary not found on PATH" % info["version_args"][0],
-                            },
-                        )
-                    )
+                    self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "%s binary not found on PATH" % info["version_args"][0]}))
                 except Exception:
                     log.exception("Failed to start MCP tunnel (%s)", provider)
                     self._process = None
-                    self._dispatch_unlocked(
-                        TunnelEvent(
-                            TunnelEventKind.PROCESS_EXITED,
-                            {"rc": 1, "auth_error": "failed to start %s tunnel" % provider},
-                        )
-                    )
+                    self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "failed to start %s tunnel" % provider}))
 
             elif isinstance(effect, ScheduleRetryTimerEffect):
                 if self._reconnect_timer is not None:
@@ -613,12 +471,7 @@ class TunnelManager:
                         self._reconnect_timer.cancel()
                     except Exception:
                         pass
-                log.info(
-                    "Scheduling MCP tunnel reconnect in %.1fs (attempt %s/%s)",
-                    effect.delay_seconds,
-                    effect.attempt,
-                    effect.max_retries,
-                )
+                log.info("Scheduling MCP tunnel reconnect in %.1fs (attempt %s/%s)", effect.delay_seconds, effect.attempt, effect.max_retries)
                 timer = threading.Timer(effect.delay_seconds, self._on_retry_timer_expired)
                 timer.daemon = True
                 self._reconnect_timer = timer
@@ -639,13 +492,7 @@ class TunnelManager:
             self._reconnect_timer = None
             self._dispatch_unlocked(TunnelEvent(TunnelEventKind.RETRY_TIMER_EXPIRED))
 
-    def start(
-        self,
-        port: int,
-        provider: str = DEFAULT_PROVIDER,
-        provider_token: str = "",
-        max_retries: int = DEFAULT_MAX_RETRIES,
-    ) -> bool:
+    def start(self, port: int, provider: str = DEFAULT_PROVIDER, provider_token: str = "", max_retries: int = DEFAULT_MAX_RETRIES) -> bool:
         """Start (or keep) a tunnel to *port*. Returns False if start failed."""
         import os
 
@@ -658,21 +505,11 @@ class TunnelManager:
         if info is None:
             log.error("Unknown tunnel provider: %s", provider)
             with self._lock:
-                self._state = dataclasses.replace(
-                    self._state,
-                    status=TunnelStatus.FAILED,
-                    last_error="unknown tunnel provider: %s" % provider,
-                    desired_running=False,
-                )
+                self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="unknown tunnel provider: %s" % provider, desired_running=False)
             return False
 
         with self._lock:
-            if (
-                self.is_running
-                and self._state.port == int(port)
-                and self._state.provider == provider
-                and self._state.provider_token == token
-            ):
+            if self.is_running and self._state.port == int(port) and self._state.provider == provider and self._state.provider_token == token:
                 log.info("Tunnel already running (%s) at %s", provider, self.public_url)
                 if self.public_url:
                     self._state = dataclasses.replace(self._state, last_error=None)
@@ -680,30 +517,11 @@ class TunnelManager:
 
             if not binary_available(provider):
                 binary = info["version_args"][0]
-                self._state = dataclasses.replace(
-                    self._state,
-                    status=TunnelStatus.FAILED,
-                    last_error="%s binary not found on PATH" % binary,
-                    desired_running=False,
-                )
+                self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="%s binary not found on PATH" % binary, desired_running=False)
                 return False
 
-            self._dispatch_unlocked(
-                TunnelEvent(
-                    TunnelEventKind.START_REQUESTED,
-                    {
-                        "port": int(port),
-                        "provider": provider,
-                        "provider_token": token,
-                        "max_retries": max_retries,
-                    },
-                )
-            )
-            if self._state.last_error and (
-                "not found on PATH" in self._state.last_error
-                or "failed to start" in self._state.last_error
-                or "pre_start failed" in self._state.last_error
-            ):
+            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.START_REQUESTED, {"port": int(port), "provider": provider, "provider_token": token, "max_retries": max_retries}))
+            if self._state.last_error and ("not found on PATH" in self._state.last_error or "failed to start" in self._state.last_error or "pre_start failed" in self._state.last_error):
                 return False
             return True
 
@@ -729,12 +547,7 @@ def _redact_cmd_for_log(cmd: list[str]) -> str:
     return " ".join(out)
 
 
-def test_tunnel_connectivity(
-    provider: str = DEFAULT_PROVIDER,
-    provider_token: str = "",
-    port: int = 18765,
-    timeout: float = 6.0,
-) -> tuple[bool, str, Optional[str]]:
+def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, provider_token: str = "", port: int = 18765, timeout: float = 6.0) -> tuple[bool, str, Optional[str]]:
     """Test tunnel provider availability and optionally probe connectivity to port.
 
     Returns (ok, user_facing_message, public_url).
@@ -757,18 +570,10 @@ def test_tunnel_connectivity(
 
     # 1. Check binary availability and version
     try:
-        res = subprocess.run(
-            info["version_args"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            creationflags=_CREATION_FLAGS,
-        )
+        res = subprocess.run(info["version_args"], capture_output=True, text=True, timeout=5, creationflags=_CREATION_FLAGS)
         version_str = (res.stdout or res.stderr or "").strip().splitlines()[0] if (res.stdout or res.stderr) else ""
     except FileNotFoundError:
-        return False, _("Binary '{0}' for {1} not found on PATH.\n\nInstall from: {2}").format(
-            binary, pname, info["install_url"]
-        ), None
+        return False, _("Binary '{0}' for {1} not found on PATH.\n\nInstall from: {2}").format(binary, pname, info["install_url"]), None
     except Exception as exc:
         return False, _("Failed to execute {0} binary ({1}): {2}").format(pname, binary, exc), None
 
@@ -785,6 +590,7 @@ def test_tunnel_connectivity(
 
     # 3. Check if an active tunnel is already running in LibreOffice
     from plugin.mcp import _shared_tunnel
+
     if _shared_tunnel and _shared_tunnel.is_running:
         active_p = getattr(_shared_tunnel, "_provider", None) or DEFAULT_PROVIDER
         active_url = _shared_tunnel.mcp_public_url()
@@ -802,22 +608,12 @@ def test_tunnel_connectivity(
 
             if active_p == provider:
                 if probe_ok:
-                    return True, _(
-                        "{0} tunnel is running and responsive!\n\nPublic endpoint:\n{1}\n\nHealth check: OK (200)"
-                    ).format(pname, active_url), active_url
-                return True, _(
-                    "{0} tunnel is active!\n\nPublic endpoint:\n{1}\n\n(Public URL acquired from active tunnel session.)"
-                ).format(pname, active_url), active_url
+                    return True, _("{0} tunnel is running and responsive!\n\nPublic endpoint:\n{1}\n\nHealth check: OK (200)").format(pname, active_url), active_url
+                return True, _("{0} tunnel is active!\n\nPublic endpoint:\n{1}\n\n(Public URL acquired from active tunnel session.)").format(pname, active_url), active_url
             else:
-                return True, _(
-                    "{0} binary '{1}' is verified ({2}).\n\n(Note: An active {3} tunnel is currently running at {4}.)"
-                ).format(pname, binary, version_str or "OK", provider_label(active_p), active_url), None
+                return True, _("{0} binary '{1}' is verified ({2}).\n\n(Note: An active {3} tunnel is currently running at {4}.)").format(pname, binary, version_str or "OK", provider_label(active_p), active_url), None
 
     if local_running:
-        return True, _(
-            "{0} binary '{1}' is installed and verified ({2}).\n\nMCP server is running locally on port {3}.\nCheck 'Expose via public tunnel' and click OK to activate public routing."
-        ).format(pname, binary, version_str or "OK", port), None
+        return True, _("{0} binary '{1}' is installed and verified ({2}).\n\nMCP server is running locally on port {3}.\nCheck 'Expose via public tunnel' and click OK to activate public routing.").format(pname, binary, version_str or "OK", port), None
 
-    return True, _(
-        "{0} binary '{1}' is installed and verified ({2}).\n\nNote: MCP server is not currently running on port {3}."
-    ).format(pname, binary, version_str or "OK", port), None
+    return True, _("{0} binary '{1}' is installed and verified ({2}).\n\nNote: MCP server is not currently running on port {3}.").format(pname, binary, version_str or "OK", port), None

@@ -76,15 +76,8 @@ class SendErrorEffect:
 # --- State Machine Transition ---
 
 
-@deal.ensure(
-    lambda state, event, result: bool(event.data.get("tool_name"))
-    or event.kind != EventKind.REQUEST_RECEIVED
-    or (result.state.is_error and any(isinstance(e, SendErrorEffect) for e in result.effects))
-)
-@deal.ensure(
-    lambda state, event, result: event.kind != EventKind.TOOL_COMPLETED
-    or any(isinstance(e, StreamResponseEffect) for e in result.effects)
-)
+@deal.ensure(lambda state, event, result: bool(event.data.get("tool_name")) or event.kind != EventKind.REQUEST_RECEIVED or (result.state.is_error and any(isinstance(e, SendErrorEffect) for e in result.effects)))
+@deal.ensure(lambda state, event, result: event.kind != EventKind.TOOL_COMPLETED or any(isinstance(e, StreamResponseEffect) for e in result.effects))
 @deal.ensure(lambda state, event, result: event.kind != EventKind.REQUEST_ERROR or result.state.is_error)
 def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
     """Pure transition function for the MCP tool-calling loop."""
@@ -104,25 +97,8 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
             return FsmTransition(dataclasses.replace(state, status=MCPStateStr.ERROR, is_error=True), effects)
 
         effects.append(ParseRequestEffect())
-        effects.append(
-            ExecuteToolEffect(
-                tool_name=tool_name,
-                arguments=arguments,
-                is_long_running=is_long_running,
-                document_url=document_url,
-            )
-        )
-        return FsmTransition(
-            dataclasses.replace(
-                state,
-                status=MCPStateStr.EXECUTING_TOOL,
-                tool_name=tool_name,
-                arguments=arguments,
-                document_url=document_url,
-                is_long_running=is_long_running,
-            ),
-            effects,
-        )
+        effects.append(ExecuteToolEffect(tool_name=tool_name, arguments=arguments, is_long_running=is_long_running, document_url=document_url))
+        return FsmTransition(dataclasses.replace(state, status=MCPStateStr.EXECUTING_TOOL, tool_name=tool_name, arguments=arguments, document_url=document_url, is_long_running=is_long_running), effects)
 
     elif event.kind == EventKind.TOOL_EXECUTION_STARTED:
         # Just an informational event, we stay in EXECUTING_TOOL

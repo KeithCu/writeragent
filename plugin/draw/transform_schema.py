@@ -42,7 +42,8 @@ AUTOLAYOUT_BY_NAME: dict[str, int] = {
 }
 
 # Embedded for the LLM tool description (from Collabora TRANSFORM_PARAM_DESCRIPTION).
-TRANSFORM_PARAM_DESCRIPTION = r"""JSON transformation commands. The top-level object can contain "Transforms" and/or "UnoCommand" objects in any order.
+TRANSFORM_PARAM_DESCRIPTION = (
+    r"""JSON transformation commands. The top-level object can contain "Transforms" and/or "UnoCommand" objects in any order.
 
 --- Impress/ODP Presentations ---
 
@@ -92,7 +93,9 @@ Rich text editing:
 
 WriterAgent V1 does not yet support GenerateImage.N, MarkObject, UnMarkObject, or ContentControls.* — use image_generate or atomic draw tools instead.
 
-Full DSL reference: """ + COLLABORA_TRANSFORM_DSL_URL
+Full DSL reference: """
+    + COLLABORA_TRANSFORM_DSL_URL
+)
 
 _DEFERRED_PREFIXES = ("GenerateImage.", "InsertImageAt.", "InsertImage.", "ContentControls.")
 _DEFERRED_EXACT = frozenset({"MarkObject", "UnMarkObject"})
@@ -142,10 +145,7 @@ def parse_transform_argument(raw: Any) -> tuple[dict[str, Any] | None, str | Non
             return None, "No transform parameter provided"
         obj = safe_json_loads(raw, default=None, strict=True)
         if not isinstance(obj, dict):
-            return None, (
-                "Invalid JSON in transform parameter. All slides must be in a single SlideCommands "
-                "array within one Transforms object. Use InsertMasterSlide to add slides within the same array."
-            )
+            return None, ("Invalid JSON in transform parameter. All slides must be in a single SlideCommands array within one Transforms object. Use InsertMasterSlide to add slides within the same array.")
     else:
         return None, "transform must be a JSON string or object"
 

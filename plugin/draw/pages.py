@@ -36,24 +36,13 @@ def _is_impress_doc(doc: Any) -> bool:
 class AddSlide(ToolBase):
     name: str | None = "add_slide"
     intent: str | None = "edit"
-    description: str = (
-        "Inserts a new slide (page) at the specified index. "
-        "Impress defaults to the Title + Content ('text') layout. "
-        "New slides inherit the deck's assigned master. "
-        "Call list_placeholders before set_placeholder_text."
-    )
+    description: str = "Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master. Call list_placeholders before set_placeholder_text."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based index where to insert the new slide (defaults to appending at the end if omitted)"},
             "activate": {"type": "boolean", "description": "Whether to switch the view to the new slide (default: true)"},
-            "layout": {
-                "type": "string",
-                "description": (
-                    "Impress layout name (default: 'text' = Title + Content). "
-                    "Use 'blank' or 'none' for an empty slide. Ignored on Draw documents."
-                ),
-            },
+            "layout": {"type": "string", "description": ("Impress layout name (default: 'text' = Title + Content). Use 'blank' or 'none' for an empty slide. Ignored on Draw documents.")},
         },
         "required": [],
     }
@@ -125,10 +114,10 @@ class DeleteSlide(ToolBase):
         if page_idx is None:
             return self._tool_error("page is required.")
         bridge.delete_slide(page_idx)
-        
+
         # Resolve active index
         active_idx = bridge.get_active_page_index()
-        
+
         return {"status": "ok", "message": "Slide deleted", "active_page_index": active_idx}
 
 
@@ -240,6 +229,7 @@ class GetPresentationInfo(ToolBase):
             pass
 
         from plugin.draw.bridge import DrawBridge
+
         bridge = DrawBridge(doc)
         active_idx = ctx.active_page_index
         if active_idx is None:
@@ -247,6 +237,7 @@ class GetPresentationInfo(ToolBase):
         is_impress = hasattr(doc, "getPresentation")
 
         return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress, "active_page_index": active_idx}
+
 
 class SetActivePage(ToolBase):
     name: str | None = "set_active_page"
@@ -284,21 +275,8 @@ _DRAW_UNO = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.
 class DuplicateSlide(ToolBase):
     name: str | None = "duplicate_slide"
     intent: str | None = "edit"
-    description: str = (
-        "Duplicates the slide at the given 0-based index. The copy is inserted immediately after "
-        "the source slide."
-    )
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "page": {"type": "integer", "description": "0-based index of the slide to duplicate"},
-            "activate": {
-                "type": "boolean",
-                "description": "Whether to switch the view to the new slide (default: true)",
-            },
-        },
-        "required": ["page"],
-    }
+    description: str = "Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide."
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "description": "Whether to switch the view to the new slide (default: true)"}}, "required": ["page"]}
     uno_services: list[str] | None = _DRAW_UNO
     is_mutation: bool | None = True
     tier: str = "core"
@@ -316,29 +294,14 @@ class DuplicateSlide(ToolBase):
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
         bridge.duplicate_slide(page_idx, switch=switch_view)
-        return {
-            "status": "ok",
-            "message": "Slide duplicated",
-            "source_page": page_idx,
-            "active_page_index": bridge.get_active_page_index(),
-        }
+        return {"status": "ok", "message": "Slide duplicated", "source_page": page_idx, "active_page_index": bridge.get_active_page_index()}
 
 
 class MoveSlide(ToolBase):
     name: str | None = "move_slide"
     intent: str | None = "edit"
-    description: str = (
-        "Moves a slide from from_page to to_page (both 0-based). to_page is the destination index "
-        "after removal of the source (insert-at that index)."
-    )
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "from_page": {"type": "integer", "description": "0-based source slide index"},
-            "to_page": {"type": "integer", "description": "0-based destination slide index"},
-        },
-        "required": ["from_page", "to_page"],
-    }
+    description: str = "Moves a slide from from_page to to_page (both 0-based). to_page is the destination index after removal of the source (insert-at that index)."
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"from_page": {"type": "integer", "description": "0-based source slide index"}, "to_page": {"type": "integer", "description": "0-based destination slide index"}}, "required": ["from_page", "to_page"]}
     uno_services: list[str] | None = _DRAW_UNO
     is_mutation: bool | None = True
     tier: str = "core"
@@ -354,27 +317,14 @@ class MoveSlide(ToolBase):
         ok = bridge.move_slide(from_page, to_page)
         if not ok:
             return self._tool_error("Could not move slide from %s to %s." % (from_page, to_page))
-        return {
-            "status": "ok",
-            "message": "Slide moved",
-            "from_page": from_page,
-            "to_page": to_page,
-            "active_page_index": bridge.get_active_page_index(),
-        }
+        return {"status": "ok", "message": "Slide moved", "from_page": from_page, "to_page": to_page, "active_page_index": bridge.get_active_page_index()}
 
 
 class RenameSlide(ToolBase):
     name: str | None = "rename_slide"
     intent: str | None = "edit"
     description: str = "Sets the Name property of a slide (0-based page index)."
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "page": {"type": "integer", "description": "0-based slide index"},
-            "name": {"type": "string", "description": "New slide name"},
-        },
-        "required": ["page", "name"],
-    }
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index"}, "name": {"type": "string", "description": "New slide name"}}, "required": ["page", "name"]}
     uno_services: list[str] | None = _DRAW_UNO
     is_mutation: bool | None = True
     tier: str = "core"
@@ -395,10 +345,4 @@ class RenameSlide(ToolBase):
         ok = bridge.rename_slide(page_idx, str(name))
         if not ok:
             return self._tool_error("Slide does not support renaming.")
-        return {
-            "status": "ok",
-            "message": "Slide renamed",
-            "page": page_idx,
-            "name": str(name),
-            "active_page_index": bridge.get_active_page_index(),
-        }
+        return {"status": "ok", "message": "Slide renamed", "page": page_idx, "name": str(name), "active_page_index": bridge.get_active_page_index()}

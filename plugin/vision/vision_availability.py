@@ -20,13 +20,7 @@ log = logging.getLogger(__name__)
 
 _VISION_DOMAIN = "vision"
 _VISION_TOOL_NAME = "extract_structure_from_image"
-_DELEGATE_GATEWAY_NAMES = frozenset(
-    {
-        "delegate_to_specialized_writer_toolset",
-        "delegate_to_specialized_calc_toolset",
-        "delegate_to_specialized_draw_toolset",
-    }
-)
+_DELEGATE_GATEWAY_NAMES = frozenset({"delegate_to_specialized_writer_toolset", "delegate_to_specialized_calc_toolset", "delegate_to_specialized_draw_toolset"})
 
 # Package probe cache (Settings self-check / diagnostics only — not used on Send / get_schemas).
 _probe_cache: dict[tuple[str, float], bool] = {}
@@ -130,11 +124,7 @@ def chat_text_model_has_native_vision() -> bool:
     filter_get_image_for_text_only_model (keep get_image rather than hide it).
     """
     try:
-        from plugin.framework.client.model_fetcher import (
-            get_current_endpoint,
-            get_text_model,
-            has_native_vision,
-        )
+        from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
 
         return bool(has_native_vision(get_text_model(), get_current_endpoint()))
     except Exception:

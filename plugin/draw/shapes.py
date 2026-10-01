@@ -306,8 +306,6 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
         return False, f"{type(ex).__name__}: {ex}"
 
 
-
-
 class GetDrawSummary(ToolDrawShapeBase):
     name: str | None = "shape_summary"
     intent: str | None = "edit"
@@ -321,11 +319,11 @@ class GetDrawSummary(ToolDrawShapeBase):
 
         bridge = DrawBridge(ctx.doc)
         idx = kwargs.get("page")
-        
+
         # Use provided index or resolved active index from context
         actual_idx = idx if idx is not None else ctx.active_page_index
         if actual_idx is None:
-             actual_idx = bridge.get_active_page_index()
+            actual_idx = bridge.get_active_page_index()
 
         try:
             page = DrawBridge.resolve_slide(ctx.doc, actual_idx)
@@ -358,15 +356,7 @@ class DrawShapes:
             return False
         return True
 
-    def safe_create_shape(
-        self,
-        doc: Any,
-        page: Any,
-        shape_type: str,
-        position: Any,
-        size: Any,
-        custom_shape_type: str | None = None,
-    ) -> tuple[Any, bool | None, str | None]:
+    def safe_create_shape(self, doc: Any, page: Any, shape_type: str, position: Any, size: Any, custom_shape_type: str | None = None) -> tuple[Any, bool | None, str | None]:
         """Safely create shape with error handling.
 
         Shapes are created via the document's factory (``doc.createInstance``);
@@ -439,10 +429,7 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
     AUTOFIT scales font down to the shape box. Callers that pass font_size (or
     another explicit fit/font override) skip AUTOFIT so CharHeight wins.
     """
-    for prop, value in (
-        ("TextAutoGrowHeight", False),
-        ("TextAutoGrowWidth", False),
-    ):
+    for prop, value in (("TextAutoGrowHeight", False), ("TextAutoGrowWidth", False)):
         try:
             shape.setPropertyValue(prop, value)
         except Exception:
@@ -545,12 +532,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> None:
 
     # Text Properties (Font Size, Name, Color)
     if kwargs.get("text_color") or kwargs.get("font_size") or kwargs.get("font_name"):
-        apply_character_properties(
-            shape,
-            font_name=kwargs.get("font_name"),
-            font_size_pt=kwargs.get("font_size"),
-            color=kwargs.get("text_color"),
-        )
+        apply_character_properties(shape, font_name=kwargs.get("font_name"), font_size_pt=kwargs.get("font_size"), color=kwargs.get("text_color"))
 
     # Rotation
     if kwargs.get("rotation_angle") is not None and hasattr(shape, "RotateAngle"):
@@ -585,10 +567,7 @@ _CREATE_SHAPE_SHAPE_TYPE_DESC = (
 
 class UpsertShape(ToolDrawShapeBase):
     name: str | None = "shape_upsert"
-    description: str = (
-        "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name "
-        "from get_draw_tree — draw-page index shifts when other shapes sit between fields."
-    )
+    description: str = "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from get_draw_tree — draw-page index shifts when other shapes sit between fields."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -621,7 +600,7 @@ class UpsertShape(ToolDrawShapeBase):
         action = kwargs.get("action")
         if not action:
             return False, "Missing required parameter: 'action' must be 'create' or 'edit'"
-        
+
         if action == "create":
             required = ["shape_type", "x", "y", "width", "height"]
             for r in required:
@@ -632,7 +611,7 @@ class UpsertShape(ToolDrawShapeBase):
                 return False, "Parameter 'index' or 'name' is required when action is 'edit'"
         else:
             return False, f"Unknown action: '{action}'. Must be 'create' or 'edit'"
-            
+
         return True, None
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -641,7 +620,7 @@ class UpsertShape(ToolDrawShapeBase):
 
         action = kwargs["action"]
         bridge = DrawBridge(ctx.doc)
-        
+
         # Resolve page
         idx = kwargs.get("page")
         actual_idx = idx if idx is not None else ctx.active_page_index
@@ -688,14 +667,7 @@ class UpsertShape(ToolDrawShapeBase):
                 # Apply EnhancedCustomShapeGeometry *inside* safe_create_shape (before
                 # page.add). Setting Type=octagon after add replaces the live SdrRectObj
                 # and can abort in SfxItemPool::unregisterNameOrIndex (soffice SIGABRT).
-                shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(
-                    ctx.doc,
-                    page,
-                    uno_type,
-                    position,
-                    size,
-                    custom_shape_type=custom_shape_type if is_custom_shape else None,
-                )
+                shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(ctx.doc, page, uno_type, position, size, custom_shape_type=custom_shape_type if is_custom_shape else None)
                 if is_custom_shape and geometry_applied:
                     _log_shape_uno_snapshot("after_custom_geometry", shape)
             except DrawError as e:
@@ -707,18 +679,8 @@ class UpsertShape(ToolDrawShapeBase):
             # Re-apply EnhancedCustomShapeGeometry after add. Writer needs this after
             # AT_PAGE anchor (pre-#527). Calc needs it too: pre-add Type alone stays
             # Type-only (no Path/ViewBox) and CustomShapes do not paint on the sheet.
-            if (
-                is_custom_shape
-                and custom_shape_type
-                and ctx.doc is not None
-                and (
-                    ctx.doc.supportsService("com.sun.star.text.TextDocument")
-                    or ctx.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")
-                )
-            ):
-                geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(
-                    shape, custom_shape_type
-                )
+            if is_custom_shape and custom_shape_type and ctx.doc is not None and (ctx.doc.supportsService("com.sun.star.text.TextDocument") or ctx.doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")):
+                geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
 
             _apply_shape_properties(shape, kwargs)
             # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
@@ -948,24 +910,13 @@ def _resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any |
 class AlignShapes(ToolDrawShapeBase):
     name: str | None = "align_shapes"
     intent: str | None = "edit"
-    description: str = (
-        "Align multiple shapes on a page to a shared edge or center axis. "
-        "Coordinates are 1/100 mm. Needs at least two indices."
-    )
+    description: str = "Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
-            "indices": {
-                "type": "array",
-                "items": {"type": "integer"},
-                "description": "Shape indices to align",
-            },
-            "alignment": {
-                "type": "string",
-                "enum": ["left", "center_horizontal", "right", "top", "center_vertical", "bottom"],
-                "description": "Alignment axis",
-            },
+            "indices": {"type": "array", "items": {"type": "integer"}, "description": "Shape indices to align"},
+            "alignment": {"type": "string", "enum": ["left", "center_horizontal", "right", "top", "center_vertical", "bottom"], "description": "Alignment axis"},
         },
         "required": ["indices", "alignment"],
     }
@@ -998,24 +949,13 @@ class AlignShapes(ToolDrawShapeBase):
 class DistributeShapes(ToolDrawShapeBase):
     name: str | None = "distribute_shapes"
     intent: str | None = "edit"
-    description: str = (
-        "Evenly distribute three or more shapes between the first and last along an axis. "
-        "Coordinates are 1/100 mm."
-    )
+    description: str = "Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
-            "indices": {
-                "type": "array",
-                "items": {"type": "integer"},
-                "description": "Shape indices to distribute",
-            },
-            "axis": {
-                "type": "string",
-                "enum": ["horizontal", "vertical"],
-                "description": "Distribution axis",
-            },
+            "indices": {"type": "array", "items": {"type": "integer"}, "description": "Shape indices to distribute"},
+            "axis": {"type": "string", "enum": ["horizontal", "vertical"], "description": "Distribution axis"},
         },
         "required": ["indices", "axis"],
     }
@@ -1048,20 +988,12 @@ class DistributeShapes(ToolDrawShapeBase):
 class CreateDiagram(ToolDrawShapeBase):
     name: str | None = "create_diagram"
     intent: str | None = "edit"
-    description: str = (
-        "Create a flowchart/diagram of multiple nodes and connectors in one turn. "
-        "Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; "
-        "custom requires x/y on each node."
-    )
+    description: str = "Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
-            "layout": {
-                "type": "string",
-                "enum": ["horizontal_flow", "vertical_flow", "grid", "custom"],
-                "description": "How to place nodes (default: horizontal_flow)",
-            },
+            "layout": {"type": "string", "enum": ["horizontal_flow", "vertical_flow", "grid", "custom"], "description": "How to place nodes (default: horizontal_flow)"},
             "nodes": {
                 "type": "array",
                 "items": {
@@ -1079,18 +1011,7 @@ class CreateDiagram(ToolDrawShapeBase):
                     "required": ["id", "text"],
                 },
             },
-            "connections": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "from": {"type": "string"},
-                        "to": {"type": "string"},
-                        "line_color": {"type": "string"},
-                    },
-                    "required": ["from", "to"],
-                },
-            },
+            "connections": {"type": "array", "items": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}, "line_color": {"type": "string"}}, "required": ["from", "to"]}},
         },
         "required": ["nodes"],
     }
@@ -1125,16 +1046,7 @@ class CreateDiagram(ToolDrawShapeBase):
         created = []
         for node, box in zip(nodes, boxes):
             x, y, w, h = box
-            create_kwargs = {
-                "action": "create",
-                "page": actual_idx,
-                "shape_type": node.get("shape_type") or "rectangle",
-                "x": x,
-                "y": y,
-                "width": w,
-                "height": h,
-                "text": node.get("text") or "",
-            }
+            create_kwargs = {"action": "create", "page": actual_idx, "shape_type": node.get("shape_type") or "rectangle", "x": x, "y": y, "width": w, "height": h, "text": node.get("text") or ""}
             if node.get("fill_color"):
                 create_kwargs["fill_color"] = node["fill_color"]
             result = upsert.execute(ctx, **create_kwargs)
@@ -1162,15 +1074,7 @@ class CreateDiagram(ToolDrawShapeBase):
                 return result
             connected.append({"from": conn.get("from"), "to": conn.get("to"), "index": result.get("index")})
 
-        return {
-            "status": "ok",
-            "message": "Diagram created",
-            "page": actual_idx,
-            "layout": layout,
-            "nodes": created,
-            "id_to_index": id_to_index,
-            "connections": connected,
-        }
+        return {"status": "ok", "message": "Diagram created", "page": actual_idx, "layout": layout, "nodes": created, "id_to_index": id_to_index, "connections": connected}
 
 
 class DeleteShape(ToolDrawShapeBase):

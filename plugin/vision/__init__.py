@@ -15,4 +15,3 @@ class VisionModule(ModuleBase):
         from . import vision_tools
 
         services.tools.auto_discover(vision_tools)
-

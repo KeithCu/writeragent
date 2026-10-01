@@ -30,16 +30,7 @@ from plugin.draw.bridge import DrawBridge
 # Specific tokens first so matching is not shape-order / substring-any.
 # "Text" used to be a body pattern: "text" in "titletextshape" returned the
 # title as body. "title" is also a substring of "subtitle" — SubTitle first.
-_CLASS_ROLE_PRIORITY = (
-    ("TitleText", "title"),
-    ("SubTitle", "subtitle"),
-    ("Subtitle", "subtitle"),
-    ("Outliner", "body"),
-    ("Outline", "body"),
-    ("Title", "title"),
-    ("Body", "body"),
-    ("Notes", "notes"),
-)
+_CLASS_ROLE_PRIORITY = (("TitleText", "title"), ("SubTitle", "subtitle"), ("Subtitle", "subtitle"), ("Outliner", "body"), ("Outline", "body"), ("Title", "title"), ("Body", "body"), ("Notes", "notes"))
 
 
 def _role_from_label(label: Any) -> str | None:
@@ -138,10 +129,7 @@ def _list_placeholders(page: Any) -> list[dict[str, Any]]:
 # C1: available=[] is truthful (no presentation placeholders yet) but mercury
 # retried the same role call. Hint + suggest_layout points at set_slide_layout
 # / delegate slide_layouts — the recovery the headed run eventually stumbled on.
-_EMPTY_PLACEHOLDER_HINT = (
-    "Slide may lack a text layout. Call set_slide_layout (or delegate "
-    "domain=slide_layouts) with layout='text', then list_placeholders."
-)
+_EMPTY_PLACEHOLDER_HINT = "Slide may lack a text layout. Call set_slide_layout (or delegate domain=slide_layouts) with layout='text', then list_placeholders."
 
 
 def _shape_text_count(page: Any) -> int:
@@ -202,11 +190,7 @@ class ListPlaceholders(ToolBase):
 
     name: str | None = "list_placeholders"
     intent: str | None = "navigate"
-    description: str = (
-        "List all text placeholders on a slide with their role (title, subtitle, body), "
-        "text content, and index. Call this before set_placeholder_text. If count=0, set "
-        "layout 'text' (set_slide_layout or delegate domain=slide_layouts) then retry."
-    )
+    description: str = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before set_placeholder_text. If count=0, set layout 'text' (set_slide_layout or delegate domain=slide_layouts) then retry."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
@@ -222,17 +206,10 @@ class GetPlaceholderText(ToolBase):
 
     name: str | None = "get_placeholder_text"
     intent: str | None = "navigate"
-    description: str = (
-        "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') "
-        "or index. Prefer list_placeholders first; use index when roles are missing."
-    )
+    description: str = "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Prefer list_placeholders first; use index when roles are missing."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {
-            "role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."},
-            "index": {"type": "integer", "description": "Shape index (from list_placeholders)."},
-            "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
-        },
+        "properties": {"role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."}, "index": {"type": "integer", "description": "Shape index (from list_placeholders)."}, "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}},
         "required": [],
     }
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
@@ -265,11 +242,7 @@ class SetPlaceholderText(ToolBase):
 
     name: str | None = "set_placeholder_text"
     intent: str | None = "edit"
-    description: str = (
-        "Set text on a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. "
-        "Prefer list_placeholders first; prefer index when role lookup fails. Empty available "
-        "means the slide lacks a text layout — set layout 'text' then retry, not a missing argument."
-    )
+    description: str = "Set text on a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Prefer list_placeholders first; prefer index when role lookup fails. Empty available means the slide lacks a text layout — set layout 'text' then retry, not a missing argument."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {

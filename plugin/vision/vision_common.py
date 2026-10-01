@@ -3,21 +3,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared helpers for trusted vision backends (Paddle, Docling)."""
+
 from __future__ import annotations
 
 import io
 from typing import Any
 
-HELPER_NAMES = frozenset(
-    {
-        "extract_text",
-        "extract_structure",
-        "detect_objects",
-        "detect_layout",
-        "recognize_pipeline",
-        "perceptual_hash",
-    }
-)
+HELPER_NAMES = frozenset({"extract_text", "extract_structure", "detect_objects", "detect_layout", "recognize_pipeline", "perceptual_hash"})
 
 IMPLEMENTED_HELPERS = frozenset({"extract_text", "extract_structure"})
 
@@ -31,20 +23,7 @@ MAX_TABLE_ROWS = 200
 _PDF_MAGIC = b"%PDF"
 
 # Config keys merged from Settings → vision.* before template param overrides.
-VISION_CONFIG_KEYS = (
-    "images_scale",
-    "text_score",
-    "force_full_page_ocr",
-    "table_mode",
-    "do_cell_matching",
-    "create_orphan_clusters",
-    "layout_model",
-    "do_formula_enrichment",
-    "do_code_enrichment",
-    "document_timeout",
-    "artifacts_path",
-    "insert_mode",
-)
+VISION_CONFIG_KEYS = ("images_scale", "text_score", "force_full_page_ocr", "table_mode", "do_cell_matching", "create_orphan_clusters", "layout_model", "do_formula_enrichment", "do_code_enrichment", "document_timeout", "artifacts_path", "insert_mode")
 
 VISION_INSERT_MODES = frozenset({"html", "structured"})
 DEFAULT_VISION_INSERT_MODE = "html"
@@ -101,11 +80,7 @@ def is_css_inline_import_error(exc: BaseException) -> bool:
 def css_inline_unavailable_result(helper: str) -> dict[str, Any]:
     from plugin.vision.venv.vision_html_export import CSS_INLINE_INSTALL_CMD
 
-    return _error_result(
-        "CSS_INLINE_UNAVAILABLE",
-        f"Install css-inline in your venv (Settings → Python): {CSS_INLINE_INSTALL_CMD}",
-        helper=helper,
-    )
+    return _error_result("CSS_INLINE_UNAVAILABLE", f"Install css-inline in your venv (Settings → Python): {CSS_INLINE_INSTALL_CMD}", helper=helper)
 
 
 def _box_to_xywh(box_points: Any) -> list[int]:

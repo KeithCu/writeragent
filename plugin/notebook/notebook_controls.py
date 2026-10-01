@@ -33,13 +33,7 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener, BaseDocumentEventListener
-from plugin.notebook.cell_registry import (
-    _coerce_notebook_text,
-    _prepare_display_text,
-    cell_id_to_hex,
-    has_notebook_registry,
-    load_registry,
-)
+from plugin.notebook.cell_registry import _coerce_notebook_text, _prepare_display_text, cell_id_to_hex, has_notebook_registry, load_registry
 
 log = logging.getLogger("writeragent.notebook")
 
@@ -106,6 +100,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Layout & Page Sizing
 # ---------------------------------------------------------------------------
+
 
 def _mono_ms(t0: float) -> int:
     return int((time.monotonic() - t0) * 1000)
@@ -195,6 +190,7 @@ def _height_for_text(text: str, doc: Any | None = None) -> int:
 # Form Model Styling & Flow Insertion
 # ---------------------------------------------------------------------------
 
+
 def _anchor_control_as_character(shape: Any) -> None:
     """In-flow control: AS_CHARACTER, top-aligned, no wrap beside the next shape."""
     shape.setPropertyValue("AnchorType", AS_CHARACTER)
@@ -260,50 +256,14 @@ def _style_control_paragraph(doc: Any) -> None:
         log.debug("notebook controls paragraph style failed", exc_info=True)
 
 
-def _log_shape_add(
-    *,
-    step: str,
-    name: str = "",
-    text_chars: int = 0,
-    truncated: bool = False,
-    shape_h: int = 0,
-    shapes_before: int,
-    create_ms: int = 0,
-    text_ms: int = 0,
-    add_ms: int = 0,
-    ok: bool = True,
-) -> None:
+def _log_shape_add(*, step: str, name: str = "", text_chars: int = 0, truncated: bool = False, shape_h: int = 0, shapes_before: int, create_ms: int = 0, text_ms: int = 0, add_ms: int = 0, ok: bool = True) -> None:
     total_ms = create_ms + text_ms + add_ms
-    log.debug(
-        "notebook controls add step=%s name=%s text_chars=%d truncated=%s shape_h=%d shapes_before=%d "
-        "create_ms=%d text_ms=%d add_ms=%d ok=%s",
-        step,
-        name,
-        text_chars,
-        truncated,
-        shape_h,
-        shapes_before,
-        create_ms,
-        text_ms,
-        add_ms,
-        ok,
-    )
+    log.debug("notebook controls add step=%s name=%s text_chars=%d truncated=%s shape_h=%d shapes_before=%d create_ms=%d text_ms=%d add_ms=%d ok=%s", step, name, text_chars, truncated, shape_h, shapes_before, create_ms, text_ms, add_ms, ok)
     if total_ms >= _SLOW_ADD_MS:
-        log.warning(
-            "notebook controls slow UNO add step=%s total_ms=%d shapes_before=%d",
-            step,
-            total_ms,
-            shapes_before,
-        )
+        log.warning("notebook controls slow UNO add step=%s total_ms=%d shapes_before=%d", step, total_ms, shapes_before)
 
 
-def _insert_run_button_in_flow(
-    doc: Any,
-    *,
-    cell_id: str,
-    controls_before: int,
-    ctx: Any | None = None,
-) -> None:
+def _insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int, ctx: Any | None = None) -> None:
     """In-flow ▶ on the ``In [n]:`` gutter paragraph (not the tall gray field)."""
     hex_id = cell_id_to_hex(cell_id)
     t0 = time.monotonic()
@@ -329,23 +289,10 @@ def _insert_run_button_in_flow(
     cursor.gotoEnd(False)
     t_add = time.monotonic()
     text.insertTextContent(cursor, shape, False)
-    _log_shape_add(
-        step="run_button",
-        name=model.Name,
-        shapes_before=controls_before,
-        create_ms=_mono_ms(t0),
-        add_ms=_mono_ms(t_add),
-        shape_h=_RUN_BUTTON_SIZE,
-    )
+    _log_shape_add(step="run_button", name=model.Name, shapes_before=controls_before, create_ms=_mono_ms(t0), add_ms=_mono_ms(t_add), shape_h=_RUN_BUTTON_SIZE)
 
 
-def _insert_code_input_in_flow(
-    doc: Any,
-    *,
-    name: str,
-    source: str,
-    controls_before: int,
-) -> None:
+def _insert_code_input_in_flow(doc: Any, *, name: str, source: str, controls_before: int) -> None:
     """Editable code cell: form TextField anchored in document flow at body end."""
     display, truncated = _prepare_display_text(_coerce_notebook_text(source))
     raw_chars = len(source or "")
@@ -381,17 +328,7 @@ def _insert_code_input_in_flow(
     t_add = time.monotonic()
     text.insertTextContent(cursor, shape, False)
     add_ms = _mono_ms(t_add)
-    _log_shape_add(
-        step="code_field",
-        name=name,
-        text_chars=raw_chars,
-        truncated=truncated,
-        shape_h=h,
-        shapes_before=controls_before,
-        create_ms=create_ms,
-        text_ms=text_ms,
-        add_ms=add_ms,
-    )
+    _log_shape_add(step="code_field", name=name, text_chars=raw_chars, truncated=truncated, shape_h=h, shapes_before=controls_before, create_ms=create_ms, text_ms=text_ms, add_ms=add_ms)
 
 
 # ---------------------------------------------------------------------------
@@ -566,11 +503,7 @@ def get_control_view_for_model(doc: Any, model: Any) -> Any | None:
         return None
 
 
-def _record_listener_keys(
-    lis: Any,
-    survivor_keys: set[tuple[str, str]],
-    survivor_forms: set[str],
-) -> None:
+def _record_listener_keys(lis: Any, survivor_keys: set[tuple[str, str]], survivor_forms: set[str]) -> None:
     """Classify a live listener into form-doc vs per-button key sets.
 
     ``NotebookFormContainerListener`` is not form-level (that flag would
@@ -855,10 +788,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     if container is None:
         with _lock:
             _wired_form_docs.discard(doc_key)
-        log.warning(
-            "notebook controls: no form controller container; ▶ clicks will not run (%d code cells)",
-            len(state.code_cells),
-        )
+        log.warning("notebook controls: no form controller container; ▶ clicks will not run (%d code cells)", len(state.code_cells))
         return 0
 
     listener = NotebookFormRunListener(ctx, doc)
@@ -883,12 +813,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         if container_lis is not None:
             _listener_refs.append(container_lis)
     elapsed_ms = int((time.monotonic() - t0) * 1000)
-    log.info(
-        "notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d",
-        elapsed_ms,
-        attached,
-        len(state.code_cells),
-    )
+    log.info("notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d", elapsed_ms, attached, len(state.code_cells))
     return 1
 
 
@@ -899,6 +824,7 @@ def _install_doc_event_listener(ctx: Any) -> None:
         if _doc_listener is not None:
             return
     try:
+
         class NotebookDocumentEventListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
             _ctx: Any
 

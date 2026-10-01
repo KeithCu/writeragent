@@ -13,13 +13,7 @@ log = logging.getLogger("writeragent.notebook")
 
 _CONTROL_SHAPE_TYPE = "com.sun.star.drawing.ControlShape"
 
-__all__ = [
-    "index_form_control_models",
-    "find_form_control_model_by_name",
-    "find_control_shape_by_name",
-    "read_code_from_field",
-]
-
+__all__ = ["index_form_control_models", "find_form_control_model_by_name", "find_control_shape_by_name", "read_code_from_field"]
 
 
 def _unwrap_form_model(obj: Any) -> Any | None:
@@ -149,4 +143,3 @@ def read_code_from_field(doc: Any, field_name: str) -> str:
     if model is not None and hasattr(model, "Text"):
         return str(model.Text or "")
     return ""
-

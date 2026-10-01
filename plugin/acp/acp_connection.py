@@ -31,13 +31,7 @@ import threading
 from typing import Any, cast
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.worker_pool import (
-    BackgroundHandle,
-    StderrTail,
-    get_subprocess_creationflags,
-    run_in_background,
-    start_stderr_drain,
-)
+from plugin.framework.worker_pool import BackgroundHandle, StderrTail, get_subprocess_creationflags, run_in_background, start_stderr_drain
 
 log = logging.getLogger(__name__)
 
@@ -82,22 +76,8 @@ class ACPConnection:
 
         from plugin.scripting.venv_worker import wrap_command_for_sandbox
 
-        self._proc = cast(
-            "subprocess.Popen[bytes]",
-            subprocess.Popen(
-                wrap_command_for_sandbox(self._cmd_line),
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                cwd=self._cwd,
-                **get_subprocess_creationflags(),
-            ),
-        )
-        self._stderr_drain = start_stderr_drain(
-            self._proc.stderr,
-            name=f"acp-stderr-{self._proc.pid}",
-        )
+        self._proc = cast("subprocess.Popen[bytes]", subprocess.Popen(wrap_command_for_sandbox(self._cmd_line), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd, **get_subprocess_creationflags()))
+        self._stderr_drain = start_stderr_drain(self._proc.stderr, name=f"acp-stderr-{self._proc.pid}")
         self._running = True
         self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader", dedicated=True)
 

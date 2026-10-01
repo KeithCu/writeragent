@@ -128,12 +128,7 @@ class NotifyUrlAcquiredEffect:
     )
 )
 @deal.post(lambda result: result >= 0)
-def compute_backoff_delay(
-    retry_count: int,
-    initial: float = DEFAULT_INITIAL_BACKOFF,
-    factor: float = DEFAULT_BACKOFF_FACTOR,
-    max_backoff: float = DEFAULT_MAX_BACKOFF,
-) -> float:
+def compute_backoff_delay(retry_count: int, initial: float = DEFAULT_INITIAL_BACKOFF, factor: float = DEFAULT_BACKOFF_FACTOR, max_backoff: float = DEFAULT_MAX_BACKOFF) -> float:
     """Compute exponential backoff delay capped at max_backoff."""
     delay = float(initial) * (float(factor) ** retry_count)
     return min(delay, float(max_backoff))
@@ -165,36 +160,9 @@ def _event_int(data: dict[str, Any], key: str, fallback: int) -> int:
 # ── Pure State Transition Function ────────────────────────────────────
 
 
-@deal.ensure(
-    lambda state, event, result: (
-        event.kind != TunnelEventKind.STOP_REQUESTED
-        or (
-            result.state.status == TunnelStatus.STOPPED
-            and not result.state.desired_running
-            and any(isinstance(e, CancelRetryTimerEffect) for e in result.effects)
-        )
-    )
-)
-@deal.ensure(
-    lambda state, event, result: (
-        event.kind != TunnelEventKind.URL_ACQUIRED
-        or (
-            result.state.status == TunnelStatus.CONNECTED
-            and result.state.retry_count == 0
-            and any(isinstance(e, NotifyUrlAcquiredEffect) for e in result.effects)
-        )
-    )
-)
-@deal.ensure(
-    lambda state, event, result: (
-        event.kind != TunnelEventKind.PROCESS_EXITED
-        or result.state.status != TunnelStatus.RECONNECTING
-        or (
-            result.state.desired_running
-            and any(isinstance(e, ScheduleRetryTimerEffect) for e in result.effects)
-        )
-    )
-)
+@deal.ensure(lambda state, event, result: event.kind != TunnelEventKind.STOP_REQUESTED or (result.state.status == TunnelStatus.STOPPED and not result.state.desired_running and any(isinstance(e, CancelRetryTimerEffect) for e in result.effects)))
+@deal.ensure(lambda state, event, result: event.kind != TunnelEventKind.URL_ACQUIRED or (result.state.status == TunnelStatus.CONNECTED and result.state.retry_count == 0 and any(isinstance(e, NotifyUrlAcquiredEffect) for e in result.effects)))
+@deal.ensure(lambda state, event, result: event.kind != TunnelEventKind.PROCESS_EXITED or result.state.status != TunnelStatus.RECONNECTING or (result.state.desired_running and any(isinstance(e, ScheduleRetryTimerEffect) for e in result.effects)))
 def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelState]:
     """Pure transition function for the MCP tunnel lifecycle and reconnection."""
     # event.data is dict[str, Any] (tokens, URLs); Hypothesis covers transitions.
@@ -212,18 +180,7 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
         effects.append(TerminateProcessEffect())
 
         effects.append(StartProcessEffect(port=port, provider=provider, provider_token=provider_token))
-        new_state = dataclasses.replace(
-            state,
-            status=TunnelStatus.STARTING,
-            port=port,
-            provider=provider,
-            provider_token=provider_token,
-            public_url=None,
-            retry_count=0,
-            max_retries=max_retries,
-            last_error=None,
-            desired_running=True,
-        )
+        new_state = dataclasses.replace(state, status=TunnelStatus.STARTING, port=port, provider=provider, provider_token=provider_token, public_url=None, retry_count=0, max_retries=max_retries, last_error=None, desired_running=True)
         return FsmTransition(new_state, effects)
 
     elif event.kind == TunnelEventKind.PROCESS_STARTED:
@@ -233,13 +190,7 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
     elif event.kind == TunnelEventKind.URL_ACQUIRED:
         url = str(event.data.get("url", "")).strip()
         effects.append(NotifyUrlAcquiredEffect(provider=state.provider, url=url))
-        new_state = dataclasses.replace(
-            state,
-            status=TunnelStatus.CONNECTED,
-            public_url=url,
-            retry_count=0,
-            last_error=None,
-        )
+        new_state = dataclasses.replace(state, status=TunnelStatus.CONNECTED, public_url=url, retry_count=0, last_error=None)
         return FsmTransition(new_state, effects)
 
     elif event.kind == TunnelEventKind.PROCESS_EXITED:
@@ -249,95 +200,41 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
 
         # If user stopped the tunnel, ignore unexpected exit handling
         if not state.desired_running:
-            new_state = dataclasses.replace(
-                state,
-                status=TunnelStatus.STOPPED,
-                public_url=None,
-            )
+            new_state = dataclasses.replace(state, status=TunnelStatus.STOPPED, public_url=None)
             return FsmTransition(new_state, effects)
 
         # Fatal errors: auth error or binary missing — do not retry
         if auth_error:
-            new_state = dataclasses.replace(
-                state,
-                status=TunnelStatus.FAILED,
-                public_url=None,
-                last_error=auth_error,
-                desired_running=False,
-            )
+            new_state = dataclasses.replace(state, status=TunnelStatus.FAILED, public_url=None, last_error=auth_error, desired_running=False)
             return FsmTransition(new_state, effects)
 
         # Non-auth process drop: check if retries remain
         if state.retry_count < state.max_retries:
             attempt = state.retry_count + 1
-            delay = compute_backoff_delay(
-                retry_count=state.retry_count,
-                initial=state.backoff_initial,
-                factor=state.backoff_factor,
-                max_backoff=state.max_backoff,
-            )
-            effects.append(
-                ScheduleRetryTimerEffect(
-                    delay_seconds=delay,
-                    attempt=attempt,
-                    max_retries=state.max_retries,
-                )
-            )
+            delay = compute_backoff_delay(retry_count=state.retry_count, initial=state.backoff_initial, factor=state.backoff_factor, max_backoff=state.max_backoff)
+            effects.append(ScheduleRetryTimerEffect(delay_seconds=delay, attempt=attempt, max_retries=state.max_retries))
             reason = "connection dropped (code %s)" % rc if had_url else "tunnel process exited (code %s)" % rc
-            err_msg = "%s; reconnecting (attempt %s/%s in %.1fs)…" % (
-                reason,
-                attempt,
-                state.max_retries,
-                delay,
-            )
-            new_state = dataclasses.replace(
-                state,
-                status=TunnelStatus.RECONNECTING,
-                public_url=None,
-                retry_count=attempt,
-                last_error=err_msg,
-            )
+            err_msg = "%s; reconnecting (attempt %s/%s in %.1fs)…" % (reason, attempt, state.max_retries, delay)
+            new_state = dataclasses.replace(state, status=TunnelStatus.RECONNECTING, public_url=None, retry_count=attempt, last_error=err_msg)
             return FsmTransition(new_state, effects)
         else:
             # Max retries exhausted
-            err_msg = "tunnel disconnected; failed to reconnect after %s attempts (code %s)" % (
-                state.max_retries,
-                rc,
-            )
-            new_state = dataclasses.replace(
-                state,
-                status=TunnelStatus.FAILED,
-                public_url=None,
-                last_error=err_msg,
-                desired_running=False,
-            )
+            err_msg = "tunnel disconnected; failed to reconnect after %s attempts (code %s)" % (state.max_retries, rc)
+            new_state = dataclasses.replace(state, status=TunnelStatus.FAILED, public_url=None, last_error=err_msg, desired_running=False)
             return FsmTransition(new_state, effects)
 
     elif event.kind == TunnelEventKind.RETRY_TIMER_EXPIRED:
         if not state.desired_running:
             new_state = dataclasses.replace(state, status=TunnelStatus.STOPPED)
             return FsmTransition(new_state, effects)
-        effects.append(
-            StartProcessEffect(
-                port=state.port,
-                provider=state.provider,
-                provider_token=state.provider_token,
-            )
-        )
+        effects.append(StartProcessEffect(port=state.port, provider=state.provider, provider_token=state.provider_token))
         new_state = dataclasses.replace(state, status=TunnelStatus.STARTING)
         return FsmTransition(new_state, effects)
 
     elif event.kind == TunnelEventKind.STOP_REQUESTED:
         effects.append(CancelRetryTimerEffect())
         effects.append(TerminateProcessEffect())
-        new_state = dataclasses.replace(
-            state,
-            status=TunnelStatus.STOPPED,
-            public_url=None,
-            retry_count=0,
-            last_error=None,
-            desired_running=False,
-        )
+        new_state = dataclasses.replace(state, status=TunnelStatus.STOPPED, public_url=None, retry_count=0, last_error=None, desired_running=False)
         return FsmTransition(new_state, effects)
 
     return FsmTransition(state, effects)

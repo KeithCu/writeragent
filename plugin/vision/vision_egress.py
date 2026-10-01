@@ -39,19 +39,11 @@ def vision_html_from_result(result: dict[str, Any]) -> str:
         raise ToolExecutionError(message, code=code, details={"vision_result": result})
 
     if result.get("status") != "ok":
-        raise ToolExecutionError(
-            "Vision helper returned an unexpected status.",
-            code="VISION_ERROR",
-            details={"vision_result": result},
-        )
+        raise ToolExecutionError("Vision helper returned an unexpected status.", code="VISION_ERROR", details={"vision_result": result})
 
     html = result.get("html")
     if html is None:
-        raise ToolExecutionError(
-            "Vision helper result is missing html.",
-            code="VISION_ERROR",
-            details={"vision_result": result},
-        )
+        raise ToolExecutionError("Vision helper result is missing html.", code="VISION_ERROR", details={"vision_result": result})
     return str(html)
 
 
@@ -81,13 +73,7 @@ def _collapse_writer_view_cursor(controller: Any, position: Any) -> None:
         log.debug("prepare_vision_writer_insert: view cursor collapse failed: %s", ex)
 
 
-def prepare_vision_writer_insert(
-    doc: Any,
-    ctx: Any,
-    *,
-    image_name: str | None = None,
-    graphic: Any | None = None,
-) -> Any:
+def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None = None, graphic: Any | None = None) -> Any:
     """Return a collapsed text cursor in a new paragraph after the target graphic.
 
     StarWriter HTML import at the graphic anchor can absorb/replace the embedded
@@ -111,10 +97,7 @@ def prepare_vision_writer_insert(
     if resolved is None and not name:
         resolved = selected_graphic_object(doc)
     if resolved is None:
-        raise ToolExecutionError(
-            _("Select an embedded image (or a range containing images), then Run again."),
-            code="NO_IMAGE_SELECTED",
-        )
+        raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
 
     graphic_name = ""
     try:
@@ -127,10 +110,7 @@ def prepare_vision_writer_insert(
 
     controller = doc.getCurrentController()
     if controller is None:
-        raise ToolExecutionError(
-            _("Writer document has no controller."),
-            code="VISION_ERROR",
-        )
+        raise ToolExecutionError(_("Writer document has no controller."), code="VISION_ERROR")
 
     _focus_writer_frame(controller)
     # Clear range/graphic selection before reading anchors or inserting. A live
@@ -147,10 +127,7 @@ def prepare_vision_writer_insert(
     try:
         anchor = resolved.getAnchor()
         if anchor is None:
-            raise ToolExecutionError(
-                _("Could not resolve the image anchor for insert."),
-                code="VISION_ERROR",
-            )
+            raise ToolExecutionError(_("Could not resolve the image anchor for insert."), code="VISION_ERROR")
         text = anchor.getText()
         # Selection was cleared above so collapseToEnd is trustworthy (getEnd() can
         # resolve before the image while a graphic stays UI-selected).
@@ -162,10 +139,7 @@ def prepare_vision_writer_insert(
     except ToolExecutionError:
         raise
     except Exception as ex:
-        raise ToolExecutionError(
-            _("Could not position insert after the image: %s") % ex,
-            code="VISION_ERROR",
-        ) from ex
+        raise ToolExecutionError(_("Could not position insert after the image: %s") % ex, code="VISION_ERROR") from ex
 
     _collapse_writer_view_cursor(controller, cursor.getStart())
 
@@ -181,43 +155,20 @@ def prepare_vision_writer_insert(
             log.debug("prepare_vision_writer_insert: escape fallback failed: %s", ex)
 
     if graphic_name and get_graphic_object_by_name(doc, graphic_name) is None:
-        raise ToolExecutionError(
-            _("The image was removed while preparing OCR insert."),
-            code="VISION_ERROR",
-        )
+        raise ToolExecutionError(_("The image was removed while preparing OCR insert."), code="VISION_ERROR")
     if len(list_graphic_objects(doc)) < graphics_before:
-        raise ToolExecutionError(
-            _("The image was removed while preparing OCR insert."),
-            code="VISION_ERROR",
-        )
+        raise ToolExecutionError(_("The image was removed while preparing OCR insert."), code="VISION_ERROR")
     return cursor
 
 
-def insert_vision_result_into_writer(
-    ctx: Any,
-    doc: Any,
-    result: dict[str, Any],
-    *,
-    params: dict[str, Any] | None = None,
-) -> None:
+def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> None:
     """Insert formatted vision HTML immediately after the selected graphic anchor."""
     from plugin.writer.html_import import insert_html_at_cursor
 
     html = vision_html_from_result(result)
     if not html.strip():
-        raise ToolExecutionError(
-            "Vision helper returned empty HTML.",
-            code="VISION_ERROR",
-            details={"vision_result": result},
-        )
-    log.debug(
-        "insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d snippet=%r",
-        result.get("helper"),
-        len(html),
-        html.lower().count("<h"),
-        html.count("style="),
-        html[:120],
-    )
+        raise ToolExecutionError("Vision helper returned empty HTML.", code="VISION_ERROR", details={"vision_result": result})
+    log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d snippet=%r", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="), html[:120])
 
     params_dict = dict(params) if isinstance(params, dict) else {}
     image_name = str(params_dict.get("image_name") or "").strip() or None
@@ -229,23 +180,14 @@ def insert_vision_result_into_writer(
         cursor = prepare_vision_writer_insert(doc, ctx, image_name=image_name)
         insert_html_at_cursor(doc, ctx, cursor, html, apply_styles=False)
         if len(list_graphic_objects(doc)) < graphics_before:
-            raise ToolExecutionError(
-                _("The image was removed during OCR insert."),
-                code="VISION_ERROR",
-            )
+            raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
 
     from plugin.writer.format import run_writer_mutation_with_optional_review
 
     run_writer_mutation_with_optional_review(doc, ctx, _apply_insert)
 
 
-def insert_vision_result(
-    ctx: Any,
-    doc: Any,
-    result: dict[str, Any],
-    *,
-    params: dict[str, Any] | None = None,
-) -> None:
+def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> None:
     """Insert vision output into Writer or Calc."""
     from plugin.calc.vision_egress import insert_vision_html_into_calc, insert_vision_structure_into_calc
     from plugin.doc.doc_type import is_calc, is_writer
@@ -260,11 +202,7 @@ def insert_vision_result(
         if insert_mode == "structured" and helper == "extract_structure":
             try:
                 row_count = insert_vision_structure_into_calc(doc, ctx, result)
-                log.debug(
-                    "insert_vision_result: helper=%s insert_mode=structured calc_rows=%d",
-                    helper,
-                    row_count,
-                )
+                log.debug("insert_vision_result: helper=%s insert_mode=structured calc_rows=%d", helper, row_count)
                 return
             except ToolExecutionError as exc:
                 if exc.code != "VISION_ERROR":
@@ -272,15 +210,8 @@ def insert_vision_result(
                 log.debug("structured Calc insert empty; falling back to HTML")
         html = vision_html_from_result(result)
         if not html.strip():
-            raise ToolExecutionError(
-                "Vision helper returned empty HTML.",
-                code="VISION_ERROR",
-                details={"vision_result": result},
-            )
+            raise ToolExecutionError("Vision helper returned empty HTML.", code="VISION_ERROR", details={"vision_result": result})
         log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
         insert_vision_html_into_calc(doc, ctx, html)
         return
-    raise ToolExecutionError(
-        "Vision helpers require a Writer or Calc document.",
-        code="VISION_ERROR",
-    )
+    raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")

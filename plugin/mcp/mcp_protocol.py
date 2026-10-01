@@ -39,13 +39,7 @@ if TYPE_CHECKING:
 
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.framework.queue_executor import QueueExecutor
-from plugin.framework.errors import (
-    WriterAgentException,
-    _resolve_exception_message,
-    format_error_payload,
-    make_tool_error,
-    safe_json_loads,
-)
+from plugin.framework.errors import WriterAgentException, _resolve_exception_message, format_error_payload, make_tool_error, safe_json_loads
 from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
 from plugin.mcp.server import write_http_empty, write_http_json
@@ -57,6 +51,7 @@ log = logging.getLogger("writeragent.mcp.protocol")
 # Local binding for headers/handlers; canonical constant is wire_types.MCP_PROTOCOL_VERSION.
 MCP_PROTOCOL_VERSION = wire_types.MCP_PROTOCOL_VERSION
 _SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION, "2024-11-05"})
+
 
 def _document_echo_payload(doc: Any) -> dict[str, Any] | None:
     """{name, uid} of the resolved target document, or None. Reads UNO properties — call ONLY
@@ -92,6 +87,7 @@ def drop_unavailable_domains(schemas: Any, registry: Any, ctx: Any) -> Any:
     if ctx is None:
         return schemas
     from plugin.vision.vision_availability import specialized_domain_available
+
     kept = []
     for schema in schemas:
         name = schema.get("name") if isinstance(schema, dict) else None
@@ -162,11 +158,7 @@ def _format_mcp_clock_context(now: datetime.datetime | None = None) -> str:
 
 
 # Clock stamp is already offset-free; remind models not to re-add Z/offsets from other sources.
-_MCP_CALC_DATETIME_HINT = (
-    " When writing Calc date/time cells, use the same offset-free ISO as the clock above "
-    "(YYYY-MM-DD, HH:MM[:SS], YYYY-MM-DDTHH:MM[:SS]) or PTnHnMnS for elapsed values; "
-    "do not append a timezone offset or Z."
-)
+_MCP_CALC_DATETIME_HINT = " When writing Calc date/time cells, use the same offset-free ISO as the clock above (YYYY-MM-DD, HH:MM[:SS], YYYY-MM-DDTHH:MM[:SS]) or PTnHnMnS for elapsed values; do not append a timezone offset or Z."
 
 
 def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = None) -> str:
@@ -175,28 +167,13 @@ def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = 
     Pure function (no server/UNO) so the wording is unit-testable. `mode` is one of
     'direct_flat', 'direct_discovery', or anything else (treated as the delegate default)."""
     # Tool-choice only: targeting + type filter. Edit/nav/bulk stay in get_guidance — not a second manual.
-    base = (
-        "WriterAgent MCP — AI document workspace. WORKFLOW: "
-        "1) With more than one document open, call list_open_documents and pass document_url "
-        "(url or uid) on later tools; do not assume focus is stable. "
-        "2) tools/list is filtered by active document type (writer/calc/draw)."
-    )
+    base = "WriterAgent MCP — AI document workspace. WORKFLOW: 1) With more than one document open, call list_open_documents and pass document_url (url or uid) on later tools; do not assume focus is stable. 2) tools/list is filtered by active document type (writer/calc/draw)."
     if mode == "direct_flat":
-        mode_hint = (
-            " Specialized tools are listed directly in tools/list; call them by name. "
-            "No WriterAgent LLM endpoint is required."
-        )
+        mode_hint = " Specialized tools are listed directly in tools/list; call them by name. No WriterAgent LLM endpoint is required."
     elif mode == "direct_discovery":
-        mode_hint = (
-            " Call find_tools with no arguments for the full specialized domain catalog, "
-            "then find_tools(domain=…) for tool schemas in that area; call tools by name. "
-            "No WriterAgent LLM endpoint is required."
-        )
+        mode_hint = " Call find_tools with no arguments for the full specialized domain catalog, then find_tools(domain=…) for tool schemas in that area; call tools by name. No WriterAgent LLM endpoint is required."
     else:
-        mode_hint = (
-            " For specialized capabilities, call delegate_to_specialized_*_toolset with domain and task "
-            "(requires a WriterAgent chat endpoint for the inner agent)."
-        )
+        mode_hint = " For specialized capabilities, call delegate_to_specialized_*_toolset with domain and task (requires a WriterAgent chat endpoint for the inner agent)."
     return _format_mcp_clock_context(now) + " " + base + mode_hint + _MCP_CALC_DATETIME_HINT + _MCP_GUIDANCE_POINTER
 
 
@@ -382,12 +359,7 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:
         return False
     req_id = msg.get("id") if isinstance(msg, dict) else None
     log.info("[MCP] stale session id %r (current=%r) — 404", incoming, _mcp_session_id)
-    write_http_json(
-        handler,
-        404,
-        wire_types.jsonrpc_failure(req_id, wire_types.INVALID_REQUEST, _SESSION_EXPIRED_MSG),
-        extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id),
-    )
+    write_http_json(handler, 404, wire_types.jsonrpc_failure(req_id, wire_types.INVALID_REQUEST, _SESSION_EXPIRED_MSG), extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
     return True
 
 
@@ -617,24 +589,13 @@ class MCPProtocolHandler:
             _mint_session_id_once()
 
         log.info("[MCP] >>> %s (id=%s) -> %d", method, req_id, status)
-        write_http_json(
-            handler,
-            status,
-            response,
-            extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id),
-            indent=2,
-        )
+        write_http_json(handler, status, response, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id), indent=2)
 
     # ── MCP method handlers ──────────────────────────────────────────
 
     def _mcp_initialize(self, params: Any) -> Any:
         client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
-        return wire_types.initialize_result(
-            protocol_version=MCP_PROTOCOL_VERSION,
-            client_protocol_version=client_version,
-            server_version=self.version,
-            instructions=build_initialize_instructions(self._tool_exposure_mode()),
-        )
+        return wire_types.initialize_result(protocol_version=MCP_PROTOCOL_VERSION, client_protocol_version=client_version, server_version=self.version, instructions=build_initialize_instructions(self._tool_exposure_mode()))
 
     def _mcp_ping(self, params: Any) -> Any:
         return wire_types.ping_result()
@@ -688,13 +649,7 @@ class MCPProtocolHandler:
                 from plugin.doc.doc_type import uno_services_for_document
 
                 uno_services = uno_services_for_document(doc, doc_type)
-            schemas = self.tool_registry.get_schemas(
-                "mcp",
-                doc_type=doc_type,
-                uno_services_supported=uno_services,
-                exclude_tiers=exclude_tiers,
-                **doc_filter,
-            )
+            schemas = self.tool_registry.get_schemas("mcp", doc_type=doc_type, uno_services_supported=uno_services, exclude_tiers=exclude_tiers, **doc_filter)
 
             # Filtering by the ACTIVE document alone made the Writer tools vanish
             # whenever a spreadsheet happened to have focus, with a Writer document
@@ -705,9 +660,7 @@ class MCPProtocolHandler:
             # a call with no document_url still targets it.
             broadened: dict[str, Any] = {}
             if doc is not None and not document_url:
-                schemas, broadened = self._add_other_open_doc_schemas(
-                    schemas, doc_type, exclude_tiers
-                )
+                schemas, broadened = self._add_other_open_doc_schemas(schemas, doc_type, exclude_tiers)
 
             # A domain whose backend is not configured is hidden from the discovery catalog; the
             # flat list has to agree, or the same install advertises a capability in one exposure
@@ -725,12 +678,8 @@ class MCPProtocolHandler:
                 # Keep Writer sidebar-only flows (brainstorming, writing_plan) out of the flat
                 # list -- they need bespoke session orchestration the direct modes don't give.
                 from plugin.doc.find_tools_tool import sidebar_only_tool_names
-                sidebar_only = sidebar_only_tool_names(
-                    self.tool_registry,
-                    doc,
-                    doc_type=doc_type,
-                    uno_services_supported=uno_services,
-                )
+
+                sidebar_only = sidebar_only_tool_names(self.tool_registry, doc, doc_type=doc_type, uno_services_supported=uno_services)
                 # The sidebar-only set is per document type, so it has to cover the
                 # types the catalog was broadened to as well -- otherwise broadening
                 # past an active Calc document smuggled Writer's sidebar-only flows
@@ -738,12 +687,7 @@ class MCPProtocolHandler:
                 for other_type, other_doc in broadened.items():
                     from plugin.doc.doc_type import uno_services_for_document
 
-                    sidebar_only = sidebar_only | sidebar_only_tool_names(
-                        self.tool_registry,
-                        other_doc,
-                        doc_type=other_type,
-                        uno_services_supported=uno_services_for_document(other_doc, other_type),
-                    )
+                    sidebar_only = sidebar_only | sidebar_only_tool_names(self.tool_registry, other_doc, doc_type=other_type, uno_services_supported=uno_services_for_document(other_doc, other_type))
                 if sidebar_only:
                     schemas = [s for s in schemas if s.get("name") not in sidebar_only]
             return schemas
@@ -779,13 +723,7 @@ class MCPProtocolHandler:
         # direct_discovery mode, so reject calling it by name in other modes -- otherwise
         # the default (delegate) behavior would not really be unchanged.
         if tool_name == "find_tools" and self._tool_exposure_mode() != "direct_discovery":
-            return {
-                "content": [{"type": "text", "text": json.dumps({
-                    "status": "error", "code": "UNKNOWN_TOOL",
-                    "message": "Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'.",
-                }, ensure_ascii=False)}],
-                "isError": True,
-            }
+            return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": "Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'."}, ensure_ascii=False)}], "isError": True}
 
         tool = self.tool_registry.get(tool_name)
         is_long_running = getattr(tool, "long_running", False) if tool else False
@@ -830,15 +768,7 @@ class MCPProtocolHandler:
                         code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
                         if code == "INTERNAL_ERROR":
                             code = "TOOL_EXECUTION_ERROR"
-                        events_to_process.append(MCPEvent(
-                            kind=EventKind.TOOL_COMPLETED,
-                            data={"result": make_tool_error(
-                                _resolve_exception_message(e),
-                                code=code,
-                                tool_name=effect.tool_name,
-                                error_type=type(e).__name__,
-                            )},
-                        ))
+                        events_to_process.append(MCPEvent(kind=EventKind.TOOL_COMPLETED, data={"result": make_tool_error(_resolve_exception_message(e), code=code, tool_name=effect.tool_name, error_type=type(e).__name__)}))
 
                 elif isinstance(effect, StreamResponseEffect):
                     event_bus = getattr(self, "event_bus", None)
@@ -851,14 +781,9 @@ class MCPProtocolHandler:
                     res = effect.result
                     img = res.get("_mcp_image") if isinstance(res, dict) else None
                     if isinstance(img, dict) and img.get("data"):
-                        final_result = wire_types.call_tool_result_image(
-                            img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error,
-                        )
+                        final_result = wire_types.call_tool_result_image(img["data"], img.get("mimeType", "image/png"), is_error=effect.is_error)
                     else:
-                        final_result = wire_types.call_tool_result(
-                            json.dumps(res, ensure_ascii=False, default=str),
-                            is_error=effect.is_error,
-                        )
+                        final_result = wire_types.call_tool_result(json.dumps(res, ensure_ascii=False, default=str), is_error=effect.is_error)
 
                 elif isinstance(effect, SendErrorEffect):
                     raise ValueError(effect.message)
@@ -891,12 +816,7 @@ class MCPProtocolHandler:
 
         # tools/list and tools/call take document_url. A mixed dict is an
         # unknown callable to mypy, so only the one-argument methods live here.
-        one_arg: dict[str, Callable[[Any], Any]] = {
-            "initialize": self._mcp_initialize,
-            "ping": self._mcp_ping,
-            "resources/list": self._mcp_resources_list,
-            "prompts/list": self._mcp_prompts_list,
-        }
+        one_arg: dict[str, Callable[[Any], Any]] = {"initialize": self._mcp_initialize, "ping": self._mcp_ping, "resources/list": self._mcp_resources_list, "prompts/list": self._mcp_prompts_list}
         if method not in one_arg and method not in ("tools/list", "tools/call"):
             return (400, wire_types.jsonrpc_failure(req_id, wire_types.METHOD_NOT_FOUND, "Unknown method: %s" % method))
 
@@ -967,12 +887,7 @@ class MCPProtocolHandler:
         seen = {sch.get("name") for sch in schemas}
         for other_type, other_doc in others.items():
             try:
-                extra = self.tool_registry.get_schemas(
-                    "mcp",
-                    doc_type=other_type,
-                    uno_services_supported=uno_services_for_document(other_doc, other_type),
-                    exclude_tiers=exclude_tiers,
-                )
+                extra = self.tool_registry.get_schemas("mcp", doc_type=other_type, uno_services_supported=uno_services_for_document(other_doc, other_type), exclude_tiers=exclude_tiers)
             except Exception:
                 log.debug("tools/list broaden failed for %s", other_type, exc_info=True)
                 continue
@@ -981,10 +896,7 @@ class MCPProtocolHandler:
                 if name and name not in seen:
                     seen.add(name)
                     schemas.append(sch)
-        log.debug(
-            "tools/list broadened past the active %s document to also cover: %s",
-            active_doc_type, ", ".join(sorted(others)),
-        )
+        log.debug("tools/list broadened past the active %s document to also cover: %s", active_doc_type, ", ".join(sorted(others)))
         return schemas, others
 
     def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
@@ -994,8 +906,7 @@ class MCPProtocolHandler:
         """
         tool = self.tool_registry.get(tool_name)
         if tool is None:
-            return {"status": "error", "code": "UNKNOWN_TOOL",
-                    "message": "No tool named '%s'. Check tools/list for the exact name (tools are filtered by the open document's type)." % tool_name}
+            return {"status": "error", "code": "UNKNOWN_TOOL", "message": "No tool named '%s'. Check tools/list for the exact name (tools are filtered by the open document's type)." % tool_name}
 
         doc = None
         doc_type = "writer"
@@ -1012,10 +923,7 @@ class MCPProtocolHandler:
             doc = None
 
         if doc is None and document_url:
-            return {"status": "error", "code": "DOCUMENT_NOT_FOUND",
-                    "message": ("No open document matches document_url '%s'. Call list_open_documents and retry "
-                                "with one of the returned url or uid values." % document_url),
-                    "details": {"document_url": document_url}}
+            return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": ("No open document matches document_url '%s'. Call list_open_documents and retry with one of the returned url or uid values." % document_url), "details": {"document_url": document_url}}
         if doc is None and getattr(tool, "requires_document", True):
             # "No document open" used to be decided by the ACTIVE document alone, so a
             # call landing while focus sat on the Start Center (or on another app)
@@ -1039,15 +947,13 @@ class MCPProtocolHandler:
                 doc_type = doc_svc.detect_doc_type(doc)
                 log.debug("no active document; falling back to the single open %s document", doc_type)
             elif open_docs:
-                return {"status": "error", "code": "NO_ACTIVE_DOCUMENT",
-                        "message": ("No document is active in LibreOffice (its window may not have focus), "
-                                    "but %d are open: %s. Call list_open_documents and pass document_url "
-                                    "(url or uid) to say which one you mean."
-                                    % (len(open_docs), ", ".join(_doc_titles(open_docs))))}
+                return {
+                    "status": "error",
+                    "code": "NO_ACTIVE_DOCUMENT",
+                    "message": ("No document is active in LibreOffice (its window may not have focus), but %d are open: %s. Call list_open_documents and pass document_url (url or uid) to say which one you mean." % (len(open_docs), ", ".join(_doc_titles(open_docs)))),
+                }
             else:
-                return {"status": "error", "code": "NO_DOCUMENT_OPEN",
-                        "message": ("No document open in LibreOffice. Ask the user to open or create a document; "
-                                    "list_open_documents works in this state to check what is open.")}
+                return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": ("No document open in LibreOffice. Ask the user to open or create a document; list_open_documents works in this state to check what is open.")}
 
         from plugin.doc.doc_type import uno_services_for_document
         from plugin.framework.tool import ToolContext
@@ -1059,27 +965,13 @@ class MCPProtocolHandler:
         if doc_type in ("draw", "impress"):
             try:
                 from plugin.draw.bridge import DrawBridge
+
                 active_page_idx = DrawBridge(doc).get_active_page_index()
             except Exception:
                 pass
 
-        context = ToolContext(
-            doc=doc,
-            ctx=ctx,
-            doc_type=doc_type,
-            services=self.services,
-            caller="mcp",
-            active_page_index=active_page_idx,
-            uno_services_supported=uno_services,
-        )
-        return _PreparedMcpCall(
-            tool=tool,
-            context=context,
-            doc=doc,
-            doc_key=_resolve_mcp_doc_key(document_url, doc),
-            needs_gate=_tool_needs_document_mutation_gate(tool, arguments),
-            echo=_document_echo_payload(doc),
-        )
+        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services)
+        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=_tool_needs_document_mutation_gate(tool, arguments), echo=_document_echo_payload(doc))
 
     def _run_prepared_mcp_execute(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
         """Gate + registry execute + elapsed/echo. ``prepared.echo`` must already be computed on main."""

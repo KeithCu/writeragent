@@ -40,30 +40,10 @@ _MAX_SAMPLED_PIXELS = 1024
 _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 _HEX_RE = re.compile(rb"#([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?")
 
-_IMAGE_EXT = (
-    ".svg",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".wmf",
-    ".emf",
-    ".tif",
-    ".tiff",
-)
+_IMAGE_EXT = (".svg", ".png", ".jpg", ".jpeg", ".gif", ".wmf", ".emf", ".tif", ".tiff")
 
 # Hue wheel bins in degrees (colorsys h * 360). Red wraps past 330.
-_HUE_BINS: tuple[tuple[float, str], ...] = (
-    (15.0, "red"),
-    (45.0, "orange"),
-    (70.0, "yellow"),
-    (160.0, "green"),
-    (200.0, "teal"),
-    (255.0, "blue"),
-    (290.0, "purple"),
-    (330.0, "pink"),
-    (361.0, "red"),
-)
+_HUE_BINS: tuple[tuple[float, str], ...] = ((15.0, "red"), (45.0, "orange"), (70.0, "yellow"), (160.0, "green"), (200.0, "teal"), (255.0, "blue"), (290.0, "purple"), (330.0, "pink"), (361.0, "red"))
 
 # Rec. 709 luminance. Threshold chosen so Metropolis (~90) and Piano (~103)
 # stay dark while mid-tone blueprint thumbs (~126) stay light.
@@ -113,13 +93,7 @@ def _norm_zip_name(name: str) -> str:
 
 
 def _picture_tag(names: Iterable[str]) -> str:
-    pics = [
-        n
-        for n in names
-        if _norm_zip_name(n).startswith("pictures/")
-        and not _norm_zip_name(n).endswith("/")
-        and _norm_zip_name(n).rsplit("/", 1)[-1]
-    ]
+    pics = [n for n in names if _norm_zip_name(n).startswith("pictures/") and not _norm_zip_name(n).endswith("/") and _norm_zip_name(n).rsplit("/", 1)[-1]]
     images = [n for n in pics if _norm_zip_name(n).endswith(_IMAGE_EXT)]
     if len(images) >= 2:
         return "illustrated"
@@ -206,11 +180,7 @@ def _mood_and_accents(samples: list[tuple[int, int, int]]) -> tuple[str, list[st
     if not counts:
         return mood, []
     min_count = _MIN_XML_ACCENT if len(samples) < 50 else _MIN_THUMB_ACCENT
-    ranked = [
-        pair
-        for pair in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
-        if pair[1] >= min_count
-    ]
+    ranked = [pair for pair in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])) if pair[1] >= min_count]
     if not ranked:
         return mood, []
     accents = [ranked[0][0]]
@@ -259,9 +229,7 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
         if tag == b"IHDR":
             if length < 13:
                 return None
-            width, height, bit_depth, color_type, unused_comp, unused_filt, interlace = struct.unpack(
-                ">IIBBBBB", chunk[:13]
-            )
+            width, height, bit_depth, color_type, unused_comp, unused_filt, interlace = struct.unpack(">IIBBBBB", chunk[:13])
             if unused_comp != 0 or unused_filt != 0:
                 return None
         elif tag == b"PLTE":
@@ -359,14 +327,7 @@ def _paeth(a: int, b: int, c: int) -> int:
     return c
 
 
-def _unpack_row(
-    row: bytes | bytearray,
-    width: int,
-    bit_depth: int,
-    color_type: int,
-    palette: list[tuple[int, int, int]],
-    trans: bytes,
-) -> list[tuple[int, int, int]] | None:
+def _unpack_row(row: bytes | bytearray, width: int, bit_depth: int, color_type: int, palette: list[tuple[int, int, int]], trans: bytes) -> list[tuple[int, int, int]] | None:
     samples = _unpack_samples(row, width, bit_depth, color_type)
     if samples is None:
         return None

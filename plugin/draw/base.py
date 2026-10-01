@@ -58,9 +58,7 @@ class ToolDrawChartBase(ToolDrawSpecialBase):
 
 class ToolDrawShapeBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "shapes"
-    specialized_domain_description: ClassVar[str | None] = (
-        "Create and edit drawing shapes, connectors, and groups; fill paper-form blanks by name."
-    )
+    specialized_domain_description: ClassVar[str | None] = "Create and edit drawing shapes, connectors, and groups; fill paper-form blanks by name."
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
@@ -105,25 +103,18 @@ class ToolDrawPythonBase(ToolDrawSpecialBase):
     """Marker for Draw/Impress delegation prompt listing (domain=python); see plugin/calc/python/venv.py."""
 
     specialized_domain: ClassVar[str | None] = "python"
-    specialized_domain_description: ClassVar[str | None] = (
-        "Run Python in the user-configured venv (subprocess); isolated from LibreOffice."
-    )
+    specialized_domain_description: ClassVar[str | None] = "Run Python in the user-configured venv (subprocess); isolated from LibreOffice."
 
 
 class ToolDrawImageBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "images"
-    specialized_domain_description: ClassVar[str | None] = (
-        "Insert, list, and generate images on Draw/Impress pages (same image_* tools as Writer/Calc); "
-        "edit a selected image with image_generate(source_image='selection')."
-    )
+    specialized_domain_description: ClassVar[str | None] = "Insert, list, and generate images on Draw/Impress pages (same image_* tools as Writer/Calc); edit a selected image with image_generate(source_image='selection')."
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawTableBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "tables"
-    specialized_domain_description: ClassVar[str | None] = (
-        "Insert and edit tables on Draw/Impress pages (same table_* tools as Writer)."
-    )
+    specialized_domain_description: ClassVar[str | None] = "Insert and edit tables on Draw/Impress pages (same table_* tools as Writer)."
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
@@ -131,7 +122,5 @@ class ToolDrawPptMasterBase(ToolDrawSpecialBase):
     """PPT-Master sidebar mode — not exposed via delegate_to_specialized_draw_toolset."""
 
     specialized_domain: ClassVar[str | None] = "ppt-master"
-    specialized_domain_description: ClassVar[str | None] = (
-        "PPT-Master workflow: export SVG projects to native Impress shapes, validate, template-fill, enhance."
-    )
+    specialized_domain_description: ClassVar[str | None] = "PPT-Master workflow: export SVG projects to native Impress shapes, validate, template-fill, enhance."
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]

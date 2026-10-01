@@ -59,13 +59,7 @@ class JsonRpcParseError:
     code: int = INVALID_REQUEST
 
 
-@deal.pre(
-    lambda msg: not isinstance(msg, dict)
-    or (
-        len(msg) <= DEAL_MAX_CMD_ARGS
-        and all(type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) for k in msg)
-    )
-)
+@deal.pre(lambda msg: not isinstance(msg, dict) or (len(msg) <= DEAL_MAX_CMD_ARGS and all(type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) for k in msg)))
 @deal.post(lambda result: isinstance(result, (ParsedJsonRpcRequest, JsonRpcParseError)))
 def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseError:
     """Parse and validate a single JSON-RPC request object.
@@ -133,11 +127,7 @@ class InitializeResult:
     instructions: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {
-            "protocolVersion": self.protocol_version,
-            "capabilities": self.capabilities,
-            "serverInfo": self.server_info,
-        }
+        out: dict[str, Any] = {"protocolVersion": self.protocol_version, "capabilities": self.capabilities, "serverInfo": self.server_info}
         if self.instructions is not None:
             out["instructions"] = self.instructions
         return out
@@ -148,45 +138,17 @@ class InitializeResult:
         (not isinstance(protocol_version, str) or str_bounded(protocol_version, DEAL_MAX_TOKEN))
         and str_bounded(server_version, DEAL_MAX_TOKEN)
         and str_bounded(instructions, DEAL_MAX_SOURCE)
-        and (
-            client_protocol_version is None
-            or not isinstance(client_protocol_version, str)
-            or str_bounded(client_protocol_version, DEAL_MAX_TOKEN)
-        )
+        and (client_protocol_version is None or not isinstance(client_protocol_version, str) or str_bounded(client_protocol_version, DEAL_MAX_TOKEN))
     )
 )
 @deal.post(lambda result: isinstance(result, dict) and "protocolVersion" in result and "capabilities" in result)
-def initialize_result(
-    *,
-    protocol_version: str | int,
-    server_version: str,
-    instructions: str,
-    client_protocol_version: str | int | None = None,
-) -> dict[str, Any]:
+def initialize_result(*, protocol_version: str | int, server_version: str, instructions: str, client_protocol_version: str | int | None = None) -> dict[str, Any]:
     negotiated = client_protocol_version if client_protocol_version is not None else protocol_version
     import sys
 
     if "crosshair" in sys.modules:
-        return {
-            "protocolVersion": negotiated,
-            "capabilities": {
-                "tools": {"listChanged": False},
-                "resources": {"listChanged": False},
-                "prompts": {"listChanged": False},
-            },
-            "serverInfo": {"name": "WriterAgent MCP", "version": server_version},
-            "instructions": instructions,
-        }
-    return InitializeResult(
-        protocol_version=negotiated,
-        capabilities={
-            "tools": {"listChanged": False},
-            "resources": {"listChanged": False},
-            "prompts": {"listChanged": False},
-        },
-        server_info={"name": "WriterAgent MCP", "version": server_version},
-        instructions=instructions,
-    ).to_dict()
+        return {"protocolVersion": negotiated, "capabilities": {"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}}, "serverInfo": {"name": "WriterAgent MCP", "version": server_version}, "instructions": instructions}
+    return InitializeResult(protocol_version=negotiated, capabilities={"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}}, server_info={"name": "WriterAgent MCP", "version": server_version}, instructions=instructions).to_dict()
 
 
 def list_tools_result(tools: list[dict[str, Any]]) -> dict[str, Any]:
@@ -244,11 +206,7 @@ def _deal_call_tool_params_ok(params: object) -> bool:
             continue
         if isinstance(v, str) and ascii_bounded(v, _DEAL_CALL_VAL_LEN):
             continue
-        if (
-            type(v) is dict
-            and len(v) <= _DEAL_CALL_DICT_LEN
-            and all(type(nk) is str and ascii_bounded(nk, _DEAL_CALL_KEY_LEN) for nk in v)
-        ):
+        if type(v) is dict and len(v) <= _DEAL_CALL_DICT_LEN and all(type(nk) is str and ascii_bounded(nk, _DEAL_CALL_KEY_LEN) for nk in v):
             continue
         return False
     return True
@@ -270,27 +228,20 @@ def _call_tool_request_params_from_dict(params: dict[str, Any]) -> CallToolReque
 
 
 def call_tool_result(text: str, *, is_error: bool = False) -> dict[str, Any]:
-    out: dict[str, Any] = {
-        "content": [{"type": "text", "text": text}],
-    }
+    out: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
     if is_error:
         out["isError"] = True
     return out
 
 
-@deal.pre(
-    lambda data_b64, mime_type="image/png", is_error=False: str_bounded(data_b64, DEAL_MAX_SOURCE)
-    and ascii_bounded(mime_type, DEAL_MAX_TOKEN, min_len=1)
-)
+@deal.pre(lambda data_b64, mime_type="image/png", is_error=False: str_bounded(data_b64, DEAL_MAX_SOURCE) and ascii_bounded(mime_type, DEAL_MAX_TOKEN, min_len=1))
 @deal.post(lambda result: isinstance(result, dict) and "content" in result)
 def call_tool_result_image(data_b64: str, mime_type: str = "image/png", *, is_error: bool = False) -> dict[str, Any]:
     """Tool result carrying an IMAGE content block (MCP image type) instead of text.
 
     Used by get_image so a vision-capable client receives the picture itself rather than base64
     pasted as text. data_b64 is the raw base64 (no data: URI prefix), per the MCP image content shape."""
-    out: dict[str, Any] = {
-        "content": [{"type": "image", "data": data_b64, "mimeType": mime_type}],
-    }
+    out: dict[str, Any] = {"content": [{"type": "image", "data": data_b64, "mimeType": mime_type}]}
     if is_error:
         out["isError"] = True
     return out
@@ -304,10 +255,7 @@ class ProgressNotificationParams:
     message: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {
-            "progressToken": self.progress_token,
-            "progress": self.progress,
-        }
+        out: dict[str, Any] = {"progressToken": self.progress_token, "progress": self.progress}
         if self.total is not None:
             out["total"] = self.total
         if self.message is not None:
@@ -315,22 +263,7 @@ class ProgressNotificationParams:
         return out
 
 
-def progress_notification(
-    *,
-    progress_token: ProgressToken,
-    progress: float,
-    total: float | None = None,
-    message: str | None = None,
-) -> dict[str, Any]:
+def progress_notification(*, progress_token: ProgressToken, progress: float, total: float | None = None, message: str | None = None) -> dict[str, Any]:
     """Build a notifications/progress JSON-RPC notification (for future SSE streaming)."""
-    params = ProgressNotificationParams(
-        progress_token=progress_token,
-        progress=progress,
-        total=total,
-        message=message,
-    )
-    return {
-        "jsonrpc": "2.0",
-        "method": "notifications/progress",
-        "params": params.to_dict(),
-    }
+    params = ProgressNotificationParams(progress_token=progress_token, progress=progress, total=total, message=message)
+    return {"jsonrpc": "2.0", "method": "notifications/progress", "params": params.to_dict()}

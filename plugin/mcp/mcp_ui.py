@@ -18,24 +18,12 @@ if TYPE_CHECKING:
 from plugin.framework.config import get_config_int
 from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
-from plugin.chatbot.dialogs import (
-    copy_to_clipboard,
-    get_checkbox_state,
-    get_control_text,
-    get_optional,
-    set_checkbox_state,
-    set_control_text,
-)
+from plugin.chatbot.dialogs import copy_to_clipboard, get_checkbox_state, get_control_text, get_optional, set_checkbox_state, set_control_text
 
 _active_settings_dialog_ref: Any = None
 _tested_provider_tunnel_urls: dict[str, str] = {}
 
-_PROVIDER_DEFAULT_URLS = {
-    "cloudflare": "https://<subdomain>.trycloudflare.com/mcp",
-    "bore": "http://bore.pub:<remote-port>/mcp",
-    "ngrok": "https://<domain>.ngrok-free.app/mcp",
-    "tailscale": "https://<machine-name>.tailscale.net/mcp",
-}
+_PROVIDER_DEFAULT_URLS = {"cloudflare": "https://<subdomain>.trycloudflare.com/mcp", "bore": "http://bore.pub:<remote-port>/mcp", "ngrok": "https://<domain>.ngrok-free.app/mcp", "tailscale": "https://<machine-name>.tailscale.net/mcp"}
 
 
 def set_active_settings_dialog(dlg: Any) -> None:
@@ -61,16 +49,7 @@ def build_mcp_config_snippet(port: int | None = None, url: str | None = None) ->
                 port = 18765
         url = f"http://localhost:{port}/mcp"
 
-    return json.dumps(
-        {
-            "mcpServers": {
-                "libreoffice": {
-                    "url": url,
-                }
-            }
-        },
-        indent=2,
-    )
+    return json.dumps({"mcpServers": {"libreoffice": {"url": url}}}, indent=2)
 
 
 class CopyMcpConfigListener(BaseActionListener):
@@ -115,11 +94,7 @@ def notify_tunnel_url_acquired(provider: str, url: str) -> None:
         post_to_main_thread(lambda: sync_mcp_config_snippet(dlg))
 
 
-def sync_mcp_config_snippet(
-    dlg: Any,
-    custom_tunnel_url: str | None = None,
-    custom_provider: str | None = None,
-) -> None:
+def sync_mcp_config_snippet(dlg: Any, custom_tunnel_url: str | None = None, custom_provider: str | None = None) -> None:
     """Synchronize MCP client config snippet according to port, tunnel_enabled, and provider."""
     if not dlg:
         return
@@ -164,11 +139,7 @@ def sync_mcp_config_snippet(
     if not active_url:
         from plugin.mcp import _shared_tunnel
 
-        if (
-            _shared_tunnel
-            and _shared_tunnel.is_running
-            and getattr(_shared_tunnel, "_provider", None) == selected_provider
-        ):
+        if _shared_tunnel and _shared_tunnel.is_running and getattr(_shared_tunnel, "_provider", None) == selected_provider:
             active_url = _shared_tunnel.mcp_public_url()
             if not active_url:
                 import time
@@ -183,10 +154,7 @@ def sync_mcp_config_snippet(
 
     if not active_url:
         # Fall back to provider default template
-        active_url = _PROVIDER_DEFAULT_URLS.get(
-            selected_provider,
-            f"http://localhost:{port_val or 18765}/mcp",
-        )
+        active_url = _PROVIDER_DEFAULT_URLS.get(selected_provider, f"http://localhost:{port_val or 18765}/mcp")
 
     set_control_text(snippet_ctrl, build_mcp_config_snippet(port=port_val, url=active_url))
 

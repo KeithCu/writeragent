@@ -25,13 +25,7 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("writeragent.mcp.cors")
 
-from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_ORIGIN,
-    ascii_bounded,
-    deal,
-    inverse_ensure,
-)
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_ORIGIN, ascii_bounded, deal, inverse_ensure
 
 MCP_CORS_ORIGINS_KEY = "mcp.cors_allowed_origins"
 
@@ -41,15 +35,7 @@ _extra_allowed_origins: frozenset[str] = frozenset()
 _allow_private_origins: bool = True
 
 # Streamable-HTTP MCP clients preflight with Mcp-Protocol-Version; SSE may use Last-Event-ID.
-_BASE_ALLOW_HEADERS = (
-    "Content-Type",
-    "Authorization",
-    "Mcp-Session-Id",
-    "X-Document-URL",
-    "Mcp-Protocol-Version",
-    "Last-Event-ID",
-    "Accept",
-)
+_BASE_ALLOW_HEADERS = ("Content-Type", "Authorization", "Mcp-Session-Id", "X-Document-URL", "Mcp-Protocol-Version", "Last-Event-ID", "Accept")
 
 _EXPOSE_HEADERS = "Mcp-Session-Id, Mcp-Protocol-Version"
 
@@ -60,13 +46,9 @@ _SAFE_LOOPBACK_HOSTS = frozenset(("localhost", "127.0.0.1", "::1"))
 # URL-safe Origin alphabet (scheme/host/port, including IPv6 brackets).
 # ascii_bounded(DEAL_MAX_ORIGIN=32) still let SMT wander through urlparse +
 # ipaddress on punctuation junk (is_private_browser_origin 20:40 on the same run).
-_ORIGIN_CHARS = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:/.-[]"
-)
+_ORIGIN_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:/.-[]")
 # Access-Control-Request-Headers: token chars plus comma/space separators.
-_HEADER_LIST_CHARS = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-, _"
-)
+_HEADER_LIST_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-, _")
 
 PREFLIGHT_MAX_AGE = "86400"
 
@@ -86,14 +68,7 @@ def _deal_allow_headers_ok(value: object) -> bool:
 
 
 @deal.pre(lambda value: value is None or _deal_origin_ok(value))
-@deal.post(
-    lambda result: result is None
-    or (
-        isinstance(result, str)
-        and (result.lower().startswith("http://") or result.lower().startswith("https://"))
-        and not result.endswith("/")
-    )
-)
+@deal.post(lambda result: result is None or (isinstance(result, str) and (result.lower().startswith("http://") or result.lower().startswith("https://")) and not result.endswith("/")))
 def normalize_cors_origin(value: str | None) -> str | None:
     # crosshair: off
     # cover-all 33689813185 leftover (~32m / 1289 ex) despite _deal_origin_ok. Doable later: closed origin enum.
@@ -114,15 +89,7 @@ def normalize_cors_origin(value: str | None) -> str | None:
 # Deep check-all run 32840960268 hung here at the 360-minute job wall (Prev 9:51
 # on the unique-length post, then the runner was still on this FQN at cancel).
 # Nested unique-length ensure is skipped under CrossHair; cheap list/str posts stay.
-@deal.pre(
-    lambda value: value is None
-    or (isinstance(value, str) and _deal_origin_ok(value))
-    or (
-        isinstance(value, list)
-        and len(value) <= DEAL_MAX_CMD_ARGS
-        and all(_deal_origin_ok(item) for item in value)
-    )
-)
+@deal.pre(lambda value: value is None or (isinstance(value, str) and _deal_origin_ok(value)) or (isinstance(value, list) and len(value) <= DEAL_MAX_CMD_ARGS and all(_deal_origin_ok(item) for item in value)))
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 @inverse_ensure(lambda value, result: len(result) == len(set(result)))
 def normalize_origins_list(value: Any) -> list[str]:
@@ -174,15 +141,7 @@ def is_private_browser_origin(origin: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local
 
 
-@deal.pre(
-    lambda origins: origins is None
-    or (isinstance(origins, str) and _deal_origin_ok(origins))
-    or (
-        isinstance(origins, list)
-        and len(origins) <= DEAL_MAX_CMD_ARGS
-        and all(_deal_origin_ok(x) for x in origins)
-    )
-)
+@deal.pre(lambda origins: origins is None or (isinstance(origins, str) and _deal_origin_ok(origins)) or (isinstance(origins, list) and len(origins) <= DEAL_MAX_CMD_ARGS and all(_deal_origin_ok(x) for x in origins)))
 def set_extra_allowed_origins(origins: Any) -> None:
     # crosshair: off  # frozenset(normalize_origins_list) leftover (cover-all 33569420452: ~4419s est / 6120 ex). Doable later.
     """Update explicit-origin cache used by is_safe_origin (HTTP threads, no ctx)."""
@@ -303,10 +262,7 @@ def reject_forbidden_origin(handler: Any) -> bool:
     return True
 
 
-@deal.pre(
-    lambda access_control_request_headers: access_control_request_headers is None
-    or _deal_allow_headers_ok(access_control_request_headers)
-)
+@deal.pre(lambda access_control_request_headers: access_control_request_headers is None or _deal_allow_headers_ok(access_control_request_headers))
 @deal.post(lambda result: isinstance(result, str))
 @inverse_ensure(lambda access_control_request_headers, result: "Content-Type" in result)
 def merge_allow_headers(access_control_request_headers: str | None) -> str:

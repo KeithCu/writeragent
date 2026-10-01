@@ -25,12 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.draw.base import ToolDrawShapeBase
-from plugin.draw.tree import (
-    build_shape_tree,
-    coerce_control_state,
-    find_shape_on_page,
-    is_control_shape_type,
-)
+from plugin.draw.tree import build_shape_tree, coerce_control_state, find_shape_on_page, is_control_shape_type
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -46,24 +41,14 @@ def _flatten_tree(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def resolve_field_node(
-    tree: list[dict[str, Any]],
-    *,
-    name: str | None = None,
-    index: int | None = None,
-    label_hint: str | None = None,
-) -> tuple[dict[str, Any] | None, str | None]:
+def resolve_field_node(tree: list[dict[str, Any]], *, name: str | None = None, index: int | None = None, label_hint: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
     """Pick a tree node for a fill request. Name, then index, then label_hint."""
     flat = _flatten_tree(tree)
     wanted_name = (name or "").strip()
     if wanted_name:
         name_hits = [n for n in flat if (n.get("name") or "") == wanted_name]
         if not name_hits:
-            name_hits = [
-                n
-                for n in flat
-                if isinstance(n.get("control"), dict) and (n["control"].get("name") or "") == wanted_name
-            ]
+            name_hits = [n for n in flat if isinstance(n.get("control"), dict) and (n["control"].get("name") or "") == wanted_name]
         if len(name_hits) == 1:
             return name_hits[0], None
         if not name_hits:
@@ -82,11 +67,7 @@ def resolve_field_node(
 
     hint = (label_hint or "").strip().lower()
     if hint:
-        hint_hits = [
-            n
-            for n in flat
-            if n.get("fillable") and (n.get("label_hint") or "").strip().lower() == hint
-        ]
+        hint_hits = [n for n in flat if n.get("fillable") and (n.get("label_hint") or "").strip().lower() == hint]
         if len(hint_hits) == 1:
             return hint_hits[0], None
         if not hint_hits:
@@ -222,12 +203,7 @@ class FillDrawFields(ToolDrawShapeBase):
             if not isinstance(raw, dict):
                 results.append({"ok": False, "error": "Field %s is not an object." % i})
                 continue
-            node, err = resolve_field_node(
-                tree,
-                name=raw.get("name"),
-                index=raw.get("index"),
-                label_hint=raw.get("label_hint"),
-            )
+            node, err = resolve_field_node(tree, name=raw.get("name"), index=raw.get("index"), label_hint=raw.get("label_hint"))
             if err or node is None:
                 results.append({"ok": False, "error": err or "Could not resolve field.", "name": raw.get("name"), "index": raw.get("index"), "label_hint": raw.get("label_hint")})
                 continue
@@ -239,12 +215,7 @@ class FillDrawFields(ToolDrawShapeBase):
                 results.append({"ok": False, "error": find_err or "Resolved tree node but the shape is gone.", "name": node.get("name"), "index": node.get("index")})
                 continue
             applied, detail = apply_fill_value(shape, raw.get("value"))
-            entry: dict[str, Any] = {
-                "ok": applied,
-                "index": shape_idx,
-                "name": node.get("name") or "",
-                "detail": detail,
-            }
+            entry: dict[str, Any] = {"ok": applied, "index": shape_idx, "name": node.get("name") or "", "detail": detail}
             if node.get("label_hint"):
                 entry["label_hint"] = node["label_hint"]
             if not applied:
@@ -254,10 +225,4 @@ class FillDrawFields(ToolDrawShapeBase):
             results.append(entry)
 
         status = "ok" if ok_count == len(fields) else ("partial" if ok_count else "error")
-        return {
-            "status": status,
-            "page": actual_idx,
-            "ok_count": ok_count,
-            "fail_count": len(fields) - ok_count,
-            "results": results,
-        }
+        return {"status": status, "page": actual_idx, "ok_count": ok_count, "fail_count": len(fields) - ok_count, "results": results}

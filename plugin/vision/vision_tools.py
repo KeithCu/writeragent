@@ -18,10 +18,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 _VISION_DOC_TYPES = frozenset({"writer", "calc"})
-_VISION_DOCS = [
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
-]
+_VISION_DOCS = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
 
 class ExtractStructureFromImage(ToolCalcVisionBase):
@@ -38,21 +35,9 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "image_name": {
-                "type": "string",
-                "description": "Graphic name from image_list (images domain). Empty = selected graphic(s).",
-            },
-            "insert_into_document": {
-                "type": "boolean",
-                "description": (
-                    "When true (default), insert a high-quality representation into the document. "
-                    "When false, return extracted content only."
-                ),
-            },
-            "params": {
-                "type": "object",
-                "description": "Optional vision helper overrides (engine, lang, ocr_backend, …).",
-            },
+            "image_name": {"type": "string", "description": "Graphic name from image_list (images domain). Empty = selected graphic(s)."},
+            "insert_into_document": {"type": "boolean", "description": ("When true (default), insert a high-quality representation into the document. When false, return extracted content only.")},
+            "params": {"type": "object", "description": "Optional vision helper overrides (engine, lang, ocr_backend, …)."},
         },
         "required": [],
     }
@@ -66,10 +51,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         # Sub-agent / async tools run off the UI thread; use ctx.doc_type (no UNO) here.
         # run_and_insert_vision_for_selection is marshaled to the main thread below.
         if ctx.doc_type not in _VISION_DOC_TYPES:
-            return self._tool_error(
-                _("Vision OCR requires a Writer or Calc document."),
-                code="VISION_ERROR",
-            )
+            return self._tool_error(_("Vision OCR requires a Writer or Calc document."), code="VISION_ERROR")
 
         doc = ctx.doc
         insert_into_document = bool(kwargs.get("insert_into_document", True))
@@ -80,13 +62,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
             params_dict["image_name"] = image_name
 
         def _run() -> dict[str, Any]:
-            return run_and_insert_vision_for_selection(
-                ctx.ctx,
-                doc,
-                helper="extract_structure",
-                params=params_dict or None,
-                insert_into_document=insert_into_document,
-            )
+            return run_and_insert_vision_for_selection(ctx.ctx, doc, helper="extract_structure", params=params_dict or None, insert_into_document=insert_into_document)
 
         try:
             result = execute_on_main_thread(_run)

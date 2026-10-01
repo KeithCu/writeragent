@@ -20,12 +20,11 @@ def coerce_int(value: Any, default: int) -> int:
         return default
     return int(value)
 
+
 # Box: (x, y, width, height)
 Box = tuple[int, int, int, int]
 
-_ALIGNMENTS = frozenset(
-    {"left", "center_horizontal", "right", "top", "center_vertical", "bottom"}
-)
+_ALIGNMENTS = frozenset({"left", "center_horizontal", "right", "top", "center_vertical", "bottom"})
 
 
 def align_boxes(boxes: Sequence[Box], alignment: str) -> list[Box]:
@@ -115,16 +114,7 @@ def distribute_boxes(boxes: Sequence[Box], axis: str) -> list[Box]:
     return [placed[i] for i in range(len(boxes))]
 
 
-def diagram_node_boxes(
-    nodes: Sequence[dict[str, Any]],
-    layout: str,
-    page_width: int = 28000,
-    page_height: int = 15750,
-    default_width: int = 4000,
-    default_height: int = 2000,
-    margin: int = 1500,
-    gap: int = 800,
-) -> list[Box]:
+def diagram_node_boxes(nodes: Sequence[dict[str, Any]], layout: str, page_width: int = 28000, page_height: int = 15750, default_width: int = 4000, default_height: int = 2000, margin: int = 1500, gap: int = 800) -> list[Box]:
     """Compute node bounding boxes for a batch diagram layout.
 
     ``custom`` uses each node's ``x``/``y`` (required). Other layouts ignore

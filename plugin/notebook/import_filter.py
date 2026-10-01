@@ -20,13 +20,7 @@ if _this not in sys.path:
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
-ensure_plugin_on_path(
-    __file__,
-    levels_up=3,
-    also_add_plugin_dir=True,
-    also_add_lib=True,
-    also_add_vendor=True,
-)
+ensure_plugin_on_path(__file__, levels_up=3, also_add_plugin_dir=True, also_add_lib=True, also_add_vendor=True)
 
 import uno  # noqa: E402
 import unohelper  # noqa: E402
@@ -41,6 +35,7 @@ else:
         from com.sun.star.document import XFilter, XImporter, XExtendedFilterDetection
         from com.sun.star.lang import XServiceInfo
     except ImportError:
+
         class XFilter:
             pass
 
@@ -52,6 +47,7 @@ else:
 
         class XServiceInfo:
             pass
+
 
 from plugin.contrib.nbformat import NBFormatError  # noqa: E402
 from plugin.notebook.writer_importer import import_ipynb_to_writer  # noqa: E402
@@ -121,18 +117,8 @@ class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceIn
         return ServiceName in self.getSupportedServiceNames()
 
     def getSupportedServiceNames(self) -> tuple[str, ...]:
-        return (
-            "com.sun.star.document.ImportFilter",
-            "com.sun.star.document.ExtendedTypeDetection",
-        )
+        return ("com.sun.star.document.ImportFilter", "com.sun.star.document.ExtendedTypeDetection")
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
-g_ImplementationHelper.addImplementation(
-    JupyterNotebookImportFilter,
-    IMPL_NAME,
-    (
-        "com.sun.star.document.ImportFilter",
-        "com.sun.star.document.ExtendedTypeDetection",
-    ),
-)
+g_ImplementationHelper.addImplementation(JupyterNotebookImportFilter, IMPL_NAME, ("com.sun.star.document.ImportFilter", "com.sun.star.document.ExtendedTypeDetection"))

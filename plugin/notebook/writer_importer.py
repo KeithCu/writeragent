@@ -42,32 +42,9 @@ from typing import Any, Iterator
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.contrib.nbformat import read_ipynb
-from plugin.notebook.cell_registry import (
-    NotebookDocState,
-    _cell_heading,
-    _coerce_notebook_text,
-    _prepare_display_text,
-    init_registry_execution_counter,
-    insert_output_start_bookmark,
-    new_code_cell_entry,
-    save_notebook_source_path,
-    save_registry,
-)
-from plugin.notebook.notebook_controls import (
-    _insert_code_input_in_flow,
-    _insert_run_button_in_flow,
-    _log_shape_add,
-    _resolve_para_style,
-    _style_control_paragraph,
-    _text_area_width_units,
-)
-from plugin.writer.images.image_tools import (
-    _apply_graphic_properties,
-    _create_embedded_graphic,
-    _file_url_for_path,
-    _mm_to_units,
-    insert_image_at_locator,
-)
+from plugin.notebook.cell_registry import NotebookDocState, _cell_heading, _coerce_notebook_text, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
+from plugin.notebook.notebook_controls import _insert_code_input_in_flow, _insert_run_button_in_flow, _log_shape_add, _resolve_para_style, _style_control_paragraph, _text_area_width_units
+from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, _mm_to_units, insert_image_at_locator
 
 log = logging.getLogger("writeragent.notebook")
 
@@ -115,9 +92,7 @@ _MD_IMAGE_LINE_RE = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)\s*$")
 _HTML_IMG_RE = re.compile(r"(?is)<img\b[^>]*?/?>")
 _HTML_A_RE = re.compile(r"(?is)<a\b([^>]*)>(.*?)</a>")
 _HTML_A_OR_IMG_TAG_RE = re.compile(r"(?is)</?(?:img|a)\b[^>]*?/?>")
-_HTML_ATTR_RE = re.compile(
-    r"""(?is)([a-z_:][-a-z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"""
-)
+_HTML_ATTR_RE = re.compile(r"""(?is)([a-z_:][-a-z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
 # One-item resumed list: ``<ol start="3"><li>Ask for help…</li></ol>``.
 _OL_START_RE = re.compile(r"""(?is)<ol\b[^>]*\bstart\s*=\s*["']?(\d+)""")
 
@@ -129,6 +104,7 @@ def _mono_ms(t0: float) -> int:
 # ---------------------------------------------------------------------------
 # Document Lifecycle & Paragraph Styles
 # ---------------------------------------------------------------------------
+
 
 @contextmanager
 def _batch_document_updates(doc: Any) -> Iterator[None]:
@@ -247,16 +223,7 @@ def _apply_no_spellcheck_for_import(doc: Any) -> None:
     para_styles = _get_para_styles(doc)
     if para_styles is None:
         return
-    for style_name in (
-        "Standard",
-        _STYLE_BODY,
-        _STYLE_MD_H1,
-        _STYLE_MD_H2,
-        _STYLE_CELL_HEADING,
-        _STYLE_SECTION_HEADING,
-        _STYLE_OUTPUT,
-        _STYLE_NOTEBOOK_IN,
-    ):
+    for style_name in ("Standard", _STYLE_BODY, _STYLE_MD_H1, _STYLE_MD_H2, _STYLE_CELL_HEADING, _STYLE_SECTION_HEADING, _STYLE_OUTPUT, _STYLE_NOTEBOOK_IN):
         resolved = _resolve_para_style(doc, style_name)
         if not resolved:
             continue
@@ -274,14 +241,7 @@ def _apply_no_spellcheck_for_import(doc: Any) -> None:
                 log.debug("notebook import could not set %s on %r", prop, resolved, exc_info=True)
 
 
-def _create_import_para_style(
-    doc: Any,
-    para_styles: Any,
-    style_name: str,
-    *,
-    parent_style: str,
-    property_updates: dict[str, Any],
-) -> bool:
+def _create_import_para_style(doc: Any, para_styles: Any, style_name: str, *, parent_style: str, property_updates: dict[str, Any]) -> bool:
     """Register a paragraph style if missing. Returns True when the style exists afterward."""
     if para_styles.hasByName(style_name):
         return True
@@ -338,13 +298,7 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
         "CharLocaleComplex": no_lang,
     }
 
-    _create_import_para_style(
-        doc,
-        para_styles,
-        _STYLE_NOTEBOOK_IN,
-        parent_style=parent_body,
-        property_updates=property_updates,
-    )
+    _create_import_para_style(doc, para_styles, _STYLE_NOTEBOOK_IN, parent_style=parent_body, property_updates=property_updates)
     # Re-import into a document that already has this style must still drop the
     # old KeepTogether glue (create-if-missing would leave True in place).
     try:
@@ -360,6 +314,7 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
 # ---------------------------------------------------------------------------
 # Document Flow & Paragraph Insertion
 # ---------------------------------------------------------------------------
+
 
 def _doc_body_nonempty(doc: Any) -> bool:
     try:
@@ -518,14 +473,7 @@ def _clear_para_numbering(cursor: Any) -> None:
         log.debug("notebook import NumberingRules clear failed", exc_info=True)
 
 
-def _append_body_paragraph(
-    doc: Any,
-    content: str,
-    para_style: str | None,
-    *,
-    lead_break: bool,
-    keep_with_next: bool = False,
-) -> None:
+def _append_body_paragraph(doc: Any, content: str, para_style: str | None, *, lead_break: bool, keep_with_next: bool = False) -> None:
     """Append one paragraph to the Writer body (end of document)."""
     if not content and not para_style:
         return
@@ -552,13 +500,7 @@ def _append_body_paragraph(
     text.insertString(cursor, content, False)
 
 
-def _append_body_text_block(
-    doc: Any,
-    block: str,
-    para_style: str | None,
-    *,
-    lead_break: bool = True,
-) -> None:
+def _append_body_text_block(doc: Any, block: str, para_style: str | None, *, lead_break: bool = True) -> None:
     """Append one paragraph; internal newlines stay in the same block."""
     display, _unused = _prepare_display_text(block)
     if not display:
@@ -615,6 +557,7 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
 # ---------------------------------------------------------------------------
 # Markdown & Inline HTML Processing
 # ---------------------------------------------------------------------------
+
 
 def _html_attr(tag_or_attrs: str, name: str) -> str:
     """Read one HTML attribute value (quoted or bare) from a start tag or attr blob."""
@@ -692,12 +635,7 @@ def _inline_backticks_to_html(text: str) -> str:
 
 def _inline_markdown_to_html(text: str) -> str:
     """Escape *text* and wrap ``code``, **bold**, *italic*, and ``[text](url)`` as HTML."""
-    if (
-        not _BOLD_RE.search(text or "")
-        and not _ITALIC_RE.search(text or "")
-        and not _MD_IMAGE_RE.search(text or "")
-        and not _MD_LINK_RE.search(text or "")
-    ):
+    if not _BOLD_RE.search(text or "") and not _ITALIC_RE.search(text or "") and not _MD_IMAGE_RE.search(text or "") and not _MD_LINK_RE.search(text or ""):
         return _inline_backticks_to_html(text)
     placeholders: list[str] = []
 
@@ -921,9 +859,7 @@ def _wrap_html_fragment(html: str) -> str:
     return f"<html><body>{body}</body></html>"
 
 
-def _insert_html_at_body_end(
-    doc: Any, html: str, *, lead_break: bool, exit_list: bool = False
-) -> bool:
+def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool, exit_list: bool = False) -> bool:
     """Insert an HTML fragment at the document end. Returns False on failure."""
     text = doc.getText()
     cursor = text.createTextCursor()
@@ -963,14 +899,7 @@ def _insert_html_at_body_end(
         return False
 
 
-def _append_markdown_cell(
-    doc: Any,
-    source: str,
-    *,
-    lead_break: bool,
-    notebook_dir: str | None = None,
-    ctx: Any | None = None,
-) -> None:
+def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_dir: str | None = None, ctx: Any | None = None) -> None:
     """Markdown cell: ATX headings, lists, bold/italic, ``[text](url)``, images.
 
     HTML ``<img>`` / ``<a>`` become markdown first so mixed cells still render
@@ -1009,30 +938,19 @@ def _append_markdown_cell(
                         item_kind = kind
                         start = i + 1
                     prefix = "• " if item_kind == "ul" else f"{start}. "
-                    _append_body_paragraph(
-                        doc, prefix + text, _STYLE_BODY, lead_break=block_lead if i == 0 else True
-                    )
+                    _append_body_paragraph(doc, prefix + text, _STYLE_BODY, lead_break=block_lead if i == 0 else True)
         elif kind == "blockquote":
             body = str(payload)
             # Separate multiple paragraphs within blockquotes if present (> \n >).
             b_paras = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
             if len(b_paras) > 1:
-                inner_p = "".join(
-                    f"<p>{_inline_markdown_to_html(p)}</p>".replace("\n", "<br/>")
-                    for p in b_paras
-                )
+                inner_p = "".join(f"<p>{_inline_markdown_to_html(p)}</p>".replace("\n", "<br/>") for p in b_paras)
                 html = f"<blockquote>{inner_p}</blockquote>"
             else:
-                html = (
-                    "<blockquote><p>"
-                    + _inline_markdown_to_html(body).replace("\n", "<br/>")
-                    + "</p></blockquote>"
-                )
+                html = "<blockquote><p>" + _inline_markdown_to_html(body).replace("\n", "<br/>") + "</p></blockquote>"
             if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
                 for p_idx, p_text in enumerate(b_paras or [body]):
-                    _append_body_paragraph(
-                        doc, p_text, _STYLE_BODY, lead_break=block_lead if p_idx == 0 else True
-                    )
+                    _append_body_paragraph(doc, p_text, _STYLE_BODY, lead_break=block_lead if p_idx == 0 else True)
         elif kind == "img":
             alt, src = payload if isinstance(payload, tuple) else ("", str(payload))
             if not _embed_markdown_image(doc, str(src), notebook_dir, ctx=ctx):
@@ -1049,6 +967,7 @@ def _append_markdown_cell(
 # ---------------------------------------------------------------------------
 # Image Pipeline
 # ---------------------------------------------------------------------------
+
 
 def _png_pixel_size(raw: bytes) -> tuple[int, int] | None:
     if len(raw) < 24 or raw[:8] != b"\x89PNG\r\n\x1a\n":
@@ -1083,11 +1002,7 @@ def _jpeg_pixel_size(raw: bytes) -> tuple[int, int] | None:
 def _svg_pixel_size(raw: bytes) -> tuple[int, int] | None:
     """Read width/height or viewBox so SVG badges are not stretched to the page cap."""
     text = raw.decode("utf-8", errors="ignore")[:4000]
-    vb = re.search(
-        r"viewBox\s*=\s*[\"']?\s*[-0-9.]+\s+[-0-9.]+\s+([0-9.]+)\s+([0-9.]+)",
-        text,
-        flags=re.IGNORECASE,
-    )
+    vb = re.search(r"viewBox\s*=\s*[\"']?\s*[-0-9.]+\s+[-0-9.]+\s+([0-9.]+)\s+([0-9.]+)", text, flags=re.IGNORECASE)
     if vb:
         w, h = float(vb.group(1)), float(vb.group(2))
         if w >= 1 and h >= 1:
@@ -1153,11 +1068,7 @@ def _notebook_image_payload(data: dict[str, Any]) -> tuple[str, str] | None:
 def _decode_notebook_image(b64_data: str) -> bytes | None:
     b64_data = _coerce_notebook_text(b64_data)
     if len(b64_data) > _MAX_IMAGE_DECODE_BYTES:
-        log.warning(
-            "notebook import skip image decode size=%d max=%d",
-            len(b64_data),
-            _MAX_IMAGE_DECODE_BYTES,
-        )
+        log.warning("notebook import skip image decode size=%d max=%d", len(b64_data), _MAX_IMAGE_DECODE_BYTES)
         return None
     try:
         return base64.b64decode(b64_data, validate=False)
@@ -1175,15 +1086,7 @@ def _apply_notebook_image_flow(graphic: Any) -> None:
             log.debug("notebook image wrap property %s not applied", name, exc_info=True)
 
 
-def _insert_image_in_flow(
-    doc: Any,
-    *,
-    raw: bytes,
-    mime: str,
-    images_before: int,
-    ctx: Any | None = None,
-    text_cursor: Any | None = None,
-) -> bool:
+def _insert_image_in_flow(doc: Any, *, raw: bytes, mime: str, images_before: int, ctx: Any | None = None, text_cursor: Any | None = None) -> bool:
     """Embed notebook image output in document flow (TextGraphicObject).
 
     Import appends at body end. Live ▶ must pass *text_cursor* under the cell —
@@ -1209,42 +1112,18 @@ def _insert_image_in_flow(
         t_add = time.monotonic()
         graphic = None
         if ctx is not None:
-            graphic = insert_image_at_locator(
-                ctx,
-                doc,
-                tmp_path,
-                width_mm=w_mm,
-                height_mm=h_mm,
-                title="Notebook output",
-                description=mime,
-                text_cursor=cursor,
-            )
+            graphic = insert_image_at_locator(ctx, doc, tmp_path, width_mm=w_mm, height_mm=h_mm, title="Notebook output", description=mime, text_cursor=cursor)
             if graphic is None:
                 raise RuntimeError("insert_image_at_locator returned None")
         else:
             image = _create_embedded_graphic(doc, "writer", _file_url_for_path(tmp_path), ctx=ctx)
-            _apply_graphic_properties(
-                image,
-                width=w_units,
-                height=h_units,
-                title="Notebook output",
-                description=mime,
-                anchor_type=AS_CHARACTER,
-                inside="writer",
-            )
+            _apply_graphic_properties(image, width=w_units, height=h_units, title="Notebook output", description=mime, anchor_type=AS_CHARACTER, inside="writer")
             text.insertTextContent(cursor, image, False)
             graphic = image
         if graphic is not None:
             _apply_notebook_image_flow(graphic)
         add_ms = _mono_ms(t_add)
-        _log_shape_add(
-            step="image",
-            text_chars=len(raw),
-            shape_h=h_units,
-            shapes_before=images_before,
-            create_ms=_mono_ms(t0),
-            add_ms=add_ms,
-        )
+        _log_shape_add(step="image", text_chars=len(raw), shape_h=h_units, shapes_before=images_before, create_ms=_mono_ms(t0), add_ms=add_ms)
         return True
     except Exception:
         log.exception("Failed to insert notebook image in document flow")
@@ -1352,14 +1231,7 @@ def _outputs_contain_image(outputs: list[Any]) -> bool:
     return False
 
 
-def _import_image_outputs_in_flow(
-    doc: Any,
-    outputs: list[Any],
-    cell_index: int,
-    *,
-    images_before: int,
-    ctx: Any | None = None,
-) -> int:
+def _import_image_outputs_in_flow(doc: Any, outputs: list[Any], cell_index: int, *, images_before: int, ctx: Any | None = None) -> int:
     """Insert image/png/jpeg outputs in the document body. Returns number of images added."""
     added = 0
     out_list = outputs or []
@@ -1387,6 +1259,7 @@ def _import_image_outputs_in_flow(
 # ---------------------------------------------------------------------------
 # Output Text & Interleaving
 # ---------------------------------------------------------------------------
+
 
 def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
@@ -1440,9 +1313,7 @@ def format_all_outputs(outputs: list[Any]) -> str:
     return "\n\n".join(p for p in parts if p.strip())
 
 
-def _format_outputs_for_body(
-    outputs: list[Any], cell_index: int, execution_count: Any | None = None
-) -> tuple[list[tuple[str, Any]], int]:
+def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_count: Any | None = None) -> tuple[list[tuple[str, Any]], int]:
     """Interleave text and image outputs in notebook order.
 
     Previously appended all text, then all images, so ``[display image,
@@ -1457,12 +1328,7 @@ def _format_outputs_for_body(
     """
     out_list = outputs or []
     if len(out_list) > _MAX_OUTPUTS_PER_CELL:
-        log.warning(
-            "notebook import cell=%d truncating outputs %d -> %d",
-            cell_index,
-            len(out_list),
-            _MAX_OUTPUTS_PER_CELL,
-        )
+        log.warning("notebook import cell=%d truncating outputs %d -> %d", cell_index, len(out_list), _MAX_OUTPUTS_PER_CELL)
         out_list = out_list[:_MAX_OUTPUTS_PER_CELL]
     segments: list[tuple[str, Any]] = []
     text_parts: list[str] = []
@@ -1488,6 +1354,7 @@ def _format_outputs_for_body(
 # ---------------------------------------------------------------------------
 # Main Import Entry Point
 # ---------------------------------------------------------------------------
+
 
 def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[str, Any]:
     """Read *path* (.ipynb): body text for markdown/raw/outputs; in-flow field for code."""
@@ -1522,17 +1389,7 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
     registry_state = NotebookDocState(source_path=path)
     cells_t0 = time.monotonic()
     with _batch_document_updates(doc):
-        _import_cells(
-            doc,
-            nb,
-            stats,
-            cell_count,
-            run_t0,
-            ctx=ctx,
-            notebook_in=notebook_in,
-            registry_state=registry_state,
-            notebook_dir=os.path.dirname(os.path.abspath(path)) if path else None,
-        )
+        _import_cells(doc, nb, stats, cell_count, run_t0, ctx=ctx, notebook_in=notebook_in, registry_state=registry_state, notebook_dir=os.path.dirname(os.path.abspath(path)) if path else None)
         _scroll_view_to_start(doc)
     log.info("notebook import cells_done elapsed_ms=%d cells=%d", _mono_ms(cells_t0), stats["cells"])
     if registry_state.code_cells:
@@ -1543,11 +1400,7 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
         save_registry(doc, registry_state)
         save_notebook_source_path(doc, path)
         ensure_form_design_mode_off(doc)
-        log.info(
-            "notebook import registry_and_design_mode elapsed_ms=%d code_cells=%d",
-            _mono_ms(reg_t0),
-            len(registry_state.code_cells),
-        )
+        log.info("notebook import registry_and_design_mode elapsed_ms=%d code_cells=%d", _mono_ms(reg_t0), len(registry_state.code_cells))
         # Do not processEventsToIdle here: LayoutIdle livelocks on large
         # in-flow form documents. Wire ▶ without waiting for full layout;
         # XContainerListener catches views as they appear.
@@ -1556,28 +1409,11 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
 
     stats["controls"] = stats["shapes"]
     total_ms = _mono_ms(run_t0)
-    log.info(
-        "notebook import complete stats=%s total_ms=%d controls=%d avg_cell_ms=%d",
-        stats,
-        total_ms,
-        stats["shapes"],
-        total_ms // max(1, stats["cells"]),
-    )
+    log.info("notebook import complete stats=%s total_ms=%d controls=%d avg_cell_ms=%d", stats, total_ms, stats["shapes"], total_ms // max(1, stats["cells"]))
     return stats
 
 
-def _import_cells(
-    doc: Any,
-    nb: Any,
-    stats: dict[str, int],
-    cell_count: int,
-    run_t0: float,
-    ctx: Any | None = None,
-    *,
-    notebook_in: str | None = None,
-    registry_state: NotebookDocState | None = None,
-    notebook_dir: str | None = None,
-) -> None:
+def _import_cells(doc: Any, nb: Any, stats: dict[str, int], cell_count: int, run_t0: float, ctx: Any | None = None, *, notebook_in: str | None = None, registry_state: NotebookDocState | None = None, notebook_dir: str | None = None) -> None:
     first_cell = True
     for idx, cell in enumerate(nb.cells):
         cell_t0 = time.monotonic()
@@ -1587,23 +1423,14 @@ def _import_cells(
         outputs = list(getattr(cell, "outputs", []) or []) if cell_type == "code" else []
         ec = getattr(cell, "execution_count", None) if cell_type == "code" else None
 
-        log.debug(
-            "notebook import cell start index=%d type=%s source_chars=%d output_count=%d controls=%d",
-            idx,
-            cell_type,
-            len(source),
-            len(outputs),
-            stats["shapes"],
-        )
+        log.debug("notebook import cell start index=%d type=%s source_chars=%d output_count=%d controls=%d", idx, cell_type, len(source), len(outputs), stats["shapes"])
 
         lead = not first_cell
         first_cell = False
 
         if cell_type == "markdown":
             stats["markdown"] += 1
-            _append_markdown_cell(
-                doc, source, lead_break=lead, notebook_dir=notebook_dir, ctx=ctx
-            )
+            _append_markdown_cell(doc, source, lead_break=lead, notebook_dir=notebook_dir, ctx=ctx)
         elif cell_type == "code":
             # Previous markdown (Heading 2 keep-with-next, HTML lists) must not
             # glue onto this cell's unsplittable field.
@@ -1625,22 +1452,12 @@ def _import_cells(
                 registry_state.code_cells.append(entry)
                 # ▶ on the In [n]: row so it is not AS_CHARACTER-stacked under the
                 # tall field. update_in_prompt rewrites leading Text only (stops at Frame).
-                _insert_run_button_in_flow(
-                    doc,
-                    cell_id=entry.cell_id,
-                    controls_before=stats["shapes"],
-                    ctx=ctx,
-                )
+                _insert_run_button_in_flow(doc, cell_id=entry.cell_id, controls_before=stats["shapes"], ctx=ctx)
                 stats["shapes"] += 1
             _append_paragraph_break_at_end(doc)
             _style_control_paragraph(doc)
             stats["code"] += 1
-            _insert_code_input_in_flow(
-                doc,
-                name=field_name,
-                source=source,
-                controls_before=stats["shapes"],
-            )
+            _insert_code_input_in_flow(doc, name=field_name, source=source, controls_before=stats["shapes"])
             stats["shapes"] += 1
             # Invisible output bookmark at the end of the field paragraph — not a
             # visible "Output" heading. A bookmark inside "Output" leaked as "/" .
@@ -1657,9 +1474,7 @@ def _import_cells(
                         _append_body_text_block(doc, str(payload), _STYLE_OUTPUT, lead_break=True)
                 else:
                     _append_paragraph_break_at_end(doc)
-                    images_added = _import_image_outputs_in_flow(
-                        doc, [payload], idx, images_before=stats["images"], ctx=ctx
-                    )
+                    images_added = _import_image_outputs_in_flow(doc, [payload], idx, images_before=stats["images"], ctx=ctx)
                     stats["images"] += images_added
         else:
             stats["raw"] += 1
@@ -1667,10 +1482,4 @@ def _import_cells(
 
         log.debug("notebook import cell done index=%d cell_ms=%d controls=%d", idx, _mono_ms(cell_t0), stats["shapes"])
         if (idx + 1) % _PROGRESS_EVERY_N_CELLS == 0 or idx + 1 == cell_count:
-            log.info(
-                "notebook import progress cell=%d/%d controls=%d elapsed_ms=%d",
-                idx + 1,
-                cell_count,
-                stats["shapes"],
-                _mono_ms(run_t0),
-            )
+            log.info("notebook import progress cell=%d/%d controls=%d elapsed_ms=%d", idx + 1, cell_count, stats["shapes"], _mono_ms(run_t0))

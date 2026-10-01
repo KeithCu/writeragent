@@ -44,11 +44,7 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     description: str = "Set or replace speaker notes on an Impress slide."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {
-            "text": {"type": "string", "description": "Speaker notes text."},
-            "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
-            "append": {"type": "boolean", "description": "Append to existing notes instead of replacing (default: false)."},
-        },
+        "properties": {"text": {"type": "string", "description": "Speaker notes text."}, "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "append": {"type": "boolean", "description": "Append to existing notes instead of replacing (default: false)."}},
         "required": ["text"],
     }
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]

@@ -142,28 +142,14 @@ class McpModule(ModuleBase):
         cors_list_key = f"{prefix}cors_allowed_origins"
         cors_private_key = f"{prefix}cors_allow_private_origins"
         # MCP lifecycle: toggle, tunnel, CORS policy keys, or bulk apply (Settings OK).
-        if key and key not in (
-            toggle_key,
-            tunnel_key,
-            tunnel_provider_key,
-            tunnel_provider_token_key,
-            cors_list_key,
-            cors_private_key,
-            "",
-        ):
+        if key and key not in (toggle_key, tunnel_key, tunnel_provider_key, tunnel_provider_token_key, cors_list_key, cors_private_key, ""):
             return
 
         reload_cors_policy_from_config(self._services)
 
         cfg = self._services.config.proxy_for(self.name)
         enabled = cfg.get("mcp_enabled")
-        log.info(
-            "HTTP/MCP config sync (key=%r): mcp_enabled=%s tunnel_enabled=%s tunnel_provider=%s",
-            key or "(bulk)",
-            enabled,
-            cfg.get("tunnel_enabled"),
-            cfg.get("tunnel_provider") or DEFAULT_PROVIDER,
-        )
+        log.info("HTTP/MCP config sync (key=%r): mcp_enabled=%s tunnel_enabled=%s tunnel_provider=%s", key or "(bulk)", enabled, cfg.get("tunnel_enabled"), cfg.get("tunnel_provider") or DEFAULT_PROVIDER)
         if enabled and not self._mcp_routes_registered:
             self._register_mcp_routes(self._services)
         elif not enabled and self._mcp_routes_registered:
@@ -219,18 +205,11 @@ class McpModule(ModuleBase):
             message = _("MCP server failed to start") + "\n" + detail
         else:
             message = _("MCP server failed to start") + "\n" + _("Check writeragent_debug.log in your LibreOffice user config folder")
-        msgbox_with_report(
-            ctx,
-            "WriterAgent",
-            message,
-            box_type=3,
-            reportable=self._start_failure_reportable(),
-            report_title="MCP server failed to start",
-            report_extra=detail,
-        )
+        msgbox_with_report(ctx, "WriterAgent", message, box_type=3, reportable=self._start_failure_reportable(), report_title="MCP server failed to start", report_extra=detail)
 
     def _start_server(self, services: Any) -> bool:
         import os
+
         if os.environ.get("WRITERAGENT_TESTING"):
             return True
 
@@ -256,14 +235,7 @@ class McpModule(ModuleBase):
                     return False
 
                 # Schema default is mcp/module.yaml mcp_port; ConfigService supplies it when unset.
-                srv = HttpServer(
-                    route_registry=self._registry,
-                    port=port,
-                    host=host,
-                    use_ssl=cfg.get("use_ssl") or False,
-                    ssl_cert=cfg.get("ssl_cert") or "",
-                    ssl_key=cfg.get("ssl_key") or "",
-                )
+                srv = HttpServer(route_registry=self._registry, port=port, host=host, use_ssl=cfg.get("use_ssl") or False, ssl_cert=cfg.get("ssl_cert") or "", ssl_key=cfg.get("ssl_key") or "")
                 try:
                     srv.start()
                     if event_bus:
@@ -337,10 +309,7 @@ class McpModule(ModuleBase):
         provider_token = cfg.get("tunnel_provider_token") or ""
         ok = tunnel.start(int(port), provider, provider_token=str(provider_token))
         if not ok:
-            log.error(
-                "Failed to start MCP public tunnel via %s (is the provider binary installed?)",
-                provider,
-            )
+            log.error("Failed to start MCP public tunnel via %s (is the provider binary installed?)", provider)
 
     def _stop_tunnel(self) -> None:
         tunnel = self._bound_tunnel()
@@ -467,11 +436,7 @@ class McpModule(ModuleBase):
                     elif tunnel and tunnel.last_error:
                         msg = msg + "\n" + _("Public tunnel via {0} failed: {1}").format(pname, tunnel.last_error)
                     elif tunnel and tunnel.is_running:
-                        msg = (
-                            msg
-                            + "\n"
-                            + _("Public tunnel via {0} starting… use MCP Server Status when ready.").format(pname)
-                        )
+                        msg = msg + "\n" + _("Public tunnel via {0} starting… use MCP Server Status when ready.").format(pname)
                     else:
                         line = self._tunnel_status_line(pname, tunnel, public, True)
                         if line:
@@ -585,6 +550,7 @@ class McpModule(ModuleBase):
 
             copy_btn = dlg.getControl("CopyBtn")
             if copy_btn is not None:
+
                 class _CopyListener(BaseActionListener):
                     _dlg: Any
                     _ctx: Any

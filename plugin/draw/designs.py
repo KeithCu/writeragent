@@ -40,11 +40,7 @@ import logging
 import os
 from typing import Any
 
-from plugin.doc.document_research import (
-    _path_settings_from_ctx,
-    _resolve_lo_directory_path,
-    _should_skip_filename,
-)
+from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_directory_path, _should_skip_filename
 from plugin.draw.design_look import derive_otp_look
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.url_utils import path_to_file_url
@@ -83,24 +79,11 @@ _CLONE_SHAPE_PROPS = (
     "TextHorizontalAdjust",
     "TextVerticalAdjust",
 )
-_CLONE_MASTER_PAGE_PROPS = (
-    "BackgroundFullSize",
-    "BorderLeft",
-    "BorderRight",
-    "BorderTop",
-    "BorderBottom",
-    "Width",
-    "Height",
-)
+_CLONE_MASTER_PAGE_PROPS = ("BackgroundFullSize", "BorderLeft", "BorderRight", "BorderTop", "BorderBottom", "Width", "Height")
 
 # PathSettings properties that hold template directories. Discover extras whose
 # name contains "emplate" so we do not hardcode an install prefix.
-_TEMPLATE_PROP_FALLBACK = (
-    "Template",
-    "Template_internal",
-    "Template_user",
-    "Template_writable",
-)
+_TEMPLATE_PROP_FALLBACK = ("Template", "Template_internal", "Template_user", "Template_writable")
 
 _OTP_EXT = ".otp"
 
@@ -124,11 +107,7 @@ def _is_draw_only_doc(doc: Any) -> bool:
 
 
 def not_impress_error(tool: ToolBase, action: str) -> dict[str, Any]:
-    return tool._tool_error(
-        "%s requires an Impress presentation, not a Draw document." % action,
-        code=NOT_IMPRESS_CODE,
-        doc_type="draw",
-    )
+    return tool._tool_error("%s requires an Impress presentation, not a Draw document." % action, code=NOT_IMPRESS_CODE, doc_type="draw")
 
 
 def _template_property_names(settings: Any) -> list[str]:
@@ -448,11 +427,7 @@ def _extract_otp_picture(otp_path: str, dest_dir: str) -> str | None:
 
     try:
         with zipfile.ZipFile(otp_path, "r") as zf:
-            names = [
-                n
-                for n in zf.namelist()
-                if n.startswith("Pictures/") and not n.endswith("/")
-            ]
+            names = [n for n in zf.namelist() if n.startswith("Pictures/") and not n.endswith("/")]
             if not names:
                 return None
             # Prefer SVG (Metropolis chrome), then any other picture.
@@ -468,13 +443,7 @@ def _extract_otp_picture(otp_path: str, dest_dir: str) -> str | None:
         return None
 
 
-def _reimport_graphic(
-    uno_ctx: Any,
-    src_shape: Any,
-    dest_shape: Any,
-    *,
-    otp_path: str | None = None,
-) -> bool:
+def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any, *, otp_path: str | None = None) -> bool:
     """Attach chrome without sharing the Hidden source SfxItemPool.
 
     Prefer extracting ``Pictures/*`` from the shipped ``.otp`` ZIP and loading
@@ -528,10 +497,7 @@ def _reimport_graphic(
         try:
             os.close(fd)
             url = path_to_file_url(path)
-            provider.storeGraphic(
-                graphic,
-                (create_property_value("URL", url), create_property_value("MimeType", mime)),
-            )
+            provider.storeGraphic(graphic, (create_property_value("URL", url), create_property_value("MimeType", mime)))
             new_graphic = provider.queryGraphic((create_property_value("URL", url),))
             if new_graphic is None:
                 continue
@@ -547,14 +513,7 @@ def _reimport_graphic(
     return False
 
 
-def _clone_one_shape(
-    dest_doc: Any,
-    dest_master: Any,
-    src_shape: Any,
-    uno_ctx: Any = None,
-    *,
-    otp_path: str | None = None,
-) -> str:
+def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any, uno_ctx: Any = None, *, otp_path: str | None = None) -> str:
     """Create a dest-owned shape, add it, then copy visual props + geometry.
 
     Adding first is required: presentation placeholders ignore Size/Position
@@ -635,12 +594,7 @@ def copy_master_style_family(src_doc: Any, dest_doc: Any, family_name: str) -> i
     return copied
 
 
-def clone_master_into_doc(
-    dest_doc: Any,
-    src_doc: Any,
-    design: dict[str, str],
-    uno_ctx: Any = None,
-) -> tuple[Any, str, int]:
+def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], uno_ctx: Any = None) -> tuple[Any, str, int]:
     """Clone the source design master into *dest_doc* (same-document shapes).
 
     Cross-doc ``MasterPage`` assign does not import. ``createInstance`` +
@@ -706,11 +660,7 @@ def clone_master_into_doc(
         src_shape = src_master.getByIndex(i)
         st = str(getattr(src_shape, "ShapeType", "") or "")
         log.info("clone_master step=shape i=%s/%s type=%s", i, src_count, st)
-        cloned_types.append(
-            _clone_one_shape(
-                dest_doc, dest_master, src_shape, uno_ctx, otp_path=otp_path
-            )
-        )
+        cloned_types.append(_clone_one_shape(dest_doc, dest_master, src_shape, uno_ctx, otp_path=otp_path))
         log.info("clone_master step=shape_done i=%s type=%s", i, cloned_types[-1])
     try:
         dest_name = str(dest_master.Name or "") or design_name
@@ -726,20 +676,11 @@ def clone_master_into_doc(
         shape_count = len(cloned_types)
     if shape_count < 1:
         raise RuntimeError("Cloned master '%s' has no shapes." % dest_name)
-    log.debug(
-        "clone_master_into_doc name=%s shapes=%s types=%s",
-        dest_name,
-        shape_count,
-        cloned_types,
-    )
+    log.debug("clone_master_into_doc name=%s shapes=%s types=%s", dest_name, shape_count, cloned_types)
     return dest_master, dest_name, shape_count
 
 
-def find_imported_master(
-    doc: Any,
-    design: dict[str, str],
-    before_names: set[str],
-) -> tuple[Any | None, str, int]:
+def find_imported_master(doc: Any, design: dict[str, str], before_names: set[str]) -> tuple[Any | None, str, int]:
     """Pick the cloned (or already-present) design master."""
     try:
         masters = doc.getMasterPages()
@@ -814,32 +755,15 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         log.info("apply_design current-doc step=open_hidden design=%s", design_label)
         src = open_design_source_hidden(uno_ctx, design, as_template=True)
         log.info("apply_design current-doc step=clone_master begin design=%s", design_label)
-        master, master_name, shape_count = clone_master_into_doc(
-            dest_doc, src, design, uno_ctx
-        )
-        log.info(
-            "apply_design current-doc step=clone_master done master=%s shapes=%s",
-            master_name,
-            shape_count,
-        )
+        master, master_name, shape_count = clone_master_into_doc(dest_doc, src, design, uno_ctx)
+        log.info("apply_design current-doc step=clone_master done master=%s shapes=%s", master_name, shape_count)
         if master is None:
-            master, master_name, shape_count = find_imported_master(
-                dest_doc, design, before_names
-            )
+            master, master_name, shape_count = find_imported_master(dest_doc, design, before_names)
         if master is None:
-            raise RuntimeError(
-                "Master clone did not import a design master from %s" % design.get("name")
-            )
-        log.info(
-            "apply_design current-doc step=assign_all master=%s slides~=%s",
-            master_name,
-            original_count,
-        )
+            raise RuntimeError("Master clone did not import a design master from %s" % design.get("name"))
+        log.info("apply_design current-doc step=assign_all master=%s slides~=%s", master_name, original_count)
         slides_updated = assign_master_to_all_slides(dest_doc, master)
-        log.info(
-            "apply_design current-doc step=assign_all done slides_updated=%s",
-            slides_updated,
-        )
+        log.info("apply_design current-doc step=assign_all done slides_updated=%s", slides_updated)
     finally:
         # Close after assign so any residual source-pool refs are unused.
         log.info("apply_design current-doc step=close_hidden design=%s", design_label)
@@ -861,19 +785,11 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         "slides_updated": slides_updated,
         "import_method": "clone_master",
         "slide_count": slide_count,
-        "message": (
-            "Applied design '%s' (master '%s') to the current presentation."
-            % (design.get("name"), master_name)
-        ),
+        "message": ("Applied design '%s' (master '%s') to the current presentation." % (design.get("name"), master_name)),
     }
 
 
-def create_presentation_from_design(
-    uno_ctx: Any,
-    design: dict[str, str],
-    *,
-    hidden: bool = False,
-) -> Any:
+def create_presentation_from_design(uno_ctx: Any, design: dict[str, str], *, hidden: bool = False) -> Any:
     """``loadComponentFromURL`` + ``AsTemplate`` — new document (M0′ proven path).
 
     Internal / test helper only. Not model-facing: a new Impress window
@@ -912,10 +828,7 @@ class ListDesigns(ToolBase):
         "install prefix."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     tier: str = "core"
     is_mutation: bool | None = False
 
@@ -936,20 +849,8 @@ class ApplyDesign(ToolBase):
         "and does not open a new presentation. Existing title/body text stays. "
         "Call list_designs first. Draw documents return a not-Impress error."
     )
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "design": {
-                "type": "string",
-                "description": "Design id, name, path, or url from list_designs (e.g. Metropolis).",
-            },
-        },
-        "required": ["design"],
-    }
-    uno_services: list[str] | None = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from list_designs (e.g. Metropolis)."}}, "required": ["design"]}
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     tier: str = "core"
     is_mutation: bool | None = True
 
@@ -969,8 +870,4 @@ class ApplyDesign(ToolBase):
             return apply_design_to_current_doc(ctx.ctx, ctx.doc, entry)
         except Exception as e:
             log.exception("current-doc apply_design failed for %s", entry.get("path"))
-            return self._tool_error(
-                "Failed to apply design to the current presentation: %s" % e,
-                reason="current_doc_import_failed",
-                hint="Hidden .otp master clone or MasterPage assign did not complete.",
-            )
+            return self._tool_error("Failed to apply design to the current presentation: %s" % e, reason="current_doc_import_failed", hint="Hidden .otp master clone or MasterPage assign did not complete.")

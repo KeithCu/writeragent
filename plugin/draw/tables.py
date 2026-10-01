@@ -123,17 +123,7 @@ def iter_table_shapes(doc: Any) -> list[dict[str, Any]]:
                 name = str(shape.Name or "")
             except Exception:
                 pass
-            out.append(
-                {
-                    "page": page_i,
-                    "index": shape_i,
-                    "name": name,
-                    "rows": rows,
-                    "cols": cols,
-                    "shape": shape,
-                    "model": model,
-                }
-            )
+            out.append({"page": page_i, "index": shape_i, "name": name, "rows": rows, "cols": cols, "shape": shape, "model": model})
     return out
 
 
@@ -181,16 +171,7 @@ def list_draw_tables(doc: Any) -> list[dict[str, Any]]:
     for t in iter_table_shapes(doc):
         rows = int(t["rows"] or 0)
         cols = int(t["cols"] or 0)
-        out.append(
-            {
-                "name": t["name"],
-                "rows": t["rows"],
-                "cols": t["cols"],
-                "cell_count": rows * cols,
-                "page": t["page"],
-                "index": t["index"],
-            }
-        )
+        out.append({"name": t["name"], "rows": t["rows"], "cols": t["cols"], "cell_count": rows * cols, "page": t["page"], "index": t["index"]})
     return out
 
 
@@ -313,13 +294,7 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     table = _table_model(shape)
     if table is None:
         if data:
-            return {
-                "status": "ok",
-                "message": "Table inserted but cell model was unavailable; data not filled",
-                "page": actual_idx,
-                "index": page.getCount() - 1,
-                "warning": "table_model_unavailable",
-            }
+            return {"status": "ok", "message": "Table inserted but cell model was unavailable; data not filled", "page": actual_idx, "index": page.getCount() - 1, "warning": "table_model_unavailable"}
     else:
         try:
             _ensure_table_dims(table, rows, columns)
@@ -329,21 +304,9 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
             try:
                 written = fill_table_cells(table, data)
             except Exception as exc:
-                return {
-                    "status": "error",
-                    "message": "Failed to fill table cells: %s" % exc,
-                    "code": "TOOL_EXECUTION_ERROR",
-                }
+                return {"status": "error", "message": "Failed to fill table cells: %s" % exc, "code": "TOOL_EXECUTION_ERROR"}
 
-    return {
-        "status": "ok",
-        "message": "Table inserted",
-        "page": actual_idx,
-        "index": page.getCount() - 1,
-        "rows": rows,
-        "columns": columns,
-        "cells_written": written,
-    }
+    return {"status": "ok", "message": "Table inserted", "page": actual_idx, "index": page.getCount() - 1, "rows": rows, "columns": columns, "cells_written": written}
 
 
 def delete_draw_table(doc: Any, *, name: str = "", page: Any = None, index: Any = None) -> dict[str, Any]:
@@ -352,10 +315,4 @@ def delete_draw_table(doc: Any, *, name: str = "", page: Any = None, index: Any 
     pages = doc.getDrawPages()
     page_obj = pages.getByIndex(int(entry["page"]))
     page_obj.remove(entry["shape"])
-    return {
-        "status": "ok",
-        "message": "Table deleted",
-        "table_name": entry.get("name") or name,
-        "page": entry.get("page"),
-        "index": entry.get("index"),
-    }
+    return {"status": "ok", "message": "Table deleted", "table_name": entry.get("name") or name, "page": entry.get("page"), "index": entry.get("index")}
