@@ -16,11 +16,11 @@ Run Python and scientific compute offline in spreadsheet formulas, edit document
 
 The project is distributed as three standalone extension packages (*install only one at a time*):
 
-| Package | What's Included | Best For |
-| :--- | :--- | :--- |
-| 🤖 **[WriterAgent](docs/features.md)** (`WriterAgent.oxt`) *(Full stack, recommended for most users)* | Everything in LibrePy and LibreHarper + AI sidebar, `=PROMPT()`, web research, Calc → Python converter, MCP server | Users wanting the complete AI assistant, spreadsheet converter, and scientific compute suite |
-| 🐍 **[LibrePy](docs/scripting/librepy-split.md)** (`LibrePy.oxt`) | Python runtime, `=PY()`, NumPy, pandas, SymPy, Monaco, Jupyter **File → Open** `.ipynb`, domain helpers, OCR (no AI/MCP — core-track build for LO inclusion) | Users who want Python and Data Science in Calc/Writer without AI or API keys |
-| ✍️ **LibreHarper** (`LibreHarper.oxt`) | Standalone offline [Harper](https://github.com/Automattic/harper) grammar engine for Writer | Users who only want fast, local grammar checking without AI or Python stacks |
+| Package | What's Included |
+| :--- | :--- |
+| 🤖 **[WriterAgent](docs/features.md)** (`WriterAgent.oxt`) *(Full stack, recommended for most users)* | Everything in LibrePy and LibreHarper + AI sidebar, `=PROMPT()`, web research, Calc → Python converter, MCP server |
+| 🐍 **[LibrePy](docs/scripting/librepy-split.md)** (`LibrePy.oxt`) | Python runtime, `=PY()`, NumPy, pandas, SymPy, Monaco, Jupyter **File → Open** `.ipynb`, domain helpers, OCR (no AI/MCP — core-track build for LO inclusion) |
+| ✍️ **LibreHarper** (`LibreHarper.oxt`) | Standalone offline [Harper](https://github.com/Automattic/harper) grammar engine for Writer |
 
 **[Download .oxt Releases](https://github.com/KeithCu/writeragent/releases/latest)** · [Feature Index](docs/features.md) · [NumPy in LibreOffice Guide](docs/enabling_numpy_in_libreoffice.md) · [Discussions](https://github.com/KeithCu/writeragent/discussions)
 
@@ -53,6 +53,7 @@ The project is distributed as three standalone extension packages (*install only
 ### 📊 Diagrams, Slides & Multi-Modal (Draw & Impress)
 
 - **Diagram & Presentation Generation** — Generate, adjust, and style flowcharts, shapes, connectors, speaker notes, and slide transitions through chat commands or Python scripts. [Details](docs/draw/impress-specialized-toolsets.md)
+- **Image Creation & Editing** — Generate a new image from a prompt, or edit a selected graphic in place, on the same endpoint as chat. Inserts into Writer, Calc, Draw, and Impress. [Image Generation](docs/images/generation.md)
 - **LO-DOM Semantic Tree** — Structural understanding of headings, sections, tables, and relationships across entire documents. [Semantic Tree](docs/writer/lo-dom-semantic-tree.md)
 - **Cross-Document Search & Memory** — Query other documents in the same folder via local embeddings / hybrid search, with persistent cross-session agent memory. [Embeddings](docs/embeddings.md) · [Memory](docs/archive/hermes-agent-patterns.md)
 
