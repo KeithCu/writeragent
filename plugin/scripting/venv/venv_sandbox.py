@@ -80,10 +80,27 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
         )
     except ImportError:
         return
+
+    def run_sql_bound(
+        sql: str,
+        con: Any | None = None,
+        files: list[str] | dict[str, str] | None = None,
+        scoped_dir: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        # Bugfix: the cell passed scoped_dir="/any/dir" and the basename check
+        # then read that directory. The host rebinds scoped_dir on each execute;
+        # the argument is ignored.
+        del scoped_dir
+        folder = executor.state.get("scoped_dir")
+        if not isinstance(folder, str) or not folder.strip():
+            folder = None
+        return run_sql(sql, con, files, scoped_dir=folder, **kwargs)
+
     helpers = {
         "session_duckdb": session_duckdb,
         "invalidate_session_tables": invalidate_session_tables,
-        "run_sql": run_sql,
+        "run_sql": run_sql_bound,
     }
     executor.send_variables(helpers)
     executor.custom_tools.update(helpers)

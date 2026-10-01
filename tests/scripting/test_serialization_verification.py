@@ -125,6 +125,25 @@ def test_serialization_contracts_runtime_and_invariants() -> None:
             assert child_unpacked is not None
 
 
+def test_child_unpack_split_grid_1d_rejects_short_buffer() -> None:
+    """1D child unpack must reject a buffer shorter than the declared shape.
+
+    Host unpack already raises. The 1D child path used to skip reshape and
+    return an ndarray of the buffer's own length.
+    """
+    pytest.importorskip("numpy")
+    import numpy as np
+
+    raw = np.array([1.0, 2.0], dtype=np.float64).tobytes()
+    # deal.pre requires a split_grid envelope. Copy a real pack and only
+    # change shape and buffer so the short 1D buffer reaches the unpack body.
+    envelope = host_pack_split_grid([1.0, 2.0, 3.0, 4.0])
+    envelope["shape"] = [4]
+    envelope["buffer"] = raw
+    with pytest.raises(ValueError, match="needs 4"):
+        child_unpack_split_grid(envelope)
+
+
 def test_jagged_grid_raises_value_error() -> None:
     """Jagged 2D grids must raise ValueError via @deal.raises on _flatten_grid_to_components."""
     jagged = [[1.0, 2.0], [3.0]]

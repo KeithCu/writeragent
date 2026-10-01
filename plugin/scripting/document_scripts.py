@@ -148,10 +148,10 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> str | None:
     if err:
         return err
     if is_document_readonly_for_scripts(doc):
-        return _(
-            "Document is read-only or properties cannot be written. "
-            "Script saved to your personal library instead."
-        )
+        # The previous sentence claimed a My Scripts write that only two
+        # callers perform. Save As, New, and Monaco attach show this string
+        # and do not write My Scripts.
+        return _("Document is read-only or properties cannot be written.")
     try:
         set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, _envelope_to_json(scripts))
         return None
@@ -163,10 +163,8 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> str | None:
         if is_disposed_exception(exc):
             raise
         log.exception("document_scripts: failed to persist on document")
-        return _(
-            "Document is read-only or properties cannot be written. "
-            "Script saved to your personal library instead."
-        )
+        # Same false My Scripts claim as the read-only return above.
+        return _("Document is read-only or properties cannot be written.")
 
 
 def get_calc_init_script(doc: Any, *, default: str = "") -> str:
@@ -260,6 +258,10 @@ def attach_document_script(doc: Any, name: str, code: str, *, overwrite: bool = 
     name = (name or "").strip()
     if not name:
         return _("Script name cannot be empty.")
+    # INIT is the hidden workbook init script in this same property map.
+    # Saving it overwrites that body, and the picker hides the row.
+    if is_calc_init_script_name(name):
+        return _("'{0}' is reserved for the workbook init script.").format(name)
     scripts = dict(get_document_scripts(doc))
     if name in scripts and not overwrite:
         return _("A script named '{0}' already exists in this document.").format(name)
@@ -432,11 +434,13 @@ def build_scripts_list_message(
     document_stale = False
     document_readonly = is_document_readonly_for_scripts(doc) if doc else False
 
-    if doc is not None and session_doc_url is not None:
-        current_id = document_scripts_identity(doc)
-        if session_doc_url != current_id:
-            document_stale = True
-            document_readonly = True
+    # Same predicate as save/attach/delete. An untitled capture of "" becomes
+    # a file URL on File -> Save; that is not a different document. Pass doc,
+    # not session_doc: when session_doc is None this function already
+    # substituted the active document, and None would hide a real URL change.
+    if document_scripts_write_is_stale(doc, session_doc_url):
+        document_stale = True
+        document_readonly = True
 
     doc_scripts: dict[str, str] = {}
     if doc is not None and not document_stale:

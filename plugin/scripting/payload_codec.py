@@ -1576,6 +1576,15 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
 
         if not strings:
             arr = np.frombuffer(raw, dtype=np.float64)
+            # Bugfix: host unpack already rejects this. The 1D child path
+            # returned the buffer's own length and materialized a short row
+            # because reshape runs only for 2D. Reject the mismatch here and
+            # keep the 2D reshape as a second check.
+            expected_cells = int(nrows) * int(ncols)
+            if arr.size != expected_cells:
+                raise ValueError(
+                    f"split_grid buffer has {arr.size} values but shape {list(shape)} needs {expected_cells}"
+                )
             if not is_1d:
                 arr = arr.reshape((nrows, ncols))
             arr = _apply_column_kinds_to_ndarray(

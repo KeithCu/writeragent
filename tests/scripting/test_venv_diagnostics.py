@@ -738,6 +738,15 @@ def test_run_venv_self_check_default_uses_import_probe_timeout():
     assert mock_mgr.execute.call_args.kwargs["timeout_sec"] == SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC
 
 
+def test_duckdb_probe_script_is_not_sandboxed():
+    from plugin.scripting.venv_diagnostics import _DIAGNOSTIC_SCRIPT, _SANDBOX_SELF_CHECK_GROUPS, _package_probe_script
+    assert "import duckdb" not in _DIAGNOSTIC_SCRIPT
+    sandbox_pkgs = [pkg for _title, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs]
+    assert "duckdb" not in sandbox_pkgs
+    with pytest.raises(ValueError, match="unsupported probe module"):
+        _package_probe_script("duckdb")
+
+
 def test_run_venv_self_check_batch_path_reports_duckdb():
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {

@@ -412,6 +412,38 @@ def _bind_window_events(window: Any) -> None:
             log.debug("editor_main: could not hook events.%s", name, exc_info=True)
 
 
+def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | None:
+    """Map a request path to a file, or None.
+
+    ``/vs//etc/passwd`` used to make path[4:] absolute, and os.path.join then
+    dropped the rocher root. ``/vs/../../`` escaped after normpath.
+    """
+    if url_path in ("/", "/index.html"):
+        return os.path.join(assets, "index.html")
+    if url_path in ("/editor.js", "/scripts_manager.js", "/style.css"):
+        return os.path.join(assets, url_path.lstrip("/"))
+    if not url_path.startswith("/vs/"):
+        return None
+    # ImportError passes an empty root. realpath("") is the cwd, which would
+    # serve files outside the Monaco tree.
+    if not rocher_root:
+        return None
+    root = os.path.realpath(rocher_root)
+    raw_suffix = url_path[4:]
+    # `/vs//etc/passwd` makes path[4:] absolute, so os.path.join drops the
+    # rocher root. Refuse that form instead of re-rooting it under Monaco.
+    if os.path.isabs(raw_suffix):
+        return None
+    suffix = raw_suffix.lstrip("/")
+    candidate = os.path.realpath(os.path.normpath(os.path.join(root, suffix)))
+    try:
+        if os.path.commonpath([candidate, root]) != root:
+            return None
+    except ValueError:
+        return None
+    return candidate
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
     assets = os.path.abspath(os.environ.get("WRITERAGENT_EDITOR_ASSETS", _ASSETS_DIR))
@@ -425,18 +457,14 @@ def main() -> None:
         if "?" in path:
             path = path.split("?")[0]
 
-        if path in ("/", "/index.html"):
-            filepath = os.path.join(assets, "index.html")
-        elif path in ("/editor.js", "/scripts_manager.js", "/style.css"):
-            filepath = os.path.join(assets, path.lstrip("/"))
-        elif path.startswith("/vs/"):
+        rocher_root = ""
+        if path.startswith("/vs/"):
             try:
                 import rocher
-                filepath = os.path.normpath(os.path.join(rocher.path(), path[4:]))
+                rocher_root = rocher.path()
             except ImportError:
-                filepath = ""
-        else:
-            filepath = ""
+                rocher_root = ""
+        filepath = monaco_static_path(path, assets, rocher_root) or ""
 
         if filepath and os.path.exists(filepath) and os.path.isfile(filepath):
             mime, _unused = mimetypes.guess_type(filepath)

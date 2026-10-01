@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.scripting.ipc import pack_pickle_frame
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
 
 log = logging.getLogger(__name__)
 
@@ -103,7 +103,17 @@ def dispatch_worker_response(
             llm_response["result"] = llm_out.get("result")
         else:
             llm_response["message"] = llm_out.get("message", "LLM request failed")
-        stdin_write(pack_pickle_frame(llm_response))
+        try:
+            frame = pack_pickle_frame(llm_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+        except IpcFrameError as exc:
+            # An oversized LLM reply used to be written with no cap. The child
+            # read stops at DEFAULT_MAX_PAYLOAD_BYTES and leaves the rest on
+            # the pipe, so the next frame is garbage. Send a small error frame.
+            frame = pack_pickle_frame(
+                {"status": "error", "id": call_id, "message": str(exc), "error": str(exc)},
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            )
+        stdin_write(frame)
         return True
 
     return False

@@ -740,6 +740,28 @@ def test_retired_worker_does_not_respawn():
         PythonWorkerManager.shutdown_all()
 
 
+def test_shutdown_all_sets_retired_before_terminate():
+    from plugin.scripting import venv_worker as vw
+
+    mgr = vw.PythonWorkerManager.__new__(vw.PythonWorkerManager)
+    mgr._retired = False
+    mgr._proc = None
+    calls = []
+    mgr._terminate_worker = lambda: calls.append("term")
+    key = "test-pool:shutdown-retire"
+    with vw._registry_lock:
+        previous = dict(vw._instances)
+        vw._instances[key] = mgr
+    try:
+        vw.PythonWorkerManager.shutdown_all()
+    finally:
+        with vw._registry_lock:
+            vw._instances.clear()
+            vw._instances.update(previous)
+    assert mgr._retired is True
+    assert calls == ["term"]
+
+
 def test_worker_harness_dies_with_parent(monkeypatch):
     import ctypes
 

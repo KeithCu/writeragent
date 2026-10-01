@@ -114,6 +114,15 @@ def test_drops_secrets_and_lo_overrides() -> None:
     assert out["PYTHONDONTWRITEBYTECODE"] == "1"
 
 
+def test_scrub_drops_loader_injection() -> None:
+    from plugin.scripting.sandbox import scrub_subprocess_env
+    out = scrub_subprocess_env({"LD_PRELOAD": "/tmp/x.so", "ld_audit": "/tmp/a.so", "DYLD_INSERT_LIBRARIES": "/tmp/y.dylib", "PATH": "/usr/bin"})
+    assert "LD_PRELOAD" not in {k.upper() for k in out}
+    assert "LD_AUDIT" not in {k.upper() for k in out}
+    assert "DYLD_INSERT_LIBRARIES" not in {k.upper() for k in out}
+    assert out["PATH"] == "/usr/bin"
+
+
 @given(
     base=st.dictionaries(
         keys=st.sampled_from(

@@ -242,17 +242,10 @@ def _to_float_a(val: Any) -> float:
 
 
 def _year_frac(d1: float, d2: float, basis: int) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _days_between
+    # duration and intrate used this; accrint used yearfrac.
+    from plugin.scripting.venv.calc_functions_t_z import yearfrac
 
-    days = _days_between(d1, d2, basis)
-    if basis == 2:
-        return days / 360.0
-    if basis == 3:
-        return days / 365.0
-    if basis == 0 or basis == 4:
-        return days / 360.0
-    # basis 1 (Actual/Actual) is complex, approx as days/365.25
-    return days / 365.25
+    return yearfrac(d1, d2, basis)
 
 
 def accrint(issue: Any, first_interest: Any, settlement: Any, rate: Any, par: Any, frequency: Any, basis: Any = 0, calc_method: Any = True) -> float:

@@ -10,11 +10,33 @@ import sys
 import uuid
 from typing import Any
 
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame
+from plugin.scripting.ipc import (
+    DEFAULT_MAX_PAYLOAD_BYTES,
+    IpcFrameError,
+    read_pickle_frame,
+    write_pickle_frame,
+)
 
 
 def _write_frame(payload: dict[str, Any]) -> None:
-    write_pickle_frame(sys.stdout.buffer, payload)
+    try:
+        write_pickle_frame(sys.stdout.buffer, payload)
+    except IpcFrameError as exc:
+        # write_pickle_frame now defaults to the read cap. An omitted write
+        # used to be uncapped, so a too-large child frame left unread bytes
+        # on the host pipe. Reply with a small error frame instead.
+        error_frame: dict[str, Any] = {
+            "status": "error",
+            "message": str(exc),
+            "error": str(exc),
+        }
+        if "id" in payload:
+            error_frame["id"] = payload["id"]
+        write_pickle_frame(
+            sys.stdout.buffer,
+            error_frame,
+            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+        )
 
 
 def _read_host_response(context: str) -> dict[str, Any]:

@@ -115,21 +115,7 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.writeragent_namespace",
     "plugin.scripting.writeragent_namespace.*",
     "plugin.scripting.payload_codec",
-    "plugin.embeddings.venv.embeddings_index",
-    "plugin.embeddings.venv.embeddings_sqlite",
-    "plugin.embeddings.venv.embeddings_llama_index",
-    "plugin.embeddings.venv.embeddings_ingest_graph",
-    "plugin.embeddings.venv.embeddings_search_graph",
-    "plugin.embeddings.venv.embeddings_zvec",
-    "plugin.embeddings.venv.embeddings_hybrid_search",
     "plugin.scripting.analysis",
-    "plugin.scripting.duckdb_sql",
-    "plugin.vision",
-    "plugin.vision.venv.vision",
-    "plugin.vision.vision_common",
-    "plugin.vision.venv.vision_docling",
-    "plugin.vision.venv.vision_paddle",
-    "plugin.vision.venv.vision_html_export",
     "css_inline",
     "latex2mathml",
     "latex2mathml.*",
@@ -144,8 +130,8 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "spacytextblob.*",
     "pint",
     "pint.*",
-    "duckdb",
-    "duckdb.*",
+    # Trusted helpers import these themselves; user code was getting the raw
+    # module, which skips GuardedDuckDBConnection.
     "sentence_transformers",
     "sentence_transformers.*",
     "transformers",
@@ -163,8 +149,6 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.scripting.forecast",
     "plugin.scripting.calc_functions",
     "plugin.scripting.calc_functions.*",
-    "plugin.writer.locale.vale",
-    "plugin.writer.locale.languagetool",
 )
 
 
@@ -187,7 +171,16 @@ _BLOCKED_ENV_TOKENS = frozenset({"KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "
 _ENV_CREDENTIAL_ALLOW = frozenset({"XAUTHORITY"})
 # LibreOffice sets PYTHONHOME/PYTHONPATH to its bundled stdlib; letting these
 # leak into a venv subprocess causes SRE module mismatch and import failures.
-_BLOCKED_ENV_EXACT = {"PYTHONHOME", "PYTHONPATH", "LD_LIBRARY_PATH"}
+# LD_PRELOAD, LD_AUDIT, and DYLD_INSERT_LIBRARIES are not credential tokens, so
+# the name scrub copied them into the child, and they run code before the harness.
+_BLOCKED_ENV_EXACT = {
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "LD_LIBRARY_PATH",
+    "LD_PRELOAD",
+    "LD_AUDIT",
+    "DYLD_INSERT_LIBRARIES",
+}
 
 _NOT_SET = "__not_set__"
 _cached_sandbox: str | None = _NOT_SET  # type: ignore[assignment]  # sentinel

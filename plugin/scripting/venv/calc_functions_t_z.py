@@ -629,28 +629,34 @@ def xor(*args: Any) -> bool:
 
 
 def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
+    # Old body divided actual days by 360 for basis 0, 2, and 4 and swapped
+    # dates, so bond helpers disagreed with days360.
+    from plugin.scripting.venv.calc_functions_d_h import days360
+
     try:
-        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
-        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
-    except Exception:
+        s = float(start_date)
+        e = float(end_date)
+        b = int(float(basis))
+    except (ValueError, TypeError):
         return float("nan")
-
-    if sd > ed:
-        sd, ed = ed, sd
-    diff = (ed - sd).days
-    b = int(float(basis))
-
-    if b == 0:  # US (NASD) 30/360
-        return diff / 360.0
-    if b == 1:  # Actual/actual
-        return diff / 365.25
-    if b == 2:  # Actual/360
-        return diff / 360.0
-    if b == 3:  # Actual/365
-        return diff / 365.0
-    if b == 4:  # European 30/360
-        return diff / 360.0
-    return diff / 365.0
+    if b < 0 or b > 4:
+        return float("nan")
+    if b == 0 or b == 4:
+        counted = days360(s, e, b == 4)
+        if math.isnan(counted):
+            return float("nan")
+        return counted / 360.0
+    try:
+        sd = dt.date.fromordinal(int(s) + 693594)
+        ed = dt.date.fromordinal(int(e) + 693594)
+    except (OverflowError, OSError, ValueError):
+        return float("nan")
+    actual = (ed - sd).days
+    if b == 1:
+        return actual / 365.25
+    if b == 2:
+        return actual / 360.0
+    return actual / 365.0
 
 
 def yield_calc(settlement: Any, maturity: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:

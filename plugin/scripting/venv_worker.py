@@ -284,10 +284,18 @@ class PythonWorkerManager:
     @classmethod
     def shutdown_all(cls) -> None:
         """Terminate all workers (tests / extension teardown)."""
+        # Bugfix: shutdown_all used to skip _retired, and the retry spawned an
+        # untracked warm process. get() already sets the flag before terminate
+        # so an in-flight execute cannot Popen a child the registry dropped.
+        # Drop the lock before terminate: an in-flight tool call may need the
+        # UI thread, and terminate must not hold _registry_lock across that.
         with _registry_lock:
-            for mgr in list(_instances.values()):
-                mgr._terminate_worker()
+            managers = list(_instances.values())
+            for mgr in managers:
+                mgr._retired = True
             _instances.clear()
+        for mgr in managers:
+            mgr._terminate_worker()
 
     @classmethod
     def pool_is_running(cls, pool: str = WORKER_POOL_DEFAULT) -> bool:
@@ -811,6 +819,13 @@ class PythonWorkerManager:
             popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
         else:
             popen_kw["preexec_fn"] = os.setsid
+        # The top-of-function check can pass, then shutdown_all (or get())
+        # sets _retired, and this call would still Popen. Re-check immediately
+        # before spawn so that retry cannot start an untracked child.
+        if self._retired:
+            raise RuntimeError(
+                "Python worker was replaced by a new venv path and will not be restarted"
+            )
         self._proc = subprocess.Popen(wrap_command_for_sandbox([self.exe, _HARNESS_PATH]), **popen_kw)
         optimize_popen_pipes(self._proc)
         # Live stderr drain: prevent 64KB pipe deadlock while parent blocks on stdin/stdout.

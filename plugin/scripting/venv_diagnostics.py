@@ -146,12 +146,6 @@ try:
 except ImportError:
     res['p']['pint'] = None
 
-try:
-    import duckdb
-    res['p']['duckdb'] = 'present'
-except ImportError:
-    res['p']['duckdb'] = None
-
 result = res
 """
 
@@ -625,6 +619,62 @@ def _probe_ui_packages(
     )
 
 
+def _duckdb_probe_failed_hint() -> str:
+    return _("DuckDB probe failed (see writeragent_debug.log).")
+
+
+# Not inside _DIAGNOSTIC_SCRIPT: a sandbox import raises InterpreterError,
+# which is not ImportError, so the worker probe fails instead of reporting missing.
+_DUCKDB_PROBE_SCRIPT = """
+import json
+try:
+    import duckdb
+    out = {"duckdb": "present"}
+except Exception as exc:
+    out = {"duckdb": None, "duckdb_import_error": str(exc)[:200]}
+print(json.dumps(out))
+"""
+
+
+def _probe_duckdb(
+    python_exe: str,
+    timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
+) -> Tuple[dict[str, Any], Optional[str]]:
+    """Import-check duckdb outside the sandboxed warm worker."""
+    return _run_json_probe(
+        python_exe,
+        _DUCKDB_PROBE_SCRIPT,
+        timeout,
+        timeout_hint=_("DuckDB probe timed out."),
+        fail_hint=_duckdb_probe_failed_hint(),
+        log_label="DuckDB",
+    )
+
+
+def _merge_duckdb_probe(python_exe: str, data: dict[str, Any], timeout: float) -> None:
+    """Set data['p']['duckdb'] from the subprocess probe. Never fails the self-check.
+
+    Appends duckdb to data['data_eng'] when the sandbox group no longer lists it,
+    so the Settings install line still renders.
+    """
+    probes, failure = _probe_duckdb(python_exe, timeout=timeout)
+    packages = data.get("p")
+    if not isinstance(packages, dict):
+        packages = {}
+        data["p"] = packages
+    if failure:
+        packages["duckdb"] = None
+    else:
+        value = probes.get("duckdb")
+        packages["duckdb"] = value if value == "present" else None
+    data_eng = data.get("data_eng")
+    if not isinstance(data_eng, list):
+        data_eng = list(data_eng) if isinstance(data_eng, tuple) else []
+        data["data_eng"] = data_eng
+    if "duckdb" not in data_eng:
+        data_eng.append("duckdb")
+
+
 _SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Scientific Libraries", ("numpy", "pandas", "scipy", "sklearn", "matplotlib", "sympy")),
     ("Data Analysis / EDA Libraries", ("data_profiling", "statsmodels", "pandas_montecarlo")),
@@ -632,7 +682,7 @@ _SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Visualization Libraries", ("matplotlib", "seaborn")),
     ("Computer Algebra", ("sympy",)),
     ("Quantitative Finance Libraries", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),
-    ("Data Engineering Libraries", ("pint", "duckdb")),
+    ("Data Engineering Libraries", ("pint",)),
 )
 
 # Display order includes NLP (probed via subprocess, not the sandbox worker loop).
@@ -1218,6 +1268,8 @@ def run_venv_self_check_with_progress(
                 partial_group_title=group_title,
                 include_audio=include_audio,
             )
+        if group_title == "Data Engineering Libraries":
+            _merge_duckdb_probe(python_exe, data, timeout=float(per_pkg_timeout))
         _refresh(data, completed_groups=group_index + 1, include_audio=include_audio)
 
     _status(_("Text / NLP Libraries: loading (first run may take a while)..."))
@@ -1308,6 +1360,7 @@ def run_venv_self_check(python_exe: str, timeout: float | None = None) -> Tuple[
     if not isinstance(data, dict):
         return False, f"Unexpected output from test run: {data!r}"
 
+    _merge_duckdb_probe(python_exe, data, timeout=float(timeout_sec))
     _attach_external_probes(python_exe, data)
 
     try:

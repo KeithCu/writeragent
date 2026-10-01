@@ -80,7 +80,8 @@ def test_tier_abc_helpers():
 def test_error_handlers():
     assert calc.iferror(lambda: 1 / 0, 0) == 0
     assert calc.iferror(lambda: 5.0, 0) == 5.0
-    assert calc.ifna(lambda: None, 1) == 1
+    # None is blank, not #N/A. IFNA only substitutes NA.
+    assert calc.ifna(lambda: None, 1) is None
     assert calc.ifna(lambda: 2.0, 1) == 2.0
 
 
@@ -416,4 +417,41 @@ def test_group_i_functions():
     assert calc.imsqrt("1+2i") != "#VALUE!"
     assert calc.imsub("1+2i", "3+4i") == "-2.0-2.0i"
     assert calc.imsum("1+2i", "3+4i") == "4.0+6.0i"
+
+
+def test_isblank_isna_ifna_are_not_the_same_check():
+    assert calc.isblank(None) is True
+    assert calc.isblank("") is True
+    assert calc.isblank("  ") is True
+    assert calc.isblank("#VALUE!") is False
+    assert calc.isblank("#N/A") is False
+    assert calc.isblank(float("nan")) is False
+    assert calc.isna("#N/A") is True
+    assert calc.isna("#n/a") is True
+    assert calc.isna(float("nan")) is True
+    assert calc.isna("") is False
+    assert calc.isna(None) is False
+    assert calc.isna("#VALUE!") is False
+    assert calc.ifna(lambda: "#VALUE!", "alt") == "#VALUE!"
+    assert calc.ifna(lambda: "", "alt") == ""
+    assert calc.ifna(lambda: None, "alt") is None
+    assert calc.ifna(lambda: "#N/A", "alt") == "alt"
+    assert calc.ifna(lambda: float("nan"), "alt") == "alt"
+
+
+def test_yearfrac_basis_matches_days360_and_can_be_negative():
+    import datetime as dt
+
+    start, end = 44927, 45292
+    assert calc.yearfrac(start, end, 0) == calc.days360(start, end, False) / 360.0
+    assert calc.yearfrac(start, end, 4) == calc.days360(start, end, True) / 360.0
+    sd = dt.date.fromordinal(int(start) + 693594)
+    ed = dt.date.fromordinal(int(end) + 693594)
+    actual = (ed - sd).days
+    assert calc.yearfrac(start, end, 2) == actual / 360.0
+    assert calc.yearfrac(start, end, 3) == actual / 365.0
+    assert calc.yearfrac(end, start, 0) == -calc.yearfrac(start, end, 0)
+    from plugin.scripting.venv.calc_functions_a_c import _year_frac
+
+    assert _year_frac(float(start), float(end), 0) == calc.yearfrac(start, end, 0)
 

@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from .coerce import is_missing_value
+from .coerce import is_blank_value, is_missing_value, is_na_value
 
 
 __all__ = [
@@ -105,7 +105,7 @@ def iferror(f: Callable[[], Any], alt: Any) -> Any:
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
     try:
         val = f()
-        if is_missing_value(val):
+        if is_na_value(val):
             return alt
         return val
     except Exception:
@@ -506,7 +506,7 @@ def irr(values: Any, guess: Any = 0.1) -> float:
 
 
 def isblank(val: Any) -> bool:
-    return is_missing_value(val)
+    return is_blank_value(val)
 
 
 def iserr(val: Any) -> bool:
@@ -539,7 +539,7 @@ def islogical(val: Any) -> bool:
 
 
 def isna(val: Any) -> bool:
-    return is_missing_value(val)
+    return is_na_value(val)
 
 
 def isnontext(val: Any) -> bool:

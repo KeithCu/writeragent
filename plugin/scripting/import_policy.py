@@ -45,9 +45,7 @@ _VENV_STDLIB_EXTRA: frozenset[str] = frozenset(
     }
 )
 
-# Dropped from the LLM allowed-packages line (substring, so both ``duckdb``
-# and ``plugin.scripting.duckdb_sql`` stay out). Still importable.
-_PROMPT_OMIT_PACKAGE_MARKERS: tuple[str, ...] = ("duckdb",)
+_PROMPT_OMIT_PACKAGE_MARKERS: tuple[str, ...] = ()
 
 # Compact blurb "networking" list. socket is blocked via DANGEROUS_MODULES
 # and is not a member of _VENV_COMMON_BLOCKED, so it is listed here explicitly
@@ -200,8 +198,6 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         f"Pre-imported (do not write import lines): {aliases}. "
         "When =PY has data range args, xl(\"%Pn%\") is also injected (binding-only Excel bridge; not a live sheet read). "
         f"DO NOT import {do_not_import}. "
-        # DuckDB helpers stay implemented; omit them from this default =PY blurb
-        # until that path is product-ready (eval-2 §2.7). Do not re-advertise here.
         "Prefer np/sp/pd/st and scipy over hand-rolled Python; use dt for dates, plt for charts."
     )
     blocked_security = _join_modules(tuple(sorted(DANGEROUS_MODULES)))
@@ -216,8 +212,6 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         )
     else:
         stdlib = _join_modules(_venv_stdlib_modules())
-        # Keep duckdb / plugin.scripting.duckdb_sql importable in the venv; do
-        # not list them in the LLM-facing allowed-packages line.
         packages = _join_modules(
             tuple(m for m in _venv_package_modules() if not _omit_from_prompt_packages(m))
         )

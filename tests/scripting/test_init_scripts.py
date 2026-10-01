@@ -379,3 +379,30 @@ def test_init_helper_chained_and_imports():
     assert r2["status"] == "ok", r2.get("message")
     assert r2["result"] == 12.57
 
+
+def test_numpy_compiler_and_testing_prefixes_rejected():
+    from plugin.contrib.smolagents.local_python_executor import (
+        InterpreterError,
+        _reject_numpy_code_exec,
+    )
+
+    def _fake(module: str, name: str):
+        def fn(*_a, **_k):
+            return None
+        fn.__module__ = module
+        fn.__name__ = name
+        return fn
+
+    for module, name in (
+        ("numpy.f2py", "run_main"),
+        ("numpy.f2py.f2py2e", "run_compile"),
+        ("numpy.distutils", "core"),
+        ("numpy.distutils.core", "setup"),
+        ("numpy.testing", "assert_equal"),
+    ):
+        with pytest.raises(InterpreterError, match="Forbidden call"):
+            _reject_numpy_code_exec(_fake(module, name), [], {})
+
+    _reject_numpy_code_exec(_fake("numpy.linalg", "norm"), [], {})
+    _reject_numpy_code_exec(_fake("numpy", "array"), [1], {})
+

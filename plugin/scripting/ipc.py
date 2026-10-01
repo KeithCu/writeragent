@@ -88,16 +88,30 @@ def _validate_frame_size(size: int, *, max_payload_bytes: int | None, frame_labe
         )
 
 
-def pack_pickle_frame(message: Any, *, max_payload_bytes: int | None = None) -> bytes:
-    """Return one Pickle5 message framed with a 4-byte big-endian length prefix."""
+def pack_pickle_frame(
+    message: Any, *, max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES
+) -> bytes:
+    """Return one Pickle5 message framed with a 4-byte big-endian length prefix.
+
+    The default used to be None, so an omitted write was uncapped while the
+    matching read is capped and leaves extra bytes on the pipe. Pass None only
+    to opt out.
+    """
     payload = pickle.dumps(message, protocol=PICKLE_PROTOCOL)
     if max_payload_bytes is not None and len(payload) > max_payload_bytes:
         raise IpcFrameError(f"Pickle frame exceeds maximum payload size: {len(payload)}")
     return struct.pack("!I", len(payload)) + payload
 
 
-def write_pickle_frame(stream: IO[bytes], message: Any, *, max_payload_bytes: int | None = None) -> None:
-    """Write one Pickle5 length-prefixed message to a binary pipe."""
+def write_pickle_frame(
+    stream: IO[bytes], message: Any, *, max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES
+) -> None:
+    """Write one Pickle5 length-prefixed message to a binary pipe.
+
+    The default used to be None, so an omitted write was uncapped while the
+    matching read is capped and leaves extra bytes on the pipe. Pass None only
+    to opt out.
+    """
     stream.write(pack_pickle_frame(message, max_payload_bytes=max_payload_bytes))
     stream.flush()
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -674,6 +675,27 @@ def test_injected_run_sql_joins_preloaded_to_sibling_csv(_clean_duckdb_sessions,
     )
     assert res["status"] == "ok", res
     assert res["result"] == 99000
+
+
+def test_injected_run_sql_ignores_caller_scoped_dir(tmp_path, monkeypatch):
+    from plugin.scripting.venv import venv_sandbox
+    seen = {}
+    def _fake_run_sql(sql, con=None, files=None, scoped_dir=None, **kwargs):
+        seen["scoped_dir"] = scoped_dir
+        seen["sql"] = sql
+        return {"status": "ok"}
+    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.run_sql", _fake_run_sql)
+    executor = MagicMock()
+    executor.state = {"scoped_dir": str(tmp_path)}
+    executor.custom_tools = {}
+    venv_sandbox._inject_session_duckdb(executor)
+    # binding is both send_variables helpers and custom_tools. Read the function and assert the run_sql that was actually installed.
+    bound = executor.custom_tools["run_sql"]
+    bound("select 1", scoped_dir="/etc", files=["passwd"])
+    assert seen["scoped_dir"] == str(tmp_path)
+    executor.state = {"scoped_dir": None}
+    bound("select 1", scoped_dir="/etc")
+    assert seen["scoped_dir"] is None
 
 
 def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):

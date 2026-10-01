@@ -103,6 +103,14 @@ def test_pickle_frame_default_cap_rejects_oversized_header():
         read_pickle_frame(io.BytesIO(oversized), max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
 
 
+def test_pack_pickle_frame_defaults_to_max_payload():
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+    with pytest.raises(IpcFrameError, match="maximum payload"):
+        pack_pickle_frame({"text": "x" * (DEFAULT_MAX_PAYLOAD_BYTES + 10)})
+    frame = pack_pickle_frame({"ok": True}, max_payload_bytes=None)
+    assert frame
+
+
 def test_text_error_prefix_is_invalid_frame_with_header_repr(caplog, capsys):
     """Garbage length prefix keeps stdout_rest= and logs at error, not stderr."""
     with caplog.at_level(logging.ERROR, logger="writeragent.scripting.ipc"):

@@ -117,19 +117,92 @@ def test_download_url_to_file_cleans_partial_on_failure(tmp_path):
     assert not (tmp_path / "pack.so.partial").exists()
 
 
+def test_download_rejects_bad_sha_and_keeps_dest(tmp_path):
+    dest = tmp_path / "pack.so"
+    dest.write_bytes(b"KEEP")
+
+    class _BadBody:
+        headers = {"content-length": "4"}
+
+        def read(self, n=-1):
+            if not hasattr(self, "_done"):
+                self._done = True
+                return b"NOPE"
+            return b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    with patch("urllib.request.urlopen", return_value=_BadBody()):
+        with pytest.raises(RuntimeError, match="sha256"):
+            _download_url_to_file(
+                "https://example.test/pack.so",
+                str(dest),
+                lambda _s: None,
+                expected_sha256="0" * 64,
+                max_bytes=1024,
+            )
+
+    assert dest.read_bytes() == b"KEEP"
+    assert not (tmp_path / "pack.so.partial").exists()
+
+
+def test_download_stops_when_body_exceeds_cap(tmp_path):
+    dest = tmp_path / "pack.so"
+    dest.write_bytes(b"KEEP")
+
+    class _Endless:
+        headers = {}
+
+        def read(self, n=-1):
+            return b"x" * 100
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    with patch("urllib.request.urlopen", return_value=_Endless()):
+        with pytest.raises(RuntimeError, match="exceeded"):
+            _download_url_to_file(
+                "https://example.test/pack.so",
+                str(dest),
+                lambda _s: None,
+                max_bytes=150,
+                expected_sha256="0" * 64,
+            )
+
+    assert dest.read_bytes() == b"KEEP"
+    assert not (tmp_path / "pack.so.partial").exists()
+
+
 def test_run_vec_pack_download_invalidates_accelerator(tmp_path):
+    from plugin.scripting import native_binaries
     from plugin.scripting.native_binaries import run_vec_pack_download
+
+    assert "/master/" not in native_binaries._CONTRIB_BASE_URL
+    assert "440924ec58ec29f3112c3eab643d4bb285861f20" in native_binaries._CONTRIB_BASE_URL
 
     with (
         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
         patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
-        patch("plugin.scripting.native_binaries._download_url_to_file"),
+        patch("plugin.scripting.native_binaries._download_url_to_file") as mock_dl,
         patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path"),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator") as mock_inv,
     ):
         ok = run_vec_pack_download(lambda _t: None, lambda _s: None)
     assert ok is True
     mock_inv.assert_called_once()
+    calls = mock_dl.call_args_list
+    assert calls[0].kwargs["expected_sha256"] == native_binaries._VEC_PACK_SHA256["__init__.py"]
+    assert (
+        calls[1].kwargs["expected_sha256"]
+        == native_binaries._VEC_PACK_SHA256["pack.cpython-312-x86_64-linux-gnu.so"]
+    )
 
 
 def test_atomic_replace_native_posix_uses_os_replace(tmp_path):

@@ -124,6 +124,17 @@ def test_attach_without_overwrite_errors_on_collision():
     assert get_document_scripts(doc)["A"] == "code1"
 
 
+def test_attach_rejects_workbook_init_name():
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    err = attach_document_script(doc, "INIT", "result = 1")
+    assert err is not None and "INIT" in err
+    assert get_document_scripts(doc) == {}
+    err_init = attach_document_script(doc, "Init", "result = 1")
+    assert err_init is not None
+    assert get_document_scripts(doc) == {}
+
+
 def test_delete_document_script():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
@@ -139,6 +150,8 @@ def test_readonly_document_returns_error():
     err = set_document_scripts(doc, {"A": "x"})
     assert err is not None
     assert DOCUMENT_SCRIPTS_UDPROP not in props.values
+    assert "personal library" not in err.lower()
+    assert "my scripts" not in err.lower()
 
 
 def test_display_name_helpers():
@@ -295,6 +308,24 @@ def test_build_scripts_list_message_stale_when_url_changes():
     assert msg["document_stale"] is True
     sections = {s["id"]: s["scripts"] for s in msg["sections"]}
     assert sections["document"] == {}
+
+
+def test_build_scripts_list_untitled_save_is_not_stale():
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/saved.odt")
+    attach_document_script(doc, "A", "x")
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.get_config_str", return_value=""
+    ), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ):
+        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="")
+    assert msg["document_stale"] is False
+    sections = {s["id"]: s["scripts"] for s in msg["sections"]}
+    assert sections["document"]  # non-empty; name may be display-prefixed
 
 
 def test_build_scripts_list_includes_analysis_section_for_calc():

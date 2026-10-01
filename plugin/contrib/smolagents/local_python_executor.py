@@ -882,7 +882,10 @@ def _reject_numpy_code_exec(func: Any, args: list[Any], kwargs: dict[str, Any]) 
     name = getattr(func, "__name__", "") or ""
     if not module.startswith("numpy"):
         return
-    if module.startswith("numpy.ctypeslib") or name == "load_library":
+    # NumPy is returned raw so dir() will not import f2py and SIGILL; this call
+    # check is what blocks the compiler entry points.
+    _NUMPY_CALL_DENIED = ("numpy.ctypeslib", "numpy.f2py", "numpy.distutils", "numpy.testing")
+    if name == "load_library" or any(module.startswith(prefix) for prefix in _NUMPY_CALL_DENIED):
         raise InterpreterError(f"Forbidden call to {module}.{name}")
     if name not in ("load", "save"):
         return
