@@ -29,18 +29,7 @@ from plugin.framework.errors import NetworkError
 from plugin.framework.url_utils import get_url_hostname
 
 from plugin.framework.errors import format_error_message
-from .request_controls import (
-    LocalHttpsCertificateFallback,
-    RequestPacer,
-    backoff_delay_sec,
-    emit_retry_status,
-    ensure_free_model_pacing,
-    mark_host_sent,
-    remember_host_gap,
-    request_model_from_body,
-    wait_abortable,
-    wait_host_gap,
-)
+from .request_controls import LocalHttpsCertificateFallback, RequestPacer, backoff_delay_sec, emit_retry_status, ensure_free_model_pacing, mark_host_sent, remember_host_gap, request_model_from_body, wait_abortable, wait_host_gap
 from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context
 
 log = logging.getLogger(__name__)
@@ -57,14 +46,7 @@ class LlmHttpTransport:
     _pacer: RequestPacer
     _cert_fallback: LocalHttpsCertificateFallback
 
-    def __init__(
-        self,
-        endpoint_getter: Callable[[], str],
-        timeout_getter: Callable[[], int | float],
-        *,
-        pacer: RequestPacer | None = None,
-        cert_fallback: LocalHttpsCertificateFallback | None = None,
-    ) -> None:
+    def __init__(self, endpoint_getter: Callable[[], str], timeout_getter: Callable[[], int | float], *, pacer: RequestPacer | None = None, cert_fallback: LocalHttpsCertificateFallback | None = None) -> None:
         self._endpoint_getter = endpoint_getter
         self._timeout_getter = timeout_getter
         self._pacer = pacer or RequestPacer()
@@ -134,15 +116,7 @@ class LlmHttpTransport:
         self._conn_key = None
 
     def send(
-        self,
-        method: str,
-        path: str,
-        body: Any,
-        headers: dict[str, str],
-        *,
-        connection_getter: Callable[[], http.client.HTTPConnection | http.client.HTTPSConnection] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
-        status_callback: Callable[[str], None] | None = None,
+        self, method: str, path: str, body: Any, headers: dict[str, str], *, connection_getter: Callable[[], http.client.HTTPConnection | http.client.HTTPSConnection] | None = None, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None
     ) -> http.client.HTTPResponse:
         """Send one request on the persistent connection and return its response."""
         host = self.current_host()
@@ -162,6 +136,7 @@ class LlmHttpTransport:
         if not any(k.lower() == "user-agent" for k in headers):
             headers = dict(headers)
             from plugin.framework.constants import USER_AGENT
+
             headers["User-Agent"] = USER_AGENT
         conn.request(method, path, body=body, headers=headers)
         self._pacer.mark_sent()
@@ -174,17 +149,7 @@ class LlmHttpTransport:
             self.close()
         return enabled
 
-    def handle_connection_error(
-        self,
-        err: Exception,
-        *,
-        path: str,
-        retries_left: int,
-        retry_log_message: str,
-        stop_checker: Callable[[], bool] | None = None,
-        status_callback: Callable[[str], None] | None = None,
-        attempt: int = 1,
-    ) -> RetryAction:
+    def handle_connection_error(self, err: Exception, *, path: str, retries_left: int, retry_log_message: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, attempt: int = 1) -> RetryAction:
         """Close failed connections and decide whether a request should retry."""
         log.error("Connection error, closing: %s" % err)
         self.close()

@@ -24,16 +24,7 @@ log = logging.getLogger(__name__)
 class GoogleShim(OpenAIShim):
     """Shim for Google Gemini: OpenAI-compatible for chat/tools, native REST for images."""
 
-    def build_image_request(
-        self,
-        prompt: str,
-        model: str | None,
-        width: int,
-        height: int,
-        steps: int | None = None,
-        source_image: str | None = None,
-        image_url: str | None = None,
-    ) -> tuple[str, str, bytes, dict[str, str]]:
+    def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         endpoint = self.client._endpoint()
         key = self.client._resolve_auth().get("api_key", "")
         model_name = model or "imagen-4.0-generate-001"
@@ -46,9 +37,7 @@ class GoogleShim(OpenAIShim):
             # predict while a graphic is selected would replace it with a
             # new image (same silent miss as OpenRouter's old image_url).
             if has_source:
-                raise ValueError(
-                    "Imagen models cannot edit an existing image. Pick a Gemini image model (for example gemini-2.5-flash-image)."
-                )
+                raise ValueError("Imagen models cannot edit an existing image. Pick a Gemini image model (for example gemini-2.5-flash-image).")
             url = f"{endpoint}/v1beta/models/{model_name}:predict"
             aspect = canonical_aspect_ratio(width, height) or "1:1"
             params: dict[str, Any] = {"sampleCount": 1, "aspectRatio": aspect}
@@ -62,12 +51,7 @@ class GoogleShim(OpenAIShim):
             parts: list[dict[str, Any]] = [{"text": prompt}]
             raw = coerce_raw_b64(image_url, source_image)
             if raw:
-                parts.append({
-                    "inlineData": {
-                        "mimeType": inline_image_mime(image_url, source_image),
-                        "data": raw,
-                    }
-                })
+                parts.append({"inlineData": {"mimeType": inline_image_mime(image_url, source_image), "data": raw}})
             # Gemini image models ignore pixel size; imageConfig.aspectRatio and
             # imageSize (512 / 1K / 2K / 4K) are the documented hints. Native
             # generateContent previously sent no aspect or size at all.
@@ -76,13 +60,7 @@ class GoogleShim(OpenAIShim):
             res = canonical_resolution(width, height)
             if res:
                 image_config["imageSize"] = res
-            data = {
-                "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": {
-                    "responseModalities": ["IMAGE", "TEXT"],
-                    "imageConfig": image_config,
-                },
-            }
+            data = {"contents": [{"role": "user", "parts": parts}], "generationConfig": {"responseModalities": ["IMAGE", "TEXT"], "imageConfig": image_config}}
 
         path = get_url_path_and_query(url)
         headers = dict(self.client._headers())

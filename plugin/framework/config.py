@@ -73,6 +73,7 @@ def _normalize_configured_endpoint_with_selector(endpoint_str: str, is_openwebui
     """WriterAgent Settings may store a preset label; LibrePy omits chatbot helpers."""
     try:
         from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
+
         return endpoint_from_selector_text(endpoint_str)
     except ImportError:
         return normalize_endpoint_url(endpoint_str, is_openwebui=is_openwebui)
@@ -83,13 +84,8 @@ def _normalize_configured_endpoint_with_selector(endpoint_str: str, is_openwebui
 _config_schema.set_endpoint_normalizer(_normalize_configured_endpoint_with_selector)
 
 # Comment header written above the JSON object. Not a config key.
-CONFIG_SCHEMA_DOC_URL = (
-    "https://github.com/KeithCu/writeragent/blob/master/docs/writeragent-config-schema.md"
-)
-CONFIG_SCHEMA_COMMENT = (
-    "// Only settings that differ from defaults are stored here.\n"
-    "// Full schema: " + CONFIG_SCHEMA_DOC_URL + "\n"
-)
+CONFIG_SCHEMA_DOC_URL = "https://github.com/KeithCu/writeragent/blob/master/docs/writeragent-config-schema.md"
+CONFIG_SCHEMA_COMMENT = "// Only settings that differ from defaults are stored here.\n// Full schema: " + CONFIG_SCHEMA_DOC_URL + "\n"
 
 _uno_mod: Any
 try:
@@ -299,13 +295,7 @@ def _invalidate_config_cache() -> None:
     _cache.mtime_last_checked = 0.0
 
 
-def _load_config_dict(
-    config_file_path: str,
-    *,
-    allow_repair: bool = False,
-    persist_repair: bool = False,
-    fail_on_unrepairable: bool = False,
-) -> dict[str, Any]:
+def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, persist_repair: bool = False, fail_on_unrepairable: bool = False) -> dict[str, Any]:
     """Load writeragent.json as a dict. Optionally backup, repair, and persist small JSON typos."""
     if not config_file_path or not os.path.exists(config_file_path):
         return {}
@@ -314,11 +304,7 @@ def _load_config_dict(
         with open(config_file_path, "r", encoding="utf-8") as f:
             text = f.read()
     except OSError as e:
-        raise ConfigError(
-            f"Failed to read config: {e}",
-            "CONFIG_READ_ERROR",
-            details={"path": config_file_path},
-        ) from e
+        raise ConfigError(f"Failed to read config: {e}", "CONFIG_READ_ERROR", details={"path": config_file_path}) from e
 
     data = _try_parse_config_dict(text)
     if data is not None:
@@ -329,11 +315,7 @@ def _load_config_dict(
         backup_path = _backup_config_file(config_file_path, reason="invalid-json")
         data = _try_repair_config_dict(text)
         if data is not None:
-            log.info(
-                "Auto-repaired invalid JSON in %s (backup: %s)",
-                config_file_path,
-                backup_path,
-            )
+            log.info("Auto-repaired invalid JSON in %s (backup: %s)", config_file_path, backup_path)
             if persist_repair:
                 try:
                     # GET-path persist must serialize with set_config (RLock if nested).
@@ -341,25 +323,13 @@ def _load_config_dict(
                         _write_config_file(config_file_path, data)
                         _invalidate_config_cache()
                 except OSError as e:
-                    raise ConfigError(
-                        f"Failed to write repaired config: {e}",
-                        "CONFIG_SAVE_ERROR",
-                        details={"path": config_file_path, "backup_path": backup_path},
-                    ) from e
+                    raise ConfigError(f"Failed to write repaired config: {e}", "CONFIG_SAVE_ERROR", details={"path": config_file_path, "backup_path": backup_path}) from e
             return data
-        log.warning(
-            "Invalid JSON in %s could not be auto-repaired (backup: %s). Using empty dict for this load.",
-            config_file_path,
-            backup_path or "none",
-        )
+        log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s). Using empty dict for this load.", config_file_path, backup_path or "none")
         if fail_on_unrepairable:
             # A later set_config used to load this {} and os.replace the file,
             # wiping every other setting. Reads may still fall back to defaults.
-            raise ConfigError(
-                f"Invalid JSON in {config_file_path} could not be repaired",
-                "CONFIG_INVALID_FORMAT",
-                details={"path": config_file_path, "backup_path": backup_path},
-            )
+            raise ConfigError(f"Invalid JSON in {config_file_path} could not be repaired", "CONFIG_INVALID_FORMAT", details={"path": config_file_path, "backup_path": backup_path})
         return {}
 
     log.warning("Invalid JSON in %s (repair disabled). Using empty dict for this load.", config_file_path)
@@ -606,12 +576,7 @@ def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
     previous: Any = None
     with _config_write_lock:
         if os.path.exists(config_file_path):
-            config_data = _load_config_dict(
-                config_file_path,
-                allow_repair=True,
-                persist_repair=False,
-                fail_on_unrepairable=True,
-            )
+            config_data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=False, fail_on_unrepairable=True)
         else:
             config_data = {}
         current_value = _raw_config_value_for_key(config_data, key)
@@ -646,13 +611,7 @@ def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
             raise ConfigError(f"Failed to save config: {e}", "CONFIG_SAVE_ERROR") from e
     # Handlers may get_config/set_config; do not hold the write lock across emit.
     if emit_changed:
-        global_event_bus.emit(
-            "config:changed",
-            key=event_key or key,
-            value=value,
-            old_value=previous,
-            ctx=_emit_config_changed_ctx(),
-        )
+        global_event_bus.emit("config:changed", key=event_key or key, value=value, old_value=previous, ctx=_emit_config_changed_ctx())
 
 
 def remove_config(key: str) -> None:
@@ -665,12 +624,7 @@ def remove_config(key: str) -> None:
     emit_changed = False
     with _config_write_lock:
         try:
-            config_data = _load_config_dict(
-                config_file_path,
-                allow_repair=True,
-                persist_repair=False,
-                fail_on_unrepairable=True,
-            )
+            config_data = _load_config_dict(config_file_path, allow_repair=True, persist_repair=False, fail_on_unrepairable=True)
         except ConfigError:
             log.exception("remove_config skipped: config file could not be parsed")
             return
@@ -712,13 +666,7 @@ def remove_config(key: str) -> None:
             log.exception("Error writing to %s", config_file_path)
             raise ConfigError(f"Failed to remove config key: {e}", "CONFIG_SAVE_ERROR") from e
     if emit_changed:
-        global_event_bus.emit(
-            "config:changed",
-            key=key,
-            value=None,
-            old_value=None,
-            ctx=_emit_config_changed_ctx(),
-        )
+        global_event_bus.emit("config:changed", key=key, value=None, old_value=None, ctx=_emit_config_changed_ctx())
 
 
 def _get_validated_config_dict() -> dict[str, Any]:
@@ -912,4 +860,3 @@ def validate_api_config(config: Any) -> tuple[bool, str]:
     if _is_model_combobox_placeholder(model):
         return (False, _("Please select a valid model in Settings (not a placeholder)."))
     return (True, "")
-

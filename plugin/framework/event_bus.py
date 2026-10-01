@@ -124,9 +124,7 @@ class EventBus:
             if not subs:
                 return
             # Replace the list; an in-flight emit already holds a snapshot.
-            self._subscribers[event] = [
-                (cb, is_weak) for cb, is_weak in subs if not self._same_callback(self._resolve(cb, is_weak), callback)
-            ]
+            self._subscribers[event] = [(cb, is_weak) for cb, is_weak in subs if not self._same_callback(self._resolve(cb, is_weak), callback)]
 
     @staticmethod
     def _same_callback(stored: Any, callback: Any) -> bool:

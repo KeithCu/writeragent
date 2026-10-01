@@ -65,7 +65,6 @@ from plugin.framework.async_drain_guard import (
 _note_suppressed_vcl_pump = note_suppressed_vcl_pump
 
 
-
 def set_force_marshal_mode(enabled: bool) -> None:
     """Test hook: force cross-thread marshal via the work queue (Layer B)."""
     global _force_marshal_mode
@@ -173,6 +172,7 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
     fire after SEND_CLICKED but before the deferred drain enters ``agent_session``.
     """
     if scope is not None and fallback is not None:
+
         def _cancelled() -> bool:
             return scope.is_cancelled() or fallback()
 
@@ -234,10 +234,7 @@ def _marshal_thread_tag(executor: "QueueExecutor | None" = None) -> str:
         qdepth = ex._work_queue.qsize()
     except Exception:
         qdepth = -1
-    return (
-        "thread=%r ident=%s py_main=%s logical_main=%s bg_task=%r agent_active=%s queue_depth=%s"
-        % (cur_name, cur_ident, py_main, on_main_thread(), get_background_task_name(), is_agent_active(), qdepth)
-    )
+    return "thread=%r ident=%s py_main=%s logical_main=%s bg_task=%r agent_active=%s queue_depth=%s" % (cur_name, cur_ident, py_main, on_main_thread(), get_background_task_name(), is_agent_active(), qdepth)
 
 
 def _fn_label(fn: Callable[..., Any]) -> str:
@@ -401,10 +398,7 @@ class QueueExecutor:
                     # to fail the assert below and then refuse every later marshal
                     # until the context object identity changed.
                     if not self._logged_missing_ctx:
-                        log.warning(
-                            "QueueExecutor has no component context; "
-                            "call set_context() from bootstrap on the main thread"
-                        )
+                        log.warning("QueueExecutor has no component context; call set_context() from bootstrap on the main thread")
                         self._logged_missing_ctx = True
                     return None
 
@@ -413,9 +407,7 @@ class QueueExecutor:
 
                 smgr = _unwrap_uno(get_service_manager(ctx_any))
                 assert smgr is not None, "ServiceManager unavailable on UNO context"
-                self._async_callback_service = cast("Any", smgr).createInstanceWithContext(
-                    "com.sun.star.awt.AsyncCallback", ctx_any
-                )
+                self._async_callback_service = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.AsyncCallback", ctx_any)
                 if self._async_callback_service is None:
                     raise RuntimeError("createInstance com.sun.star.awt.AsyncCallback returned None")
                 self._callback_instance = self._make_callback_instance()
@@ -641,26 +633,14 @@ class QueueExecutor:
             return fn(*args, **kwargs)
 
         if in_sync_host_dispatch():
-            msg = (
-                "marshal refused: execute_on_main_thread called from synchronous host dispatch "
-                "context (deadlock hazard #402, fn=%s)" % fn_label
-            )
+            msg = "marshal refused: execute_on_main_thread called from synchronous host dispatch context (deadlock hazard #402, fn=%s)" % fn_label
             log.error("%s %s", msg, tag)
             raise RuntimeError(msg)
 
         if bg_task:
-            log.debug(
-                "marshal route=force_enqueue (background task %r) fn=%s %s",
-                bg_task,
-                fn_label,
-                tag,
-            )
+            log.debug("marshal route=force_enqueue (background task %r) fn=%s %s", bg_task, fn_label, tag)
         elif self._is_logical_main_thread():
-            log.debug(
-                "marshal route=force_enqueue (logical main but not Python MainThread) fn=%s %s",
-                fn_label,
-                tag,
-            )
+            log.debug("marshal route=force_enqueue (logical main but not Python MainThread) fn=%s %s", fn_label, tag)
 
         if self._should_run_inline() and not bg_task:
             log.debug("marshal route=inline_testing fn=%s %s", fn_label, tag)
@@ -705,12 +685,7 @@ class QueueExecutor:
                 log.debug("marshal route=post_inline_logical_main fn=%s %s", fn_label, tag)
                 fn(*args, **kwargs)
                 return
-            log.warning(
-                "marshal route=post_dropped (AsyncCallback unavailable, background task %r) fn=%s %s",
-                bg_task,
-                fn_label,
-                tag,
-            )
+            log.warning("marshal route=post_dropped (AsyncCallback unavailable, background task %r) fn=%s %s", bg_task, fn_label, tag)
             return
 
         log.debug("marshal route=post_enqueue fn=%s %s", fn_label, tag)

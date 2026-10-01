@@ -170,10 +170,12 @@ def str_bounded(s: object, max_len: int, min_len: int = 0) -> bool:
     """
     return isinstance(s, str) and min_len <= len(s) <= max_len
 
+
 deal: Any
 
 try:
     import deal as _deal  # type: ignore[no-redef]
+
     deal = _deal
 except ImportError:
 

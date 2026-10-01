@@ -49,11 +49,7 @@ if TYPE_CHECKING:
     from com.sun.star.awt import FocusEvent, MouseEvent
     from com.sun.star.lang import EventObject
 
-from plugin.framework.constants import (
-    EXTENSION_ID_LIBREHARPER,
-    EXTENSION_ID_LIBREPY,
-    EXTENSION_ID_WRITERAGENT,
-)
+from plugin.framework.constants import EXTENSION_ID_LIBREHARPER, EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 from plugin.framework.thread_guard import main_thread_only, on_main_thread, _wrap_uno
 
 log = logging.getLogger("writeragent.context")
@@ -63,25 +59,13 @@ _fallback_ctx = None
 _package_extension_id: str | None = None
 
 # Probe order: LibrePy first when both family OXTs are installed (existing behavior).
-_KNOWN_EXTENSION_IDS = (
-    EXTENSION_ID_LIBREPY,
-    EXTENSION_ID_WRITERAGENT,
-    EXTENSION_ID_LIBREHARPER,
-)
+_KNOWN_EXTENSION_IDS = (EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT, EXTENSION_ID_LIBREHARPER)
 
 _is_libreharper_cache: bool | None = None
 
 # uno.bin / unopkg register helpers have no VCL. Creating Desktop there SEGVs
 # (issue #768). pythonloader often rewrites sys.argv, so also read /proc.
-_UNO_HELPER_BASENAMES = frozenset({
-    "uno",
-    "uno.bin",
-    "uno.exe",
-    "unopkg",
-    "unopkg.bin",
-    "unopkg.com",
-    "unopkg.exe",
-})
+_UNO_HELPER_BASENAMES = frozenset({"uno", "uno.bin", "uno.exe", "unopkg", "unopkg.bin", "unopkg.com", "unopkg.exe"})
 
 
 def _basename_is_uno_helper(name: str) -> bool:
@@ -149,11 +133,11 @@ def is_libreharper() -> bool:
         return True
     try:
         from plugin import _manifest
+
         _is_libreharper_cache = any(m.get("title") == "LibreHarper" for m in getattr(_manifest, "MODULES", []))
     except ImportError:
         _is_libreharper_cache = False
     return _is_libreharper_cache
-
 
 
 def set_fallback_ctx(ctx: Any) -> None:
@@ -424,10 +408,7 @@ def menu_icon_filesystem_paths(icon_filename: str) -> tuple[str, ...]:
 
     clean = icon_filename.replace("assets/", "").lstrip("/")
     root = os.path.dirname(get_plugin_dir())
-    return (
-        os.path.join(root, "assets", clean),
-        os.path.join(root, "extension", "assets", clean),
-    )
+    return (os.path.join(root, "assets", clean), os.path.join(root, "extension", "assets", clean))
 
 
 def get_extension_path(ctx: Any | None = None, extension_id: str | None = None) -> str:
@@ -786,13 +767,7 @@ def _post_secondary_idle(ctx: Any) -> None:
     post_to_main_thread(_pump)
 
 
-def wait_while_pumping(
-    done: "threading.Event",
-    ctx: Any,
-    *,
-    timeout: float,
-    poll_sec: float = 0.075,
-) -> bool:
+def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, poll_sec: float = 0.075) -> bool:
     """Wait for *done* while pumping VCL as a secondary caller.
 
     On the LibreOffice main thread, each tick calls :func:`process_events_to_idle`
@@ -857,11 +832,7 @@ def get_runtime_uid(model: Any) -> str:
     ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
     cannot masquerade as a real uid.
     """
-    for accessor in (
-        lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None,
-        lambda m: getattr(m, "RuntimeUID", None),
-        lambda m: m.getPropertyValue("RuntimeUID"),
-    ):
+    for accessor in (lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None, lambda m: getattr(m, "RuntimeUID", None), lambda m: m.getPropertyValue("RuntimeUID")):
         try:
             raw = accessor(model)
             if isinstance(raw, bool):

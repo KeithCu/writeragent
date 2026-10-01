@@ -28,11 +28,7 @@ if TYPE_CHECKING:
 from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_bounded, deal
 
 
-@deal.pre(
-    lambda node, names: isinstance(names, frozenset)
-    and len(names) <= DEAL_MAX_CMD_ARGS
-    and all(ascii_bounded(n, DEAL_MAX_TOKEN) for n in names)
-)
+@deal.pre(lambda node, names: isinstance(names, frozenset) and len(names) <= DEAL_MAX_CMD_ARGS and all(ascii_bounded(n, DEAL_MAX_TOKEN) for n in names))
 @deal.post(lambda result: isinstance(result, bool))
 def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
     """True if *node* is an expression-statement call to one of *names*."""
@@ -45,12 +41,7 @@ def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
     return isinstance(func, ast.Name) and func.id in names
 
 
-def _discover_expr_statements(
-    source: str,
-    should_remove: Callable[[ast.Expr], bool],
-    *,
-    skip_last_module_expr: bool = False,
-) -> tuple[ast.AST, list[ast.Expr]]:
+def _discover_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, skip_last_module_expr: bool = False) -> tuple[ast.AST, list[ast.Expr]]:
     """Parse once; return ``(tree, matching Expr nodes)``.
 
     Shared by :func:`iter_matching_expr_statements` and
@@ -79,23 +70,14 @@ def _discover_expr_statements(
     return tree, found
 
 
-def iter_matching_expr_statements(
-    source: str,
-    should_remove: Callable[[ast.Expr], bool],
-    *,
-    skip_last_module_expr: bool = False,
-) -> list[ast.Expr]:
+def iter_matching_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, skip_last_module_expr: bool = False) -> list[ast.Expr]:
     """Discover matching expression statements in *source*.
 
     When *skip_last_module_expr* is True, never yield ``module.body[-1]`` if it
     is an ``ast.Expr`` (Excel/Jupyter last-expression egress — keep that ``xl``
     so it can rewrite to ``data``).
     """
-    _tree, found = _discover_expr_statements(
-        source,
-        should_remove,
-        skip_last_module_expr=skip_last_module_expr,
-    )
+    _tree, found = _discover_expr_statements(source, should_remove, skip_last_module_expr=skip_last_module_expr)
     return found
 
 
@@ -127,13 +109,7 @@ def _get_container(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> list[as
 
 
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], int) and result[1] >= 0)
-def remove_expr_statements(
-    source: str,
-    should_remove: Callable[[ast.Expr], bool],
-    *,
-    pass_comment: str = "",
-    skip_last_module_expr: bool = False,
-) -> tuple[str, int]:
+def remove_expr_statements(source: str, should_remove: Callable[[ast.Expr], bool], *, pass_comment: str = "", skip_last_module_expr: bool = False) -> tuple[str, int]:
     """Remove matching expression-statement nodes from *source*.
 
     Uses ``_discover_expr_statements`` — the same function
@@ -144,11 +120,7 @@ def remove_expr_statements(
     # Callable + ast.parse hangs deep check (same class as _rewrite_token_calls).
     # crosshair: off
     src = source or ""
-    tree, nodes_to_remove = _discover_expr_statements(
-        src,
-        should_remove,
-        skip_last_module_expr=skip_last_module_expr,
-    )
+    tree, nodes_to_remove = _discover_expr_statements(src, should_remove, skip_last_module_expr=skip_last_module_expr)
     if not nodes_to_remove:
         return src, 0
 

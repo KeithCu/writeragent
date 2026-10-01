@@ -63,14 +63,9 @@ def _truncate_reasoning_string(value: str) -> str:
 
 @deal.pre(
     # Streaming can exceed DEAL_MAX_SHAPE_DIM (grid side); chunk count is not a shape dim.
-    lambda text_parts, meta, delta: isinstance(text_parts, list)
-    and type(meta) is dict
-    and (meta.get("source") is None or meta.get("source") in _STREAMING_SOURCE_VALUES)
+    lambda text_parts, meta, delta: isinstance(text_parts, list) and type(meta) is dict and (meta.get("source") is None or meta.get("source") in _STREAMING_SOURCE_VALUES)
 )
-@deal.ensure(
-    lambda text_parts, meta, delta, result: meta.get("source") is None
-    or meta.get("source") in _STREAMING_SOURCE_VALUES
-)
+@deal.ensure(lambda text_parts, meta, delta, result: meta.get("source") is None or meta.get("source") in _STREAMING_SOURCE_VALUES)
 def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], delta: Mapping[str, Any]) -> None:
     """Append thinking text as each SSE delta arrives; meta records replay shape (set once)."""
     # delta string fields are product-sized (up to PRESERVE_REASONING_MAX_CHARS);
@@ -118,9 +113,7 @@ def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], d
 
 @deal.pre(lambda entries: isinstance(entries, list) and len(entries) <= DEAL_MAX_SHAPE_DIM)
 @deal.post(lambda result: isinstance(result, list))
-@deal.ensure(
-    lambda entries, result: len(result) <= sum(1 for e in entries if type(e) is dict)
-)
+@deal.ensure(lambda entries, result: len(result) <= sum(1 for e in entries if type(e) is dict))
 def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
     """Merge streaming fragments (same type + index) for sync/non-stream replay."""
     # deepcopy of dict fragments with unbounded string fields.
@@ -156,10 +149,7 @@ def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
     return [merged[k] for k in order] + extra
 
 
-@deal.post(
-    lambda result: isinstance(result, dict)
-    and set(result.keys()) <= {"reasoning", "reasoning_content", "reasoning_details"}
-)
+@deal.post(lambda result: isinstance(result, dict) and set(result.keys()) <= {"reasoning", "reasoning_content", "reasoning_details"})
 def _streaming_replay(text: str, meta: Mapping[str, Any]) -> dict[str, Any]:
     # Unbounded reasoning text plus 32k truncate; pytest covers replay shape.
     # crosshair: off
@@ -195,12 +185,7 @@ def _streaming_replay(text: str, meta: Mapping[str, Any]) -> dict[str, Any]:
     return {"reasoning": text}
 
 
-def extract_reasoning_replay_from_response(
-    message_snapshot: Mapping[str, Any] | None = None,
-    streaming_text: str | None = None,
-    streaming_meta: Mapping[str, Any] | None = None,
-    sync_message: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
+def extract_reasoning_replay_from_response(message_snapshot: Mapping[str, Any] | None = None, streaming_text: str | None = None, streaming_meta: Mapping[str, Any] | None = None, sync_message: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Build one consolidated reasoning block for the next API request. See docs/framework/streaming-and-threading.md §3.4."""
     # crosshair: off
     # Mapping[Any] orchestration over already-off merge/replay (cover-all 35546602462: ~3.5h module, this FQN ~4k examples). Doable later with a closed message/meta schema.
@@ -348,16 +333,7 @@ def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
     return True
 
 
-@deal.pre(
-    lambda delta: type(delta) is not dict
-    or (
-        len(delta) <= DEAL_MAX_SHAPE_DIM
-        and (
-            not isinstance(delta.get("tool_calls"), list)
-            or len(delta["tool_calls"]) <= DEAL_MAX_SHAPE_DIM
-        )
-    )
-)
+@deal.pre(lambda delta: type(delta) is not dict or (len(delta) <= DEAL_MAX_SHAPE_DIM and (not isinstance(delta.get("tool_calls"), list) or len(delta["tool_calls"]) <= DEAL_MAX_SHAPE_DIM)))
 @deal.ensure(lambda delta, result: type(delta) is not dict or "role" not in delta or delta.get("role") is not None)
 @deal.ensure(lambda delta, result: type(delta) is not dict or _normalize_delta_tool_calls_ok(delta))
 def _normalize_delta(delta: object) -> None:  # pyright: ignore[reportUnusedFunction]  # used by llm_client / response_normalizers
@@ -417,7 +393,7 @@ class ThinkTagStreamSplitter:
                     if idx > 0:
                         results.append((False, text[:idx]))
                     self.in_thinking = True
-                    text = text[idx + 7:]
+                    text = text[idx + 7 :]
                     continue
                 # Check for possible partial prefix of '<think>' at the end of text
                 partial_match = False
@@ -439,7 +415,7 @@ class ThinkTagStreamSplitter:
                     if idx > 0:
                         results.append((True, text[:idx]))
                     self.in_thinking = False
-                    text = text[idx + 8:]
+                    text = text[idx + 8 :]
                     continue
                 # Check for possible partial prefix of '</think>' at the end of text
                 partial_match = False
@@ -471,12 +447,7 @@ _THINK_TAG_BLOCK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 _THINK_UNCLOSED_RE = re.compile(r"<think>(.*)", re.DOTALL)
 
 
-@deal.post(
-    lambda result: isinstance(result, tuple)
-    and len(result) == 2
-    and isinstance(result[0], str)
-    and (result[1] is None or isinstance(result[1], str))
-)
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and (result[1] is None or isinstance(result[1], str)))
 @deal.ensure(lambda text, result: _THINK_TAG_BLOCK_RE.search(result[0]) is None)
 def strip_think_tags(text: str | None) -> tuple[str, str | None]:
     """Strip <think>...</think> tags from text, returning (clean_content, extracted_thinking)."""
@@ -500,5 +471,3 @@ def strip_think_tags(text: str | None) -> tuple[str, str | None]:
     clean = clean.strip()
     thinking = "\n\n".join(t.strip() for t in thoughts if t.strip()) if thoughts else None
     return clean, thinking
-
-

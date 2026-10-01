@@ -45,13 +45,7 @@ from typing import Any, TypeAlias, Callable, cast
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
-from plugin.framework.queue_executor import (
-    NestedDrainOwnerError,
-    _marshal_thread_tag,
-    default_executor,
-    drain_owner_scope,
-    pump_ui_idle,
-)
+from plugin.framework.queue_executor import NestedDrainOwnerError, _marshal_thread_tag, default_executor, drain_owner_scope, pump_ui_idle
 
 log = logging.getLogger(__name__)
 
@@ -244,16 +238,20 @@ class BatchingStreamQueue:
     # Convenience factories so existing lambda sites become one-liners
     def content_cb(self) -> Callable[[str], None]:
         """Return a callback suitable for append_callback=... that feeds through the batcher."""
+
         # crosshair: off
         def cb(text: str) -> None:
             self.put((StreamQueueKind.CHUNK, text))
+
         return cb
 
     def thinking_cb(self) -> Callable[[str], None]:
         """Return a callback suitable for append_thinking_callback=..."""
+
         # crosshair: off
         def cb(text: str) -> None:
             self.put((StreamQueueKind.THINKING, text))
+
         return cb
 
     @property
@@ -265,9 +263,7 @@ class BatchingStreamQueue:
     def __repr__(self) -> str:
         # crosshair: off
         with self._lock:
-            return (f"BatchingStreamQueue(interval={self._interval}, "
-                    f"pending_content={len(self._content_buf)}, "
-                    f"pending_thinking={len(self._thinking_buf)})")
+            return f"BatchingStreamQueue(interval={self._interval}, pending_content={len(self._content_buf)}, pending_thinking={len(self._thinking_buf)})"
 
 
 @dataclass(slots=True)
@@ -533,17 +529,9 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
                     if marshal_depth > 0:
                         remaining = default_executor._work_queue.qsize()
                         if remaining > 0:
-                            log.warning(
-                                "drain_idle: marshal queue_depth=%d after pump (worker may be blocked) %s",
-                                remaining,
-                                _marshal_thread_tag(),
-                            )
+                            log.warning("drain_idle: marshal queue_depth=%d after pump (worker may be blocked) %s", remaining, _marshal_thread_tag())
                         else:
-                            log.debug(
-                                "drain_idle: stream queue empty, marshal depth %d cleared by pump %s",
-                                marshal_depth,
-                                _marshal_thread_tag(),
-                            )
+                            log.debug("drain_idle: stream queue empty, marshal depth %d cleared by pump %s", marshal_depth, _marshal_thread_tag())
                     continue
 
                 try:
@@ -692,6 +680,7 @@ def run_async_worker_with_drain(
 
     resolved_apply_chunk = apply_chunk_fn or _noop_chunk
     resolved_on_error = on_error_fn or _noop_error
+
     def _call_done_on_stopped() -> None:
         # Mirror on_stream_done_wrapper: try with a sentinel item first, then
         # fall back to zero-arg for callbacks that don't accept arguments.
@@ -704,19 +693,7 @@ def run_async_worker_with_drain(
 
     resolved_on_stopped = on_stopped_fn or (_call_done_on_stopped if on_done_fn else _noop_stopped)
 
-    run_stream_drain_loop(
-        _real_q,
-        toolkit,
-        job_done,
-        resolved_apply_chunk,
-        on_stream_done=on_stream_done_wrapper,
-        on_stopped=resolved_on_stopped,
-        on_error=resolved_on_error,
-        on_status_fn=on_status_fn,
-        ctx=ctx,
-        on_approval_required=on_approval_required,
-        stop_checker=stop_checker,
-    )
+    run_stream_drain_loop(_real_q, toolkit, job_done, resolved_apply_chunk, on_stream_done=on_stream_done_wrapper, on_stopped=resolved_on_stopped, on_error=resolved_on_error, on_status_fn=on_status_fn, ctx=ctx, on_approval_required=on_approval_required, stop_checker=stop_checker)
 
 
 def _run_client_stream(
@@ -760,14 +737,7 @@ def run_stream_completion_async(ctx: Any, client: Any, prompt: Any, system_promp
     _run_client_stream(ctx, client_call, apply_chunk_fn=apply_chunk_fn, on_done_fn=on_done_fn, on_error_fn=on_error_fn, on_status_fn=on_status_fn, stop_checker=stop_checker, name="stream-completion", include_status=True)
 
 
-def run_blocking_in_thread(
-    ctx: Any,
-    func: Any,
-    *args: Any,
-    pump_idle: bool = True,
-    stop_checker: Callable[[], bool] | None = None,
-    **kwargs: Any,
-) -> Any:
+def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = True, stop_checker: Callable[[], bool] | None = None, **kwargs: Any) -> Any:
     """
     Run a blocking function in a background thread.
 

@@ -21,6 +21,7 @@ Registry lookup and ``ToolRegistry.execute`` stay in ``tool``. That path
 wraps a string ``range`` as ``[str]`` before validation; these converters
 only advertise schemas.
 """
+
 from __future__ import annotations
 
 import copy
@@ -47,15 +48,7 @@ def _collapse_union_type(types: list[str]) -> str | list[str]:
     return non_null[0] if non_null else "string"
 
 
-@deal.pre(
-    lambda type_val: type_val is None
-    or isinstance(type_val, str)
-    or (
-        isinstance(type_val, list)
-        and len(type_val) <= DEAL_MAX_CMD_ARGS
-        and all(isinstance(x, str) and ascii_bounded(x, DEAL_MAX_TOKEN) for x in type_val)
-    )
-)
+@deal.pre(lambda type_val: type_val is None or isinstance(type_val, str) or (isinstance(type_val, list) and len(type_val) <= DEAL_MAX_CMD_ARGS and all(isinstance(x, str) and ascii_bounded(x, DEAL_MAX_TOKEN) for x in type_val)))
 def _type_allows_null(type_val: Any) -> bool:
     return isinstance(type_val, list) and "null" in type_val
 
@@ -173,7 +166,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
     if "document_url" not in input_schema["properties"]:
         input_schema["properties"]["document_url"] = {
             "type": "string",
-            "description": "Optional URL or RuntimeUID of the target document (both come from list_open_documents). If not provided, the active document is used. A RuntimeUID also targets unsaved/untitled documents that have no file URL yet."
+            "description": "Optional URL or RuntimeUID of the target document (both come from list_open_documents). If not provided, the active document is used. A RuntimeUID also targets unsaved/untitled documents that have no file URL yet.",
         }
     desc = tool.get_description(doc_type)
 
@@ -185,10 +178,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
         # For MCP schemas, use a compact description to avoid duplicating the long domain list
         # (the detailed domain guidance lives in the 'domain' property description instead).
         # The full verbose guidance with examples is still used in chat system prompts.
-        desc = (
-            f"{desc} Delegates to a specialized {agent_label} task. "
-            "See the 'domain' property for available areas and the 'task' parameter rules."
-        ).strip()
+        desc = (f"{desc} Delegates to a specialized {agent_label} task. See the 'domain' property for available areas and the 'task' parameter rules.").strip()
 
         props = input_schema.get("properties")
         if isinstance(props, dict) and "domain" in props and isinstance(props["domain"], dict):
@@ -208,11 +198,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
                 fov["items"] = {"type": ["string", "number"]}
                 desc_bits = fov.get("description") or ""
                 if "Native JSON array" not in desc_bits:
-                    fov["description"] = (
-                        (desc_bits + " " if desc_bits else "")
-                        + "Native JSON array of strings/numbers is accepted (same length as the range); "
-                        "a single string still fills the entire range."
-                    ).strip()
+                    fov["description"] = ((desc_bits + " " if desc_bits else "") + "Native JSON array of strings/numbers is accepted (same length as the range); a single string still fills the entire range.").strip()
                 props["values"] = fov
         # Execute already coerces a bare range string to [str]. Source schemas stay
         # array-only so Gemini/Groq do not see a string|array union (collapse prefers array).

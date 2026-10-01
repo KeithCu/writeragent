@@ -17,16 +17,7 @@ from .openai_shim import OpenAIShim
 class GrokShim(OpenAIShim):
     """Shim for xAI Grok API (OpenAI-compatible with Aurora image generation)."""
 
-    def build_image_request(
-        self,
-        prompt: str,
-        model: str | None,
-        width: int,
-        height: int,
-        steps: int | None = None,
-        source_image: str | None = None,
-        image_url: str | None = None,
-    ) -> tuple[str, str, bytes, dict[str, str]]:
+    def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         endpoint = self.client._endpoint()
         api_path = self.client._api_path()
         ref = coerce_image_data_url(image_url, source_image)
@@ -35,12 +26,7 @@ class GrokShim(OpenAIShim):
         # https://docs.x.ai/developers/model-capabilities/images/editing
         url = endpoint + api_path + ("/images/edits" if ref else "/images/generations")
 
-        data: dict[str, Any] = {
-            "prompt": prompt,
-            "n": 1,
-            "response_format": "b64_json",
-            "model": model or "aurora",
-        }
+        data: dict[str, Any] = {"prompt": prompt, "n": 1, "response_format": "b64_json", "model": model or "aurora"}
         # What was wrong: width/height were accepted and never written. xAI
         # documents aspect_ratio (default auto) and resolution (1k/2k), not
         # OpenAI size, so Square / 2048 in the sidebar never reached the model.

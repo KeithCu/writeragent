@@ -19,12 +19,7 @@ from plugin.framework.errors import format_error_message
 _ZAI_CODING_PLAN_ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
 
 # Issue #570: Ollama/llama.cpp died at prefill (Windows AV or prompt overflow).
-_LLAMA_SERVER_CRASH_MARKERS = (
-    "llama-server process has terminated",
-    "0xc0000005",
-    "truncating input prompt",
-    "prompt overflow",
-)
+_LLAMA_SERVER_CRASH_MARKERS = ("llama-server process has terminated", "0xc0000005", "truncating input prompt", "prompt overflow")
 
 
 def format_context_window_label(num_ctx: Any) -> str | None:
@@ -44,12 +39,8 @@ def local_model_overflow_message(context_window: int | None = None) -> str:
     """Plain sidebar sentence: local llama-server died because the prompt overflowed."""
     label = format_context_window_label(context_window)
     if label:
-        return _(
-            "The local Ollama/llama.cpp process crashed because the prompt overflowed a {0} context window."
-        ).format(label)
-    return _(
-        "The local Ollama/llama.cpp process crashed because the prompt overflowed a too-small context window."
-    )
+        return _("The local Ollama/llama.cpp process crashed because the prompt overflowed a {0} context window.").format(label)
+    return _("The local Ollama/llama.cpp process crashed because the prompt overflowed a too-small context window.")
 
 
 def is_local_model_server_crash(text: Any) -> bool:
@@ -118,10 +109,7 @@ def append_zai_unknown_model_hint(message: str, err_body: Any, path: Any, provid
     err_l = str(err_body or "").lower()
     if "unknown model" not in err_l and '"code":"1211"' not in err_l and '"code": "1211"' not in err_l:
         return message
-    hint = _(
-        " If your API key is from a GLM Coding Plan subscription, set endpoint to "
-        "{0} (not the general /api/paas URL)."
-    ).format(_ZAI_CODING_PLAN_ENDPOINT)
+    hint = _(" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} (not the general /api/paas URL).").format(_ZAI_CODING_PLAN_ENDPOINT)
     if request_model:
         return message + hint + _(" Request model was: {0}.").format(repr(request_model))
     return message + hint

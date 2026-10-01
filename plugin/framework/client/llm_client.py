@@ -56,11 +56,7 @@ if TYPE_CHECKING:
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
 
-from .response_normalizers import (
-    strip_leaked_chat_template_control_tokens,
-    normalize_multimodal_messages,
-    prepend_dev_build_system_prefix_to_messages as _prepend_dev_build_system_prefix_to_messages,
-)
+from .response_normalizers import strip_leaked_chat_template_control_tokens, normalize_multimodal_messages, prepend_dev_build_system_prefix_to_messages as _prepend_dev_build_system_prefix_to_messages
 
 
 # Keys WriterAgent builds; openrouter_chat_extra must not replace these.
@@ -87,52 +83,22 @@ from plugin.framework.async_stream import accumulate_delta, coalesce_split_tool_
 from plugin.framework.constants import USER_AGENT
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
-from plugin.framework.client.auth import (
-    AuthError,
-    resolve_auth_for_config,
-    build_auth_headers,
-    reject_control_chars_in_api_key,
-)
+from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers, reject_control_chars_in_api_key
 from plugin.framework.errors import NetworkError
 from plugin.framework.url_utils import get_api_version_suffix, normalize_endpoint_url
 
 from plugin.framework.errors import format_error_message
 from .errors import _format_http_error_response, append_zai_unknown_model_hint
 from .http_transport import CONNECTION_ERRORS, LlmHttpTransport
-from .request_controls import (
-    RETRY_MAX_ATTEMPTS,
-    RETRYABLE_HTTP_STATUS,
-    backoff_delay_sec,
-    clear_host_gap,
-    emit_retry_status,
-    pacing_key,
-    parse_retry_after,
-    remember_host_gap,
-    request_model_from_body,
-    wait_abortable,
-)
-from .stream_normalizer import (
-    iterate_sse,
-    _normalize_message_content,
-    _normalize_delta,
-    accumulate_streaming_thinking,
-    extract_reasoning_replay_from_response,
-    new_streaming_thinking_meta,
-    THINKING_DELTA_KEYS,
-)
+from .request_controls import RETRY_MAX_ATTEMPTS, RETRYABLE_HTTP_STATUS, backoff_delay_sec, clear_host_gap, emit_retry_status, pacing_key, parse_retry_after, remember_host_gap, request_model_from_body, wait_abortable
+from .stream_normalizer import iterate_sse, _normalize_message_content, _normalize_delta, accumulate_streaming_thinking, extract_reasoning_replay_from_response, new_streaming_thinking_meta, THINKING_DELTA_KEYS
 from .provider_detection import is_openrouter_endpoint
 
 log = logging.getLogger(__name__)
 
 # Anthropic Messages SSE has no OpenAI ``choices`` array. These event types
 # still carry text, tool_use, or stop_reason.
-_ANTHROPIC_STREAM_TYPES = frozenset({
-    "content_block_start",
-    "content_block_delta",
-    "message_delta",
-    "message_stop",
-    "message",
-})
+_ANTHROPIC_STREAM_TYPES = frozenset({"content_block_start", "content_block_delta", "message_delta", "message_stop", "message"})
 
 
 def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
@@ -193,15 +159,7 @@ def _log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any,
     payload = _chat_request_payload_from_body(body)
     api_key = str(client.config.get("api_key") or "").strip()
     n_tools = len(tools) if isinstance(tools, list) else len(payload.get("tools") or [])
-    log.debug(
-        "Chat Request body: model=%r stream=%s tools=%s full_url=%r api_key_set=%s api_key_len=%s",
-        payload.get("model"),
-        payload.get("stream"),
-        n_tools,
-        _full_url_for_request_path(client._endpoint(), path),
-        bool(api_key),
-        len(api_key),
-    )
+    log.debug("Chat Request body: model=%r stream=%s tools=%s full_url=%r api_key_set=%s api_key_len=%s", payload.get("model"), payload.get("stream"), n_tools, _full_url_for_request_path(client._endpoint(), path), bool(api_key), len(api_key))
 
 
 def _prompt_char_count(messages: Any) -> int:
@@ -280,9 +238,7 @@ def _log_http_500_request_diag(client: Any, response: Any, path: str, body: Any,
     messages = payload.get("messages")
     tools = payload.get("tools")
     log.error(
-        "HTTP 500 request diagnostic: provider=%s request_model=%r full_url=%r "
-        "status=%s reason=%r stream=%s messages=%s tools=%s payload_bytes=%s "
-        "n_ctx=%s prompt_chars=%s max_tokens=%s exit_code=%r",
+        "HTTP 500 request diagnostic: provider=%s request_model=%r full_url=%r status=%s reason=%r stream=%s messages=%s tools=%s payload_bytes=%s n_ctx=%s prompt_chars=%s max_tokens=%s exit_code=%r",
         client._get_provider(),
         payload.get("model"),
         _full_url_for_request_path(client._endpoint(), path),
@@ -300,11 +256,7 @@ def _log_http_500_request_diag(client: Any, response: Any, path: str, body: Any,
 
 
 from .openai_shim import get_provider_shim_class
-from .stream_normalizer import (
-    ThinkTagStreamSplitter,
-    strip_think_tags,
-)
-
+from .stream_normalizer import ThinkTagStreamSplitter, strip_think_tags
 
 
 class LlmClient:
@@ -374,18 +326,7 @@ class LlmClient:
         if conn_hdr == "close":
             self._close_connection()
 
-    def _retry_or_raise_http_error(
-        self,
-        response: Any,
-        body: Any,
-        path: str,
-        *,
-        retries_left: int,
-        emitted_any: bool,
-        stop_checker: Any,
-        status_callback: Any = None,
-        attempt: int = 1,
-    ) -> str | None:
+    def _retry_or_raise_http_error(self, response: Any, body: Any, path: str, *, retries_left: int, emitted_any: bool, stop_checker: Any, status_callback: Any = None, attempt: int = 1) -> str | None:
         """On non-200: jittered 429/503 retry while attempts remain; else HTTP_ERROR.
 
         OpenClaw Retry-After + jitter. Never after tokens already reached the UI.
@@ -395,14 +336,7 @@ class LlmClient:
         api_key = str(self.config.get("api_key") or "").strip()
         # Keep the existing response-body ERROR line, but never echo the key if
         # a provider (or proxy) reflected it in the error text.
-        log.error(
-            "Provider API Error %d: %s (provider=%s path=%s request_model=%r)",
-            response.status,
-            _redact_secret_from_log_text(err_body, api_key),
-            self._get_provider(),
-            path,
-            request_model,
-        )
+        log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, _redact_secret_from_log_text(err_body, api_key), self._get_provider(), path, request_model)
         n_ctx = _peek_live_ollama_num_ctx(self) if response.status == 500 else None
         if response.status == 500:
             _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
@@ -411,25 +345,13 @@ class LlmClient:
             retry_after = parse_retry_after(response.getheader("Retry-After"))
             delay = backoff_delay_sec(attempt=attempt, retry_after_sec=retry_after)
             remember_host_gap(pacing_key(self._current_host(), request_model), delay)
-            log.warning(
-                "Retrying HTTP %s after %.3fs (Retry-After=%s attempt=%s left=%s)",
-                response.status,
-                delay,
-                retry_after,
-                attempt,
-                retries_left,
-            )
+            log.warning("Retrying HTTP %s after %.3fs (Retry-After=%s attempt=%s left=%s)", response.status, delay, retry_after, attempt, retries_left)
             emit_retry_status(status_callback, delay)
             if not wait_abortable(delay, stop_checker):
                 self._stopped = True
                 return "stop"
             return "retry"
-        err_msg = _format_http_error_response(
-            response.status,
-            response.reason,
-            err_body,
-            context_window=n_ctx,
-        )
+        err_msg = _format_http_error_response(response.status, response.reason, err_body, context_window=n_ctx)
         err_msg = append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
         raise NetworkError(err_msg, code="HTTP_ERROR", details={"url": path, "status": response.status})
 
@@ -475,10 +397,7 @@ class LlmClient:
         """
         Build HTTP headers for API requests, including provider-aware auth.
         """
-        h = {
-            "Content-Type": "application/json",
-            "User-Agent": USER_AGENT,
-        }
+        h = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
         auth_info = self._resolve_auth()
         if auth_info:
             auth_headers = build_auth_headers(auth_info)
@@ -519,33 +438,18 @@ class LlmClient:
         """Compatibility wrapper for the transport-owned certificate fallback."""
         return self._transport.enable_local_ssl_fallback(err)
 
-    def _send_request(
-        self,
-        method: str,
-        path: str,
-        body: Any,
-        headers: dict[str, str],
-        *,
-        stop_checker: Any = None,
-        status_callback: Any = None,
-    ) -> Any:
+    def _send_request(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
         """Send through the transport while honoring tests/debuggers that override ``_get_connection`` on the instance."""
         if self._stopped:
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+
         def _stopped() -> bool:
             if self._stopped:
                 return True
             return bool(stop_checker and stop_checker())
+
         connection_getter = self.__dict__.get("_get_connection")
-        return self._transport.send(
-            method,
-            path,
-            body,
-            headers,
-            connection_getter=connection_getter,
-            stop_checker=_stopped,
-            status_callback=status_callback,
-        )
+        return self._transport.send(method, path, body, headers, connection_getter=connection_getter, stop_checker=_stopped, status_callback=status_callback)
 
     def make_api_request(self, prompt: str, system_prompt: str = "", max_tokens: int = 70) -> Any:
         """Build a streaming chat completions request (legacy/simple wrapper)."""
@@ -559,18 +463,7 @@ class LlmClient:
         """Extract text content and optional thinking from response chunk (provider-aware)."""
         return self._get_shim().parse_response_chunk(chunk)
 
-    def make_chat_request(
-        self,
-        messages: list[Any],
-        max_tokens: int = 512,
-        tools: Any = None,
-        stream: bool = False,
-        model: str | None = None,
-        response_format: Any = None,
-        chat_extra: Any = None,
-        *,
-        prepend_dev_build_system_prefix: bool = True,
-    ) -> tuple[str, str, Any, dict[str, str]]:
+    def make_chat_request(self, messages: list[Any], max_tokens: int = 512, tools: Any = None, stream: bool = False, model: str | None = None, response_format: Any = None, chat_extra: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> tuple[str, str, Any, dict[str, str]]:
         """Build a chat completions request from a full messages array (provider-aware)."""
         try:
             max_tokens = int(max_tokens)
@@ -600,7 +493,7 @@ class LlmClient:
                         merged.append({"type": "text", "text": curr_content})
                     elif isinstance(curr_content, list):
                         merged.extend(curr_content)
-                    
+
                     coalesced_messages[-1]["content"] = merged
 
                 coalesced_any = True
@@ -624,11 +517,7 @@ class LlmClient:
         if system_message:
             old_content = system_message.get("content")
             if isinstance(old_content, str):
-                already_has_date_line = (
-                    old_content.startswith(date_msg)
-                    or old_content.startswith("Today's date is ")
-                    or date_msg in old_content
-                )
+                already_has_date_line = old_content.startswith(date_msg) or old_content.startswith("Today's date is ") or date_msg in old_content
                 if not already_has_date_line:
                     system_message["content"] = f"{date_msg}\n\n{old_content}" if old_content else date_msg
             elif isinstance(old_content, list):
@@ -642,7 +531,7 @@ class LlmClient:
                         if date_msg in t or "Today's date is " in t:
                             already_has_date_line = True
                             break
-                
+
                 if not already_has_date_line:
                     if text_item:
                         t = text_item.get("text", "")
@@ -691,16 +580,7 @@ class LlmClient:
 
         return method, path, body, headers
 
-    def make_image_request(
-        self,
-        prompt: str,
-        model: str | None = None,
-        width: int = 1024,
-        height: int = 1024,
-        steps: int | None = None,
-        source_image: str | None = None,
-        image_url: str | None = None,
-    ) -> Any:
+    def make_image_request(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> Any:
         """Build an image generation request (provider-aware)."""
         shim = self._get_shim()
         return shim.build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
@@ -730,15 +610,7 @@ class LlmClient:
                 if response.status != 200:
                     sends_left -= 1
                     wait_index += 1
-                    action = self._retry_or_raise_http_error(
-                        response,
-                        body,
-                        path,
-                        retries_left=sends_left,
-                        emitted_any=False,
-                        stop_checker=_stopped,
-                        attempt=wait_index,
-                    )
+                    action = self._retry_or_raise_http_error(response, body, path, retries_left=sends_left, emitted_any=False, stop_checker=_stopped, attempt=wait_index)
                     if action == "stop":
                         raise NetworkError("LLM request aborted by Stop", code="STOPPED")
                     continue
@@ -752,27 +624,11 @@ class LlmClient:
             except CONNECTION_ERRORS as e:
                 sends_left -= 1
                 wait_index += 1
-                action = self._transport.handle_connection_error(
-                    e,
-                    path=path,
-                    retries_left=sends_left,
-                    retry_log_message="Retrying JSON request on fresh connection",
-                    stop_checker=_stopped,
-                    attempt=wait_index,
-                )
+                action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying JSON request on fresh connection", stop_checker=_stopped, attempt=wait_index)
                 if action == "stop":
                     raise NetworkError("LLM request aborted by Stop", code="STOPPED") from e
 
-    def image_completion(
-        self,
-        prompt: str,
-        model: str | None = None,
-        width: int = 1024,
-        height: int = 1024,
-        steps: int | None = None,
-        source_image: str | None = None,
-        image_url: str | None = None,
-    ) -> Any:
+    def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> Any:
         """Generate images using the configured provider. Returns list of base64 strings."""
         method, path, body, headers = self.make_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
         endpoint = self._endpoint()
@@ -874,36 +730,12 @@ class LlmClient:
         res = self._request_json("POST", api_path + "/audio/transcriptions", body_bytes, headers)
         return res.get("text", "") if isinstance(res, dict) else str(res)
 
-    def stream_completion(
-        self,
-        prompt: str,
-        system_prompt: str,
-        max_tokens: int,
-        append_callback: Any,
-        append_thinking_callback: Any = None,
-        stop_checker: Any = None,
-        status_callback: Any = None,
-    ) -> None:
+    def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None) -> None:
         """Stream a chat completions response via callbacks."""
         method, path, body, headers = self.make_api_request(prompt, system_prompt, max_tokens)
-        self.stream_request(
-            method, path, body, headers, append_callback, append_thinking_callback,
-            stop_checker=stop_checker, status_callback=status_callback,
-        )
+        self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
 
-    def _run_streaming_loop(
-        self,
-        method: str,
-        path: str,
-        body: Any,
-        headers: dict[str, str],
-        on_content: Any,
-        on_thinking: Any = None,
-        on_delta: Any = None,
-        stop_checker: Any = None,
-        _retry: bool = True,
-        status_callback: Any = None,
-    ) -> Any:
+    def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, stop_checker: Any = None, _retry: bool = True, status_callback: Any = None) -> Any:
         """Common low-level streaming engine."""
         init_logging(self.ctx)
         log.info("=== Starting streaming loop (persistent) ===")
@@ -930,24 +762,12 @@ class LlmClient:
                     self._stopped = True
                     self._close_connection()
                     return "stop"
-                response = self._send_request(
-                    method, path, body, headers,
-                    stop_checker=stop_checker, status_callback=status_callback,
-                )
+                response = self._send_request(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
 
                 if response.status != 200:
                     sends_left -= 1
                     wait_index += 1
-                    action = self._retry_or_raise_http_error(
-                        response,
-                        body,
-                        path,
-                        retries_left=sends_left,
-                        emitted_any=emitted_any,
-                        stop_checker=abort_checker,
-                        status_callback=status_callback,
-                        attempt=wait_index,
-                    )
+                    action = self._retry_or_raise_http_error(response, body, path, retries_left=sends_left, emitted_any=emitted_any, stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index)
                     if action == "stop":
                         return "stop"
                     continue
@@ -991,12 +811,7 @@ class LlmClient:
                         chunk_model = chunk.get("model")
                         if chunk_model and used_model is None:
                             used_model = str(chunk_model)
-                            log.info(
-                                "LLM response stream started: provider=%s requested_model=%r used_model=%r",
-                                self._get_provider(),
-                                requested_model,
-                                used_model,
-                            )
+                            log.info("LLM response stream started: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
 
                         # Log all chunks for debugging, even after content_finished
                         # (this might contain 'usage' data)
@@ -1031,15 +846,7 @@ class LlmClient:
                         # cannot tell whether that index came from the wire or our accumulator.
                         raw_tool_calls = delta.get("tool_calls") if isinstance(delta, dict) else None
                         if raw_tool_calls is not None:
-                            log.debug(
-                                "streaming_loop: raw tool_call delta route_provider=%s "
-                                "chunk_provider=%r chunk_model=%r chunk_id=%r tool_calls=%s",
-                                self._get_provider(),
-                                chunk.get("provider"),
-                                chunk.get("model"),
-                                chunk.get("id"),
-                                json.dumps(raw_tool_calls, ensure_ascii=False),
-                            )
+                            log.debug("streaming_loop: raw tool_call delta route_provider=%s chunk_provider=%r chunk_model=%r chunk_id=%r tool_calls=%s", self._get_provider(), chunk.get("provider"), chunk.get("model"), chunk.get("id"), json.dumps(raw_tool_calls, ensure_ascii=False))
 
                         # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"
                         if finish_reason == "error":
@@ -1063,17 +870,10 @@ class LlmClient:
                                         emitted_any = True
                                     # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                                     last_contents.append(text_piece)
-                                    if (
-                                        len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT
-                                        and len(text_piece) > 2
-                                        and all(c == last_contents[0] for c in last_contents)
-                                    ):
+                                    if len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT and len(text_piece) > 2 and all(c == last_contents[0] for c in last_contents):
                                         from plugin.framework.i18n import _
 
-                                        raise NetworkError(
-                                            _("The model is repeating the same chunk (infinite loop). Try again or use a different model."),
-                                            code="INFINITE_LOOP",
-                                        )
+                                        raise NetworkError(_("The model is repeating the same chunk (infinite loop). Try again or use a different model."), code="INFINITE_LOOP")
                         if delta and on_delta:
                             _normalize_delta(delta)
                             if chunk_model and "model" not in delta:
@@ -1084,13 +884,7 @@ class LlmClient:
                             log.debug("streaming_loop: logical finish_reason=%s" % finish_reason)
                             last_finish_reason = finish_reason
 
-                    log.info(
-                        "LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s",
-                        self._get_provider(),
-                        requested_model,
-                        used_model or requested_model,
-                        last_finish_reason,
-                    )
+                    log.info("LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s", self._get_provider(), requested_model, used_model or requested_model, last_finish_reason)
 
                     # Flush any trailing buffered text from the think tag splitter
                     # (trailing buffer contains small tag prefix remnants like '<' at EOF)
@@ -1122,22 +916,10 @@ class LlmClient:
                 # A retry after tokens already reached the UI would duplicate text.
                 if emitted_any:
                     self._close_connection()
-                    raise NetworkError(
-                        format_error_message(e),
-                        code="CONNECTION_LOST",
-                        details={"url": path},
-                    ) from e
+                    raise NetworkError(format_error_message(e), code="CONNECTION_LOST", details={"url": path}) from e
                 sends_left -= 1
                 wait_index += 1
-                action = self._transport.handle_connection_error(
-                    e,
-                    path=path,
-                    retries_left=sends_left,
-                    retry_log_message="Retrying streaming request on fresh connection",
-                    stop_checker=abort_checker,
-                    status_callback=status_callback,
-                    attempt=wait_index,
-                )
+                action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying streaming request on fresh connection", stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index)
                 if action == "stop":
                     return "stop"
                 continue
@@ -1154,47 +936,15 @@ class LlmClient:
             # If we completed successfully without retry, return
             return last_finish_reason
 
-    def stream_request(
-        self,
-        method: str,
-        path: str,
-        body: Any,
-        headers: dict[str, str],
-        append_callback: Any,
-        append_thinking_callback: Any = None,
-        stop_checker: Any = None,
-        status_callback: Any = None,
-    ) -> None:
+    def stream_request(self, method: str, path: str, body: Any, headers: dict[str, str], append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None) -> None:
         """Streaming request for chat completions, using persistent connection."""
         init_logging(self.ctx)
-        self._run_streaming_loop(
-            method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback,
-            stop_checker=stop_checker, status_callback=status_callback,
-        )
+        self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
 
-    def stream_chat_response(
-        self,
-        messages: list[Any],
-        max_tokens: int,
-        append_callback: Any,
-        append_thinking_callback: Any = None,
-        stop_checker: Any = None,
-        status_callback: Any = None,
-        *,
-        prepend_dev_build_system_prefix: bool = True,
-    ) -> None:
+    def stream_chat_response(self, messages: list[Any], max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> None:
         """Stream a final chat response (no tools) using the messages array."""
-        method, path, body, headers = self.make_chat_request(
-            messages,
-            max_tokens,
-            tools=None,
-            stream=True,
-            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
-        )
-        self.stream_request(
-            method, path, body, headers, append_callback, append_thinking_callback,
-            stop_checker=stop_checker, status_callback=status_callback,
-        )
+        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=None, stream=True, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+        self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
 
     def request_with_tools(
         self,
@@ -1222,24 +972,8 @@ class LlmClient:
         init_logging(self.ctx)
         requested_model = model or self.config.get("model", "")
         n_tool_defs = len(tools) if isinstance(tools, list) else 0
-        log.info(
-            "Sending LLM chat request: provider=%s requested_model=%r stream=%s n_messages=%d n_tool_defs=%d",
-            self._get_provider(),
-            requested_model,
-            stream,
-            len(messages),
-            n_tool_defs,
-        )
-        method, path, body, headers = self.make_chat_request(
-            messages,
-            max_tokens,
-            tools=tools,
-            stream=stream,
-            model=model,
-            response_format=response_format,
-            chat_extra=chat_extra,
-            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
-        )
+        log.info("Sending LLM chat request: provider=%s requested_model=%r stream=%s n_messages=%d n_tool_defs=%d", self._get_provider(), requested_model, stream, len(messages), n_tool_defs)
+        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, chat_extra=chat_extra, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
         if body_override is not None:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
 
@@ -1267,10 +1001,7 @@ class LlmClient:
 
             log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
-                last_finish_reason = self._run_streaming_loop(
-                    method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback,
-                    on_delta=on_delta, stop_checker=stop_checker, status_callback=status_callback,
-                )
+                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, stop_checker=stop_checker, status_callback=status_callback)
             except NetworkError:
                 raise
             except Exception as e:
@@ -1289,32 +1020,17 @@ class LlmClient:
                 tool_calls = coalesce_split_tool_calls(tool_calls) or None
                 message_snapshot["tool_calls"] = tool_calls
             if tool_calls is not None:
-                log.debug(
-                    "streaming_loop: accumulated tool_calls model=%r tool_calls=%s",
-                    requested_model,
-                    json.dumps(tool_calls, ensure_ascii=False),
-                )
+                log.debug("streaming_loop: accumulated tool_calls model=%r tool_calls=%s", requested_model, json.dumps(tool_calls, ensure_ascii=False))
             usage = cast("dict[str, Any]", message_snapshot.get("usage", {}))
             used_model = str(message_snapshot.get("model") or requested_model)
-            reasoning_replay = extract_reasoning_replay_from_response(
-                streaming_text="".join(thinking_parts),
-                streaming_meta=thinking_meta,
-            )
+            reasoning_replay = extract_reasoning_replay_from_response(streaming_text="".join(thinking_parts), streaming_meta=thinking_meta)
         else:
             # Sync path (nested smol / specialized). Same Stop-before-connect latch as stream.
             if self._stopped or (stop_checker and stop_checker()):
                 log.debug("request_with_tools sync: Stop already requested before connect")
                 self._stopped = True
                 self._close_connection()
-                return {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": None,
-                    "finish_reason": "stop",
-                    "images": [],
-                    "usage": {},
-                    "model": requested_model,
-                }
+                return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
             result = None
             sends_left = RETRY_MAX_ATTEMPTS
             wait_index = 0
@@ -1324,19 +1040,8 @@ class LlmClient:
                     if self._stopped or (stop_checker and stop_checker()):
                         self._stopped = True
                         self._close_connection()
-                        return {
-                            "role": "assistant",
-                            "content": "",
-                            "tool_calls": None,
-                            "finish_reason": "stop",
-                            "images": [],
-                            "usage": {},
-                            "model": requested_model,
-                        }
-                    response = self._send_request(
-                        method, path, body, headers,
-                        stop_checker=stop_checker, status_callback=status_callback,
-                    )
+                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
+                    response = self._send_request(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
                     if response.status != 200:
                         try:
                             redacted_msgs = redact_sensitive_payload_for_log(messages)
@@ -1345,26 +1050,9 @@ class LlmClient:
                             log.warning("Could not log redacted outgoing messages: %s", log_exc)
                         sends_left -= 1
                         wait_index += 1
-                        action = self._retry_or_raise_http_error(
-                            response,
-                            body,
-                            path,
-                            retries_left=sends_left,
-                            emitted_any=False,
-                            stop_checker=abort_checker,
-                            status_callback=status_callback,
-                            attempt=wait_index,
-                        )
+                        action = self._retry_or_raise_http_error(response, body, path, retries_left=sends_left, emitted_any=False, stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index)
                         if action == "stop":
-                            return {
-                                "role": "assistant",
-                                "content": "",
-                                "tool_calls": None,
-                                "finish_reason": "stop",
-                                "images": [],
-                                "usage": {},
-                                "model": requested_model,
-                            }
+                            return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
                         continue
                     if wait_index == 0:
                         clear_host_gap(pacing_key(self._current_host(), request_model_from_body(body)))
@@ -1379,39 +1067,15 @@ class LlmClient:
                 except CONNECTION_ERRORS as e:
                     sends_left -= 1
                     wait_index += 1
-                    action = self._transport.handle_connection_error(
-                        e,
-                        path=path,
-                        retries_left=sends_left,
-                        retry_log_message="Retrying request_with_tools on fresh connection",
-                        stop_checker=abort_checker,
-                        status_callback=status_callback,
-                        attempt=wait_index,
-                    )
+                    action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying request_with_tools on fresh connection", stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index)
                     if action == "stop":
                         self._stopped = True
-                        return {
-                            "role": "assistant",
-                            "content": "",
-                            "tool_calls": None,
-                            "finish_reason": "stop",
-                            "images": [],
-                            "usage": {},
-                            "model": requested_model,
-                        }
+                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
                     continue
                 except NetworkError as e:
                     if getattr(e, "code", None) == "STOPPED":
                         self._stopped = True
-                        return {
-                            "role": "assistant",
-                            "content": "",
-                            "tool_calls": None,
-                            "finish_reason": "stop",
-                            "images": [],
-                            "usage": {},
-                            "model": requested_model,
-                        }
+                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
                     raise
                 except Exception as e:
                     err_msg = format_error_message(e)
@@ -1421,12 +1085,7 @@ class LlmClient:
             log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
 
             used_model = str(result.get("model") or requested_model) if isinstance(result, dict) else requested_model
-            log.info(
-                "LLM sync response received: provider=%s requested_model=%r used_model=%r",
-                self._get_provider(),
-                requested_model,
-                used_model,
-            )
+            log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
 
             # Use unified extraction for shims/native providers
             raw_parsed_content, last_finish_reason, tool_calls, usage, images, message = self._get_shim().parse_sync_response(result)
@@ -1471,16 +1130,7 @@ class LlmClient:
         kwargs["stream"] = True
         return self.request_with_tools(*args, **kwargs)
 
-    def chat_completion_sync(
-        self,
-        messages: list[Any],
-        max_tokens: int = 512,
-        model: str | None = None,
-        response_format: Any = None,
-        chat_extra: Any = None,
-        *,
-        prepend_dev_build_system_prefix: bool = True,
-    ) -> str:
+    def chat_completion_sync(self, messages: list[Any], max_tokens: int = 512, model: str | None = None, response_format: Any = None, chat_extra: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> str:
         """
         Synchronous chat completion (no streaming, no tools).
         Returns the assistant message content string.

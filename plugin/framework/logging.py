@@ -203,10 +203,7 @@ def get_debug_log_path() -> str | None:
 
 
 def _is_matching_debug_handler(handler: logging.Handler) -> bool:
-    return (
-        isinstance(handler, logging.FileHandler)
-        and getattr(handler, "baseFilename", "") == _debug_log_path
-    )
+    return isinstance(handler, logging.FileHandler) and getattr(handler, "baseFilename", "") == _debug_log_path
 
 
 def _strip_stray_handlers(logger: logging.Logger) -> bool:
@@ -224,7 +221,6 @@ def _strip_stray_handlers(logger: logging.Logger) -> bool:
         except Exception:
             pass
     return has_matching
-
 
 
 def _shared_debug_file_handler() -> OptionalFlushFileHandler:
@@ -308,11 +304,7 @@ def init_logging(ctx: Any | None = None) -> None:
                 logger.propagate = False
 
                 if first_init:
-                    logger.warning(
-                        "Debug log active: %s (level=%s)",
-                        _debug_log_path,
-                        level_str,
-                    )
+                    logger.warning("Debug log active: %s (level=%s)", _debug_log_path, level_str)
                     for handler in list(logger.handlers):
                         if isinstance(handler, logging.FileHandler):
                             logging.FileHandler.flush(handler)
@@ -637,6 +629,7 @@ def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
 # Custom LogRecord Factory for PyUNO safety in Python 3.12+
 _log_record_factory_installed = False
 
+
 def _install_safe_log_record_factory() -> None:
     """Install a custom LogRecord factory to prevent TypeError in Python 3.12+
     when logging a single PyUNO proxy object."""
@@ -668,4 +661,3 @@ def _install_safe_log_record_factory() -> None:
 
 
 _install_safe_log_record_factory()
-

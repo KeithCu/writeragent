@@ -34,16 +34,7 @@ def _split_suffix(model_id: str) -> tuple[str, str | None]:
     return base, suffix
 
 
-@deal.pre(
-    lambda model_id, catalog_ids=None: str_bounded(model_id, DEAL_MAX_TOKEN)
-    and (
-        catalog_ids is None
-        or (
-            isinstance(catalog_ids, (list, tuple, set, frozenset))
-            and len(catalog_ids) <= DEAL_MAX_SHAPE_DIM
-        )
-    )
-)
+@deal.pre(lambda model_id, catalog_ids=None: str_bounded(model_id, DEAL_MAX_TOKEN) and (catalog_ids is None or (isinstance(catalog_ids, (list, tuple, set, frozenset)) and len(catalog_ids) <= DEAL_MAX_SHAPE_DIM)))
 @deal.post(lambda result: isinstance(result, str))
 def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | None = None) -> str:
     """Return the catalog key to use for capabilities/metadata lookup.
@@ -64,17 +55,7 @@ def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | No
     return mid
 
 
-@deal.pre(
-    lambda a, b, catalog_ids=None: str_bounded(a, DEAL_MAX_TOKEN)
-    and str_bounded(b, DEAL_MAX_TOKEN)
-    and (
-        catalog_ids is None
-        or (
-            isinstance(catalog_ids, (list, tuple, set, frozenset))
-            and len(catalog_ids) <= DEAL_MAX_SHAPE_DIM
-        )
-    )
-)
+@deal.pre(lambda a, b, catalog_ids=None: str_bounded(a, DEAL_MAX_TOKEN) and str_bounded(b, DEAL_MAX_TOKEN) and (catalog_ids is None or (isinstance(catalog_ids, (list, tuple, set, frozenset)) and len(catalog_ids) <= DEAL_MAX_SHAPE_DIM)))
 @deal.post(lambda result: isinstance(result, bool))
 def openrouter_model_ids_equivalent(a: str, b: str, catalog_ids: Iterable[str] | None = None) -> bool:
     """True if two OpenRouter ids refer to the same underlying catalog model."""

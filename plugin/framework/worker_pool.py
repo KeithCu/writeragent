@@ -220,15 +220,7 @@ def reset_background_pool_for_tests(max_workers: int | None = None) -> None:
         _pool_size_override = max_workers
 
 
-def run_in_background(
-    func: Callable[..., Any],
-    *args: Any,
-    name: str | None = None,
-    error_callback: Callable[[WorkerPoolError], None] | None = None,
-    daemon: bool = True,
-    dedicated: bool = False,
-    **kwargs: Any,
-) -> BackgroundHandle:
+def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = None, error_callback: Callable[[WorkerPoolError], None] | None = None, daemon: bool = True, dedicated: bool = False, **kwargs: Any) -> BackgroundHandle:
     """Run *func* off the caller thread with WorkerPoolError isolation and Layer A tagging.
 
     Short fire-and-forget work is queued on a daemon pool with a fixed worker
@@ -372,12 +364,7 @@ def _read_stderr_chunk(stream: IO[Any]) -> bytes | str | None:
         return None
 
 
-def start_stderr_drain(
-    stream: IO[Any] | None,
-    *,
-    max_tail_chars: int = _DEFAULT_STDERR_TAIL_CHARS,
-    name: str = "stderr-drain",
-) -> StderrTail | None:
+def start_stderr_drain(stream: IO[Any] | None, *, max_tail_chars: int = _DEFAULT_STDERR_TAIL_CHARS, name: str = "stderr-drain") -> StderrTail | None:
     """Continuously drain a child stderr pipe into a bounded :class:`StderrTail`.
 
     Call this immediately after ``Popen(..., stderr=PIPE)`` for long-lived workers.
@@ -424,14 +411,7 @@ class AsyncProcess:
     stderr_cb: Optional[Callable[[str], None]]
     on_exit_cb: Optional[Callable[[int], None]]
 
-    def __init__(
-        self,
-        args: str | list[str],
-        stdout_cb: Optional[Callable[[str], None]] = None,
-        stderr_cb: Optional[Callable[[str], None]] = None,
-        on_exit_cb: Optional[Callable[[int], None]] = None,
-        **popen_kwargs: Any,
-    ) -> None:
+    def __init__(self, args: str | list[str], stdout_cb: Optional[Callable[[str], None]] = None, stderr_cb: Optional[Callable[[str], None]] = None, on_exit_cb: Optional[Callable[[int], None]] = None, **popen_kwargs: Any) -> None:
         self.args = args
         self.stdout_cb = stdout_cb
         self.stderr_cb = stderr_cb

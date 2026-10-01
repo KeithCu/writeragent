@@ -19,7 +19,6 @@
 All custom exceptions should inherit from WriterAgentException.
 """
 
-
 # crosshair: off
 from __future__ import annotations
 
@@ -86,15 +85,7 @@ class suppress_disposed(contextlib.ContextDecorator):
     suppress_all: bool
     exc_info: bool
 
-    def __init__(
-        self,
-        action: str = "action",
-        *,
-        logger: logging.Logger | None = None,
-        log_unexpected: bool = True,
-        suppress_all: bool = True,
-        exc_info: bool = False,
-    ) -> None:
+    def __init__(self, action: str = "action", *, logger: logging.Logger | None = None, log_unexpected: bool = True, suppress_all: bool = True, exc_info: bool = False) -> None:
         self.action = action
         self.logger = logger
         self.log_unexpected = log_unexpected
@@ -104,24 +95,14 @@ class suppress_disposed(contextlib.ContextDecorator):
     def __enter__(self) -> suppress_disposed:
         return self
 
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: Any,
-    ) -> bool:
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> bool:
         if exc_val is None:
             return False
 
         log_obj = self.logger or logging.getLogger("writeragent.errors")
 
         if is_disposed_exception(exc_val):
-            log_obj.debug(
-                "%s skipped (likely disposed): %s",
-                self.action,
-                exc_val,
-                exc_info=self.exc_info,
-            )
+            log_obj.debug("%s skipped (likely disposed): %s", self.action, exc_val, exc_info=self.exc_info)
             return True
 
         if self.log_unexpected:
@@ -190,13 +171,7 @@ class WriterAgentException(Exception):
     details: dict[str, Any]
     context: dict[str, Any]
 
-    def __init__(
-        self,
-        message: Any,
-        code: str | None = None,
-        details: dict[str, Any] | None = None,
-        context: dict[str, Any] | None = None,
-    ) -> None:
+    def __init__(self, message: Any, code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:
         # Accept both `details` and legacy `context` (alias).
         if details is None and context is not None:
             details = context
@@ -317,12 +292,8 @@ class DataShapeError(PayloadCodecError):
     code: str = "DATA_SHAPE_ERROR"
 
 
-
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
-@deal.ensure(
-    lambda e, result: isinstance(e, WriterAgentException)
-    or (result.get("code") == "INTERNAL_ERROR" and isinstance(result.get("details"), dict) and "type" in result["details"])
-)
+@deal.ensure(lambda e, result: isinstance(e, WriterAgentException) or (result.get("code") == "INTERNAL_ERROR" and isinstance(result.get("details"), dict) and "type" in result["details"]))
 @deal.ensure(lambda e, result: not isinstance(e, WriterAgentException) or result.get("code") == e.code)
 def format_error_payload(e: BaseException) -> dict[str, Any]:
     """Format an exception into the standard JSON error payload schema."""
@@ -461,12 +432,7 @@ def format_error_message(e: Exception) -> str:
     return msg
 
 
-
-
-@deal.pre(
-    lambda message, code="TOOL_EXECUTION_ERROR", **details: isinstance(message, str)
-    and ascii_bounded(code, DEAL_MAX_TOKEN, min_len=1)
-)
+@deal.pre(lambda message, code="TOOL_EXECUTION_ERROR", **details: isinstance(message, str) and ascii_bounded(code, DEAL_MAX_TOKEN, min_len=1))
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
 def make_tool_error(message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
     """Central factory for all standardized tool error payloads."""
@@ -485,14 +451,7 @@ class DocumentDisposedError(UnoObjectError):
     code: str = "DISPOSED_OBJECT"
     object_type: str
 
-    def __init__(
-        self,
-        message: Any,
-        object_type: str = "Object",
-        code: str | None = None,
-        details: dict[str, Any] | None = None,
-        context: dict[str, Any] | None = None,
-    ) -> None:
+    def __init__(self, message: Any, object_type: str = "Object", code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:
         super().__init__(message, code=code or self.code, details=details, context=context)
         self.object_type = object_type
 
@@ -504,14 +463,7 @@ class ResourceNotFoundError(WriterAgentException):
     resource_type: str
     identifier: str
 
-    def __init__(
-        self,
-        resource_type: str,
-        identifier: str,
-        code: str | None = None,
-        details: dict[str, Any] | None = None,
-        context: dict[str, Any] | None = None,
-    ) -> None:
+    def __init__(self, resource_type: str, identifier: str, code: str | None = None, details: dict[str, Any] | None = None, context: dict[str, Any] | None = None) -> None:
         message = _("{resource_type} not found: {identifier}").format(resource_type=resource_type, identifier=identifier)
         super().__init__(message, code=code or self.code, details=details, context=context)
         self.resource_type = resource_type
@@ -605,8 +557,6 @@ def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
     return True
 
 
-
-
 # Three wrappers, three jobs: safe_uno_call is for probes (RuntimeException is
 # not disposal — return default). handle_errors / safe_call are for real
 # operations (RuntimeException usually means the object is gone).
@@ -631,17 +581,8 @@ def safe_uno_call(default: Any = None) -> Any:
                 e_name = type(e).__name__
                 # Do not add "RuntimeException": that is a probe failure, not disposal.
                 if "DisposedException" in e_name or isinstance(e, DocumentDisposedError):
-                    raise DocumentDisposedError(
-                        f"UNO object disposed during {func.__name__}",
-                        object_type=func.__name__,
-                        details={"args": str(args), "kwargs": str(kwargs), "original_error": str(e)},
-                    ) from e
-                logging.getLogger("writeragent.errors").debug(
-                    "safe_uno_call: %s failed (%s), returning default %r",
-                    func.__name__,
-                    e,
-                    default,
-                )
+                    raise DocumentDisposedError(f"UNO object disposed during {func.__name__}", object_type=func.__name__, details={"args": str(args), "kwargs": str(kwargs), "original_error": str(e)}) from e
+                logging.getLogger("writeragent.errors").debug("safe_uno_call: %s failed (%s), returning default %r", func.__name__, e, default)
                 return default
 
         return wrapper
@@ -725,18 +666,17 @@ __all__ = [
     "UNO_DISPOSED_EXCEPTIONS",
     "check_disposed",
     "check_not_none",
-    "format_error_message",      # The single i18n-friendly mapper (centralized here in 2026 janitor effort)
+    "format_error_message",  # The single i18n-friendly mapper (centralized here in 2026 janitor effort)
     "format_error_payload",
     "handle_errors",
     "ignore_disposed",
     "is_disposed_exception",
     "is_document_disposed",
     "is_tool_document_disposed",
-    "make_tool_error",           # Central factory for all tool error dicts
+    "make_tool_error",  # Central factory for all tool error dicts
     "safe_call",
     "safe_json_loads",
     "safe_python_literal_eval",
     "safe_uno_call",
     "suppress_disposed",
 ]
-

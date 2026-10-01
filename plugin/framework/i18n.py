@@ -49,6 +49,7 @@ _DEFAULT_LOCALE = "en_US"
 
 from plugin.framework.deal_shim import DEAL_MAX_MSGID, str_bounded, deal
 
+
 @deal.post(lambda result: isinstance(result, str) and len(result) > 0)
 def get_active_locale() -> str:
     """Return the locale tag for the gettext catalog loaded by init_i18n()."""
@@ -106,12 +107,7 @@ def _mo_candidates(localedir: str, lang: str, domain: str = "writeragent") -> li
     return [os.path.join(localedir, tag, "LC_MESSAGES", "%s.mo" % domain) for tag in tags]
 
 
-def load_translation(
-    languages: list[str],
-    localedir: str | None = None,
-    *,
-    fallback: bool = True,
-) -> gettext.NullTranslations:
+def load_translation(languages: list[str], localedir: str | None = None, *, fallback: bool = True) -> gettext.NullTranslations:
     # crosshair: off  # gettext.find + open(.mo) filesystem (cover-all 33569420452: 13456 examples). Engine-hostile; doable later with injected catalog.
     """Load domain ``writeragent`` for *languages*.
 
@@ -121,12 +117,7 @@ def load_translation(
     explicit catalog path when the stdlib lookup returns a dummy catalog.
     """
     locales_dir = localedir if localedir is not None else get_locales_dir()
-    trans = gettext.translation(
-        "writeragent",
-        locales_dir,
-        languages=languages,
-        fallback=True,
-    )
+    trans = gettext.translation("writeragent", locales_dir, languages=languages, fallback=True)
     # GNUTranslations subclasses NullTranslations — compare the exact type.
     if type(trans) is not gettext.NullTranslations:
         return trans
@@ -138,9 +129,7 @@ def load_translation(
                 return gettext.GNUTranslations(fh)
     if fallback:
         return gettext.NullTranslations()
-    raise FileNotFoundError(
-        "no writeragent.mo for languages %s under %s" % (languages, locales_dir)
-    )
+    raise FileNotFoundError("no writeragent.mo for languages %s under %s" % (languages, locales_dir))
 
 
 def init_i18n(ctx: Any | None = None) -> None:

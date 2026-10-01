@@ -84,6 +84,7 @@ def in_sync_host_dispatch() -> bool:
     """Return True if the current thread is executing within a synchronous host dispatch."""
     return getattr(_sync_host, "active", False)
 
+
 # Layer B pytest: when set, on_main_thread() treats this thread as the UNO main thread
 # (typically the synthetic pump thread started by tests/framework/thread_safety.py).
 _designated_main_thread: threading.Thread | None = None
@@ -137,6 +138,7 @@ def _notify_thread_violation(msg: str) -> None:
     log.error(msg, stack_info=True)
     # Capture full stack trace for display
     import traceback
+
     stack_trace = "".join(traceback.format_stack())
     full_msg = f"{msg}\n\nStack trace:\n{stack_trace}"
     if os.environ.get("WRITERAGENT_TESTING") == "1":
@@ -192,10 +194,12 @@ def assert_main_thread(what: str) -> None:
 
 def main_thread_only(fn: Any) -> Any:
     """Decorator: assert main thread on entry. Use on UNO source functions."""
+
     @functools.wraps(fn)
     def wrapper(*a: Any, **k: Any) -> Any:
         assert_main_thread(getattr(fn, "__qualname__", str(fn)))
         return fn(*a, **k)
+
     return wrapper
 
 
@@ -205,11 +209,13 @@ def background(fn: Any) -> Any:
     Warns if invoked on the main thread; documents intent for static analysis.
     See docs/framework/uno-thread-safety.md (Layer C).
     """
+
     @functools.wraps(fn)
     def wrapper(*a: Any, **k: Any) -> Any:
         if on_main_thread():
             log.warning("@background fn %r ran on the main thread", getattr(fn, "__qualname__", str(fn)))
         return fn(*a, **k)
+
     return wrapper
 
 
@@ -379,19 +385,4 @@ def _unwrap_uno(obj: Any) -> Any:
     return obj
 
 
-__all__ = [
-    "guard_uno",
-    "assert_main_thread",
-    "main_thread_only",
-    "background",
-    "sync_host_dispatch",
-    "in_sync_host_dispatch",
-    "set_background_task",
-    "get_background_task_name",
-    "set_designated_main_thread",
-    "get_designated_main_thread",
-    "on_main_thread",
-    "_wrap_uno",
-    "_unwrap_uno",
-    "GUARD_ON",
-]
+__all__ = ["guard_uno", "assert_main_thread", "main_thread_only", "background", "sync_host_dispatch", "in_sync_host_dispatch", "set_background_task", "get_background_task_name", "set_designated_main_thread", "get_designated_main_thread", "on_main_thread", "_wrap_uno", "_unwrap_uno", "GUARD_ON"]

@@ -44,13 +44,7 @@ _HAVE_UNO = False
 try:
     import unohelper as _unohelper_impl
     from com.sun.star.lang import XEventListener as _XEventListener_impl
-    from com.sun.star.awt import (
-        XActionListener as _XActionListener_impl,
-        XItemListener as _XItemListener_impl,
-        XTextListener as _XTextListener_impl,
-        XKeyListener as _XKeyListener_impl,
-        XWindowListener as _XWindowListener_impl,
-    )
+    from com.sun.star.awt import XActionListener as _XActionListener_impl, XItemListener as _XItemListener_impl, XTextListener as _XTextListener_impl, XKeyListener as _XKeyListener_impl, XWindowListener as _XWindowListener_impl
     from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl
     from com.sun.star.sheet import XActivationEventListener as _XActivationEventListener_impl
     from com.sun.star.container import XContainerListener as _XContainerListener_impl
@@ -71,27 +65,67 @@ except ImportError:
 
 
 if TYPE_CHECKING:
-    class _BaseParent: pass
-    class _XEventListenerParent: pass
-    class _XActionListenerParent: pass
-    class _XItemListenerParent: pass
-    class _XTextListenerParent: pass
-    class _XKeyListenerParent: pass
-    class _XWindowListenerParent: pass
-    class _XDocumentEventListenerParent: pass
-    class _XActivationEventListenerParent: pass
-    class _XContainerListenerParent: pass
+
+    class _BaseParent:
+        pass
+
+    class _XEventListenerParent:
+        pass
+
+    class _XActionListenerParent:
+        pass
+
+    class _XItemListenerParent:
+        pass
+
+    class _XTextListenerParent:
+        pass
+
+    class _XKeyListenerParent:
+        pass
+
+    class _XWindowListenerParent:
+        pass
+
+    class _XDocumentEventListenerParent:
+        pass
+
+    class _XActivationEventListenerParent:
+        pass
+
+    class _XContainerListenerParent:
+        pass
 else:
-    class _DummyBase: pass
-    class _DummyEventListener: pass
-    class _DummyActionListener: pass
-    class _DummyItemListener: pass
-    class _DummyTextListener: pass
-    class _DummyKeyListener: pass
-    class _DummyWindowListener: pass
-    class _DummyDocumentEventListener: pass
-    class _DummyActivationListener: pass
-    class _DummyContainerListener: pass
+
+    class _DummyBase:
+        pass
+
+    class _DummyEventListener:
+        pass
+
+    class _DummyActionListener:
+        pass
+
+    class _DummyItemListener:
+        pass
+
+    class _DummyTextListener:
+        pass
+
+    class _DummyKeyListener:
+        pass
+
+    class _DummyWindowListener:
+        pass
+
+    class _DummyDocumentEventListener:
+        pass
+
+    class _DummyActivationListener:
+        pass
+
+    class _DummyContainerListener:
+        pass
 
     _BaseParent = _unohelper.Base if _HAVE_UNO else _DummyBase
     _XEventListenerParent = _XEventListener if _HAVE_UNO else _DummyEventListener
@@ -133,6 +167,7 @@ def _catch_and_log(func: Any) -> Any:
 # ---------------------------------------------------------
 # Static Base Classes (100% clean MRO for all typecheckers)
 # ---------------------------------------------------------
+
 
 class BaseListener(_BaseParent, _XEventListenerParent):
     @_catch_and_log

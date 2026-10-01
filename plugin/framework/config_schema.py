@@ -255,6 +255,7 @@ def _is_lru_list_config_key(key: str) -> bool:
             return True
     return False
 
+
 _DEFAULT_PYTHON_SCRIPTS = {
     "Prime Numbers": textwrap.dedent("""\
         # Calculate primes, sharing the sieve via sp.primerange().
@@ -296,12 +297,7 @@ _DEFAULT_PYTHON_SCRIPTS = {
 # substring patch, so Monaco shows the one-line-call version.
 # ``if __name__ == "__main__": run()`` is the previous function-wrapped sample —
 # Run Python Script already execs at module top-level with ``__name__ == "__main__"``.
-_LEGACY_UNIVERSAL_SAMPLE_MARKERS = (
-    'cell_address="A1"',
-    "wa.shape.upsert_shape(",
-    "Hello from Python SDK",
-    'if __name__ == "__main__":\n    run()',
-)
+_LEGACY_UNIVERSAL_SAMPLE_MARKERS = ('cell_address="A1"', "wa.shape.upsert_shape(", "Hello from Python SDK", 'if __name__ == "__main__":\n    run()')
 
 
 # Default endpoint normalizer.
@@ -392,9 +388,7 @@ class WriterAgentConfig:
     last_latex_display_block: bool = False
 
     # Persists multiple user-saved Python scripts (name -> code)
-    saved_python_scripts: Dict[str, str] = dataclasses.field(
-        default_factory=lambda: dict(_DEFAULT_PYTHON_SCRIPTS)
-    )
+    saved_python_scripts: Dict[str, str] = dataclasses.field(default_factory=lambda: dict(_DEFAULT_PYTHON_SCRIPTS))
 
     # Store arbitrary module.yaml config entries
     _extra_config: Dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -875,8 +869,4 @@ def prune_default_values(data: dict[str, Any]) -> dict[str, Any]:
     """Drop unknown keys and values that match schema/dataclass defaults."""
     if not isinstance(data, dict):
         return {}
-    return {
-        k: v
-        for k, v in data.items()
-        if is_known_config_key(k) and not is_default_value(k, v)
-    }
+    return {k: v for k, v in data.items() if is_known_config_key(k) and not is_default_value(k, v)}

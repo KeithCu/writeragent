@@ -30,14 +30,7 @@ def _anthropic_image_block(url_val: Any) -> dict[str, Any] | None:
     data = coerce_raw_b64(url_val)
     if not data:
         return None
-    return {
-        "type": "image",
-        "source": {
-            "type": "base64",
-            "media_type": inline_image_mime(url_val),
-            "data": data,
-        },
-    }
+    return {"type": "image", "source": {"type": "base64", "media_type": inline_image_mime(url_val), "data": data}}
 
 
 def _anthropic_tool_def(tool: Any) -> dict[str, Any] | None:
@@ -112,15 +105,7 @@ class AnthropicShim(BaseProviderShim):
         return {"tool_calls": [call]}
 
     def build_chat_request(
-        self,
-        messages: list[dict[str, Any]],
-        max_tokens: int,
-        temperature: float | None,
-        tools: list[dict[str, Any]] | None,
-        stream: bool,
-        model_name: str | None,
-        response_format: dict[str, Any] | None,
-        chat_extra: dict[str, Any] | None = None,
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> tuple[str, str, bytes, dict[str, str]]:
         self._reset_stream_tools()
         endpoint = self.client._endpoint()
@@ -158,26 +143,13 @@ class AnthropicShim(BaseProviderShim):
                 else:
                     result_blocks.append({"type": "text", "text": str(content or "")})
 
-                block = {
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": result_blocks,
-                }
+                block = {"type": "tool_result", "tool_use_id": tool_use_id, "content": result_blocks}
                 # The chat loop stores one message per tool call. Anthropic
                 # requires every tool_result for one assistant turn in a single
                 # user message; a separate user message per result is a 400.
                 prev = converted[-1] if converted else None
                 prev_content = prev.get("content") if isinstance(prev, dict) else None
-                if (
-                    isinstance(prev, dict)
-                    and prev.get("role") == "user"
-                    and isinstance(prev_content, list)
-                    and prev_content
-                    and all(
-                        isinstance(part, dict) and part.get("type") == "tool_result"
-                        for part in prev_content
-                    )
-                ):
+                if isinstance(prev, dict) and prev.get("role") == "user" and isinstance(prev_content, list) and prev_content and all(isinstance(part, dict) and part.get("type") == "tool_result" for part in prev_content):
                     prev_content.append(block)
                 else:
                     converted.append({"role": "user", "content": [block]})
@@ -198,12 +170,7 @@ class AnthropicShim(BaseProviderShim):
                     args_obj = _parse_tool_input(fn.get("arguments", "{}"))
                     if args_obj is None:
                         continue
-                    anth_content.append({
-                        "type": "tool_use",
-                        "id": tc.get("id"),
-                        "name": fn.get("name"),
-                        "input": args_obj,
-                    })
+                    anth_content.append({"type": "tool_use", "id": tc.get("id"), "name": fn.get("name"), "input": args_obj})
                 converted.append({"role": "assistant", "content": anth_content})
                 continue
 
@@ -222,12 +189,7 @@ class AnthropicShim(BaseProviderShim):
             else:
                 converted.append({"role": role or "user", "content": str(content or "")})
 
-        data: dict[str, Any] = {
-            "model": model_name or "claude-3-5-sonnet-20241022",
-            "messages": converted,
-            "max_tokens": max_tokens,
-            "stream": stream,
-        }
+        data: dict[str, Any] = {"model": model_name or "claude-3-5-sonnet-20241022", "messages": converted, "max_tokens": max_tokens, "stream": stream}
         if temperature is not None:
             data["temperature"] = temperature
         if system_msg:
@@ -252,12 +214,7 @@ class AnthropicShim(BaseProviderShim):
         elif msg_type == "content_block_start":
             block = chunk.get("content_block")
             if isinstance(block, dict) and block.get("type") == "tool_use":
-                tool_delta = self._tool_delta(
-                    chunk.get("index"),
-                    {"name": block.get("name") or "", "arguments": ""},
-                    tool_id=block.get("id"),
-                    name=block.get("name") or "",
-                )
+                tool_delta = self._tool_delta(chunk.get("index"), {"name": block.get("name") or "", "arguments": ""}, tool_id=block.get("id"), name=block.get("name") or "")
                 if tool_delta:
                     delta = tool_delta
         elif msg_type == "content_block_delta":
@@ -270,10 +227,7 @@ class AnthropicShim(BaseProviderShim):
             elif d.get("type") == "input_json_delta":
                 # partial_json is a fragment. accumulate_delta concatenates
                 # function.arguments across chunks that share an index.
-                tool_delta = self._tool_delta(
-                    chunk.get("index"),
-                    {"arguments": d.get("partial_json") or ""},
-                )
+                tool_delta = self._tool_delta(chunk.get("index"), {"arguments": d.get("partial_json") or ""})
                 if tool_delta:
                     delta = tool_delta
         elif msg_type == "message":
@@ -293,11 +247,7 @@ class AnthropicShim(BaseProviderShim):
                     raw_input = p.get("input")
                     if not isinstance(raw_input, (dict, list)):
                         raw_input = {}
-                    tool_calls.append({
-                        "id": p.get("id") or "",
-                        "type": "function",
-                        "function": {"name": name, "arguments": json.dumps(raw_input)},
-                    })
+                    tool_calls.append({"id": p.get("id") or "", "type": "function", "function": {"name": name, "arguments": json.dumps(raw_input)}})
             delta = {"role": "assistant", "content": content}
             if tool_calls:
                 delta["tool_calls"] = tool_calls
@@ -311,9 +261,7 @@ class AnthropicShim(BaseProviderShim):
             finish_reason = "stop"
         return content, finish_reason, thinking, delta
 
-    def parse_sync_response(
-        self, response_data: dict[str, Any]
-    ) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
+    def parse_sync_response(self, response_data: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
         content, finish_reason, _unused, delta = self.parse_response_chunk(response_data)
         tool_calls = delta.get("tool_calls")
         usage = response_data.get("usage") or {}

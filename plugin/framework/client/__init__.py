@@ -14,15 +14,8 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
-from .errors import (
-    format_error_for_display,
-    is_audio_unsupported_error,
-)
-from .provider_detection import (
-    get_provider_from_endpoint,
-    is_local_host,
-    is_openrouter_endpoint,
-)
+from .errors import format_error_for_display, is_audio_unsupported_error
+from .provider_detection import get_provider_from_endpoint, is_local_host, is_openrouter_endpoint
 from .requests import sync_request
 
 if TYPE_CHECKING:
@@ -30,12 +23,7 @@ if TYPE_CHECKING:
 
     from .embedding_client import EmbeddingBatch, embed_texts, get_embedding_model
     from .embeddings_service import delete_paragraphs, index_paragraphs, knn_search
-    from .llm_client import (
-        LlmClient,
-        OPENROUTER_CHAT_EXTRA_BLOCKLIST,
-        merge_openrouter_chat_extra,
-        strip_leaked_chat_template_control_tokens,
-    )
+    from .llm_client import LlmClient, OPENROUTER_CHAT_EXTRA_BLOCKLIST, merge_openrouter_chat_extra, strip_leaked_chat_template_control_tokens
     from .stream_normalizer import iterate_sse
 
 __all__ = [
@@ -70,10 +58,7 @@ _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "LlmClient": (".llm_client", "LlmClient"),
     "OPENROUTER_CHAT_EXTRA_BLOCKLIST": (".llm_client", "OPENROUTER_CHAT_EXTRA_BLOCKLIST"),
     "merge_openrouter_chat_extra": (".llm_client", "merge_openrouter_chat_extra"),
-    "strip_leaked_chat_template_control_tokens": (
-        ".llm_client",
-        "strip_leaked_chat_template_control_tokens",
-    ),
+    "strip_leaked_chat_template_control_tokens": (".llm_client", "strip_leaked_chat_template_control_tokens"),
     "iterate_sse": (".stream_normalizer", "iterate_sse"),
     "run_trusted_analysis": ("plugin.scripting.client", "run_analysis"),
 }

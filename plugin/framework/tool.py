@@ -28,6 +28,7 @@ dropped). Python cannot kill a thread cleanly. Cooperative cancel is
 ``SendCancellation`` (Stop sets a flag / closes HTTP), not
 ``thread.kill``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,11 +42,7 @@ from plugin.framework.thread_guard import assert_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
-from plugin.framework.tool_schema import (
-    _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers,
-    to_mcp_schema as to_mcp_schema,
-    to_openai_schema as to_openai_schema,
-)
+from plugin.framework.tool_schema import _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers, to_mcp_schema as to_mcp_schema, to_openai_schema as to_openai_schema
 
 
 def _doc_type_str_from_doc(doc: Any) -> str | None:
@@ -70,25 +67,7 @@ log = logging.getLogger("writeragent.tools")
 # verb_noun tools (legacy/core): name starts with a read verb.
 _READ_PREFIXES = ("get_", "read_", "list_", "find_", "search_", "count_")
 # domain_verb tools (specialized): a later token is a read verb (image_list, style_get_info).
-_READ_NAME_TOKENS = frozenset(
-    {
-        "list",
-        "get",
-        "read",
-        "find",
-        "search",
-        "count",
-        "info",
-        "stats",
-        "overview",
-        "summary",
-        "children",
-        "surroundings",
-        "tree",
-        "outline",
-        "recent",
-    }
-)
+_READ_NAME_TOKENS = frozenset({"list", "get", "read", "find", "search", "count", "info", "stats", "overview", "summary", "children", "surroundings", "tree", "outline", "recent"})
 
 
 @deal.pre(lambda name: isinstance(name, str) and ascii_bounded(name, DEAL_MAX_TOKEN))
@@ -141,9 +120,46 @@ class ToolContext:
     send_cancellation: Any | None
     uno_services_supported: frozenset[str]
 
-    __slots__: ClassVar[tuple[str, ...]] = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "active_domain", "python_tool_domain", "read_only_target", "send_cancellation", "uno_services_supported")
+    __slots__: ClassVar[tuple[str, ...]] = (
+        "doc",
+        "ctx",
+        "doc_type",
+        "services",
+        "caller",
+        "active_page_index",
+        "status_callback",
+        "append_thinking_callback",
+        "stop_checker",
+        "approval_callback",
+        "chat_append_callback",
+        "set_active_domain_callback",
+        "active_domain",
+        "python_tool_domain",
+        "read_only_target",
+        "send_cancellation",
+        "uno_services_supported",
+    )
 
-    def __init__(self, doc: Any, ctx: Any, doc_type: str, services: Any, caller: str = "", active_page_index: int | None = None, status_callback: Any = None, append_thinking_callback: Any = None, stop_checker: Any = None, approval_callback: Any = None, chat_append_callback: Any = None, set_active_domain_callback: Any = None, active_domain: str | None = None, python_tool_domain: str | None = None, read_only_target: bool = False, send_cancellation: Any = None, uno_services_supported: Any = None) -> None:
+    def __init__(
+        self,
+        doc: Any,
+        ctx: Any,
+        doc_type: str,
+        services: Any,
+        caller: str = "",
+        active_page_index: int | None = None,
+        status_callback: Any = None,
+        append_thinking_callback: Any = None,
+        stop_checker: Any = None,
+        approval_callback: Any = None,
+        chat_append_callback: Any = None,
+        set_active_domain_callback: Any = None,
+        active_domain: str | None = None,
+        python_tool_domain: str | None = None,
+        read_only_target: bool = False,
+        send_cancellation: Any = None,
+        uno_services_supported: Any = None,
+    ) -> None:
         # crosshair: off
         self.doc = doc
         self.ctx = ctx
@@ -299,7 +315,6 @@ class ToolBase(ABC):
             # EditReviewSession.wait_for_review must detect dispose itself. Do not "fix" by
             # running this check when is_async() is True.
 
-
             return self.execute(ctx, **kwargs)
 
         except Exception as e:
@@ -308,12 +323,7 @@ class ToolBase(ABC):
             _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")
             doc = getattr(ctx, "doc", None) if ctx is not None else None
             if is_tool_document_disposed(e, doc):
-                return self._tool_error(
-                    "Document was closed or disposed by LibreOffice",
-                    code="DOCUMENT_DISPOSED",
-                    original_error=str(e),
-                    error_type=type(e).__name__,
-                )
+                return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED", original_error=str(e), error_type=type(e).__name__)
             # Bare RuntimeException often has an empty message; fall back to the type name.
             err_msg = str(e).strip() or type(e).__name__
             return self._tool_error(f"Tool execution failed: {err_msg}", code="TOOL_EXECUTION_ERROR", original_error=str(e), error_type=type(e).__name__)
@@ -409,12 +419,7 @@ _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"}
 _UNSET_EXCLUDE_TIERS = object()
 
 
-def tool_supports_document(
-    tool: ToolBase,
-    *,
-    doc_type: str | None,
-    uno_services_supported: frozenset[str] | None,
-) -> bool:
+def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
     """Return True when *tool* is allowed on a document with the cached type/services."""
     if tool.uno_services is None and tool.doc_types is None:
         return True
@@ -477,14 +482,7 @@ class ToolRegistry:
             # Same __name__ from a *different* module is last-wins (Writer/Calc/Draw
             # wrappers for shape_upsert / manage_charts) — log so registration order is visible.
             if type(existing_tool).__name__ != type(tool).__name__ or type(existing_tool).__module__ != type(tool).__module__:
-                log.warning(
-                    "Tool '%s' already registered (class %s from %s), replacing with class %s from %s",
-                    tool.name,
-                    type(existing_tool).__name__,
-                    type(existing_tool).__module__,
-                    type(tool).__name__,
-                    type(tool).__module__,
-                )
+                log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
         self._tools[tool.name] = tool
 
     def auto_discover_package(self, package_name: str) -> None:
@@ -522,7 +520,9 @@ class ToolRegistry:
 
     # ── Lookup & Schema Generation ────────────────────────────────────
 
-    def get_tools(self, doc: Any = None, doc_type: str | None = None, tier: str | None = None, intent: str | None = None, names: Any = None, filter_doc_type: bool = True, exclude_tiers: Any = _UNSET_EXCLUDE_TIERS, active_domain: str | None = None, uno_services_supported: Any = None, **kwargs: Any) -> list[ToolBase]:
+    def get_tools(
+        self, doc: Any = None, doc_type: str | None = None, tier: str | None = None, intent: str | None = None, names: Any = None, filter_doc_type: bool = True, exclude_tiers: Any = _UNSET_EXCLUDE_TIERS, active_domain: str | None = None, uno_services_supported: Any = None, **kwargs: Any
+    ) -> list[ToolBase]:
         """Return a list of ToolBase instances matching the given criteria.
 
         Args:
@@ -555,11 +555,7 @@ class ToolRegistry:
         def supports_doc(t: Any) -> bool:
             if not filter_doc_type:
                 return True
-            return tool_supports_document(
-                t,
-                doc_type=doc_type,
-                uno_services_supported=uno_services_supported,
-            )
+            return tool_supports_document(t, doc_type=doc_type, uno_services_supported=uno_services_supported)
 
         tools = [t for t in tools if supports_doc(t)]
 
@@ -636,6 +632,7 @@ class ToolRegistry:
             # get_image is only useful to a vision-capable text model on the chat path; hide it from
             # text-only models. The MCP path (below) always keeps it (client assumed vision-capable).
             from plugin.vision.vision_availability import filter_get_image_for_text_only_model
+
             tools = filter_get_image_for_text_only_model(tools)
             schemas = [to_openai_schema(t, doc_type=doc_type) for t in tools]
             ctx = kwargs.get("ctx")
@@ -645,18 +642,14 @@ class ToolRegistry:
                 schemas = filter_vision_delegate_schemas(schemas, ctx)
             from plugin.doc.peer_message import filter_peer_message_schemas
 
-            schemas = filter_peer_message_schemas(
-                schemas, ctx, doc=kwargs.get("doc"), active_domain=active_domain
-            )
+            schemas = filter_peer_message_schemas(schemas, ctx, doc=kwargs.get("doc"), active_domain=active_domain)
             return schemas
         elif protocol == "mcp":
             # Never advertise peer send tools on MCP, including find_tools(domain=…).
             from plugin.doc.peer_message import filter_peer_message_schemas
 
             schemas = [to_mcp_schema(t, doc_type=doc_type) for t in tools]
-            return filter_peer_message_schemas(
-                schemas, kwargs.get("ctx"), doc=kwargs.get("doc"), active_domain=None
-            )
+            return filter_peer_message_schemas(schemas, kwargs.get("ctx"), doc=kwargs.get("doc"), active_domain=None)
         else:
             raise ValueError(f"Unknown protocol: {protocol}")
 
@@ -707,11 +700,7 @@ class ToolRegistry:
                     cancel.cancel()
                 except Exception:
                     log.debug("tool timeout: send_cancellation.cancel failed", exc_info=True)
-            return make_tool_error(
-                f"Tool timed out after {timeout} seconds",
-                code="TOOL_TIMEOUT",
-                tool_name=tool_name,
-            )
+            return make_tool_error(f"Tool timed out after {timeout} seconds", code="TOOL_TIMEOUT", tool_name=tool_name)
 
         result_type, result = result_queue.get()
         if result_type == "error":
@@ -742,18 +731,10 @@ class ToolRegistry:
                 # opaque traceback via execute_fn's unexpected-exception handler.
                 # This covers hallucinated names (e.g. 'write_formulas') and the
                 # 'unknown' sentinel from null tool-name tool calls alike.
-                return make_tool_error(
-                    f"No tool named '{tool_name}' is registered. Check the tool name and retry.",
-                    code="UNKNOWN_TOOL",
-                    tool_name=tool_name,
-                )
+                return make_tool_error(f"No tool named '{tool_name}' is registered. Check the tool name and retry.", code="UNKNOWN_TOOL", tool_name=tool_name)
 
             # Check document compatibility using cached doc_type / UNO services (no live doc probe).
-            if not tool_supports_document(
-                tool,
-                doc_type=ctx.doc_type,
-                uno_services_supported=getattr(ctx, "uno_services_supported", None),
-            ):
+            if not tool_supports_document(tool, doc_type=ctx.doc_type, uno_services_supported=getattr(ctx, "uno_services_supported", None)):
                 # Schema/registry bug: this tool should not have been advertised for
                 # this document. Raise (not UNKNOWN_TOOL) so callers see a programmer
                 # error. Hallucinated names already return make_tool_error(..., UNKNOWN_TOOL).
@@ -791,11 +772,7 @@ class ToolRegistry:
 
             if getattr(ctx, "read_only_target", False) and tool.detects_mutation():
                 # Use the central factory (all tool errors now go through make_tool_error).
-                return make_tool_error(
-                    "This document is open for read-only document_research access; writes are not allowed.",
-                    code="READ_ONLY_TARGET",
-                    **common_details,
-                )
+                return make_tool_error("This document is open for read-only document_research access; writes are not allowed.", code="READ_ONLY_TARGET", **common_details)
 
             # Execution with simple isolation and timeout.
             # Async tools (and bypass_thread_guard eval paths) run on the caller's thread.
@@ -806,14 +783,7 @@ class ToolRegistry:
             timeout = self._get_tool_timeout(tool)
 
             def _invoke() -> Any:
-                return self._execute_with_timeout(
-                    runner,
-                    timeout=timeout,
-                    tool_name=tool_name,
-                    run_threaded=run_threaded,
-                    ctx=ctx,
-                    **kwargs,
-                )
+                return self._execute_with_timeout(runner, timeout=timeout, tool_name=tool_name, run_threaded=run_threaded, ctx=ctx, **kwargs)
 
             if bypass_thread_guard or tool.is_async():
                 result = _invoke()
@@ -837,13 +807,7 @@ class ToolRegistry:
             raise
         except Exception as e:
             log.exception("Tool execution failed: %s", tool_name)
-            return make_tool_error(
-                f"Failed to execute tool '{tool_name}'",
-                code="TOOL_REGISTRY_ERROR",
-                tool_name=tool_name,
-                error=str(e),
-                type=type(e).__name__,
-            )
+            return make_tool_error(f"Failed to execute tool '{tool_name}'", code="TOOL_REGISTRY_ERROR", tool_name=tool_name, error=str(e), type=type(e).__name__)
 
     @property
     def tool_names(self) -> list[str]:

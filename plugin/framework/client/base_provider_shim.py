@@ -36,25 +36,10 @@ _NAMED_ASPECT_RATIOS: dict[str, str] = {
 }
 
 # Closest-match table for WxH. Keep 16:9 before 3:2 so 1792x1024 stays 16:9.
-_PIXEL_ASPECT_RATIOS: tuple[tuple[str, float], ...] = (
-    ("1:1", 1.0),
-    ("16:9", 16 / 9),
-    ("9:16", 9 / 16),
-    ("4:3", 4 / 3),
-    ("3:4", 3 / 4),
-    ("3:2", 1.5),
-    ("2:3", 2 / 3),
-    ("21:9", 21 / 9),
-    ("4:5", 4 / 5),
-    ("5:4", 5 / 4),
-)
+_PIXEL_ASPECT_RATIOS: tuple[tuple[str, float], ...] = (("1:1", 1.0), ("16:9", 16 / 9), ("9:16", 9 / 16), ("4:3", 4 / 3), ("3:4", 3 / 4), ("3:2", 1.5), ("2:3", 2 / 3), ("21:9", 21 / 9), ("4:5", 4 / 5), ("5:4", 5 / 4))
 
 
-def canonical_aspect_ratio(
-    width: int | None = None,
-    height: int | None = None,
-    named: str | None = None,
-) -> str | None:
+def canonical_aspect_ratio(width: int | None = None, height: int | None = None, named: str | None = None) -> str | None:
     """Return a provider aspect-ratio hint (``1:1``, ``16:9``, …) or None.
 
     Named UI/tool values win. Pixel WxH maps to the closest standard ratio
@@ -75,12 +60,7 @@ def canonical_aspect_ratio(
     return None
 
 
-def canonical_resolution(
-    width: int | None = None,
-    height: int | None = None,
-    *,
-    family: str = "standard",
-) -> str | None:
+def canonical_resolution(width: int | None = None, height: int | None = None, *, family: str = "standard") -> str | None:
     """Map max(width, height) to a vendor resolution tier.
 
     Standard (OpenRouter ``/images`` resolution, Google native): ``512``, ``1K``,
@@ -152,15 +132,7 @@ class BaseProviderShim:
         self.client = client
 
     def build_chat_request(
-        self,
-        messages: list[dict[str, Any]],
-        max_tokens: int,
-        temperature: float | None,
-        tools: list[dict[str, Any]] | None,
-        stream: bool,
-        model_name: str | None,
-        response_format: dict[str, Any] | None,
-        chat_extra: dict[str, Any] | None = None,
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> tuple[str, str, bytes, dict[str, str]]:
         from .llm_client import merge_openrouter_chat_extra
 
@@ -168,12 +140,7 @@ class BaseProviderShim:
         api_path = self.client._api_path()
         url = endpoint + api_path + "/chat/completions"
 
-        data: dict[str, Any] = {
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "top_p": 0.9,
-            "stream": stream,
-        }
+        data: dict[str, Any] = {"messages": messages, "max_tokens": max_tokens, "top_p": 0.9, "stream": stream}
         if temperature is not None:
             data["temperature"] = temperature
         if model_name:
@@ -220,9 +187,7 @@ class BaseProviderShim:
         thinking = _extract_thinking_from_delta(chunk)
         return content, finish_reason, thinking, delta
 
-    def parse_sync_response(
-        self, response_data: dict[str, Any]
-    ) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
+    def parse_sync_response(self, response_data: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
         from .stream_normalizer import _normalize_delta, _normalize_message_content
 
         # OpenAI-compatible / local models response parsing
@@ -245,16 +210,7 @@ class BaseProviderShim:
 
         return content, finish_reason, tool_calls, usage, images, message
 
-    def build_image_request(
-        self,
-        prompt: str,
-        model: str | None,
-        width: int,
-        height: int,
-        steps: int | None = None,
-        source_image: str | None = None,
-        image_url: str | None = None,
-    ) -> tuple[str, str, bytes, dict[str, str]]:
+    def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         """Build an image generation request (standard OpenAI format)."""
         endpoint = self.client._endpoint()
         api_path = self.client._api_path()

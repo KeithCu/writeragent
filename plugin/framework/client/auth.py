@@ -23,10 +23,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.url_utils import normalize_endpoint_url
-from plugin.framework.client.provider_detection import (
-    get_provider_from_endpoint,
-    is_openrouter_endpoint,
-)
+from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ConfigError
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, DEAL_MAX_URL, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 
@@ -70,14 +67,7 @@ class ProviderConfig:
 
 
 PROVIDERS: Dict[str, ProviderConfig] = {
-    "openrouter": ProviderConfig(
-        id="openrouter",
-        name="OpenRouter",
-        header_style="bearer",
-        host_matches=("openrouter.ai",),
-        model_id_style="slug",
-        extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE},
-    ),
+    "openrouter": ProviderConfig(id="openrouter", name="OpenRouter", header_style="bearer", host_matches=("openrouter.ai",), model_id_style="slug", extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE}),
     "together": ProviderConfig(id="together", name="Together AI", header_style="bearer", host_matches=("api.together.xyz", "together.xyz"), model_id_style="slug"),
     "mistral": ProviderConfig(id="mistral", name="Mistral", header_style="bearer", host_matches=("api.mistral.ai",)),
     "openai": ProviderConfig(id="openai", name="OpenAI", header_style="bearer", host_matches=("api.openai.com",)),
@@ -130,9 +120,7 @@ def _deal_resolve_endpoint_ok_crosshair(endpoint: object) -> bool:
     return endpoint in _DEAL_RESOLVE_ENDPOINTS
 
 
-_deal_resolve_endpoint_ok = (
-    _deal_resolve_endpoint_ok_crosshair if UNDER_CROSSHAIR else _deal_resolve_endpoint_ok_pytest
-)
+_deal_resolve_endpoint_ok = _deal_resolve_endpoint_ok_crosshair if UNDER_CROSSHAIR else _deal_resolve_endpoint_ok_pytest
 
 
 def _deal_provider_id_ok_pytest(provider_id: object) -> bool:
@@ -146,10 +134,7 @@ def _deal_provider_id_ok_crosshair(provider_id: object) -> bool:
 _deal_provider_id_ok = _deal_provider_id_ok_crosshair if UNDER_CROSSHAIR else _deal_provider_id_ok_pytest
 
 
-@deal.pre(
-    lambda endpoint, provider_hint=None: _deal_resolve_endpoint_ok(endpoint)
-    and _deal_resolve_hint_ok(provider_hint)
-)
+@deal.pre(lambda endpoint, provider_hint=None: _deal_resolve_endpoint_ok(endpoint) and _deal_resolve_hint_ok(provider_hint))
 def _resolve_provider_id(endpoint: str, provider_hint: Optional[str] = None) -> str:
     """
     Map an endpoint URL + optional hint to a provider id from PROVIDERS.

@@ -24,38 +24,15 @@ def detect_languages(ctx: Any, texts: list[str]) -> list[str | None]:
 
     timeout_sec = embeddings_worker_timeout_sec(ctx)
     try:
-        result = run_trusted_worker_action(
-            ctx,
-            domain="langdetect",
-            helper="detect",
-            params={},
-            additional_data={"texts": list(texts)},
-            session_id=_LANGDETECT_SESSION_ID,
-            timeout_sec=timeout_sec,
-            worker_pool=WORKER_POOL_EMBEDDINGS,
-            error_code="LANGDETECT_ERROR",
-            error_label="Language detection",
-        )
+        result = run_trusted_worker_action(ctx, domain="langdetect", helper="detect", params={}, additional_data={"texts": list(texts)}, session_id=_LANGDETECT_SESSION_ID, timeout_sec=timeout_sec, worker_pool=WORKER_POOL_EMBEDDINGS, error_code="LANGDETECT_ERROR", error_label="Language detection")
     except ToolExecutionError as exc:
         message = str(exc)
         if "venv" in message.lower() or "langdetect" in message.lower():
-            raise ToolExecutionError(
-                f"{message} Install with: {EMBEDDINGS_VENV_PIP_INSTALL}",
-                code="LANGDETECT_ERROR",
-                details=getattr(exc, "details", None),
-            ) from exc
+            raise ToolExecutionError(f"{message} Install with: {EMBEDDINGS_VENV_PIP_INSTALL}", code="LANGDETECT_ERROR", details=getattr(exc, "details", None)) from exc
         raise
     languages = result.get("languages")
     if not isinstance(languages, list):
-        raise ToolExecutionError(
-            "Language detection worker returned a malformed result.",
-            code="LANGDETECT_ERROR",
-            details={"keys": sorted(result.keys())},
-        )
+        raise ToolExecutionError("Language detection worker returned a malformed result.", code="LANGDETECT_ERROR", details={"keys": sorted(result.keys())})
     if len(languages) != len(texts):
-        raise ToolExecutionError(
-            "Language detection worker returned mismatched batch length.",
-            code="LANGDETECT_ERROR",
-            details={"expected": len(texts), "got": len(languages)},
-        )
+        raise ToolExecutionError("Language detection worker returned mismatched batch length.", code="LANGDETECT_ERROR", details={"expected": len(texts), "got": len(languages)})
     return languages

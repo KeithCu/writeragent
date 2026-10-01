@@ -19,24 +19,14 @@ from plugin.framework.service import ServiceBase
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.errors import ConfigError, ConfigValidationError
 
-from plugin.framework.config import (
-    get_config,
-    set_config,
-    remove_config,
-    get_config_dict,
-    get_current_endpoint,
-    set_api_key_for_endpoint,
-    parse_config_json_text,
-    _load_config_dict,
-    _write_config_file,
-    AI_SIMPLE_FIELDS,
-)
+from plugin.framework.config import get_config, set_config, remove_config, get_config_dict, get_current_endpoint, set_api_key_for_endpoint, parse_config_json_text, _load_config_dict, _write_config_file, AI_SIMPLE_FIELDS
 from plugin.framework.config_schema import WriterAgentConfig
 from plugin.framework.client.model_fetcher import get_stt_model, set_image_model, set_text_model
 
 _unohelper_mod: Any
 try:
     import unohelper as _unohelper_impl
+
     _unohelper_mod = _unohelper_impl
 except ImportError:
     _unohelper_mod = None
@@ -45,16 +35,19 @@ unohelper: Any = _unohelper_mod
 
 log = logging.getLogger(__name__)
 
+
 class ConfigAccessError(ConfigError):
     """Raised when a module tries to access a private config key."""
 
     code: str = "CONFIG_ACCESS_ERROR"
+
 
 def _dummy_impl(name: str, services: Any = ()) -> Any:
     def decorator(cls: type[Any]) -> Any:
         return cls
 
     return decorator
+
 
 def _uno_service_implementation_decorator() -> Callable[..., Any]:
     """Return UNO's ``unohelper.implementation`` or a no-op when unohelper is mocked.
@@ -80,7 +73,9 @@ def _uno_service_implementation_decorator() -> Callable[..., Any]:
         return _dummy_impl
     return cast("Callable[..., Any]", impl)
 
+
 _implementation: Callable[..., Any] = _uno_service_implementation_decorator()
+
 
 @_implementation("org.extension.writeragent.ConfigService")
 class ConfigService(ServiceBase):
@@ -132,6 +127,7 @@ class ConfigService(ServiceBase):
             if field == "api_key":
                 endpoint = get_current_endpoint()
                 from plugin.framework.config import get_api_key_for_endpoint
+
                 return str(get_api_key_for_endpoint(endpoint) or "")
 
             if field in AI_SIMPLE_FIELDS:
@@ -187,15 +183,12 @@ class ConfigService(ServiceBase):
             if field in AI_SIMPLE_FIELDS:
                 if field == "endpoint":
                     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
+
                     resolved = endpoint_from_selector_text(str(value))
                     # What was wrong: an empty resolve returned without writing,
                     # and the caller treated set() as success.
                     if not resolved:
-                        raise ConfigError(
-                            "Endpoint text did not resolve to a URL",
-                            "CONFIG_INVALID_ENDPOINT",
-                            details={"value": value},
-                        )
+                        raise ConfigError("Endpoint text did not resolve to a URL", "CONFIG_INVALID_ENDPOINT", details={"value": value})
                     set_config("endpoint", resolved, event_key=key)
                 elif field == "image_model":
                     set_image_model(value or "", update_lru=True, event_key=key)

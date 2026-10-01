@@ -31,13 +31,7 @@ from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_s
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import NetworkError
 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
-from plugin.framework.config import (
-    get_api_key_for_endpoint,
-    get_config_bool_safe,
-    get_config,
-    get_current_endpoint,
-    set_config,
-)
+from plugin.framework.config import get_api_key_for_endpoint, get_config_bool_safe, get_config, get_current_endpoint, set_config
 from plugin.framework.config_schema import as_bool
 
 log = logging.getLogger(__name__)
@@ -212,13 +206,7 @@ def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], list[str
     return models, image_models, vision_models
 
 
-def _store_model_fetch_caches(
-    cache_key: str,
-    models: list[str] | None,
-    image_models: list[str] | None,
-    vision_models: list[str] | None = None,
-    context_tokens: dict[str, int] | None = None,
-) -> None:
+def _store_model_fetch_caches(cache_key: str, models: list[str] | None, image_models: list[str] | None, vision_models: list[str] | None = None, context_tokens: dict[str, int] | None = None) -> None:
     # A failed fetch must not stick for the process lifetime. The next caller retries.
     if models is None:
         return
@@ -264,15 +252,7 @@ def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
         return False
 
 
-def _model_fetch_auth_headers(
-    base: str,
-    api_key_override: str | None,
-    url: str,
-    *,
-    is_openwebui: bool,
-    is_openrouter: bool,
-    log_label: str,
-) -> dict[str, str] | None:
+def _model_fetch_auth_headers(base: str, api_key_override: str | None, url: str, *, is_openwebui: bool, is_openrouter: bool, log_label: str) -> dict[str, str] | None:
     """Headers for a model-list GET.
 
     None: a key was present and auth setup failed; the caller skips the request.
@@ -284,12 +264,7 @@ def _model_fetch_auth_headers(
         api_key = str(api_key_override).strip()
     else:
         api_key = str(get_api_key_for_endpoint(base) or "").strip()
-    mini = {
-        "endpoint": base,
-        "api_key": api_key,
-        "is_openwebui": is_openwebui,
-        "is_openrouter": is_openrouter,
-    }
+    mini = {"endpoint": base, "api_key": api_key, "is_openwebui": is_openwebui, "is_openrouter": is_openrouter}
     try:
         return build_auth_headers(resolve_auth_for_config(mini))
     except AuthError as e:
@@ -328,31 +303,19 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     # Hostname equality, same rule as get_provider_from_endpoint. A path that
     # merely contains "openrouter.ai" is not this provider.
     is_openrouter = is_openrouter_endpoint(base, explicit_is_openrouter=as_bool(get_config("is_openrouter")))
-    req_headers = _model_fetch_auth_headers(
-        base,
-        api_key_override,
-        url,
-        is_openwebui=is_openwebui,
-        is_openrouter=is_openrouter,
-        log_label="fetch_available_models",
-    )
+    req_headers = _model_fetch_auth_headers(base, api_key_override, url, is_openwebui=is_openwebui, is_openrouter=is_openrouter, log_label="fetch_available_models")
     if req_headers is None:
         return None
 
     try:
         from plugin.framework.client.requests import sync_request
+
         data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
         parsed = _parse_v1_models_response(data)
         if parsed is not None:
             models, image_models, vision_models = parsed
             entries = _v1_models_entries_from_body(data) or []
-            _store_model_fetch_caches(
-                cache_key,
-                models,
-                image_models,
-                vision_models,
-                _context_tokens_from_v1_entries(entries),
-            )
+            _store_model_fetch_caches(cache_key, models, image_models, vision_models, _context_tokens_from_v1_entries(entries))
             provider = get_provider_from_endpoint(base)
             if provider == "zai":
                 preview = models[:5] if models else []
@@ -396,19 +359,13 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
         if cache_key in _model_fetch_image_cache:
             return _model_fetch_image_cache[cache_key]
 
-        req_headers = _model_fetch_auth_headers(
-            base,
-            api_key_override,
-            url,
-            is_openwebui=is_owu,
-            is_openrouter=True,
-            log_label="fetch_available_image_models openrouter",
-        )
+        req_headers = _model_fetch_auth_headers(base, api_key_override, url, is_openwebui=is_owu, is_openrouter=True, log_label="fetch_available_image_models openrouter")
         if req_headers is None:
             return None
 
         try:
             from plugin.framework.client.requests import sync_request
+
             data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
             entries = _v1_models_entries_from_body(data)
             if entries is not None:
@@ -483,12 +440,7 @@ def _modality_ids_from_entries(entries: list[Any], modality: str) -> tuple[list[
     return ids, voices
 
 
-def _fetch_openrouter_modality_models(
-    endpoint: str,
-    modality: str,
-    cache: dict[str, list[str] | None],
-    api_key_override: str | None,
-) -> list[str] | None:
+def _fetch_openrouter_modality_models(endpoint: str, modality: str, cache: dict[str, list[str] | None], api_key_override: str | None) -> list[str] | None:
     """OpenRouter ``GET /v1/models?output_modalities=`` list, memoized like other fetches.
 
     Together's ``/v1/models`` type enum has no speech or transcription value, so
@@ -514,14 +466,7 @@ def _fetch_openrouter_modality_models(
     if cache_key in cache:
         return cache[cache_key]
 
-    req_headers = _model_fetch_auth_headers(
-        base,
-        api_key_override,
-        url,
-        is_openwebui=is_owu,
-        is_openrouter=True,
-        log_label=f"fetch openrouter {modality} models",
-    )
+    req_headers = _model_fetch_auth_headers(base, api_key_override, url, is_openwebui=is_owu, is_openrouter=True, log_label=f"fetch openrouter {modality} models")
     if req_headers is None:
         return None
 
@@ -552,9 +497,7 @@ def fetch_available_tts_models(endpoint: str, api_key_override: str | None = Non
 
 def fetch_available_stt_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
     """OpenRouter STT model ids: ``GET /v1/models?output_modalities=transcription``."""
-    return _fetch_openrouter_modality_models(
-        endpoint, "transcription", _model_fetch_stt_cache, api_key_override
-    )
+    return _fetch_openrouter_modality_models(endpoint, "transcription", _model_fetch_stt_cache, api_key_override)
 
 
 def cached_tts_supported_voices(model_id: str) -> list[str]:
@@ -711,11 +654,7 @@ def _voices_from_together_body(data: Any, requested_model: str | None) -> dict[s
     return found
 
 
-def fetch_together_tts_voices(
-    endpoint: str,
-    model_id: str | None = None,
-    api_key_override: str | None = None,
-) -> dict[str, list[str]] | None:
+def fetch_together_tts_voices(endpoint: str, model_id: str | None = None, api_key_override: str | None = None) -> dict[str, list[str]] | None:
     """GET Together ``/v1/voices`` and copy tokens into ``_tts_supported_voices``.
 
     ``model_id`` set: ``GET /v1/voices?model=``. Omitted: list every model.
@@ -743,14 +682,7 @@ def fetch_together_tts_voices(
     if cache_key in _together_voices_fetch_cache:
         return _together_voices_fetch_cache[cache_key]
 
-    req_headers = _model_fetch_auth_headers(
-        base,
-        api_key_override,
-        url,
-        is_openwebui=is_owu,
-        is_openrouter=False,
-        log_label="fetch together voices",
-    )
+    req_headers = _model_fetch_auth_headers(base, api_key_override, url, is_openwebui=is_owu, is_openrouter=False, log_label="fetch together voices")
     if req_headers is None:
         return None
 
@@ -796,12 +728,7 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
     out = []
     if req_cap == "text":
         # Exclude known non-chat models (mirrors LibreAI C++ logic)
-        exclude = {
-            "embedding", "embed", "aqa", "attribution", "retrieval", "vision",
-            "rerank", "classifier", "moderation", "whisper", "speech", "audio",
-            "llava", "stable-diffusion", "sdxl", "dall", "aurora", "imagen",
-            "codellama", "codegemma", "starcoder", "deepseek-coder", "coder"
-        }
+        exclude = {"embedding", "embed", "aqa", "attribution", "retrieval", "vision", "rerank", "classifier", "moderation", "whisper", "speech", "audio", "llava", "stable-diffusion", "sdxl", "dall", "aurora", "imagen", "codellama", "codegemma", "starcoder", "deepseek-coder", "coder"}
         for m in models:
             m_lower = m.lower()
             if any(kw in m_lower for kw in exclude):
@@ -1087,13 +1014,7 @@ def has_native_vision(model_id: Any, endpoint: Any) -> bool:
 
     # 2. Static Default Models check
     caps = get_model_capability(model_id_str, endpoint_str)
-    log.debug(
-        "has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s",
-        model_id_str,
-        endpoint_str,
-        caps,
-        bool(caps & ModelCapability.VISION),
-    )
+    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
     if caps & ModelCapability.VISION:
         return True
 
@@ -1200,6 +1121,7 @@ def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
     req_body = {"model": model_id}
     try:
         from plugin.framework.client.requests import sync_request
+
         headers = {"Content-Type": "application/json"}
         res = sync_request(url, data=json.dumps(req_body).encode("utf-8"), headers=headers, parse_json=True, timeout=_MODEL_FETCH_TIMEOUT)
         if isinstance(res, dict):
@@ -1216,10 +1138,7 @@ def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
                             caps.append("vision")
                         break
 
-            info = {
-                "capabilities": caps,
-                "num_ctx": parse_ollama_runtime_num_ctx(res),
-            }
+            info = {"capabilities": caps, "num_ctx": parse_ollama_runtime_num_ctx(res)}
             _ollama_show_cache[cache_key] = info
             return info
     except Exception as e:
@@ -1280,11 +1199,7 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
         return tokens
     if provider == "openrouter":
         for cached_id, cached_tokens in lengths.items():
-            if (
-                isinstance(cached_tokens, int)
-                and cached_tokens > 0
-                and openrouter_model_ids_equivalent(cached_id, mid)
-            ):
+            if isinstance(cached_tokens, int) and cached_tokens > 0 and openrouter_model_ids_equivalent(cached_id, mid):
                 return cached_tokens
     return None
 
@@ -1306,4 +1221,3 @@ def is_image_only_model(endpoint: Any, model_id: Any) -> bool:
     if is_chat:
         return False
     return any(x in lower_model for x in ("flux", "stable-diffusion", "sdxl", "dall-e", "dall-3", "imagen", "seedream", "midjourney", "playground", "aurora")) or lower_model.endswith("-image") or "/image" in lower_model
-

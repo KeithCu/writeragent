@@ -76,10 +76,7 @@ def get_research_completion_instruction(doc_type: str | None = None) -> str:
 
 # Sheets create: specialized hop makes empty tabs; populate is the outer's job
 # (sheets required_core_tools are reads only — not write_formula_range).
-SHEETS_CREATED_NOT_POPULATED_INSTRUCTION = (
-    "If sheets were created, they are not populated (tab exists; no cells copied). "
-    "Do write_formula_range onto the new tab(s) with source to copy a block, or with values."
-)
+SHEETS_CREATED_NOT_POPULATED_INSTRUCTION = "If sheets were created, they are not populated (tab exists; no cells copied). Do write_formula_range onto the new tab(s) with source to copy a block, or with values."
 
 
 def get_sheets_create_completion_instruction() -> str:
@@ -106,12 +103,7 @@ def first_instruction_from_tool_results(results: list[Any] | tuple[Any, ...] | N
     return None
 
 
-def attach_sheets_create_completion_instruction(
-    payload: dict[str, Any],
-    *,
-    create_sheet_ran: bool = False,
-    tool_results: list[Any] | tuple[Any, ...] | None = None,
-) -> dict[str, Any]:
+def attach_sheets_create_completion_instruction(payload: dict[str, Any], *, create_sheet_ran: bool = False, tool_results: list[Any] | tuple[Any, ...] | None = None) -> dict[str, Any]:
     """Attach create≠populate ``instruction`` on the payload the outer reads.
 
     Same field as web research (`instruction`). Use after a sheets specialized hop
@@ -138,18 +130,13 @@ def attach_sheets_create_completion_instruction(
 # the model must refer to a place by quoting its text, not by number. Append to such tool
 # descriptions so the rule is stated uniformly wherever an index is exposed (#1).
 PARAGRAPH_INDEX_DIRECTIVE = (
-    "para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers "
-    "to the user (they don't see them and they shift as the document changes); to point the user at a "
-    "place, quote the first few words of its text instead (e.g. \"the sentence starting 'The Amazon…'\")."
+    "para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. \"the sentence starting 'The Amazon…'\")."
 )
 
 
 def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
     """Writer/Draw: route computational math to the python specialized sub-agent (fast local venv)."""
-    return (
-        "For computational or numeric math (exact values, primes, statistics, symbolic algebra, or non-trivial calculation), "
-        f'do not answer from memory—use {delegate_toolset}(domain="python") for fast local numeric computation.'
-    )
+    return f'For computational or numeric math (exact values, primes, statistics, symbolic algebra, or non-trivial calculation), do not answer from memory—use {delegate_toolset}(domain="python") for fast local numeric computation.'
 
 
 def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
@@ -171,11 +158,7 @@ def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
 # Parent Nemotron Super rewrote "make it look like a wizard" into a generate-new
 # task; the specialist then omitted source_image. Schema + task rules must
 # keep the user's edit wording and name source_image='selection'.
-DELEGATE_SPECIALIZED_TASK_PARAM_HINT = (
-    "What the specialized task should accomplish. For edit/change/restyle of an "
-    "existing or selected image, instruct image_generate(source_image='selection') "
-    "and keep the user's wording so img2img replaces the graphic in place."
-)
+DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish. For edit/change/restyle of an existing or selected image, instruct image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place."
 
 # Shared guidance for writing `task` strings when delegating to specialized sub-agents.
 # Must stay a single line (delegation templates are one line; tests assert no newlines).
@@ -251,7 +234,7 @@ Prioritize what reduces future user steering."""
 # becomes common for generated formulas, prefer the two-cell pattern
 # (=PY($A$1; range) — Monaco already follows that ref) instead of lengthening
 # this prompt. Not scheduled.
-PYTHON_VENV_AUTO_IMPORTS_ALIASES = "`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), `scipy.stats` (as `st`), `matplotlib.pyplot` (as `plt`), `plugin.scripting.calc_functions` (as `calc`), standard library `math`, `datetime` (as `dt`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv`. When `=PY` has data range args, a binding-only `xl(\"%Pn%\")` helper is also injected (Excel import; not a live sheet read)"
+PYTHON_VENV_AUTO_IMPORTS_ALIASES = '`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), `scipy.stats` (as `st`), `matplotlib.pyplot` (as `plt`), `plugin.scripting.calc_functions` (as `calc`), standard library `math`, `datetime` (as `dt`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv`. When `=PY` has data range args, a binding-only `xl("%Pn%")` helper is also injected (Excel import; not a live sheet read)'
 
 # Populated at module end (after full constants init) to avoid import cycles via smolagents.
 _VENV_IMPORT_POLICY_COMPACT = ""
@@ -260,6 +243,7 @@ _VENV_IMPORT_POLICY_FULL = ""
 PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = ""
 
 PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = ""
+
 
 def images_specialized_sub_agent_hint() -> str:
     """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"images\").
@@ -327,20 +311,17 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         " with a Python for-loop (import writeragent as wa; wa.shape.upsert),"
         " not one LLM tool call per shape."
         " The inner shapes agent reads the page canvas and places that layout; this loop does not receive page size."
-        " Do not finish and expect the main chat agent to call delegate_to_specialized_*(domain=\"shapes\") for you."
+        ' Do not finish and expect the main chat agent to call delegate_to_specialized_*(domain="shapes") for you.'
         " Do not call those domain tools on this loop."
     )
-    return (
-        f" PYTHON (venv): {policy}{data_hint}{plot_suffix}"
-        " Prefer symbolic_math for solve/simplify/integrate/differentiate over raw sp/run_venv_python_script."
-        f" {units_hint}{domain_rule}"
-    )
+    return f" PYTHON (venv): {policy}{data_hint}{plot_suffix} Prefer symbolic_math for solve/simplify/integrate/differentiate over raw sp/run_venv_python_script. {units_hint}{domain_rule}"
 
 
 def _load_venv_import_policy_full() -> str:
     from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
 
     return format_venv_import_policy_for_prompt(compact=False)
+
 
 # ---------------------------------------------------------------------------
 # Writer
@@ -510,20 +491,22 @@ def _build_writer_chat_system_prompt_template() -> str:
     RESEARCH_COMPLETION_INSTRUCTION_WRITER to the web-research *tool result* instead of the
     system prompt — do not paste that trailer into this ambient text. SIDEBAR_VS_DOCUMENT
     sits with the apply block for the same reason (drafts go in the document)."""
-    return "\n\n".join([
-        WRITER_CHAT_PERSONA,
-        CHAT_RESPONSE_FORMAT,
-        "{core_directives}",
-        WRITER_CHAT_TOOLS_SECTION,
-        TRANSLATION_RULES,
-        TOOL_USAGE_PATTERNS,
-        WRITER_REVIEW_MODES_RULES,
-        "{specialized_delegation}",
-        MEMORY_GUIDANCE,
-        SIDEBAR_VS_DOCUMENT,
-        WRITER_APPLY_DOCUMENT_HTML_RULES,
-        CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
-    ])
+    return "\n\n".join(
+        [
+            WRITER_CHAT_PERSONA,
+            CHAT_RESPONSE_FORMAT,
+            "{core_directives}",
+            WRITER_CHAT_TOOLS_SECTION,
+            TRANSLATION_RULES,
+            TOOL_USAGE_PATTERNS,
+            WRITER_REVIEW_MODES_RULES,
+            "{specialized_delegation}",
+            MEMORY_GUIDANCE,
+            SIDEBAR_VS_DOCUMENT,
+            WRITER_APPLY_DOCUMENT_HTML_RULES,
+            CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
+        ]
+    )
 
 
 DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = _build_writer_chat_system_prompt_template()
@@ -587,10 +570,7 @@ CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
 CALC_PYTHON_FORMULA_LLM_HINT = ""
 
 # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]).
-CALC_PYTHON_DATA_SHAPE_LLM_HINT = (
-    "`data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), "
-    "not builtin sum/min/max (those iterate rows → TypeError int+list)."
-)
+CALC_PYTHON_DATA_SHAPE_LLM_HINT = "`data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows → TypeError int+list)."
 
 
 # Built in _init_venv_import_policy_strings() (needs import policy).
@@ -601,6 +581,7 @@ DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
 
 
 DEFAULT_CALC_GREETING = "AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+
 
 def _build_calc_chat_system_prompt_template() -> str:
     """Assemble Calc main-chat system prompt (needs CALC_FORMULA_SYNTAX from late init)."""
@@ -627,6 +608,7 @@ set_style: fixed properties only — not mixed rich text in a cell; use insert_c
 {{specialized_delegation}}
 
 {{core_directives}}"""
+
 
 # ---------------------------------------------------------------------------
 # Draw
@@ -658,22 +640,19 @@ DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
 
 # Host suffix + outer DO: after an inner peer send, idle on this loop (do not wait
 # inside document_research — that deadlocks the peer). Also used on specialize return.
-PEER_OUTER_IDLE_AFTER_SEND = (
-    "Stop tool use and Ready. "
-    "Why: the peer reply arrives as a later user turn; more document_research, python, or query tools in this turn race the peer."
-)
+PEER_OUTER_IDLE_AFTER_SEND = "Stop tool use and Ready. Why: the peer reply arrives as a later user turn; more document_research, python, or query tools in this turn race the peer."
 
 # Outer main chat only — no send_peer_work / send_peer_result on this loop.
 # {delegate} is the Writer/Calc/Draw specialized gateway. Shown when a v1 peer is open.
 PEER_OUTER_DELEGATE_HINT = (
-    "Do {delegate}(domain=\"document_research\") for sibling Writer/Calc/Draw work. "
+    'Do {delegate}(domain="document_research") for sibling Writer/Calc/Draw work. '
     "Why: the inner agent chooses a silent read vs asking the peer sidebar; this loop must not invent the other app's tools.\n"
     "After that inner result means a peer message was sent/accepted, or the answer says waiting for a peer reply: "
     f"{PEER_OUTER_IDLE_AFTER_SEND} "
     "A short chat line that the peer was asked is OK.\n"
     "When this turn is a [Peer work from: …] envelope: do the local work with your tools "
     "(nested domains such as ranges, sheets, charts, … are fine for that local work); "
-    "finishing those specializes is not delivery — you MUST still Do {delegate}(domain=\"document_research\") "
+    'finishing those specializes is not delivery — you MUST still Do {delegate}(domain="document_research") '
     "to deliver via send_peer_result "
     "(one string: envelope uid or url, and the HTML or result — not a JSON array). "
     "Why: only that inner agent can deliver the peer result; finishing with only a local sidebar answer never reaches the asking peer.\n"
@@ -682,15 +661,7 @@ PEER_OUTER_DELEGATE_HINT = (
 )
 
 # Inner answer / tool-result text that means the outer should idle (not keep researching).
-_PEER_WAIT_OUTCOME_MARKERS = (
-    "waiting for a peer reply",
-    "waiting for peer",
-    "peer message was sent",
-    "message sent to the peer",
-    '"accepted": true',
-    "'accepted': true",
-    "accepted: true",
-)
+_PEER_WAIT_OUTCOME_MARKERS = ("waiting for a peer reply", "waiting for peer", "peer message was sent", "message sent to the peer", '"accepted": true', "'accepted': true", "accepted: true")
 
 
 def looks_like_peer_wait_outcome(text: str) -> bool:
@@ -703,10 +674,7 @@ def looks_like_peer_wait_outcome(text: str) -> bool:
 # ranges/sheets/charts/… finishing (or document_research without send_peer_result)
 # is local work only — not peer delivery.
 PEER_OUTER_DELIVERY_STILL_REQUIRED = (
-    "Peer delivery still required: you MUST Do domain=\"document_research\" "
-    "to deliver via send_peer_result. "
-    "Why: finishing a nested specialize (ranges/sheets/charts/…) or research without "
-    "send_peer_result is not peer delivery; Ready here leaves the asking peer waiting."
+    'Peer delivery still required: you MUST Do domain="document_research" to deliver via send_peer_result. Why: finishing a nested specialize (ranges/sheets/charts/…) or research without send_peer_result is not peer delivery; Ready here leaves the asking peer waiting.'
 )
 
 PEER_WORK_ENVELOPE_PREFIX = "[Peer work from:"
@@ -750,9 +718,7 @@ def annotate_outer_peer_delivery_pending(payload: dict[str, Any]) -> dict[str, A
     """
     if payload.get("status") != "ok":
         return payload
-    blob = " ".join(
-        str(payload.get(key) or "") for key in ("message", "result", "answer", "instruction")
-    )
+    blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer", "instruction"))
     if PEER_OUTER_DELIVERY_STILL_REQUIRED in blob:
         return payload
     out = dict(payload)
@@ -820,18 +786,19 @@ PEER_INNER_CHOICE_RULES = (
 
 # F: omitted from the assembled Draw prompt when the chat model has no vision.
 # Wording matches #782: say 0-based once; no sibling-tool list / "first page is 0".
-DRAW_GET_IMAGE_TOOL_LINE = (
-    "- get_image: page=N (0-based) renders that page as a PNG so a vision model can "
-    "see the layout. Use alongside get_draw_tree, not instead of it. image= / selection= "
-    "fetch an embedded GraphicObjectShape."
-)
+DRAW_GET_IMAGE_TOOL_LINE = "- get_image: page=N (0-based) renders that page as a PNG so a vision model can see the layout. Use alongside get_draw_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape."
 
-DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = """You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
+DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = (
+    """You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
 Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
 
-""" + CHAT_RESPONSE_FORMAT + """
+"""
+    + CHAT_RESPONSE_FORMAT
+    + """
 
-""" + GENERIC_EDIT_CONFIRMATION_RULES + """
+"""
+    + GENERIC_EDIT_CONFIRMATION_RULES
+    + """
 
 WORKFLOW:
 1. Understand the user's request.
@@ -853,7 +820,9 @@ READ:
 - read_slide_text: Extract text content and speaker notes from a slide.
 - get_presentation_info: Slide count, dimensions, master slide names, and Impress status.
 - get_draw_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
-""" + DRAW_GET_IMAGE_TOOL_LINE + """
+"""
+    + DRAW_GET_IMAGE_TOOL_LINE
+    + """
 - list_placeholders: List text placeholders (title, subtitle, body) on a slide (Impress).
 - get_placeholder_text: Get text from a slide placeholder by role or index.
 
@@ -867,6 +836,7 @@ WRITE:
 {specialized_delegation}
 
 {core_directives}"""
+)
 
 
 DEFAULT_DRAW_GREETING = "AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!"
@@ -964,6 +934,7 @@ def get_core_directives_for_type(doc_type: str | None) -> str:
 def get_core_directives(model: Any) -> str:
     """Return the application-specific core directives dynamically based on document type."""
     from plugin.doc.doc_type import is_calc, is_draw
+
     if is_calc(model):
         return get_core_directives_for_type("calc")
     if is_draw(model):
@@ -971,8 +942,7 @@ def get_core_directives(model: Any) -> str:
     return get_core_directives_for_type("writer")
 
 
-def _catalog_entries_from_base(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None,
-                               for_discovery: bool = False) -> list[dict[str, str]]:
+def _catalog_entries_from_base(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
 
     ``for_discovery`` skips the exclusions that only shape a chat prompt. CALC_HIDDEN_SPECIALIZED_
@@ -1002,8 +972,7 @@ def _catalog_entries_from_base(base_cls: Any, *, agent_label: str | None = None,
     return entries
 
 
-def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None,
-                                   for_discovery: bool = False) -> list[dict[str, str]]:
+def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Full specialized domain catalog — same entries as sidebar/delegate domain hints.
 
     ``agent_label`` is ``Writer`` / ``Calc`` / ``Draw`` for one app, or ``None`` to merge
@@ -1030,11 +999,7 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None,
         from plugin.writer.specialized_base import ToolWriterSpecialBase
 
         seen: dict[str, str] = {}
-        for base, label in (
-            (ToolWriterSpecialBase, "Writer"),
-            (ToolCalcSpecialBase, "Calc"),
-            (ToolDrawSpecialBase, "Draw"),
-        ):
+        for base, label in ((ToolWriterSpecialBase, "Writer"), (ToolCalcSpecialBase, "Calc"), (ToolDrawSpecialBase, "Draw")):
             for entry in _catalog_entries_from_base(base, agent_label=label, ctx=ctx):
                 dom = entry["domain"]
                 desc = entry["description"]
@@ -1048,8 +1013,7 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None,
 def _get_specialized_domains_str(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None) -> str:
     """Build a compact domain list for delegation hints and MCP schemas."""
     parts = []
-    for entry in sorted(_catalog_entries_from_base(base_cls, agent_label=agent_label, ctx=ctx),
-                        key=lambda e: e["domain"]):
+    for entry in sorted(_catalog_entries_from_base(base_cls, agent_label=agent_label, ctx=ctx), key=lambda e: e["domain"]):
         if entry["description"]:
             parts.append(f"{entry['domain']}: {entry['description']}")
         else:
@@ -1122,9 +1086,7 @@ def get_vision_core_directive(model: Any, ctx: Any) -> str:
         return ""
     delegate = "delegate_to_specialized_calc_toolset" if is_calc(model) else "delegate_to_specialized_writer_toolset"
     return (
-        f"When the user wants OCR or content from an embedded image, {delegate}(domain=\"vision\", task=\"\"). "
-        "That extracts text and structure from the selected graphic and inserts a high-quality "
-        "representation into the document (no sub-agent; task is ignored). You must use this call to perform OCR."
+        f'When the user wants OCR or content from an embedded image, {delegate}(domain="vision", task=""). That extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no sub-agent; task is ignored). You must use this call to perform OCR.'
     )
 
 
@@ -1295,6 +1257,7 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
                     base += "\n\n[HUMANIZER GUIDANCE — apply when generating or revising prose]\n" + hguidance.strip() + "\n"
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).debug(f"Failed to inject humanizer guidance: {e}")
 
     if additional_instructions and str(additional_instructions).strip():

@@ -177,7 +177,7 @@ def _replace_control_token(text: str, corrupted: str, repaired: str) -> str:
             pieces.append(text[start:])
             return "".join(pieces)
         end = found + len(corrupted)
-        nxt = text[end:end + 1]
+        nxt = text[end : end + 1]
         if nxt.isalnum() or nxt == "_":
             pieces.append(text[start:end])
             start = end
@@ -187,14 +187,8 @@ def _replace_control_token(text: str, corrupted: str, repaired: str) -> str:
         start = end
 
 
-
-
 # Identity repair under CrossHair: charset only needs to distinguish strip/empty vs body.
-_JSON_CHARS = (
-    frozenset("{}\n ")
-    if UNDER_CROSSHAIR
-    else frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789{}[],\": \t\n\r")
-)
+_JSON_CHARS = frozenset("{}\n ") if UNDER_CROSSHAIR else frozenset('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789{}[],": \t\n\r')
 
 
 def _deal_json_text_ok_pytest(text: object) -> bool:
@@ -202,9 +196,7 @@ def _deal_json_text_ok_pytest(text: object) -> bool:
 
 
 def _deal_json_text_ok_crosshair(text: object) -> bool:
-    return isinstance(text, str) and len(text) <= 1 and all(
-        c in _JSON_CHARS for c in text
-    )
+    return isinstance(text, str) and len(text) <= 1 and all(c in _JSON_CHARS for c in text)
 
 
 _deal_json_text_ok = _deal_json_text_ok_crosshair if UNDER_CROSSHAIR else _deal_json_text_ok_pytest

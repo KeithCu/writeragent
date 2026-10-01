@@ -160,11 +160,7 @@ def get_monaco_theme_info(doc: Any = None, style_window: Any = None, ctx: Any = 
     except Exception as e:
         log.debug("get_monaco_theme_info failed: %s", e)
 
-    return {
-        "monaco": "vs-dark" if is_dark else "vs",
-        "is_dark": is_dark,
-        "bg": bg,
-    }
+    return {"monaco": "vs-dark" if is_dark else "vs", "is_dark": is_dark, "bg": bg}
 
 
 __all__ = ["get_style_window", "get_theme_colors", "get_monaco_theme_info"]

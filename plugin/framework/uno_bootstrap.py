@@ -43,6 +43,7 @@ class _WriteragentNamespaceLoader(importlib.abc.Loader):
 
 class AliasLoader(importlib.abc.Loader):
     """Loader that returns the already loaded or newly imported real module."""
+
     real_name: str
 
     def __init__(self, real_name: str) -> None:
@@ -57,6 +58,7 @@ class AliasLoader(importlib.abc.Loader):
 
 class AliasImporter:
     """Import hook to dynamically map 'writeragent' and 'writeragent.*' imports to 'plugin' equivalents."""
+
     def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
         if fullname != "writeragent" and not fullname.startswith("writeragent."):
             return None
@@ -126,14 +128,7 @@ def ensure_utf8_stdio() -> None:
                 pass
 
 
-def ensure_plugin_on_path(
-    __file__: str,
-    levels_up: int = 3,
-    also_add_lib: bool = False,
-    also_add_contrib: bool = False,
-    also_add_plugin_dir: bool = False,
-    also_add_vendor: bool = False,
-) -> str:
+def ensure_plugin_on_path(__file__: str, levels_up: int = 3, also_add_lib: bool = False, also_add_contrib: bool = False, also_add_plugin_dir: bool = False, also_add_vendor: bool = False) -> str:
     """
     Walk up from the caller's __file__ and add the extension root on sys.path.
 

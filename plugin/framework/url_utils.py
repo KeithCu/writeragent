@@ -135,6 +135,7 @@ def normalize_endpoint_url(url: Any, is_openwebui: bool = False) -> str:
 
     return url
 
+
 @deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_hostname(url: Any) -> str:

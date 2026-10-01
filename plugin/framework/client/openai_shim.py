@@ -26,39 +26,21 @@ class OpenAIShim(BaseProviderShim):
     Other hosts keep the generic OpenAI-compat body in ``BaseProviderShim``.
     """
 
-    def build_image_request(
-        self,
-        prompt: str,
-        model: str | None,
-        width: int,
-        height: int,
-        steps: int | None = None,
-        source_image: str | None = None,
-        image_url: str | None = None,
-    ) -> tuple[str, str, bytes, dict[str, str]]:
+    def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         if self.client._get_provider() != "openai":
-            return super().build_image_request(
-                prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url
-            )
+            return super().build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
 
         ref = coerce_image_data_url(image_url, source_image)
         # dall-e-3 is generations-only. A prompt-only create while a graphic is
         # selected would replace it with a new image (same silent miss as
         # OpenRouter's old image_url / Imagen :predict).
         if ref and model and str(model).lower().startswith("dall-e-3"):
-            raise ValueError(
-                "dall-e-3 cannot edit an existing image. Pick a GPT Image model or dall-e-2."
-            )
+            raise ValueError("dall-e-3 cannot edit an existing image. Pick a GPT Image model or dall-e-2.")
 
         endpoint = self.client._endpoint()
         api_path = self.client._api_path()
         url = endpoint + api_path + ("/images/edits" if ref else "/images/generations")
-        data: dict[str, Any] = {
-            "prompt": prompt,
-            "n": 1,
-            "size": f"{width}x{height}",
-            "response_format": "b64_json",
-        }
+        data: dict[str, Any] = {"prompt": prompt, "n": 1, "size": f"{width}x{height}", "response_format": "b64_json"}
         if model:
             data["model"] = model
         if ref:
@@ -70,16 +52,7 @@ class OpenAIShim(BaseProviderShim):
 class OllamaShim(BaseProviderShim):
     """Shim for Ollama specifically (handles native /api image endpoints if needed)."""
 
-    def build_image_request(
-        self,
-        prompt: str,
-        model: str | None,
-        width: int,
-        height: int,
-        steps: int | None = None,
-        source_image: str | None = None,
-        image_url: str | None = None,
-    ) -> tuple[str, str, bytes, dict[str, str]]:
+    def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         endpoint = self.client._endpoint()
         url = f"{endpoint}/api/generate"
         eff_model = model or "flux"
@@ -111,16 +84,7 @@ class OllamaShim(BaseProviderShim):
 class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
 
-    def build_image_request(
-        self,
-        prompt: str,
-        model: str | None,
-        width: int,
-        height: int,
-        steps: int | None = None,
-        source_image: str | None = None,
-        image_url: str | None = None,
-    ) -> tuple[str, str, bytes, dict[str, str]]:
+    def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         endpoint = self.client._endpoint()
         api_path = self.client._api_path()
         url = endpoint + api_path + "/images"
@@ -166,19 +130,8 @@ class OpenRouterShim(BaseProviderShim):
 class TogetherShim(OpenAIShim):
     """Together Images API: Kontext uses image_url; other models use reference_images."""
 
-    def build_image_request(
-        self,
-        prompt: str,
-        model: str | None,
-        width: int,
-        height: int,
-        steps: int | None = None,
-        source_image: str | None = None,
-        image_url: str | None = None,
-    ) -> tuple[str, str, bytes, dict[str, str]]:
-        method, path, body, headers = super().build_image_request(
-            prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url
-        )
+    def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
+        method, path, body, headers = super().build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
         data = json.loads(body.decode("utf-8"))
         # What was wrong: BaseProviderShim sends OpenAI size="WxH". Together
         # documents width/height integers (Flash Image, FLUX.2) or aspect_ratio
@@ -231,15 +184,7 @@ def _load_google() -> type[BaseProviderShim]:
     return GoogleShim
 
 
-_SHIM_REGISTRY: dict[str, Callable[[], type[BaseProviderShim]]] = {
-    "anthropic": _load_anthropic,
-    "google": _load_google,
-    "xai": _load_grok,
-    "grok": _load_grok,
-    "ollama": lambda: OllamaShim,
-    "openrouter": lambda: OpenRouterShim,
-    "together": lambda: TogetherShim,
-}
+_SHIM_REGISTRY: dict[str, Callable[[], type[BaseProviderShim]]] = {"anthropic": _load_anthropic, "google": _load_google, "xai": _load_grok, "grok": _load_grok, "ollama": lambda: OllamaShim, "openrouter": lambda: OpenRouterShim, "together": lambda: TogetherShim}
 
 
 def get_provider_shim_class(provider: str, endpoint: str | None = None) -> type[BaseProviderShim]:

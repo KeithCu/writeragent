@@ -17,14 +17,7 @@ from typing import Any, cast
 
 from plugin.framework.deal_shim import deal
 
-__all__ = [
-    "LLM_DEV_BUILD_SYSTEM_PREFIX",
-    "extract_and_strip_images_from_message",
-    "normalize_multimodal_messages",
-    "prepend_dev_build_system_prefix_to_messages",
-    "should_prepend_dev_llm_system_prefix",
-    "strip_leaked_chat_template_control_tokens",
-]
+__all__ = ["LLM_DEV_BUILD_SYSTEM_PREFIX", "extract_and_strip_images_from_message", "normalize_multimodal_messages", "prepend_dev_build_system_prefix_to_messages", "should_prepend_dev_llm_system_prefix", "strip_leaked_chat_template_control_tokens"]
 
 log = logging.getLogger(__name__)
 
@@ -48,15 +41,14 @@ def should_prepend_dev_llm_system_prefix() -> bool:
     except Exception:
         return False
 
+
 # Local / Harmony-style models sometimes leak chat-template control tokens.
 _CHAT_TEMPLATE_CONTROL_TOKEN_RE = re.compile(r"<\|[a-zA-Z0-9_]+\|>")
 _DATA_URI_IMAGE_RE = re.compile(r"data:image/([a-zA-Z+.-]+);base64,([a-zA-Z0-9+/=\s]+)")
 
 
 def _extracted_images_well_formed(result: list[dict[str, Any]]) -> bool:
-    return isinstance(result, list) and all(
-        isinstance(x, dict) and isinstance(x.get("mime_type"), str) and isinstance(x.get("data"), str) for x in result
-    )
+    return isinstance(result, list) and all(isinstance(x, dict) and isinstance(x.get("mime_type"), str) and isinstance(x.get("data"), str) for x in result)
 
 
 def _string_content_has_no_data_uri(message: dict[str, Any]) -> bool:
@@ -82,9 +74,7 @@ def strip_leaked_chat_template_control_tokens(content: str | None) -> str:
 @deal.pre(lambda *args, **kwargs: bool(args) and isinstance(args[0], dict))
 @deal.post(lambda result: _extracted_images_well_formed(result))
 @deal.ensure(lambda *args, result=None, **kwargs: _string_content_has_no_data_uri(args[0]))
-def extract_and_strip_images_from_message(
-    message: dict[str, Any], strip_structured_image_blocks: bool = True
-) -> list[dict[str, Any]]:
+def extract_and_strip_images_from_message(message: dict[str, Any], strip_structured_image_blocks: bool = True) -> list[dict[str, Any]]:
     """Scan message content, extract base64 images, and replace them with markers.
 
     Returns a list of extracted image dicts:
@@ -208,10 +198,7 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
             new_content.extend(content)
 
         for img in imgs:
-            new_content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{img['mime_type']};base64,{img['data']}"},
-            })
+            new_content.append({"type": "image_url", "image_url": {"url": f"data:{img['mime_type']};base64,{img['data']}"}})
         target_dict["content"] = new_content
 
 

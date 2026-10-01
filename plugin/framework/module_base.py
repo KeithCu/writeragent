@@ -156,10 +156,7 @@ class ModuleLoader:
             if name in visited:
                 return
             if name in visiting:
-                raise ConfigError(
-                    f"Cyclic module requires graph at {name!r}",
-                    code="MODULE_CYCLE",
-                )
+                raise ConfigError(f"Cyclic module requires graph at {name!r}", code="MODULE_CYCLE")
             visiting.add(name)
             m = by_name.get(name)
             if m is None:
@@ -228,13 +225,7 @@ class ModuleLoader:
                             candidates.append(attr)
                 if len(candidates) > 1:
                     chosen = candidates[0]
-                    log.warning(
-                        "Module %s exposes %d ModuleBase subclasses (%s); using %s",
-                        name,
-                        len(candidates),
-                        ", ".join(getattr(c, "__name__", "?") for c in candidates),
-                        getattr(chosen, "__name__", "?"),
-                    )
+                    log.warning("Module %s exposes %d ModuleBase subclasses (%s); using %s", name, len(candidates), ", ".join(getattr(c, "__name__", "?") for c in candidates), getattr(chosen, "__name__", "?"))
                     module_class = chosen
                 elif candidates:
                     module_class = candidates[0]

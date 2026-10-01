@@ -106,15 +106,7 @@ def _apply_jitter_ms(delay_ms: float, jitter: float | Literal["full"], mode: Lit
     return max(0.0, math.ceil(raw) if mode == "positive" else round(raw))
 
 
-def backoff_delay_sec(
-    *,
-    attempt: int = 1,
-    retry_after_sec: float | None = None,
-    min_delay: float = RETRY_MIN_DELAY_SEC,
-    max_delay: float = RETRY_MAX_DELAY_SEC,
-    jitter: float | Literal["full"] = "full",
-    random: Callable[[], float] = random.random,
-) -> float:
+def backoff_delay_sec(*, attempt: int = 1, retry_after_sec: float | None = None, min_delay: float = RETRY_MIN_DELAY_SEC, max_delay: float = RETRY_MAX_DELAY_SEC, jitter: float | Literal["full"] = "full", random: Callable[[], float] = random.random) -> float:
     """Jittered delay before the next attempt. ``attempt`` is 1-based (first wait = min_delay)."""
     retry_after_value = retry_after_sec if retry_after_sec is not None and math.isfinite(retry_after_sec) else None
     if retry_after_value is not None:
@@ -132,14 +124,7 @@ def backoff_delay_sec(
     return delay
 
 
-def wait_abortable(
-    delay_sec: float,
-    stop_checker: Callable[[], bool] | None = None,
-    *,
-    sleep: Callable[[float], None] | None = None,
-    monotonic: Callable[[], float] | None = None,
-    chunk_sec: float = RETRY_WAIT_CHUNK_SEC,
-) -> bool:
+def wait_abortable(delay_sec: float, stop_checker: Callable[[], bool] | None = None, *, sleep: Callable[[float], None] | None = None, monotonic: Callable[[], float] | None = None, chunk_sec: float = RETRY_WAIT_CHUNK_SEC) -> bool:
     """Sleep ``delay_sec`` in small chunks so Stop aborts the wait. False if stopped."""
     sleeper = sleep or time.sleep
     now = monotonic or time.monotonic
@@ -288,13 +273,7 @@ def remaining_host_gap(host: str, *, monotonic: Callable[[], float] | None = Non
     return max(0.0, gap - (now - last))
 
 
-def wait_host_gap(
-    host: str,
-    stop_checker: Callable[[], bool] | None = None,
-    status_callback: Callable[[str], None] | None = None,
-    *,
-    monotonic: Callable[[], float] | None = None,
-) -> bool:
+def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, *, monotonic: Callable[[], float] | None = None) -> bool:
     """Wait out a learned per-host gap. False if Stop fired."""
     remaining = claim_host_send_slot(host, monotonic=monotonic)
     if remaining <= 0:

@@ -32,15 +32,7 @@ def _log_request_target(url: Any) -> str:
     return f"{scheme}://{host}{port}{path}"
 
 
-def sync_request(
-    url: str | Request,
-    data: bytes | None = None,
-    headers: dict[str, str] | None = None,
-    parse_json: bool = True,
-    method: str | None = None,
-    *,
-    timeout: float,
-) -> Any:
+def sync_request(url: str | Request, data: bytes | None = None, headers: dict[str, str] | None = None, parse_json: bool = True, method: str | None = None, *, timeout: float) -> Any:
     """
     Blocking HTTP GET or POST. Shared by LLM client and other code.
     url: str or urllib.request.Request. If Request, headers/data come from it.

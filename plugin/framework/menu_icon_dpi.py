@@ -200,15 +200,11 @@ def probe_toolbar_icon_config_px(ctx: Any = None) -> int | None:
         sm = get_service_manager(ctx)
         if sm is None:
             return None
-        cfg_prov = sm.createInstanceWithContext(
-            "com.sun.star.configuration.ConfigurationProvider", ctx
-        )
+        cfg_prov = sm.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
         arg = PropertyValue()
         arg.Name = "nodepath"
         arg.Value = "/org.openoffice.Office.Common/Misc"
-        access = cfg_prov.createInstanceWithArguments(
-            "com.sun.star.configuration.ConfigurationAccess", (arg,)
-        )
+        access = cfg_prov.createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess", (arg,))
         for key in ("SidebarIconSize", "NotebookbarIconSize"):
             try:
                 raw = int(access.getByName(key))
@@ -265,10 +261,7 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
         _cached_scale = 2.0
         _cached_px = _HIDPI_PX
         _cached_weak = True  # retry when a real window exists
-        log.debug(
-            "menu_icon_dpi source=default_hidpi_large scale=n/a px=%s (weak; will retry)",
-            _cached_px,
-        )
+        log.debug("menu_icon_dpi source=default_hidpi_large scale=n/a px=%s (weak; will retry)", _cached_px)
         return _cached_px
 
     px = interpolate_menu_icon_px(float(scale))
@@ -276,20 +269,10 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
     _cached_px = px
     _cached_weak = False
     if not _logged_strong:
-        log.info(
-            "menu_icon_dpi source=%s scale=%.3f px=%s",
-            source,
-            scale,
-            px,
-        )
+        log.info("menu_icon_dpi source=%s scale=%.3f px=%s", source, scale, px)
         _logged_strong = True
     else:
-        log.debug(
-            "menu_icon_dpi source=%s scale=%.3f px=%s (cache refresh)",
-            source,
-            scale,
-            px,
-        )
+        log.debug("menu_icon_dpi source=%s scale=%.3f px=%s (cache refresh)", source, scale, px)
     return px
 
 
@@ -330,14 +313,4 @@ def menu_icon_asset_rel(prefix: str, px: int | None = None, ctx: Any = None) -> 
     return "assets/" + menu_icon_filename(prefix, px, ctx)
 
 
-__all__ = [
-    "reset_menu_icon_dpi_cache",
-    "probe_vcl_dpi_scale",
-    "probe_menu_font_scale",
-    "probe_toolbar_icon_config_px",
-    "interpolate_menu_icon_px",
-    "resolve_menu_icon_pixel_size",
-    "image_type_for_pixel_size",
-    "menu_icon_filename",
-    "menu_icon_asset_rel",
-]
+__all__ = ["reset_menu_icon_dpi_cache", "probe_vcl_dpi_scale", "probe_menu_font_scale", "probe_toolbar_icon_config_px", "interpolate_menu_icon_px", "resolve_menu_icon_pixel_size", "image_type_for_pixel_size", "menu_icon_filename", "menu_icon_asset_rel"]
