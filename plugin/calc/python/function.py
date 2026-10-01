@@ -81,16 +81,48 @@ def _unwrap_single_cell(py_data: Any) -> Any:
     return val
 
 
+def _host_ndarray_as_list(value: Any) -> list[Any] | None:
+    """Turn a NumPy array into a nested list without importing NumPy on the host.
+
+    Bugfix: a small numeric result used to stay an ndarray across the pipe.
+    ``float()`` on a multi-cell array fails, and ``to_calc_compatible`` then
+    returned the array's text. ``tolist`` is the array method. Pandas objects
+    are left alone (their module is not ``numpy``).
+    """
+    if isinstance(value, (str, bytes, bytearray, list, tuple, dict)) or value is None:
+        return None
+    module = getattr(type(value), "__module__", "")
+    if not (isinstance(module, str) and (module == "numpy" or module.startswith("numpy."))):
+        return None
+    tolist = getattr(value, "tolist", None)
+    if not callable(tolist):
+        return None
+    try:
+        listed = tolist()
+    except Exception:
+        log.debug("result_to_calc_grid: ndarray tolist failed", exc_info=True)
+        return None
+    if isinstance(listed, list):
+        return listed
+    return None
+
+
 def result_to_calc_grid(result: Any, *, include_dataframe_header: bool = True) -> Any:
     """Normalize worker results for Calc consumers.
 
     DataFrame envelopes become a labeled 2D grid (header row + body) by default.
-    Lists/ndarrays (already unpacked on host) pass through unchanged.
+    Lists pass through. A leftover ndarray body is converted with ``tolist``.
     """
     if is_dataframe_payload(result):
         cols = list(result.get("columns") or [])
         data = result.get("data")
-        return dataframe_to_labeled_grid(cols, data if isinstance(data, list) else [], include_header=include_dataframe_header)
+        if not isinstance(data, list):
+            listed = _host_ndarray_as_list(data)
+            data = listed if listed is not None else []
+        return dataframe_to_labeled_grid(cols, data, include_header=include_dataframe_header)
+    listed = _host_ndarray_as_list(result)
+    if listed is not None:
+        return listed
     return result
 
 

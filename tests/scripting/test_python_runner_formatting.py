@@ -6,6 +6,8 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+import pytest
+
 from plugin.scripting.python_runner import format_result_for_writer, format_elapsed_time, is_shape_tool_status_result
 
 class TestPythonRunnerFormatting:
@@ -205,17 +207,16 @@ def test_insert_result_into_calc_dataframe_envelope():
     assert "<td>1</td>" in html_arg
 
 
-def test_insert_result_into_calc_exception_shows_msgbox():
-    from unittest.mock import MagicMock, patch
+def test_insert_result_into_calc_exception_propagates():
+    """A failed insert must not look like success. The caller reports ok=False."""
+    from unittest.mock import MagicMock
 
     from plugin.scripting.python_runner import insert_result_into_calc
 
     doc = MagicMock()
     doc.getCurrentController.side_effect = RuntimeError("no controller")
-    with patch("plugin.scripting.python_runner.msgbox") as box:
+    with pytest.raises(RuntimeError, match="no controller"):
         insert_result_into_calc(doc, MagicMock(), 1)
-    box.assert_called_once()
-    assert "Failed to insert result into Calc" in box.call_args[0][2]
 
 
 

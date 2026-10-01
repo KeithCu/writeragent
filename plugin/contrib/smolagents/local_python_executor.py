@@ -77,6 +77,24 @@ def nodunder_getattr(obj, name, default=None):
     return getattr(obj, name, default)
 
 
+def _reject_shared_object_mutation(obj: Any) -> None:
+    """Block assignment onto a module or a type.
+
+    ``import numpy`` returns the live module (wrapping it SIGILLs).
+    ``setattr(np, "array", ...)`` or ``list.append = ...`` would change every
+    later cell and trusted action in this process. Instance assignment stays.
+    """
+    import types
+
+    if isinstance(obj, (types.ModuleType, type)):
+        raise InterpreterError("Cannot assign attributes on a module or a type")
+
+
+def _guarded_setattr(obj: Any, name: str, value: Any) -> None:
+    _reject_shared_object_mutation(obj)
+    setattr(obj, name, value)
+
+
 BASE_PYTHON_TOOLS = {
     "print": custom_print,
     "isinstance": isinstance,
@@ -126,7 +144,7 @@ BASE_PYTHON_TOOLS = {
     "callable": callable,
     "getattr": nodunder_getattr,
     "hasattr": hasattr,
-    "setattr": setattr,
+    "setattr": _guarded_setattr,
     "issubclass": issubclass,
     "type": type,
     "complex": complex,
@@ -847,6 +865,7 @@ def set_value(
         obj[key] = value
     elif isinstance(target, ast.Attribute):
         obj = evaluate_ast(target.value, state, static_tools, custom_tools, authorized_imports)
+        _reject_shared_object_mutation(obj)
         setattr(obj, target.attr, value)
 
 
@@ -873,6 +892,18 @@ def _reject_numpy_code_exec(func: Any, args: list[Any], kwargs: dict[str, Any]) 
         allow = args[2]
     if allow:
         raise InterpreterError(f"numpy.{name}(allow_pickle=True) is not allowed")
+
+
+def _reject_pandas_pickle(func: Any, args: list[Any], kwargs: dict[str, Any]) -> None:
+    """Block pandas pickle the same way NumPy ``allow_pickle=True`` is blocked.
+
+    ``read_pickle`` unpickles outside the AST walker and can import ``os``.
+    """
+    del args, kwargs
+    module = getattr(func, "__module__", "") or ""
+    name = getattr(func, "__name__", "") or ""
+    if module.startswith("pandas") and name in ("read_pickle", "to_pickle"):
+        raise InterpreterError(f"Forbidden call to {module}.{name}")
 
 
 def evaluate_call(
@@ -969,6 +1000,7 @@ def evaluate_call(
         ):
             raise InterpreterError(f"Forbidden call to dunder function: {func.__name__}")
         _reject_numpy_code_exec(func, args, kwargs)
+        _reject_pandas_pickle(func, args, kwargs)
         return func(*args, **kwargs)
 
 

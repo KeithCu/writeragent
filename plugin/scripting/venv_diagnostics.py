@@ -997,7 +997,13 @@ def run_venv_self_check_with_progress(
 
     _status(_("Starting Python worker..."))
     try:
-        manager = PythonWorkerManager.get(python_exe, scrub_subprocess_env(dict(os.environ)))
+        from plugin.framework.constants import WORKER_POOL_DIAGNOSTICS
+
+        manager = PythonWorkerManager.get(
+            python_exe,
+            scrub_subprocess_env(dict(os.environ)),
+            pool=WORKER_POOL_DIAGNOSTICS,
+        )
     except OSError as e:
         return False, f"Could not run Python: {e}"
 
@@ -1178,7 +1184,13 @@ def run_venv_self_check(python_exe: str, timeout: float | None = None) -> Tuple[
 
     timeout_sec = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC if timeout is None else max(1, int(timeout))
     try:
-        manager = PythonWorkerManager.get(python_exe, scrub_subprocess_env(dict(os.environ)))
+        from plugin.framework.constants import WORKER_POOL_DIAGNOSTICS
+
+        manager = PythonWorkerManager.get(
+            python_exe,
+            scrub_subprocess_env(dict(os.environ)),
+            pool=WORKER_POOL_DIAGNOSTICS,
+        )
         response = manager.execute(_DIAGNOSTIC_SCRIPT, timeout_sec=timeout_sec)
     except OSError as e:
         return False, f"Could not run Python: {e}"

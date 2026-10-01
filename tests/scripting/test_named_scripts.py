@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.scripting.named_scripts import (
     GET_NAMED_PYTHON_SCRIPT,
     LIST_NAMED_PYTHON_SCRIPTS,
@@ -52,6 +54,13 @@ def test_extract_library_source_drops_toplevel_calls():
     assert "K = 3" in src
     assert "apply_document_content" not in src
     assert "print" not in src
+
+
+def test_extract_library_source_keeps_computed_assigns_and_rejects_loops():
+    src = extract_library_source("FACTOR = 2\nSCALE = FACTOR * 2\n")
+    assert "SCALE = FACTOR * 2" in src
+    with pytest.raises(ValueError, match="lines 2"):
+        extract_library_source("FACTOR = 2\nfor i in range(3):\n    pass\n")
 
 
 def test_host_get_named_python_script_hash_short_circuit():

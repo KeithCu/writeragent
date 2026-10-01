@@ -10,7 +10,7 @@ Compute is lazy-loaded from ``plugin.scripting.venv.viz`` via ``__getattr__``.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from plugin.calc.analysis_runner import calc_tool_context
 from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
@@ -159,8 +159,8 @@ def is_viz_result(value: Any) -> bool:
     image = value.get("image")
     if is_image_payload(image):
         return True
-    if image is not None and bool(find_image_payloads(image)):
-        return True
+    # A nested image inside some other helper used to claim the whole result
+    # as a plot, so later domains never ran.
     return False
 
 
@@ -227,9 +227,31 @@ def insert_viz_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> in
     return len(images)
 
 
+def _images_claimed_as_plot(result_data: Any) -> list[dict[str, Any]]:
+    """Images this turn should insert as a plot, not every nested picture."""
+    if is_image_payload(result_data):
+        return [result_data]
+    if isinstance(result_data, dict) and result_data.get("__wa_payload__") == "multi_data":
+        items = result_data.get("items") or []
+        claimed: list[dict[str, Any]] = []
+        for item in items:
+            if not is_image_payload(item):
+                return []
+            claimed.append(cast("dict[str, Any]", item))
+        return claimed
+    if isinstance(result_data, dict):
+        helper = result_data.get("helper")
+        if isinstance(helper, str) and helper in HELPER_NAMES:
+            return find_image_payloads(result_data)
+        image = result_data.get("image")
+        if isinstance(image, dict) and is_image_payload(image):
+            return [cast("dict[str, Any]", image)]
+    return []
+
+
 def try_insert_plot_result(ctx: Any, doc: Any, result_data: Any) -> bool:
     """Insert plot/image results when present. Returns True if insertion ran."""
-    images = find_image_payloads(result_data)
+    images = _images_claimed_as_plot(result_data)
     if not images:
         return False
     title = "Plot"

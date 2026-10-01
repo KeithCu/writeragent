@@ -203,6 +203,10 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
     except Exception:
         log.debug("document_scripts: could not resolve active Calc document", exc_info=True)
         return None
+    if doc is not None and (is_writer(doc) or is_draw(doc)):
+        # Bugfix: with Writer focused and a Calc file open, enumerating the
+        # desktop bound that Calc. The Python deck already refuses this.
+        return None
     if doc is None or not is_calc(doc):
         try:
             comps = desktop.getComponents()
@@ -312,6 +316,11 @@ def document_scripts_write_is_stale(session_doc: Any | None, session_doc_url: st
     the launch document, and are refused when that document's identity changed.
     """
     if session_doc is None or session_doc_url is None:
+        return False
+    # Bugfix: an untitled file captures "". After File → Save the same
+    # component has a URL. That is not a different document. Go stale only
+    # when a non-empty captured URL no longer matches.
+    if session_doc_url == "":
         return False
     return document_scripts_identity(session_doc) != session_doc_url
 

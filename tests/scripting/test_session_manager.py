@@ -355,6 +355,43 @@ def test_workbook_session_id_resilient_when_is_calc_fails() -> None:
         session_manager.clear_active_calc_session()
 
 
+def test_workbook_session_id_non_calc_does_not_record() -> None:
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    writer = MagicMock()
+    session_manager.clear_active_calc_session()
+    try:
+        with (
+            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+            patch("plugin.scripting.session_manager.is_calc", return_value=False),
+            patch("plugin.scripting.session_manager.calc_workbook_base_session_id") as mint,
+        ):
+            assert session_manager.workbook_session_id(ctx, doc=writer) is None
+        mint.assert_not_called()
+        assert session_manager.recorded_calc_session_count() == 0
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_closing_one_workbook_keeps_the_other_document() -> None:
+    from plugin.tests.testing_utils import CalcDocStub
+
+    session_manager.clear_active_calc_session()
+    first = CalcDocStub(url="file:///a.ods")
+    second = CalcDocStub(url="file:///b.ods")
+    try:
+        session_manager.record_active_calc_session("calc:file:///a.ods", doc=first, init_kwargs={"init_script": "A = 1"})
+        session_manager.record_active_calc_session("calc:file:///b.ods", doc=second, init_kwargs={"init_script": "B = 2"})
+        session_manager.clear_active_calc_session("calc:file:///b.ods")
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.get_cached_calc_session_id() == "calc:file:///a.ods"
+        assert session_manager.get_cached_calc_document() is first
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 
 
 

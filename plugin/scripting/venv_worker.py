@@ -249,12 +249,23 @@ class PythonWorkerManager:
     def get(cls, exe: str, env: dict[str, str], *, pool: str = WORKER_POOL_DEFAULT) -> PythonWorkerManager:
         """Return the singleton worker for *pool* + *exe* (caller should pass a scrubbed env dict)."""
         key = _worker_registry_key(exe, pool)
+        prefix = f"{pool}:"
+        stale: list[PythonWorkerManager] = []
         with _registry_lock:
+            # Bugfix: the registry key is pool:exe. A new Settings path used to
+            # leave the previous child running until LibreOffice exited.
+            for other_key in list(_instances):
+                if other_key.startswith(prefix) and other_key != key:
+                    old = _instances.pop(other_key, None)
+                    if old is not None:
+                        stale.append(old)
             mgr = _instances.get(key)
             if mgr is None:
                 mgr = cls(exe, dict(env))
                 _instances[key] = mgr
-            return mgr
+        for old in stale:
+            old._terminate_worker()
+        return mgr
 
     @classmethod
     def shutdown_all(cls) -> None:
@@ -334,30 +345,27 @@ class PythonWorkerManager:
         }
         if timeout_sec is not None:
             request["timeout_sec"] = timeout_sec
-        # Later: action and code branches both set data/session_id — fold common
-        # keys if editing this function.
+        if session_id:
+            request["session_id"] = session_id
+        if data is not None:
+            request["data"] = data
+        # Bugfix: allow_heartbeat used to be set only on the code branch.
+        # run_trusted_action (embeddings, folder index) never received it, so
+        # the child sent no heartbeat and the host killed a long job.
+        if allow_heartbeat:
+            request["allow_heartbeat"] = True
         if action:
             request["action"] = action
-            if session_id:
-                request["session_id"] = session_id
-            if data is not None:
-                request["data"] = data
         else:
             request["code"] = code if code is not None else ""
-            if data is not None:
-                request["data"] = data
             if bindings:
                 request["bindings"] = bindings
-            if session_id:
-                request["session_id"] = session_id
             if init_script:
                 request["init_script"] = init_script
             if init_session_id:
                 request["init_session_id"] = init_session_id
             if init_script_hash:
                 request["init_script_hash"] = init_script_hash
-            if allow_heartbeat:
-                request["allow_heartbeat"] = True
         return request
 
     def _execute_ipc_unlocked(
@@ -503,7 +511,20 @@ class PythonWorkerManager:
                         _worker_error_message(e) + _SHARED_WORKER_RESTART_HINT,
                         details={"timeout_sec": timeout_sec, "exe": self.exe},
                     )
-                except (BrokenPipeError, ValueError, RuntimeError, OSError) as e:
+                except ValueError as e:
+                    # Bugfix: a bad pickle used to kill the child and resend the
+                    # same request. Side effects that already ran (DuckDB writes,
+                    # a trusted update) ran twice. Id mismatch already refuses
+                    # that replay; unpickle does too.
+                    log.warning("Python worker frame rejected (not replaying): %s", e)
+                    self._terminate_worker()
+                    _clear_host_state_after_worker_death()
+                    return _worker_error(
+                        "WORKER_IPC_ERROR",
+                        f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}",
+                        details={"exe": self.exe},
+                    )
+                except (BrokenPipeError, RuntimeError, OSError) as e:
                     if not dispatched_intermediate:
                         raise
                     log.warning("Python worker failed after a tool call (not replaying): %s", e)

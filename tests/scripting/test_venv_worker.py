@@ -621,6 +621,29 @@ def test_automatic_imports_explicit():
     assert r["result"] == 5.0
 
 
+def test_build_request_sets_heartbeat_on_trusted_action():
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    request = mgr._build_request(action="run_trusted_action", allow_heartbeat=True, data={"domain": "embeddings_index"})
+    assert request["allow_heartbeat"] is True
+    assert request["action"] == "run_trusted_action"
+    assert request["data"]["domain"] == "embeddings_index"
+
+
+def test_get_replaces_previous_interpreter_in_the_same_pool():
+    from plugin.framework.constants import WORKER_POOL_DEFAULT
+    from plugin.scripting import venv_worker
+
+    PythonWorkerManager.shutdown_all()
+    first = PythonWorkerManager.get("/tmp/python-a", {"PATH": "/usr/bin"})
+    second = PythonWorkerManager.get("/tmp/python-b", {"PATH": "/usr/bin"}, pool=WORKER_POOL_DEFAULT)
+    try:
+        assert first is not second
+        assert PythonWorkerManager.get("/tmp/python-b", {"PATH": "/usr/bin"}) is second
+        assert all(not key.endswith("python-a") for key in venv_worker._instances)
+    finally:
+        PythonWorkerManager.shutdown_all()
+
+
 @patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10)
 @patch("plugin.scripting.venv_worker.get_config_str", return_value="")
 @patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable)

@@ -66,6 +66,8 @@ BACKGROUND_POOL_MAX_WORKERS = 2
 # Warm venv worker pools (docs/embeddings.md — dedicated embeddings subprocess).
 WORKER_POOL_DEFAULT = "default"
 WORKER_POOL_EMBEDDINGS = "embeddings"
+# Settings → Python probes. A timeout must not kill the formula worker.
+WORKER_POOL_DIAGNOSTICS = "diagnostics"
 # In-worker read-through corpus matrix cache TTL (seconds since last access).
 EMBEDDINGS_CORPUS_CACHE_TTL_S = 60
 

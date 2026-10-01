@@ -211,9 +211,12 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
 
             insert_cell_html_rich(doc, uno_ctx, anchor_addr, formatted)
 
-    except Exception as e:
+    except Exception:
+        # Bugfix: the message box returned normally, so execute_and_insert_result
+        # reported ok=True. Writer insert lets the error reach
+        # rps_insert_failed_outcome; Calc must do the same.
         log.exception("Failed to insert result into Calc")
-        msgbox(uno_ctx, _("Error"), _("Failed to insert result into Calc: %s") % str(e))
+        raise
 
 
 def insert_result_into_draw(doc: Any, uno_ctx: Any, result: Any) -> None:

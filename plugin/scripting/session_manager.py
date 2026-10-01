@@ -70,6 +70,63 @@ def python_session_mode(ctx: Any) -> str:
     return mode
 
 
+def _cached_calc_session_matches(doc: Any, cached_sid: str | None) -> bool:
+    """True when lookup may return *doc* without minting a Calc session.
+
+    Bugfix: comparing with ``calc_workbook_base_session_id`` wrote
+    ``WriterAgentPythonSessionId`` and recorded Writer models as Calc, which
+    made off-main ``=PY()`` treat the session as ambiguous.
+    """
+    if not cached_sid:
+        return True
+    key = _existing_workbook_session_key(doc)
+    if not key:
+        return False
+    return cached_sid == f"calc:{key}"
+
+
+def _remember_session_snapshot_locked(
+    session_id: str,
+    doc: Any | None,
+    init_kwargs: dict[str, Any] | None,
+) -> None:
+    if init_kwargs:
+        _SESSION_INIT[session_id] = dict(init_kwargs)
+    if doc is None:
+        return
+    raw = doc
+    try:
+        from plugin.framework.thread_guard import _unwrap_uno
+
+        raw = _unwrap_uno(doc)
+    except Exception:
+        raw = doc
+    try:
+        _SESSION_DOCS[session_id] = weakref.ref(raw)
+    except TypeError:
+        _SESSION_DOCS.pop(session_id, None)
+
+
+def _drop_session_snapshot_locked(session_id: str) -> None:
+    _SESSION_DOCS.pop(session_id, None)
+    _SESSION_INIT.pop(session_id, None)
+
+
+def _restore_remaining_snapshot_locked(remaining: str | None) -> None:
+    global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS, _LAST_ACTIVE_CALC_DOC
+    global _LAST_ACTIVE_CALC_SCOPED_DIR
+    _LAST_ACTIVE_CALC_SESSION_ID = remaining
+    if remaining is None:
+        _LAST_ACTIVE_CALC_INIT_KWARGS = {}
+        _LAST_ACTIVE_CALC_DOC = None
+        _LAST_ACTIVE_CALC_SCOPED_DIR = None
+        return
+    _LAST_ACTIVE_CALC_INIT_KWARGS = dict(_SESSION_INIT.get(remaining) or {})
+    stored = _SESSION_DOCS.get(remaining)
+    _LAST_ACTIVE_CALC_DOC = stored
+    _LAST_ACTIVE_CALC_SCOPED_DIR = scoped_dir_from_calc_session_id(remaining)
+
+
 def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
     """Find active document matching *predicate*, falling back to desktop component enumeration."""
     # Bugfix (#411): In headless mode or when focus is outside the frame, getCurrentComponent()
@@ -90,7 +147,7 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
                 if ctrl is not None and getattr(ctrl, "getFrame", lambda: None)() is not None:
                     if predicate(doc):
                         cached_sid = get_cached_calc_session_id()
-                        if not cached_sid or calc_workbook_base_session_id(doc) == cached_sid:
+                        if _cached_calc_session_matches(doc, cached_sid):
                             return guard_uno(doc)
             except Exception:
                 pass
@@ -130,7 +187,7 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
                 if cached_sid:
                     for m in reversed(matches):
                         try:
-                            if calc_workbook_base_session_id(m) == cached_sid:
+                            if _cached_calc_session_matches(m, cached_sid):
                                 return guard_uno(m)
                         except Exception:
                             pass
@@ -156,6 +213,10 @@ _LAST_ACTIVE_CALC_SCOPED_DIR: str | None = None
 # may use the cache only when exactly one workbook is recorded — two open files
 # would otherwise run doc B in doc A's shared kernel (XAddIn has no calling doc).
 _RECORDED_CALC_SESSION_IDS: set[str] = set()
+# Per-session snapshots so closing one workbook can restore the survivor.
+# The last-active weakref alone was cleared even when another id remained.
+_SESSION_DOCS: dict[str, weakref.ReferenceType[Any]] = {}
+_SESSION_INIT: dict[str, dict[str, Any]] = {}
 
 
 def _system_dir_from_file_url(url: str) -> str | None:
@@ -259,6 +320,7 @@ def record_active_calc_session(
                 return
             _LAST_ACTIVE_CALC_SESSION_ID = session_id
             _RECORDED_CALC_SESSION_IDS.add(session_id)
+            _remember_session_snapshot_locked(session_id, doc, init_kwargs)
             # OnCreate can fall back to ``calc:unsaved:{uuid}`` before the
             # UDProp sticks; a later OnLoadFinished then records the persisted
             # id. Two unsaved: keys (UDProp failed twice) or unsaved+durable
@@ -271,6 +333,7 @@ def record_active_calc_session(
                     if other != session_id and str(other).startswith("calc:unsaved:")
                 ]:
                     _RECORDED_CALC_SESSION_IDS.discard(stale)
+                    _drop_session_snapshot_locked(stale)
             else:
                 for stale in [
                     other
@@ -278,6 +341,7 @@ def record_active_calc_session(
                     if str(other).startswith("calc:unsaved:")
                 ]:
                     _RECORDED_CALC_SESSION_IDS.discard(stale)
+                    _drop_session_snapshot_locked(stale)
             # File-URL sessions carry the document folder without getURL().
             _LAST_ACTIVE_CALC_SCOPED_DIR = scoped_dir_from_calc_session_id(session_id)
         if init_kwargs:
@@ -322,20 +386,21 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
     with _ACTIVE_CALC_SESSION_LOCK:
         if session_id is None:
             _RECORDED_CALC_SESSION_IDS.clear()
+            _SESSION_DOCS.clear()
+            _SESSION_INIT.clear()
             _LAST_ACTIVE_CALC_SESSION_ID = None
             _LAST_ACTIVE_CALC_INIT_KWARGS = {}
             _LAST_ACTIVE_CALC_DOC = None
             _LAST_ACTIVE_CALC_SCOPED_DIR = None
         else:
             _RECORDED_CALC_SESSION_IDS.discard(session_id)
+            _drop_session_snapshot_locked(session_id)
             if _LAST_ACTIVE_CALC_SESSION_ID == session_id:
-                _LAST_ACTIVE_CALC_SESSION_ID = next(iter(_RECORDED_CALC_SESSION_IDS), None)
-                # Remaining workbook's init is unknown; do not keep the closed file's kwargs.
-                _LAST_ACTIVE_CALC_INIT_KWARGS = {}
-                _LAST_ACTIVE_CALC_DOC = None
-                _LAST_ACTIVE_CALC_SCOPED_DIR = scoped_dir_from_calc_session_id(
-                    _LAST_ACTIVE_CALC_SESSION_ID
-                )
+                # Bugfix: closing the focused workbook used to drop the other
+                # file's cached model even though its id stayed recorded.
+                # Restore that snapshot when we have one; otherwise leave the
+                # model unset so off-main spill does not guess.
+                _restore_remaining_snapshot_locked(next(iter(_RECORDED_CALC_SESSION_IDS), None))
     try:
         from plugin.calc.python.function import clear_python_addin_cache
 
@@ -421,17 +486,26 @@ def workbook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
 
     if doc is not None:
         try:
-            if is_calc(doc):
+            calc = is_calc(doc)
+        except Exception:
+            calc = None
+        # A present Writer or Draw model is not a Calc session. The old
+        # fall-through recorded it whenever is_calc returned false.
+        if calc is False:
+            return None
+        if calc is True:
+            try:
                 from plugin.framework.thread_guard import guard_uno
 
                 return calc_workbook_base_session_id(guard_uno(doc))
-        except Exception:
-            pass
-        # Fallback to URL/props directly from doc if is_calc check failed or raised
+            except Exception:
+                pass
+        # is_calc raised, or the guarded call failed: try the workbook key.
         try:
             return calc_workbook_base_session_id(doc)
         except Exception:
             pass
+        return None
 
     from plugin.framework.thread_guard import on_main_thread
 

@@ -59,14 +59,14 @@ def parse_helper_script_header(
     tag: str,
     helper_names: Collection[str] | None = None,
     require_prefix: bool = True,
-    on_bad_json: Literal["empty", "none"] = "empty",
+    on_bad_json: Literal["empty", "none", "raise"] = "empty",
 ) -> HelperScriptMeta | None:
     """Parse ``# writeragent:<tag> helper=NAME params={…}``.
 
     *require_prefix*: if True, require the prefix substring before regex (units/analysis style).
     *helper_names*: when set, unknown helpers return None.
-    *on_bad_json*: ``empty`` → ``{}`` on JSON errors (units/analysis); ``none`` → return None
-    on any parse exception (forecast/optimize/quant style).
+    *on_bad_json*: ``empty`` → ``{}``; ``none`` → return None; ``raise`` → ValueError
+    so a corrupt header does not run the helper with empty params.
     """
     # crosshair: off
     if not code:
@@ -83,13 +83,17 @@ def parse_helper_script_header(
     raw = match.group(2)
     try:
         params = json.loads(raw)
-    except Exception:
+    except Exception as exc:
         if on_bad_json == "none":
             return None
+        if on_bad_json == "raise":
+            raise ValueError(f"Invalid helper params JSON for {tag} {helper}") from exc
         params = {}
     if not isinstance(params, dict):
         if on_bad_json == "none":
             return None
+        if on_bad_json == "raise":
+            raise ValueError(f"Helper params for {tag} {helper} must be a JSON object")
         params = {}
     return HelperScriptMeta(helper=helper, params=params)
 
@@ -493,7 +497,7 @@ class DomainFacadeConfig:
     extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
     compact_json: bool = True
     require_prefix: bool = True
-    on_bad_json: Literal["empty", "none"] = "empty"
+    on_bad_json: Literal["empty", "none", "raise"] = "raise"
 
 
 def make_template_api(cfg: DomainFacadeConfig) -> Any:
