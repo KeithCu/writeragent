@@ -303,7 +303,9 @@ class SettingsDialog:
 
         test_conn_btn = get_optional(self._dlg, "btn_test_conn")
         if test_conn_btn:
-            test_conn_btn.addActionListener(TestConnectionListener(self._ctx, self._dlg))
+            test_conn_btn.addActionListener(
+                TestConnectionListener(self._ctx, self._dlg, catalog_recheck=self._force_catalog_recheck)
+            )
 
         self._setup_module_tabs()
         test_venv_btn = get_optional(self._dlg, "scripting__test_venv")
@@ -458,8 +460,14 @@ class SettingsDialog:
             prov_ctrl.addTextListener(self._stt_listener)
         self._stt_listener.sync_ui()
 
+    def _force_catalog_recheck(self) -> None:
+        """Test Connection: refetch catalogs even when the process memo is warm."""
+        listener = self._endpoint_listener
+        if listener is not None:
+            listener.force_catalog_refresh()
+
     def _schedule_initial_models_fetch(self, endpoint: str) -> None:
-        """OpenRouter/Together skip inline fetch; load full catalog when a saved key exists."""
+        """OpenRouter/Together: combos from the process cache, or one background fetch."""
         from plugin.framework.config import get_api_key_for_endpoint
         from plugin.framework.client.provider_detection import get_provider_from_endpoint
 
@@ -782,10 +790,14 @@ class GetApiKeyListener(BaseActionListener):
 class TestConnectionListener(BaseActionListener):
     _ctx: Any
     _dlg: Any
+    _catalog_recheck: Any
 
-    def __init__(self, ctx: Any, dlg: Any) -> None:
+    def __init__(self, ctx: Any, dlg: Any, catalog_recheck: Any = None) -> None:
         self._ctx = ctx
         self._dlg = dlg
+        # Test Connection is the explicit catalog recheck. Opening Settings,
+        # typing, and OK do not refetch a warm OpenRouter/Together memo.
+        self._catalog_recheck = catalog_recheck
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
@@ -799,6 +811,10 @@ class TestConnectionListener(BaseActionListener):
             set_control_enabled(btn_test, False)
         if lbl_status:
             set_control_text(lbl_status, _("Testing connection..."))
+        # UI thread: reads the endpoint controls, then the catalog GET runs
+        # on the settings worker. Do not wait for the connection probe.
+        if self._catalog_recheck is not None:
+            self._catalog_recheck()
 
         endpoint_ctrl = get_optional(self._dlg, "endpoint")
         endpoint_text = str(get_control_text(endpoint_ctrl)) if endpoint_ctrl else ""
@@ -1364,6 +1380,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     fetch_available_image_models: Callable[..., Any]
     fetch_available_tts_models: Callable[..., Any]
     fetch_available_stt_models: Callable[..., Any]
+    settings_catalog_is_warm: Callable[..., Any]
+    clear_settings_catalog_cache: Callable[..., Any]
+    cached_text_models: Callable[..., Any]
+    cached_image_models: Callable[..., Any]
+    cached_tts_models: Callable[..., Any]
+    cached_stt_models: Callable[..., Any]
     _sanitize_model_combobox_value: Callable[..., Any]
     get_provider_from_endpoint: Callable[..., Any]
     get_image_model: Callable[..., Any]
@@ -1379,9 +1401,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         )
         from plugin.framework.client.provider_detection import get_provider_from_endpoint
         from plugin.framework.client.model_fetcher import (
-            endpoint_url_suitable_for_v1_models_fetch, fetch_available_models, fetch_available_image_models,
+            cached_image_models, cached_stt_models, cached_text_models, cached_tts_models,
+            clear_settings_catalog_cache, endpoint_url_suitable_for_v1_models_fetch,
+            fetch_available_models, fetch_available_image_models,
             fetch_available_stt_models, fetch_available_tts_models,
-            get_image_model,
+            get_image_model, settings_catalog_is_warm,
         )
 
         self._dlg = dialog
@@ -1402,6 +1426,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self.fetch_available_image_models = fetch_available_image_models
         self.fetch_available_tts_models = fetch_available_tts_models
         self.fetch_available_stt_models = fetch_available_stt_models
+        self.settings_catalog_is_warm = settings_catalog_is_warm
+        self.clear_settings_catalog_cache = clear_settings_catalog_cache
+        self.cached_text_models = cached_text_models
+        self.cached_image_models = cached_image_models
+        self.cached_tts_models = cached_tts_models
+        self.cached_stt_models = cached_stt_models
         self._sanitize_model_combobox_value = _sanitize_model_combobox_value
         self.get_provider_from_endpoint = get_provider_from_endpoint
         self.get_image_model = get_image_model
@@ -1423,6 +1453,25 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     def _live_api_key(self) -> str:
         ak_ctrl = get_optional(self._dlg, "api_key")
         return str(get_control_text(ak_ctrl)) if ak_ctrl else ""
+
+    def _api_key_override(self) -> str | None:
+        """Live key field, or None when that control is absent.
+
+        None matches ``fetch_available_models``: the saved key is hashed into
+        the cache id. A present field, including empty, is its own cache id.
+        """
+        ak_ctrl = get_optional(self._dlg, "api_key")
+        if not ak_ctrl:
+            return None
+        return str(get_control_text(ak_ctrl))
+
+    def _catalog_is_warm(self, resolved: str) -> bool:
+        return bool(self.settings_catalog_is_warm(resolved, api_key_override=self._api_key_override()))
+
+    def _apply_from_cache(self, resolved: str) -> None:
+        """Fill combos from the process memo. No HTTP."""
+        models = self.cached_text_models(resolved, api_key_override=self._api_key_override())
+        self._apply_dropdowns(resolved, models=models, skip_fetch=True)
 
     def _combo_current_for_provider(self, ctrl: Any, *, same_provider: bool, fallback: str = "") -> str:
         """Return combobox current only when the saved provider still matches.
@@ -1507,11 +1556,14 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
         image_ctrl = get_optional(self._dlg, "image_model")
         if image_ctrl:
-            image_models = (
-                self.fetch_available_image_models(resolved, api_key_override=api_key_ov)
-                if models is not None
-                else None
-            )
+            # OpenRouter/Together image lists are filled in _bg_fetch. Reading
+            # the fetch helper here used to GET /v1/images/models on the UI thread.
+            if models is not None and resolved_provider in {"openrouter", "together"}:
+                image_models = self.cached_image_models(resolved, api_key_override=self._api_key_override())
+            elif models is not None:
+                image_models = self.fetch_available_image_models(resolved, api_key_override=api_key_ov)
+            else:
+                image_models = None
             image_val = self._combo_current_for_provider(
                 image_ctrl,
                 same_provider=same_provider,
@@ -1555,11 +1607,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             return together_speech_ids("tts" if kind == "tts" else "stt", remote)
         if resolved_provider != "openrouter":
             return models
-        # Text-catalog fetch has not finished; don't block the UI on a second GET.
+        # The modality GET runs in _bg_fetch. A cache miss stays empty rather
+        # than blocking the UI thread on speech or transcription.
         if not isinstance(models, list):
             return None
-        fetch = self.fetch_available_tts_models if kind == "tts" else self.fetch_available_stt_models
-        found = fetch(resolved, api_key_override=api_key_ov)
+        fetch = self.cached_tts_models if kind == "tts" else self.cached_stt_models
+        found = fetch(resolved, api_key_override=self._api_key_override())
         return found if isinstance(found, list) else None
 
     def close(self) -> None:
@@ -1579,17 +1632,26 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     def _bg_fetch(self, gen: int, resolved: str) -> None:
         if self._closed or gen != self._debounce_gen: return
 
-        ak_ctrl = get_optional(self._dlg, "api_key")
-        key_ov = str(get_control_text(ak_ctrl)) if ak_ctrl else None
+        key_ov = self._api_key_override()
 
         models = None
         if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved):
             models = self.fetch_available_models(resolved, api_key_override=key_ov)
-        # List-all fills every Together TTS model's voices before the combo refresh.
-        if resolved and self.get_provider_from_endpoint(resolved) == "together":
-            from plugin.framework.client.model_fetcher import fetch_together_tts_voices
+        provider = self.get_provider_from_endpoint(resolved) if resolved else None
+        # These GETs used to run in _apply_dropdowns on the UI thread after the
+        # text list returned. OpenRouter image is GET /v1/images/models; speech
+        # and transcription are separate modality queries; Together voices are
+        # GET /v1/voices. That blocked Settings, including OK. The worker fills
+        # the process caches; apply_ui only reads them.
+        if resolved and provider in {"openrouter", "together"}:
+            self.fetch_available_image_models(resolved, api_key_override=key_ov)
+            if provider == "openrouter":
+                self.fetch_available_tts_models(resolved, api_key_override=key_ov)
+                self.fetch_available_stt_models(resolved, api_key_override=key_ov)
+            else:
+                from plugin.framework.client.model_fetcher import fetch_together_tts_voices
 
-            fetch_together_tts_voices(resolved, api_key_override=key_ov)
+                fetch_together_tts_voices(resolved, api_key_override=key_ov)
 
         def apply_ui() -> None:
             if self._closed or gen != self._debounce_gen: return
@@ -1599,6 +1661,15 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self.post_to_main_thread(apply_ui)
 
     def _schedule_debounced_models_fetch(self) -> None:
+        resolved = self.endpoint_from_selector_text(self._ctrl.getText())
+        # Once per process for this endpoint+key. A warm memo fills the combos
+        # and must not start a timer or a worker. Test Connection is the recheck.
+        if resolved and self._catalog_is_warm(resolved):
+            if self._timer:
+                self._timer.cancel()
+            self._debounce_gen += 1
+            self._apply_from_cache(resolved)
+            return
         if self._timer: self._timer.cancel()
         self._debounce_gen += 1
         gen = self._debounce_gen
@@ -1607,9 +1678,25 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._timer.start()
 
     def _run_fetch(self, gen: int) -> None:
+        # close() bumps the generation and cancels the timer. A callback already
+        # posted to the UI thread must not start the worker.
+        if self._closed or gen != self._debounce_gen:
+            return
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             self.run_in_background(lambda: self._bg_fetch(gen, resolved), name="settings-fetch")
+
+    def force_catalog_refresh(self) -> None:
+        """Clear this endpoint+key memo and refetch off the UI thread."""
+        resolved = self.endpoint_from_selector_text(self._ctrl.getText())
+        if not resolved:
+            return
+        self.clear_settings_catalog_cache(resolved, api_key_override=self._api_key_override())
+        if self._timer:
+            self._timer.cancel()
+        self._debounce_gen += 1
+        gen = self._debounce_gen
+        self.run_in_background(lambda: self._bg_fetch(gen, resolved), name="settings-recheck")
 
     def textChanged(self, rEvent: TextEvent) -> None:
         self._sync_api_key()
@@ -1629,6 +1716,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             self._sync_api_key()
+            if self._catalog_is_warm(resolved):
+                self._apply_from_cache(resolved)
+                return
             provider = self.get_provider_from_endpoint(resolved)
             skip_sync_fetch = provider in {"openrouter", "together"}
             self._apply_dropdowns(resolved, models=None, skip_fetch=skip_sync_fetch)

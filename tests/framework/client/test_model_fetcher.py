@@ -709,6 +709,71 @@ class TestFetchAvailableSpeechModels:
             assert mock_sync.call_args[0][0] == "https://openrouter.ai/api/v1/models?output_modalities=transcription"
         assert ids == ["mistralai/voxtral-mini-transcribe", "openai/whisper-large-v3"]
 
+    def test_settings_catalog_warm_requires_provider_lists_and_clear_refetches(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        endpoint = "https://openrouter.ai/api"
+        key = "sk-warm-predicate"
+
+        def body(url, **kwargs):
+            if url.endswith("/images/models"):
+                return {"data": [{"id": "google/gemini-2.5-flash-image"}]}
+            if "output_modalities=speech" in url:
+                return {"data": [{"id": "hexgrad/kokoro-82m", "architecture": {"output_modalities": ["speech"]}}]}
+            if "output_modalities=transcription" in url:
+                return {"data": [{"id": "openai/whisper-large-v3"}]}
+            if url.endswith("/models"):
+                return {"data": [{"id": "openrouter/fusion", "type": "chat"}]}
+            raise AssertionError(url)
+
+        cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+        try:
+            with patch("plugin.framework.client.requests.sync_request", side_effect=body) as mock_sync, \
+                 patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
+                assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key) is False
+                cfg.fetch_available_models(endpoint, api_key_override=key)
+                assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key) is False
+                cfg.fetch_available_image_models(endpoint, api_key_override=key)
+                cfg.fetch_available_tts_models(endpoint, api_key_override=key)
+                cfg.fetch_available_stt_models(endpoint, api_key_override=key)
+                assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key) is True
+                assert cfg.cached_text_models(endpoint, api_key_override=key) == ["openrouter/fusion"]
+                assert cfg.cached_image_models(endpoint, api_key_override=key) == ["google/gemini-2.5-flash-image"]
+                mock_sync.reset_mock()
+                assert cfg.fetch_available_models(endpoint, api_key_override=key) == ["openrouter/fusion"]
+                mock_sync.assert_not_called()
+                cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+                assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key) is False
+                cfg.fetch_available_models(endpoint, api_key_override=key)
+                mock_sync.assert_called()
+        finally:
+            cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+
+    def test_together_catalog_warm_includes_voices_list(self):
+        from plugin.framework.client import model_fetcher as cfg
+
+        endpoint = "https://api.together.xyz"
+        key = "sk-together-warm"
+
+        def body(url, **kwargs):
+            if url.endswith("/voices"):
+                return {"data": [{"model": "hexgrad/Kokoro-82M", "voices": [{"name": "af_bella"}]}]}
+            if url.endswith("/models"):
+                return [{"id": "openai/gpt-oss-120b", "type": "chat"}, {"id": "black-forest-labs/FLUX.1-dev", "type": "image"}]
+            raise AssertionError(url)
+
+        cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+        try:
+            with patch("plugin.framework.client.requests.sync_request", side_effect=body), \
+                 patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
+                cfg.fetch_available_models(endpoint, api_key_override=key)
+                assert cfg.cached_image_models(endpoint, api_key_override=key) == ["black-forest-labs/FLUX.1-dev"]
+                assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key) is False
+                cfg.fetch_together_tts_voices(endpoint, api_key_override=key)
+                assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key) is True
+        finally:
+            cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+
     def test_together_has_no_speech_list_endpoint(self):
         from plugin.framework.client import model_fetcher as cfg
 
