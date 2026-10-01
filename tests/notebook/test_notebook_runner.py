@@ -121,6 +121,11 @@ def test_execute_code_does_not_pump_idle():
 
 
 def test_execute_code_stop_returns_interrupted_without_venv():
+    """``BlockingWaitStopped`` is another thread setting the flag.
+
+    The hamburger cannot do that: it runs on the UI thread that is inside
+    this wait, and the wait does not pump VCL.
+    """
     from plugin.framework.async_stream import BlockingWaitStopped
 
     ctx = MagicMock()
@@ -228,6 +233,57 @@ def test_run_cell_empty_code():
     assert "empty" in result.message.lower()
 
 
+def test_run_cell_missing_code_field():
+    ctx = MagicMock()
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    state = NotebookDocState(code_cells=[cell])
+    doc = MagicMock()
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.form_lookup.read_code_from_field", return_value=None),
+    ):
+        result = run_cell(ctx, doc, cell.cell_id)
+    assert result.status == "error"
+    assert "missing" in result.message.lower()
+    assert "empty" not in result.message.lower()
+
+
+def test_run_cell_busy_guard_shares_url_key_across_wrappers():
+    """Two PyUNO wrappers of one saved doc (no RuntimeUID) must not both run."""
+    from plugin.notebook.notebook_controls import _doc_key
+
+    ctx = MagicMock()
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    state = NotebookDocState(code_cells=[cell], next_execution_count=1)
+    doc1 = MagicMock()
+    doc2 = MagicMock()
+    for doc in (doc1, doc2):
+        doc.getRuntimeUID.return_value = ""
+        doc.getURL.return_value = "file:///tmp/same.odt"
+    assert _doc_key(doc1) == _doc_key(doc2) == "url:file:///tmp/same.odt"
+    nested: list[object] = []
+
+    def _reenter(*_a: object, **_k: object) -> dict[str, object]:
+        nested.append(run_cell(ctx, doc2, cell.cell_id))
+        return {"status": "ok", "result": None, "stdout": "1\n"}
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="print(1)"),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_reenter),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result"),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+    ):
+        result = run_cell(ctx, doc1, cell.cell_id)
+
+    assert result.status == "ok"
+    assert len(nested) == 1
+    assert getattr(nested[0], "status") == "busy"
+
+
 def test_insert_run_image_svg_mime():
     from plugin.notebook.notebook_runner import _insert_run_image
 
@@ -237,6 +293,17 @@ def test_insert_run_image_svg_mime():
         assert _insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
     insert_flow.assert_called_once()
     assert insert_flow.call_args.kwargs["mime"] == "image/svg+xml"
+
+
+def test_insert_run_image_webp_mime():
+    from plugin.notebook.notebook_runner import _insert_run_image
+
+    doc = MagicMock()
+    payload = {"__wa_payload__": "image", "format": "webp", "data": b"RIFF"}
+    with patch("plugin.notebook.notebook_runner._insert_image_in_flow", return_value=True) as insert_flow:
+        assert _insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
+    insert_flow.assert_called_once()
+    assert insert_flow.call_args.kwargs["mime"] == "image/webp"
 
 
 def test_shared_notebook_session_via_sandbox():
@@ -669,32 +736,57 @@ def test_update_in_prompt_does_not_setstring_whole_paragraph():
     frame_portion = MagicMock(name="frame_portion")
     frame_portion.getPropertyValue.return_value = "Frame"
 
-    para = MagicMock()
-    para.getString.return_value = "In [1]:"
-    para.createEnumeration.return_value = _enum_of([text_portion, frame_portion])
-    para.getStart.return_value = "para-start"
-    para.getEnd.return_value = "para-end"
-
     text_cursor = MagicMock(name="text_cursor")
-    whole_para = MagicMock(name="whole_para")
+    nav = MagicMock(name="nav")
+    nav.gotoPreviousParagraph.return_value = True
+    gutter = MagicMock(name="gutter")
+    gutter.createEnumeration.return_value = _enum_of([text_portion, frame_portion])
+
     text = MagicMock()
-    text.createEnumeration.return_value = _enum_of([para])
 
     def _cursor_for(rng):
+        if rng == "anchor":
+            return nav
+        if rng is nav:
+            return gutter
         if rng is text_portion:
             return text_cursor
-        return whole_para
+        raise AssertionError(rng)
 
     text.createTextCursorByRange.side_effect = _cursor_for
     doc = MagicMock()
     doc.getText.return_value = text
+    shape = MagicMock()
+    shape.getAnchor.return_value = "anchor"
 
     cell = new_code_cell_entry(1, 1, "nb_cell_1_code")
-    update_in_prompt(doc, cell, 4)
+    with patch("plugin.notebook.form_lookup.find_control_shape_by_name", return_value=shape):
+        update_in_prompt(doc, cell, 4)
 
     text_cursor.setString.assert_called_once_with("In [4]:")
-    whole_para.setString.assert_not_called()
-    whole_para.gotoRange.assert_not_called()
+    gutter.setString.assert_not_called()
+    text.createEnumeration.assert_not_called()
+
+
+def test_update_in_prompt_does_not_rewrite_first_gutter_when_shape_missing():
+    """A missing ControlShape must not setString the first ``In [n]:`` in the doc."""
+    first = MagicMock(name="first_gutter")
+    first.getString.return_value = "In [1]:"
+    second = MagicMock(name="second_gutter")
+    second.getString.return_value = "In [2]:"
+    text = MagicMock()
+    text.createEnumeration.return_value = _enum_of([first, second])
+    doc = MagicMock()
+    doc.getText.return_value = text
+    cell = new_code_cell_entry(1, 1, "nb_cell_1_code")
+
+    with patch("plugin.notebook.form_lookup.find_control_shape_by_name", return_value=None):
+        update_in_prompt(doc, cell, 9)
+
+    text.createEnumeration.assert_not_called()
+    text.createTextCursorByRange.assert_not_called()
+    first.setString.assert_not_called()
+    second.setString.assert_not_called()
 
 
 def test_update_in_prompt_source_never_setstrings_para_end():
@@ -1098,6 +1190,46 @@ def test_run_cells_skips_empty_and_continues():
     assert ran == ["x = 1", "z = y + 1"]
     assert apply.call_count == 2
     assert cells[1].execution_count is None
+
+
+def test_run_cells_logs_missing_field_and_continues(caplog):
+    import logging
+
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    ran: list[str] = []
+
+    def _read(_doc, field_name):
+        if field_name == "nb_cell_1_code":
+            return None
+        return _code_for_field(_doc, field_name)
+
+    def _exec(_ctx, _doc, code):
+        ran.append(code)
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    caplog.set_level(logging.WARNING, logger="writeragent.notebook")
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_read),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "ok"
+    assert result.cells_run == 2
+    assert ran == ["x = 1", "z = y + 1"]
+    assert apply.call_count == 2
+    assert cells[1].execution_count is None
+    assert "nb_cell_1_code" in caplog.text
+    assert "missing" in caplog.text.lower()
 
 
 def test_run_cells_error_continues_unless_stopped():

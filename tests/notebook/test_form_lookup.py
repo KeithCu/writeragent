@@ -8,6 +8,7 @@ from plugin.notebook.form_lookup import (
     find_control_shape_by_name,
     find_form_control_model_by_name,
     index_form_control_models,
+    read_code_from_field,
 )
 
 
@@ -58,6 +59,23 @@ def test_find_form_control_model_by_name_text_fallback():
     doc.getText.return_value.createEnumeration.return_value = _enum_of([para])
 
     assert find_form_control_model_by_name(doc, "nb_cell_0_code") is field_model
+
+
+def test_read_code_from_field_missing_is_none_empty_text_is_blank():
+    present = MagicMock()
+    present.Name = "nb_cell_0_code"
+    present.Text = ""
+    dp = MagicMock()
+    dp.getCount.return_value = 1
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.ControlShape"
+    shape.Control = present
+    dp.getByIndex.side_effect = [shape, shape]
+    doc = MagicMock()
+    doc.getDrawPage.return_value = dp
+
+    assert read_code_from_field(doc, "nb_cell_0_code") == ""
+    assert read_code_from_field(doc, "nb_cell_9_code") is None
 
 
 def test_find_control_shape_by_name_from_draw_page():

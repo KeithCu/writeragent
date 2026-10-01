@@ -47,8 +47,10 @@ from plugin.notebook.writer_importer import (
     _inline_backticks_to_html,
     _iter_markdown_blocks,
     _looks_like_html,
+    _image_mime_from_bytes,
     _notebook_image_payload,
     _png_pixel_size,
+    _webp_pixel_size,
     _trim_trailing_empty_paragraph,
     _unglue_last_paragraph,
     _wrap_html_fragment,
@@ -112,6 +114,27 @@ def test_format_output_image_empty_for_body():
 def test_notebook_image_payload():
     data = {"image/png": "abc", "text/plain": "hi"}
     assert _notebook_image_payload(data) == ("image/png", "abc")
+
+
+def _webp_vp8x(width: int, height: int) -> bytes:
+    canvas = bytes(4) + (width - 1).to_bytes(3, "little") + (height - 1).to_bytes(3, "little")
+    chunk = b"VP8X" + len(canvas).to_bytes(4, "little") + canvas
+    body = b"WEBP" + chunk
+    return b"RIFF" + len(body).to_bytes(4, "little") + body
+
+
+def test_image_mime_from_bytes_webp_is_not_png():
+    raw = _webp_vp8x(32, 16)
+    assert _image_mime_from_bytes(raw, "plot.png") == "image/webp"
+    assert _image_mime_from_bytes(b"not-an-image", "badge.webp") == "image/webp"
+    assert _webp_pixel_size(raw) == (32, 16)
+
+
+def test_notebook_image_payload_webp_when_no_png():
+    data = {"image/webp": "abc", "text/plain": "hi"}
+    assert _notebook_image_payload(data) == ("image/webp", "abc")
+    both = {"image/png": "png", "image/webp": "webp"}
+    assert _notebook_image_payload(both) == ("image/png", "png")
 
 
 def test_png_pixel_size_1x1():
@@ -874,6 +897,39 @@ def test_import_ipynb_saves_registry_with_two_code_cells(tmp_path, monkeypatch):
     assert state.code_cells[0].execution_count == 1
     assert state.code_cells[1].execution_count == 2
     assert state.code_cells[0].output_start_bookmark.startswith("nb_out_")
+
+
+def test_import_drops_bookmark_name_when_insert_fails(tmp_path, monkeypatch, caplog):
+    import logging
+
+    ipynb = tmp_path / "one_code.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"code","metadata":{},"source":"a=1","execution_count":1,"outputs":[]}'
+        "]}",
+        encoding="utf-8",
+    )
+    doc, _, _ = _writer_doc_mock(with_bookmarks=True)
+
+    class FakeSize:
+        def __init__(self, w, h):
+            self.Width = w
+            self.Height = h
+
+    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.writer_importer.insert_output_start_bookmark", lambda _d, _n: False)
+    saved: list = []
+    monkeypatch.setattr("plugin.notebook.writer_importer.save_registry", lambda _d, state: saved.append(state))
+    monkeypatch.setattr("plugin.notebook.writer_importer.save_notebook_source_path", MagicMock())
+
+    caplog.set_level(logging.WARNING, logger="writeragent.notebook")
+    import_ipynb_to_writer(doc, str(ipynb))
+
+    assert len(saved) == 1
+    cell = saved[0].code_cells[0]
+    assert cell.code_field_name == "nb_cell_0_code"
+    assert cell.output_start_bookmark == ""
+    assert "was not inserted" in caplog.text
 
 
 def test_iter_markdown_blocks_atx_and_paragraphs():

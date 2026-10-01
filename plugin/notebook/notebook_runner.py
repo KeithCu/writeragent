@@ -18,10 +18,10 @@ from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.async_stream import BlockingWaitStopped, run_blocking_in_thread
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_active_document, get_runtime_uid
+from plugin.framework.uno_context import get_active_document
 from plugin.notebook import form_lookup
 from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, _IN_PROMPT_RE, _format_in_prompt, _prepare_display_text, cell_id_to_hex, find_cell_by_hex, load_registry, save_registry
-from plugin.notebook.notebook_controls import _resolve_para_style
+from plugin.notebook.notebook_controls import _doc_key, _resolve_para_style
 from plugin.notebook.writer_importer import _PARAGRAPH_BREAK, _STYLE_MD_H1, _STYLE_MD_H2, _STYLE_NOTEBOOK_IN, _STYLE_OUTPUT, _insert_image_in_flow, _strip_ansi
 from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
 from plugin.scripting.session_manager import notebook_session_id
@@ -33,12 +33,17 @@ NOTEBOOK_RUN_CELL_URL_PREFIX = f"{EXTENSION_ID_WRITERAGENT}:notebook.run_cell."
 
 # Per-document re-entrancy guard. Shared ``notebook:…`` kernel must not run two
 # cells at once; a second ▶ used to interleave registry/output mutation when
-# execute_code pumped VCL. Keyed like notebook_controls._doc_key (RuntimeUID).
-# Run All holds this key for the whole sequence so a ▶ mid-batch is skipped.
+# execute_code pumped VCL. Same key as ``notebook_controls._doc_key``
+# (RuntimeUID, then URL, then id) so two PyUNO wrappers of one document cannot
+# both pass. Run All holds this key for the whole sequence so a ▶ mid-batch
+# is skipped.
 _running_docs: set[str] = set()
 
-# Stop is a separate signal so the busy guard never blocks it. Set from the
-# menu/toolbar; execute_code's wait polls it without processEventsToIdle.
+# Stop is a separate signal so the busy guard never blocks it. The hamburger
+# sets it on the UI thread. ``execute_code`` waits on that same thread without
+# a VCL pump, so the click is delivered between cells (``flush_ui_idle``), not
+# during the in-flight wait. ``stop_checker`` still aborts that wait if another
+# thread sets the flag; the menu cannot.
 _stop_flags: dict[str, threading.Event] = {}
 _stop_lock = threading.Lock()
 
@@ -58,14 +63,6 @@ class RunResult:
     execution_count: int | None
     message: str = ""
     cells_run: int = 0
-
-
-def _doc_busy_key(doc: Any) -> str:
-    """Stable per-document key for the run-cell re-entrancy guard."""
-    uid = get_runtime_uid(doc)
-    if uid:
-        return f"uid:{uid}"
-    return f"id:{id(doc)}"
 
 
 def _stop_event(busy_key: str) -> threading.Event:
@@ -93,7 +90,7 @@ def request_stop(doc: Any) -> None:
     Must not check ``_running_docs`` — the busy guard skips a second ▶, but
     Stop has to land while that key is held.
     """
-    _stop_event(_doc_busy_key(doc)).set()
+    _stop_event(_doc_key(doc)).set()
 
 
 def stop_for_doc(doc: Any) -> None:
@@ -109,8 +106,10 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     ``pump_idle=False``: ``processEventsToIdle`` waits for ``LayoutIdle``, which
     livelocks (92% CPU, never returns) on notebooks with many in-flow form
     controls — the same bug ``flush_ui_idle`` documents after import. Drain
-    *between* cells in Run All, never here. Stop polls ``stop_checker`` on the
-    wait (no VCL pump); the worker may finish the in-flight cell.
+    *between* cells in Run All, never here. ``stop_checker`` is polled on this
+    wait, but the hamburger sets that flag on this same UI thread, so a Stop
+    click is not dispatched until the worker returns. Stop therefore skips
+    cells that have not started; it does not abort the in-flight cell.
     """
     session_id = notebook_session_id(ctx, doc)
     if not session_id:
@@ -119,7 +118,7 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     def _run() -> dict[str, Any]:
         return run_code_in_user_venv(ctx, code, session_id=session_id)
 
-    busy_key = _doc_busy_key(doc)
+    busy_key = _doc_key(doc)
 
     def _stopped() -> bool:
         return _is_stop_requested(busy_key)
@@ -770,6 +769,8 @@ def _insert_run_image(doc: Any, payload: dict[str, Any], *, ctx: Any, images_bef
         mime = "image/svg+xml"
     elif fmt in ("jpg", "jpeg"):
         mime = "image/jpeg"
+    elif fmt == "webp":
+        mime = "image/webp"
     else:
         mime = "image/png"
     return _insert_image_in_flow(doc, raw=bytes(raw), mime=mime, images_before=images_before, ctx=ctx, text_cursor=text_cursor)
@@ -978,6 +979,10 @@ def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | No
         return
 
     para = None
+    # Walk only the paragraph before this cell's code field. A document-wide
+    # search for the first ``In [n]:`` rewrote cell 1's gutter when this
+    # cell's ControlShape was missing (the importer no longer writes
+    # ``Cell N: Code``).
     shape = form_lookup.find_control_shape_by_name(doc, cell.code_field_name)
     if shape is not None:
         try:
@@ -992,23 +997,7 @@ def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | No
             log.debug("notebook run: gutter from code field failed", exc_info=True)
             para = None
     if para is None:
-        try:
-            enum = text.createEnumeration()
-        except Exception:
-            log.debug("notebook run: could not enumerate text for in prompt", exc_info=True)
-            return
-        marker = f"Cell {cell.index + 1}: Code"
-        while enum.hasMoreElements():
-            candidate = enum.nextElement()
-            try:
-                content = candidate.getString() or ""
-            except Exception:
-                continue
-            stripped = str(content).strip()
-            if marker in stripped or _IN_PROMPT_RE.match(stripped) or stripped.startswith("[In ["):
-                para = candidate
-                break
-    if para is None:
+        log.warning("notebook run: could not find code field %r to update In prompt for cell %d", cell.code_field_name, cell.index)
         return
     try:
         cursor = _gutter_text_cursor(text, para)
@@ -1093,13 +1082,16 @@ def run_cell(ctx: Any, doc: Any, cell_id: str) -> RunResult:
         return RunResult("error", None, "Unknown notebook cell.")
 
     code = form_lookup.read_code_from_field(doc, cell.code_field_name)
-    if not (code or "").strip():
+    if code is None:
+        log.warning("notebook run: code field %r missing for cell %d", cell.code_field_name, cell.index)
+        return RunResult("error", None, "Code field is missing.")
+    if not code.strip():
         return RunResult("error", None, "Code cell is empty.")
 
     # Shared kernel: one run per document. Without this, a second ▶ (or the
     # leftover double-wire we already hit on two PyUNO wrappers) interleaved
     # next_execution_count / clear_cell_output / apply_run_result.
-    busy_key = _doc_busy_key(doc)
+    busy_key = _doc_key(doc)
     if busy_key in _running_docs:
         log.info("notebook run skipped: a cell is already running on this document")
         return RunResult("busy", None, "A cell is already running.")
@@ -1184,15 +1176,18 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
     """Execute code cells from *start_index* in registry order.
 
     Holds the busy key for the whole sequence so a ▶ is skipped (``busy``).
-    Stop still works: it does not take this guard. Empty fields are skipped
-    (single-cell ▶ still errors). A traceback is written under the cell and
-    the batch continues unless Stop was requested. Drain between cells only.
+    Stop does not take this guard. It is observed between cells: the in-flight
+    ``execute_code`` wait does not pump VCL, so a hamburger Stop cannot land
+    until that wait returns. Empty fields are skipped (single-cell ▶ still
+    errors). A missing code field is logged and skipped. A traceback is written
+    under the cell and the batch continues unless Stop was requested. Drain
+    between cells only.
     """
     state = load_registry(doc)
     if state is None:
         return RunResult("error", None, "No notebook registry on document.")
 
-    busy_key = _doc_busy_key(doc)
+    busy_key = _doc_key(doc)
     if busy_key in _running_docs:
         log.info("notebook run skipped: a cell is already running on this document")
         return RunResult("busy", None, "A cell is already running.")
@@ -1209,7 +1204,10 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                 stopped = True
                 break
             code = form_lookup.read_code_from_field(doc, cell.code_field_name)
-            if not (code or "").strip():
+            if code is None:
+                log.warning("notebook run: code field %r missing for cell %d; skipping", cell.code_field_name, cell.index)
+                continue
+            if not code.strip():
                 continue
             if need_drain:
                 # LayoutIdle livelock is during execute, not this between-cell pump.

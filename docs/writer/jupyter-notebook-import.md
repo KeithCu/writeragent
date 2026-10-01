@@ -62,7 +62,7 @@ Addons.xcu cannot gate on a user-defined document property, so there is no nativ
 | **Run All / Run From Here / Stop (Phase 2)** — sidebar hamburger only, and only when `load_registry(doc)` is set (not ordinary Writer / Calc / Draw; not menubar or review toolbar); registry-order sequence; drain **between** cells only; Stop skips the remainder (busy guard does not block Stop) | — |
 | **Control lookup** — [`form_lookup.py`](../../plugin/notebook/form_lookup.py) indexes `ControlShape` models on the document draw page (required for wiring ▶ buttons) | Batched background image decode |
 | **Reset Python Session** — clears `notebook:…` kernel for Writer docs with a registry ([`session_manager.py`](../../plugin/scripting/session_manager.py)) | `notebook.enable_interactive` / Settings UI keys |
-| **Output images** — `image/png`, `image/jpeg` in `display_data` / `execute_result` | JSON schema validation (`fastjsonschema`), `traitlets`, `jupyter_core` |
+| **Output images** — `image/png`, `image/jpeg`, `image/webp` in `display_data` / `execute_result`, and markdown images whose bytes are WebP | JSON schema validation (`fastjsonschema`), `traitlets`, `jupyter_core` |
 | **Tests** — [`tests/contrib/test_nbformat_read.py`](../../tests/contrib/test_nbformat_read.py), [`tests/notebook/`](../../tests/notebook/) (pytest) including [`tests/notebook/test_import_filter.py`](../../tests/notebook/test_import_filter.py), plus live Writer smoke [`tests/notebook/test_writer_importer_uno.py`](../../tests/notebook/test_writer_importer_uno.py), [`tests/notebook/test_notebook_runner_uno.py`](../../tests/notebook/test_notebook_runner_uno.py), and [`tests/notebook/test_import_filter_uno.py`](../../tests/notebook/test_import_filter_uno.py) | Pixel-click FilePicker (optional manual) |
 
 ---
@@ -71,7 +71,7 @@ Addons.xcu cannot gate on a user-defined document property, so there is no nativ
 
 **File → Open** — **File → Open…**, desktop double-click, Open Recent, or `soffice notebook.ipynb` creates a new Writer document and imports the notebook (no FilePicker, no completion dialog). There is no menu entry to append into an already-open document.
 
-Click **▶** beside any code cell to execute it. On an imported notebook, the sidebar hamburger lists **Run All** (every code cell in registry order), **Run From Here** (from the code cell at or after the view cursor), and **Stop** (skip cells that have not started; the in-flight cell may finish or abort). Those three items do **not** appear on ordinary Writer documents, Calc, Draw, the menubar, or the review toolbar.
+Click **▶** beside any code cell to execute it. On an imported notebook, the sidebar hamburger lists **Run All** (every code cell in registry order), **Run From Here** (from the code cell at or after the view cursor), and **Stop** (skip cells that have not started). The cell already running finishes: that wait does not pump the UI, so the Stop click is handled between cells. Those three items do **not** appear on ordinary Writer documents, Calc, Draw, the menubar, or the review toolbar.
 
 ---
 
@@ -80,9 +80,9 @@ Click **▶** beside any code cell to execute it. On an imported notebook, the s
 | Action | Behavior & Rules |
 |--------|------------------|
 | **Run one cell** | Click the in-flow **▶** push button immediately preceding the code `TextField`. |
-| **Run All** | Sidebar hamburger **Run All** on a notebook document only (`WriterAgentNotebookJson` present). Executes code cells in `state.code_cells` order. Empty fields are skipped. A traceback is written under the failing cell and the batch continues (Jupyter). |
+| **Run All** | Sidebar hamburger **Run All** on a notebook document only (`WriterAgentNotebookJson` present). Executes code cells in `state.code_cells` order. Empty fields are skipped. A missing code field is logged and skipped. A traceback is written under the failing cell and the batch continues (Jupyter). |
 | **Run From Here** | Sidebar hamburger **Run From Here** on a notebook document only. Starts at the code cell at or after the current selection (code field or `nb_out_*` bookmark). Selection before the first code cell is the same as Run All. |
-| **Stop** | Sidebar hamburger **Stop** on a notebook document only. Interrupts the remainder of a Run All / Run From Here sequence. A ▶ during Run All is skipped (`busy`); Stop is not blocked by that guard. |
+| **Stop** | Sidebar hamburger **Stop** on a notebook document only. Skips code cells that have not started in a Run All / Run From Here sequence. The cell already executing runs until the worker returns: Stop and that wait share the UI thread, and the wait does not pump events (`pump_idle=False`, LayoutIdle). A ▶ during Run All is skipped (`busy`); Stop is not blocked by that guard between cells. |
 | **Shared variables** | All code cells in the document share one `notebook:…` Python namespace (like a Jupyter kernel). Variables assigned in earlier cells are available in later cells. |
 | **Execution count** | Resets to 1 on document load or **Reset Python Session**. Each execution (including re-clicks and errors) increments the counter by 1 (`In [n]`). |
 | **Reset kernel** | **LibrePy / WriterAgent → Reset Python Session** clears kernel variables and resets the counter to 1. |
@@ -153,7 +153,7 @@ flowchart TB
 - Chrome: hamburger items only, and only when `load_registry(doc)` is non-None. Not on the LibrePy / WriterAgent menubar, not on the WriterAgent toolbar, not on ordinary Writer / Calc / Draw.
 - **Run All** executes code cells in sequence with UI event drains **between** cells — never `processEventsToIdle` during `execute_code` (same `LayoutIdle` livelock as post-import flush on notebooks with many in-flow form controls).
 - **Run From Here** execution from current selection.
-- **Stop** sets a per-document flag that `execute_code`'s wait polls (`stop_checker`, no VCL pump). Remaining cells do not start. In `[n]` / outputs update only for cells that finished.
+- **Stop** sets a per-document flag checked between cells (after `flush_ui_idle`). It does not abort the cell whose `execute_code` wait is already on the UI thread: that wait polls `stop_checker` without pumping VCL, so the hamburger click is not dispatched until the worker returns. In `[n]` / outputs update for the cell that finished. Remaining cells do not start.
 
 ### Phase 3: Cell CRUD & Re-import Merge — **Planned**
 - Interactive addition, deletion, and reordering of code and markdown cells.
