@@ -923,7 +923,10 @@ def _isolate_home_cache(tmp_path, monkeypatch):
     """Point ``Path.home() / '.cache'`` at a tmp dir and ignore ``XDG_CACHE_HOME``."""
     home = tmp_path / "home"
     home.mkdir()
+    # Path.home() reads HOME on POSIX and USERPROFILE on Windows
+    # (ntpath.expanduser). HOME alone still resolves the runner profile.
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     return home / ".cache"
 

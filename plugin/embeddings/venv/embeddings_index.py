@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 from plugin.embeddings.venv.langdetect_rpc import LANGDETECT_VERSION
 
 EMBEDDINGS_VENV_PIP_INSTALL = (
-    "pip install sentence-transformers numpy sqlite-vec langgraph "
+    "pip install sentence-transformers numpy sqlite-vec pysqlite3 langgraph "
     "langchain-core langchain-text-splitters envwrap odfpy pandas "
     "openpyxl xlrd python-docx llama-index-core zvec icu4py defusedxml "
     f"langdetect=={LANGDETECT_VERSION}"

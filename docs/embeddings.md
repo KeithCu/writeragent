@@ -1125,4 +1125,6 @@ VENV=/path/to/your/venv
 
 Install into **`scripting.python_venv_path`**, not system Python or LibreOffice embedded Python. See [sqlite-vec Python docs](https://alexgarcia.xyz/sqlite-vec/python.html).
 
+python.org macOS CPython (including GitHub `macos-latest` 3.13) is built without loadable SQLite extensions, so `Connection.enable_load_extension` is missing. `connect_corpus_db` then uses `pysqlite3`, which bundles SQLite with extension loading — the fallback sqlite-vec documents. `pysqlite3` is on `EMBEDDINGS_VENV_PIP_INSTALL`. Homebrew Python already exposes the method and stays on stdlib `sqlite3`. A LibreOffice host Python without `pysqlite3` can still open the corpus for metadata; vec0 loading reports the install line.
+
 **Do not** vendor sqlite-vec into the OXT.
