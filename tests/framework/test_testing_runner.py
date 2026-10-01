@@ -18,6 +18,7 @@ from plugin.testing_runner import (
     _function_name_matches,
     _is_case_id,
     _module_matches_filters,
+    _native_suite_set_config,
     _native_suite_sort_key,
     _should_rebootstrap_after_recycle,
     _test_function_filters,
@@ -420,6 +421,73 @@ def test_exit_after_summary_minus_m_uses_helper() -> None:
     assert "if __name__ == \"__main__\":" in text
     assert "_exit_after_summary(main())" in text
     assert "raise SystemExit(main())" not in text
+
+
+def test_native_suite_set_config_forwards_text_model_event_key(monkeypatch) -> None:
+    """Sidebar setup calls set_text_model, which always passes event_key."""
+    from plugin.framework.client.model_fetcher import set_text_model
+
+    captured: list[tuple[str, str, str | None]] = []
+
+    def original(key: str, value: object, *, event_key: str | None = None) -> None:
+        captured.append((key, str(value), event_key))
+
+    override: dict[str, object] = {}
+
+    def wrapper(key: str, value: object, *, event_key: str | None = None) -> None:
+        _native_suite_set_config(
+            key,
+            value,
+            event_key=event_key,
+            ctx=object(),
+            review_mode_override=override,
+            original_set_config=original,
+        )
+
+    monkeypatch.setattr("plugin.framework.client.model_fetcher.get_config", lambda key: "")
+    monkeypatch.setattr("plugin.framework.client.model_fetcher.set_config", wrapper)
+
+    set_text_model("mock-model", update_lru=False)
+    assert captured == [("text_model", "mock-model", None)]
+
+    set_text_model("mapped-model", update_lru=False, event_key="ai.text_model")
+    assert captured[-1] == ("text_model", "mapped-model", "ai.text_model")
+
+
+def test_native_suite_set_config_review_mode_keeps_mapped_event_key(monkeypatch) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event: str, **data: object) -> None:
+        emitted.append((event, dict(data)))
+
+    monkeypatch.setattr("plugin.framework.event_bus.global_event_bus.emit", emit)
+    override: dict[str, object] = {}
+    ctx = object()
+
+    def original(key: str, value: object, *, event_key: str | None = None) -> None:
+        raise AssertionError("review mode stays in memory")
+
+    _native_suite_set_config(
+        "doc.agent_edit_review_mode",
+        "record",
+        event_key=None,
+        ctx=ctx,
+        review_mode_override=override,
+        original_set_config=original,
+    )
+    assert override["doc.agent_edit_review_mode"] == "record"
+    assert emitted == [("config:changed", {"ctx": ctx})]
+
+    _native_suite_set_config(
+        "doc.agent_edit_review_mode",
+        "wait",
+        event_key="ai.review",
+        ctx=ctx,
+        review_mode_override=override,
+        original_set_config=original,
+    )
+    assert override["doc.agent_edit_review_mode"] == "wait"
+    assert emitted[-1] == ("config:changed", {"key": "ai.review", "value": "wait", "ctx": ctx})
 
 
 def test_fail_reason_with_lifecycle_keeps_crumb_after_cap() -> None:

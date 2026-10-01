@@ -1686,6 +1686,40 @@ def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) ->
     return total_passed, total_failed, suite_log
 
 
+def _native_suite_set_config(
+    key: str,
+    value: Any,
+    *,
+    event_key: str | None,
+    ctx: Any,
+    review_mode_override: Dict[str, Any],
+    original_set_config: Callable[..., None],
+) -> None:
+    """Stand-in for ``set_config`` while native suites run.
+
+    What was wrong: ``set_text_model``, ``set_image_model``, and
+    ``set_api_key_for_endpoint`` always pass ``event_key`` — the listener
+    key when a settings field is stored under another name, or ``None`` so
+    listeners see the stored key. The suite wrapper only took ``(key, value)``,
+    so mock-LLM sidebar setup raised ``TypeError`` and both suites aborted
+    before any test (GHA 36809189426, 36809192143).
+
+    Forward ``event_key`` into the real writer. ``doc.agent_edit_review_mode``
+    stays in memory; a caller-supplied ``event_key`` is still the
+    ``config:changed`` key so that signal is not dropped.
+    """
+    if key == "doc.agent_edit_review_mode":
+        review_mode_override[key] = value
+        from plugin.framework.event_bus import global_event_bus
+
+        if event_key:
+            global_event_bus.emit("config:changed", key=event_key, value=value, ctx=ctx)
+        else:
+            global_event_bus.emit("config:changed", ctx=ctx)
+        return
+    original_set_config(key, value, event_key=event_key)
+
+
 def run_all_tests(ctx: Any) -> str:
     """Run all in-process WriterAgent tests and return a JSON summary string.
 
@@ -1724,13 +1758,15 @@ def run_all_tests(ctx: Any) -> str:
             return _review_mode_override.get(key, "off")
         return original_get_config(key)
 
-    def test_set_config(key: str, value: Any) -> None:
-        if key == "doc.agent_edit_review_mode":
-            _review_mode_override[key] = value
-            from plugin.framework.event_bus import global_event_bus
-            global_event_bus.emit("config:changed", ctx=ctx)
-            return
-        original_set_config(key, value)
+    def test_set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
+        _native_suite_set_config(
+            key,
+            value,
+            event_key=event_key,
+            ctx=ctx,
+            review_mode_override=_review_mode_override,
+            original_set_config=original_set_config,
+        )
 
     def test_get_config_dict() -> dict[str, Any]:
         base = original_get_config_dict()
