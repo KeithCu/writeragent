@@ -19,6 +19,10 @@ DEFAULT_OCR_BACKEND = "rapidocr"
 # Financial statements and comparison tables often exceed 50 body rows.
 MAX_TABLE_ROWS = 200
 
+# plugin.scripting.ipc.DEFAULT_MAX_PAYLOAD_BYTES is 16 MiB. Leave 1 MiB for the
+# spec/context pickle wrapper so a max-size image still fits in one frame.
+VISION_IMAGE_MAX_BYTES = 15 * 1024 * 1024
+
 # PDF magic so corpus / nearby-file bytes can skip the image OCR raster path.
 _PDF_MAGIC = b"%PDF"
 
@@ -77,9 +81,10 @@ def is_css_inline_import_error(exc: BaseException) -> bool:
     return "css_inline" in msg or "css-inline" in msg
 
 
-def css_inline_unavailable_result(helper: str) -> dict[str, Any]:
-    from plugin.vision.venv.vision_html_export import CSS_INLINE_INSTALL_CMD
+CSS_INLINE_INSTALL_CMD = "pip install css-inline"
 
+
+def css_inline_unavailable_result(helper: str) -> dict[str, Any]:
     return _error_result("CSS_INLINE_UNAVAILABLE", f"Install css-inline in your venv (Settings → Python): {CSS_INLINE_INSTALL_CMD}", helper=helper)
 
 

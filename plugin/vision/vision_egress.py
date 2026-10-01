@@ -194,6 +194,8 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
 
     insert_mode = resolve_vision_insert_mode(ctx, params)
     helper = str(result.get("helper") or "")
+    params_dict = params if isinstance(params, dict) else {}
+    image_name = str(params_dict.get("image_name") or "").strip() or None
 
     if is_writer(doc):
         insert_vision_result_into_writer(ctx, doc, result, params=params)
@@ -201,17 +203,28 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
     if is_calc(doc):
         if insert_mode == "structured" and helper == "extract_structure":
             try:
-                row_count = insert_vision_structure_into_calc(doc, ctx, result)
+                row_count = insert_vision_structure_into_calc(doc, ctx, result, image_name=image_name)
                 log.debug("insert_vision_result: helper=%s insert_mode=structured calc_rows=%d", helper, row_count)
                 return
             except ToolExecutionError as exc:
                 if exc.code != "VISION_ERROR":
                     raise
                 log.debug("structured Calc insert empty; falling back to HTML")
+                # vision_html_from_result returns result["html"] — the bbox fragment
+                # after structured mode overwrote Docling. Prefer html_docling.
+                preserved = result.get("html_docling")
+                if isinstance(preserved, str) and preserved.strip():
+                    fallback_html = preserved
+                else:
+                    fallback_html = vision_html_from_result(result)
+                if not str(fallback_html).strip():
+                    raise ToolExecutionError("Vision helper returned empty HTML.", code="VISION_ERROR", details={"vision_result": result})
+                insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name)
+                return
         html = vision_html_from_result(result)
         if not html.strip():
             raise ToolExecutionError("Vision helper returned empty HTML.", code="VISION_ERROR", details={"vision_result": result})
         log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
-        insert_vision_html_into_calc(doc, ctx, html)
+        insert_vision_html_into_calc(doc, ctx, html, image_name=image_name)
         return
     raise ToolExecutionError("Vision helpers require a Writer or Calc document.", code="VISION_ERROR")

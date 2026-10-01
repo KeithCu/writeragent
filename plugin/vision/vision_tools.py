@@ -74,7 +74,19 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         if result.get("status") == "error":
             code = str(result.get("code") or "VISION_ERROR")
             message = str(result.get("message") or "Vision helper failed.")
-            return self._tool_error(message, code=code, vision_result=result)
+            # Partial OCR can insert some images then fail. Those fields used to
+            # live only inside vision_result, so callers reading details missed
+            # which image failed and what already landed. Lift them onto details.
+            partial_fields: dict[str, Any] = {}
+            if result.get("partial"):
+                partial_fields = {
+                    "partial": True,
+                    "images_processed": result.get("images_processed"),
+                    "image_names": result.get("image_names"),
+                    "failed_image": result.get("failed_image"),
+                    "inserted": bool(result.get("inserted")),
+                }
+            return self._tool_error(message, code=code, vision_result=result, **partial_fields)
 
         out = {
             "status": "ok",

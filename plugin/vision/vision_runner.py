@@ -15,7 +15,7 @@ from plugin.doc.doc_type import is_calc, is_writer
 from plugin.scripting.client import run_vision
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
-from plugin.vision.vision_common import HELPER_NAMES
+from plugin.vision.vision_common import HELPER_NAMES, IMPLEMENTED_HELPERS, VISION_IMAGE_MAX_BYTES
 from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes, get_selected_image_base64
 
@@ -53,6 +53,17 @@ def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = N
     return png_bytes
 
 
+def _reraise_if_disposed(exc: BaseException) -> None:
+    # CharLocale / selection reads used to swallow every Exception and fall back
+    # to locale "en" (or skip the graphic). A disposed document then looked like
+    # a missing image or English OCR instead of a closed document. Re-raise so
+    # callers stop instead of continuing against a dead UNO object.
+    from plugin.framework.errors import DocumentDisposedError, is_disposed_exception
+
+    if is_disposed_exception(exc):
+        raise DocumentDisposedError("Document disposed during vision OCR", object_type="vision") from exc
+
+
 def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
     # 1. Try to get CharLocale from the graphic object itself
     if graphic_obj is not None:
@@ -60,7 +71,8 @@ def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
             locale = graphic_obj.getPropertyValue("CharLocale")
             if locale and getattr(locale, "Language", None):
                 return str(locale.Language).lower()
-        except Exception:
+        except Exception as exc:
+            _reraise_if_disposed(exc)
             pass
 
     # 2. Try to get CharLocale from the current selection/cursor
@@ -74,7 +86,8 @@ def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
             locale = sel_obj.getPropertyValue("CharLocale")
             if locale and getattr(locale, "Language", None):
                 return str(locale.Language).lower()
-    except Exception:
+    except Exception as exc:
+        _reraise_if_disposed(exc)
         pass
 
     # 3. Fall back to LibreOffice UI locale
@@ -84,7 +97,8 @@ def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
         lo_locale = get_lo_locale(ctx)
         if lo_locale:
             return lo_locale.split("_")[0].split("-")[0].lower()
-    except Exception:
+    except Exception as exc:
+        _reraise_if_disposed(exc)
         pass
 
     return "en"
@@ -97,6 +111,11 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
         raise ToolExecutionError("helper is required", code="VISION_ERROR")
     if name not in HELPER_NAMES:
         raise ToolExecutionError(f"Unknown helper {name!r}", code="VISION_ERROR")
+    if name not in IMPLEMENTED_HELPERS:
+        # HELPER_NAMES still lists Phase 4/5 helpers so copied script headers parse.
+        # Exporting a graphic and RPC'ing them only to get UNKNOWN_HELPER from the worker
+        # wasted the selection. Reject here.
+        raise ToolExecutionError(f"Helper {name!r} is not implemented yet.", code="UNKNOWN_HELPER")
 
     params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
     image_name = params_dict.get("image_name")
@@ -112,13 +131,22 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
                     graphic_obj = selection.getByIndex(0)
                 else:
                     graphic_obj = selection
-        except Exception:
+        except Exception as exc:
+            _reraise_if_disposed(exc)
             pass
 
     if not params_dict.get("lang"):
         params_dict["lang"] = _resolve_locale_language(ctx, doc, graphic_obj)
 
     png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=str(image_name) if image_name is not None else None)
+    if len(png_bytes) > VISION_IMAGE_MAX_BYTES:
+        raise ToolExecutionError(
+            _("Image is too large to send to the vision worker ({size} bytes; limit {limit}).").format(
+                size=len(png_bytes), limit=VISION_IMAGE_MAX_BYTES
+            ),
+            code="IMAGE_TOO_LARGE",
+            details={"size": len(png_bytes), "limit": VISION_IMAGE_MAX_BYTES},
+        )
     spec: dict[str, Any] = {"helper": name, "params": params_dict}
     source = "graphic_name" if str(image_name or "").strip() else "selection"
     context: dict[str, Any] = {"source": source}
@@ -142,6 +170,11 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         raise ToolExecutionError("helper is required", code="VISION_ERROR")
     if name not in HELPER_NAMES:
         raise ToolExecutionError(f"Unknown helper {name!r}", code="VISION_ERROR")
+    if name not in IMPLEMENTED_HELPERS:
+        # HELPER_NAMES still lists Phase 4/5 helpers so copied script headers parse.
+        # Exporting a graphic and RPC'ing them only to get UNKNOWN_HELPER from the worker
+        # wasted the selection. Reject here.
+        raise ToolExecutionError(f"Helper {name!r} is not implemented yet.", code="UNKNOWN_HELPER")
 
     params_dict = merge_vision_params(ctx, dict(params) if isinstance(params, dict) else None)
     explicit_name = str(params_dict.get("image_name") or "").strip()
@@ -161,7 +194,16 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         per_params["image_name"] = image_name
         result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
         if result.get("status") == "error":
-            return result
+            # Image 1 may already be inserted. Keep status=error and stop the loop
+            # (tests/writer/test_vision_ocr_mock_uno.py). Attach what landed so the
+            # caller is not told that nothing happened.
+            failed = dict(result)
+            failed["images_processed"] = len(results)
+            failed["image_names"] = list(target_names[: len(results)])
+            failed["failed_image"] = image_name
+            failed["inserted"] = bool(insert_into_document and results)
+            failed["partial"] = bool(results)
+            return failed
         if insert_into_document:
             # prepare_vision_writer_insert collapses any range selection before HTML import.
             insert_vision_result(ctx, doc, result, params=per_params)
@@ -188,7 +230,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
     return {
         "status": "ok",
         "helper": name,
-        "full_text": "\n\n".join(p for p in full_parts if p) if any(full_parts) else "\n\n".join(full_parts),
+        "full_text": "\n\n".join(part for part in full_parts if part),
         "html": results[-1].get("html") if len(results) == 1 else "",
         "metrics": metrics,
         "warnings": warnings,

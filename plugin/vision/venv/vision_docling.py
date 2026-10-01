@@ -184,6 +184,10 @@ def _resolve_od_layout_model_spec(params: dict[str, Any]) -> Any:
     raise RuntimeError("Docling ObjectDetectionModelSpec is unavailable")
 
 
+class LayoutModelError(RuntimeError):
+    """Docling layout model_spec cannot be applied. Do not convert with it."""
+
+
 def _apply_pipeline_params(pipeline_options: Any, params: dict[str, Any], *, for_structure: bool) -> None:
     """Map WriterAgent flat params onto Docling PdfPipelineOptions."""
     scale = params.get("images_scale")
@@ -224,20 +228,23 @@ def _apply_pipeline_params(pipeline_options: Any, params: dict[str, Any], *, for
     if hasattr(layout_opts, "create_orphan_clusters") and "create_orphan_clusters" in params:
         layout_opts.create_orphan_clusters = bool(params.get("create_orphan_clusters"))
     if hasattr(layout_opts, "model_spec"):
-        try:
-            # Dual-path for Docling layout model_spec (issue 587).
-            # Sunset: the legacy LayoutModelConfig / layout_model_specs branch
-            # can be removed once WriterAgent assumes Docling >= 2.118.0
-            # (released 2026-08-03), when LayoutObjectDetectionOptions became
-            # the PdfPipelineOptions default and assigning LayoutModelConfig
-            # onto model_spec stopped being valid (convert then calls
-            # model_spec.get_engine_config and raises AttributeError).
-            if _is_object_detection_layout(layout_opts):
-                layout_opts.model_spec = _resolve_od_layout_model_spec(params)
-            else:
-                layout_opts.model_spec = _resolve_layout_model_spec(params)
-        except Exception:
-            log.debug("layout_model spec resolution failed", exc_info=True)
+        # Issue 587: assigning LayoutModelConfig onto OD options does not raise
+        # here; convert later calls get_engine_config and AttributeErrors. The
+        # old except Exception logged that and continued, so the bad spec still
+        # reached convert. Refuse before convert. The vision.py string-match
+        # fallback stays for convert-time AttributeError on older Docling.
+        if _is_object_detection_layout(layout_opts):
+            layout_opts.model_spec = _resolve_od_layout_model_spec(params)
+            spec = layout_opts.model_spec
+            get_engine = getattr(type(spec), "get_engine_config", None)
+            if not callable(get_engine):
+                raise LayoutModelError(
+                    "layout model_spec is missing get_engine_config; refusing LayoutModelConfig on OD options"
+                )
+        else:
+            # Sunset: LayoutModelConfig for Docling <= 2.117. Remove once
+            # WriterAgent assumes Docling >= 2.118.0 (released 2026-08-03).
+            layout_opts.model_spec = _resolve_layout_model_spec(params)
 
     del for_structure  # table structure enabled at construction time
 
@@ -312,6 +319,13 @@ def _build_pipeline_options(
     return pipeline_options
 
 
+def _store_converter(key: tuple[Any, ...], converter: Any) -> Any:
+    """One converter per worker. A new param tuple drops the previous model."""
+    _converter_cache.clear()
+    _converter_cache[key] = converter
+    return converter
+
+
 def _get_docling_converter(
     params: dict[str, Any],
     *,
@@ -342,8 +356,7 @@ def _get_docling_converter(
         allowed_formats=[allowed],
         format_options={allowed: format_option_cls(pipeline_options=pipeline_options)},
     )
-    _converter_cache[key] = converter
-    return converter
+    return _store_converter(key, converter)
 
 
 def _convert_image_bytes(image: Any, params: dict[str, Any], *, for_structure: bool) -> Any:
@@ -406,7 +419,7 @@ def _table_from_span_cells(
     """
     if num_rows <= 0 or num_cols <= 0 or not cells:
         return None
-    grid = [[""] * num_cols for _ in range(num_rows)]
+    grid = [[""] * num_cols for _row_idx in range(num_rows)]
     spans: list[dict[str, int]] = []
     for cell in cells:
         row = _cell_int(cell, "start_row_offset_idx", "start_row")
@@ -698,10 +711,6 @@ def _handle_docling_import_error(exc: Exception, *, helper: str) -> dict[str, An
     )
 
 
-def _handle_css_inline_import_error(helper: str) -> dict[str, Any]:
-    return css_inline_unavailable_result(helper)
-
-
 def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_text"
     try:
@@ -713,10 +722,12 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         _blocks, tables, _text_parts = _map_docling_structure(document)
     except ImportError as exc:
         if is_css_inline_import_error(exc):
-            return _handle_css_inline_import_error(helper)
+            return css_inline_unavailable_result(helper)
         return _handle_docling_import_error(exc, helper=helper)
     except ValueError as exc:
         return _error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
+    except LayoutModelError as exc:
+        return _error_result("LAYOUT_MODEL_UNAVAILABLE", str(exc), helper=helper)
     except Exception as exc:
         log.exception("Docling extract_text failed")
         return _error_result("VISION_ERROR", str(exc), helper=helper)
@@ -753,10 +764,12 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
         blocks, tables, text_parts = _map_docling_structure(document)
     except ImportError as exc:
         if is_css_inline_import_error(exc):
-            return _handle_css_inline_import_error(helper)
+            return css_inline_unavailable_result(helper)
         return _handle_docling_import_error(exc, helper=helper)
     except ValueError as exc:
         return _error_result("OCR_BACKEND_UNAVAILABLE", str(exc), helper=helper)
+    except LayoutModelError as exc:
+        return _error_result("LAYOUT_MODEL_UNAVAILABLE", str(exc), helper=helper)
     except Exception as exc:
         log.exception("Docling extract_structure failed")
         return _error_result("VISION_ERROR", str(exc), helper=helper)

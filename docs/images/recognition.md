@@ -636,6 +636,14 @@ def is_vision_result(value: Any) -> bool:
 
 ### Error
 
+Host multi-image OCR (`run_and_insert_vision_for_selection`) still returns `status: error` and stops the loop when a later image fails. Image 1 stays inserted. The error dict also has `partial` (true when at least one image succeeded), `inserted`, `images_processed`, `image_names` (successes only), and `failed_image`. The LLM tool copies those into `details`.
+
+`insert_mode=structured` copies the pre-layout HTML to `html_docling` before replacing `html`. Calc cell-grid failure falls back to `html_docling`, not the bbox fragment. Writer still inserts `html`.
+
+Host `run_trusted_vision` rejects helpers in `HELPER_NAMES` but not `IMPLEMENTED_HELPERS` with `UNKNOWN_HELPER` before export. Images larger than `VISION_IMAGE_MAX_BYTES` (15 MiB, under the 16 MiB pickle frame cap) return `IMAGE_TOO_LARGE` and are not sent. PDF bytes do not fall back to Paddle. A layout spec missing `get_engine_config` returns `LAYOUT_MODEL_UNAVAILABLE` and is not converted.
+
+Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, not a write under the current selection.
+
 ```json
 {
   "status": "error",
