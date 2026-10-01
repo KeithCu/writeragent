@@ -353,6 +353,27 @@ def _writer_document(ctx: Any) -> Any | None:
     return _find_document_by_predicate(ctx, is_writer)
 
 
+def _existing_workbook_session_key(doc: Any) -> str | None:
+    """URL or already-stored session prop. Does not create a prop."""
+    from plugin.framework.thread_guard import _unwrap_uno
+
+    raw_doc = _unwrap_uno(doc)
+    url = ""
+    try:
+        url = (getattr(raw_doc, "getURL", lambda: "")() or "").strip()
+    except Exception:
+        pass
+    if url:
+        return url
+    try:
+        existing = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
+        if existing:
+            return str(existing)
+    except Exception:
+        pass
+    return None
+
+
 def _workbook_session_key(doc: Any) -> str:
     from plugin.framework.thread_guard import _unwrap_uno
 
@@ -440,6 +461,51 @@ def rps_session_id(ctx: Any, doc: Any | None = None) -> str | None:
     if is_calc(doc):
         return workbook_session_id(ctx, doc)
     return f"rps:{_workbook_session_key(doc)}"
+
+
+def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
+    """Open document whose workbook key matches *session_id*.
+
+    ``wa.doc`` used to call ``get_active_document``, so with two files open the
+    focused library was eval'd into whichever executor was running. The host
+    is single-flight and already has the in-flight session id.
+    """
+    if not isinstance(session_id, str) or ":" not in session_id:
+        return None
+    prefix, key = session_id.split(":", 1)
+    if prefix not in {"calc", "rps", "notebook"}:
+        return None
+    if prefix == "calc" and key.endswith(":init"):
+        key = key[: -len(":init")]
+    if not key:
+        return None
+    try:
+        desktop = get_desktop(ctx)
+        comps = desktop.getComponents() if desktop is not None else None
+        if not comps:
+            return None
+        enum = comps.createEnumeration()
+        while enum is not None and enum.hasMoreElements():
+            elem = enum.nextElement()
+            model = None
+            if hasattr(elem, "getURL"):
+                model = elem
+            elif hasattr(elem, "getController"):
+                controller = elem.getController()
+                if controller is not None and hasattr(controller, "getModel"):
+                    model = controller.getModel()
+            if model is None:
+                continue
+            try:
+                # Read-only: _workbook_session_key would mint a UDProp on docs
+                # that have never run Python.
+                if _existing_workbook_session_key(model) == key:
+                    return model
+            except Exception:
+                log.debug("document_for_script_session: key read failed", exc_info=True)
+    except Exception:
+        log.debug("document_for_script_session: enumeration failed", exc_info=True)
+    return None
 
 
 def notebook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
@@ -531,12 +597,16 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     if init_kwargs:
         from plugin.scripting.venv_worker import run_code_in_user_venv
 
-        run_code_in_user_venv(
+        seed = run_code_in_user_venv(
             ctx,
             "None",
             session_id=session_id if python_session_mode(ctx) == "shared" else None,
             **init_kwargs,
         )
+        if seed.get("status") != "ok":
+            msg = seed.get("message") or _("Could not restore the initialization script.")
+            _msgbox(ctx, _("Error: {0}").format(msg))
+            return
 
     has_init = bool((get_calc_init_script(target) or "").strip())
     if python_session_mode(ctx) == "shared":

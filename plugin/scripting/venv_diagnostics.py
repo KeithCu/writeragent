@@ -92,42 +92,6 @@ except ImportError:
     res['p']['sympy'] = None
 
 try:
-    import webview
-    res['p']['webview'] = 'present'
-except ImportError:
-    res['p']['webview'] = None
-
-try:
-    import rocher
-    res['p']['rocher'] = 'present'
-except ImportError:
-    res['p']['rocher'] = None
-
-try:
-    import jedi
-    res['p']['jedi'] = 'present'
-except ImportError:
-    res['p']['jedi'] = None
-
-try:
-    import PyQt6
-    res['p']['PyQt6'] = 'present'
-except ImportError:
-    res['p']['PyQt6'] = None
-
-try:
-    import PyQt6.QtWebEngineWidgets
-    res['p']['PyQt6.QtWebEngineWidgets'] = 'present'
-except ImportError:
-    res['p']['PyQt6.QtWebEngineWidgets'] = None
-
-try:
-    import qtpy
-    res['p']['qtpy'] = 'present'
-except ImportError:
-    res['p']['qtpy'] = None
-
-try:
     import data_profiling
     res['p']['data_profiling'] = 'present'
 except ImportError:
@@ -261,12 +225,19 @@ out = {}
 try:
     import sounddevice as sd
     out["sounddevice"] = "present"
-    devices = sd.query_devices()
-    has_input = any(d.get("max_input_channels", 0) > 0 for d in devices)
-    out["input_device"] = "present" if has_input else None
 except Exception:
+    sd = None
     out["sounddevice"] = None
     out["input_device"] = None
+else:
+    # PortAudio / device enumeration can fail when the package itself imported.
+    # Do not report that as "sounddevice is not installed".
+    try:
+        devices = sd.query_devices()
+        has_input = any(d.get("max_input_channels", 0) > 0 for d in devices)
+        out["input_device"] = "present" if has_input else None
+    except Exception:
+        out["input_device"] = None
 
 try:
     import kokoro_onnx
@@ -612,10 +583,68 @@ def _probe_audio_packages(
     return parsed, None
 
 
+# Editor GUI stacks. Probed in a one-shot subprocess so Qt/WebEngine never
+# land in the warm worker that later runs =PY() and Run Python Script.
+_UI_PACKAGE_KEYS = ("webview", "rocher", "jedi", "PyQt6", "PyQt6.QtWebEngineWidgets", "qtpy")
+_UI_PROBE_SCRIPT = """
+import json
+out = {}
+pairs = (
+    ("webview", "webview"),
+    ("rocher", "rocher"),
+    ("jedi", "jedi"),
+    ("PyQt6", "PyQt6"),
+    ("PyQt6.QtWebEngineWidgets", "PyQt6.QtWebEngineWidgets"),
+    ("qtpy", "qtpy"),
+)
+for key, mod in pairs:
+    try:
+        __import__(mod)
+        out[key] = "present"
+    except Exception:
+        out[key] = None
+print(json.dumps(out))
+"""
+_UI_PROBE_FAILED_HINT = _("UI / Monaco probe failed (see writeragent_debug.log).")
+
+
+def _probe_ui_packages(
+    python_exe: str,
+    timeout: float = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
+) -> Tuple[dict[str, Any], Optional[str]]:
+    """Import-check editor GUI packages outside the sandboxed warm worker."""
+    try:
+        proc = subprocess.run(
+            wrap_command_for_sandbox([python_exe, "-c", _UI_PROBE_SCRIPT]),
+            capture_output=True,
+            text=True,
+            timeout=max(1.0, timeout),
+            env=scrub_subprocess_env(dict(os.environ)),
+            **get_subprocess_creationflags(),
+        )
+    except subprocess.TimeoutExpired:
+        return {}, _("UI / Monaco probe timed out.")
+    except OSError as exc:
+        log.warning("UI package probe could not run: %s", exc)
+        return {}, _UI_PROBE_FAILED_HINT
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()[:200]
+        log.warning("UI package probe exit %s: %s", proc.returncode, stderr)
+        return {}, _UI_PROBE_FAILED_HINT
+    try:
+        parsed = json.loads((proc.stdout or "").strip() or "{}")
+    except json.JSONDecodeError:
+        log.warning("UI package probe returned invalid JSON: %r", (proc.stdout or "")[:200])
+        return {}, _UI_PROBE_FAILED_HINT
+    if not isinstance(parsed, dict):
+        return {}, _UI_PROBE_FAILED_HINT
+    return parsed, None
+
+
 _SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Scientific Libraries", ("numpy", "pandas", "scipy", "sklearn", "matplotlib", "sympy")),
     ("Data Analysis / EDA Libraries", ("data_profiling", "statsmodels", "pandas_montecarlo")),
-    ("UI / Monaco Libraries", ("webview", "rocher", "jedi", "PyQt6", "PyQt6.QtWebEngineWidgets", "qtpy")),
+    ("UI / Monaco Libraries", _UI_PACKAGE_KEYS),
     ("Visualization Libraries", ("matplotlib", "seaborn")),
     ("Computer Algebra", ("sympy",)),
     ("Quantitative Finance Libraries", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),
@@ -626,7 +655,9 @@ _SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 _SELF_CHECK_SANDBOX_GROUP_COUNT = len(_SANDBOX_SELF_CHECK_GROUPS)
 _SELF_CHECK_DISPLAY_GROUP_COUNT = _SELF_CHECK_SANDBOX_GROUP_COUNT + 1  # + Text / NLP
 
-_ALLOWED_PROBE_MODULES = frozenset(pkg for _title, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs)
+_ALLOWED_PROBE_MODULES = frozenset(
+    pkg for _title, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs if pkg not in _UI_PACKAGE_KEYS
+)
 
 _VERSION_PROBE_SCRIPT = """
 import platform
@@ -1066,6 +1097,20 @@ def run_venv_self_check_with_progress(
         _refresh(data, include_audio=True)
 
     for group_index, (group_title, packages) in enumerate(_SANDBOX_SELF_CHECK_GROUPS):
+        if group_title == "UI / Monaco Libraries":
+            # Qt/WebEngine in the warm worker would stay loaded for later =PY() cells.
+            _status(_("UI / Monaco Libraries: checking outside the script worker..."))
+            ui_probes, ui_failure = _probe_ui_packages(python_exe, timeout=float(per_pkg_timeout))
+            packages_map = data.setdefault("p", {})
+            if isinstance(packages_map, dict) and ui_probes:
+                packages_map.update(ui_probes)
+            if ui_failure:
+                data["ui_probe_failure"] = ui_failure
+                for pkg in packages:
+                    if isinstance(packages_map, dict):
+                        packages_map.setdefault(pkg, None)
+            _refresh(data, completed_groups=group_index + 1, include_audio=include_audio)
+            continue
         checked: list[str] = []
         for pkg in packages:
             _status(f"{group_title}: {pkg}")
@@ -1196,6 +1241,16 @@ def run_venv_self_check(python_exe: str, timeout: float | None = None) -> Tuple[
     data["audio"] = list(_AUDIO_PACKAGE_KEYS)
     if audio_failure:
         data["audio_probe_failure"] = audio_failure
+
+    ui_probes, ui_failure = _probe_ui_packages(
+        python_exe,
+        timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC),
+    )
+    packages = data.setdefault("p", {})
+    if isinstance(packages, dict) and ui_probes:
+        packages.update(ui_probes)
+    if ui_failure:
+        data["ui_probe_failure"] = ui_failure
 
     nlp_probes, nlp_failure = _probe_nlp_packages(
         python_exe,

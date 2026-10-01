@@ -79,7 +79,6 @@ _API = make_template_api(
     )
 )
 
-_template_body = _API.template_body
 get_units_script_templates = _API.get_templates
 parse_units_script_header = _API.parse_header
 
@@ -258,17 +257,3 @@ def insert_units_result_into_doc(
     if is_calc(doc):
         return insert_units_result_into_calc(doc, ctx, result, output_style=output_style)
     raise ToolExecutionError(_("Unsupported document type for units insertion."), code="UNITS_ERROR")
-
-
-def try_insert_units_result(
-    ctx: Any,
-    doc: Any,
-    result_data: Any,
-    *,
-    output_style: str | None = None,
-) -> bool:
-    """Insert units results when present. Returns True if insertion ran."""
-    if not is_units_result(result_data):
-        return False
-    insert_units_result_into_doc(ctx, doc, result_data, output_style=output_style)
-    return True

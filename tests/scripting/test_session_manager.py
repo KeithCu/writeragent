@@ -123,6 +123,48 @@ def test_reset_workbook_python_session_prefers_calc() -> None:
         mock_reset_calc.assert_called_once_with(ctx, mock_calc)
 
 
+def test_document_for_script_session_matches_url_not_focused() -> None:
+    from unittest.mock import MagicMock, patch
+
+    focused = MagicMock()
+    focused.getURL.return_value = "file:///focused.ods"
+    other = MagicMock()
+    other.getURL.return_value = "file:///other.ods"
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [focused, other]
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
+    with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
+        found = session_manager.document_for_script_session(MagicMock(), "calc:file:///other.ods")
+    assert found is other
+
+
+def test_reset_reports_init_reseed_failure() -> None:
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.scripting.session_manager._calc_document", return_value=doc),
+        patch("plugin.scripting.session_manager.calc_workbook_base_session_id", return_value="calc:wb"),
+        patch("plugin.scripting.session_manager.reset_python_session", return_value={"status": "ok"}),
+        patch("plugin.scripting.document_scripts.build_python_eval_init_kwargs", return_value={"init_script": "FACTOR = 1", "init_session_id": "calc:wb:init", "init_script_hash": "h"}),
+        patch("plugin.scripting.document_scripts.get_calc_init_script", return_value="FACTOR = 1"),
+        patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+        patch("plugin.scripting.session_manager.record_active_calc_session"),
+        patch("plugin.scripting.venv_worker.run_code_in_user_venv", return_value={"status": "error", "message": "init boom"}),
+        patch("plugin.scripting.session_manager._msgbox") as msgbox,
+    ):
+        from plugin.scripting.session_manager import _reset_calc_python_sessions
+
+        _reset_calc_python_sessions(ctx, doc)
+    msgbox.assert_called_once()
+    assert "init boom" in msgbox.call_args[0][1]
+
+
 def test_workbook_session_id_off_main_ambiguous_when_two_workbooks() -> None:
     from unittest.mock import MagicMock, patch
 

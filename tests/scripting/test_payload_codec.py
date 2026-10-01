@@ -201,6 +201,16 @@ def test_child_pack_integer_ndarray_sets_column_kinds():
     assert isinstance(back[0][0], int)
 
 
+def test_child_pack_bool_ndarray_sets_column_kinds():
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.payload_codec import child_pack_split_grid
+
+    wire = child_pack_split_grid(np.array([[True, False], [False, True]]))
+    assert wire["column_kinds"] == ["bool", "bool"]
+    back = host_unpack_data(wire, as_nested_list=True)
+    assert back == [[True, False], [False, True]]
+
+
 def test_none_becomes_nan_in_split_grid():
     pytest.importorskip("numpy")
     wire = host_pack_data([[1.0, None, 3.0]], force="always")

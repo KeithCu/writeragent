@@ -42,7 +42,7 @@ def test_spec_runner_happy_path(ctx, runner_name, session_prefix, domain, error_
 
     assert result["helper"] == "demo"
     kwargs = mock_run.call_args.kwargs
-    assert kwargs["session_id"] == session_prefix
+    assert kwargs.get("session_id") is None
     assert kwargs["domain"] == domain
     assert kwargs["helper"] == spec["helper"]
 

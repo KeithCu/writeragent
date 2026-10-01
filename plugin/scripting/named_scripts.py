@@ -198,7 +198,6 @@ class ScriptLibrary:
     def __init__(self, origin: str) -> None:
         self._origin = origin
         self._executor: Any | None = None
-        self._ident_map: dict[str, list[str]] | None = None
 
     def _names(self) -> list[str]:
         executor = self._executor if self._executor is not None else _current_executor.get()
@@ -218,7 +217,6 @@ class ScriptLibrary:
         for title in self._names():
             ident = python_identifier_from_script_name(title)
             mapping.setdefault(ident, []).append(title)
-        self._ident_map = mapping
         return mapping
 
     def __getattr__(self, item: str) -> Any:

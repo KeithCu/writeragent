@@ -444,12 +444,16 @@ def execute_and_insert_result(
     try:
         from plugin.scripting.session_manager import rps_session_id
 
+        rps_sid = rps_session_id(ctx, doc)
+        from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
+
+        ensure_python_session_cleared_on_unload(ctx, doc, rps_sid)
         response = run_code_in_user_venv(
             ctx,
             exec_code,
             data=py_data,
             bindings=bindings,
-            session_id=rps_session_id(ctx, doc),
+            session_id=rps_sid,
         )
         elapsed = time.perf_counter() - t0
     except Exception as e:

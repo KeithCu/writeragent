@@ -13,40 +13,14 @@ from plugin.scripting.calc_functions_common import (
     OPTIMIZE_HELPER_NAMES as HELPER_NAMES,
 )
 from plugin.scripting.venv.coerce import (
-    CoerceResult,
-    coerce_to_dataframe,
     ok_result as _ok_result,
     error_result as _error_result,
+    numeric_columns as _numeric_columns,
+    resolve_df as _resolve_df,
     table_from_df as _table_from_df,
 )
 
 log = logging.getLogger(__name__)
-
-
-def _resolve_df(data: Any, *, headers: bool = True, header_row: int = 0, sheet_hint: str | None = None) -> CoerceResult:
-    if isinstance(data, CoerceResult):
-        return data
-    if hasattr(data, "columns") and hasattr(data, "index"):
-        df = data.copy()
-        meta: dict[str, Any] = {
-            "n_rows": int(len(df)),
-            "n_cols": int(len(df.columns)),
-            "numeric_cols": [str(c) for c in df.select_dtypes(include="number").columns],
-            "dropped_rows": 0,
-        }
-        if sheet_hint:
-            meta["sheet_hint"] = sheet_hint
-        return CoerceResult(df=df, metadata=meta)
-    return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
-
-
-def _numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:
-    if columns:
-        missing = [c for c in columns if c not in df.columns]
-        if missing:
-            raise ValueError(f"Unknown columns: {', '.join(missing)}")
-        return list(columns)
-    return [str(c) for c in df.select_dtypes(include="number").columns]
 
 
 def linear_programming(

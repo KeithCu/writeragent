@@ -10,7 +10,7 @@
 # you MUST also update the corresponding JavaScript / Protocol files:
 #   - Monaco Editor Script:     plugin/contrib/scripting/assets/editor/editor.js
 #   - JS Script Manager:        plugin/contrib/scripting/assets/editor/scripts_manager.js
-#   - IPC Message Protocol:     plugin/scripting/editor_protocol.py
+#   - IPC Message Protocol:     plugin/scripting/editor_ipc.py
 # =========================================================================================
 
 from __future__ import annotations
@@ -42,7 +42,6 @@ from plugin.scripting.editor_ipc import (
     failure_message,
     message_type,
     new_session_id,
-    read_message,
     session_id_of,
     stamp_session,
     target_from_load,
@@ -50,7 +49,14 @@ from plugin.scripting.editor_ipc import (
     write_message,
 )
 from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handle_editor_script_message
-from plugin.scripting.venv_worker import resolve_venv_python, warm_venv_worker, scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame_with_timeout
+from plugin.scripting.venv_worker import (
+    _kill_process_tree,
+    resolve_venv_python,
+    scrub_subprocess_env,
+    warm_venv_worker,
+    wrap_command_for_sandbox,
+)
 
 log = logging.getLogger(__name__)
 
@@ -114,9 +120,14 @@ _PROBE_CACHE: dict[str, tuple[bool, str]] = {}
 
 
 def probe_webview_import(exe: str) -> tuple[bool, str]:
-    """Return whether *exe* can ``import webview`` (pywebview package), with diagnostics (cached)."""
-    if exe in _PROBE_CACHE:
-        return _PROBE_CACHE[exe]
+    """Return whether *exe* can ``import webview`` (pywebview package), with diagnostics.
+
+    Only successes are cached. A failed probe used to stick until LibreOffice
+    exited, so installing pywebview in that venv kept the native dialog.
+    """
+    cached = _PROBE_CACHE.get(exe)
+    if cached is not None and cached[0]:
+        return cached
     try:
         r = subprocess.run(
             wrap_command_for_sandbox([exe, "-c", _WEBVIEW_PROBE_CODE]),
@@ -128,9 +139,7 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
         )
     except (subprocess.TimeoutExpired, OSError) as e:
         log.warning("probe_webview_import failed for %s: %s", exe, e, exc_info=True)
-        res = (False, failure_detail(exc=e))
-        _PROBE_CACHE[exe] = res
-        return res
+        return (False, failure_detail(exc=e))
     detail = (r.stdout or "").strip()
     if r.stderr:
         detail = f"{detail}\n{r.stderr}".strip() if detail else r.stderr.strip()
@@ -141,9 +150,7 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
     if not detail:
         detail = f"exit code {r.returncode}"
     log.warning("probe_webview_import: %s returned %s: %s", exe, r.returncode, detail)
-    res = (False, detail)
-    _PROBE_CACHE[exe] = res
-    return res
+    return (False, detail)
 
 
 def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subprocess.Popen[bytes]:
@@ -283,21 +290,29 @@ class PersistentEditor:
             self._stderr_thread = run_in_background(self._stderr_drain_loop, name="editor-stderr-drain", daemon=True, dedicated=True)
 
     def terminate(self) -> None:
-        """Force terminate the subprocess."""
+        """Force terminate the subprocess and its WebEngine children.
+
+        Spawn uses ``os.setsid``. ``proc.terminate()`` leaves Qt grandchildren
+        alive, and a surviving parent is then reused as if it were healthy.
+        """
         proc = self._proc
         self._proc = None
-        if proc is not None:
-            try:
-                if proc.poll() is None:
-                    proc.terminate()
-            except OSError:
-                pass
-            # Close pipes
-            try:
-                if proc.stdin:
-                    proc.stdin.close()
-            except Exception:
-                pass
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
+                _kill_process_tree(proc)
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+        except OSError:
+            pass
+        try:
+            if proc.stdin:
+                proc.stdin.close()
+        except Exception:
+            pass
 
     def send(self, message: dict[str, Any], *, session: EditorSessionState | None = None) -> None:
         """Thread-safe write to child stdin. Session messages get ``session_id`` + ``target``."""
@@ -433,19 +448,43 @@ class PersistentEditor:
             return
         proc = self._proc
         stdout = proc.stdout
+        reader_failed = False
         try:
             if sys.platform == "win32":
                 self._read_loop_blocking(proc, stdout)
             else:
                 self._read_loop_select(proc, stdout)
         except Exception:
+            # A truncated frame, a save TimeoutError, or a payload over the cap
+            # used to exit this loop and leave the child up with no reader.
+            # The next launch then treated is_running as success.
+            reader_failed = True
             log.exception("Editor pipe reader failed")
         finally:
             log.info("editor_host: persistent reader loop finished.")
-            if self._proc is proc:
+            still_ours = self._proc is proc
+            if still_ours:
                 self._handle_disconnect()
             else:
                 log.info("editor_host: old reader loop ignored disconnect (superseded by new process)")
+            if reader_failed and still_ours and proc.poll() is None:
+                self.terminate()
+
+    def _read_editor_message(self, proc: subprocess_types.Popen[bytes], stdout: Any) -> dict[str, Any] | None:
+        """Read one editor frame with a deadline so a partial length prefix cannot hang."""
+        msg = read_pickle_frame_with_timeout(
+            stdout,
+            30.0,
+            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            frame_label="editor message",
+            require_dict=True,
+            is_alive=lambda: proc.poll() is None,
+        )
+        if msg is None:
+            return None
+        if not isinstance(msg, dict):
+            raise ValueError("Editor message must be a dict")
+        return msg
 
     def _read_loop_select(self, proc: subprocess_types.Popen[bytes], stdout: Any) -> None:
         """POSIX: use select() to poll the pipe with periodic liveness checks."""
@@ -453,7 +492,7 @@ class PersistentEditor:
             ready, _unused_w, _unused_x = select.select([stdout], [], [], 0.5)
             if not ready:
                 continue
-            msg = read_message(stdout)
+            msg = self._read_editor_message(proc, stdout)
             if msg is None:
                 break
             if self._proc is proc:
@@ -462,9 +501,15 @@ class PersistentEditor:
                 log.warning("editor_host: ignored incoming message from old process")
 
     def _read_loop_blocking(self, proc: subprocess_types.Popen[bytes], stdout: Any) -> None:
-        """Windows: blocking read (pipe close on process exit unblocks read)."""
-        while True:
-            msg = read_message(stdout)
+        """Windows: peek-with-timeout so a partial frame cannot block ReadFile forever."""
+        while proc.poll() is None:
+            try:
+                msg = self._read_editor_message(proc, stdout)
+            except subprocess.TimeoutExpired:
+                # Idle pipe: no bytes consumed, keep waiting. A stalled partial
+                # frame has already been pulled into the helper's buffer, so the
+                # next read raises and the reader exits.
+                continue
             if msg is None:
                 break
             if self._proc is proc:
@@ -501,7 +546,11 @@ class PersistentEditor:
                     send=self.send,
                 )
 
-            self.executor.execute(_handle_picker)
+            try:
+                self.executor.execute(_handle_picker)
+            except TimeoutError:
+                log.exception("Editor script picker timed out")
+                self.send({"type": "error", "message": _("The script list update timed out.")})
             return
 
         if kind == "dirty":
@@ -556,7 +605,14 @@ class PersistentEditor:
                         session=captured,
                     )
 
-            self.executor.execute(_handle_save, timeout=60.0)
+            try:
+                self.executor.execute(_handle_save, timeout=60.0)
+            except TimeoutError:
+                log.exception("Editor save handler timed out")
+                self.send(
+                    {"type": "error", "message": _("Saving the script timed out.")},
+                    session=captured,
+                )
             return
 
         if kind in ("closed", "cancel"):
@@ -696,6 +752,7 @@ def _on_config_changed(**kwargs: Any) -> None:
     key = kwargs.get("key", "")
     if key == "scripting.python_venv_path":
         log.info("editor_host: scripting.python_venv_path changed, terminating background Monaco process")
+        _PROBE_CACHE.clear()
         terminate_persistent_editor()
         try:
             from plugin.vision.vision_availability import invalidate_vision_availability_cache
@@ -887,6 +944,9 @@ def launch_monaco_editor(
 
         if not session.wait_for_ready(ctx, timeout_sec=45.0):
             detail = session.read_stderr_tail()
+            # set_active_session(None) does not kill the child. The next open
+            # saw is_running and skipped wait_for_ready.
+            terminate_persistent_editor()
             set_active_session(None)
             msg = failure_message(_("The Python editor window did not start."), detail=detail)
             msgbox_with_report(ctx, title, msg, box_type=3, reportable=True, report_title="Python editor did not start", report_extra=msg)

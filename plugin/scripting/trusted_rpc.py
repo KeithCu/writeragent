@@ -56,7 +56,7 @@ def run_trusted_worker_action(
     params: dict[str, Any] | None = None,
     data_range: Any = None,
     context: dict[str, Any] | None = None,
-    session_id: str,
+    session_id: str | None = None,
     timeout_sec: int,
     worker_pool: str = WORKER_POOL_DEFAULT,
     additional_data: dict[str, Any] | None = None,

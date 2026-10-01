@@ -83,6 +83,68 @@ def test_init_script_runs_once_in_isolated_mode():
     assert init_exec.state.get("INIT_RUNS") == 1
 
 
+def test_numpy_load_allow_pickle_and_ctypeslib_rejected():
+    pytest.importorskip("numpy")
+    loaded = run_sandboxed_code(
+        "import numpy as np\nresult = np.load('/no/such.npy', allow_pickle=True)"
+    )
+    assert loaded["status"] == "error"
+    assert "allow_pickle" in loaded.get("message", "")
+    ctypes_call = run_sandboxed_code(
+        "import numpy as np\nresult = np.ctypeslib.load_library('nope', '.')"
+    )
+    assert ctypes_call["status"] == "error"
+    assert "Forbidden call" in ctypes_call.get("message", "")
+
+
+def test_shared_kernel_keeps_cell_override_of_init_name():
+    """Re-seeding every cell used to state.update init names over cell rebinds."""
+    init_sid = "calc:wb-override:init"
+    cell_sid = "calc:wb-override"
+    init_code = "FACTOR = 10"
+    h = init_script_hash(init_code)
+    first = run_sandboxed_code(
+        "FACTOR = 99\nresult = FACTOR",
+        session_id=cell_sid,
+        init_script=init_code,
+        init_session_id=init_sid,
+        init_script_hash=h,
+    )
+    assert first["status"] == "ok", first.get("message")
+    assert first["result"] == 99
+    second = run_sandboxed_code(
+        "result = FACTOR",
+        session_id=cell_sid,
+        init_script=init_code,
+        init_session_id=init_sid,
+        init_script_hash=h,
+    )
+    assert second["status"] == "ok", second.get("message")
+    assert second["result"] == 99
+
+
+def test_isolated_cell_reseeds_init_name_every_run():
+    init_sid = "calc:wb-iso-override:init"
+    init_code = "FACTOR = 10"
+    h = init_script_hash(init_code)
+    run_sandboxed_code(
+        "FACTOR = 99\nresult = FACTOR",
+        session_id=None,
+        init_script=init_code,
+        init_session_id=init_sid,
+        init_script_hash=h,
+    )
+    second = run_sandboxed_code(
+        "result = FACTOR",
+        session_id=None,
+        init_script=init_code,
+        init_session_id=init_sid,
+        init_script_hash=h,
+    )
+    assert second["status"] == "ok", second.get("message")
+    assert second["result"] == 10
+
+
 def test_init_visible_in_shared_kernel():
     init_sid = "calc:wb-shared:init"
     cell_sid = "calc:wb-shared"

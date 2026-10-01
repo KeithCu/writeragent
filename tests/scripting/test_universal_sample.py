@@ -37,6 +37,16 @@ def test_get_active_document_type_unknown():
         doc_type = wa.get_active_document_type()
         assert doc_type == "unknown"
 
+def test_get_active_document_type_propagates_rpc_error():
+    with patch("writeragent._rpc_call", side_effect=RuntimeError("pipe closed")):
+        try:
+            wa.get_active_document_type()
+        except RuntimeError as exc:
+            assert "pipe closed" in str(exc)
+        else:
+            raise AssertionError("RPC failure was swallowed")
+
+
 def test_universal_sample_writer():
     with patch("writeragent.get_active_document_type") as mock_get_type, \
          patch.object(wa.writer, "apply_document_content") as mock_apply, \

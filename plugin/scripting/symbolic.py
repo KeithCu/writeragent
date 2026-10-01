@@ -70,7 +70,6 @@ _API = make_template_api(
     )
 )
 
-_template_body = _API.template_body
 get_math_script_templates = _API.get_templates
 parse_math_script_header = _API.parse_header
 
@@ -209,12 +208,4 @@ def insert_symbolic_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any], 
     if is_calc(doc):
         return insert_symbolic_result_into_calc(doc, ctx, result)
     raise ToolExecutionError(_("Unsupported document type for symbolic insertion."), code="SYMBOLIC_ERROR")
-
-
-def try_insert_symbolic_result(ctx: Any, doc: Any, result_data: Any, *, display_block: bool = False) -> bool:
-    """Insert symbolic results when present. Returns True if insertion ran."""
-    if not is_symbolic_result(result_data):
-        return False
-    insert_symbolic_result_into_doc(ctx, doc, result_data, display_block=display_block)
-    return True
 

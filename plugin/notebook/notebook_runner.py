@@ -111,6 +111,9 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     session_id = notebook_session_id(ctx, doc)
     if not session_id:
         return {"status": "error", "message": "Could not resolve notebook Python session."}
+    from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
+
+    ensure_python_session_cleared_on_unload(ctx, doc, session_id)
 
     def _run() -> dict[str, Any]:
         return run_code_in_user_venv(ctx, code, session_id=session_id)

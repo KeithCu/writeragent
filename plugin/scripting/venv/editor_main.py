@@ -213,16 +213,11 @@ def _pipe_reader_loop() -> None:
             if msg is None:
                 break
             kind = message_type(msg)
-            # Direct evaluate to companion JS
-            try:
-                if _window is not None:
-                    import json
-                    msg_str = json.dumps(msg)
-                    _window.evaluate_js(f"if(window.handleScriptsManagerMessage){{window.handleScriptsManagerMessage({msg_str});}}")
-            except Exception:
-                pass
-
-            if kind in ("saved", "error", "load", "request_save", "theme"):
+            # Queue for poll_messages. Do not call evaluate_js here: this thread
+            # is the stdin reader, and evaluate_js deadlocks GTK / WebView2.
+            # scripts_manager.js already feeds poll_messages into
+            # handleScriptsManagerMessage, so a direct call also applied load twice.
+            if kind in ("saved", "error", "load", "request_save", "theme", "scripts_list"):
                 if kind == "load":
                     _remember_session(msg)
                     global _closed_sent

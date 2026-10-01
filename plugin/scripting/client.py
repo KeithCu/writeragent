@@ -27,7 +27,6 @@ log = logging.getLogger(__name__)
 
 def _run_trusted_action(
     ctx: Any,
-    session_id: str,
     domain: str,
     helper: str,
     params: dict[str, Any],
@@ -41,7 +40,11 @@ def _run_trusted_action(
     allow_heartbeat: bool = False,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Execute a trusted action packet in the user venv worker."""
+    """Execute a trusted action packet in the user venv worker.
+
+    Trusted helpers are not sandbox sessions. A ``writeragent:*`` session id
+    used to be forwarded and never read by ``_handle_trusted_action``.
+    """
     return run_trusted_worker_action(
         ctx,
         domain=domain,
@@ -49,7 +52,6 @@ def _run_trusted_action(
         params=params,
         data_range=data_range,
         context=context,
-        session_id=session_id,
         timeout_sec=timeout_sec,
         additional_data=additional_data,
         error_code=error_code,
@@ -106,7 +108,6 @@ def _make_spec_runner(
 
         return _run_trusted_action(
             ctx,
-            session_id=session_prefix,
             domain=domain,
             helper=helper,
             params=params,
@@ -175,8 +176,6 @@ run_quant = _make_spec_runner(
 
 # --- Vision ---
 
-_VISION_SESSION_PREFIX = "writeragent:vision"
-
 
 def _resolve_vision_timeout_sec(ctx: Any, spec: dict[str, Any] | str) -> int:
     """Vision uses the long budget, with some engine-specific tuning + user override."""
@@ -218,7 +217,6 @@ def run_vision(
         params = spec.get("params") or {}
     return _run_trusted_action(
         ctx,
-        session_id=_VISION_SESSION_PREFIX,
         domain="vision",
         helper=helper,
         params=params,
@@ -232,8 +230,6 @@ def run_vision(
 
 
 # --- DuckDB SQL (folder) ---
-
-_SQL_SESSION_PREFIX = "writeragent:sql"
 
 
 def run_folder_sql(
@@ -253,7 +249,6 @@ def run_folder_sql(
     """
     return _run_trusted_action(
         ctx,
-        session_id=_SQL_SESSION_PREFIX,
         domain="sql",
         helper="query_folder_sql",
         params={},
@@ -313,7 +308,6 @@ def run_text_analytics(
         params["model"] = model
     return _run_trusted_action(
         ctx,
-        session_id=_TEXT_SESSION_PREFIX,
         domain="text",
         helper=helper,
         params=params if isinstance(params, dict) else {},
@@ -327,14 +321,11 @@ def run_text_analytics(
 
 # --- LanguageTool ---
 
-_LT_SESSION_PREFIX = "writeragent:languagetool"
-
 
 def run_languagetool_check(ctx: Any, text: str, bcp47: str) -> dict[str, Any]:
     """Execute a trusted LanguageTool check helper inside the user venv worker."""
     return _run_trusted_action(
         ctx,
-        session_id=_LT_SESSION_PREFIX,
         domain="languagetool",
         helper="check",
         params={},
@@ -349,14 +340,11 @@ def run_languagetool_check(ctx: Any, text: str, bcp47: str) -> dict[str, Any]:
 
 # --- Vale Style Linter ---
 
-_VALE_SESSION_PREFIX = "writeragent:vale"
-
 
 def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[str, Any]:
     """Execute a trusted Vale linter helper inside the user venv worker."""
     return _run_trusted_action(
         ctx,
-        session_id=_VALE_SESSION_PREFIX,
         domain="vale",
         helper="check",
         params={},

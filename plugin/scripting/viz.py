@@ -76,7 +76,6 @@ _API = make_template_api(
     )
 )
 
-_template_body = _API.template_body
 get_viz_script_templates = _API.get_templates
 parse_viz_script_header = _API.parse_header
 

@@ -42,7 +42,7 @@ def test_run_analysis_happy_path(ctx):
     assert kwargs["helper"] == spec["helper"]
     assert kwargs["data_range"] == data
     assert kwargs["context"] == context
-    assert kwargs["session_id"] == "writeragent:analysis"
+    assert kwargs.get("session_id") is None
     assert kwargs["timeout_sec"] == 30
 
 

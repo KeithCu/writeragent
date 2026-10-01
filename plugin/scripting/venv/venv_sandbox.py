@@ -580,6 +580,29 @@ def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str
         executor.state.update(custom_tools)
 
 
+def _seed_shared_executor_once(
+    executor: LocalPythonExecutor,
+    session_id: str,
+    init_session_id: str,
+    init_script_hash: str | None,
+) -> None:
+    """Copy init bindings into a shared executor once per init digest.
+
+    ``send_variables`` is ``state.update``. Seeding on every cell overwrote
+    names the cell had rebound (init ``FACTOR = 10``, cell ``FACTOR = 99``,
+    the next cell saw 10). Init-script edits already drop the cell executor
+    in ``_clear_init_session_unlocked``, so a new digest seeds a fresh one.
+    Isolated cells have no ``session_id`` and still seed on every run.
+    """
+    digest = init_script_hash or ""
+    with _SESSION_LOCK:
+        if _CELL_SESSION_INIT_DIGEST.get(session_id) == digest:
+            return
+    _seed_executor_from_init(executor, init_session_id)
+    with _SESSION_LOCK:
+        _CELL_SESSION_INIT_DIGEST[session_id] = digest
+
+
 
 
 def _ensure_init_executed(
@@ -808,7 +831,7 @@ def run_sandboxed_code(
         if session_id:
             executor = _get_or_create_session_executor(session_id, timeout_sec)
             if init_sid:
-                _seed_executor_from_init(executor, init_sid)
+                _seed_shared_executor_once(executor, session_id, init_sid, init_script_hash)
         else:
             executor = _new_executor(timeout_sec)
             if init_sid:

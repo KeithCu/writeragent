@@ -36,6 +36,25 @@ def test_pickle_frame_roundtrip_with_bytes():
     assert read_pickle_frame(buf, require_dict=True) == {"status": "ok", "buffer": b"\x00\x01split"}
 
 
+def test_unpack_allows_numpy_reconstruct_and_rejects_ctypeslib():
+    pytest.importorskip("numpy")
+    import numpy as np
+
+    buf = io.BytesIO()
+    write_pickle_frame(buf, {"status": "ok", "result": np.array([1, 2, 3], dtype=np.int64)})
+    buf.seek(0)
+    decoded = read_pickle_frame(buf, require_dict=True)
+    assert list(decoded["result"]) == [1, 2, 3]
+
+    class LoadLibrary:
+        def __reduce__(self):
+            return (np.ctypeslib.load_library, ("no-such-lib", "."))
+
+    payload = pickle.dumps(LoadLibrary(), protocol=5)
+    with pytest.raises(ValueError, match="not allowed"):
+        unpack_pickle_frame(payload)
+
+
 def test_unpack_rejects_reduce_gadget():
     class Boom:
         def __reduce__(self):

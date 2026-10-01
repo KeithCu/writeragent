@@ -373,7 +373,12 @@ def _execute_named_script_tool(tool_name: str, payload: dict[str, Any]) -> Any:
 
     user_scripts = get_user_scripts()
     uno_ctx = get_ctx()
-    doc = get_active_document(uno_ctx) if uno_ctx is not None else None
+    from plugin.scripting.session_manager import document_for_script_session
+    from plugin.scripting.venv_worker import inflight_script_session_id
+
+    doc = document_for_script_session(uno_ctx, inflight_script_session_id())
+    if doc is None and uno_ctx is not None:
+        doc = get_active_document(uno_ctx)
     document_scripts = get_document_scripts(doc) if doc is not None else {}
     if tool_name == LIST_NAMED_PYTHON_SCRIPTS:
         return host_list_named_python_scripts(user_scripts=user_scripts, document_scripts=document_scripts)

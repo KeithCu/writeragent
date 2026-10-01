@@ -78,9 +78,6 @@ _ANALYSIS_VENV_EXPORTS = frozenset(
         "pivot_aggregate",
         "run_analysis",
         "run_regression",
-        "CoerceResult",
-        "coerce_to_dataframe",
-        "grid_to_dataframe",
     }
 )
 
@@ -91,7 +88,7 @@ def _analysis_venv_extra(name: str) -> Any:
     raise AttributeError(f"module 'plugin.scripting.analysis' has no attribute {name!r}")
 
 
-__getattr__ = make_getattr("analysis", _ANALYSIS_VENV_EXPORTS - frozenset({"CoerceResult", "coerce_to_dataframe", "grid_to_dataframe"}), fallback=_analysis_venv_extra)
+__getattr__ = make_getattr("analysis", _ANALYSIS_VENV_EXPORTS, fallback=_analysis_venv_extra)
 
 
 # --- Templates ---
@@ -113,6 +110,5 @@ _API = make_template_api(
     )
 )
 
-_template_body = _API.template_body
 get_analysis_script_templates = _API.get_templates
 parse_analysis_script_header = _API.parse_header

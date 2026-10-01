@@ -850,6 +850,31 @@ def set_value(
         setattr(obj, target.attr, value)
 
 
+def _reject_numpy_code_exec(func: Any, args: list[Any], kwargs: dict[str, Any]) -> None:
+    """Block pickle and ctypes escapes on the live NumPy module.
+
+    ``get_safe_module`` returns NumPy raw (wrapping it has crashed with SIGILL).
+    ``evaluate_call`` invokes the callee before ``DANGEROUS_FUNCTIONS`` runs, so
+    ``np.load(..., allow_pickle=True)`` and ``numpy.ctypeslib.load_library``
+    executed inside the worker. Numeric ``np.load`` / ``np.save`` without an
+    explicit ``allow_pickle=True`` stay allowed.
+    """
+    module = getattr(func, "__module__", "") or ""
+    name = getattr(func, "__name__", "") or ""
+    if not module.startswith("numpy"):
+        return
+    if module.startswith("numpy.ctypeslib") or name == "load_library":
+        raise InterpreterError(f"Forbidden call to {module}.{name}")
+    if name not in ("load", "save"):
+        return
+    allow = kwargs.get("allow_pickle", False)
+    # load(file, mmap_mode=None, allow_pickle=False); save(file, arr, allow_pickle=True)
+    if "allow_pickle" not in kwargs and len(args) >= 3:
+        allow = args[2]
+    if allow:
+        raise InterpreterError(f"numpy.{name}(allow_pickle=True) is not allowed")
+
+
 def evaluate_call(
     call: ast.Call,
     state: dict[str, Any],
@@ -943,6 +968,7 @@ def evaluate_call(
             and (func.__name__ not in ALLOWED_DUNDER_METHODS)
         ):
             raise InterpreterError(f"Forbidden call to dunder function: {func.__name__}")
+        _reject_numpy_code_exec(func, args, kwargs)
         return func(*args, **kwargs)
 
 

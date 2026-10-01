@@ -465,6 +465,37 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     assert mgr._terminate_worker.call_count == 1
 
 
+def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
+    """A tool_call that already ran must not be followed by a second copy of the script."""
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
+    response_payload = pickle.dumps({"status": "host_request"}, protocol=5)
+    mgr._read_response_bytes = MagicMock(  # type: ignore[method-assign]
+        side_effect=[response_payload, RuntimeError("Worker closed stdout")]
+    )
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None):
+        del response, stdin_write, on_worker_event, stop_checker
+        return True
+
+    monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_ppt_master_response", dispatch)
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert mgr._write_frame_with_timeout.call_count == 1
+    assert mgr._terminate_worker.call_count == 1
+
+
 def test_host_read_timeout_does_not_retry():
     """Hung user code must not be replayed; that would double the configured timeout."""
     mgr = PythonWorkerManager(sys.executable, {})

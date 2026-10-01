@@ -1465,7 +1465,6 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     or _is_ndarray(wire)
     or getattr(type(wire), "__module__", "") == "numpy"
 )
-@deal.post(lambda *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) is not None or _deal_return(*a, result=result) is None)
 @deal.raises(ValueError, TypeError, AttributeError, KeyError)
 def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
     """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, dataframe, calc_range)."""
@@ -1729,7 +1728,11 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
         if not isinstance(arr, np.ndarray):
             arr = np.asarray(arr)
         ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
-        if np.issubdtype(arr.dtype, np.integer):
+        # A bool ndarray is not an integer dtype. Tagging it "float" made host
+        # unpack restore 1.0/0.0 instead of True/False.
+        if np.issubdtype(arr.dtype, np.bool_):
+            column_kinds = ["bool"] * ncols
+        elif np.issubdtype(arr.dtype, np.integer):
             column_kinds = ["int"] * ncols
         else:
             column_kinds = ["float"] * ncols

@@ -68,6 +68,26 @@ class _NonReplayableIpcWriteTimeout(RuntimeError):
 
 _SHARED_WORKER_RESTART_HINT = " Shared Python process restarted (all workbooks)."
 
+# Session id of the script currently inside _execute_ipc_unlocked. Tool RPC runs
+# on the UI thread while this worker thread waits, so a contextvar would not
+# cross. Named-script fetch (wa.doc) reads it to pick the session's document
+# instead of whichever window is focused.
+_inflight_script_session_id: str | None = None
+_inflight_script_session_lock = threading.Lock()
+
+
+def set_inflight_script_session(session_id: str | None) -> None:
+    """Record the workbook session for the in-flight worker turn (or clear it)."""
+    global _inflight_script_session_id
+    with _inflight_script_session_lock:
+        _inflight_script_session_id = session_id if isinstance(session_id, str) and session_id.strip() else None
+
+
+def inflight_script_session_id() -> str | None:
+    """Session id of the script whose tool_call is running, if any."""
+    with _inflight_script_session_lock:
+        return _inflight_script_session_id
+
 
 def _clear_host_state_after_worker_death() -> None:
     """IPC is desynced after a kill; drop add-in scalar cache so the next turn is cold.
@@ -355,6 +375,35 @@ class PythonWorkerManager:
             allow_heartbeat=allow_heartbeat,
             timeout_sec=timeout_sec,
         )
+        set_inflight_script_session(session_id)
+        try:
+            return self._execute_ipc_attempts(
+                request,
+                timeout_sec=timeout_sec,
+                allow_heartbeat=allow_heartbeat,
+                heartbeat_grace_sec=heartbeat_grace_sec,
+                on_heartbeat=on_heartbeat,
+                on_worker_event=on_worker_event,
+                stop_checker=stop_checker,
+                python_tool_domain=python_tool_domain,
+                caller=caller,
+            )
+        finally:
+            set_inflight_script_session(None)
+
+    def _execute_ipc_attempts(
+        self,
+        request: dict[str, Any],
+        *,
+        timeout_sec: int,
+        allow_heartbeat: bool,
+        heartbeat_grace_sec: int | None,
+        on_heartbeat: Callable[[dict[str, Any]], None] | None,
+        on_worker_event: Callable[[dict[str, Any]], None] | None,
+        stop_checker: Callable[[], bool] | None,
+        python_tool_domain: str | None,
+        caller: str,
+    ) -> dict[str, Any]:
         for attempt in range(2):
             try:
                 self._ensure_running()
@@ -372,6 +421,10 @@ class PythonWorkerManager:
 
                 allowed_tools = resolve_allowed_tools(python_tool_domain)
 
+                # A tool_call frame can already have mutated the document. A later
+                # pipe error must not resend the original script (the write-timeout
+                # path below is the same rule).
+                dispatched_intermediate = False
                 try:
                     while True:
                         if allow_heartbeat:
@@ -416,6 +469,7 @@ class PythonWorkerManager:
                                 on_worker_event=on_worker_event,
                                 stop_checker=stop_checker,
                             ):
+                                dispatched_intermediate = True
                                 continue
                         break
                 except subprocess.TimeoutExpired as e:
@@ -427,6 +481,17 @@ class PythonWorkerManager:
                         "VENV_TIMEOUT",
                         _worker_error_message(e) + _SHARED_WORKER_RESTART_HINT,
                         details={"timeout_sec": timeout_sec, "exe": self.exe},
+                    )
+                except (BrokenPipeError, ValueError, RuntimeError, OSError) as e:
+                    if not dispatched_intermediate:
+                        raise
+                    log.warning("Python worker failed after a tool call (not replaying): %s", e)
+                    self._terminate_worker()
+                    _clear_host_state_after_worker_death()
+                    return _worker_error(
+                        "WORKER_IPC_ERROR",
+                        f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}",
+                        details={"exe": self.exe},
                     )
                 return self._normalize_response(response)
             except _NonReplayableIpcWriteTimeout as e:
@@ -651,7 +716,7 @@ class PythonWorkerManager:
         # path also poll()-short-circuits a dead child and (on the heartbeat
         # path) resets the deadline. Unifying those is a hang-regression risk
         # for =PY(). Windows select.select() only supports sockets, not pipes
-        # (WinError 10038); use a thread-based blocking read there instead.
+        # (WinError 10038); PeekNamedPipe there instead of a ReadFile thread.
         if sys.platform == "win32":
             return self._read_response_bytes_threaded(stdout, timeout_sec)
         return self._read_response_bytes_select(stdout, timeout_sec)
@@ -659,14 +724,15 @@ class PythonWorkerManager:
     def _read_response_bytes_select(self, stdout: IO[bytes], timeout_sec: float | int) -> bytes:
         """POSIX path: use select() to poll the pipe with a timeout."""
         assert self._proc is not None
-        end = time.time() + timeout_sec
+        # monotonic: a wall-clock step used to stretch the wait or kill the warm worker.
+        end = time.monotonic() + timeout_sec
 
         def _read_exact(n: int) -> bytes:
             buf = bytearray()
             while len(buf) < n:
-                if time.time() >= end:
+                if time.monotonic() >= end:
                     raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
-                remaining = end - time.time()
+                remaining = end - time.monotonic()
                 ready, _unused, _unused2 = select.select([stdout], [], [], min(1.0, remaining))
                 if ready:
                     chunk = stdout.read(n - len(buf))
@@ -688,51 +754,73 @@ class PythonWorkerManager:
         )
 
     def _read_response_bytes_threaded(self, stdout: IO[bytes], timeout_sec: float | int) -> bytes:
-        """Windows path: blocking read in a daemon thread with join-timeout."""
+        """Windows path: PeekNamedPipe, not a daemon thread blocked in ReadFile.
+
+        Closing the pipe while a thread was inside ReadFile crashed the xdist
+        worker (CI 33453184665). Real pipe fds use ipc's peek helper. Streams
+        without a pipe fd (BytesIO / tests) still use a join-timeout thread;
+        that read is not a Windows pipe ReadFile.
+        """
+        deadline = time.monotonic() + float(timeout_sec)
+
+        def _read_exact(n: int) -> bytes:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
+            return self._read_exact_win32(stdout, n, remaining, timeout_sec)
+
+        return (
+            read_frame_payload(
+                stdout,
+                read_exact=_read_exact,
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+                frame_label="venv worker frame",
+            )
+            or b""
+        )
+
+    def _read_exact_win32(self, stdout: IO[bytes], nbytes: int, remaining: float, timeout_sec: float | int) -> bytes:
+        """One exact read on Windows: peek a real pipe, else a join-timeout thread."""
+        if sys.platform == "win32":
+            try:
+                fd = stdout.fileno()
+            except (AttributeError, OSError, ValueError):
+                fd = None
+            if isinstance(fd, int) and fd >= 0:
+                from plugin.scripting.ipc import _read_bytes_with_timeout_win32
+
+                return _read_bytes_with_timeout_win32(stdout, nbytes, remaining, cmd=self.exe)
+
         result: list[bytes] = [b""]
         error: list[BaseException | None] = [None]
 
         def _reader() -> None:
             try:
-                result[0] = (
-                    read_frame_payload(
-                        stdout,
-                        max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-                        frame_label="venv worker frame",
-                    )
-                    or b""
-                )
+                result[0] = stdout.read(nbytes)
             except Exception as exc:
                 error[0] = exc
 
         t = threading.Thread(target=_reader, daemon=True)
         t.start()
-        t.join(timeout=timeout_sec)
+        t.join(timeout=max(0.0, remaining))
         if t.is_alive():
             raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
         if error[0] is not None:
             raise error[0]
-        return result[0]
+        return result[0] or b""
 
     def _read_exact_before_deadline(self, stdout: IO[bytes], nbytes: int, deadline: float) -> bytes:
+        remaining = deadline - time.monotonic()
         if sys.platform == "win32":
-            result: list[bytes] = [b""]
-
-            def _reader() -> None:
-                result[0] = stdout.read(nbytes)
-
-            t = threading.Thread(target=_reader, daemon=True)
-            t.start()
-            t.join(timeout=max(0.1, deadline - time.time()))
-            if t.is_alive():
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=max(1, int(deadline - time.time())))
-            return result[0] or b""
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=max(1, int(-remaining) or 1))
+            return self._read_exact_win32(stdout, nbytes, remaining, max(1, int(remaining) or 1))
 
         buf = bytearray()
         while len(buf) < nbytes:
-            if time.time() >= deadline:
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=max(1, int(deadline - time.time())))
-            remaining = deadline - time.time()
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=max(1, int(deadline - time.monotonic()) or 1))
+            remaining = deadline - time.monotonic()
             ready, _unused, _unused2 = select.select([stdout], [], [], min(1.0, remaining))
             if ready:
                 chunk = stdout.read(nbytes - len(buf))
@@ -752,7 +840,7 @@ class PythonWorkerManager:
     ) -> bytes:
         from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT, parse_frame
 
-        deadline_holder = [time.time() + max(timeout_sec, grace_sec)]
+        deadline_holder = [time.monotonic() + max(timeout_sec, grace_sec)]
 
         def _read_exact(n: int) -> bytes:
             return self._read_exact_before_deadline(stdout, n, deadline_holder[0])
@@ -767,7 +855,7 @@ class PythonWorkerManager:
                 payload = data.get("payload")
                 if on_heartbeat is not None and isinstance(payload, dict):
                     on_heartbeat(payload)
-                deadline_holder[0] = time.time() + grace_sec
+                deadline_holder[0] = time.monotonic() + grace_sec
                 continue
             if frame_type == FRAME_RESULT or frame_type is None:
                 return frame_bytes

@@ -106,12 +106,8 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "typing",
     "copy",
     "pprint",
-    "webview",
-    "rocher",
-    "jedi",
-    "PyQt6",
-    "PyQt6.QtWebEngineWidgets",
-    "qtpy",
+    # webview / PyQt / jedi are editor-only. They are probed in a one-shot
+    # subprocess (venv_diagnostics), not imported into the warm =PY() worker.
     "writeragent",
     "writeragent.*",
     "plugin.scripting.writeragent_api",

@@ -263,6 +263,38 @@ def _build_metadata(df: Any, *, sheet_hint: str | None, dropped_rows: int) -> di
     return meta
 
 
+def resolve_df(
+    data: Any,
+    *,
+    headers: bool = True,
+    header_row: int = 0,
+    sheet_hint: str | None = None,
+) -> CoerceResult:
+    """Coerce *data* to a DataFrame without treating an existing frame's columns as a header row."""
+    if isinstance(data, CoerceResult):
+        return data
+    # DataFrame duck-type. Do not send it through grid_to_dataframe: that would
+    # treat column names as a header row. CalcRange is unwrapped by
+    # _normalize_input_grid inside coerce_to_dataframe.
+    if type(data).__name__ == "CalcRange":
+        hint = sheet_hint or getattr(data, "address", None)
+        return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=hint)
+    if hasattr(data, "columns") and hasattr(data, "index"):
+        df = data.copy()
+        return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=0))
+    return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
+
+
+def numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:
+    """Return *columns* when given, else the numeric column names. Unknown names raise."""
+    if columns:
+        missing = [c for c in columns if c not in df.columns]
+        if missing:
+            raise ValueError(f"Unknown columns: {', '.join(missing)}")
+        return list(columns)
+    return [str(c) for c in df.select_dtypes(include="number").columns]
+
+
 def grid_to_dataframe(
     data: Any,
     *,

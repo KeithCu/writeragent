@@ -36,8 +36,11 @@ FRAME_HEADER_SIZE = 4
 # on either path.
 DEFAULT_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024
 
-# Host unpickle of child/editor frames: builtins only. Protocol 5 bytes (split_grid
-# buffers) do not go through find_class. Do not add numpy or application classes.
+# Host unpickle of child/editor frames: builtins, plus the NumPy reconstruct
+# entry points a ndarray/dtype pickle actually calls. Protocol 5 bytes
+# (split_grid buffers) do not go through find_class. Do not allow every
+# numpy.* name: REDUCE runs the resolved callable inside LibreOffice, so
+# numpy.ctypeslib.load_library would execute in the host process.
 _SAFE_PICKLE_BUILTINS = frozenset({
     "dict",
     "list",
@@ -53,13 +56,22 @@ _SAFE_PICKLE_BUILTINS = frozenset({
     "bool",
 })
 
+# Names a NumPy pickle REDUCE actually invokes (ndarray via _frombuffer,
+# dtype, scalar). Not load, save, or ctypeslib.
+_NUMPY_RECONSTRUCT_NAMES = frozenset({
+    "_frombuffer",
+    "_reconstruct",
+    "scalar",
+    "dtype",
+    "ndarray",
+})
+
 
 class _SafeUnpickler(pickle.Unpickler):
     def find_class(self, module: str, name: str) -> Any:
         if module in ("builtins", "__builtin__") and name in _SAFE_PICKLE_BUILTINS:
             return getattr(builtins, name)
-        # Child split_grid / ndarray results reconstruct via numpy (host then unpacks to lists).
-        if module == "numpy" or module.startswith("numpy."):
+        if (module == "numpy" or module.startswith("numpy.")) and name in _NUMPY_RECONSTRUCT_NAMES:
             return super().find_class(module, name)
         raise pickle.UnpicklingError(f"global {module}.{name} is not allowed")
 

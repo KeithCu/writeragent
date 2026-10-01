@@ -42,6 +42,27 @@ def test_unload_listener_resets_worker_session():
         mock_reset.assert_called_once()
 
 
+def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True)
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getPropertyValue.return_value = "writer-uid"
+    from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
+
+    ensure_python_session_cleared_on_unload(ctx, doc, "rps:file:///a.odt")
+    ensure_python_session_cleared_on_unload(ctx, doc, "notebook:file:///a.odt")
+    doc.addDocumentEventListener.assert_called_once()
+    listener = doc.addDocumentEventListener.call_args[0][0]
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+        mock_reset.return_value = {"status": "ok"}
+        listener.on_document_event(MagicMock(EventName="OnUnload"))
+    assert mock_reset.call_count == 2
+    assert {call.args[1] for call in mock_reset.call_args_list} == {
+        "rps:file:///a.odt",
+        "notebook:file:///a.odt",
+    }
+
+
 def test_unload_clears_in_memory_spill_state():
     import plugin.calc.python.function as python_function
 

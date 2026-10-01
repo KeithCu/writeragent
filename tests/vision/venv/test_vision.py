@@ -295,7 +295,7 @@ def test_vision_client_passes_payload(mock_action):
     assert result["full_text"] == "ok"
     mock_action.assert_called_once()
     _args, kwargs = mock_action.call_args
-    assert kwargs["session_id"] == "writeragent:vision"
+    assert "session_id" not in kwargs
     assert kwargs["domain"] == "vision"
     assert kwargs["helper"] == "extract_text"
     assert kwargs["params"] == {}

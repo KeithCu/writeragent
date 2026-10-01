@@ -11,13 +11,13 @@ import logging
 from typing import Any, cast
 
 from plugin.scripting.venv.coerce import (
-    CoerceResult,
-    coerce_to_dataframe,
     ok_result as _ok_result,
     error_result as _error_result,
     missing_package_error as _missing_package_error,
-    table_from_df as _table_from_df,
+    numeric_columns as _numeric_columns,
     records_from_df as _records_from_df,
+    resolve_df as _resolve_df,
+    table_from_df as _table_from_df,
     _NUMERIC_PROFILE_KEYS,
 )
 
@@ -37,41 +37,6 @@ def _markdown_table(columns: list[str], rows: list[list[Any]]) -> str:
     sep = "| " + " | ".join("---" for _unused in columns) + " |"
     body = ["| " + " | ".join("" if v is None else str(v) for v in row) + " |" for row in rows]
     return "\n".join([header, sep, *body])
-
-
-def _resolve_df(data: Any, *, headers: bool = True, header_row: int = 0, sheet_hint: str | None = None) -> CoerceResult:
-    if isinstance(data, CoerceResult):
-        return data
-    if type(data).__name__ == "CalcRange":
-        return coerce_to_dataframe(
-            data.values,
-            headers=headers,
-            header_row=header_row,
-            sheet_hint=sheet_hint or getattr(data, "address", None),
-        )
-    if hasattr(data, "columns") and hasattr(data, "index"):
-        df = data.copy()
-        meta: dict[str, Any] = {
-            "n_rows": int(len(df)),
-            "n_cols": int(len(df.columns)),
-            "numeric_cols": [str(c) for c in df.select_dtypes(include="number").columns],
-            "categorical_cols": [str(c) for c in df.select_dtypes(exclude="number").columns if not str(df[c].dtype).startswith("datetime")],
-            "datetime_cols": [str(c) for c in df.select_dtypes(include="datetime").columns],
-            "dropped_rows": 0,
-        }
-        if sheet_hint:
-            meta["sheet_hint"] = sheet_hint
-        return CoerceResult(df=df, metadata=meta)
-    return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
-
-
-def _numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:
-    if columns:
-        missing = [c for c in columns if c not in df.columns]
-        if missing:
-            raise ValueError(f"Unknown columns: {', '.join(missing)}")
-        return list(columns)
-    return [str(c) for c in df.select_dtypes(include="number").columns]
 
 
 from plugin.scripting.venv.map_range import map_over_range
