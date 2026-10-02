@@ -922,19 +922,18 @@ def get_api_config() -> dict[str, Any]:
     from plugin.framework.client.model_fetcher import get_text_model
 
     endpoint = str(get_config("endpoint") or "").rstrip("/")
-    is_openwebui = _config_schema.as_bool(get_config("is_openwebui")) or "open-webui" in endpoint.lower() or "openwebui" in endpoint.lower()
 
     # Local import to avoid circular import during early UNO registration
     # (config → client/provider_detection → client/__init__ → llm_client → logging → config)
-    from plugin.framework.client.provider_detection import is_openrouter_endpoint
+    from plugin.framework.client.provider_detection import is_openrouter_endpoint, is_openwebui_endpoint
 
-    # Use the consolidated detection helper (2026 provider heuristic cleanup)
-    # so the OpenRouter decision is identical everywhere (auth, model fetcher,
-    # error messages, LLM client, etc.).
+    # Hostname helpers, not a substring of the whole URL. A path that merely
+    # contains "openwebui" or "openrouter.ai" is not that product.
+    is_openwebui = is_openwebui_endpoint(endpoint, explicit_is_openwebui=_config_schema.as_bool(get_config("is_openwebui")))
     is_openrouter = is_openrouter_endpoint(endpoint, explicit_is_openrouter=_config_schema.as_bool(get_config("is_openrouter")))
     api_key = get_api_key_for_endpoint(endpoint)
 
-    api_config = {
+    api_config: dict[str, Any] = {
         "endpoint": endpoint,
         "api_key": api_key,
         "model": get_text_model(),

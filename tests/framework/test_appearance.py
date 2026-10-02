@@ -34,6 +34,14 @@ def test_get_monaco_theme_info_light_from_field_color():
     assert info["bg"] != 0xFFFFFF
 
 
+def test_non_int_field_color_uses_fallback_bg():
+    win = MagicMock()
+    win.StyleSettings.FieldColor = "not-a-color"
+    win.StyleSettings.DialogColor = None
+    _is_dark, bg = appearance._resolve_style(win)
+    assert bg == appearance._FALLBACK_BG
+
+
 def test_get_monaco_theme_info_fallback_on_missing():
     """Safe light fallback when no StyleSettings."""
     info = appearance.get_monaco_theme_info(style_window=None, doc=None, ctx=None)

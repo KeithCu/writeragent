@@ -8,7 +8,7 @@ from plugin.framework.client.auth import (
     provider_requires_slug_model_id,
 )
 from plugin.framework.client.model_fetcher import ENDPOINT_PRESETS
-from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
+from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint, is_openwebui_endpoint
 from plugin.framework.url_utils import normalize_endpoint_url
 
 
@@ -93,6 +93,13 @@ def test_is_openrouter_endpoint_matches_host_not_substring():
     assert not is_openrouter_endpoint("http://127.0.0.1:11434/v1")
     assert not is_openrouter_endpoint("https://notopenrouter.ai/v1")
     assert not is_openrouter_endpoint("https://example.com/openrouter.ai/v1")
+
+
+def test_is_openwebui_endpoint_matches_host_not_path():
+    assert is_openwebui_endpoint("https://chat.openwebui.example/api")
+    assert is_openwebui_endpoint("http://127.0.0.1:8080/api", explicit_is_openwebui=True)
+    assert not is_openwebui_endpoint("http://127.0.0.1:8080/api")
+    assert not is_openwebui_endpoint("https://example.com/openwebui/v1")
 
 
 def test_provider_config_has_no_host_matches_and_grok_alias_is_gone():

@@ -48,7 +48,9 @@ RETRY_MIN_DELAY_SEC = 0.3
 RETRY_MAX_DELAY_SEC = 30.0
 RETRY_WAIT_CHUNK_SEC = 0.05
 RETRY_MAX_ATTEMPTS = 3
-RETRYABLE_HTTP_STATUS = frozenset({429, 503})
+# 529 is Anthropic "overloaded". A 200 SSE body that says overload is
+# already retried; the HTTP status was not, so that path never ran.
+RETRYABLE_HTTP_STATUS = frozenset({429, 503, 529})
 
 
 def format_retry_wait_status(delay_sec: float) -> str:

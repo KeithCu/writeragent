@@ -535,10 +535,12 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
                         pump_ui_idle(toolkit)
                     if marshal_depth > 0:
                         remaining = default_executor._work_queue.qsize()
-                        if remaining > 0:
+                        # pump_ui_idle drains one item. A healthy backlog of 2+
+                        # still has remaining > 0; that is not a blocked worker.
+                        if remaining >= marshal_depth:
                             log.warning("drain_idle: marshal queue_depth=%d after pump (worker may be blocked) %s", remaining, _marshal_thread_tag())
                         else:
-                            log.debug("drain_idle: stream queue empty, marshal depth %d cleared by pump %s", marshal_depth, _marshal_thread_tag())
+                            log.debug("drain_idle: stream queue empty, marshal depth %d -> %d %s", marshal_depth, remaining, _marshal_thread_tag())
                     continue
 
                 try:

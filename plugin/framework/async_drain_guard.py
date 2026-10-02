@@ -44,11 +44,13 @@ class NestedDrainOwnerError(RuntimeError):
 
 @contextmanager
 def drain_owner_scope(owner_name: str) -> Generator[None, None, None]:
-    """Sentry context manager ensuring single-ownership of main-thread UI event pumping.
+    """Sentry context manager for main-thread UI event pumping.
 
-    Nested owners raise :class:`NestedDrainOwnerError` — a second Send/drain must not
-    start while one is already pumping. The owner may call :func:`pump_ui_idle`; other
-    code must use :func:`process_events_to_idle`, which no-ops VCL while owned.
+    A different owner name raises :class:`NestedDrainOwnerError`. The same name
+    re-enters and increments the depth counter (``pump_ui_idle`` skips VCL when
+    depth > 1). ``run_stream_drain_loop`` still refuses any current owner before
+    taking this scope. The owner may call :func:`pump_ui_idle`; other code must
+    use :func:`process_events_to_idle`, which no-ops VCL while owned.
     """
     global _active_owner_name, _drain_depth
     with _drain_lock:

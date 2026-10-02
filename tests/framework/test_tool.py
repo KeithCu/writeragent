@@ -452,6 +452,34 @@ class TestExecute:
         assert result.get("code") == "VALIDATION_ERROR"
         assert "Invalid type for text" in result.get("message", "")
 
+    def test_optional_json_null_is_omitted(self):
+        class OptionalTool(ToolBase):
+            name = "optional_tool"
+            description = "x"
+            parameters = {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["text"],
+            }
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok", "keys": sorted(kwargs)}
+
+        reg = _make_registry(OptionalTool())
+        ctx = _make_ctx("writer")
+        result = reg.execute("optional_tool", ctx, text="hi", limit=None)
+        assert result == {"status": "ok", "keys": ["text"]}
+
+    def test_required_json_null_still_fails_validation(self):
+        reg = _make_registry(FakeTool())
+        ctx = _make_ctx("writer")
+        result = reg.execute("fake_tool", ctx, text=None)
+        assert result["status"] == "error"
+        assert result.get("code") == "VALIDATION_ERROR"
+
 class TestExcludeSpecializedTiers:
     def test_default_excludes_specialized_tier(self):
         class SpecTool(ToolBase):
@@ -719,6 +747,31 @@ class TestToolIsolation:
         result = DeadTool().execute_safe(DummyContext())
         assert result["status"] == "error"
         assert result["code"] == "DOCUMENT_DISPOSED"
+
+    def test_execute_safe_keeps_writeragent_exception_code(self):
+        from plugin.framework.errors import ToolPermissionError
+
+        class DeniedTool(ToolBase):
+            name = "test_denied"
+            description = "x"
+            parameters = {"type": "object", "properties": {}}
+
+            def is_async(self):
+                return True
+
+            def execute(self, ctx, **kwargs):
+                raise ToolPermissionError("nope", details={"reason": "user"})
+
+        class DummyContext:
+            doc = None
+            doc_type = None
+            caller = None
+
+        result = DeniedTool().execute_safe(DummyContext())
+        assert result["status"] == "error"
+        assert result["code"] == "PERMISSION_DENIED"
+        assert result["message"] == "nope"
+        assert result["details"]["reason"] == "user"
 
     def test_execute_safe_bare_runtime_exception_live_doc(self):
         """Image insert's empty RuntimeException must not become DOCUMENT_DISPOSED."""

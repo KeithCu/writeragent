@@ -65,10 +65,11 @@ def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any
     if isinstance(type_val, str) and type_val in _SCALAR_TYPES:
         out = copy.deepcopy(prop_schema)
         out["type"] = [type_val, "null"]
-        # Strict providers apply enum after type; null must be in both.
+        # Strict providers apply enum after type; JSON null must be in both.
+        # The string "null" is a different value and fails the source enum.
         enum_val = out.get("enum")
-        if isinstance(enum_val, list) and "null" not in enum_val:
-            out["enum"] = [*enum_val, "null"]
+        if isinstance(enum_val, list) and None not in enum_val:
+            out["enum"] = [*enum_val, None]
         return out
     return prop_schema
 

@@ -241,7 +241,7 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
             coalesced_messages.append(copy.deepcopy(m) if isinstance(m, dict) else m)
 
     if coalesced_any:
-        log.error("make_chat_request: Coalesced multiple consecutive system messages.")
+        log.debug("make_chat_request: Coalesced multiple consecutive system messages.")
 
     messages = coalesced_messages
 

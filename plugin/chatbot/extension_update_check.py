@@ -148,7 +148,6 @@ def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> Non
     """Background worker: fetch update.xml, compare versions, optionally notify. Call after init_logging."""
     from plugin.framework.config import set_config
     from plugin.chatbot.dialogs import msgbox
-    from plugin.framework.queue_executor import QueueExecutor
     from plugin.framework.client.requests import sync_request
     from plugin.framework.uno_context import resolve_package_extension_id
     from plugin.version import EXTENSION_VERSION
@@ -234,7 +233,12 @@ def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> Non
             remote_ver,
             EXTENSION_VERSION,
         )
-        QueueExecutor(ctx=ctx).post(_show)
+        # A throwaway QueueExecutor is not drained by pump_ui_idle. If
+        # AsyncCallback is not ready, post() parks the dialog on that
+        # executor and the object is collected. default_executor is pumped.
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(_show)
     except Exception as e:
         log.warning("extension update check failed (%s): %s", profile.display_name, e, exc_info=True)
     finally:

@@ -15,7 +15,7 @@ import importlib
 from typing import TYPE_CHECKING, Any
 
 from .errors import format_error_for_display, is_audio_unsupported_error
-from .provider_detection import get_provider_from_endpoint, is_local_host, is_openrouter_endpoint
+from .provider_detection import get_provider_from_endpoint, is_local_host, is_openrouter_endpoint, is_openwebui_endpoint
 from .requests import sync_request
 
 if TYPE_CHECKING:
@@ -41,6 +41,7 @@ __all__ = [
     "is_audio_unsupported_error",
     "is_local_host",
     "is_openrouter_endpoint",
+    "is_openwebui_endpoint",
     "iterate_sse",
     "merge_openrouter_chat_extra",
     "strip_leaked_chat_template_control_tokens",

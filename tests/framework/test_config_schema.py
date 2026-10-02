@@ -182,6 +182,9 @@ def test_coerce_and_clamp_use_manifest_schema(restore_manifest) -> None:
     assert coerce_config_value("demo.count", "not-a-number") == 5
     with pytest.raises(ConfigValidationError):
         coerce_config_value("demo.count", "not-a-number", strict=True)
+    with pytest.raises(ConfigValidationError):
+        coerce_config_value("demo.count", 1, strict=True)
+    assert coerce_config_value("demo.count", 1) == 2
     schema = get_config_schema("demo.count")
     assert schema is not None
     assert schema["default"] == 5

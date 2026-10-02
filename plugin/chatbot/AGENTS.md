@@ -1,6 +1,6 @@
 # Chatbot / sidebar
 
-Root invariants still apply (`self.ctx`, pure FSM in `service.next_state`,
+Root invariants still apply (`self.ctx`, pure FSM in `tool_loop_state.next_state`,
 `StreamQueueKind`, stream-on-worker / drain-on-UI). This file is only
 the area gotchas.
 

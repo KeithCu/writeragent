@@ -118,7 +118,7 @@ def _resolve_style(win: Any) -> tuple[bool, int]:
     dialog_color = getattr(style_settings, "DialogColor", 0xEFF0F1)
     if isinstance(dialog_color, int):
         return False, _darken(dialog_color, 0.94)
-    return False, 0xE0E1E2
+    return False, _FALLBACK_BG
 
 
 def get_theme_colors(doc: Any = None, style_window: Any = None, ctx: Any = None) -> tuple[int, int, int]:

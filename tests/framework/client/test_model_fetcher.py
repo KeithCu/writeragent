@@ -430,6 +430,25 @@ class TestHasNativeVision:
             assert not (has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api'))
             mock_sync.assert_not_called()
 
+    def test_allow_fetch_false_does_not_get_catalog(self):
+        from plugin.framework.client import model_fetcher
+
+        saved = dict(model_fetcher._model_fetch_vision_cache)
+        model_fetcher._model_fetch_vision_cache.clear()
+        try:
+            with patch.object(model_fetcher, "get_config", return_value={}), \
+                 patch.object(model_fetcher, "fetch_available_models") as fetch, \
+                 patch.object(model_fetcher, "set_config"):
+                assert model_fetcher.has_native_vision(
+                    "no-such-vision-model",
+                    "https://openrouter.ai/api",
+                    allow_fetch=False,
+                ) is False
+                fetch.assert_not_called()
+        finally:
+            model_fetcher._model_fetch_vision_cache.clear()
+            model_fetcher._model_fetch_vision_cache.update(saved)
+
     def test_vision_support_map_is_a_config_field(self):
         from plugin.framework.config_schema import WriterAgentConfig, _resolve_default, is_known_config_key
         assert (is_known_config_key('vision_support_map'))

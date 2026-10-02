@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import html
 import logging
-import re
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -596,12 +595,13 @@ def _plain_fallback_text(text: str) -> str:
     """Visible text when the hidden Writer that formats HTML is missing.
 
     What was wrong: a missing Writer returned without inserting the message,
-    so the sidebar skipped it. ``_HTML_TAG_RE`` only matches opening tags the
-    importer knows, and a closing ``</p>`` would still show. Strip every tag,
-    then unescape entities.
+    so the sidebar skipped it. A later regex left ``<script>`` / ``<style>``
+    bodies and disagreed with the chat stream stripper. Use that stripper
+    (it also unescapes entities).
     """
-    stripped = re.sub(r"<[^>]+>", "", text or "")
-    return html.unescape(stripped)
+    from plugin.framework.html_stripper import strip_html_tags
+
+    return strip_html_tags(text or "")
 
 
 def _rollback_rich_insert(control: Any, before: int) -> None:

@@ -81,6 +81,7 @@ from plugin.framework.uno_context import (
     get_extension_url,
     get_ctx,
     menu_icon_asset_url,
+    set_fallback_ctx,
     set_package_extension_id,
 )
 from plugin.framework.thread_guard import background
@@ -162,6 +163,10 @@ def bootstrap(ctx: Any | None = None) -> None:
         if ctx is not None:
             from plugin.framework.queue_executor import default_executor
 
+            # get_ctx() prefers this over uno.getComponentContext(). LibrePy
+            # already pins it; without it WriterAgent lookups can hit a
+            # different context (no VCL, wrong package, Desktop segfault).
+            set_fallback_ctx(ctx)
             default_executor.set_context(ctx)
 
         set_package_extension_id(EXTENSION_ID)
@@ -724,8 +729,9 @@ def _update_menu_icons_impl() -> None:
             resolve_menu_icon_pixel_size,
         )
 
-        # One-shot DPI probe → pixel size (16 on HiDPI, larger on 1x).
-        # Warm StyleSettings host so startup race does not stick on hidpi-safe 16.
+        # One-shot DPI probe → pixel size (16 at 1×, 32 on HiDPI).
+        # A probe miss caches 32 until a real VCL DPI reading. Warm
+        # StyleSettings so startup does not stick on that weak reading.
         try:
             from plugin.framework.appearance import get_style_window
 

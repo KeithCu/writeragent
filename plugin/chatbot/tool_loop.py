@@ -344,13 +344,18 @@ class ToolCallingMixin:
         if skip_append_user:
             b64_image = None
         else:
-            # Check for vision capability and selected image base64
-            # Note: `model` here is the UNO document object, not the model ID string.
-            # The text model ID is in api_config["text_model"].
+            # Check for vision capability and selected image base64.
+            # `model` in this function is the UNO document, not the model id.
+            # get_api_config stores the chat model as "model". Reading
+            # "text_model" was always empty, so has_native_vision returned
+            # False and a selected image was never attached.
+            # allow_fetch=False: _do_send runs on the UI thread. A cold
+            # OpenRouter/Together catalog GET would freeze LibreOffice.
+            # The static catalog and vision_support_map still apply.
             b64_image = None
             from plugin.framework.client.model_fetcher import has_native_vision
-            text_model_id = api_config.get("text_model", "")
-            if has_native_vision(text_model_id, client._endpoint()):
+            text_model_id = str(api_config.get("model") or "")
+            if has_native_vision(text_model_id, client._endpoint(), allow_fetch=False):
                 doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
                 if doc:
                     try:

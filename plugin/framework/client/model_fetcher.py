@@ -32,7 +32,7 @@ from typing import Any
 from plugin.framework.constants import ModelCapability
 from plugin.framework.default_models import DEFAULT_MODELS, get_provider_defaults, resolve_model_id
 from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_suffix
-from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
+from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint, is_openwebui_endpoint
 from plugin.framework.errors import NetworkError
 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
 from plugin.framework.config import get_api_key_for_endpoint, get_config_bool_safe, get_config, get_current_endpoint, set_config
@@ -122,9 +122,6 @@ def _v1_models_entries_from_body(data: Any) -> list[Any] | None:
     return None
 
 
-_model_output_modalities: dict[str, list[str]] = {}
-
-
 def _image_output_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
     """Collect model IDs that generate images (not vision-input-only chat models)."""
     out: list[str] = []
@@ -136,8 +133,6 @@ def _image_output_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
             continue
         arch = m.get("architecture") or {}
         modalities = arch.get("output_modalities")
-        if isinstance(modalities, list):
-            _model_output_modalities[str(mid)] = [str(x) for x in modalities]
         # OpenRouter: google/gemini-2.5-flash-image, openai/gpt-5-image, etc.
         if isinstance(modalities, list) and "image" in modalities:
             out.append(str(mid))
@@ -346,7 +341,7 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     if cache_key in _model_fetch_cache:
         return _model_fetch_cache[cache_key]
 
-    is_openwebui = as_bool(get_config("is_openwebui")) or "open-webui" in base.lower() or "openwebui" in base.lower()
+    is_openwebui = is_openwebui_endpoint(base, explicit_is_openwebui=as_bool(get_config("is_openwebui")))
     # Hostname equality, same rule as get_provider_from_endpoint. A path that
     # merely contains "openrouter.ai" is not this provider.
     is_openrouter = is_openrouter_endpoint(base, explicit_is_openrouter=as_bool(get_config("is_openrouter")))
@@ -1139,7 +1134,7 @@ def _remember_vision_support(model_id: str, endpoint: str, supported: bool) -> N
         log.debug("has_native_vision persist failed: %s", e)
 
 
-def has_native_vision(model_id: Any, endpoint: Any) -> bool:
+def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True) -> bool:
     """Check if the model supports native multimodal vision input.
 
     Priority order:
@@ -1151,6 +1146,9 @@ def has_native_vision(model_id: Any, endpoint: Any) -> bool:
          does not GET ``/v1/models`` for these hosts (the lists are huge). On a
          process-cache miss this function fetches once, then remembers the answer.
        - Ollama: ``POST /api/show`` capabilities list.
+
+    ``allow_fetch=False`` reads only those caches. Chat Send runs on the UI
+    thread; a cold catalog GET (10s, up to 3 attempts) would freeze LibreOffice.
     """
     if not model_id:
         return False
@@ -1187,7 +1185,7 @@ def has_native_vision(model_id: Any, endpoint: Any) -> bool:
         url = f"{endpoint_str}{suffix}/models"
         cache_key = _model_fetch_cache_key(url, endpoint_str)
         vision_list = _model_fetch_vision_cache.get(cache_key)
-        if vision_list is None:
+        if vision_list is None and allow_fetch:
             fetch_available_models(endpoint_str)
             vision_list = _model_fetch_vision_cache.get(cache_key)
         if vision_list is not None:
@@ -1197,13 +1195,20 @@ def has_native_vision(model_id: Any, endpoint: Any) -> bool:
             return supported
 
     # 3b. Ollama (query POST /api/show). None means the probe did not answer.
+    # allow_fetch=False still honors a process cache hit from an earlier probe.
     if provider == "ollama":
-        try:
-            res = query_ollama_model_capabilities(endpoint_str, model_id_str)
-            if res is not None:
-                return res
-        except Exception as e:
-            log.debug("Ollama /api/show capability query failed: %s", e)
+        if not allow_fetch:
+            cached_show = _ollama_show_cache.get(f"{endpoint_str}@{model_id_str}")
+            if isinstance(cached_show, dict):
+                show_caps = cached_show.get("capabilities") or []
+                return "vision" in show_caps if isinstance(show_caps, list) else False
+        else:
+            try:
+                res = query_ollama_model_capabilities(endpoint_str, model_id_str)
+                if res is not None:
+                    return res
+            except Exception as e:
+                log.debug("Ollama /api/show capability query failed: %s", e)
 
     return False
 
@@ -1362,9 +1367,8 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
 def is_image_only_model(endpoint: Any, model_id: Any) -> bool:
     """Check if the model outputs image but not text (dedicated image generator).
 
-    What was wrong: this called ``fetch_available_image_models`` only to fill
-    ``_model_output_modalities``. OpenRouter ``/images/models`` returns ids and
-    never writes that map, so a real image id fell through to the name
+    What was wrong: this fetched the image catalog only to consult a side map
+    the catalog never filled, so a real image id fell through to the name
     heuristic (a ``gemini`` image model looked like chat). Use the id list the
     fetch already returns. ``None`` means the catalog did not answer; then the
     name heuristic still applies.

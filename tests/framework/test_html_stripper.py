@@ -55,6 +55,17 @@ def test_strip_html_tags_comparison_stays_text():
     assert strip_html_tags("3 < 5") == "3 < 5"
 
 
+def test_strip_html_tags_unescapes_entities():
+    assert strip_html_tags("a &amp; b") == "a & b"
+    assert strip_html_tags("<p>3 &lt; 5</p>") == "3 < 5"
+
+
+def test_streaming_html_stripper_holds_split_entity():
+    stripper = StreamingHTMLStripper()
+    assert stripper.feed("a &am") == "a "
+    assert stripper.feed("p; b") + stripper.finalize() == "& b"
+
+
 def test_streaming_html_stripper_chunks():
     stripper = StreamingHTMLStripper()
     chunks = [

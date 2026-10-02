@@ -22,6 +22,7 @@ from plugin.chatbot.rich_text_paste import (
     _list_prefix_for_paragraph,
     _max_column_chars,
     _max_column_ems,
+    _plain_fallback_text,
     _resolve_portion_char_color,
     _TABLE_V_PAD_MM100,
     _tab_stop_positions_twips,
@@ -709,4 +710,8 @@ class TestFlattenTextTableCopy:
 
         assert ok is True
         assert reason is None
+
+
+def test_plain_fallback_text_drops_script_and_unescapes():
+    assert _plain_fallback_text("<script>alert(1)</script><p>a &amp; b</p>") == "a & b"
 

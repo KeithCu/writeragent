@@ -17,7 +17,9 @@
 
 from __future__ import annotations
 
+import html
 import os
+import re
 
 from plugin.framework.deal_shim import CROSSHAIR_ENV, DEAL_MAX_HTML_CHUNK, ascii_bounded, str_bounded, deal
 
@@ -35,6 +37,19 @@ _deal_strip_html_ok = ascii_bounded if _HTML_CROSSHAIR else str_bounded
 # Element text used to survive (``<script>alert(1)</script>`` → ``alert(1)``).
 # Drop the body until the matching close tag, not only the tag bytes.
 _DISCARD_ELEMENTS = frozenset({"script", "style"})
+# Trailing incomplete entity (``&amp`` split across chunks). A finished
+# ``&amp;`` does not match. ``3 & 5`` does not end on the ampersand.
+_INCOMPLETE_ENTITY_TAIL = re.compile(r"&(?:#x[0-9A-Fa-f]*|#\d*|[A-Za-z][A-Za-z0-9]{0,31})?$")
+
+
+def _split_incomplete_entity(text: str) -> tuple[str, str]:
+    """Return (ready_to_unescape, held_tail)."""
+    if "&" not in text:
+        return text, ""
+    matched = _INCOMPLETE_ENTITY_TAIL.search(text)
+    if matched is None or text.endswith(";"):
+        return text, ""
+    return text[: matched.start()], matched.group(0)
 
 
 def _html_tag_name(buf: str) -> tuple[str, bool, bool]:
@@ -77,12 +92,22 @@ class StreamingHTMLStripper:
     _quote: str
     # ``script`` / ``style`` whose element text is discarded, else "".
     _discard_until: str
+    _entity_tail: str
 
     def __init__(self) -> None:
         self.in_tag = False
         self.tag_buffer = ""
         self._quote = ""
         self._discard_until = ""
+        self._entity_tail = ""
+
+    def _unescape_emitted(self, raw: str, *, hold_tail: bool) -> str:
+        combined = self._entity_tail + raw
+        if hold_tail:
+            ready, self._entity_tail = _split_incomplete_entity(combined)
+        else:
+            ready, self._entity_tail = combined, ""
+        return html.unescape(ready)
 
     def _release_tag_buffer(self, out: list[str], *, force_emit: bool) -> None:
         """Stop buffering a tag. Emit unless we are discarding element text."""
@@ -178,9 +203,10 @@ class StreamingHTMLStripper:
             return ""
         size = _DEAL_MAX_HTML_CHUNK
         if len(chunk) <= size:
-            return self._feed_chunk(chunk)
-        parts = [self._feed_chunk(chunk[i : i + size]) for i in range(0, len(chunk), size)]
-        return "".join(parts)
+            raw = self._feed_chunk(chunk)
+        else:
+            raw = "".join(self._feed_chunk(chunk[i : i + size]) for i in range(0, len(chunk), size))
+        return self._unescape_emitted(raw, hold_tail=True)
 
     @deal.post(lambda result: isinstance(result, str))
     def finalize(self) -> str:
@@ -191,14 +217,14 @@ class StreamingHTMLStripper:
             self.tag_buffer = ""
             self._quote = ""
             self._discard_until = ""
-            return ""
+            return self._unescape_emitted("", hold_tail=False)
         if self.in_tag and self.tag_buffer:
             buf = self.tag_buffer
             self.in_tag = False
             self.tag_buffer = ""
             self._quote = ""
-            return buf
-        return ""
+            return self._unescape_emitted(buf, hold_tail=False)
+        return self._unescape_emitted("", hold_tail=False)
 
 
 # feed() slices so live deal never requires the whole string ≤ DEAL_MAX_HTML_CHUNK.

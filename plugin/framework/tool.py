@@ -45,6 +45,9 @@ from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework.tool_schema import _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers, to_mcp_schema as to_mcp_schema, to_openai_schema as to_openai_schema
 
+_log = logging.getLogger(__name__)
+log = logging.getLogger("writeragent.tools")
+
 
 def _doc_type_str_from_doc(doc: Any) -> str | None:
     """Map UNO document model to tool context doc_type string."""
@@ -58,12 +61,9 @@ def _doc_type_str_from_doc(doc: Any) -> str | None:
         label = doc_type_label_for_enum(dt, impress_as_draw=True)
         return None if label == "unknown" else label
     except Exception:
-        pass
+        _log.exception("doc_type probe failed")
     return None
 
-
-_log = logging.getLogger(__name__)
-log = logging.getLogger("writeragent.tools")
 
 # verb_noun tools (legacy/core): name starts with a read verb.
 _READ_PREFIXES = ("get_", "read_", "list_", "find_", "search_", "count_")
@@ -362,6 +362,13 @@ class ToolBase(ABC):
             doc = getattr(ctx, "doc", None) if ctx is not None else None
             if is_tool_document_disposed(e, doc):
                 return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED", original_error=str(e), error_type=type(e).__name__)
+            # Returning _tool_error() already keeps the code. Raising
+            # ToolPermissionError / ConfigError used to be rewritten as
+            # TOOL_EXECUTION_ERROR and lose details.
+            from plugin.framework.errors import WriterAgentException, format_error_payload
+
+            if isinstance(e, WriterAgentException):
+                return format_error_payload(e)
             # Bare RuntimeException often has an empty message; fall back to the type name.
             err_msg = str(e).strip() or type(e).__name__
             return self._tool_error(f"Tool execution failed: {err_msg}", code="TOOL_EXECUTION_ERROR", original_error=str(e), error_type=type(e).__name__)
@@ -801,6 +808,16 @@ class ToolRegistry:
             extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if ctx.caller == "script" else frozenset()
             if props:
                 kwargs = {k: v for k, v in kwargs.items() if k in props or k in extra_ok}
+
+            required = schema.get("required") or []
+            required_names = set(required) if isinstance(required, list) else set()
+            if any(v is None and k not in required_names for k, v in kwargs.items()):
+                # What was wrong: advertised schemas allow JSON null on optional
+                # scalars, but validate() uses the source schema and rejects None.
+                # How: models send null for an omitted optional. Why: drop those
+                # keys so the tool sees the argument as omitted. A required null
+                # still fails validation.
+                kwargs = {k: v for k, v in kwargs.items() if v is not None or k in required_names}
 
             # MCP widens array ``range`` to string|array. Several Calc tools index
             # ``[0]``, so a bare string would become its first character.

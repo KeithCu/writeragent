@@ -128,7 +128,7 @@ def test_normalize_schema_optional_scalar_gets_null():
     res = _normalize_schema_for_strict_providers(params)
     assert res["properties"]["max_chars"]["type"] == ["integer", "null"]
     assert res["properties"]["scope"]["type"] == ["string", "null"]
-    assert res["properties"]["scope"]["enum"] == ["full", "selection", "null"]
+    assert res["properties"]["scope"]["enum"] == ["full", "selection", None]
 
 
 def test_normalize_schema_required_scalar_stays_non_nullable():
@@ -155,7 +155,7 @@ def test_optional_integer_allows_null_on_openai_wire():
     assert props["include_images"]["type"] == ["boolean", "null"]
     assert props["start"]["type"] == ["integer", "null"]
     assert props["scope"]["type"] == ["string", "null"]
-    assert "null" in props["scope"]["enum"]
+    assert None in props["scope"]["enum"]
     assert "full" in props["scope"]["enum"]
 
 

@@ -760,7 +760,17 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
         else:
             value = str(value)
 
-    return clamp_schema_value(key, value)
+    clamped = clamp_schema_value(key, value)
+    # set_config uses strict=True so a bad type raises. Out-of-range numbers
+    # were still saved as min/max with no error (module.yaml keys never hit
+    # WriterAgentConfig.validate).
+    if strict and schema_type in {"int", "float"} and clamped != value:
+        raise ConfigValidationError(
+            f"Invalid configuration value for {key}: out of range",
+            code="CONFIG_INVALID_VALUE",
+            details={"key": key, "value": value},
+        )
+    return clamped
 
 
 # --- MODULES / manifest schema ---

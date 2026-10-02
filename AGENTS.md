@@ -79,7 +79,7 @@ Rules that apply in many places. Breaking them causes wrong-document bugs, froze
 
 - **Use the extension’s `self.ctx`, not a fresh UNO context.** Lookups for package info, dialogs, and similar must use the component context the extension was given. Calling `uno.getComponentContext()` can return a different context and quietly break those lookups. Same idea for Calc chat context: `get_calc_context_for_chat` needs `ctx` from the panel / MainJob, not a bootstrap call.
 
-- **Keep the chat FSM pure.** In `service`, `next_state` only computes the next state—no UNO calls and no I/O. Side effects (UI updates, MCP, document work) belong in the panel or MCP layers.
+- **Keep the chat FSM pure.** `next_state` lives in `plugin/chatbot/tool_loop_state.py` and only computes the next state—no UNO calls and no I/O. `service.py` holds the frozen markers (`BaseState`, `FsmTransition`) and `ServiceRegistry`. Side effects (UI updates, MCP, document work) belong in the panel or MCP layers.
 
 - **Stream on a worker; drain on the UI thread.** Background work pushes tuples onto a `queue.Queue`. The first element must be a `StreamQueueKind` **enum member**, not a bare string. Drain with `run_async_worker_with_drain` / `get_toolkit(ctx)` so the UI processes events via `toolkit.processEventsToIdle()`. Do not use UNO `XTimerListener` for sidebar streaming. More: [docs/framework/streaming-and-threading.md](docs/framework/streaming-and-threading.md).
 

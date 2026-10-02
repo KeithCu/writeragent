@@ -35,7 +35,7 @@ Start here by task.
 | Writer HTML / apply | HTML import and apply-content paths (callers `import format as format_support`) | [`plugin/writer/format.py`](../plugin/writer/format.py) |
 | Writer charts / shapes | Shared tool names with Calc/Draw; declare union of `uno_services` | [`plugin/writer/specialized/charts.py`](../plugin/writer/specialized/charts.py), [`plugin/writer/specialized/shapes.py`](../plugin/writer/specialized/shapes.py) |
 | Errors | `WriterAgentException`, `safe_json_loads`, tool errors | [`plugin/framework/errors.py`](../plugin/framework/errors.py) |
-| FSM / service | Pure `next_state` only; no UNO/I/O in transitions | [`plugin/framework/service.py`](../plugin/framework/service.py) |
+| FSM / service | Pure `next_state` in the chat tool loop; `service.py` is markers + registry | [`plugin/chatbot/tool_loop_state.py`](../plugin/chatbot/tool_loop_state.py), [`plugin/framework/service.py`](../plugin/framework/service.py) |
 | Threading / UNO guard | `run_in_background`, `AsyncProcess`, Layer A `guard_uno` | [`plugin/framework/worker_pool.py`](../plugin/framework/worker_pool.py), [`plugin/framework/thread_guard.py`](../plugin/framework/thread_guard.py) |
 | UNO listeners / i18n | UNO listeners; gettext `_` for UI | [`plugin/framework/uno_listeners.py`](../plugin/framework/uno_listeners.py), [`plugin/framework/i18n.py`](../plugin/framework/i18n.py) |
 | Memory / prompts | Shipped `upsert_memory` + `MEMORY_GUIDANCE` (`USER.md` injected each turn); mode prompts live next to their modules (index in `prompts.py`) | [`plugin/chatbot/memory.py`](../plugin/chatbot/memory.py), [`plugin/framework/prompts.py`](../plugin/framework/prompts.py) |

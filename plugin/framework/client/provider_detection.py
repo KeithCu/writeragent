@@ -153,3 +153,17 @@ def is_openrouter_endpoint(endpoint: str, explicit_is_openrouter: bool | None = 
     # query that merely contains "openrouter.ai" is not this provider.
     # Custom proxies set the explicit flag.
     return get_provider_from_endpoint(endpoint) == "openrouter"
+
+
+def is_openwebui_endpoint(endpoint: str, explicit_is_openwebui: bool | None = False) -> bool:
+    """True for an Open WebUI host, or when the config flag is set.
+
+    Hostname only. A path or query that merely contains "openwebui" is not
+    this product. Custom proxies set the explicit flag.
+    """
+    if explicit_is_openwebui:
+        return True
+    if not endpoint:
+        return False
+    host = get_url_hostname(normalize_endpoint_url(endpoint)).lower()
+    return "openwebui" in host or "open-webui" in host
