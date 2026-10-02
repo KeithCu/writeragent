@@ -83,7 +83,8 @@ def test_populate_settings_control_sets_translated_option_labels():
     assert "Standard HTML" in model.StringItemList[0]
 
 
-def test_apply_module_config_result_delegates_raw_values_to_config():
+def test_apply_module_config_result_stores_select_option_values():
+    """A select caption is stored as its option value. A number field stays as entered."""
     ctx = object()
     manifest = {
         "name": "demo",
@@ -102,7 +103,7 @@ def test_apply_module_config_result_delegates_raw_values_to_config():
          patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
         apply_module_config_result(ctx, "demo", {"count": "42", "mode": "Fast Mode"})
 
-    mock_set_configs.assert_called_once_with({"demo.count": "42", "demo.mode": "Fast Mode"})
+    mock_set_configs.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
 
 
 def test_extract_result_prefers_numeric_getvalue_over_stale_gettext():

@@ -184,7 +184,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `do_cell_matching` | `boolean` | `true` |  | Align detected table cells with content (extract_structure). |
 | `create_orphan_clusters` | `boolean` | `true` |  | Group unassigned text into clusters for messy layouts. |
 | `insert_mode` | `string` | `"html"` |  | html = Docling HTML import (default). structured = bbox column layout in Writer; native Calc cells for extract_structure tables. Options: html (Standard HTML), structured (Structured (layout / cell grid)) |
-| `layout_model` | `string` | `"heron"` |  | Layout model Options: heron (Heron (default)), egret_large (Egret large (slower) |
+| `layout_model` | `string` | `"heron"` |  | Layout model Options: heron (Heron (default)), egret_large (Egret large (slower, complex docs)) |
 | `do_formula_enrichment` | `boolean` | `false` |  | Opt-in. Downloads extra VLM models on first use; slower. |
 | `do_code_enrichment` | `boolean` | `false` |  | Specialized OCR for code/terminal screenshots. |
 | `document_timeout` | `float` | `0` | `0`–`600` | Per-conversion timeout inside Docling. 0 = no limit. |

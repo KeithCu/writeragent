@@ -199,14 +199,21 @@ class RichTextChatWidget:
         # appending without a result check dropped it: a failed HTML copy, or
         # a per-element exception reported as not a full insert, left the cut
         # in place and nothing wrote the plain text back.
-        plain_tail = ""
-        if stream_start_len is not None:
-            try:
-                model = self.control.getModel() if self.control is not None else None
-                text = (model.Text or "") if model is not None else ""
-                plain_tail = text[stream_start_len:] if isinstance(text, str) else ""
-            except Exception:
-                log.exception("rerender_last_assistant_if_html: could not read plain tail")
+        # What was wrong: stream_start_len is None when the worker never
+        # recorded the final-answer offset. truncate() treats None as a
+        # no-op, then the HTML copy was appended on top of the streamed tail.
+        # A failed tail read did the reverse: truncate still ran and the
+        # restore had an empty tail, so the streamed answer disappeared.
+        # Skip the cut when the offset is missing or the tail cannot be read.
+        if stream_start_len is None:
+            return
+        try:
+            model = self.control.getModel() if self.control is not None else None
+            text = (model.Text or "") if model is not None else ""
+            plain_tail = text[stream_start_len:] if isinstance(text, str) else ""
+        except Exception:
+            log.exception("rerender_last_assistant_if_html: could not read plain tail")
+            return
         self.truncate(stream_start_len)
         # Insert at the cut. Scroll is SelectAll in Hidden mode, not reveal_caret.
         full_insert = False
@@ -215,7 +222,7 @@ class RichTextChatWidget:
         except Exception:
             log.exception("rerender_last_assistant_if_html: formatted insert failed")
             full_insert = False
-        if full_insert or stream_start_len is None:
+        if full_insert:
             return
         # Partial formatted text sits at the same cut. Drop it, then put the
         # streamed tail back — the copy did not replace it cleanly.

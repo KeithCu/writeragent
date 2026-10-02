@@ -100,7 +100,7 @@ def test_disposing_swallows_disposed_focus_restore():
 
     el = _thin_panel_element()
     with patch(
-        "plugin.framework.uno_context.set_default_focus_restore",
+        "plugin.framework.uno_context.clear_default_focus_restore_if",
         side_effect=_MockDisposedException("bridge gone"),
     ):
         el.disposing(None)
@@ -117,7 +117,7 @@ def test_disposing_swallows_disposed_remove_window_listener():
     tp.resize_listener = MagicMock()
     el.toolpanel = tp
     el.m_panelRootWindow = root
-    with patch("plugin.framework.uno_context.set_default_focus_restore"):
+    with patch("plugin.framework.uno_context.clear_default_focus_restore_if"):
         el.disposing(None)
     root.removeWindowListener.assert_called_once()
 
@@ -201,6 +201,58 @@ def test_initialize_extension_paths_inline_hop_does_not_recurse():
         assert pf._paths_initialized is True
     finally:
         pf._paths_initialized = False
+
+
+def test_panel_root_window_uses_element_ctx():
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock(name="element-ctx")
+    el.xParentWindow = MagicMock()
+    el.xParentWindow.getPosSize.return_value = MagicMock(Height=400, Width=200)
+    window = MagicMock()
+    window.getPosSize.return_value = MagicMock(Height=400, Width=800)
+    provider = MagicMock()
+    provider.createContainerWindow.return_value = window
+    el.ctx.getServiceManager.return_value.createInstanceWithContext.return_value = provider
+
+    with patch("plugin.chatbot.panel_factory.get_extension_url", return_value="file:///ext") as url:
+        el._getOrCreatePanelRootWindow()
+
+    url.assert_called_once_with(el.ctx)
+    create = el.ctx.getServiceManager.return_value.createInstanceWithContext
+    create.assert_called_once()
+    assert create.call_args[0][1] is el.ctx
+
+
+def test_release_live_sidebar_keeps_the_newer_window():
+    from unittest.mock import MagicMock
+
+    from plugin.chatbot.panel_factory import release_live_sidebar
+    from plugin.doc.live_panels import get_live_panel, register_live_panel, reset_live_panels
+    from plugin.framework import uno_context as uc
+
+    reset_live_panels()
+    first = _thin_panel_element()
+    second = _thin_panel_element()
+    first._live_panel_uid = "shared"
+    second._live_panel_uid = "shared"
+    first_query = MagicMock(name="first-query")
+    second_query = MagicMock(name="second-query")
+    first.send_listener = MagicMock()
+    register_live_panel("shared", second)
+    uc.set_default_focus_restore(second_query)
+    try:
+        release_live_sidebar(first, first_query)
+        assert get_live_panel("shared") is second
+        assert uc._default_focus_restore is second_query
+        first.send_listener.disposing.assert_called_once_with(None)
+        release_live_sidebar(second, second_query)
+        assert get_live_panel("shared") is None
+        assert uc._default_focus_restore is None
+    finally:
+        reset_live_panels()
+        uc.set_default_focus_restore(None)
 
 
 def test_get_real_interface_create_goes_through_main_thread_hop():

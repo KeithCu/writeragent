@@ -756,7 +756,7 @@ class TestFetchAvailableSpeechModels:
         key = "sk-together-warm"
 
         def body(url, **kwargs):
-            if url.endswith("/voices"):
+            if url.endswith("/voices") or "/voices?" in url:
                 return {"data": [{"model": "hexgrad/Kokoro-82M", "voices": [{"name": "af_bella"}]}]}
             if url.endswith("/models"):
                 return [{"id": "openai/gpt-oss-120b", "type": "chat"}, {"id": "black-forest-labs/FLUX.1-dev", "type": "image"}]
@@ -770,6 +770,13 @@ class TestFetchAvailableSpeechModels:
                 assert cfg.cached_image_models(endpoint, api_key_override=key) == ["black-forest-labs/FLUX.1-dev"]
                 assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key) is False
                 cfg.fetch_together_tts_voices(endpoint, api_key_override=key)
+                assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key) is True
+                cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+                cfg.fetch_available_models(endpoint, api_key_override=key)
+                assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key) is False
+                cfg.fetch_together_tts_voices(
+                    endpoint, model_id="cartesia/sonic", api_key_override=key,
+                )
                 assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key) is True
         finally:
             cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
@@ -846,6 +853,14 @@ class TestFetchAvailableSpeechModels:
             assert "Authorization" not in headers
         assert found == {"cartesia/sonic": ["voice-id-1", "voice-id-2"]}
         assert cfg.cached_tts_supported_voices("cartesia/sonic") == ["voice-id-1", "voice-id-2"]
+        cfg.clear_settings_catalog_cache("https://api.together.xyz", api_key_override="")
+        with patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_again:
+            cfg.fetch_together_tts_voices(
+                "https://api.together.xyz",
+                model_id="cartesia/sonic",
+                api_key_override="",
+            )
+            mock_again.assert_called_once()
 
     def test_together_voices_skip_non_together_host(self):
         from plugin.framework.client import model_fetcher as cfg

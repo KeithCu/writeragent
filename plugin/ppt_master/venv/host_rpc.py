@@ -41,7 +41,13 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     # triggers a thread safety violation. Wrapping it in execute_on_main_thread
     # marshals it safely to the main thread.
     ctx = execute_on_main_thread(get_ctx)
-    client = LlmClient(get_api_config(), ctx)
+    # What was wrong: this client was built with no cancellation scope, so
+    # sidebar Stop closed the send worker's client and left the PPT-Master
+    # call reading. The scope registers the live client and must not be
+    # pickled to the child; dispatch attaches it on the way in, the same
+    # way as _stop_checker.
+    cancellation_scope = payload.get("_cancellation_scope")
+    client = LlmClient(get_api_config(), ctx, cancellation_scope=cancellation_scope)
     try:
         result = client.request_with_tools(
             messages,
@@ -73,6 +79,7 @@ def dispatch_worker_response(
     stdin_write: Callable[[bytes], None],
     on_worker_event: Callable[[dict[str, Any]], None] | None = None,
     stop_checker: Callable[[], bool] | None = None,
+    cancellation_scope: Any | None = None,
 ) -> bool:
     """Handle intermediate worker frames. Returns True if caller should keep reading."""
     if not isinstance(response, dict):
@@ -97,6 +104,8 @@ def dispatch_worker_response(
         payload.pop("id", None)
         if stop_checker is not None:
             payload["_stop_checker"] = stop_checker
+        if cancellation_scope is not None:
+            payload["_cancellation_scope"] = cancellation_scope
         llm_out = handle_llm_request(payload)
         llm_response = {"status": llm_out.get("status", "error"), "id": call_id}
         if llm_out.get("status") == "ok":

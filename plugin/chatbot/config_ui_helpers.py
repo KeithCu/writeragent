@@ -514,55 +514,6 @@ def populate_endpoint_selector(ctx: Any, ctrl: Any, current_endpoint: Any) -> No
     if current_url:
         ctrl.setText(current_url)
 
-def get_endpoint_options(services: Any) -> list[dict[str, str]]:
-    """Options provider for AI endpoint combobox in Tools → Options."""
-    options = []
-    presets = ENDPOINT_PRESETS
-    preset_urls = set()
-    for label, url in presets:
-        url_norm = normalize_endpoint_url(url)
-        preset_urls.add(url_norm)
-        options.append({"value": url_norm, "label": label})
-
-    lru = get_config("endpoint_lru")
-    if not isinstance(lru, list):
-        lru = []
-    for url in lru:
-        u = normalize_endpoint_url(url)
-        if not u or u in preset_urls:
-            continue
-        options.append({"value": u, "label": u})
-    return options
-
-def get_text_model_options(services: Any) -> list[dict[str, str]]:
-    """Options provider for the simple text model combobox in Tools → Options."""
-    endpoint = get_current_endpoint()
-    scoped_key = f"model_lru@{endpoint}" if endpoint else "model_lru"
-    lru = get_config(scoped_key)
-    if not isinstance(lru, list):
-        lru = []
-    options = [{"value": "", "label": "(none)"}]
-    for mid in lru:
-        mid_str = str(mid).strip()
-        if not mid_str:
-            continue
-        options.append({"value": mid_str, "label": mid_str})
-    return options
-
-def get_image_model_options(services: Any) -> list[dict[str, str]]:
-    """Options provider for the simple image model combobox in Tools → Options."""
-    endpoint = get_current_endpoint()
-    scoped_key = f"image_model_lru@{endpoint}" if endpoint else "image_model_lru"
-    lru = get_config(scoped_key)
-    if not isinstance(lru, list):
-        lru = []
-    options = [{"value": "", "label": "(none)"}]
-    for mid in lru:
-        mid_str = str(mid).strip()
-        if not mid_str:
-            continue
-        options.append({"value": mid_str, "label": mid_str})
-    return options
 
 def populate_image_model_selector(
     ctx: Any,

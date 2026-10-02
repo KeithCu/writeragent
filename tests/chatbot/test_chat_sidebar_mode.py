@@ -29,6 +29,22 @@ from plugin.chatbot.chat_sidebar_mode import (
 )
 
 
+def test_mode_labels_match_modes_for_length_and_order():
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags, _modes_for
+
+    for flags in (
+        SidebarModeFlags(include_brainstorming=False, include_writing_plan=True, include_ppt_master=False),
+        SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=False),
+        SidebarModeFlags(include_brainstorming=False, include_writing_plan=False, include_ppt_master=True),
+        SidebarModeFlags(include_brainstorming=True, include_writing_plan=False, include_ppt_master=False),
+    ):
+        modes = _modes_for(flags)
+        labels = get_mode_labels(**flags.__dict__)
+        assert len(labels) == len(modes)
+        for mode, label in zip(modes, labels):
+            assert mode_from_label(label, **flags.__dict__) == mode
+
+
 def test_mode_labels_include_brainstorming_when_writer():
     labels = get_mode_labels(include_brainstorming=True, include_writing_plan=True)
     assert len(labels) == 7

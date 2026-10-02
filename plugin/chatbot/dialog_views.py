@@ -751,25 +751,6 @@ class ProviderStarterListener(BaseActionListener):
             open_system_url(self._ctx, self._signup_url)
 
 
-class GetApiKeyListener(BaseActionListener):
-    _ctx: Any
-    _dlg: Any
-
-    def __init__(self, ctx: Any, dlg: Any) -> None:
-        self._ctx = ctx
-        self._dlg = dlg
-
-    def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text, get_signup_url_for_endpoint
-
-        endpoint_ctrl = get_optional(self._dlg, "endpoint")
-        endpoint_text = str(get_control_text(endpoint_ctrl)) if endpoint_ctrl else ""
-        resolved = endpoint_from_selector_text(endpoint_text)
-        signup_url = get_signup_url_for_endpoint(resolved)
-        if signup_url:
-            open_system_url(self._ctx, signup_url)
-
-
 class TestConnectionListener(BaseActionListener):
     _ctx: Any
     _dlg: Any
@@ -1390,15 +1371,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self.get_image_model = get_image_model
         self.get_tts_model = get_tts_model
 
-        resolved_init = self.endpoint_from_selector_text(self._ctrl.getText())
-        self._update_key_link_state(resolved_init)
+        self._update_key_link_state()
 
-    def _update_key_link_state(self, resolved: str) -> None:
-        from plugin.chatbot.config_ui_helpers import get_signup_url_for_endpoint
-        url = get_signup_url_for_endpoint(resolved)
-        btn_key = get_optional(self._dlg, "btn_get_api_key")
-        if btn_key:
-            set_control_enabled(btn_key, bool(url))
+    def _update_key_link_state(self) -> None:
+        # The Get API Key link is gone. A new endpoint still leaves the last
+        # connection-test line on screen, so clear that label here.
         lbl_status = get_optional(self._dlg, "lbl_test_status")
         if lbl_status:
             set_control_text(lbl_status, "")
@@ -1576,13 +1553,28 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
     def _sync_api_key(self) -> None:
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
-        self._update_key_link_state(resolved)
+        self._update_key_link_state()
         if not resolved: return
         ak_ctrl = get_optional(self._dlg, "api_key")
         if ak_ctrl:
             set_control_text(ak_ctrl, self.get_api_key_for_endpoint(resolved))
 
-    def _bg_fetch(self, gen: int, resolved: str) -> None:
+    def _tts_model_id_for_voice_fetch(self) -> str:
+        """Speech-model id captured on the UI thread for the voices GET.
+
+        The worker must not read the combo. ``_run_fetch`` and Test Connection
+        call this before ``run_in_background``.
+        """
+        ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
+        if ctrl is None or not hasattr(ctrl, "getText"):
+            return ""
+        try:
+            return str(ctrl.getText() or "").strip()
+        except Exception:
+            log.debug("TTS model id for voice fetch unavailable", exc_info=True)
+            return ""
+
+    def _bg_fetch(self, gen: int, resolved: str, tts_model_id: str = "") -> None:
         if self._closed or gen != self._debounce_gen: return
 
         key_ov = self._api_key_override()
@@ -1604,6 +1596,16 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             else:
                 from plugin.framework.client.model_fetcher import fetch_together_tts_voices
 
+                # What was wrong: sync_ui issued GET /v1/voices?model= on the UI
+                # thread. This worker listed every model, and that URL memo does
+                # not fill the ?model= entry the combo asked for. Ask for the
+                # model captured on the UI thread, then list-all so the other
+                # Speech rows and the warm check stay filled. apply_ui only
+                # reads cached_tts_supported_voices.
+                if tts_model_id:
+                    fetch_together_tts_voices(
+                        resolved, model_id=tts_model_id, api_key_override=key_ov,
+                    )
                 fetch_together_tts_voices(resolved, api_key_override=key_ov)
 
         def apply_ui() -> None:
@@ -1637,7 +1639,10 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             return
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
-            self.run_in_background(lambda: self._bg_fetch(gen, resolved), name="settings-fetch")
+            tts_model_id = self._tts_model_id_for_voice_fetch()
+            self.run_in_background(
+                lambda: self._bg_fetch(gen, resolved, tts_model_id), name="settings-fetch",
+            )
 
     def force_catalog_refresh(self) -> None:
         """Clear this endpoint+key memo and refetch off the UI thread."""
@@ -1649,7 +1654,10 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             self._timer.cancel()
         self._debounce_gen += 1
         gen = self._debounce_gen
-        self.run_in_background(lambda: self._bg_fetch(gen, resolved), name="settings-recheck")
+        tts_model_id = self._tts_model_id_for_voice_fetch()
+        self.run_in_background(
+            lambda: self._bg_fetch(gen, resolved, tts_model_id), name="settings-recheck",
+        )
 
     def textChanged(self, rEvent: TextEvent) -> None:
         self._sync_api_key()
@@ -1762,7 +1770,6 @@ __all__ = [
     "EndpointCombinedListener",
     "EvalDashboard",
     "EvalRunListener",
-    "GetApiKeyListener",
     "McpPortTextListener",
     "McpTunnelEnabledListener",
     "McpTunnelProviderListener",

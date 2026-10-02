@@ -17,7 +17,7 @@
 """Writer outline / heading navigation tools.
 
 For a simple document outline (headings hierarchy only), use get_document_tree
-with content_strategy=\"heading_only\". heading:1.2 is the sibling-ordinal
+with strategy=\"heading_only\". heading:1.2 is the sibling-ordinal
 path (1st H1 → 2nd child), not Writer's chapter label. When Tools → Chapter
 Numbering is on, heading nodes include chapter_number and
 locator=\"chapter_number:3.1\" matches that paint label.

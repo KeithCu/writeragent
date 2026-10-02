@@ -71,7 +71,10 @@
   <!-- AUTO_GENERATED_PAGES -->
 
 
-  <!-- OK Button (always visible, at bottom of dialog with small margin) -->
+  <!-- OK Button (always visible). OK writes config (execute() true).
+       Cancel is button-type cancel, so execute() is false, Escape dismisses,
+       and nothing is written. -->
   <dlg:button dlg:id="btn_ok" dlg:left="170" dlg:top="188" dlg:width="100" dlg:height="18" dlg:value="OK" dlg:button-type="ok" dlg:default="true"/>
+  <dlg:button dlg:id="btn_cancel" dlg:left="278" dlg:top="188" dlg:width="100" dlg:height="18" dlg:tabstop="true" dlg:value="Cancel" dlg:button-type="cancel"/>
  </dlg:bulletinboard>
 </dlg:window>

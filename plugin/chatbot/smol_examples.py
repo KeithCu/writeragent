@@ -10,7 +10,8 @@
 - **librarian** — onboarding (`reply_to_user`; leave with ``switch_to_document_mode=true``).
 - **brainstorming** — design exploration (`reply_to_user`, `save_design_spec`; leave with ``brainstorming_finished=true``).
 - **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
-- **web_research** — web sub-agent (`final_answer`).
+- **web_research** — web sub-agent (`final_answer`; ``web_search`` arguments are ``{"query": "..."}``).
+- **ppt-master** — venv PPT-Master agent (`ppt_master_finished`).
 - **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``), footnotes via ``delegate_tool_domains``, and a ring of shapes (``delegate_tool_domains`` whose task tells the inner agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish). Hand-written here, not from ``generate_smol_examples.py``.
 - **``domain_tools:shapes``** — inner agent after that hop: one ``run_venv_python_script`` with the for-loop, then ``specialized_workflow_finished``. Not the outer ``*:python`` block (that block calls ``delegate_tool_domains``, which the inner list does not include).
 - **``*:images``** — edit selected image via ``image_generate(source_image='selection')``.

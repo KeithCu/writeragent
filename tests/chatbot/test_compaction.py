@@ -1050,6 +1050,22 @@ def test_summary_truncation_while_loop_and_cap_summary():
     assert C.estimate_tokens(C.summary_pair(session.compaction.summary)) <= C._summary_budget(4096)
 
 
+def test_compact_aborts_when_message_list_is_replaced():
+    """Clear swaps the list while the summarizer is in flight."""
+    session = DummySession(_history_3x1000())
+    client = DummyClient(content="valid summary")
+
+    def _swap(messages, **kwargs):
+        session.messages = list(session.messages)
+        return {"content": "valid summary"}
+
+    client.request_with_tools = _swap
+    result = C.compact_session(session, client, window=4096, enabled=True)
+    assert result.reason == "aborted"
+    assert result.compacted is False
+    assert session.compaction is None
+
+
 def test_stop_checker_after_http_returns_aborts():
     session = DummySession(_history_3x1000())
     client = DummyClient(content="valid summary")

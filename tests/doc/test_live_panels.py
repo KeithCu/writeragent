@@ -50,6 +50,17 @@ def test_unregister():
     assert get_live_panel("uid-1") is None
 
 
+def test_unregister_leaves_a_newer_panel():
+    first = _Panel("first")
+    second = _Panel("second")
+    register_live_panel("uid-1", first)
+    register_live_panel("uid-1", second)
+    unregister_live_panel("uid-1", first)
+    assert get_live_panel("uid-1") is second
+    unregister_live_panel("uid-1", second)
+    assert get_live_panel("uid-1") is None
+
+
 def test_weak_value_drops_when_unreferenced():
     register_live_panel("uid-1", _Panel("gone"))
     assert get_live_panel("uid-1") is None

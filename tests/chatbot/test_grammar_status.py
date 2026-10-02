@@ -23,6 +23,8 @@ def test_clip_grammar_status_preview_short_and_long():
 def test_grammar_status_area():
     assert _grammar_status_area("request", "Detecting language", "") == "language"
     assert _grammar_status_area("failed", "error", "Language detection") == "language"
+    # Bus clip: slice_preview_debug("Language detection", 10) == "Language d…"
+    assert _grammar_status_area("failed", "error", "Language d\u2026") == "language"
     assert _grammar_status_area("request", "checking", "") == "grammar"
 
 
@@ -33,3 +35,5 @@ def test_format_grammar_status_lifecycle():
     assert format_grammar_status({"phase": "timeout", "preview": "sample", "length": 6, "result": "timed out"}) == "Grammar: still running 'sample' len 6: timed out"
     assert format_grammar_status({"phase": "skipped", "preview": "sample", "length": 6, "result": "cache hit"}) == "Grammar: skipped 'sample' len 6: cache hit"
     assert format_grammar_status({"phase": "failed", "preview": "sample", "length": 6, "result": "API error"}) == "Grammar: failed 'sample' len 6: API error"
+    clipped = format_grammar_status({"phase": "failed", "preview": "Language d\u2026", "length": 19, "result": "TimeoutError"})
+    assert clipped == "Language: failed 'Language d…' len 19: TimeoutError"

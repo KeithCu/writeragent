@@ -28,7 +28,7 @@ setattr(sys.modules['com.sun.star.awt'], 'XTextListener', XTextListener)
 from plugin.framework.async_stream import StreamQueueKind  # noqa: E402
 
 # Now import the actual ToolCallingMixin class from the module
-from plugin.chatbot.tool_loop import ToolCallingMixin  # noqa: E402
+from plugin.chatbot.tool_loop import CHAT_STREAM_BATCH_INTERVAL, ToolCallingMixin  # noqa: E402
 from plugin.chatbot.audio_recorder_state import AudioRecorderState  # noqa: E402
 from plugin.chatbot.send_state import SendButtonState  # noqa: E402
 from plugin.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
@@ -107,6 +107,10 @@ _MIRRORED_CONTROL_ATTRS = (
     "_active_async_tools",
     "_active_max_tool_rounds",
 )
+
+
+def test_chat_stream_batch_interval_is_250ms():
+    assert CHAT_STREAM_BATCH_INTERVAL == 0.25
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')

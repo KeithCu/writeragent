@@ -409,21 +409,6 @@ class TestSettingsEnhancements:
         assert (get_signup_url_for_endpoint("http://localhost:11434")) is None
         assert (get_signup_url_for_endpoint("http://127.0.0.1:1234")) is None
 
-    @patch("plugin.chatbot.dialog_views.open_system_url")
-    def test_get_api_key_listener_action(self, mock_open_url):
-        from plugin.chatbot.dialog_views import GetApiKeyListener
-
-        ctx = MagicMock()
-        dlg = MagicMock()
-        endpoint_ctrl = MagicMock()
-        endpoint_ctrl.getText.return_value = "https://openrouter.ai/api"
-        dlg.getControl.side_effect = lambda name: endpoint_ctrl if name == "endpoint" else None
-
-        listener = GetApiKeyListener(ctx, dlg)
-        listener.on_action_performed(MagicMock())
-
-        mock_open_url.assert_called_once_with(ctx, "https://openrouter.ai/keys")
-
     @patch("plugin.chatbot.quick_setup.check_endpoint_connection", return_value=(True, "✓ Connected (25ms)"))
     def test_test_connection_listener_action(self, mock_check):
         from plugin.chatbot.dialog_views import TestConnectionListener
@@ -554,6 +539,57 @@ class TestSettingsEnhancements:
         args = mock_set_text.call_args[0]
         assert (args[0]) == (snippet_ctrl)
         assert ("19999") in (args[1])
+
+
+def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
+    """A tunnel with no public URL yet writes the template and refreshes later."""
+    import json
+
+    from plugin.mcp import mcp_ui
+
+    mcp_ui._tested_provider_tunnel_urls.clear()
+    mcp_ui._mcp_snippet_refresh_scheduled = False
+
+    snippet = MagicMock()
+    port = MagicMock()
+    port.getValue.return_value = 18765
+    checkbox = MagicMock()
+    checkbox.getState.return_value = 1
+    provider = MagicMock()
+    provider.getText.return_value = "cloudflare"
+    controls = {
+        "mcp__client_config_snippet": snippet,
+        "mcp__mcp_port": port,
+        "mcp__tunnel_enabled": checkbox,
+        "mcp__tunnel_provider": provider,
+    }
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: controls.get(name)
+
+    tunnel = MagicMock()
+    tunnel.is_running = True
+    tunnel._provider = "cloudflare"
+    tunnel._public_url = ""
+    tunnel.mcp_public_url.return_value = ""
+    started: list[str] = []
+
+    def run_bg(fn, name=None):
+        del fn
+        started.append(name or "")
+
+    try:
+        with patch("plugin.mcp._shared_tunnel", tunnel), \
+             patch("time.sleep") as mock_sleep, \
+             patch("plugin.framework.worker_pool.run_in_background", side_effect=run_bg):
+            mcp_ui.sync_mcp_config_snippet(dlg)
+            mcp_ui.sync_mcp_config_snippet(dlg)
+        mock_sleep.assert_not_called()
+        assert started == ["mcp-snippet-refresh"]
+        written = json.loads(snippet.setText.call_args[0][0])
+        assert written["mcpServers"]["libreoffice"]["url"] == "https://<subdomain>.trycloudflare.com/mcp"
+    finally:
+        mcp_ui._tested_provider_tunnel_urls.clear()
+        mcp_ui._mcp_snippet_refresh_scheduled = False
 
 
 class TestProviderButtonIcons:
@@ -924,7 +960,13 @@ def test_bg_fetch_together_warms_voices() -> None:
         mock_voices.assert_called_once()
         assert mock_voices.call_args.args[0] == "https://api.together.xyz"
         mock_voices.reset_mock()
-        listener._bg_fetch(1, "https://openrouter.ai/api")
+        listener._bg_fetch(1, "https://api.together.xyz", "cartesia/sonic-2")
+        assert [call.kwargs.get("model_id") for call in mock_voices.call_args_list] == [
+            "cartesia/sonic-2",
+            None,
+        ]
+        mock_voices.reset_mock()
+        listener._bg_fetch(1, "https://openrouter.ai/api", "cartesia/sonic-2")
         mock_voices.assert_not_called()
 
 
@@ -1018,8 +1060,8 @@ def test_close_cancels_catalog_fetch_that_has_not_started() -> None:
             timer.cancel()
 
 
-def test_tts_settings_listener_together_voices_replace_alloy() -> None:
-    """Together endpoint Voice combo uses /v1/voices, and alloy is not kept."""
+def test_tts_settings_listener_together_cache_miss_does_not_http() -> None:
+    """Opening Speech with a cold Together voice cache must not GET /v1/voices."""
     from plugin.chatbot.dialog_views import TtsSettingsListener
     from plugin.framework.client import model_fetcher as cfg
 
@@ -1036,13 +1078,50 @@ def test_tts_settings_listener_together_voices_replace_alloy() -> None:
     endpoint_ctrl = MagicMock()
     endpoint_ctrl.getText.return_value = "Together AI"
 
-    payload = {
-        "model": "cartesia/sonic-2",
-        "voices": [
-            {"name": "Narrator", "id": "voice-uuid-2"},
-            {"name": "Friendly Sidekick", "id": "voice-uuid-1", "language": "en"},
-        ],
-    }
+    def get_optional_side_effect(d, name):
+        del d
+        if name == "audio__tts_provider":
+            return prov_ctrl
+        if name in ("audio__tts_model", "tts_model"):
+            return model_ctrl
+        if name == "audio__tts_voice":
+            return voice_ctrl
+        if name == "endpoint":
+            return endpoint_ctrl
+        return None
+
+    cfg._tts_supported_voices.clear()
+    cfg._together_voices_fetch_cache.clear()
+    try:
+        with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+             patch("plugin.chatbot.dialog_views.set_control_enabled"), \
+             patch("plugin.framework.client.requests.sync_request") as mock_sync, \
+             patch("plugin.chatbot.dialog_views.get_config", return_value=""):
+            TtsSettingsListener(dlg, MagicMock()).sync_ui()
+            mock_sync.assert_not_called()
+        voice_ctrl.setText.assert_not_called()
+    finally:
+        cfg._tts_supported_voices.clear()
+        cfg._together_voices_fetch_cache.clear()
+
+
+def test_tts_settings_listener_together_voices_replace_alloy() -> None:
+    """A cached Together voice list replaces alloy. sync_ui does not HTTP."""
+    from plugin.chatbot.dialog_views import TtsSettingsListener
+    from plugin.framework.client import model_fetcher as cfg
+
+    dlg = MagicMock()
+    prov_ctrl = MagicMock()
+    prov_ctrl.getText.return_value = "Current Chat Endpoint (/audio/speech)"
+    model_ctrl = MagicMock()
+    model_ctrl.getText.return_value = "cartesia/sonic-2"
+    voice_ctrl = MagicMock()
+    voice_model = MagicMock()
+    voice_model.StringItemList = ()
+    voice_ctrl.getModel.return_value = voice_model
+    voice_ctrl.getText.return_value = "alloy"
+    endpoint_ctrl = MagicMock()
+    endpoint_ctrl.getText.return_value = "Together AI"
 
     def get_optional_side_effect(d, name):
         del d
@@ -1059,15 +1138,15 @@ def test_tts_settings_listener_together_voices_replace_alloy() -> None:
     stored: dict[str, str] = {}
     cfg._tts_supported_voices.clear()
     cfg._together_voices_fetch_cache.clear()
+    cfg.remember_tts_supported_voices("cartesia/sonic-2", ["voice-uuid-2", "voice-uuid-1"])
     try:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
-             patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync, \
+             patch("plugin.framework.client.requests.sync_request") as mock_sync, \
              patch("plugin.audio.tts_service.set_config", side_effect=lambda k, v: stored.__setitem__(k, v)), \
              patch("plugin.chatbot.dialog_views.get_config", return_value=""):
             TtsSettingsListener(dlg, MagicMock()).sync_ui()
-            urls = [call.args[0] for call in mock_sync.call_args_list]
-            assert urls == ["https://api.together.xyz/v1/voices?model=cartesia%2Fsonic-2"]
+            mock_sync.assert_not_called()
         # API order is uuid-2 then uuid-1. The combo sorts labels; the cache does not.
         assert list(voice_model.StringItemList) == ["voice-uuid-1", "voice-uuid-2"]
         assert voice_ctrl.setText.call_args[0][0] == "voice-uuid-1"

@@ -68,6 +68,19 @@ def test_cell_link_registry_lookup():
     assert lookup_cell_ref_at_index(control, 12) is None
 
 
+def test_cell_link_registry_drop_from_keeps_spans_ending_at_cut():
+    control = MagicMock()
+    cell_link_registry.clear(control)
+    cell_link_registry.add(control, 0, 5, "A1")
+    cell_link_registry.add(control, 3, 8, "B2")
+    cell_link_registry.add(control, 8, 10, "C3")
+    cell_link_registry.drop_from(control, 5)
+    assert lookup_cell_ref_at_index(control, 0) == "A1"
+    assert lookup_cell_ref_at_index(control, 4) == "A1"
+    assert lookup_cell_ref_at_index(control, 6) is None
+    assert lookup_cell_ref_at_index(control, 8) is None
+
+
 def test_cell_ref_at_index_html():
     text = '<p>See <a href="writeragent-cell://B2">B2</a> here.</p>'
     idx = text.index("writeragent-cell")

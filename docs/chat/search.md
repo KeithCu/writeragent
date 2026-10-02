@@ -38,7 +38,9 @@ Exposed in [`plugin/chatbot/web_research.py`](../../plugin/chatbot/web_research.
 
 ### Prompt for web research (HITL)
 
-When **Prompt for Web Research** is enabled (`chatbot.prompt_for_web_research`), each internal `web_search` step in the sub-agent blocks until the user accepts, edits, or rejects the DuckDuckGo query. This applies in **main chat** (via `web_research` / delegate) and in dedicated **Web Research** sidebar mode.
+When **Prompt for Web Research** is enabled (`chatbot.prompt_for_web_research`), a shallow run blocks on each internal `web_search` until the user accepts, edits, or rejects the DuckDuckGo query. This applies in **main chat** (via `web_research` / delegate) and in dedicated **Web Research** sidebar mode. Deep research asks once, for the preview search, then runs sub-queries with no further approval: the sidebar has one approval slot, and a second prompt is treated as Stop.
+
+`visit_webpage` records a URL when the fetch starts, inside the dedup wrapper. Marking it when the model requests the visit made that wrapper skip the first read. A failed deep-research synthesis is returned as notes and is not written to the research cache.
 
 Before the Accept/Change/Reject wait, the sidebar response area shows a `Tool: web_search` line plus the search-engine preview sentence (`web_research_chat.web_search_engine_step_chat_text`). Reject leaves that line in the transcript; Change appends a second preview for the edited query.
 

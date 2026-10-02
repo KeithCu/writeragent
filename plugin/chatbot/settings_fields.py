@@ -225,6 +225,28 @@ def read_settings_control(ctrl: Any, field: dict[str, Any] | None = None) -> Any
     return get_control_text(ctrl)
 
 
+def stored_select_value(val: Any, options: Any) -> Any:
+    """Map a combo's visible text back to the option value.
+
+    What was wrong: OK stored ``getText()``, the translated caption.
+    WriterAgent matched only the English spec label, and LibrePy's
+    ``apply_field_specs_result`` stored the caption unchanged, so
+    "Shared kernel" and Dutch "Uit" never became ``shared`` / ``off``.
+    """
+    if not isinstance(options, list):
+        return val
+    for opt in options:
+        if not isinstance(opt, dict):
+            continue
+        label = opt.get("label")
+        value = opt.get("value", val)
+        if val == value or val == label:
+            return value
+        if isinstance(label, str) and label and val == _(label):
+            return value
+    return val
+
+
 def apply_field_specs_result(ctx: Any, result: dict[str, Any], field_specs: list[dict[str, Any]]) -> None:
     """Persist dialog values using each spec's ``config_key`` (or name with ``__`` → ``.``).
 
@@ -241,6 +263,6 @@ def apply_field_specs_result(ctx: Any, result: dict[str, Any], field_specs: list
         if spec is None:
             continue
         save_key = str(spec.get("config_key") or key.replace("__", "."))
-        pending[save_key] = val
+        pending[save_key] = stored_select_value(val, spec.get("options"))
     if pending:
         set_configs(pending)

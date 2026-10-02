@@ -103,19 +103,10 @@ def test_firefox_process_spawning(mock_urlopen, mock_popen, mock_run):
 @patch("plugin.contrib.cdp.browser_cdp_tool.browser_cdp")
 @patch("time.sleep", return_value=None)
 def test_visit_webpage_cdp_tool_forward(mock_sleep, mock_browser_cdp):
-    # Mock CDP calls inside VisitWebpageCdpTool
-    # First: Target.getTargets
-    # Second: Page.navigate
-    # Third: Runtime.evaluate
+    # Each visit creates its own target, navigates, reads the body, then closes it.
+    # Reusing Target.getTargets shared the first tab across parallel workers.
     mock_browser_cdp.side_effect = [
-        json.dumps({
-            "success": True,
-            "result": {
-                "targetInfos": [
-                    {"type": "page", "targetId": "page-123"}
-                ]
-            }
-        }),
+        json.dumps({"success": True, "result": {"targetId": "page-123"}}),
         json.dumps({"success": True}),
         json.dumps({
             "success": True,
@@ -125,12 +116,14 @@ def test_visit_webpage_cdp_tool_forward(mock_sleep, mock_browser_cdp):
                     "value": "This is page text content retrieved via CDP."
                 }
             }
-        })
+        }),
+        json.dumps({"success": True}),
     ]
 
     tool = VisitWebpageCdpTool(cdp_url="ws://dummy")
     result = tool.forward("https://example.com")
 
     assert result == "This is page text content retrieved via CDP."
-    assert mock_browser_cdp.call_count == 3
+    methods = [call.args[0] for call in mock_browser_cdp.call_args_list]
+    assert methods == ["Target.createTarget", "Page.navigate", "Runtime.evaluate", "Target.closeTarget"]
     mock_sleep.assert_called_once_with(3.0)

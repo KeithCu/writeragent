@@ -143,3 +143,6 @@ def test_writing_plan_session_tool_returns_ok(mock_instr, mock_examples, mock_bu
     result = tool.execute(ctx, query="hello", history_text="", topic="topic")
     assert result["status"] == "ok"
     assert "Question" in result["result"]
+    tools = mock_build.call_args.args[1]
+    assert any(tool_adapter.name == "reply_to_user" for tool_adapter in tools)
+    assert mock_build.call_args.kwargs["examples_block"] == ""

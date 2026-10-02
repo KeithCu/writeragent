@@ -566,6 +566,36 @@ class TestRichTextChatWidget:
         assert [c.args for c in mock_trunc.call_args_list] == [(start,), (start,)]
         mock_chunk.assert_called_once_with(tail)
 
+    def test_rerender_skips_when_stream_offset_missing(self):
+        from plugin.chatbot.rich_text_control import RichTextChatWidget
+
+        widget = RichTextChatWidget(MagicMock(), MagicMock())
+        session = MagicMock()
+        session.messages = [{"role": "assistant", "content": "<p>Hi</p>"}]
+
+        with patch.object(widget, "truncate") as mock_trunc, \
+             patch.object(widget, "append_rich_message") as mock_append:
+            widget.rerender_last_assistant_if_html(session, None)
+
+        mock_trunc.assert_not_called()
+        mock_append.assert_not_called()
+
+    def test_rerender_skips_when_tail_read_fails(self):
+        from plugin.chatbot.rich_text_control import RichTextChatWidget
+
+        control = MagicMock()
+        widget = RichTextChatWidget(MagicMock(), control)
+        control.getModel.side_effect = RuntimeError("disposed")
+        session = MagicMock()
+        session.messages = [{"role": "assistant", "content": "<p>Hi</p>"}]
+
+        with patch.object(widget, "truncate") as mock_trunc, \
+             patch.object(widget, "append_rich_message") as mock_append:
+            widget.rerender_last_assistant_if_html(session, 12)
+
+        mock_trunc.assert_not_called()
+        mock_append.assert_not_called()
+
     def test_append_assistant_stream_chunk_skips_legacy_ai(self):
         from plugin.chatbot.rich_text_control import RichTextChatWidget
 

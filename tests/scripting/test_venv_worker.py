@@ -456,8 +456,8 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
     dispatch_calls = []
 
-    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None):
-        del response, on_worker_event, stop_checker
+    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None, cancellation_scope=None):
+        del response, on_worker_event, stop_checker, cancellation_scope
         dispatch_calls.append(True)
         stdin_write(b"host response")
         return True
@@ -492,8 +492,8 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     )
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None):
-        del response, stdin_write, on_worker_event, stop_checker
+    def dispatch(response, *, stdin_write, on_worker_event=None, stop_checker=None, cancellation_scope=None):
+        del response, stdin_write, on_worker_event, stop_checker, cancellation_scope
         return True
 
     monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_ppt_master_response", dispatch)

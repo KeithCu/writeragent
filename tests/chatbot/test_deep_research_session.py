@@ -107,3 +107,7 @@ def test_deep_research_session_tool_returns_ok(mock_instr, mock_examples, mock_b
     result = tool.execute(ctx, query="Research topic")
     assert result["status"] == "ok"
     assert "document" in result["result"]
+    tools = mock_build.call_args.args[1]
+    assert all(tool_adapter.name != "reply_to_user" for tool_adapter in tools)
+    assert mock_build.call_args.kwargs["final_answer_tool_name"] == "reply_to_user"
+    assert mock_build.call_args.kwargs["examples_block"] == ""

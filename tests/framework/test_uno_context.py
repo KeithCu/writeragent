@@ -86,6 +86,22 @@ def test_get_ctx_fallback_uno_returns_none():
             set_fallback_ctx(None)
 
 
+def test_clear_default_focus_restore_if_keeps_another_panels_query():
+    from plugin.framework.uno_context import clear_default_focus_restore_if, set_default_focus_restore
+    from plugin.framework import uno_context as uc
+
+    mine = MagicMock()
+    other = MagicMock()
+    set_default_focus_restore(other)
+    try:
+        clear_default_focus_restore_if(mine)
+        assert uc._default_focus_restore is other
+        clear_default_focus_restore_if(other)
+        assert uc._default_focus_restore is None
+    finally:
+        set_default_focus_restore(None)
+
+
 def test_focus_preserved_restores_focus_window():
 
     from plugin.framework.uno_context import focus_preserved, set_default_focus_restore

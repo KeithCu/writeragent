@@ -32,6 +32,8 @@ config:
     default: false
     widget: checkbox
     label: Enable cross-file rerank
+    # Default checkbox width is 120 and clips this caption.
+    width: 200
     helper: "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and LlamaIndex). Off by default."
 
   folder_rerank_model:

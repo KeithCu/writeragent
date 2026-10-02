@@ -36,6 +36,7 @@ from plugin.framework.queue_executor import llm_request_lane
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
+from plugin.chatbot.tool_loop_actions import bind_turn_session, persist_assistant_on_turn
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.tool import ToolContext
@@ -246,13 +247,13 @@ class SendHandlersMixin:
             if current_state.handler_type == "agent":
                 text = "".join(agent_parts).strip()
                 if text:
-                    self.session.add_assistant_message(content=text)
+                    persist_assistant_on_turn(self, content=text)
             dispatch_event(StreamDoneEvent(payload))
 
         def on_stopped() -> None:
             if current_state.handler_type == "agent":
                 partial = "".join(agent_parts).strip()
-                self.session.add_assistant_message(content=partial or "No response.")
+                persist_assistant_on_turn(self, content=partial or "No response.")
             elif on_stopped_callback:
                 on_stopped_callback()
             dispatch_event(StopRequestedEvent())
@@ -358,7 +359,10 @@ class SendHandlersMixin:
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
         self._run_unified_worker_drain_loop(q, run_direct_image, current_state, interpreter)
-        if self._terminal_status != "Error":
+        # Stop already stored "Stopped" via CompleteJobEffect. Forcing Ready
+        # here made image Stop look like a normal finish. The agent path
+        # below keeps both Error and Stopped.
+        if self._terminal_status not in ("Error", "Stopped"):
             self._terminal_status = "Ready"
 
     def _do_send_via_agent_backend(self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str) -> None:
@@ -418,6 +422,7 @@ class SendHandlersMixin:
             self._set_status(_("Error"))
             return
 
+        bind_turn_session(self)
         self.session.add_user_message(query_text)
 
         q: queue.Queue[Any] = queue.Queue()
@@ -510,6 +515,7 @@ class SendHandlersMixin:
         self._librarian_suggested_user_name = get_suggested_user_name(self.ctx)
 
         self._in_librarian_mode = True
+        bind_turn_session(self)
         self.session.add_user_message(query_text)
 
         # 1. State machine transition: start
@@ -529,6 +535,7 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="web", status="ready")
 
         self._in_brainstorming_mode = True
+        bind_turn_session(self)
         self.session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -546,6 +553,7 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="web", status="ready")
 
         self._in_writing_plan_mode = True
+        bind_turn_session(self)
         self.session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -563,6 +571,7 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="web", status="ready")
 
         self._in_ppt_master_mode = True
+        bind_turn_session(self)
         self.session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -579,6 +588,7 @@ class SendHandlersMixin:
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
 
+        bind_turn_session(self)
         self.session.add_user_message(query_text)
 
         # 1. State machine transition: start
@@ -700,14 +710,14 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        self.session.add_assistant_message(content=answer)
+                        persist_assistant_on_turn(self, content=answer)
                         q.put((StreamQueueKind.STREAM_DONE, {}))
                     elif data.get("status") == "switch_mode":
                         # Exit librarian on the UI thread via STREAM_DONE (combobox is UNO).
                         answer = data.get("result", _("Perfect! I'm switching you to the main assistant now."))
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        self.session.add_assistant_message(content=answer)
+                        persist_assistant_on_turn(self, content=answer)
                         q.put((StreamQueueKind.STREAM_DONE, {"librarian_switch_to_chat": True}))
                     else:
                         self._in_librarian_mode = False
@@ -738,7 +748,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        self.session.add_assistant_message(content=answer)
+                        persist_assistant_on_turn(self, content=answer)
                     elif data.get("status") == "finished":
                         done_payload = {"brainstorming_finished": True, "spec_saved": bool(data.get("spec_saved", False))}
                         answer = data.get("result", _("Brainstorming complete."))
@@ -746,7 +756,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        self.session.add_assistant_message(content=answer)
+                        persist_assistant_on_turn(self, content=answer)
                     else:
                         self._in_brainstorming_mode = False
                         msg = data.get("message", _("Unknown brainstorming error."))
@@ -776,7 +786,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        self.session.add_assistant_message(content=answer)
+                        persist_assistant_on_turn(self, content=answer)
                     elif data.get("status") == "finished":
                         done_payload = {"writing_plan_finished": True}
                         answer = data.get("result", _("Writing plan complete."))
@@ -784,7 +794,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        self.session.add_assistant_message(content=answer)
+                        persist_assistant_on_turn(self, content=answer)
                     else:
                         self._in_writing_plan_mode = False
                         msg = data.get("message", _("Unknown writing plan error."))
@@ -814,7 +824,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        self.session.add_assistant_message(content=answer)
+                        persist_assistant_on_turn(self, content=answer)
                     elif data.get("status") == "finished":
                         done_payload = {"ppt_master_finished": True, "exported": bool(data.get("exported", False))}
                         answer = data.get("result", _("PPT-Master session complete."))
@@ -822,7 +832,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        self.session.add_assistant_message(content=answer)
+                        persist_assistant_on_turn(self, content=answer)
                     else:
                         self._in_ppt_master_mode = False
                         msg = data.get("message", _("Unknown PPT-Master error."))
@@ -850,7 +860,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        self.session.add_assistant_message(content=answer)
+                        persist_assistant_on_turn(self, content=answer)
                     else:
                         msg = data.get("message", _("Unknown deep research error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Deep research error: {0}]").format(msg) + "\n"))
@@ -875,7 +885,7 @@ class SendHandlersMixin:
                         cache_block = format_research_cache_result_chat(data)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, cache_block + answer + "\n"))
-                        self.session.add_assistant_message(content=cache_block + answer)
+                        persist_assistant_on_turn(self, content=cache_block + answer)
                     else:
                         msg = data.get("message", _("Unknown research error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Research error: {0}]").format(msg) + "\n"))

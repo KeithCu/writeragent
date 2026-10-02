@@ -22,6 +22,7 @@ from plugin.chatbot.dialogs import copy_to_clipboard, get_checkbox_state, get_co
 
 _active_settings_dialog_ref: Any = None
 _tested_provider_tunnel_urls: dict[str, str] = {}
+_mcp_snippet_refresh_scheduled = False
 
 _PROVIDER_DEFAULT_URLS = {"cloudflare": "https://<subdomain>.trycloudflare.com/mcp", "bore": "http://bore.pub:<remote-port>/mcp", "ngrok": "https://<domain>.ngrok-free.app/mcp", "tailscale": "https://<machine-name>.tailscale.net/mcp"}
 
@@ -94,7 +95,52 @@ def notify_tunnel_url_acquired(provider: str, url: str) -> None:
         post_to_main_thread(lambda: sync_mcp_config_snippet(dlg))
 
 
-def sync_mcp_config_snippet(dlg: Any, custom_tunnel_url: str | None = None, custom_provider: str | None = None) -> None:
+def _schedule_mcp_snippet_refresh(dlg: Any) -> None:
+    """Wait off the UI thread, then refresh the snippet once.
+
+    What was wrong: a running tunnel with no public URL yet made
+    ``sync_mcp_config_snippet`` sleep up to 1.2 seconds on the UI thread.
+    Settings open and the tunnel checkbox, provider, and port listeners all
+    call it there, so the dialog could not paint. The snippet is already
+    written; this posts one later refresh and does not schedule another.
+    """
+    global _mcp_snippet_refresh_scheduled
+    if _mcp_snippet_refresh_scheduled:
+        return
+    _mcp_snippet_refresh_scheduled = True
+
+    def _wait() -> None:
+        import time
+
+        from plugin.mcp import _shared_tunnel
+
+        deadline = time.time() + 1.2
+        while time.time() < deadline:
+            tunnel = _shared_tunnel
+            if tunnel is None or not getattr(tunnel, "is_running", False) or getattr(tunnel, "_public_url", None):
+                break
+            time.sleep(0.1)
+
+        def _apply() -> None:
+            global _mcp_snippet_refresh_scheduled
+            _mcp_snippet_refresh_scheduled = False
+            sync_mcp_config_snippet(dlg, schedule_refresh=False)
+
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(_apply)
+
+    from plugin.framework.worker_pool import run_in_background
+
+    run_in_background(_wait, name="mcp-snippet-refresh")
+
+
+def sync_mcp_config_snippet(
+    dlg: Any,
+    custom_tunnel_url: str | None = None,
+    custom_provider: str | None = None,
+    schedule_refresh: bool = True,
+) -> None:
     """Synchronize MCP client config snippet according to port, tunnel_enabled, and provider."""
     if not dlg:
         return
@@ -134,23 +180,18 @@ def sync_mcp_config_snippet(dlg: Any, custom_tunnel_url: str | None = None, cust
     elif custom_tunnel_url:
         _tested_provider_tunnel_urls[selected_provider] = custom_tunnel_url
 
-    # Check if we have a tested URL for this specific selected provider
+    # Check if we have a tested URL for this specific selected provider.
+    # A tunnel that is up but has no public URL yet used to sleep here.
     active_url = _tested_provider_tunnel_urls.get(selected_provider)
     if not active_url:
         from plugin.mcp import _shared_tunnel
 
         if _shared_tunnel and _shared_tunnel.is_running and getattr(_shared_tunnel, "_provider", None) == selected_provider:
             active_url = _shared_tunnel.mcp_public_url()
-            if not active_url:
-                import time
-
-                deadline = time.time() + 1.2
-                while time.time() < deadline and not _shared_tunnel._public_url and _shared_tunnel.is_running:
-                    time.sleep(0.1)
-                active_url = _shared_tunnel.mcp_public_url()
-
             if active_url:
                 _tested_provider_tunnel_urls[selected_provider] = active_url
+            elif schedule_refresh:
+                _schedule_mcp_snippet_refresh(dlg)
 
     if not active_url:
         # Fall back to provider default template

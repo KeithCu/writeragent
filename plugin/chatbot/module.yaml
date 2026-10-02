@@ -245,6 +245,8 @@ config:
     default: true
     widget: checkbox
     label: Rich Text Control Sidebar
+    # Default checkbox width is 120 and clips this caption.
+    width: 200
     helper: "Formatted chat via RichTextControl. Requires restart."
     
   librarian_invoked:
@@ -257,6 +259,8 @@ config:
     default: false
     widget: checkbox
     label: Humanizer skill (natural prose)
+    # Default checkbox width is 120 and clips this caption.
+    width: 240
     helper: "When enabled, injects guidance into the system prompt so the model makes generated or revised document text sound more natural and human (removes AI slop patterns). Edit the rules in your LibreOffice profile under writeragent/skills/humanizer/SKILL.md (the file is auto-created on first use). A dedicated Skills tab can be added later."
 
   audio_silence_stop_ms:

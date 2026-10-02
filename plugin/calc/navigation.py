@@ -55,6 +55,26 @@ class CellLinkSpanRegistry:
                 return addr
         return None
 
+    def drop_from(self, control: Any, start_len: int) -> None:
+        """Drop spans that end past a truncation point.
+
+        A failed formatted copy rolls the control back to the length it had
+        before the separator. Spans recorded for that copy, including one
+        that starts before the cut and ends inside the deleted tail, would
+        otherwise resolve a click into text that is gone.
+        """
+        if control is None:
+            return
+        key = id(control)
+        spans = self._spans.get(key)
+        if not spans:
+            return
+        kept = [span for span in spans if span[1] <= start_len]
+        if kept:
+            self._spans[key] = kept
+        else:
+            self._spans.pop(key, None)
+
 
 cell_link_registry = CellLinkSpanRegistry()
 
@@ -144,6 +164,10 @@ def register_cell_link_span(control: Any, start: int, end: int, address: str) ->
 
 def clear_cell_link_spans(control: Any) -> None:
     cell_link_registry.clear(control)
+
+
+def drop_cell_link_spans_from(control: Any, start_len: int) -> None:
+    cell_link_registry.drop_from(control, start_len)
 
 
 def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | None:

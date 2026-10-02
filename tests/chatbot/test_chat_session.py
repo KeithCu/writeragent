@@ -105,6 +105,16 @@ def test_load_failure_does_not_seed_system_row():
     mock_db.add_message.assert_not_called()
 
 
+def test_load_oserror_does_not_seed_system_row():
+    mock_db = MagicMock()
+    mock_db.get_messages.side_effect = OSError("disk")
+    with patch("plugin.chatbot.panel.get_chat_history", return_value=mock_db):
+        session = ChatSession(system_prompt="Sys", session_id="sid-os")
+
+    assert session.messages == []
+    mock_db.add_message.assert_not_called()
+
+
 def test_clear_resets_messages_and_document_context():
     mock_db = MagicMock()
     mock_db.get_messages.return_value = []

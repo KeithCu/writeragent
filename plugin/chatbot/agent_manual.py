@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Topic-based delivery of the shared behavioral pieces (MCP / external-agent channel).
 
-The SOURCE OF TRUTH for the cross-cutting behavioral rules lives in plugin/framework/constants.py:
+The SOURCE OF TRUTH for the cross-cutting behavioral rules lives in plugin/framework/prompts.py:
 the original chat system prompt pieces (TOOL_USAGE_PATTERNS, WRITER_APPLY_DOCUMENT_HTML_RULES,
 TRANSLATION_RULES), updated in place and extended with new pieces (WRITER_REVIEW_MODES_RULES,
 WRITER_SEARCH_RULES, WRITER_NAVIGATION_RULES, WRITER_IMAGES_RULES). The sidebar system prompt
@@ -21,7 +21,7 @@ concurrency contract, which the in-process sidebar never needs). Its consumers:
 - the agent-backend path (send_handlers), which injects full_manual() — it talks to the HTTP
   server, so it takes the whole manual including the MCP extras.
 
-Same pieces, different assembly per channel — update a rule in constants.py and every consumer
+Same pieces, different assembly per channel — update a rule in prompts.py and every consumer
 sees it; only genuinely channel-specific text lives outside the shared pieces.
 
 Sections are per document type: Writer has the full manual; Calc and Draw currently get the generic
@@ -50,7 +50,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # MCP-only pieces. The HTTP server's concurrency contract: real for every client of the MCP
 # server (external clients and the agent-backend path alike), meaningless for the in-process
-# sidebar — which is why it lives here and not with the shared pieces in constants.py.
+# sidebar — which is why it lives here and not with the shared pieces in prompts.py.
 # ---------------------------------------------------------------------------
 _MCP_CONCURRENCY_RULES = (
     "CONCURRENCY / MULTI-DOCUMENT:\n"

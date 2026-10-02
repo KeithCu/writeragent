@@ -11,12 +11,16 @@ from __future__ import annotations
 
 from typing import Any
 
+# What was wrong: web_search examples passed a bare string. DuckDuckGoSearchTool
+# takes query (and optional recency); a non-dict is only checked against the
+# first input, so the demo taught a shape the tool does not take. Both search
+# steps now pass {"query": "..."}. The delegate block copies the same two steps.
 WEB_RESEARCH_EXAMPLES_BLOCK = """Task: "Which city has the highest population , Guangzhou or Shanghai?"
 
 Action:
 {
     "name": "web_search",
-    "arguments": "Population Guangzhou"
+    "arguments": {"query": "Population Guangzhou"}
 }
 Observation: ['Guangzhou has a population of 15 million inhabitants as of 2021.']
 
@@ -24,7 +28,7 @@ Observation: ['Guangzhou has a population of 15 million inhabitants as of 2021.'
 Action:
 {
     "name": "web_search",
-    "arguments": "Population Shanghai"
+    "arguments": {"query": "Population Shanghai"}
 }
 Observation: '26 million (2019)'
 
@@ -43,7 +47,7 @@ The manager's real task is in the user message below; this example only shows th
 Action:
 {
     "name": "web_search",
-    "arguments": "Population Guangzhou"
+    "arguments": {"query": "Population Guangzhou"}
 }
 Observation: ['Guangzhou has a population of 15 million inhabitants as of 2021.']
 
@@ -51,7 +55,7 @@ Observation: ['Guangzhou has a population of 15 million inhabitants as of 2021.'
 Action:
 {
     "name": "web_search",
-    "arguments": "Population Shanghai"
+    "arguments": {"query": "Population Shanghai"}
 }
 Observation: '26 million (2019)'
 

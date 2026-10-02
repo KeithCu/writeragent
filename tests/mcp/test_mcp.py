@@ -58,7 +58,12 @@ def test_navigation_workflow_lives_in_the_manual():
     assert "get_document_tree" in nav
     assert "nav_heading_children" in nav
     assert "search_in_document" in nav
-    assert "heading_only" in nav
+    assert "strategy='heading_only'" in nav
+    assert "content_strategy" not in nav
+    search = get_section("search")
+    assert search is not None
+    assert "return_offsets=true is character ranges for a literal body-text match only" in search
+    assert "not regex" in search
 
 
 def test_initialize_instructions_mode_hints_differ():

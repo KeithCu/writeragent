@@ -112,23 +112,27 @@ def _modes_for(flags: SidebarModeFlags) -> tuple[str, ...]:
     return tuple(modes)
 
 
+_LABEL_FOR_MODE = {
+    CHAT_MODE_CHAT: _label_chat,
+    CHAT_MODE_IMAGE: _label_image,
+    CHAT_MODE_WEB_RESEARCH: _label_web_research,
+    CHAT_MODE_DEEP_RESEARCH: _label_deep_research,
+    CHAT_MODE_BRAINSTORMING: _label_brainstorming,
+    CHAT_MODE_WRITING_PLAN: _label_writing_plan,
+    CHAT_MODE_PPT_MASTER: _label_ppt_master,
+    CHAT_MODE_LIBRARIAN: _label_librarian,
+}
+
+
 @deal.post(lambda result: isinstance(result, tuple) and len(result) >= 5)
 def get_mode_labels(*, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> tuple[str, ...]:
-    """Translated combobox labels in display order."""
+    """Translated combobox labels in the same order as ``_modes_for``."""
     flags = SidebarModeFlags(
         include_brainstorming=include_brainstorming,
         include_writing_plan=include_writing_plan,
         include_ppt_master=include_ppt_master,
     )
-    labels = [_label_chat(), _label_image(), _label_web_research(), _label_deep_research()]
-    if flags.include_brainstorming:
-        labels.append(_label_brainstorming())
-    if flags.include_writing_plan:
-        labels.append(_label_writing_plan())
-    if flags.include_ppt_master:
-        labels.append(_label_ppt_master())
-    labels.append(_label_librarian())
-    return tuple(labels)
+    return tuple(_LABEL_FOR_MODE[mode]() for mode in _modes_for(flags))
 
 
 @deal.pre(lambda label, include_brainstorming=False, include_writing_plan=True, include_ppt_master=False: str_bounded(label, DEAL_MAX_TOKEN))

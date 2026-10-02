@@ -26,6 +26,7 @@ import math
 import sys
 import threading
 import time
+import types
 from contextvars import ContextVar
 from typing import Any
 
@@ -229,6 +230,17 @@ def _coerce_host_pickle_scalar(obj: Any, pd_mod: Any) -> Any:
         return _coerce_host_pickle_scalar(converted, pd_mod)
     if converted is not obj:
         return converted
+    # What was wrong: child_pack turns a bare np.int64 into a Python int, but a
+    # grid of those scalars took the list path and skipped that. The boundary
+    # check then rejected the grid. .item() is the Python value the host can unpickle.
+    np_mod = optional_module("numpy")
+    if np_mod is not None and isinstance(obj, np_mod.generic):
+        try:
+            plain = obj.item()
+        except Exception:
+            return obj
+        if plain is not obj:
+            return _coerce_host_pickle_scalar(plain, pd_mod)
     return obj
 
 
@@ -850,6 +862,32 @@ def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
             executor.custom_tools[k] = v
 
 
+def _is_defined_function(obj: Any) -> bool:
+    return isinstance(obj, (types.FunctionType, types.BuiltinFunctionType, types.BuiltinMethodType, types.MethodType))
+
+
+def _is_mpl_artist_result(obj: Any) -> bool:
+    """True for a pyplot artist or the list ``plt.plot`` returns."""
+    artist_mod = optional_module("matplotlib.artist")
+    if artist_mod is None:
+        return False
+    artist = artist_mod.Artist
+    if isinstance(obj, artist):
+        return True
+    return isinstance(obj, (list, tuple)) and bool(obj) and all(isinstance(item, artist) for item in obj)
+
+
+def _close_open_figures() -> None:
+    plt_mod = optional_module("matplotlib.pyplot")
+    if plt_mod is None:
+        return
+    try:
+        if plt_mod.get_fignums():
+            plt_mod.close("all")
+    except Exception:
+        log.debug("failed to close pyplot figures", exc_info=True)
+
+
 def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]:
     # Bugfix (#388): shared-kernel leftover ``result`` was used as egress for later
     # last-expression cells. Popping ``result`` after every cell (or before the next)
@@ -870,18 +908,30 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         else:
             result = code_output.output
 
-        serialized = serialize_result(result)
+        # What was wrong: a helper-only init script evaluates to the function,
+        # and plt.plot() evaluates to Line2D artists. The pickle check rejected
+        # both before open figures were captured, and those figures stayed open
+        # so the next script returned that SVG instead of its own value.
+        if _is_defined_function(result):
+            result = None
 
         extra_stdout = ""
-        if not find_image_payloads(serialized):
+        if _is_mpl_artist_result(result):
             captured, note = _capture_open_figures_payload()
-            if captured is not None:
+            if captured is None:
+                serialized = serialize_result(result)
+            else:
                 serialized = captured
                 extra_stdout = note
         else:
-            plt_mod = optional_module("matplotlib.pyplot")
-            if plt_mod is not None:
-                plt_mod.close("all")
+            serialized = serialize_result(result)
+            if not find_image_payloads(serialized):
+                captured, note = _capture_open_figures_payload()
+                if captured is not None:
+                    serialized = captured
+                    extra_stdout = note
+            else:
+                _close_open_figures()
 
         if is_split_grid(serialized):
             log.debug("venv_sandbox worker result %s", describe_wire_value(serialized))
@@ -893,6 +943,7 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         }
     except InterpreterError as e:
         _restore_prior_result(executor, prior_result)
+        _close_open_figures()
         return {
             "status": "error",
             "message": str(e),
@@ -902,6 +953,7 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         import traceback
 
         _restore_prior_result(executor, prior_result)
+        _close_open_figures()
         return {
             "status": "error",
             "message": str(e),

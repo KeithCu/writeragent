@@ -119,5 +119,53 @@ def test_ppt_master_session_delegates_to_venv():
     ):
         out = tool.execute(ctx, query="Build a deck")
         mock_run.assert_called_once()
+        assert mock_run.call_args.kwargs["cancellation_scope"] is ctx.send_cancellation
         assert out["status"] == "ok"
         assert "done" in out["result"]
+
+
+def test_run_turn_passes_ppt_master_examples(monkeypatch: pytest.MonkeyPatch):
+    from plugin.chatbot.smol_examples import get_examples_block
+    from plugin.ppt_master.venv.runner import clear_session, run_turn
+
+    agent = MagicMock()
+    agent.run.return_value = []
+    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "/tmp/ppt-master-examples")
+    with (
+        patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
+        patch("plugin.ppt_master.venv.runner._build_tools", return_value=[]),
+        patch("plugin.ppt_master.venv.runner.ToolCallingAgent", return_value=agent) as mock_agent,
+        patch("plugin.ppt_master.venv.runner.HostRpcModel"),
+    ):
+        result = run_turn({"query": "hi", "session_id": "examples-test"})
+    clear_session("examples-test")
+    assert result["status"] == "ok"
+    assert mock_agent.call_args.kwargs["system_prompt_examples"] == get_examples_block("ppt-master")
+
+
+def test_run_ppt_master_venv_turn_keeps_cancellation_on_the_host():
+    from plugin.ppt_master.venv.host import run_ppt_master_venv_turn
+
+    scope = object()
+    manager = MagicMock()
+    manager.execute_ppt_master_turn.return_value = {"status": "ok"}
+    with (
+        patch("plugin.ppt_master.venv.host._worker_manager_for_ctx", return_value=(manager, None)),
+        patch("plugin.ppt_master.venv.host.apply_data_root_env"),
+        patch("plugin.ppt_master.venv.host.configured_python_exec_timeout", return_value=30),
+        patch("plugin.ppt_master.venv.host.resolve_python_exec_timeout", return_value=30),
+        patch("plugin.ppt_master.venv.host.get_config_int", return_value=8),
+    ):
+        run_ppt_master_venv_turn(
+            MagicMock(),
+            query="q",
+            history_text=None,
+            topic=None,
+            model=None,
+            session_id="s",
+            cancellation_scope=scope,
+        )
+    payload = manager.execute_ppt_master_turn.call_args.args[0]
+    assert manager.execute_ppt_master_turn.call_args.kwargs["cancellation_scope"] is scope
+    assert "cancellation_scope" not in payload
+    assert "_cancellation_scope" not in payload

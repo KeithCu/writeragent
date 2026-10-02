@@ -699,7 +699,7 @@ def _add_standalone_label(board, field_name, label_text, y, page):
     })
 
 
-def _add_standalone_field(board, field_name, schema, y, page):
+def _add_standalone_field(board, field_name, schema, y, page, dialog_width):
     widget = schema.get("widget", "text")
     label_text = schema.get("label", field_name.replace("_", " ").title())
 
@@ -755,14 +755,18 @@ def _add_standalone_field(board, field_name, schema, y, page):
     helper_text = schema.get("helper")
     if helper_text:
         y += _STANDALONE_HELPER_GAP
-        helper_width = int(schema.get("width", 420)) - _STANDALONE_MARGIN * 2
+        # What was wrong: helper width used the field width (default 420) minus
+        # the margins, so a 350-wide Vision window drew 404-wide lines. The
+        # dialog width is already known here; the line is that width minus the
+        # margins, and it starts at the left margin.
+        helper_width = int(dialog_width) - _STANDALONE_MARGIN * 2
         ET.SubElement(board, _dlg("text"), {
             _dlg("id"): f"hlp_{field_name}",
             _dlg("tab-index"): "0",
             _dlg("page"): str(page),
             _dlg("left"): str(_STANDALONE_MARGIN),
             _dlg("top"): str(y),
-            _dlg("width"): str(helper_width if helper_width > 100 else 420),
+            _dlg("width"): str(helper_width),
             _dlg("height"): str(_STANDALONE_HELPER_HEIGHT),
             _dlg("value"): helper_text,
         })
@@ -847,7 +851,7 @@ def generate_standalone_config_dialog(module):
             continue
         page_key = str(schema.get("page") or "general").strip().lower() or "general"
         pnum = page_num.get(page_key, 1)
-        page_y[pnum] = _add_standalone_field(board, field_name, schema, page_y[pnum], pnum)
+        page_y[pnum] = _add_standalone_field(board, field_name, schema, page_y[pnum], pnum, width)
 
     footer_y = height - _STANDALONE_FOOTER_MARGIN
     buttons = cfg_dialog.get("buttons") or ["apply", "ok", "close"]

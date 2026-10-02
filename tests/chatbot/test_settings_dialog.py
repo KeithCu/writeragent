@@ -273,6 +273,35 @@ def test_apply_settings_stt_provider_and_local_model():
         assert stored.get("audio.stt_local_model") == "base"
 
 
+def test_apply_settings_translated_select_stores_value():
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    specs = [{
+        "name": "doc__grammar_provider",
+        "options": [
+            {"value": "off", "label": "Off"},
+            {"value": "harper", "label": "Harper"},
+        ],
+    }]
+
+    def _fake_gettext(text: str) -> str:
+        return {"Off": "Uit"}.get(text, text)
+
+    with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
+         patch("plugin.chatbot.settings_dialog.get_config", return_value=""), \
+         patch("plugin.chatbot.settings_dialog.set_configs") as batch, \
+         patch("plugin.chatbot.config_ui_helpers.update_lru_history"), \
+         patch("plugin.framework.event_bus.global_event_bus.emit"), \
+         patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext):
+        apply_settings_result(MagicMock(), {"doc__grammar_provider": "Uit"})
+        apply_settings_result(MagicMock(), {"doc__grammar_provider": "Off"})
+        apply_settings_result(MagicMock(), {"doc__grammar_provider": "off"})
+
+    assert batch.call_args_list[0].args[0]["doc.grammar_provider"] == "off"
+    assert batch.call_args_list[1].args[0]["doc.grammar_provider"] == "off"
+    assert batch.call_args_list[2].args[0]["doc.grammar_provider"] == "off"
+
+
 def test_apply_settings_result_one_batch_no_extra_emit():
     """Endpoint, model, API key, and voice are one set_configs call.
 

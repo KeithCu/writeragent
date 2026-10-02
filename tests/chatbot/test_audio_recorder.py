@@ -375,3 +375,96 @@ def test_audio_record_main_protocol(tmp_path, monkeypatch):
     assert code == 0
     assert emitted[0] == {"status": "ready"}
     assert emitted[-1] == {"status": "ok", "path": os.path.abspath(output_path), "auto_stopped": False}
+
+
+def test_cleanup_failure_closes_wav(ctx):
+    """A failed Stop used to leave the host WAV open."""
+    from plugin.chatbot.audio_recorder_state import AudioRecorderState
+
+    recorder = AudioRecorder(ctx)
+    wav = MagicMock()
+    stream = MagicMock()
+    recorder.wav_file = wav
+    recorder.stream = stream
+    recorder._silence_detector = MagicMock()
+    recorder.state = AudioRecorderState(status="recording")
+    recorder._proc = MagicMock()
+    with (
+        patch.object(recorder, "_apply_event", side_effect=RuntimeError("stop failed")),
+        patch("plugin.chatbot.audio_recorder.terminate_recording_process") as term,
+    ):
+        recorder.cleanup()
+    term.assert_called_once()
+    stream.stop.assert_called_once()
+    stream.close.assert_called_once()
+    assert recorder.stream is None
+    wav.close.assert_called_once()
+    assert recorder.wav_file is None
+    assert recorder._silence_detector is None
+
+
+def test_close_host_wav_waits_until_callback_drops_the_file(ctx):
+    recorder = AudioRecorder(ctx)
+    wav = MagicMock()
+    recorder.wav_file = wav
+    in_callback = threading.Event()
+    allow_finish = threading.Event()
+    close_finished = threading.Event()
+
+    def callback_holds_lock() -> None:
+        with recorder._wav_lock:
+            in_callback.set()
+            assert allow_finish.wait(2)
+
+    worker = threading.Thread(target=callback_holds_lock)
+    worker.start()
+    assert in_callback.wait(2)
+
+    def do_close() -> None:
+        recorder._close_host_wav()
+        close_finished.set()
+
+    closer = threading.Thread(target=do_close)
+    closer.start()
+    assert not close_finished.wait(0.05)
+    assert wav.close.call_count == 0
+    allow_finish.set()
+    assert close_finished.wait(2)
+    wav.close.assert_called_once()
+    assert recorder.wav_file is None
+    worker.join(2)
+    closer.join(2)
+
+
+def test_host_callback_writeframes_error_is_swallowed(ctx, tmp_path, monkeypatch):
+    import sys
+    import types
+
+    captured: dict = {}
+
+    class _Stream:
+        def __init__(self, **kwargs):
+            captured["callback"] = kwargs["callback"]
+
+        def start(self) -> None:
+            return None
+
+    sounddevice = types.ModuleType("sounddevice")
+    sounddevice.RawInputStream = _Stream
+    monkeypatch.setitem(sys.modules, "sounddevice", sounddevice)
+    wav_path = str(tmp_path / "host.wav")
+    with (
+        patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("", "no venv")),
+        patch("plugin.chatbot.audio_recorder.ensure_downloaded_audio_on_path"),
+        patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
+    ):
+        recorder = AudioRecorder(ctx)
+        recorder.start_recording()
+    assert recorder.state.status == "recording"
+    real_wav = recorder.wav_file
+    boom = MagicMock()
+    boom.writeframes.side_effect = ValueError("closed")
+    recorder.wav_file = boom
+    real_wav.close()
+    captured["callback"](b"\x00\x00", 1, None, None)
+    boom.writeframes.assert_called_once()

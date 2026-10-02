@@ -448,11 +448,11 @@ WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
 
 WRITER_SEARCH_RULES = """SEARCH:
 - search_in_document finds text ANYWHERE — body paragraphs and headings, table cells, text boxes/frames, floating drawing shapes, page headers/footers, and comments.
-- Each match reports WHERE it lives (e.g. "body", "table 'X' cell B2", "text box 'Y'", "shape 'Z'", "header (page style 'Standard')", "comment by 'A'") plus the surrounding text; use return_offsets=true for character ranges.
+- Each match reports WHERE it lives (e.g. "body", "table 'X' cell B2", "text box 'Y'", "shape 'Z'", "header (page style 'Standard')", "comment by 'A'") plus the surrounding text. return_offsets=true is character ranges for a literal body-text match only — not regex, and not tables, shapes, or comments.
 - When pointing the user to a match, quote the first words of its text and its location — never an internal paragraph index."""
 
 WRITER_NAVIGATION_RULES = """NAVIGATING LARGE DOCUMENTS (map first, then drill — don't dump):
-- get_document_tree(content_strategy='heading_only') gives the heading outline plus stats and stable _mcp_ bookmark ids (session-only; not written to disk).
+- get_document_tree(strategy='heading_only') gives the heading outline plus stats and stable _mcp_ bookmark ids (session-only; not written to disk).
 - When Tools → Chapter Numbering is on, heading nodes include chapter_number (the paint label, e.g. '3.1'). Use that field; never invent numbers from outline depth, sibling order, or literal titles like 'DOCUMENT 7'. The key is omitted when numbering is off.
 - heading:1.2 is the sibling-ordinal path (1st H1 → 2nd child), not Writer's chapter label. Use chapter_number:3.1 when the field is present.
 - nav_heading_children (structural domain; locator='bookmark:_mcp_…', ordinal 'heading:1.2', or 'chapter_number:3.1') reads one section on demand.

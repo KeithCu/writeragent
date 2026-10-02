@@ -411,6 +411,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _record_hold_gen: int
     _sticky_restart_gen: int
     _sticky_restart_pending: bool
+    _panel_teardown: bool
 
     def __init__(
         self,
@@ -512,6 +513,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._record_hold_gen = 0
         self._sticky_restart_gen = 0
         self._sticky_restart_pending = False
+        # Set at the start of disposing so a drain still on the stack skips
+        # status, TTS, and a sticky re-record after ctx is cleared.
+        self._panel_teardown = False
 
         # Subscribe to MCP/tool bus events
         try:
@@ -601,15 +605,26 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         )
 
         flags = getattr(self, "sidebar_mode_flags", None)
+        # What was wrong: clear_brainstorming_session blanks _brainstorming_topic,
+        # and this method read that field afterwards, so the writing-plan handoff
+        # was always "Implement the saved spec: ". selectItemPos often does not
+        # fire ChatModeListener, so the combo moved and the sidebar stayed in
+        # the old mode until the user touched it.
+        topic = getattr(self, "_brainstorming_topic", "") or ""
         clear_brainstorming_session(self)
+        apply_fn = getattr(self, "_apply_sidebar_mode_fn", None)
         if spec_saved:
             self._in_writing_plan_mode = True
-            self._writing_plan_topic = f"Implement the saved spec: {self._brainstorming_topic}"
+            self._writing_plan_topic = f"Implement the saved spec: {topic}"
             if self.chat_mode_selector and flags:
                 set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_WRITING_PLAN, flags)
+            if callable(apply_fn):
+                apply_fn(CHAT_MODE_WRITING_PLAN)
         else:
             if self.chat_mode_selector and flags:
                 set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_CHAT, flags)
+            if callable(apply_fn):
+                apply_fn(CHAT_MODE_CHAT)
 
     def on_librarian_session_finished(self) -> None:
         """Reset sidebar after switch_to_document_mode (dropdown returns to Chat). History is kept."""
@@ -641,6 +656,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         clear_writing_plan_session(self)
         if self.chat_mode_selector and flags:
             set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_CHAT, flags)
+        # Same as librarian: the combo change does not reliably run ChatModeListener.
+        apply_fn = getattr(self, "_apply_sidebar_mode_fn", None)
+        if callable(apply_fn):
+            apply_fn(CHAT_MODE_CHAT)
 
     def on_ppt_master_session_finished(self, exported: bool = False) -> None:
         """Reset sidebar after ppt_master_finished (dropdown returns to Chat)."""
@@ -655,6 +674,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         clear_ppt_master_session(self)
         if self.chat_mode_selector and flags:
             set_selector_mode_with_flags(self.chat_mode_selector, CHAT_MODE_CHAT, flags)
+        apply_fn = getattr(self, "_apply_sidebar_mode_fn", None)
+        if callable(apply_fn):
+            apply_fn(CHAT_MODE_CHAT)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event`` when user chooses.
@@ -775,6 +797,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _on_grammar_status(self, **data: Any) -> None:
         """Show native grammar proofreader progress in the sidebar status field."""
+        # grammar:status is process-global. A Writer proofreader pass used to
+        # paint "Grammar: …" on every open sidebar, including Calc and Draw.
+        if getattr(self, "cached_doc_type", None) != "writer":
+            return
         if self._send_busy or self._approval_event is not None:
             return
         text = format_grammar_status(data)
@@ -1040,6 +1066,26 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
         self._apply_record_gesture(gesture_hold_elapsed(self._record_gesture))
 
+    def _release_open_microphone(self) -> None:
+        """Stop capture and leave the Stop Rec label.
+
+        What was wrong: Clear and sidebar close called exit_hands_free_record
+        and left AudioRecorder running. Recording is not is_busy, so
+        STOP_CLICKED does not apply, and the next click sent that take.
+        ERROR_OCCURRED clears is_recording without starting a send.
+        """
+        recorder = getattr(self, "audio_recorder", None)
+        if recorder is not None:
+            try:
+                recorder.cleanup()
+            except Exception:
+                log.debug("audio recorder cleanup failed", exc_info=True)
+        if self.sidebar_state.send.is_recording:
+            try:
+                self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+            except Exception:
+                log.debug("leave Stop Rec on teardown failed", exc_info=True)
+
     def _flush_sticky_restart(self) -> None:
         """Arm Record again if this completed turn left sticky on."""
         pending = self._sticky_restart_pending
@@ -1280,61 +1326,65 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._terminal_status = "Error"
         finally:
             update_activity_state("")
-            if self._terminal_status == "Error":
-                self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-            else:
-                self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                if self._terminal_status:
-                    self._set_status(_(self._terminal_status))
-                try:
-                    from plugin.framework.config import get_config_bool_safe
-                    if get_config_bool_safe("audio.tts_enabled"):
-                        if self.session and self.session.messages:
-                            last_msg = self.session.messages[-1]
-                            if last_msg.get("role") == "assistant" and last_msg.get("content"):
-                                from plugin.audio.tts_service import speak_text_async, is_speaking
+            # Dispose runs inside this drain, then sets ctx to None. The
+            # completion dispatch writes the status line, and the rest starts
+            # TTS or arms the mic on a dead panel.
+            if not self._panel_teardown:
+                if self._terminal_status == "Error":
+                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                else:
+                    self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                    if self._terminal_status:
+                        self._set_status(_(self._terminal_status))
+                    try:
+                        from plugin.framework.config import get_config_bool_safe
+                        if get_config_bool_safe("audio.tts_enabled"):
+                            if self.session and self.session.messages:
+                                last_msg = self.session.messages[-1]
+                                if last_msg.get("role") == "assistant" and last_msg.get("content"):
+                                    from plugin.audio.tts_service import speak_text_async, is_speaking
 
-                                # Restore the send-complete status after download/fallback lines.
-                                prior_status = self._terminal_status or "Ready"
+                                    # Restore the send-complete status after download/fallback lines.
+                                    prior_status = self._terminal_status or "Ready"
 
-                                def _on_tts_status(message: str) -> None:
-                                    # Speech runs on a worker; the status control is a UNO widget.
-                                    def _apply() -> None:
-                                        self._set_status(message)
+                                    def _on_tts_status(message: str) -> None:
+                                        # Speech runs on a worker; the status control is a UNO widget.
+                                        def _apply() -> None:
+                                            self._set_status(message)
 
-                                    try:
-                                        self.queue_executor.post(_apply)
-                                    except Exception:
-                                        log.debug("TTS status post failed", exc_info=True)
+                                        try:
+                                            self.queue_executor.post(_apply)
+                                        except Exception:
+                                            log.debug("TTS status post failed", exc_info=True)
 
-                                def _on_speech_complete() -> None:
-                                    def _disable_stop() -> None:
-                                        if not getattr(self, "_send_busy", False):
-                                            if self.stop_control and self.stop_control.getModel():
-                                                with suppress_disposed("disable stop after speech", logger=log):
-                                                    self.stop_control.getModel().Enabled = False
-                                            # A sticky restart may already be capturing; Ready would hide it.
-                                            if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
-                                                self._set_status(hands_free_status_text())
-                                            else:
-                                                self._set_status(_(prior_status))
-                                    self.queue_executor.post(_disable_stop)
+                                    def _on_speech_complete() -> None:
+                                        def _disable_stop() -> None:
+                                            if not getattr(self, "_send_busy", False):
+                                                if self.stop_control and self.stop_control.getModel():
+                                                    with suppress_disposed("disable stop after speech", logger=log):
+                                                        self.stop_control.getModel().Enabled = False
+                                                # A sticky restart may already be capturing; Ready would hide it.
+                                                if self._record_gesture.sticky and self.sidebar_state.send.is_recording:
+                                                    self._set_status(hands_free_status_text())
+                                                else:
+                                                    self._set_status(_(prior_status))
+                                        self.queue_executor.post(_disable_stop)
 
-                                speak_text_async(
-                                    last_msg["content"],
-                                    on_complete=_on_speech_complete,
-                                    on_status=_on_tts_status,
-                                    # Sentence breaks use BreakIterator on this UI
-                                    # thread. The audio worker only receives the list.
-                                    ctx=self.ctx,
-                                )
-                                if is_speaking():
-                                    if self.stop_control and self.stop_control.getModel():
-                                        with suppress_disposed("enable stop for speech", logger=log):
-                                            self.stop_control.getModel().Enabled = True
-                except Exception as e:
-                    log.debug("TTS playback trigger: %s", e)
-                self._flush_sticky_restart()
+                                    speak_text_async(
+                                        last_msg["content"],
+                                        on_complete=_on_speech_complete,
+                                        on_status=_on_tts_status,
+                                        # Sentence breaks use BreakIterator on this UI
+                                        # thread. The audio worker only receives the list.
+                                        ctx=self.ctx,
+                                    )
+                                    if is_speaking():
+                                        if self.stop_control and self.stop_control.getModel():
+                                            with suppress_disposed("enable stop for speech", logger=log):
+                                                self.stop_control.getModel().Enabled = True
+                    except Exception as e:
+                        log.debug("TTS playback trigger: %s", e)
+                    self._flush_sticky_restart()
             from plugin.doc.peer_message import kick_pending_peer_starts
 
             kick_pending_peer_starts()
@@ -1586,15 +1636,18 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._terminal_status = "Error"
         finally:
             update_activity_state("")
-            if self._terminal_status == "Error":
-                self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-            else:
-                # Extracted send only uses Ready or Error (unlike _do_send, which
-                # may leave ""). Always set Ready here so ty does not treat a
-                # nonempty-string check as a redundant condition.
-                self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                self._set_status(_("Ready"))
-                self._flush_sticky_restart()
+            # Same teardown guard as _run_send_drain: completion writes status
+            # and can arm the mic after the sidebar is gone.
+            if not self._panel_teardown:
+                if self._terminal_status == "Error":
+                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                else:
+                    # Extracted send only uses Ready or Error (unlike _do_send, which
+                    # may leave ""). Always set Ready here so ty does not treat a
+                    # nonempty-string check as a redundant condition.
+                    self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                    self._set_status(_("Ready"))
+                    self._flush_sticky_restart()
             kick_pending_peer_starts()
 
     def _do_send_extracted_peer(self, query_text: str, *, already_appended: bool) -> None:
@@ -1661,14 +1714,18 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def disposing(self, Source: Any) -> None:
         # UNO can deliver this re-entrantly inside processEventsToIdle while
-        # run_stream_drain_loop is still on the stack. Cancel the send scope
-        # (same object already captured by resolve_stop_checker) so the drain
-        # stop checker fires instead of streaming into a dead panel. Match
-        # StopSendEffect: cancel the scope and latch the fallback.
+        # run_stream_drain_loop is still on the stack. The flag is first so
+        # that drain's finally does not write status or start TTS after ctx
+        # is cleared. Cancel the send scope (same object already captured by
+        # resolve_stop_checker) so the drain stop checker fires instead of
+        # streaming into a dead panel. Match StopSendEffect: cancel the scope
+        # and latch the fallback.
+        self._panel_teardown = True
         scope = getattr(self, "_send_cancellation", None)
         if scope is not None:
             scope.cancel()
         self._stop_requested_fallback = True
+        self._release_open_microphone()
         self.exit_hands_free_record()
         try:
             from plugin.doc.peer_message import drop_listener_queue
@@ -1899,9 +1956,16 @@ class ClearButtonListener(BaseActionListener):
         stop_speech()
         if self.send_listener is not None:
             self.send_listener.exit_hands_free_record()
+            self.send_listener._release_open_microphone()
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             self.send_listener._finish_inline_web_approval(False)
             return
+        # What was wrong: Clear wiped messages on the UI thread while the
+        # drain was still inside processEventsToIdle, and it did not latch
+        # Stop. The in-flight reply was then appended onto that wiped chat.
+        send_state = getattr(getattr(self.send_listener, "sidebar_state", None), "send", None)
+        if self.send_listener is not None and send_state is not None and send_state.is_busy:
+            self.send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
         self.session.clear()
 
         if self.send_listener and self.send_listener.rich_text_widget:

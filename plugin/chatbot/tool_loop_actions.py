@@ -40,6 +40,63 @@ from plugin.framework.worker_pool import run_in_background
 log = logging.getLogger(__name__)
 
 
+def bind_turn_session(host: Any) -> None:
+    """Pin this send to the ChatSession that receives the user row.
+
+    What was wrong: Clear replaces ``messages`` while the drain is inside
+    ``processEventsToIdle``, and ``set_session`` swaps ``host.session`` while
+    a worker still reads that attribute. The reply was stored on the wiped
+    chat, or on a mode that never got the user row.
+    """
+    session = getattr(host, "session", None)
+    host._turn_session = session
+    host._turn_messages = getattr(session, "messages", None)
+
+
+def session_for_turn(host: Any) -> Any:
+    """The session bound at send start, or the live one if this send did not bind."""
+    fields = getattr(host, "__dict__", None)
+    if isinstance(fields, dict) and fields.get("_turn_session") is not None:
+        return fields["_turn_session"]
+    return getattr(host, "session", None)
+
+
+def _turn_accepts_write(host: Any, session: Any) -> bool:
+    fields = getattr(host, "__dict__", None)
+    if not isinstance(fields, dict) or "_turn_messages" not in fields:
+        return True
+    bound = fields.get("_turn_messages")
+    if bound is None:
+        return True
+    # Clear assigns a new list. A write onto that list would put the in-flight
+    # reply back into the chat the user just wiped.
+    return getattr(session, "messages", None) is bound
+
+
+def persist_assistant_on_turn(
+    host: Any,
+    content: Any = None,
+    tool_calls: Any = None,
+    reasoning_replay: Any = None,
+) -> None:
+    session = session_for_turn(host)
+    if session is None or not _turn_accepts_write(host, session):
+        return
+    kwargs: dict[str, Any] = {}
+    if tool_calls is not None:
+        kwargs["tool_calls"] = tool_calls
+    if reasoning_replay is not None:
+        kwargs["reasoning_replay"] = reasoning_replay
+    session.add_assistant_message(content=content, **kwargs)
+
+
+def persist_tool_on_turn(host: Any, call_id: str | None, content: Any) -> None:
+    session = session_for_turn(host)
+    if session is None or not _turn_accepts_write(host, session):
+        return
+    session.add_tool_result(call_id, content)
+
+
 class ToolLoopActionHost(Protocol):
     ctx: Any
     session: Any
@@ -291,9 +348,14 @@ class ToolLoopEffectInterpreter:
 
     def _add_message(self, effect: AddMessageEffect) -> None:
         if effect.role == "assistant":
-            self.host.session.add_assistant_message(content=effect.content, tool_calls=effect.tool_calls, reasoning_replay=effect.reasoning_replay)
+            persist_assistant_on_turn(
+                self.host,
+                content=effect.content,
+                tool_calls=effect.tool_calls,
+                reasoning_replay=effect.reasoning_replay,
+            )
         elif effect.role == "tool":
-            self.host.session.add_tool_result(effect.call_id, effect.content)
+            persist_tool_on_turn(self.host, effect.call_id, effect.content)
 
     def _update_activity_state(self, effect: UpdateActivityStateEffect) -> None:
         if effect.action == "tool_execute":

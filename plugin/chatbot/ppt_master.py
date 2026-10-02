@@ -86,6 +86,7 @@ def _run_ppt_master_venv_agent(
         session_id=session_id,
         on_worker_event=on_worker_event,
         stop_checker=stop_checker,
+        cancellation_scope=getattr(ctx, "send_cancellation", None),
     )
 
 
