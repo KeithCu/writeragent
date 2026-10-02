@@ -20,6 +20,8 @@ Only ``ManageCharts`` is registered; skinny backends live in ``plugin.calc.chart
 """
 
 import logging
+from typing import ClassVar
+
 from plugin.draw.base import ToolDrawChartBase
 from plugin.calc.charts import ManageCharts as CalcManageCharts
 
@@ -30,3 +32,6 @@ _ALL_CHART_DOCS = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.present
 
 class ManageCharts(CalcManageCharts, ToolDrawChartBase):  # type: ignore[misc]
     uno_services: list[str] | None = _ALL_CHART_DOCS  # type: ignore[assignment]
+    # Same MRO issue as Writer charts: Calc's sheet readers must not become
+    # this domain's core tools. Draw charts do not request sheet or Writer readers.
+    required_core_tools: ClassVar[frozenset[str] | None] = None

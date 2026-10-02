@@ -277,7 +277,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
             def on_rich_control_ready(rich_control: Any) -> None:
                 log.info("[RICH-CONTROL] on_rich_control_ready control=%s", bool(rich_control))
-                widget = RichTextChatWidget(self.ctx, rich_control, style_window=root_window)
+                widget = RichTextChatWidget(self.ctx, rich_control, style_window=root_window, query=controls.get("query"))
                 self.rich_text_widget = widget
                 try:
                     from plugin.framework.uno_context import (

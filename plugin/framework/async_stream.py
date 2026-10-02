@@ -369,15 +369,32 @@ def _handle_tool_result_line(state: _DrainState, data: Any, _item: Any) -> None:
     state.apply_chunk_fn(_format_agent_tool_stream_line("[Tool result]", data), False)
 
 
+def _set_approval_event(item: Any) -> None:
+    """Unblock ``wait_for_approval`` when the UI handler cannot finish the dialog."""
+    if not isinstance(item, (tuple, list)):
+        return
+    for part in item:
+        if isinstance(part, threading.Event):
+            part.set()
+            return
+
+
 def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None:
     # crosshair: off
     state.flush_buffers()
     state.close_thinking()
-    if state.on_approval_required:
-        try:
-            state.on_approval_required(item)
-        except Exception:
-            log.exception("approval_required handler failed")
+    if not state.on_approval_required:
+        return
+    try:
+        state.on_approval_required(item)
+    except Exception:
+        # What was wrong: this logged the exception and returned. job_done
+        # stayed false, and the worker stayed in wait_for_approval because
+        # only the handler sets that event. Why: re-raise so the batch
+        # on_error path ends the drain, and set the event so the worker
+        # is not parked after the UI has already unblocked.
+        _set_approval_event(item)
+        raise
 
 
 def _handle_stopped(state: _DrainState, _data: Any, _item: Any) -> None:
@@ -693,6 +710,22 @@ def run_async_worker_with_drain(
         err = UnoObjectError(f"Failed to create toolkit for {name}")
         if on_error_fn:
             on_error_fn(err)
+        return
+
+    # What was wrong: the nested-owner check lived inside the drain loop,
+    # after this worker was already started. A second Send from
+    # processEventsToIdle raised NestedDrainOwnerError and left the worker
+    # writing to a queue nobody reads. Refuse before spawn.
+    existing_owner = get_drain_owner()
+    if existing_owner is not None:
+        from plugin.framework.errors import format_error_payload
+
+        nested = NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
+        if on_error_fn:
+            try:
+                on_error_fn(format_error_payload(nested))
+            except Exception:
+                log.exception("Failed to notify error handler for nested drain")
         return
 
     run_in_background(worker_wrapper, daemon=True, name=name, dedicated=True)

@@ -32,6 +32,39 @@ def _log_request_target(url: Any) -> str:
     return f"{scheme}://{host}{port}{path}"
 
 
+def _header_secrets(headers: dict[str, str] | None, req: Any) -> list[str]:
+    """Bearer tokens and x-api-key values that must not appear in an error string."""
+    items: list[tuple[str, str]] = []
+    if headers:
+        items.extend((str(key), str(value)) for key, value in headers.items() if value)
+    req_headers = getattr(req, "headers", None)
+    if req_headers is not None:
+        try:
+            items.extend((str(key), str(value)) for key, value in dict(req_headers).items() if value)
+        except (TypeError, ValueError):
+            pass
+    secrets: list[str] = []
+    for key, value in items:
+        low = key.lower()
+        if low in ("x-api-key", "api-key"):
+            token = value.strip()
+        elif low == "authorization":
+            parts = value.split(None, 1)
+            token = parts[1].strip() if len(parts) == 2 else value.strip()
+        else:
+            continue
+        if token and token not in secrets:
+            secrets.append(token)
+    return secrets
+
+
+def _redact_secrets(text: str, secrets: list[str]) -> str:
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "<redacted>")
+    return text
+
+
 def sync_request(url: str | Request, data: bytes | None = None, headers: dict[str, str] | None = None, parse_json: bool = True, method: str | None = None, *, timeout: float) -> Any:
     """
     Blocking HTTP GET or POST. Shared by LLM client and other code.
@@ -90,6 +123,8 @@ def sync_request(url: str | Request, data: bytes | None = None, headers: dict[st
     sends_left = RETRY_MAX_ATTEMPTS
     attempt = 0
 
+    header_secrets = _header_secrets(headers, req)
+
     def _http_error(e: urllib.error.HTTPError) -> NetworkError:
         status = e.code
         reason = e.reason
@@ -98,8 +133,10 @@ def sync_request(url: str | Request, data: bytes | None = None, headers: dict[st
         except Exception:
             err_body = ""
         msg = _format_http_error_response(status, reason, err_body)
-        # Status and target only. ``msg`` includes the provider body, which can
-        # echo a key; the NetworkError still carries the full text for the UI.
+        # What was wrong: the NetworkError kept the raw provider body. Catalog
+        # fetch logs ``str(e)``, so a 401 that echoed Authorization / x-api-key
+        # landed in writeragent_debug.log. Chat HTTP errors already redact.
+        msg = _redact_secrets(msg, header_secrets)
         log.exception("HTTP Error %s %s for %s", status, reason, logged_target)
         return NetworkError(msg, code="HTTP_ERROR", details={"url": logged_target, "status": status})
 

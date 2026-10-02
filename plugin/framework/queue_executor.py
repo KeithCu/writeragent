@@ -86,6 +86,11 @@ def set_test_poke_handler(handler: Callable[["QueueExecutor"], None] | None) -> 
     _test_poke_handler = handler
 
 
+# ``_enqueue_work`` reads the current send unless the caller passes the scope
+# that was current when a pending post was stored.
+_SCOPE_UNSET = object()
+
+
 class SendCancelled(Exception):
     """Raised when main-thread work is skipped because the user stopped the send."""
 
@@ -354,7 +359,7 @@ class QueueExecutor:
         self._initialized = False
         self._logged_missing_ctx = False
         self._logged_async_callback_failure = False
-        self._pending_posts: list[tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any]]] = []
+        self._pending_posts: list[tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any], SendCancellation | None]] = []
         self._pending_lock = threading.Lock()
 
     def set_context(self, ctx: Any) -> None:
@@ -384,8 +389,8 @@ class QueueExecutor:
         with self._pending_lock:
             pending = self._pending_posts
             self._pending_posts = []
-        for fn, args, kwargs in pending:
-            self._enqueue_work(fn, args, kwargs, blocking=False)
+        for fn, args, kwargs, scope in pending:
+            self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope)
 
     def _get_async_callback(self) -> Any:
         """Lazily create the AsyncCallback UNO service and XCallback instance."""
@@ -556,8 +561,9 @@ class QueueExecutor:
 
         A *scope* cancels only items enqueued under that send. Other items go
         back in order. Stop used to wipe MCP, grammar, and peer marshals that
-        share ``default_executor``. No scope still drains the whole queue.
+        share ``default_executor``.         No scope still drains the whole queue.
         """
+        kept_any = False
         with self._claim_lock:
             pending: list[_WorkItem] = []
             while True:
@@ -576,10 +582,28 @@ class QueueExecutor:
                     item.event.set()
             for item in keep:
                 self._work_queue.put(item)
+            kept_any = bool(keep)
+        # What was wrong: kept items were put back with a raw Queue.put, and
+        # process_queue decides whether to poke from empty() outside this lock.
+        # If that check ran while the items sat in ``keep``, nothing scheduled
+        # them until a later enqueue, and a blocking execute hit its timeout.
+        if kept_any:
+            self._poke_main_thread()
+        # Pending posts are not on the work queue yet. A later flush used to
+        # enqueue them under whatever send was current then, so Stop did not
+        # drop the posts from the cancelled scope.
+        with self._pending_lock:
+            if scope is None:
+                self._pending_posts.clear()
+            else:
+                self._pending_posts = [row for row in self._pending_posts if row[3] is not scope]
 
-    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True) -> _WorkItem:
+    def _enqueue_work(self, fn: Any, args: Any, kwargs: Any, blocking: bool = True, *, bound_scope: Any = _SCOPE_UNSET) -> _WorkItem:
         """Add work item to queue."""
-        scope = get_current_send_cancellation()
+        if bound_scope is _SCOPE_UNSET:
+            scope = get_current_send_cancellation()
+        else:
+            scope = bound_scope
         if scope is not None:
             scope.bind_executor(self)
         item_id = str(uuid.uuid4())
@@ -747,7 +771,7 @@ class QueueExecutor:
             # status updates from before set_context never ran.
             with self._pending_lock:
                 if len(self._pending_posts) < 32:
-                    self._pending_posts.append((fn, args, kwargs))
+                    self._pending_posts.append((fn, args, kwargs, get_current_send_cancellation()))
                     log.debug("marshal route=post_pending fn=%s %s", fn_label, tag)
                     return
             log.warning("marshal route=post_dropped (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, tag)

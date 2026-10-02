@@ -2241,6 +2241,20 @@ def test_stream_provider_error_event_is_stream_error(client):
     assert err.value.code == "STREAM_ERROR"
 
 
+def test_stream_provider_error_redacts_echoed_api_key(client):
+    """A 200 SSE error must not keep an echoed key in the exception string."""
+    secret = client.config["api_key"]
+    payload = json.dumps({"error": {"message": f"bad key {secret}", "type": "server_error"}}).encode()
+    resp = create_mock_http_response(sse_lines=[b"data: " + payload, b"data: [DONE]"])
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        with pytest.raises(NetworkError) as err:
+            client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert err.value.code == "STREAM_ERROR"
+    assert secret not in str(err.value)
+    assert "<redacted>" in str(err.value)
+
+
 def test_stream_overloaded_before_tokens_retries(client, _fast_retry_waits):
     bad = create_mock_http_response(sse_lines=[b'data: {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}'])
     ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
@@ -2432,6 +2446,29 @@ def test_request_json_rejects_non_json_body():
     with patch.object(client, "_send_request", return_value=response), patch.object(client, "_close_if_connection_close"):
         with pytest.raises(NetworkError) as exc:
             client._request_json("POST", "/v1/chat/completions", {}, {})
+    assert exc.value.code == "BAD_RESPONSE"
+
+
+def test_request_json_rejects_truncated_object_and_json_array():
+    """Provider envelopes are strict JSON objects. Repair must not invent a reply."""
+    client = LlmClient({"endpoint": "http://127.0.0.1:9", "model": "m", "api_key": "k"}, None)
+    for body in (b'{"choices":[{"message":{"content":"hel', b"[]"):
+        response = MagicMock()
+        response.status = 200
+        response.read.return_value = body
+        with patch.object(client, "_send_request", return_value=response), patch.object(client, "_close_if_connection_close"):
+            with pytest.raises(NetworkError) as exc:
+                client._request_json("POST", "/v1/chat/completions", {}, {})
+        assert exc.value.code == "BAD_RESPONSE"
+
+
+def test_request_with_tools_sync_rejects_truncated_envelope(client):
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = b'{"choices":[{"message":{"content":"hel'
+    with patch.object(client, "_send_request", return_value=response), patch.object(client, "_close_if_connection_close"):
+        with pytest.raises(NetworkError) as exc:
+            client.request_with_tools([{"role": "user", "content": "hi"}], max_tokens=10)
     assert exc.value.code == "BAD_RESPONSE"
 
 

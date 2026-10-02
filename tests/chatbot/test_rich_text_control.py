@@ -472,7 +472,7 @@ class TestRichTextChatWidget:
 
         with patch("plugin.chatbot.rich_text_control.append_text_chunk") as mock_chunk:
             widget.append_chunk("hello", auto_scroll=True)
-            mock_chunk.assert_called_once_with(control, "hello", auto_scroll=True, style_window=None, ctx=ctx)
+            mock_chunk.assert_called_once_with(control, "hello", auto_scroll=True, style_window=None, ctx=ctx, query=None)
 
         with patch("plugin.chatbot.rich_text_paste.append_rich_text_via_clipboard") as mock_rich:
             widget.append_rich_message("<b>hi</b>", role="user")

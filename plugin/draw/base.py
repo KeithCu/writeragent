@@ -34,7 +34,10 @@ class ToolDrawSpecialBase(ToolBase):
     tier: str = "specialized"
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
-    required_core_tools: ClassVar[frozenset[str] | None] = None
+    # Do not assign required_core_tools = None here. ToolBase already defaults
+    # to None, and an explicit assignment stops MRO before a Writer/Calc shape
+    # base mixed in after the Draw implementation
+    # (UpsertShape(DrawUpsertShape, ToolWriterShapeBase)).
 
 
 # --- Domain-Specific Base Classes ---

@@ -473,6 +473,8 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown â
 
 The module mixes (1) true UNO globals (ctx, desktop, toolkit, package URL, resolve-by-url) with (2) sidebar stream-focus tracking (`install_stream_focus_tracker`, `note_user_left_query`, â€¦). Focus helpers are real bugfixes; they are not generic utilities. Future work should **not** add more UI here. An optional later split is listed below; it is not required to fix overlap.
 
+Each open sidebar gets its own query `focusGained` listener. `install_stream_focus_tracker` does not replace the process-wide restore pin (`set_default_focus_restore` owns that). Stream scroll passes that panel's Ask field into `restore_query_if_user_still_there`, so a second window does not `setFocus` the first. Leave-query listeners (Stop/Clear/Send) remove themselves on `disposing` and are not attached twice to the same control.
+
 ---
 
 ## 4. Ranked future-work recommendations

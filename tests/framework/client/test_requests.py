@@ -41,6 +41,26 @@ def test_sync_request_log_omits_query_and_body(caplog):
     assert secret in str(raised.value)
 
 
+def test_sync_request_http_error_redacts_authorization_key():
+    secret = "sk-catalog-secret"
+    err = HTTPError(
+        "https://api.example/v1/models",
+        401,
+        "Unauthorized",
+        hdrs=None,
+        fp=BytesIO(f"rejected {secret}".encode()),
+    )
+    with patch("plugin.framework.client.requests.urlopen", side_effect=err):
+        with pytest.raises(NetworkError) as raised:
+            sync_request(
+                "https://api.example/v1/models",
+                headers={"Authorization": f"Bearer {secret}"},
+                timeout=1,
+            )
+    assert secret not in str(raised.value)
+    assert "<redacted>" in str(raised.value)
+
+
 def test_sync_request_retries_429_then_succeeds():
     busy = HTTPError("https://api.example/v1/models", 429, "Too Many Requests", hdrs=None, fp=BytesIO(b"busy"))
     ok = MagicMock()

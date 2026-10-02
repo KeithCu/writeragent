@@ -537,6 +537,76 @@ def test_get_active_document_skips_desktop_create_on_no_vcl():
     smgr.createInstanceWithContext.assert_not_called()
 
 
+def test_get_active_document_reraises_disposed_desktop():
+    """A disposed desktop is not "no document"."""
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.framework.uno_context import get_active_document
+
+    class DisposedException(Exception):
+        pass
+
+    with (
+        patch("plugin.framework.uno_context.get_desktop", side_effect=DisposedException("desktop gone")),
+        pytest.raises(DocumentDisposedError),
+    ):
+        get_active_document(MagicMock())
+
+
+def test_new_blank_writer_returns_guarded_document():
+    from plugin.framework.uno_context import new_blank_writer
+
+    doc = MagicMock()
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = doc
+    sentinel = object()
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.clear_writer_body"),
+        patch("plugin.framework.thread_guard.guard_uno", return_value=sentinel) as guard,
+    ):
+        assert new_blank_writer(MagicMock()) is sentinel
+    guard.assert_called_once_with(doc)
+
+
+def test_install_does_not_replace_focus_pin():
+    import types
+
+    from plugin.framework import uno_context as uc
+
+    class _Base:
+        pass
+
+    class XFocusListener:
+        pass
+
+    class XMouseListener:
+        pass
+
+    class XMouseClickHandler:
+        pass
+
+    first = MagicMock()
+    second = MagicMock()
+    saved_pin = uc._default_focus_restore
+    saved_trackers = list(uc._stream_focus_trackers)
+    saved_query = uc._query_focus_listener
+    uc._stream_focus_trackers.clear()
+    uc._query_focus_listener = None
+    uc._query_focus_bindings.clear()
+    uc.set_default_focus_restore(first)
+    fake_awt = types.SimpleNamespace(XFocusListener=XFocusListener, XMouseListener=XMouseListener, XMouseClickHandler=XMouseClickHandler)
+    try:
+        with patch.dict(sys.modules, {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt}):
+            uc.install_stream_focus_tracker(MagicMock(), query=second)
+        assert uc._default_focus_restore is first
+        second.addFocusListener.assert_called_once()
+    finally:
+        uc.set_default_focus_restore(saved_pin)
+        uc._stream_focus_trackers[:] = saved_trackers
+        uc._query_focus_listener = saved_query
+        uc._query_focus_bindings.clear()
+
+
 def test_get_active_document_reraises_disposed():
     """A document that dies mid-call must not look like nothing is open."""
     from plugin.framework.errors import DocumentDisposedError
@@ -674,10 +744,17 @@ def test_install_attaches_leave_controls_when_trackers_already_exist():
             )
         stop.addMouseListener.assert_called_once()
         stop.addFocusListener.assert_called_once()
-        query.addFocusListener.assert_not_called()
+        # A different Ask field still gets focusGained. The old early return
+        # skipped it whenever any query listener was already live.
+        query.addFocusListener.assert_called_once()
+        uc.install_stream_focus_tracker(MagicMock(), query=query, leave_query_controls=(stop,))
+        stop.addMouseListener.assert_called_once()
+        query.addFocusListener.assert_called_once()
     finally:
         uc._stream_focus_trackers[:] = saved
         uc._query_focus_listener = saved_query_listener
+        uc._query_focus_bindings.clear()
+        uc._leave_query_bindings.clear()
 
 
 def test_install_click_handler_follows_each_document_controller():
@@ -768,6 +845,8 @@ def test_disposed_query_listener_lets_the_next_sidebar_attach():
     saved_query_listener = uc._query_focus_listener
     uc._stream_focus_trackers.clear()
     uc._query_focus_listener = None
+    uc._query_focus_bindings.clear()
+    uc._leave_query_bindings.clear()
     fake_awt = types.SimpleNamespace(
         XFocusListener=XFocusListener,
         XMouseListener=XMouseListener,
@@ -785,11 +864,21 @@ def test_disposed_query_listener_lets_the_next_sidebar_attach():
             assert uc._query_focus_listener is None
             second = MagicMock()
             uc.install_stream_focus_tracker(MagicMock(), query=second)
-        second.addFocusListener.assert_called_once()
-        second.addFocusListener.call_args[0][0].focusGained(None)
+            second.addFocusListener.assert_called_once()
+            second.addFocusListener.call_args[0][0].focusGained(None)
+            leave = MagicMock()
+            uc.install_stream_focus_tracker(MagicMock(), query=second, leave_query_controls=(leave,))
+            mouse = leave.addMouseListener.call_args[0][0]
+            before = len(uc._stream_focus_trackers)
+            mouse.disposing(None)
+            assert mouse not in uc._stream_focus_trackers
+            assert len(uc._stream_focus_trackers) < before
+            leave.removeMouseListener.assert_called()
     finally:
         uc._stream_focus_trackers[:] = saved_trackers
         uc._query_focus_listener = saved_query_listener
+        uc._query_focus_bindings.clear()
+        uc._leave_query_bindings.clear()
 
 
 # ---- uno_same --------------------------------------------------------------

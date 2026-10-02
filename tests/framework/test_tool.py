@@ -557,6 +557,42 @@ class TestManageChartsSpecializedTier:
         domain_names = {t.name for t in reg.get_tools(doc=doc, active_domain="charts")}
         assert domain_names == {"manage_charts"}
 
+    def test_writer_charts_domain_uses_writer_core_tools_not_sheet_readers(self):
+        """Shared manage_charts name must not inherit Calc's required_core_tools via MRO."""
+        from plugin.calc.shapes import UpsertShape as CalcUpsertShape
+        from plugin.writer.specialized.charts import ManageCharts as WriterManageCharts
+        from plugin.writer.specialized.shapes import UpsertShape as WriterUpsertShape
+
+        assert "get_document_content" in (WriterUpsertShape.required_core_tools or ())
+        assert "get_sheet_summary" in (CalcUpsertShape.required_core_tools or ())
+        assert WriterManageCharts.required_core_tools is not None
+        assert "read_cell_range" not in WriterManageCharts.required_core_tools
+
+        def _exec(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        def core(name: str) -> ToolBase:
+            cls = type(
+                "Core_" + name,
+                (ToolBase,),
+                {"name": name, "description": name, "tier": "core", "requires_document": False, "execute": _exec},
+            )
+            return cls()
+
+        reg = _make_registry(
+            core("get_document_content"),
+            core("get_document_tree"),
+            core("get_sheet_summary"),
+            core("read_cell_range"),
+            WriterManageCharts(),
+        )
+        names = {t.name for t in reg.get_tools(active_domain="charts", filter_doc_type=False)}
+        assert "manage_charts" in names
+        assert "get_document_content" in names
+        assert "get_document_tree" in names
+        assert "read_cell_range" not in names
+        assert "get_sheet_summary" not in names
+
     def test_manage_charts_still_dispatches_to_dummy_backends(self):
         from plugin.calc.charts import ManageCharts
 

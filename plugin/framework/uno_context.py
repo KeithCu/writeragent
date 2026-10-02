@@ -303,7 +303,9 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
     hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
     doc = desktop.loadComponentFromURL("private:factory/swriter", target, flags, (hidden,) + tuple(extra_props))
     clear_writer_body(doc)
-    return doc
+    # Other document lookups wrap the model so a later off-thread use is
+    # caught by the dev thread guard. This factory used to return it raw.
+    return _guard_returned_uno(doc)
 
 
 def _reraise_document_disposed(exc: BaseException, object_type: str) -> None:
@@ -404,7 +406,11 @@ def get_active_document(ctx: Any | None = None) -> Any:
     except UnoObjectError:
         log.exception("get_active_document UnoObjectError")
         return None
-    except Exception:
+    except Exception as e:
+        # What was wrong: DisposedException from get_desktop() is a plain
+        # Exception, so a dying desktop looked like nothing open. safe_call
+        # already re-raises disposal from getCurrentComponent.
+        _reraise_document_disposed(e, "Desktop")
         log.exception("get_active_document unexpected exception")
         return None
 
@@ -502,6 +508,12 @@ _stream_focus_trackers: list[Any] = []
 # sidebar closes; keying "already installed" on the whole list meant a
 # reopened panel never got focusGained.
 _query_focus_listener: Any = None
+# (query control, listener). One focus listener per Ask field. A second
+# sidebar must not be skipped because the first window's listener is live.
+_query_focus_bindings: list[tuple[Any, Any]] = []
+# (control, mouse listener, focus listener). Leave-query listeners used to
+# accumulate: disposing() was a no-op and every install attached again.
+_leave_query_bindings: list[tuple[Any, Any, Any]] = []
 # (controller, handler). One click handler per document controller, not one
 # for the process: the first sidebar used to subscribe only the document that
 # was current at install time.
@@ -552,11 +564,16 @@ def note_user_left_query() -> None:
     log.debug("stream focus: left query")
 
 
-def restore_query_if_user_still_there() -> None:
-    """After a stream SelectAll, put the caret back in Ask/instruct unless the user left."""
+def restore_query_if_user_still_there(query: Any = None) -> None:
+    """After a stream SelectAll, put the caret back in Ask/instruct unless the user left.
+
+    *query* is that panel's Ask field. Stream chunks pass it so a second
+    sidebar's pin does not steal setFocus. Callers without a control still
+    use the process-wide pin.
+    """
     if not _restore_query_after_scroll:
         return
-    q = _default_focus_restore
+    q = query if query is not None else _default_focus_restore
     if q is None or not hasattr(q, "setFocus"):
         return
     try:
@@ -582,14 +599,43 @@ def _current_document_controller(ctx: Any) -> Any:
         return None
 
 
+def _release_leave_query_binding(control: Any, mouse: Any, focus: Any) -> None:
+    """Drop Stop/Clear/Send listeners so a disposed control is not pinned."""
+    try:
+        if mouse is not None and control is not None and hasattr(control, "removeMouseListener"):
+            control.removeMouseListener(mouse)
+    except Exception as e:
+        log.debug("removeMouseListener: %s", e)
+    try:
+        if focus is not None and control is not None and hasattr(control, "removeFocusListener"):
+            control.removeFocusListener(focus)
+    except Exception as e:
+        log.debug("removeFocusListener: %s", e)
+    _leave_query_bindings[:] = [row for row in _leave_query_bindings if row[1] is not mouse and row[2] is not focus]
+    for listener in (mouse, focus):
+        if listener is None:
+            continue
+        try:
+            _stream_focus_trackers.remove(listener)
+        except ValueError:
+            pass
+
+
 def _attach_leave_query_listeners(control: Any) -> None:
     """Stop restoring Ask/instruct when the user targets this sidebar control.
 
     Document page clicks are handled by ``XMouseClickHandler``; sidebar Stop
     is not on that path. mouseEntered is earlier than ActionEvent.
+
+    What was wrong: disposing() returned immediately and every later install
+    attached another pair, so Stop/Clear/Send accumulated listeners.
+    Why: skip a control already tracked, and remove the listeners on dispose.
     """
     if control is None:
         return
+    for existing, _mouse, _focus in _leave_query_bindings:
+        if existing is control:
+            return
     try:
         import unohelper
         from com.sun.star.awt import XFocusListener, XMouseListener
@@ -598,7 +644,7 @@ def _attach_leave_query_listeners(control: Any) -> None:
 
     class _LeaveQueryFocus(unohelper.Base, XFocusListener):
         def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
-            return
+            _release_leave_query_binding(control, mouse_track, self)
 
         def focusLost(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
             return
@@ -609,7 +655,7 @@ def _attach_leave_query_listeners(control: Any) -> None:
 
     class _LeaveQueryMouse(unohelper.Base, XMouseListener):
         def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
-            return
+            _release_leave_query_binding(control, self, focus_track)
 
         def mousePressed(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
             note_user_left_query()
@@ -623,6 +669,8 @@ def _attach_leave_query_listeners(control: Any) -> None:
         def mouseExited(self, e: MouseEvent) -> None:  # noqa: N802 -- UNO signature
             return
 
+    mouse_track: Any = None
+    focus_track: Any = None
     try:
         if hasattr(control, "addMouseListener"):
             mouse_track = _LeaveQueryMouse()
@@ -632,6 +680,8 @@ def _attach_leave_query_listeners(control: Any) -> None:
             focus_track = _LeaveQueryFocus()
             control.addFocusListener(focus_track)
             _stream_focus_trackers.append(focus_track)
+        if mouse_track is not None or focus_track is not None:
+            _leave_query_bindings.append((control, mouse_track, focus_track))
     except Exception as e:
         log.debug("leave-query listeners: %s", e)
 
@@ -698,38 +748,36 @@ def _ensure_document_click_handler(ctx: Any) -> None:
 def _drop_query_focus_listener(listener: Any) -> None:
     """Forget the query listener once its control is disposed."""
     global _query_focus_listener
+    control = None
+    kept: list[tuple[Any, Any]] = []
+    for ctrl, bound in _query_focus_bindings:
+        if bound is listener:
+            control = ctrl
+            continue
+        kept.append((ctrl, bound))
+    _query_focus_bindings[:] = kept
+    if control is not None:
+        try:
+            if hasattr(control, "removeFocusListener"):
+                control.removeFocusListener(listener)
+        except Exception as e:
+            log.debug("removeFocusListener: %s", e)
     if listener is not None and _query_focus_listener is listener:
-        _query_focus_listener = None
+        _query_focus_listener = kept[-1][1] if kept else None
     try:
         _stream_focus_trackers.remove(listener)
     except ValueError:
         pass
 
 
-def install_stream_focus_tracker(ctx: Any, query: Any = None, leave_query_controls: Any = None) -> None:
-    """Query focusGained → keep restoring. Document / sidebar pointer → stop.
-
-    Window focus listeners miss in-frame query→page clicks (same top-level).
-    Writer's XUserInputInterception mouse handler sees the page click.
-    Sidebar Stop/Clear/other widgets are not on that handler — pass them as
-    *leave_query_controls* so stream ``query.setFocus()`` does not steal the
-    click (Packet B1).
-    """
-    global _default_focus_restore, _query_focus_listener
-    if query is not None:
-        _default_focus_restore = query
-    # One live query listener. Leave-query and document-click listeners also
-    # sit in _stream_focus_trackers, so that list staying non-empty must not
-    # block a new query listener after the old control is disposed.
-    # What was wrong: disposing() was a no-op and the early return keyed off
-    # the whole tracker list. A reopened sidebar updated the focus pin and
-    # never received focusGained, so stream chunks skipped caret restore.
-    if _query_focus_listener is not None:
-        for ctrl in leave_query_controls or ():
-            if ctrl is not None and ctrl is not query:
-                _attach_leave_query_listeners(ctrl)
-        _ensure_document_click_handler(ctx)
+def _attach_query_focus_listener(query: Any) -> None:
+    """focusGained on this Ask field keeps caret restore. One listener per control."""
+    global _query_focus_listener
+    if query is None or not hasattr(query, "addFocusListener"):
         return
+    for existing, _listener in _query_focus_bindings:
+        if existing is query:
+            return
     try:
         import unohelper
         from com.sun.star.awt import XFocusListener
@@ -748,18 +796,37 @@ def install_stream_focus_tracker(ctx: Any, query: Any = None, leave_query_contro
             log.debug("stream focus: query")
 
     try:
-        if query is not None and hasattr(query, "addFocusListener"):
-            q_track = _QueryFocus()
-            query.addFocusListener(q_track)
-            _stream_focus_trackers.append(q_track)
-            _query_focus_listener = q_track
-        _ensure_document_click_handler(ctx)
-        for ctrl in leave_query_controls or ():
-            if ctrl is not None and ctrl is not query:
-                _attach_leave_query_listeners(ctrl)
-        log.debug("install_stream_focus_tracker n=%d", len(_stream_focus_trackers))
+        q_track = _QueryFocus()
+        query.addFocusListener(q_track)
+        _stream_focus_trackers.append(q_track)
+        _query_focus_bindings.append((query, q_track))
+        _query_focus_listener = q_track
     except Exception as e:
-        log.debug("install_stream_focus_tracker: %s", e)
+        log.debug("query focus listener: %s", e)
+
+
+def install_stream_focus_tracker(ctx: Any, query: Any = None, leave_query_controls: Any = None) -> None:
+    """Query focusGained → keep restoring. Document / sidebar pointer → stop.
+
+    Window focus listeners miss in-frame query→page clicks (same top-level).
+    Writer's XUserInputInterception mouse handler sees the page click.
+    Sidebar Stop/Clear/other widgets are not on that handler — pass them as
+    *leave_query_controls* so stream ``query.setFocus()`` does not steal the
+    click (Packet B1).
+
+    What was wrong: a second sidebar replaced the process-wide focus pin and
+    returned without a focusGained listener, because the first window's
+    listener was still set. Stream chunks then called setFocus on the other
+    window's Ask field. Why: attach a listener per query control, and leave
+    the pin to set_default_focus_restore. The streaming widget passes its
+    own query into restore.
+    """
+    _attach_query_focus_listener(query)
+    for ctrl in leave_query_controls or ():
+        if ctrl is not None and ctrl is not query:
+            _attach_leave_query_listeners(ctrl)
+    _ensure_document_click_handler(ctx)
+    log.debug("install_stream_focus_tracker n=%d", len(_stream_focus_trackers))
 
 
 def _focus_restore_target(explicit: Any = None) -> Any:
@@ -1033,7 +1100,16 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
         enum = comps.createEnumeration()
         if not enum:
             return (None, None)
-        while enum and enum.hasMoreElements():
+        # Real UNO hasMoreElements() is bool. A MagicMock is always truthy,
+        # so ``while enum.hasMoreElements()`` spun the main thread in pytest.
+        # Same guard as get_open_documents.
+        while enum is not None:
+            try:
+                more = enum.hasMoreElements()
+            except Exception:
+                break
+            if more is not True and more != 1:
+                break
             elem = enum.nextElement()
             try:
                 model = None

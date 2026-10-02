@@ -160,6 +160,25 @@ def _redact_secret_from_log_text(text: str, secret: str) -> str:
     return text.replace(secret, "<redacted>")
 
 
+def _parse_provider_envelope(raw: Any, path: str) -> dict[str, Any]:
+    """Parse an HTTP 200 provider body as a JSON object.
+
+    What was wrong: callers used ``safe_json_loads`` without ``strict=True``.
+    That ladder repairs truncated model text, so a cut-off envelope such as
+    ``{"choices":[{"message":{"content":"hel`` became a dict and looked like a
+    finished reply. A JSON array was not ``None``, then ``.get`` ran outside
+    the request ``try``.
+    Why: provider envelopes are not model text. Standard ``json.loads`` only,
+    and only a dict is a response.
+    """
+    from plugin.framework.errors import safe_json_loads
+
+    parsed = safe_json_loads(raw, strict=True)
+    if not isinstance(parsed, dict):
+        raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
+    return parsed
+
+
 def _full_url_for_request_path(endpoint: str, path: str) -> str:
     """Join stored endpoint host with relative API path for debug logs.
 
@@ -570,8 +589,6 @@ class LlmClient:
         Retry waits read the same latch: ``wait_abortable`` only returns early
         when a checker is set, so a 429 used to sleep out after Stop.
         """
-        from plugin.framework.errors import safe_json_loads
-
         def _stopped() -> bool:
             return self._stopped
 
@@ -590,11 +607,7 @@ class LlmClient:
                     continue
                 raw = response.read().decode("utf-8", errors="replace")
                 self._close_if_connection_close(response)
-                parsed = safe_json_loads(raw)
-                # A 200 with a non-JSON body used to become None and then an empty reply.
-                if parsed is None:
-                    raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
-                return parsed
+                return _parse_provider_envelope(raw, path)
             except CONNECTION_ERRORS as e:
                 action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=_stopped, status_callback=None, retry_log_message="Retrying JSON request on fresh connection")
                 if action == "stop":
@@ -804,6 +817,11 @@ class LlmClient:
                         # used to look like a short successful answer.
                         stream_err = _stream_error_message(chunk)
                         if stream_err is not None:
+                            # Chat HTTP errors already redact an echoed key. A 200
+                            # SSE error used to raise the raw provider string, which
+                            # the sidebar and the debug log then showed.
+                            api_key = str(self.config.get("api_key") or "").strip()
+                            stream_err = _redact_secret_from_log_text(stream_err, api_key)
                             if (not emitted_any) and _stream_error_is_overload(stream_err) and sends_left > 1:
                                 self._close_connection()
                                 sends_left -= 1
@@ -1079,13 +1097,9 @@ class LlmClient:
                         except Exception as log_exc:
                             log.warning("Could not log redacted outgoing messages: %s", log_exc)
                         continue
-                    from plugin.framework.errors import safe_json_loads
-
                     raw = response.read()
                     self._close_if_connection_close(response)
-                    result = safe_json_loads(raw.decode("utf-8"))
-                    if result is None:
-                        raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
+                    result = _parse_provider_envelope(raw, path)
                     break
                 except CONNECTION_ERRORS as e:
                     action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=abort_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection")

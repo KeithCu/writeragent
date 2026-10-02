@@ -111,6 +111,13 @@ def test_resolve_reraises_when_desktop_is_disposed():
             resolve_document_by_url(MagicMock(), "file:///tmp/note.odt")
 
 
+def test_resolve_does_not_spin_on_a_magicmock_enumeration():
+    """MagicMock.hasMoreElements() is truthy forever. The loop must stop."""
+    desktop = MagicMock()
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        assert resolve_document_by_url(MagicMock(), "file:///tmp/note.odt") == (None, None)
+
+
 def test_resolve_returns_none_when_desktop_is_missing():
     with patch("plugin.framework.uno_context.get_desktop", return_value=None):
         assert resolve_document_by_url(MagicMock(), "file:///tmp/note.odt") == (None, None)

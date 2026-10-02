@@ -109,12 +109,14 @@ class RichTextChatWidget:
     ctx: Any
     control: Any
     style_window: Any
+    query: Any
     model: Any
 
-    def __init__(self, ctx: Any, control: Any, style_window: Any = None) -> None:
+    def __init__(self, ctx: Any, control: Any, style_window: Any = None, query: Any = None) -> None:
         self.ctx = ctx
         self.control = control
         self.style_window = style_window
+        self.query = query
         self.model = control.getModel() if control else None
 
     def get_text_length(self) -> int:
@@ -135,7 +137,7 @@ class RichTextChatWidget:
 
     def append_chunk(self, text: str, auto_scroll: bool = True) -> None:
         """Append a plain text chunk (e.g. streaming tokens) using theme colors."""
-        append_text_chunk(self.control, text, auto_scroll=auto_scroll, style_window=self.style_window, ctx=self.ctx)
+        append_text_chunk(self.control, text, auto_scroll=auto_scroll, style_window=self.style_window, ctx=self.ctx, query=self.query)
 
     def append_rich_message(
         self,
@@ -1170,7 +1172,7 @@ def _dispatch_rich_uno(control: Any, command: str, ctx: Any = None) -> bool:  # 
         return False
 
 
-def _scroll_rich_to_tail(control: Any, ctx: Any = None) -> None:
+def _scroll_rich_to_tail(control: Any, ctx: Any = None, query: Any = None) -> None:
     """SelectAll for stick-to-bottom, keeping EESelectionMode::Hidden.
 
     OSelectAllDispatcher: EditView.SetSelection(All()) then ShowCursor.
@@ -1190,14 +1192,14 @@ def _scroll_rich_to_tail(control: Any, ctx: Any = None) -> None:
     _IN_SCROLL_TO_TAIL = True
     try:
         from plugin.framework.uno_context import restore_query_if_user_still_there
-        restore_query_if_user_still_there()
+        restore_query_if_user_still_there(query)
         _dispatch_rich_uno(control, ".uno:SelectAll", ctx)
-        restore_query_if_user_still_there()
+        restore_query_if_user_still_there(query)
     finally:
         _IN_SCROLL_TO_TAIL = False
 
 
-def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None) -> None:
+def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None, query: Any = None) -> None:
     """Append plain text during assistant streaming with theme assistant color."""
     if not control or not text:
         return
@@ -1217,9 +1219,9 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
         cursor.CharBackColor = theme.bg_color
         _insert_string_at_rich_cursor(model, cursor, text, theme.assistant_color)
         if auto_scroll:
-            _scroll_rich_to_tail(control, ctx)
+            _scroll_rich_to_tail(control, ctx, query)
             from plugin.framework.uno_context import restore_query_if_user_still_there
-            restore_query_if_user_still_there()
+            restore_query_if_user_still_there(query)
             process_events_to_idle(ctx, force=True)
 
     try:

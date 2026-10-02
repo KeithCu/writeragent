@@ -1264,6 +1264,49 @@ def test_nested_stream_drain_rejected():
     assert errors
 
 
+def test_nested_async_worker_does_not_start_before_drain_check():
+    """A second drain must not spawn a worker that writes to an unread queue."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+    from plugin.framework.queue_executor import drain_owner_scope
+
+    started: list[int] = []
+    errors: list[object] = []
+
+    def worker(_q: queue.Queue) -> None:
+        started.append(1)
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=DummyToolkit()):
+        with drain_owner_scope("outer"):
+            run_async_worker_with_drain(MagicMock(), worker, None, None, errors.append)
+    assert started == []
+    assert errors
+
+
+def test_approval_handler_failure_ends_drain_and_sets_event():
+    event = threading.Event()
+    q: queue.Queue = queue.Queue()
+    q.put((StreamQueueKind.APPROVAL_REQUIRED, "allow?", "read_file", event))
+    job_done = [False]
+    errors: list[object] = []
+
+    def boom(_item: object) -> None:
+        raise RuntimeError("dialog failed")
+
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda _t, _th: None,
+        on_stream_done=lambda _i: True,
+        on_stopped=lambda: None,
+        on_error=errors.append,
+        on_approval_required=boom,
+    )
+    assert job_done[0] is True
+    assert event.is_set()
+    assert errors
+
+
 def test_run_stream_drain_loop_idle_unblocks_marshaled_worker():
     """Regression: web_research-style hang when main waits in drain loop for async tool."""
     from plugin.framework import queue_executor as qe

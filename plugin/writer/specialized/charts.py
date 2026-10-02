@@ -23,6 +23,8 @@ Only ``ManageCharts`` is registered; skinny backends live in ``plugin.calc.chart
 """
 
 import logging
+from typing import ClassVar
+
 from ..specialized_base import ToolWriterChartBase
 from plugin.calc.charts import ManageCharts as CalcManageCharts
 
@@ -40,3 +42,7 @@ _ALL_CHART_DOCS = [
 
 class ManageCharts(CalcManageCharts, ToolWriterChartBase):  # type: ignore[misc]
     uno_services: list[str] | None = _ALL_CHART_DOCS  # type: ignore[assignment]
+    # Calc's ManageCharts is the first base, so MRO would find
+    # ToolCalcSpecialBase.required_core_tools (sheet readers) and hide
+    # Writer's document readers. A class-body assignment wins.
+    required_core_tools: ClassVar[frozenset[str] | None] = ToolWriterChartBase.required_core_tools

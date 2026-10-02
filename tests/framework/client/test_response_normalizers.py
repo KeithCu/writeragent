@@ -191,6 +191,36 @@ def test_anthropic_json_object_is_a_system_hint_not_a_request_field():
     assert data["system"] == "Be brief.\n\nRespond with a single JSON object and no other text."
 
 
+def test_anthropic_null_content_is_empty_not_an_error():
+    shim = AnthropicShim(MagicMock())
+    content, _finish, _thinking, delta = shim.parse_response_chunk({"type": "message", "content": None, "stop_reason": "end_turn"})
+    assert content == ""
+    assert "tool_calls" not in delta
+    content, _finish, _thinking, delta = shim.parse_response_chunk({"type": "message", "content": ["nope", {"type": "text", "text": "ok"}], "stop_reason": "end_turn"})
+    assert content == "ok"
+
+
+def test_anthropic_build_skips_missing_tool_arguments():
+    import json
+
+    client = MagicMock()
+    client._endpoint.return_value = "https://api.anthropic.com"
+    client._headers.return_value = {}
+    shim = AnthropicShim(client)
+    _method, _path, body, _headers = shim.build_chat_request(
+        [{"role": "user", "content": None}, {"role": "assistant", "content": None, "tool_calls": [{"id": "t1", "function": {"name": "do_work"}}]}],
+        32,
+        None,
+        None,
+        False,
+        "claude-test",
+        None,
+    )
+    data = json.loads(body)
+    assistant = data["messages"][-1]
+    assert assistant["content"] == [] or all(part.get("type") != "tool_use" for part in assistant["content"])
+
+
 def test_anthropic_thinking_delta_maps_onto_thinking():
     shim = AnthropicShim(MagicMock())
     content, _finish, thinking, delta = shim.parse_response_chunk({"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "hmm"}})

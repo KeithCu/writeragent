@@ -951,3 +951,54 @@ def test_cancel_drain_excludes_concurrent_enqueue():
     assert put_count["n"] == 1
     late = gap.get_nowait()
     assert late.cancelled is False
+
+
+def test_cancel_reput_pokes_kept_work():
+    """Items kept for another send must be poked, or they sit until a later enqueue."""
+    from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem
+
+    qe = QueueExecutor()
+    pokes: list[str] = []
+    qe._poke_main_thread = lambda: pokes.append("poke")  # type: ignore[method-assign]
+    keep_scope = SendCancellation()
+    cancel_scope = SendCancellation()
+    kept = _WorkItem("kept", lambda: None, (), {}, blocking=False, scope=keep_scope)
+    doomed = _WorkItem("doomed", lambda: None, (), {}, blocking=False, scope=cancel_scope)
+    qe._work_queue.put(kept)
+    qe._work_queue.put(doomed)
+    qe.cancel_pending_work(cancel_scope)
+    assert pokes == ["poke"]
+    assert qe._work_queue.get_nowait() is kept
+    assert doomed.cancelled is True
+
+
+def test_cancel_drops_pending_posts_for_that_scope_only():
+    from plugin.framework.queue_executor import QueueExecutor, SendCancellation
+
+    qe = QueueExecutor()
+    scope = SendCancellation()
+    other = SendCancellation()
+    qe._pending_posts.append((lambda: None, (), {}, scope))
+    qe._pending_posts.append((lambda: None, (), {}, other))
+    qe.cancel_pending_work(scope)
+    assert len(qe._pending_posts) == 1
+    assert qe._pending_posts[0][3] is other
+
+
+def test_flush_pending_posts_keeps_original_scope():
+    from plugin.framework.queue_executor import QueueExecutor, SendCancellation
+
+    qe = QueueExecutor()
+    scope = SendCancellation()
+    seen: list[object] = []
+
+    def capture(fn, args, kwargs, blocking=True, *, bound_scope=None):  # type: ignore[no-untyped-def]
+        seen.append(bound_scope)
+        return None
+
+    qe._enqueue_work = capture  # type: ignore[method-assign]
+    qe._initialized = True
+    qe._async_callback_service = object()
+    qe._pending_posts.append((lambda: None, (), {}, scope))
+    qe._flush_pending_posts()
+    assert seen == [scope]

@@ -56,6 +56,18 @@ def _anthropic_tool_def(tool: Any) -> dict[str, Any] | None:
     return {"name": name, "description": description, "input_schema": schema}
 
 
+def _dict_parts(content: Any) -> list[dict[str, Any]]:
+    """Content blocks that are dicts. Null, a string, or a non-dict part is skipped.
+
+    What was wrong: sync ``content: null`` and a non-dict part called ``.get``
+    and raised TypeError / AttributeError. The Google image path already
+    treats null content as no blocks.
+    """
+    if not isinstance(content, list):
+        return []
+    return [part for part in content if isinstance(part, dict)]
+
+
 def _parse_tool_input(args: Any) -> dict[str, Any] | None:
     """Parse tool arguments into an object. Never substitute ``{}`` for bad JSON.
 
@@ -137,7 +149,7 @@ class AnthropicShim(BaseProviderShim):
 
             if role == "system":
                 if isinstance(content, list):
-                    system_msg = "\n\n".join([p.get("text", "") for p in content if p.get("type") == "text"])
+                    system_msg = "\n\n".join([p.get("text", "") for p in _dict_parts(content) if p.get("type") == "text"])
                 else:
                     system_msg = str(content or "")
                 continue
@@ -149,7 +161,7 @@ class AnthropicShim(BaseProviderShim):
                 tool_use_id = m.get("tool_call_id") or m.get("name")
                 result_blocks: list[dict[str, Any]] = []
                 if isinstance(content, list):
-                    for part in content:
+                    for part in _dict_parts(content):
                         if part.get("type") == "text":
                             result_blocks.append({"type": "text", "text": part.get("text", "")})
                         elif part.get("type") == "image_url":
@@ -177,15 +189,25 @@ class AnthropicShim(BaseProviderShim):
             tool_calls = m.get("tool_calls")
             if tool_calls:
                 if isinstance(content, list):
-                    for part in content:
+                    for part in _dict_parts(content):
                         if part.get("type") == "text":
                             anth_content.append({"type": "text", "text": part.get("text", "")})
                 elif content:
                     anth_content.append({"type": "text", "text": str(content)})
 
+                if not isinstance(tool_calls, list):
+                    converted.append({"role": "assistant", "content": anth_content})
+                    continue
                 for tc in tool_calls:
-                    fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
-                    args_obj = _parse_tool_input(fn.get("arguments", "{}"))
+                    if not isinstance(tc, dict):
+                        continue
+                    raw_fn = tc.get("function")
+                    fn = raw_fn if isinstance(raw_fn, dict) else {}
+                    # A missing arguments key used to become "{}" and send a
+                    # tool_use that looked like a real empty-object call.
+                    if "arguments" not in fn:
+                        continue
+                    args_obj = _parse_tool_input(fn.get("arguments"))
                     if args_obj is None:
                         continue
                     anth_content.append({"type": "tool_use", "id": tc.get("id"), "name": fn.get("name"), "input": args_obj})
@@ -194,7 +216,7 @@ class AnthropicShim(BaseProviderShim):
 
             # 3. Handle standard user/assistant messages with potential images
             if isinstance(content, list):
-                for part in content:
+                for part in _dict_parts(content):
                     if part.get("type") == "text":
                         anth_content.append({"type": "text", "text": part.get("text", "")})
                     elif part.get("type") == "image_url":
@@ -262,8 +284,8 @@ class AnthropicShim(BaseProviderShim):
                 if tool_delta:
                     delta = tool_delta
         elif msg_type == "message":
-            # SYNC response
-            content_parts = chunk.get("content", [])
+            # SYNC response. content: null and a non-dict part used to raise.
+            content_parts = _dict_parts(chunk.get("content", []))
             content = "".join([p.get("text", "") for p in content_parts if p.get("type") == "text"])
             finish_reason = _map_anthropic_finish_reason(chunk.get("stop_reason"))
             # Handle tools

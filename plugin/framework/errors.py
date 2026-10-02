@@ -402,7 +402,10 @@ def format_error_message(e: Exception) -> str:
     if isinstance(e, socket.timeout):
         return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
 
-    if isinstance(e, (urllib.error.URLError, OSError)):
+    # What was wrong: every OSError became "Connection Error", including
+    # FileNotFoundError and PermissionError. How: the branch matched the
+    # OSError base. Why: filesystem errors are not a down local server.
+    if isinstance(e, (urllib.error.URLError, OSError)) and not isinstance(e, (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError)):
         if UNDER_CROSSHAIR:
             reason = "mock"
         elif isinstance(e, urllib.error.URLError):
@@ -420,11 +423,14 @@ def format_error_message(e: Exception) -> str:
     lower = msg.lower()
     if "venv not found" in lower or "no python executable found" in lower:
         return _("Python venv not found. Open Settings → Python, set the venv path, then Test.")
-    if "python timed out" in lower or "worker failed: timed out" in lower:
+    if "python timed out" in lower or "python execution timed out" in lower or "worker failed: timed out" in lower:
         return _("Python execution timed out. Open Settings → Python to raise the timeout.")
     if msg.strip() == "#SPILL!":
         return _("Formula spill collision: destination range contains non-empty cells.")
-    if "timed out" in lower:
+    # What was wrong: any message containing "timed out" became "increase
+    # Request Timeout", including formula evaluation. The Python branch above
+    # only matched "python timed out", not "python execution timed out".
+    if "timed out" in lower and "formula" not in lower:
         return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
     if "finish_reason=error" in msg:
         return _("The AI provider reported an error. Try again.")

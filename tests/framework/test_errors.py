@@ -165,6 +165,21 @@ class TestErrorHandling:
         refused = OSError(errno.ECONNREFUSED, "connect")
         assert "Connection Refused" in format_error_message(refused)
 
+    def test_format_error_message_filesystem_and_python_timeout_are_not_http(self):
+        from plugin.framework.errors import format_error_message
+
+        missing = format_error_message(FileNotFoundError("writeragent.json missing"))
+        assert "Connection Error" not in missing
+        assert "writeragent.json missing" in missing
+        denied = format_error_message(PermissionError("settings unreadable"))
+        assert "Connection Error" not in denied
+        py_timeout = format_error_message(RuntimeError("Python execution timed out after 30 seconds"))
+        assert "Request Timeout" not in py_timeout
+        assert "Python" in py_timeout
+        formula = format_error_message(RuntimeError("formula evaluation timed out"))
+        assert "Request Timeout" not in formula
+        assert "formula evaluation timed out" in formula
+
     def test_writeragent_exception_subclasses_and_details_unification(self):
         from plugin.framework.errors import (
             AgentParsingError,
