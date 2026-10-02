@@ -57,13 +57,12 @@ def test_sandboxed_code_resolves_writeragent_imports():
 
     code = (
         "from writeragent.scripting.analysis import coerce_to_dataframe\n"
-        "result = coerce_to_dataframe"
+        "result = callable(coerce_to_dataframe)\n"
     )
-    # run_sandboxed_code executes within LocalPythonExecutor.
-    # We pass data=None and execute.
+    # The function itself cannot cross the pickle boundary. callable() proves the import bound.
     response = run_sandboxed_code(code)
     assert response["status"] == "ok", response.get("message")
-    assert response["result"] is not None
+    assert response["result"] is True
 
 
 def test_writeragent_api_in_process_rpc():
@@ -145,11 +144,11 @@ def test_sandboxed_code_writeragent_analysis_without_api():
     _clear_writeragent_modules()
     code = (
         "from writeragent.scripting.analysis import coerce_to_dataframe\n"
-        "result = coerce_to_dataframe"
+        "result = callable(coerce_to_dataframe)\n"
     )
     with patch("importlib.util.find_spec", side_effect=_find_spec_without_writeragent_api):
         register_alias_importer()
         response = run_sandboxed_code(code)
     assert response["status"] == "ok", response.get("message")
-    assert response["result"] is not None
+    assert response["result"] is True
 
