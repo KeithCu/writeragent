@@ -1390,8 +1390,7 @@ def test_make_chat_request_coalesces_mixed_system_messages(client):
 
 
 def test_prepend_dev_build_prefix_supports_list_content():
-    from plugin.framework.client.llm_client import _prepend_dev_build_system_prefix_to_messages
-    from plugin.framework.client.response_normalizers import LLM_DEV_BUILD_SYSTEM_PREFIX
+    from plugin.framework.client.response_normalizers import LLM_DEV_BUILD_SYSTEM_PREFIX, prepend_dev_build_system_prefix_to_messages as _prepend_dev_build_system_prefix_to_messages
 
     messages = [
         {"role": "system", "content": [{"type": "text", "text": "Existing text."}]}
@@ -1455,7 +1454,7 @@ def test_normalize_multimodal_messages_openai(client):
         {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
     ]
     
-    from plugin.framework.client.llm_client import normalize_multimodal_messages
+    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
     normalize_multimodal_messages(messages, "openai")
     
     # Tool message content should have its image replaced with [Image Ref]
@@ -1476,7 +1475,7 @@ def test_normalize_multimodal_messages_anthropic(client):
         {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
     ]
     
-    from plugin.framework.client.llm_client import normalize_multimodal_messages
+    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
     normalize_multimodal_messages(messages, "anthropic")
     
     # Tool message content should also be stripped of the raw base64 string,
@@ -1498,7 +1497,7 @@ def test_normalize_multimodal_messages_gemini(client):
         {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
     ]
     
-    from plugin.framework.client.llm_client import normalize_multimodal_messages
+    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
     normalize_multimodal_messages(messages, "google")
     
     assert messages[2]["content"] == "Here is the page: [Image Ref]"
