@@ -37,6 +37,10 @@ _deal_strip_html_ok = ascii_bounded if _HTML_CROSSHAIR else str_bounded
 # Element text used to survive (``<script>alert(1)</script>`` → ``alert(1)``).
 # Drop the body until the matching close tag, not only the tag bytes.
 _DISCARD_ELEMENTS = frozenset({"script", "style"})
+# The tag-buffer cap (256) does not cover element body. An unclosed
+# ``<script>`` used to drop every later character of the reply. Hold at most
+# this many body chars; past that, or on a blank line, it was prose.
+_DISCARD_BODY_LIMIT = 256
 # Trailing incomplete entity (``&amp`` split across chunks). A finished
 # ``&amp;`` does not match. ``3 & 5`` does not end on the ampersand.
 _INCOMPLETE_ENTITY_TAIL = re.compile(r"&(?:#x[0-9A-Fa-f]*|#\d*|[A-Za-z][A-Za-z0-9]{0,31})?$")
@@ -92,6 +96,8 @@ class StreamingHTMLStripper:
     _quote: str
     # ``script`` / ``style`` whose element text is discarded, else "".
     _discard_until: str
+    # Body held until the close tag, a blank line, or _DISCARD_BODY_LIMIT.
+    _discard_body: str
     _entity_tail: str
 
     def __init__(self) -> None:
@@ -99,6 +105,7 @@ class StreamingHTMLStripper:
         self.tag_buffer = ""
         self._quote = ""
         self._discard_until = ""
+        self._discard_body = ""
         self._entity_tail = ""
 
     def _unescape_emitted(self, raw: str, *, hold_tail: bool) -> str:
@@ -127,9 +134,8 @@ class StreamingHTMLStripper:
                 self._release_tag_buffer(out, force_emit=not bool(self._discard_until))
                 return
         if len(self.tag_buffer) > 256:
-            # Never-closed '<' used to grow without bound. The cap still
-            # applies inside script/style: a missed close tag must not
-            # swallow the rest of the stream. Flush emits those bytes.
+            # Never-closed '<' used to grow without bound. This cap is only
+            # the tag buffer. Element body is bounded in _note_discarded_body.
             self._release_tag_buffer(out, force_emit=True)
 
     def _end_tag(self) -> None:
@@ -141,6 +147,7 @@ class StreamingHTMLStripper:
         if self._discard_until:
             if is_close and name == self._discard_until:
                 self._discard_until = ""
+                self._discard_body = ""
             return
         if name in _DISCARD_ELEMENTS and not is_close and not is_empty:
             self._discard_until = name
@@ -164,7 +171,8 @@ class StreamingHTMLStripper:
                     self._quote = ""
                 elif not self._discard_until:
                     out.append(char)
-                # else: element text of script/style is discarded
+                else:
+                    self._note_discarded_body(char, out)
             elif self._quote:
                 # The first '>' used to end the tag even inside quotes, so
                 # ``<img alt="a>b" src="x">`` leaked ``b" src="x">``.
@@ -187,6 +195,22 @@ class StreamingHTMLStripper:
             else:
                 self._push_tag_char(char, out, reject_bad_start=True)
         return "".join(out)
+
+    def _note_discarded_body(self, char: str, out: list[str]) -> None:
+        """Hold script/style body until the close tag, then drop it.
+
+        What was wrong: body characters were deleted until ``</script>`` or
+        ``</style>``, so a reply that mentioned ``<script>`` lost everything
+        after that tag. The 256-character cap only bounds an unclosed tag
+        name, not this body. Why this emits: a blank line or more than
+        ``_DISCARD_BODY_LIMIT`` body characters means the close tag is not
+        coming; show that text. A close tag inside the limit still drops it.
+        """
+        self._discard_body += char
+        if len(self._discard_body) > _DISCARD_BODY_LIMIT or "\n\n" in self._discard_body:
+            out.append(self._discard_body)
+            self._discard_until = ""
+            self._discard_body = ""
 
     @deal.post(lambda result: isinstance(result, str))
     def feed(self, chunk: str) -> str:
@@ -211,13 +235,18 @@ class StreamingHTMLStripper:
     @deal.post(lambda result: isinstance(result, str))
     def finalize(self) -> str:
         """Return any remaining buffered text when the stream is completed."""
-        # Unclosed script/style must not leak the held tag tail on stream end.
+        # No close tag arrived. Dropping the hold used to erase a short
+        # mention ("use a <script> tag") when the reply ended under the cap.
         if self._discard_until:
+            held = self._discard_body
+            if self.in_tag and self.tag_buffer:
+                held += self.tag_buffer
             self.in_tag = False
             self.tag_buffer = ""
             self._quote = ""
             self._discard_until = ""
-            return self._unescape_emitted("", hold_tail=False)
+            self._discard_body = ""
+            return self._unescape_emitted(held, hold_tail=False)
         if self.in_tag and self.tag_buffer:
             buf = self.tag_buffer
             self.in_tag = False

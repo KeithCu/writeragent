@@ -124,8 +124,16 @@ def extract_and_strip_images_from_message(message: dict[str, Any], strip_structu
                 new_content_list.append(part)
             elif p_type == "image_url":
                 if strip_structured_image_blocks:
-                    url_val = part.get("image_url", {}).get("url", "")
-                    if url_val.startswith("data:"):
+                    # ``image_url`` is a dict on OpenAI and a string on some
+                    # local hosts. A present null used to crash .get before HTTP.
+                    image_url = part.get("image_url")
+                    if isinstance(image_url, dict):
+                        url_val = image_url.get("url", "")
+                    elif isinstance(image_url, str):
+                        url_val = image_url
+                    else:
+                        url_val = ""
+                    if isinstance(url_val, str) and url_val.startswith("data:"):
                         match = _DATA_URI_IMAGE_RE.search(url_val)
                         if match:
                             ext = match.group(1)
@@ -170,10 +178,14 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
         if keep_in_place:
             target_message = m
         else:
-            try:
-                curr_idx = messages.index(m)
-            except ValueError:
-                curr_idx = idx
+            # Identity, not equality. messages.index(m) attached both copies of
+            # two equal assistant messages to the first one, so the later
+            # image landed on the earlier user turn.
+            curr_idx = idx
+            for i, msg in enumerate(messages):
+                if msg is m:
+                    curr_idx = i
+                    break
 
             for prev_idx in range(curr_idx - 1, -1, -1):
                 if messages[prev_idx].get("role") == "user":

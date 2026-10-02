@@ -654,7 +654,9 @@ def test_install_attaches_leave_controls_when_trackers_already_exist():
     stop = MagicMock()
     query = MagicMock()
     saved = list(uc._stream_focus_trackers)
+    saved_query_listener = uc._query_focus_listener
     uc._stream_focus_trackers[:] = [object()]
+    uc._query_focus_listener = object()
     fake_awt = types.SimpleNamespace(
         XFocusListener=XFocusListener,
         XMouseListener=XMouseListener,
@@ -675,6 +677,7 @@ def test_install_attaches_leave_controls_when_trackers_already_exist():
         query.addFocusListener.assert_not_called()
     finally:
         uc._stream_focus_trackers[:] = saved
+        uc._query_focus_listener = saved_query_listener
 
 
 def test_install_click_handler_follows_each_document_controller():
@@ -710,8 +713,10 @@ def test_install_click_handler_follows_each_document_controller():
     second = _Controller()
     saved_trackers = list(uc._stream_focus_trackers)
     saved_bindings = list(uc._doc_click_bindings)
+    saved_query_listener = uc._query_focus_listener
     uc._stream_focus_trackers.clear()
     uc._doc_click_bindings.clear()
+    uc._query_focus_listener = None
     fake_awt = types.SimpleNamespace(
         XFocusListener=XFocusListener,
         XMouseListener=XMouseListener,
@@ -738,6 +743,53 @@ def test_install_click_handler_follows_each_document_controller():
     finally:
         uc._stream_focus_trackers[:] = saved_trackers
         uc._doc_click_bindings[:] = saved_bindings
+        uc._query_focus_listener = saved_query_listener
+
+
+def test_disposed_query_listener_lets_the_next_sidebar_attach():
+    """disposing() must clear the query listener so a reopened sidebar hears focusGained."""
+    import types
+
+    from plugin.framework import uno_context as uc
+
+    class _Base:
+        pass
+
+    class XFocusListener:
+        pass
+
+    class XMouseListener:
+        pass
+
+    class XMouseClickHandler:
+        pass
+
+    saved_trackers = list(uc._stream_focus_trackers)
+    saved_query_listener = uc._query_focus_listener
+    uc._stream_focus_trackers.clear()
+    uc._query_focus_listener = None
+    fake_awt = types.SimpleNamespace(
+        XFocusListener=XFocusListener,
+        XMouseListener=XMouseListener,
+        XMouseClickHandler=XMouseClickHandler,
+    )
+    try:
+        with patch.dict(
+            sys.modules,
+            {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
+        ):
+            first = MagicMock()
+            uc.install_stream_focus_tracker(MagicMock(), query=first)
+            listener = first.addFocusListener.call_args[0][0]
+            listener.disposing(None)
+            assert uc._query_focus_listener is None
+            second = MagicMock()
+            uc.install_stream_focus_tracker(MagicMock(), query=second)
+        second.addFocusListener.assert_called_once()
+        second.addFocusListener.call_args[0][0].focusGained(None)
+    finally:
+        uc._stream_focus_trackers[:] = saved_trackers
+        uc._query_focus_listener = saved_query_listener
 
 
 # ---- uno_same --------------------------------------------------------------

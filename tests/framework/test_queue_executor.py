@@ -744,6 +744,28 @@ class TestWorkItemClaimLockTimeoutRace:
         assert qe._wait_for_result(item, 0.01) == "done"
         assert item.cancelled is False
 
+    def test_claimed_timeout_waits_for_in_flight_result(self):
+        # The UI thread already claimed the item. TimeoutError used to abandon
+        # that call; a retry then applied the change twice.
+        from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+
+        qe = QueueExecutor()
+        item = _WorkItem("inflight", lambda: None, (), {}, blocking=True)
+        item._claimed = True
+        calls = {"n": 0}
+
+        def wait(timeout=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return False
+            item.result = "late"
+            return True
+
+        item.event.wait = wait
+        assert qe._wait_for_result(item, 0.01) == "late"
+        assert calls["n"] == 2
+        assert item.cancelled is False
+
     def test_process_queue_skips_cancelled_item_via_claim_lock(self):
         # Verify process_queue respects item.cancelled when set before claiming.
         from plugin.framework.queue_executor import QueueExecutor, _WorkItem

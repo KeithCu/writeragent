@@ -2007,6 +2007,33 @@ def _abort_wait_on_stop(client):
     return abortable
 
 
+def test_buffered_sse_honors_stop_latch_without_stop_checker(client):
+    """stop() during the first chunk must not deliver later buffered SSE lines.
+
+    The per-chunk check used to call only stop_checker. With no checker,
+    http.client lines already in the buffer still reached on_content after
+    stop() set the client latch.
+    """
+    seen: list[str] = []
+
+    def on_content(text: str) -> None:
+        seen.append(text)
+        client.stop()
+
+    ok = create_mock_http_response(sse_lines=_sse_content_lines("one", "two"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, ok)
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            stop_checker=None,
+            append_callback=on_content,
+        )
+    assert seen == ["one"]
+    assert result["content"] == "one"
+    assert result["finish_reason"] == "stop"
+
+
 def test_stream_retry_wait_aborts_when_client_stopped(client, _fast_retry_waits):
     """stop() during a 429 backoff must end the stream even with no stop_checker."""
     _fast_retry_waits["llm"].side_effect = _abort_wait_on_stop(client)

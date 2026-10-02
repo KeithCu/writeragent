@@ -45,6 +45,18 @@ def test_strip_html_tags_drops_script_and_style_bodies():
     assert strip_html_tags("<SCRIPT>alert(1)</SCRIPT>ok") == "ok"
 
 
+def test_unclosed_script_does_not_swallow_the_rest():
+    # A reply that mentions <script> without a close tag used to drop
+    # everything after the tag, including text after the stream ended.
+    assert strip_html_tags("See <script> for details") == "See  for details"
+    assert strip_html_tags("use a <script> tag.\n\nKeep this.") == "use a  tag.\n\nKeep this."
+    tail = "y" * 40
+    body = "x" * 300
+    result = strip_html_tags("<script>" + body + tail)
+    assert result.endswith(tail)
+    assert "x" * 40 in result
+
+
 def test_strip_html_tags_quoted_gt_does_not_end_tag():
     # The first '>' inside quotes used to end the tag and leak the tail.
     assert strip_html_tags('<img alt="a>b" src="x">tail') == "tail"

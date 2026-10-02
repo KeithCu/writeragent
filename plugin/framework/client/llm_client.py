@@ -783,7 +783,13 @@ class LlmClient:
                         if content_finished:
                             continue
 
-                        if stop_checker and stop_checker():
+                        # What was wrong: this checked only the caller's stop_checker.
+                        # stop() sets _stopped and closes the socket, but http.client
+                        # can already have buffered SSE lines, and those were still
+                        # parsed and passed to on_content when the caller passed no
+                        # checker. abort_checker includes the latch, same as the
+                        # pre-send and retry-sleep paths.
+                        if abort_checker():
                             log.debug("streaming_loop: Stop requested.")
                             last_finish_reason = "stop"
                             content_finished = True

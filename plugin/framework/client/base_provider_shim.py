@@ -231,8 +231,11 @@ class BaseProviderShim:
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
         """Extract list of base64 image data from response (standard OpenAI format)."""
         items = response_data.get("data", [])
+        # A null or non-object entry used to raise AttributeError on .get.
+        if not isinstance(items, list):
+            return []
         out = []
         for it in items:
-            if b64 := it.get("b64_json"):
+            if isinstance(it, dict) and (b64 := it.get("b64_json")):
                 out.append(b64)
         return out

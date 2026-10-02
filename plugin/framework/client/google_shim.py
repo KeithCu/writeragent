@@ -90,7 +90,11 @@ class GoogleShim(OpenAIShim):
         if candidates and isinstance(candidates, list):
             cand = candidates[0]
             if isinstance(cand, dict):
-                parts = cand.get("content", {}).get("parts", [])
+                # A present null ``content`` (Gemini safety blocks) is not the
+                # default {}. ``None.get`` used to raise AttributeError out of
+                # image_completion instead of returning no images.
+                content = cand.get("content")
+                parts = content.get("parts", []) if isinstance(content, dict) else []
                 if isinstance(parts, list):
                     for p in parts:
                         if isinstance(p, dict):

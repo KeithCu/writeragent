@@ -176,6 +176,9 @@ def test_google_parse_image_responses(mock_ctx):
     }
     assert shim.parse_image_responses(data_multimodal) == ["img_b64_2"]
 
+    # Safety blocks send content: null. That used to raise AttributeError.
+    assert shim.parse_image_responses({"candidates": [{"content": None}]}) == []
+
 
 def test_google_openai_auth_resolution():
     """Verify auth resolution for Google Gemini endpoints produces Bearer header."""

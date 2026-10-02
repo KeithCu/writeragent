@@ -289,7 +289,6 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     install_stream_focus_tracker(
                         self.ctx,
                         query=controls.get("query"),
-                        rich=rich_control,
                         leave_query_controls=(
                             controls.get("stop"),
                             controls.get("clear"),

@@ -19,8 +19,10 @@ short pending list and flushes it once AsyncCallback exists; it does not
 run the callback on the background thread.
 
 Concurrency: ``_claim_lock`` decides whether a timed-out waiter or the
-main thread “owns” a queued function so UNO does not run after the
-caller has given up. ``llm_request_lane`` and the grammar in-flight
+main thread owns a queued function. An item that has not started is
+cancelled so UNO does not run after the caller has given up. An item
+already running on the UI thread is waited out so the caller sees that
+result instead of retrying it. ``llm_request_lane`` and the grammar in-flight
 counter serialize **HTTP to a local LLM** (Ollama/llama.cpp often serve
 one request). They are not UNO locks. Document and widget work from the
 MCP HTTP thread still comes through this queue onto the UI thread.
@@ -600,12 +602,24 @@ class QueueExecutor:
             # wait() can also return false in the same window the result is
             # stored and the event is set. Raising TimeoutError then drops a
             # finished result.
+            #
+            # What was wrong: a claimed item still raised TimeoutError. The UI
+            # thread was already inside fn(), the caller treated that as "did
+            # not happen", and a retry applied the document change twice.
+            # Why this waits: TimeoutError only when the item had not started
+            # and is now cancelled. An in-flight call is waited out with no
+            # second timeout so the caller sees the real result or exception.
+            keep_waiting = False
             finished = False
             with self._claim_lock:
                 finished = item.event is not None and item.event.is_set()
                 if not finished and not item._claimed:
                     item.cancelled = True
-            if not finished:
+                elif not finished:
+                    keep_waiting = True
+            if keep_waiting and item.event is not None:
+                item.event.wait()
+            elif not finished:
                 raise TimeoutError("Main-thread execution of %s timed out after %ss" % (getattr(item.fn, "__name__", str(item.fn)), timeout))
 
         # The redundant `if item.cancelled and item.exception` branch has been

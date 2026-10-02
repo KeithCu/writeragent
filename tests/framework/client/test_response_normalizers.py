@@ -41,6 +41,45 @@ def test_normalize_multimodal_messages():
     assert messages[0]["content"][1]["type"] == "image_url"
 
 
+def test_extract_string_or_null_image_url():
+    string_part = {"role": "user", "content": [{"type": "image_url", "image_url": "data:image/png;base64,abc123"}]}
+    extracted = extract_and_strip_images_from_message(string_part)
+    assert extracted == [{"mime_type": "image/png", "data": "abc123"}]
+    assert string_part["content"] == [{"type": "text", "text": "[Image Ref]"}]
+
+    null_part = {"role": "user", "content": [{"type": "image_url", "image_url": None}]}
+    assert extract_and_strip_images_from_message(null_part) == []
+    assert null_part["content"] == [{"type": "text", "text": "[Image Ref]"}]
+
+
+def test_normalize_duplicate_messages_keep_their_own_images():
+    # messages.index() used equality, so the second identical assistant
+    # message attached its image to the first user turn.
+    blob = "data:image/png;base64,abc123"
+    messages = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "same " + blob},
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "same " + blob},
+    ]
+    normalize_multimodal_messages(messages, "openai")
+
+    def image_count(message: dict) -> int:
+        content = message["content"]
+        if not isinstance(content, list):
+            return 0
+        return sum(1 for part in content if isinstance(part, dict) and part.get("type") == "image_url")
+
+    assert image_count(messages[0]) == 1
+    assert image_count(messages[2]) == 1
+
+
+def test_openai_shim_skips_non_dict_image_data():
+    shim = OpenAIShim(MagicMock())
+    assert shim.parse_image_responses({"data": [{"b64_json": "ghi"}, None, "nope"]}) == ["ghi"]
+    assert shim.parse_image_responses({"data": None}) == []
+
+
 def test_openai_shim_parse_sync_response():
     client_mock = MagicMock()
     shim = OpenAIShim(client_mock)

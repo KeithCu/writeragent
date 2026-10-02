@@ -497,11 +497,15 @@ def get_toolkit(ctx: Any | None = None) -> Any:
 _default_focus_restore = None
 _restore_query_after_scroll = True
 _stream_focus_trackers: list[Any] = []
+# The query focus listener, separate from leave-query and document-click
+# entries in _stream_focus_trackers. Those other entries stay after the
+# sidebar closes; keying "already installed" on the whole list meant a
+# reopened panel never got focusGained.
+_query_focus_listener: Any = None
 # (controller, handler). One click handler per document controller, not one
 # for the process: the first sidebar used to subscribe only the document that
 # was current at install time.
 _doc_click_bindings: list[tuple[Any, Any]] = []
-_stream_rich_control = None
 
 
 def set_default_focus_restore(control: Any) -> None:
@@ -691,7 +695,18 @@ def _ensure_document_click_handler(ctx: Any) -> None:
         log.debug("document click handler: %s", e)
 
 
-def install_stream_focus_tracker(ctx: Any, query: Any = None, rich: Any = None, leave_query_controls: Any = None) -> None:
+def _drop_query_focus_listener(listener: Any) -> None:
+    """Forget the query listener once its control is disposed."""
+    global _query_focus_listener
+    if listener is not None and _query_focus_listener is listener:
+        _query_focus_listener = None
+    try:
+        _stream_focus_trackers.remove(listener)
+    except ValueError:
+        pass
+
+
+def install_stream_focus_tracker(ctx: Any, query: Any = None, leave_query_controls: Any = None) -> None:
     """Query focusGained → keep restoring. Document / sidebar pointer → stop.
 
     Window focus listeners miss in-frame query→page clicks (same top-level).
@@ -700,15 +715,16 @@ def install_stream_focus_tracker(ctx: Any, query: Any = None, rich: Any = None, 
     *leave_query_controls* so stream ``query.setFocus()`` does not steal the
     click (Packet B1).
     """
-    global _stream_rich_control, _default_focus_restore
+    global _default_focus_restore, _query_focus_listener
     if query is not None:
         _default_focus_restore = query
-    if rich is not None:
-        _stream_rich_control = rich
-    # Query focus listener is process-global (first sidebar wins). A later
-    # Writer/Calc panel still needs Stop/Clear mouse listeners, and the
-    # document click handler must follow whichever controller is current.
-    if _stream_focus_trackers:
+    # One live query listener. Leave-query and document-click listeners also
+    # sit in _stream_focus_trackers, so that list staying non-empty must not
+    # block a new query listener after the old control is disposed.
+    # What was wrong: disposing() was a no-op and the early return keyed off
+    # the whole tracker list. A reopened sidebar updated the focus pin and
+    # never received focusGained, so stream chunks skipped caret restore.
+    if _query_focus_listener is not None:
         for ctrl in leave_query_controls or ():
             if ctrl is not None and ctrl is not query:
                 _attach_leave_query_listeners(ctrl)
@@ -722,7 +738,7 @@ def install_stream_focus_tracker(ctx: Any, query: Any = None, rich: Any = None, 
 
     class _QueryFocus(unohelper.Base, XFocusListener):
         def disposing(self, Source: EventObject) -> None:  # noqa: N802, N803 -- UNO signature
-            return
+            _drop_query_focus_listener(self)
 
         def focusLost(self, e: FocusEvent) -> None:  # noqa: N802 -- UNO signature
             return
@@ -736,6 +752,7 @@ def install_stream_focus_tracker(ctx: Any, query: Any = None, rich: Any = None, 
             q_track = _QueryFocus()
             query.addFocusListener(q_track)
             _stream_focus_trackers.append(q_track)
+            _query_focus_listener = q_track
         _ensure_document_click_handler(ctx)
         for ctrl in leave_query_controls or ():
             if ctrl is not None and ctrl is not query:
