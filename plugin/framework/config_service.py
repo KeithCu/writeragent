@@ -20,8 +20,12 @@ from plugin.framework.event_bus import global_event_bus
 from plugin.framework.errors import ConfigError, ConfigValidationError
 
 from plugin.framework.config import get_config, set_config, remove_config, get_config_dict, get_current_endpoint, set_api_key_for_endpoint, parse_config_json_text, _load_config_dict, _write_config_file, AI_SIMPLE_FIELDS
-from plugin.framework.config_schema import WriterAgentConfig
-from plugin.framework.client.model_fetcher import get_stt_model, set_image_model, set_text_model
+from plugin.framework.config_schema import WriterAgentConfig, get_manifest_modules
+
+# get_stt_model / set_image_model / set_text_model stay inside the ai.* branches.
+# What was wrong: importing them here pulled model_fetcher whenever ConfigService
+# was imported. LibrePy must not gain that edge, and model_fetcher must not
+# import ConfigService the other way.
 
 _unohelper_mod: Any
 try:
@@ -77,6 +81,28 @@ def _uno_service_implementation_decorator() -> Callable[..., Any]:
 _implementation: Callable[..., Any] = _uno_service_implementation_decorator()
 
 
+def _modules_to_manifest(modules: Any) -> dict[str, Any]:
+    """Turn ``get_manifest_modules()`` into the dict ``set_manifest`` already walks.
+
+    The manifest list is ``{"name", "config"}`` records. ``set_manifest`` expects
+    ``{name: {"config": {field: schema}}}``.
+    """
+    manifest: dict[str, Any] = {}
+    if not isinstance(modules, list):
+        return manifest
+    for mod in modules:
+        if not isinstance(mod, dict):
+            continue
+        name = mod.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        config = mod.get("config")
+        if not isinstance(config, dict):
+            config = {}
+        manifest[name] = {"config": config}
+    return manifest
+
+
 @_implementation("org.extension.writeragent.ConfigService")
 class ConfigService(ServiceBase):
     name: str | None = "config"
@@ -95,7 +121,18 @@ class ConfigService(ServiceBase):
         self._config_path = None  # For testing
 
     def initialize(self, ctx: Any) -> None:
-        pass
+        """Load module.yaml defaults and public flags once.
+
+        What was wrong: bootstrap registers this service and set_events but
+        never set_manifest, so _defaults and _manifest stayed empty and
+        module.yaml public flags never applied. Build the dict set_manifest
+        already expects from get_manifest_modules(). ctx is not used for
+        I/O; init_config already ran at bootstrap.
+        """
+        del ctx
+        if self._manifest:
+            return
+        self.set_manifest(_modules_to_manifest(get_manifest_modules()))
 
     def set_events(self, events: Any) -> None:
         """Wire the event bus."""
@@ -134,6 +171,8 @@ class ConfigService(ServiceBase):
                 if field == "endpoint":
                     return str(get_config("endpoint") or "").strip()
                 if field == "stt_model":
+                    from plugin.framework.client.model_fetcher import get_stt_model
+
                     return get_stt_model()
 
                 return get_config(field)
@@ -154,7 +193,10 @@ class ConfigService(ServiceBase):
 
         try:
             val = get_config(key)
-            if val is not None and val != "":
+            # What was wrong: ``val != ""`` treated a stored empty string as
+            # missing, so get() returned the caller default. Only None is
+            # missing. False and 0 stay real values.
+            if val is not None:
                 return val
         except ConfigError:
             pass
@@ -191,8 +233,12 @@ class ConfigService(ServiceBase):
                         raise ConfigError("Endpoint text did not resolve to a URL", "CONFIG_INVALID_ENDPOINT", details={"value": value})
                     set_config("endpoint", resolved, event_key=key)
                 elif field == "image_model":
+                    from plugin.framework.client.model_fetcher import set_image_model
+
                     set_image_model(value or "", update_lru=True, event_key=key)
                 elif field == "text_model":
+                    from plugin.framework.client.model_fetcher import set_text_model
+
                     set_text_model(value or "", update_lru=True, event_key=key)
                 elif field == "stt_model":
                     # Speech tab canonical key. Do not write legacy stt_model.
@@ -221,8 +267,12 @@ class ConfigService(ServiceBase):
 
             try:
                 _write_config_file(self._config_path, data)
-            except OSError:
+            except OSError as exc:
+                # What was wrong: a failed replace was logged and config:changed
+                # still fired, so listeners reloaded a file that did not have
+                # the new value. Re-raise and skip the event.
                 log.exception("ConfigService.set config file save failed")
+                raise ConfigError(f"Failed to save config: {exc}", "CONFIG_SAVE_ERROR") from exc
 
             ctx = None  # No UNO context in file-based test mode
         else:
@@ -233,21 +283,6 @@ class ConfigService(ServiceBase):
         if value != old_value:
             bus = self._events or global_event_bus
             bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
-
-    def set_batch(self, changes: Any, old_values: Any = None) -> dict[str, Any]:
-        """Set multiple config values at once. Returns dict of changed keys.
-
-        Used by the generic Options handler; delegates to set() so that
-        ai.<field> keys are also mapped through the simple AI settings layer.
-        """
-        diffs = {}
-        for key, value in (changes or {}).items():
-            before = self.get(key)
-            if value == before:
-                continue
-            self.set(key, value)
-            diffs[key] = (before, value)
-        return diffs
 
     def remove(self, key: str, caller_module: str | None = None) -> None:
         """Reset a config key."""

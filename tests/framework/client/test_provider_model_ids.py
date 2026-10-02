@@ -77,7 +77,7 @@ class TestPresetProviderDetection:
             assert (get_provider_from_endpoint(normalized)) == (expected), f"preset url {url!r} normalized {normalized!r}"
 
     def test_auth_matches_detection_for_hosted_presets(self):
-        """Hosted presets in PROVIDERS: detection hint and host_matches agree."""
+        """Hosted presets: detection and auth resolution agree. Host matching is not on ProviderConfig."""
         for _label, url in ENDPOINT_PRESETS:
             normalized = normalize_endpoint_url(url)
             detected = get_provider_from_endpoint(normalized)
@@ -93,3 +93,16 @@ def test_is_openrouter_endpoint_matches_host_not_substring():
     assert not is_openrouter_endpoint("http://127.0.0.1:11434/v1")
     assert not is_openrouter_endpoint("https://notopenrouter.ai/v1")
     assert not is_openrouter_endpoint("https://example.com/openrouter.ai/v1")
+
+
+def test_provider_config_has_no_host_matches_and_grok_alias_is_gone():
+    """Detection is the host matcher. ``grok`` duplicated ``xai``."""
+    import dataclasses
+
+    from plugin.framework.client.grok_shim import GrokShim
+    from plugin.framework.client.openai_shim import OpenAIShim, _SHIM_REGISTRY, get_provider_shim_class
+
+    assert "host_matches" not in {f.name for f in dataclasses.fields(PROVIDERS["openai"])}
+    assert "grok" not in _SHIM_REGISTRY
+    assert get_provider_shim_class("xai") is GrokShim
+    assert get_provider_shim_class("grok") is OpenAIShim

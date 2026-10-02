@@ -48,6 +48,20 @@ def test_same_line_sibling_is_kept() -> None:
     ast.parse(out)
 
 
+def test_same_line_two_removed_calls_keep_sibling() -> None:
+    """Two cuts share a line. Offsets must be taken from the original line.
+
+    Rewriting the first ``print`` in place used to shift columns so the second
+    cut deleted ``keep()`` and left ``print(2)``.
+    """
+    src = "print(1); print(2); keep()\n"
+    out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
+    assert n == 2
+    assert "print" not in out
+    assert "keep()" in out
+    ast.parse(out)
+
+
 def test_multiline_call_fully_removed() -> None:
     src = (
         "def f():\n"

@@ -33,4 +33,9 @@ def test_sync_request_log_omits_query_and_body(caplog):
             sync_request(url, timeout=1)
     assert secret not in caplog.text
     assert "api.example" in caplog.text
+    # The provider body can echo the token; the stashed URL must not.
+    stashed = raised.value.details.get("url", "")
+    assert secret not in stashed
+    assert "?" not in stashed
+    assert stashed == "https://api.example/v1/models"
     assert secret in str(raised.value)

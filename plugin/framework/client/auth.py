@@ -19,7 +19,7 @@ Model ID styles:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.url_utils import normalize_endpoint_url
@@ -58,44 +58,42 @@ class ProviderConfig:
     # - "x-api-key" -> x-api-key: <key>
     # - "none"     -> no auth header (for fully anonymous/local endpoints)
     header_style: str = "bearer"
-    # Hostname fragments used for auto-detection (e.g. "openrouter.ai").
-    host_matches: Tuple[str, ...] = field(default_factory=tuple)
     # Optional static headers that should always be sent for this provider.
+    # Host matching lives in provider_detection. This table is auth behavior only.
     extra_headers: Dict[str, str] = field(default_factory=dict)
     # Model list / request ``model`` field style: ``bare`` (vendor id) or ``slug`` (org/model).
     model_id_style: str = "bare"
 
 
 PROVIDERS: Dict[str, ProviderConfig] = {
-    "openrouter": ProviderConfig(id="openrouter", name="OpenRouter", header_style="bearer", host_matches=("openrouter.ai",), model_id_style="slug", extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE}),
-    "together": ProviderConfig(id="together", name="Together AI", header_style="bearer", host_matches=("api.together.xyz", "together.xyz"), model_id_style="slug"),
-    "mistral": ProviderConfig(id="mistral", name="Mistral", header_style="bearer", host_matches=("api.mistral.ai",)),
-    "openai": ProviderConfig(id="openai", name="OpenAI", header_style="bearer", host_matches=("api.openai.com",)),
-    "deepseek": ProviderConfig(id="deepseek", name="DeepSeek", header_style="bearer", host_matches=("api.deepseek.com",)),
-    "groq": ProviderConfig(id="groq", name="Groq", header_style="bearer", host_matches=("api.groq.com",)),
-    "cerebras": ProviderConfig(id="cerebras", name="Cerebras", header_style="bearer", host_matches=("api.cerebras.ai",)),
-    "perplexity": ProviderConfig(id="perplexity", name="Perplexity", header_style="bearer", host_matches=("api.perplexity.ai",)),
-    "xai": ProviderConfig(id="xai", name="X.ai (Grok)", header_style="bearer", host_matches=("api.x.ai",)),
-    "anthropic": ProviderConfig(id="anthropic", name="Anthropic Claude", header_style="x-api-key", host_matches=("api.anthropic.com",), extra_headers={"anthropic-version": "2023-06-01"}),
+    "openrouter": ProviderConfig(id="openrouter", name="OpenRouter", header_style="bearer", model_id_style="slug", extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE}),
+    "together": ProviderConfig(id="together", name="Together AI", header_style="bearer", model_id_style="slug"),
+    "mistral": ProviderConfig(id="mistral", name="Mistral", header_style="bearer"),
+    "openai": ProviderConfig(id="openai", name="OpenAI", header_style="bearer"),
+    "deepseek": ProviderConfig(id="deepseek", name="DeepSeek", header_style="bearer"),
+    "groq": ProviderConfig(id="groq", name="Groq", header_style="bearer"),
+    "cerebras": ProviderConfig(id="cerebras", name="Cerebras", header_style="bearer"),
+    "perplexity": ProviderConfig(id="perplexity", name="Perplexity", header_style="bearer"),
+    "xai": ProviderConfig(id="xai", name="X.ai (Grok)", header_style="bearer"),
+    "anthropic": ProviderConfig(id="anthropic", name="Anthropic Claude", header_style="x-api-key", extra_headers={"anthropic-version": "2023-06-01"}),
     "google": ProviderConfig(
         id="google",
         name="Google Gemini",
         # Google's official OpenAI-compatible endpoint (/v1beta/openai) requires
-        # standard "Authorization: Bearer <API_KEY>" headers.
+        # standard "Authorization: Bearer ***" headers.
         header_style="bearer",
-        host_matches=("generativelanguage.googleapis.com",),
     ),
-    "ollama": ProviderConfig(id="ollama", name="Ollama", header_style="none", host_matches=("localhost:11434", "127.0.0.1:11434", "ollama")),
-    "lmstudio": ProviderConfig(id="lmstudio", name="LM Studio", header_style="bearer", host_matches=("localhost:1234",)),
-    "zai": ProviderConfig(id="zai", name="Z.ai", header_style="bearer", host_matches=("api.z.ai", "z.ai")),
-    "nvidia": ProviderConfig(id="nvidia", name="NVIDIA NIM", header_style="bearer", host_matches=("integrate.api.nvidia.com", "api.nvidia.com")),
+    "ollama": ProviderConfig(id="ollama", name="Ollama", header_style="none"),
+    "lmstudio": ProviderConfig(id="lmstudio", name="LM Studio", header_style="bearer"),
+    "zai": ProviderConfig(id="zai", name="Z.ai", header_style="bearer"),
+    "nvidia": ProviderConfig(id="nvidia", name="NVIDIA NIM", header_style="bearer"),
     # Fallback for endpoints we don't recognize explicitly.
-    "custom": ProviderConfig(id="custom", name="Custom", header_style="bearer", host_matches=()),
+    "custom": ProviderConfig(id="custom", name="Custom", header_style="bearer"),
 }
 
 
-# Substring scan over host_matches: len=3 still ~41m (33211730747). CrossHair
-# uses a finite endpoint enum (hit / miss / empty); pytest keeps charset+len.
+# Endpoint strings are unbounded. CrossHair uses a finite endpoint enum
+# (hit / miss / empty); pytest keeps charset+len.
 _URL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._:/")
 _DEAL_RESOLVE_ENDPOINTS = frozenset(("", "api.openai.com", "localhost:11434", "openrouter.ai"))
 _PROVIDER_HINTS = frozenset(PROVIDERS)

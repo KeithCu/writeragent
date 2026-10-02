@@ -13,8 +13,9 @@ Solution: use com.sun.star.awt.AsyncCallback.addCallback() to post work
 into the VCL event loop. The HTTP thread blocks on a threading.Event
 until the main thread has executed the work item and stored the result.
 
-Fallback: if AsyncCallback is unavailable (unit-test, headless without
-a toolkit), the function is called directly with a warning.
+If AsyncCallback is unavailable off the main thread, execute() raises
+RuntimeError instead of calling the function on the caller. post() drops
+the callback when the caller is a background task; it does not run it there.
 
 Concurrency: ``_claim_lock`` decides whether a timed-out waiter or the
 main thread “owns” a queued function so UNO does not run after the
@@ -56,6 +57,7 @@ _current_send_cancellation: ContextVar["SendCancellation | None"] = ContextVar("
 from plugin.framework.async_drain_guard import (
     NestedDrainOwnerError as NestedDrainOwnerError,
     drain_owner_scope as drain_owner_scope,
+    get_drain_depth as get_drain_depth,
     get_drain_owner as get_drain_owner,
     get_suppressed_vcl_pump_count as get_suppressed_vcl_pump_count,
     note_suppressed_vcl_pump as note_suppressed_vcl_pump,
@@ -688,7 +690,15 @@ class QueueExecutor:
         tag = _marshal_thread_tag(self)
         bg_task = get_background_task_name()
 
-        if self._should_run_inline():
+        # What was wrong: post() inlined whenever WRITERAGENT_TESTING=1, so a
+        # tagged worker touched UNO on itself during native tests.
+        # How it happened: execute() already required ``not bg_task`` for that
+        # inline path; post() did not.
+        # Why this change: inline only when _should_run_inline() and the caller
+        # is not a background task. A tagged worker falls through to enqueue,
+        # or to the existing drop when AsyncCallback is missing. Untagged
+        # threads still inline.
+        if self._should_run_inline() and not bg_task:
             log.debug("marshal route=post_inline_testing fn=%s %s", fn_label, tag)
             fn(*args, **kwargs)
             return
@@ -751,12 +761,21 @@ def _pump_vcl_events(toolkit: Any) -> bool:
 
 
 def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecutor | None = None) -> None:
-    """Idle tick for main-thread wait loops: drain QueueExecutor then pump VCL events.
+    """Idle tick for main-thread wait loops: drain QueueExecutor, then maybe pump VCL.
 
-    This is the drain-owner path: always pumps VCL when a toolkit is present so chat
-    Send stays responsive. Secondary UI progress must use
+    Depth 0 or 1 still calls ``processEventsToIdle`` so chat Send stays responsive.
+    Same-owner re-entry (depth > 1) skips VCL — the outer owner is already pumping —
+    but still drains the marshal queue. Secondary UI progress must use
     :func:`plugin.framework.uno_context.process_events_to_idle`, which no-ops while
     a :func:`drain_owner_scope` is active.
     """
     pump_main_thread_work_queue(max_items=max_queue_items, executor=executor)
+    # What was wrong: every idle tick called processEventsToIdle, including when
+    # a nested stream drain (depth > 1) was already inside the outer pump.
+    # How it happened: pump_ui_idle treated any toolkit as "always pump VCL".
+    # Why this change: depth > 1 notes the suppression and skips VCL. The marshal
+    # queue above still runs so execute_on_main_thread is not stuck behind it.
+    if get_drain_depth() > 1:
+        note_suppressed_vcl_pump(get_drain_owner())
+        return
     _pump_vcl_events(toolkit)

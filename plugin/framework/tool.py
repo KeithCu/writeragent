@@ -443,6 +443,13 @@ def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services
     return False
 
 
+def _schema_type_includes_array(type_value: Any) -> bool:
+    """True when a JSON-schema ``type`` is ``array`` or a list that includes it."""
+    if type_value == "array":
+        return True
+    return isinstance(type_value, list) and "array" in type_value
+
+
 class ToolRegistry:
     """Registers and dispatches tools.
 
@@ -735,10 +742,15 @@ class ToolRegistry:
 
             # Check document compatibility using cached doc_type / UNO services (no live doc probe).
             if not tool_supports_document(tool, doc_type=ctx.doc_type, uno_services_supported=getattr(ctx, "uno_services_supported", None)):
-                # Schema/registry bug: this tool should not have been advertised for
-                # this document. Raise (not UNKNOWN_TOOL) so callers see a programmer
-                # error. Hallucinated names already return make_tool_error(..., UNKNOWN_TOOL).
-                raise ValueError(f"Tool {tool_name} does not support the current document")
+                # A registered tool whose uno_services/doc_types miss this document
+                # used to raise ValueError, and ``except ValueError`` re-raised it
+                # into the model as a traceback. Unknown names stay UNKNOWN_TOOL.
+                # This path is a stable tool error the model can read.
+                return make_tool_error(
+                    f"Tool '{tool_name}' does not support the current document.",
+                    code="UNSUPPORTED_DOCUMENT",
+                    tool_name=tool_name,
+                )
 
             # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
             # from API/LLM) do not cause "Unknown parameter" validation errors.
@@ -754,7 +766,13 @@ class ToolRegistry:
 
             # MCP widens array ``range`` to string|array. Several Calc tools index
             # ``[0]``, so a bare string would become its first character.
-            if isinstance(kwargs.get("range"), str):
+            # Wrapping every top-level string did that to non-array ``range`` too
+            # (a string schema became a one-element list before validation).
+            # Only wrap when this property's type is array, or a list of types
+            # that includes array. Nested ``range`` fields are not walked.
+            range_schema = props.get("range") if isinstance(props, dict) else None
+            range_type = range_schema.get("type") if isinstance(range_schema, dict) else None
+            if isinstance(kwargs.get("range"), str) and _schema_type_includes_array(range_type):
                 kwargs = dict(kwargs)
                 kwargs["range"] = [kwargs["range"]]
 
@@ -804,6 +822,9 @@ class ToolRegistry:
             return result
 
         except ValueError:
+            # Unsupported-document is a tool error dict, not a raise. Other
+            # ValueErrors are still programmer errors and must not be relabeled
+            # TOOL_REGISTRY_ERROR.
             raise
         except Exception as e:
             log.exception("Tool execution failed: %s", tool_name)

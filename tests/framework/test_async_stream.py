@@ -1210,6 +1210,37 @@ def test_pump_ui_idle_still_pumps_vcl_under_drain_owner():
     assert toolkit.idle_calls >= 1
 
 
+def test_pump_ui_idle_skips_vcl_when_drain_depth_gt_1_but_drains_queue():
+    """Same-owner re-entry must not pump VCL again, and must still run queued work."""
+    from plugin.framework import queue_executor as qe
+    from plugin.framework.async_drain_guard import get_drain_depth, reset_sentry_state
+
+    reset_sentry_state()
+    toolkit = DummyToolkit()
+    ran: list[str] = []
+    ex = qe.QueueExecutor()
+    ex._enqueue_work(lambda: ran.append("q"), (), {}, blocking=False)
+    with qe.drain_owner_scope("stream"):
+        assert get_drain_depth() == 1
+        with qe.drain_owner_scope("stream"):
+            assert get_drain_depth() == 2
+            qe.pump_ui_idle(toolkit, executor=ex)
+    assert toolkit.idle_calls == 0
+    assert ran == ["q"]
+    assert qe.get_suppressed_vcl_pump_count() >= 1
+    reset_sentry_state()
+
+
+def test_run_blocking_in_thread_pump_idle_uses_get_toolkit():
+    from plugin.framework.async_stream import run_blocking_in_thread
+
+    toolkit = DummyToolkit()
+    ctx = MagicMock()
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit) as get_tk:
+        assert run_blocking_in_thread(ctx, lambda: "ok") == "ok"
+    get_tk.assert_called_once_with(ctx)
+
+
 def test_nested_stream_drain_rejected():
     """A second run_stream_drain_loop under an active owner must not hang forever."""
     from plugin.framework.queue_executor import drain_owner_scope

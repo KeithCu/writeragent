@@ -992,15 +992,20 @@ def _sanitize_stored_model_value(val: Any) -> str:
     return _sanitize_model_combobox_value(str(val or ""))
 
 
-def get_text_model() -> str:
-    """Return the text/chat model (stored as ``text_model``)."""
-    val = _sanitize_stored_model_value(get_config("text_model"))
+def _stored_or_default(config_key: str, default_field: str) -> str:
+    """Stored model id, or the current endpoint's provider default."""
+    val = _sanitize_stored_model_value(get_config(config_key))
     if val:
         return val
     current_endpoint = get_current_endpoint()
     provider = get_provider_from_endpoint(current_endpoint)
     defaults = get_provider_defaults(provider)
-    return str(defaults.get("text_model", "")).strip()
+    return str(defaults.get(default_field, "") or "").strip()
+
+
+def get_text_model() -> str:
+    """Return the text/chat model (stored as ``text_model``)."""
+    return _stored_or_default("text_model", "text_model")
 
 
 def get_stt_model() -> str:
@@ -1018,21 +1023,12 @@ def get_stt_model() -> str:
     legacy = _sanitize_stored_model_value(get_config("stt_model"))
     if legacy:
         return legacy
-    current_endpoint = get_current_endpoint()
-    provider = get_provider_from_endpoint(current_endpoint)
-    defaults = get_provider_defaults(provider)
-    return str(defaults.get("stt_model", "") or "").strip()
+    return _stored_or_default("audio.stt_model", "stt_model")
 
 
 def get_tts_model() -> str:
     """Return the configured TTS model, or default for the current endpoint's provider."""
-    val = _sanitize_stored_model_value(get_config("audio.tts_model"))
-    if val:
-        return val
-    current_endpoint = get_current_endpoint()
-    provider = get_provider_from_endpoint(current_endpoint)
-    defaults = get_provider_defaults(provider)
-    return str(defaults.get("tts_model", "") or "").strip()
+    return _stored_or_default("audio.tts_model", "tts_model")
 
 
 def set_tts_model(val: Any, update_lru: bool = True) -> None:
@@ -1064,13 +1060,7 @@ def get_grammar_model() -> str:
 
 def get_image_model() -> str:
     """Return current image model for endpoint-based generation."""
-    val = _sanitize_stored_model_value(get_config("image_model"))
-    if val:
-        return val
-    current_endpoint = get_current_endpoint()
-    provider = get_provider_from_endpoint(current_endpoint)
-    defaults = get_provider_defaults(provider)
-    return str(defaults.get("image_model", "")).strip()
+    return _stored_or_default("image_model", "image_model")
 
 
 def set_text_model(val: Any, update_lru: bool = True, *, event_key: str | None = None) -> None:
@@ -1349,18 +1339,23 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
 
 
 def is_image_only_model(endpoint: Any, model_id: Any) -> bool:
-    """Check if the model outputs image but not text (dedicated image generator)."""
+    """Check if the model outputs image but not text (dedicated image generator).
+
+    What was wrong: this called ``fetch_available_image_models`` only to fill
+    ``_model_output_modalities``. OpenRouter ``/images/models`` returns ids and
+    never writes that map, so a real image id fell through to the name
+    heuristic (a ``gemini`` image model looked like chat). Use the id list the
+    fetch already returns. ``None`` means the catalog did not answer; then the
+    name heuristic still applies.
+    """
     if not endpoint or not model_id:
         return False
-    # Ensure cache is populated
-    fetch_available_image_models(endpoint)
-
-    if model_id in _model_output_modalities:
-        mods = _model_output_modalities[model_id]
-        return "image" in mods and "text" not in mods
+    image_ids = fetch_available_image_models(str(endpoint))
+    if image_ids is not None:
+        return str(model_id) in image_ids
 
     # Fallback to name-based heuristic if metadata is not present (e.g. Ollama or custom local endpoints)
-    lower_model = model_id.lower()
+    lower_model = str(model_id).lower()
     is_chat = any(x in lower_model for x in ("gemini", "gpt", "claude", "llama", "mixtral", "qwen", "deepseek"))
     if is_chat:
         return False

@@ -772,7 +772,15 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     toolkit = None
     if pump_idle:
         try:
-            toolkit = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+            # What was wrong: the toolkit came from createInstanceWithContext on
+            # ctx, with no main-thread check and no guard wrap.
+            # How it happened: this helper built the toolkit inline instead of
+            # going through get_toolkit().
+            # Why this change: get_toolkit asserts the caller is the UI thread
+            # and returns a guard_uno wrapper, same as the other UNO boundaries.
+            from plugin.framework.uno_context import get_toolkit
+
+            toolkit = get_toolkit(ctx)
         except Exception as e:
             log.warning("run_blocking_with_pump: Failed to create toolkit, waiting without pump. %s", e)
             toolkit = None

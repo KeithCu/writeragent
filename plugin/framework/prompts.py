@@ -32,6 +32,8 @@ Other important prompts (not assembled here):
 import logging
 from typing import Any
 
+from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+
 # ---------------------------------------------------------------------------
 # Generic
 # ---------------------------------------------------------------------------
@@ -404,11 +406,7 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
 - Reach: body, table cells, text frames, headers and footers.
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags.
-- Headers/footers: edit the region with page_get_header_footer_text then page_set_header_footer_text.
-  Get/Set use the same XHTML as get_document_content (Writer fields as <span title="page-number"/>).
-  page_set_style_properties header_is_on=false / footer_is_on=false refuses while the region still has content; clear with page_set_header_footer_text first, then disable. Enabling is always allowed.
-  Creating a different first page letterhead: use header_first / footer_first.
-  page_get_style_properties reports first_is_shared when that split is off.
+- Headers/footers: delegate_to_specialized_writer_toolset(domain="page", task=...).
 - `content` is a JSON array of HTML strings (one fragment per heading/paragraph).
   We wrap in <html>/<body>.
 {HTML_FRAGMENT_RULES}
@@ -422,7 +420,7 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
   data-lo-style is honored on target='full_document', 'beginning', and 'end' (insert prep keeps neighbor text/styles untouched). On 'selection'/'search' it is still ignored (would restyle adjacent text; use apply_style or a full_document rewrite).
   v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.
 - Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
-- Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML or via page_set_header_footer_text.
+- Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. READ-ONLY — send it back and the result says it was ignored; it is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
   apply_style defaults to clear_direct='style_props': the style's font name/size and paragraph indents show; bold/italic/colour stay. Pass clear_direct='none' only to keep a hand-set font. clear_direct='all' is Ctrl+M (refused on target='full_document').
   Re-applying a style does not keep a quote indent — LibreOffice drops direct Para* (margins/alignment) when ParaStyleName is set.
@@ -1185,6 +1183,22 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
     return base
 
 
+_INJECTED_BLOB_TRUNCATION_MARKER = "[truncated]"
+
+
+def _cap_injected_prompt_blob(text: str) -> str:
+    """Cap one USER.md or humanizer blob to the chat document-excerpt size.
+
+    Each send appended the whole file, so a long profile crowded out the
+    document. Same cap as ``CHAT_DOCUMENT_CONTEXT_MAX_CHARS``. Callers read
+    the file on every send — do not cache the profile across turns.
+    """
+    body = text.strip()
+    if len(body) <= CHAT_DOCUMENT_CONTEXT_MAX_CHARS:
+        return body
+    return body[:CHAT_DOCUMENT_CONTEXT_MAX_CHARS].rstrip() + "\n" + _INJECTED_BLOB_TRUNCATION_MARKER
+
+
 def get_chat_system_prompt_for_document(model: Any, additional_instructions: str = "", ctx: Any = None) -> str:
     """Single source of truth for chat system prompt. Use this so Writer vs Calc prompt cannot be mixed.
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.
@@ -1234,7 +1248,7 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
             store = MemoryStore(ctx)
             user_mem = store.read("user")
             if user_mem:
-                base += "\n\n[USER PROFILE / MEMORY]\n" + user_mem.strip() + "\n"
+                base += "\n\n[USER PROFILE / MEMORY]\n" + _cap_injected_prompt_blob(user_mem) + "\n"
         except Exception as e:
             import logging
 
@@ -1254,7 +1268,7 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
                 hstore = SkillStore(ctx)
                 hguidance = hstore.get_humanizer_guidance()
                 if hguidance:
-                    base += "\n\n[HUMANIZER GUIDANCE — apply when generating or revising prose]\n" + hguidance.strip() + "\n"
+                    base += "\n\n[HUMANIZER GUIDANCE — apply when generating or revising prose]\n" + _cap_injected_prompt_blob(hguidance) + "\n"
         except Exception as e:
             import logging
 

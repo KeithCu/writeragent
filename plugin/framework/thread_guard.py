@@ -291,15 +291,27 @@ class _UnoThreadGuardProxy:
         return self._target.getTypes(*args, **kwargs)
 
     # --- Diagnostics / transparency ---
+    # What was wrong: __repr__/__str__ read _target with no assert_main_thread
+    # and swallowed Exception, so a log on a worker entered PyUNO and hid it.
+    # How it happened: the guard's RuntimeError is an Exception, and these
+    # dunders never went through the same check as __getattr__.
+    # Why this change: assert before touching _target, and do not catch that
+    # RuntimeError, so the violation propagates instead of a fallback string.
     def __repr__(self) -> str:  # type: ignore[override]
+        assert_main_thread("UNO repr")
         try:
             return f"<UNOProxy for {self._target!r}>"
+        except RuntimeError:
+            raise
         except Exception:
             return "<UNOProxy>"
 
     def __str__(self) -> str:  # type: ignore[override]
+        assert_main_thread("UNO str")
         try:
             return str(self._target)
+        except RuntimeError:
+            raise
         except Exception:
             return "<UNOProxy>"
 
@@ -334,11 +346,6 @@ class _UnoThreadGuardProxy:
         # used to raise from __eq__ after hash succeeded.
         assert_main_thread("UNO hash")
         return hash(self._target)
-
-    # Expose the real target for the (rare) cases that need the concrete UNO object under the guard
-    @property
-    def __uno_target__(self) -> Any:
-        return self._target
 
 
 def guard_uno(obj: Any) -> Any:

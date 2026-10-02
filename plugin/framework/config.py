@@ -844,14 +844,26 @@ def _get_validated_config_dict() -> dict[str, Any]:
             # rewrote the file with only the new key. Coerce and persist so the
             # rest of the file (API keys included) is kept. set_config still
             # validates strictly so the UI can reject a bad new value.
+            # Snapshot before validate(). It upgrades calc_prompt_max_tokens < 100
+            # in memory and may coerce other fields that alias this dict.
+            import copy
+
+            loaded = copy.deepcopy(data)
             config = _config_schema.WriterAgentConfig.from_dict(data)
             try:
                 config.validate()
             except ConfigValidationError as e:
                 log.warning("Config has out-of-range values (%s); coercing to in-range defaults", e)
                 config.validate(coerce_out_of_range=True)
+
+            # What was wrong: validate() already rewrote calc_prompt_max_tokens
+            # below 100 to 4096 on the object, then a second block parsed the
+            # raw file and wrote again. One compare against the loaded dict
+            # persists every in-memory fix (upgrade or out-of-range coerce)
+            # and leaves a file that already matches to_dict() untouched.
+            repaired = config.to_dict()
+            if repaired != loaded:
                 try:
-                    repaired = config.to_dict()
                     _write_config_file(config_file_path, repaired)
                     data = repaired
                     try:
@@ -862,28 +874,6 @@ def _get_validated_config_dict() -> dict[str, Any]:
                     log.warning("Failed to persist coerced config: %s", write_err)
 
             out = _build_validated_config_export(data, config)
-
-            # Persist stale calc_prompt_max_tokens upgrade (old default 70 → 4096).
-            raw_prompt_tokens = data.get("calc_prompt_max_tokens")
-            try:
-                raw_int = _config_schema.parse_int_robust(raw_prompt_tokens) if raw_prompt_tokens is not None and raw_prompt_tokens != "" else None
-            except ValueError:
-                raw_int = None
-            if raw_int is not None and raw_int < 100:
-                file_data = dict(data)
-                file_data.pop("calc_prompt_max_tokens", None)
-                cleaned_config = _config_schema.WriterAgentConfig.from_dict(file_data)
-                cleaned_config.validate()
-                cleaned_file_data = cleaned_config.to_dict()
-                try:
-                    _write_config_file(config_file_path, cleaned_file_data)
-                    try:
-                        current_mtime = os.path.getmtime(config_file_path)
-                    except OSError:
-                        pass
-                    log.info("Persisted calc_prompt_max_tokens upgrade (%s → default 4096)", raw_int)
-                except OSError as e:
-                    log.warning("Failed to persist calc_prompt_max_tokens upgrade: %s", e)
 
             _cache.data = out
             _cache.mtime = current_mtime

@@ -178,6 +178,37 @@ def test_proxy_eq_and_hash_delegate_to_target():
     assert hash(prox) == hash(real)
 
 
+def test_proxy_str_repr_raise_off_thread(monkeypatch):
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("release stub proxy does not assert on str/repr")
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    real = _make_pyuno_like()
+    prox = tg._UnoThreadGuardProxy(real)
+    assert "UNOProxy" in repr(prox)
+    str(prox)
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    errors: list[BaseException] = []
+
+    def _call() -> None:
+        for fn in (str, repr):
+            try:
+                fn(prox)
+            except BaseException as exc:
+                errors.append(exc)
+
+    try:
+        worker = threading.Thread(target=_call, name="bg-log")
+        worker.start()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert len(errors) == 2
+        assert all(isinstance(exc, RuntimeError) and "UNO thread violation" in str(exc) for exc in errors)
+    finally:
+        tg.GUARD_ON = was
+
+
 def test_set_background_task_none_clears_violation_ui_thread():
     tid = threading.get_ident()
     with tg._violation_ui_lock:

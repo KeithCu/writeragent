@@ -460,6 +460,39 @@ class TestConfigSyncFileIO:
         with pytest.raises(ConfigError):
             get_config('some_custom_map')
 
+    def test_below_100_calc_prompt_max_tokens_writes_once(self):
+        """A stale value becomes 4096 with one write. An already-valid file is not rewritten."""
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump({'text_model': 'gpt', 'calc_prompt_max_tokens': 70}, f)
+        reset_config_for_tests()
+        from plugin.framework import config as config_mod
+
+        writes: list[int] = []
+        real_write = config_mod._write_config_file
+
+        def counting_write(path: str, data: dict) -> None:
+            writes.append(1)
+            real_write(path, data)
+
+        with patch('plugin.framework.config._write_config_file', side_effect=counting_write):
+            assert (get_config('calc_prompt_max_tokens')) == (4096)
+        assert (len(writes)) == (1)
+        data = self._load_written()
+        assert ('calc_prompt_max_tokens') not in (data)
+        assert (data['text_model']) == ('gpt')
+
+    def test_valid_calc_prompt_file_is_not_rewritten_on_get(self):
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump({'text_model': 'gpt', 'calc_prompt_max_tokens': 150}, f)
+        reset_config_for_tests()
+        with patch('plugin.framework.config._write_config_file') as mocked_write:
+            assert (get_config('calc_prompt_max_tokens')) == (150)
+            assert (get_config('text_model')) == ('gpt')
+        mocked_write.assert_not_called()
+        data = self._load_written()
+        assert (data['calc_prompt_max_tokens']) == (150)
+        assert (data['text_model']) == ('gpt')
+
     def test_set_config_real_write_prunes_other_defaults(self):
         # Existing files that still contain default keys are cleaned on the next
         # write of a non-default value, not on a no-op set of an unchanged key.

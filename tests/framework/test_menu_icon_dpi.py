@@ -97,3 +97,38 @@ def test_strong_cache_logs_info_once(monkeypatch, caplog):
         assert m.resolve_menu_icon_pixel_size() == 16
     infos = [r for r in caplog.records if r.levelno == logging.INFO and "menu_icon_dpi source=" in r.getMessage()]
     assert len(infos) == 1
+
+
+def test_non_vcl_probe_stays_weak_until_vcl_dpi(monkeypatch):
+    """Font/toolbar/env must not freeze the cache before PixelPerMeterX exists."""
+    from plugin.framework import menu_icon_dpi as m
+
+    m.reset_menu_icon_dpi_cache()
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: None)
+    monkeypatch.setattr(m, "probe_menu_font_scale", lambda ctx=None: 1.0)
+    monkeypatch.setattr(m, "probe_toolbar_icon_config_px", lambda ctx=None: None)
+    monkeypatch.setattr(m, "probe_env_scale", lambda: None)
+    assert m.resolve_menu_icon_pixel_size() == 16
+    assert m._cached_weak is True
+
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 2.0)
+    assert m.resolve_menu_icon_pixel_size() == 32
+    assert m._cached_weak is False
+    # A strong vcl reading is not replaced by a later probe.
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 1.0)
+    assert m.resolve_menu_icon_pixel_size() == 32
+
+
+def test_probe_vcl_miss_walks_windows_once(monkeypatch):
+    from plugin.framework import menu_icon_dpi as m
+
+    calls = {"n": 0}
+
+    def _windows(ctx=None):
+        calls["n"] += 1
+        return [object(), object()]
+
+    monkeypatch.setattr(m, "_candidate_windows", _windows)
+    monkeypatch.setattr(m, "_ppm_scale", lambda win: None)
+    assert m.probe_vcl_dpi_scale() is None
+    assert calls["n"] == 1

@@ -31,12 +31,18 @@ from plugin.framework.logging import (
 class TestInitLogging:
 
     def setup_method(self):
+        import sys
+
         import plugin.framework.config as config_mod
         import plugin.framework.logging as logging_mod
 
         self._saved_config_path = config_mod._resolved_config_path
         self._saved_debug_path = logging_mod._debug_log_path
-        self._saved_hooks = logging_mod._exception_hooks_installed
+        self._saved_hooks = getattr(sys, "_writeragent_exception_hooks_installed", False)
+        self._saved_excepthook = sys.excepthook
+        import threading
+
+        self._saved_threading_excepthook = getattr(threading, "excepthook", None)
         self._saved_root_handlers = list(logging.getLogger().handlers)
         self._saved_last_resort = logging.lastResort
         self._saved_propagate = log.propagate
@@ -47,12 +53,16 @@ class TestInitLogging:
         config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = None
         logging_mod._debug_log_path = None
-        logging_mod._debug_file_handler = None
-        logging_mod._exception_hooks_installed = False
+        # What was wrong: these lived on the logging module. A second import
+        # did not see them. Tests must reset the sys copies or they leak.
+        setattr(sys, "_writeragent_debug_file_handler", None)
+        setattr(sys, "_writeragent_exception_hooks_installed", False)
         for h in list(log.handlers):
             log.removeHandler(h)
 
     def _release_debug_handlers(self) -> None:
+        import sys
+
         import plugin.framework.logging as logging_mod
 
         for logger in (log, logging.getLogger(), logging.getLogger("plugin")):
@@ -63,16 +73,23 @@ class TestInitLogging:
                 except Exception:
                     pass
         logging_mod._debug_log_path = None
-        logging_mod._debug_file_handler = None
+        setattr(sys, "_writeragent_debug_file_handler", None)
 
     def teardown_method(self):
+        import sys
+
         import plugin.framework.config as config_mod
         import plugin.framework.logging as logging_mod
 
         config_mod._resolved_config_path = self._saved_config_path
         logging_mod._debug_log_path = self._saved_debug_path
-        logging_mod._debug_file_handler = None
-        logging_mod._exception_hooks_installed = self._saved_hooks
+        setattr(sys, "_writeragent_debug_file_handler", None)
+        setattr(sys, "_writeragent_exception_hooks_installed", self._saved_hooks)
+        sys.excepthook = self._saved_excepthook
+        import threading
+
+        if self._saved_threading_excepthook is not None:
+            threading.excepthook = self._saved_threading_excepthook
         logging.lastResort = self._saved_last_resort
         log.propagate = self._saved_propagate
         plugin_logger = logging.getLogger("plugin")
@@ -561,3 +578,103 @@ class TestLoggingErrorHandling():
             safe_log_exception(e, logger=broken_logger)
         captured = capsys.readouterr()
         assert ('CRITICAL: Logging failed for exception' in captured.out)
+
+
+def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
+    from plugin.framework.logging import LOG_REDACT_SECRET_PLACEHOLDER
+
+    raw = {
+        "api_keys_by_endpoint": {"https://api.example": "sk-live", "count": 1},
+        "token": "abc",
+        "Secret": "xyz",
+        "max_tokens": 128,
+        "secret_sauce": "keep",
+    }
+    out = redact_sensitive_payload_for_log(raw)
+    assert out["api_keys_by_endpoint"]["https://api.example"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["api_keys_by_endpoint"]["count"] == 1
+    assert out["token"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["Secret"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["max_tokens"] == 128
+    assert out["secret_sauce"] == "keep"
+    assert raw["api_keys_by_endpoint"]["https://api.example"] == "sk-live"
+    assert raw["token"] == "abc"
+
+
+def test_excepthook_is_not_wrapped_twice() -> None:
+    import sys
+    import threading
+
+    import plugin.framework.logging as logging_mod
+
+    saved_hook = sys.excepthook
+    saved_thread = getattr(threading, "excepthook", None)
+    saved_flag = getattr(sys, "_writeragent_exception_hooks_installed", False)
+    try:
+        def sentinel(*_args):
+            return None
+
+        sys.excepthook = sentinel
+        setattr(sys, "_writeragent_exception_hooks_installed", False)
+        logging_mod._install_global_exception_hooks()
+        first = sys.excepthook
+        assert getattr(first, "_writeragent_hook", False) is True
+        assert first is not sentinel
+        setattr(sys, "_writeragent_exception_hooks_installed", False)
+        logging_mod._install_global_exception_hooks()
+        assert sys.excepthook is first
+    finally:
+        sys.excepthook = saved_hook
+        if saved_thread is not None:
+            threading.excepthook = saved_thread
+        setattr(sys, "_writeragent_exception_hooks_installed", saved_flag)
+
+
+def test_log_record_factory_is_not_wrapped_twice() -> None:
+    import plugin.framework.logging as logging_mod
+
+    first = logging.getLogRecordFactory()
+    logging_mod._install_safe_log_record_factory()
+    second = logging.getLogRecordFactory()
+    assert second is first
+    assert getattr(second, "_writeragent_safe_factory", False) is True
+
+
+def test_debug_handler_is_stored_on_sys(tmp_path) -> None:
+    import sys
+
+    import plugin.framework.logging as logging_mod
+
+    path = str(tmp_path / "writeragent_debug.log")
+    saved_path = logging_mod._debug_log_path
+    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    handler = None
+    try:
+        logging_mod._debug_log_path = path
+        setattr(sys, "_writeragent_debug_file_handler", None)
+        handler = logging_mod._shared_debug_file_handler()
+        assert getattr(sys, "_writeragent_debug_file_handler") is handler
+        assert logging_mod._shared_debug_file_handler() is handler
+    finally:
+        logging_mod._debug_log_path = saved_path
+        if handler is not None:
+            handler.close()
+        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+
+
+def test_start_watchdog_is_dedicated_and_idempotent() -> None:
+    import sys
+
+    import plugin.framework.logging as logging_mod
+
+    saved = getattr(sys, "_writeragent_watchdog_started", False)
+    try:
+        setattr(sys, "_writeragent_watchdog_started", False)
+        with patch("plugin.framework.worker_pool.run_in_background") as run:
+            logging_mod.start_watchdog_thread(None, status_control=None)
+            logging_mod.start_watchdog_thread(None, status_control=None)
+        assert run.call_count == 1
+        assert run.call_args.kwargs.get("dedicated") is True
+        assert getattr(sys, "_writeragent_watchdog_started") is True
+    finally:
+        setattr(sys, "_writeragent_watchdog_started", saved)

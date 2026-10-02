@@ -532,6 +532,10 @@ def test_stderr_drain_joins_split_utf8():
     drain.join(timeout=2)
     assert drain.text() == "é"
 
+    received: list[str] = []
+    AsyncProcess(["dummy"])._read_stream(_Chunks(), received.append)
+    assert received == ["é"]
+
 
 def test_concurrent_submit_during_shutdown_does_not_hang():
     pool = _DaemonWorkPool(1)

@@ -5,6 +5,9 @@ import threading
 import time
 from plugin.testing_runner import native_test
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from plugin.framework.uno_context import set_fallback_ctx, get_ctx
 _test_doc1 = None
 _test_doc2 = None
@@ -330,6 +333,68 @@ def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
     assert pe2i_threads == []
 
 
+def test_wait_while_pumping_skips_post_while_work_queue_nonempty():
+    """One queued pump is enough; a later empty queue must post again (not a sticky flag)."""
+    import queue as queue_mod
+
+    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.uno_context import wait_while_pumping
+
+    saved: list[object] = []
+    while True:
+        try:
+            saved.append(default_executor._work_queue.get_nowait())
+        except queue_mod.Empty:
+            break
+    default_executor._work_queue.put(object())
+    posts: list[int] = []
+    result: dict[str, bool] = {}
+    try:
+        done = threading.Event()
+
+        def _post_ignored(fn: object, *args: object, **kwargs: object) -> None:
+            del fn, args, kwargs
+            posts.append(1)
+            done.set()
+
+        def _waiter() -> None:
+            with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post_ignored):
+                result["skipped"] = wait_while_pumping(done, MagicMock(), timeout=0.04, poll_sec=0.01)
+
+        worker = threading.Thread(target=_waiter, name="Dummy-21")
+        worker.start()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert result.get("skipped") is False
+        assert posts == []
+
+        default_executor._work_queue.get_nowait()
+        done2 = threading.Event()
+
+        def _post_once(fn: object, *args: object, **kwargs: object) -> None:
+            del fn, args, kwargs
+            posts.append(1)
+            done2.set()
+
+        def _waiter2() -> None:
+            with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post_once):
+                result["posted"] = wait_while_pumping(done2, MagicMock(), timeout=1.0, poll_sec=0.01)
+
+        worker2 = threading.Thread(target=_waiter2, name="Dummy-22")
+        worker2.start()
+        worker2.join(timeout=2)
+        assert result.get("posted") is True
+        assert posts == [1]
+    finally:
+        while True:
+            try:
+                default_executor._work_queue.get_nowait()
+            except queue_mod.Empty:
+                break
+        for item in saved:
+            default_executor._work_queue.put(item)
+
+
 def test_resolve_package_extension_id_prefers_librepy():
     from plugin.framework.constants import EXTENSION_ID_LIBREPY
     from plugin.framework.uno_context import (
@@ -439,7 +504,7 @@ def test_get_desktop_creates_on_soffice():
     with (
         patch.object(sys, "argv", ["soffice"]),
         patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
-        patch("plugin.framework.uno_context._wrap_uno", side_effect=lambda obj: obj),
+        patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
     ):
         assert get_desktop(ctx) is desktop
     smgr.createInstanceWithContext.assert_called_once_with("com.sun.star.frame.Desktop", ctx)
@@ -454,6 +519,41 @@ def test_get_active_document_skips_desktop_create_on_no_vcl():
     with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
         assert get_active_document(ctx) is None
     smgr.createInstanceWithContext.assert_not_called()
+
+
+def test_get_active_document_reraises_disposed():
+    """A document that dies mid-call must not look like nothing is open."""
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.framework.uno_context import get_active_document
+
+    class DisposedException(Exception):
+        pass
+
+    desktop = MagicMock()
+    desktop.getCurrentComponent.side_effect = DisposedException("gone")
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        pytest.raises(DocumentDisposedError),
+    ):
+        get_active_document(MagicMock())
+
+
+def test_get_active_document_none_when_component_missing():
+    from plugin.framework.uno_context import get_active_document
+
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        assert get_active_document(MagicMock()) is None
+
+
+def test_get_active_document_none_on_other_uno_object_error():
+    from plugin.framework.uno_context import get_active_document
+
+    desktop = MagicMock()
+    desktop.getCurrentComponent.side_effect = RuntimeError("not disposed")
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        assert get_active_document(MagicMock()) is None
 
 
 def test_current_document_controller_skips_desktop_create_on_no_vcl():
@@ -722,6 +822,98 @@ def test_uno_same_issame_unwraps_proxy_first():
         # ``==`` is False (distinct objects / proxy target ≠ other), so ladder hits isSame.
         assert uno_same(proxy_a, real_b) is True
     assert seen == [(real_a, real_b)]
+
+
+def test_uno_same_off_thread_raises_on_thread_issame_still_works(monkeypatch):
+    from plugin.framework import thread_guard as tg
+    from plugin.framework.uno_context import uno_same
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("release bundles stub main_thread_only")
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    a, b = _NeverEq(), _NeverEq()
+    with patch.object(sys.modules["uno"], "isSame", return_value=True, create=True):
+        assert uno_same(a, b) is True
+
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    holder: dict[str, BaseException] = {}
+
+    def _call() -> None:
+        try:
+            uno_same(object(), object())
+        except BaseException as exc:
+            holder["exc"] = exc
+
+    try:
+        worker = threading.Thread(target=_call, name="bg-uno-same")
+        worker.start()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        exc = holder.get("exc")
+        assert isinstance(exc, RuntimeError)
+        assert "UNO thread violation" in str(exc)
+    finally:
+        tg.GUARD_ON = was
+
+
+def test_uno_boundaries_import_guard_uno_at_the_return():
+    """Patching thread_guard.guard_uno must see boundary returns (not import-time _wrap_uno)."""
+    from plugin.doc.doc_type import DocumentType
+    from plugin.framework import uno_context as uc
+
+    seen: list[object] = []
+
+    def _guard(obj: object) -> object:
+        seen.append(obj)
+        return obj
+
+    ctx = MagicMock(name="ctx")
+    desktop = MagicMock(name="desktop")
+    doc = MagicMock(name="doc")
+    pip = MagicMock(name="pip")
+    toolkit = MagicMock(name="tk")
+    model = MagicMock(name="model")
+    model.getURL.return_value = "file:///tmp/note.odt"
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.side_effect = lambda name, _ctx: toolkit if "Toolkit" in name else desktop
+    ctx.ServiceManager = smgr
+    ctx.getValueByName.return_value = pip
+    desktop.getCurrentComponent.return_value = doc
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = model
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop.getComponents.return_value = comps
+    frame_model = MagicMock(name="frame_model")
+    controller = MagicMock()
+    controller.getModel.return_value = frame_model
+    frame = MagicMock()
+    frame.getController.return_value = controller
+
+    saved = uc._fallback_ctx
+    try:
+        uc.set_fallback_ctx(ctx)
+        with (
+            patch("plugin.framework.thread_guard.guard_uno", side_effect=_guard),
+            patch.object(sys, "argv", ["soffice"]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=["soffice.bin"]),
+            patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        ):
+            assert uc.get_ctx() is ctx
+            assert uc.get_desktop(ctx) is desktop
+            assert uc.get_active_document(ctx) is doc
+            assert uc.get_package_info(ctx) is pip
+            assert uc.get_toolkit(ctx) is toolkit
+            resolved, label = uc.resolve_document_by_url(ctx, "file:///tmp/note.odt")
+            assert resolved is model
+            assert label == "writer"
+            assert uc.get_document_from_frame(frame) is frame_model
+    finally:
+        uc.set_fallback_ctx(saved)
+    for obj in (ctx, desktop, doc, pip, toolkit, model, frame_model):
+        assert obj in seen
 
 
 def _scratch_doc(text="", tables=(), frames=(), shapes=0):

@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import collections
 import copy
-import datetime
 import json
 import logging
 import re
@@ -56,7 +55,7 @@ if TYPE_CHECKING:
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
 
-from .response_normalizers import strip_leaked_chat_template_control_tokens, normalize_multimodal_messages, prepend_dev_build_system_prefix_to_messages as _prepend_dev_build_system_prefix_to_messages
+from .response_normalizers import prepare_chat_messages, strip_leaked_chat_template_control_tokens
 
 
 # Keys WriterAgent builds; openrouter_chat_extra must not replace these.
@@ -154,6 +153,13 @@ def _full_url_for_request_path(endpoint: str, path: str) -> str:
     return path
 
 
+def _path_without_query(path: str) -> str:
+    """Request path for logs. A leftover ``?key=`` must not be printed."""
+    if not path or "?" not in path:
+        return path
+    return path.split("?", 1)[0]
+
+
 def _log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any, tools: Any) -> None:
     """Log wire-level chat fields (no secrets) for provider debugging."""
     payload = _chat_request_payload_from_body(body)
@@ -195,14 +201,18 @@ def _exit_code_from_provider_body(err_body: str) -> str | None:
     return None
 
 
-# Misses from the HTTP 500 diagnostic only. Do not store these in
-# _ollama_show_cache: that cache is also the vision lookup, and a down
-# server would then stick "no vision" for the process.
-_ollama_num_ctx_misses: set[str] = set()
+# Do not store a miss in _ollama_show_cache: that cache is also the vision
+# lookup, and a down server would then stick "no vision" for the process.
 
 
 def _peek_live_ollama_num_ctx(client: Any) -> int | None:
-    """Cached Ollama runtime num_ctx for crash copy / 500 logs. Never raises."""
+    """Cached Ollama runtime num_ctx for crash copy / 500 logs. Never raises.
+
+    What was wrong: this called ``query_ollama_runtime_num_ctx``, which POSTs
+    ``/api/show`` (10s) while ``llm_request_lane`` is still held on the HTTP 500
+    path. Format the 500 from the body we already have. Read num_ctx only when
+    a previous probe filled the show cache. Do not start a new HTTP call here.
+    """
     try:
         if client._get_provider() != "ollama":
             return None
@@ -210,15 +220,17 @@ def _peek_live_ollama_num_ctx(client: Any) -> int | None:
         if not model_name:
             return None
         endpoint = str(client._endpoint() or "")
-        cache_key = f"{endpoint}@{model_name}"
-        if cache_key in _ollama_num_ctx_misses:
-            return None
-        from plugin.framework.client.model_fetcher import query_ollama_runtime_num_ctx
+        from plugin.framework.client.model_fetcher import _ollama_show_cache
+        from plugin.framework.url_utils import normalize_endpoint_url
 
-        num_ctx = query_ollama_runtime_num_ctx(endpoint, model_name)
-        if num_ctx is None:
-            _ollama_num_ctx_misses.add(cache_key)
-        return num_ctx
+        cache_key = f"{normalize_endpoint_url(endpoint)}@{model_name}"
+        cached = _ollama_show_cache.get(cache_key)
+        if not isinstance(cached, dict):
+            return None
+        num_ctx = cached.get("num_ctx")
+        if isinstance(num_ctx, int) and num_ctx > 0:
+            return num_ctx
+        return None
     except Exception:
         log.debug("HTTP 500: live num_ctx lookup failed", exc_info=True)
         return None
@@ -292,7 +304,7 @@ class LlmClient:
         endpoint = self._endpoint()
         shim_key = f"{provider}:{endpoint}"
         if shim_key not in self._shims:
-            shim_cls = get_provider_shim_class(provider, endpoint=endpoint)
+            shim_cls = get_provider_shim_class(provider)
             self._shims[shim_key] = shim_cls(self)
         return self._shims[shim_key]
 
@@ -470,99 +482,7 @@ class LlmClient:
         except (TypeError, ValueError):
             max_tokens = 512
 
-        # 0. Coalesce consecutive system messages
-        coalesced_messages: list[Any] = []
-        coalesced_any = False
-        for m in messages:
-            if coalesced_messages and m.get("role") == "system" and coalesced_messages[-1].get("role") == "system":
-                prev_content = coalesced_messages[-1].get("content", "")
-                curr_content = m.get("content", "")
-
-                # Merge logic supporting both str and list content
-                if isinstance(prev_content, str) and isinstance(curr_content, str):
-                    coalesced_messages[-1]["content"] = prev_content + "\n\n" + curr_content
-                else:
-                    # Normalize both to list and extend
-                    merged = []
-                    if isinstance(prev_content, str):
-                        merged.append({"type": "text", "text": prev_content})
-                    elif isinstance(prev_content, list):
-                        merged.extend(prev_content)
-
-                    if isinstance(curr_content, str):
-                        merged.append({"type": "text", "text": curr_content})
-                    elif isinstance(curr_content, list):
-                        merged.extend(curr_content)
-
-                    coalesced_messages[-1]["content"] = merged
-
-                coalesced_any = True
-            else:
-                coalesced_messages.append(copy.deepcopy(m) if isinstance(m, dict) else m)
-
-        if coalesced_any:
-            log.error("make_chat_request: Coalesced multiple consecutive system messages.")
-
-        messages = coalesced_messages
-
-        # 1. Inject date into the first system message
-        today = datetime.date.today().strftime("%A, %Y-%m-%d")
-        date_msg = f"Today's date is {today}."
-        system_message: Any = None
-        for m in messages:
-            if m.get("role") == "system":
-                system_message = m
-                break
-
-        if system_message:
-            old_content = system_message.get("content")
-            if isinstance(old_content, str):
-                already_has_date_line = old_content.startswith(date_msg) or old_content.startswith("Today's date is ") or date_msg in old_content
-                if not already_has_date_line:
-                    system_message["content"] = f"{date_msg}\n\n{old_content}" if old_content else date_msg
-            elif isinstance(old_content, list):
-                already_has_date_line = False
-                text_item = None
-                for item in old_content:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        if text_item is None:
-                            text_item = item
-                        t = item.get("text", "")
-                        if date_msg in t or "Today's date is " in t:
-                            already_has_date_line = True
-                            break
-
-                if not already_has_date_line:
-                    if text_item:
-                        t = text_item.get("text", "")
-                        text_item["text"] = f"{date_msg}\n\n{t}" if t else date_msg
-                    else:
-                        old_content.insert(0, {"type": "text", "text": date_msg})
-        else:
-            messages.insert(0, {"role": "system", "content": date_msg})
-
-        if prepend_dev_build_system_prefix:
-            _prepend_dev_build_system_prefix_to_messages(messages)
-
-        # Normalize multimodal messages based on the resolved provider
-        normalize_multimodal_messages(messages, self._get_provider())
-
-        # 2. Flatten system message back to string if it only contains text (for max compatibility)
-        for m in messages:
-            if m.get("role") == "system":
-                content = m.get("content")
-                if isinstance(content, list):
-                    all_text = []
-                    only_text = True
-                    for item in content:
-                        if isinstance(item, dict) and item.get("type") == "text":
-                            all_text.append(item.get("text", ""))
-                        else:
-                            only_text = False
-                            break
-                    if only_text:
-                        m["content"] = "\n\n".join(all_text)
-                break
+        messages = prepare_chat_messages(messages, self._get_provider(), prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
 
         model_name = model or self.config.get("model", "")
         # Missing key (settings default -1) means omit from the request so the
@@ -574,7 +494,7 @@ class LlmClient:
 
         init_logging(self.ctx)
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
-        log.debug("URL: %s" % path)
+        log.debug("URL: %s" % _path_without_query(path))
         log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
         _log_chat_request_body_diag(self, path, body, headers, tools)
 
@@ -614,6 +534,11 @@ class LlmClient:
                     if action == "stop":
                         raise NetworkError("LLM request aborted by Stop", code="STOPPED")
                     continue
+                if wait_index == 0:
+                    # What was wrong: image/STT success never cleared the host gap,
+                    # so a 429 backoff stuck after a later 200. Chat already clears
+                    # pacing_key on a first-try 200.
+                    clear_host_gap(pacing_key(self._current_host(), request_model_from_body(body)))
                 raw = response.read().decode("utf-8", errors="replace")
                 self._close_if_connection_close(response)
                 parsed = safe_json_loads(raw)
@@ -624,7 +549,7 @@ class LlmClient:
             except CONNECTION_ERRORS as e:
                 sends_left -= 1
                 wait_index += 1
-                action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying JSON request on fresh connection", stop_checker=_stopped, attempt=wait_index)
+                action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying JSON request on fresh connection", stop_checker=_stopped, attempt=wait_index, model=request_model_from_body(body))
                 if action == "stop":
                     raise NetworkError("LLM request aborted by Stop", code="STOPPED") from e
 
@@ -874,6 +799,16 @@ class LlmClient:
                                         from plugin.framework.i18n import _
 
                                         raise NetworkError(_("The model is repeating the same chunk (infinite loop). Try again or use a different model."), code="INFINITE_LOOP")
+                        if raw_tool_calls:
+                            # What was wrong: emitted_any flipped only for thinking or
+                            # content text. Tool-call deltas still called on_delta, and
+                            # accumulate_delta concatenates function.name and arguments
+                            # onto a snapshot created outside the retry loop. A socket
+                            # drop after those chunks retried and merged a second copy
+                            # of the call. Count tool-call bytes like emitted text so
+                            # the retry branch raises CONNECTION_LOST. Do not clear or
+                            # replay the snapshot; callbacks have already run.
+                            emitted_any = True
                         if delta and on_delta:
                             _normalize_delta(delta)
                             if chunk_model and "model" not in delta:
@@ -919,8 +854,12 @@ class LlmClient:
                     raise NetworkError(format_error_message(e), code="CONNECTION_LOST", details={"url": path}) from e
                 sends_left -= 1
                 wait_index += 1
-                action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying streaming request on fresh connection", stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index)
+                action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying streaming request on fresh connection", stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index, model=request_model_from_body(body))
                 if action == "stop":
+                    # Same latch as the pre-send and in-loop Stop paths. Without it
+                    # the shared post-processing saw finish_reason "stop" plus any
+                    # tool_calls already accumulated and rewrote it to "tool_calls".
+                    self._stopped = True
                     return "stop"
                 continue
             except NetworkError as e:
@@ -1067,7 +1006,7 @@ class LlmClient:
                 except CONNECTION_ERRORS as e:
                     sends_left -= 1
                     wait_index += 1
-                    action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying request_with_tools on fresh connection", stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index)
+                    action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying request_with_tools on fresh connection", stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index, model=request_model_from_body(body))
                     if action == "stop":
                         self._stopped = True
                         return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
@@ -1095,8 +1034,15 @@ class LlmClient:
             message["content"] = content
             reasoning_replay = extract_reasoning_replay_from_response(sync_message=message)
 
-        # Shared post-processing
-        if last_finish_reason == "stop" and tool_calls:
+        # Shared post-processing.
+        # What was wrong: every 'stop' that carried tool_calls was rewritten to
+        # 'tool_calls', including a Stop/abort that had already delivered a
+        # partial tool-call delta. The UI then tried to run that call. A model
+        # that actually finishes with stop plus a complete tool_calls list still
+        # remaps. Skip only when this client latched Stop (_stopped), which the
+        # in-loop abort checker and the streaming connection-error 'stop' path
+        # both set before returning.
+        if last_finish_reason == "stop" and tool_calls and not self._stopped:
             last_finish_reason = "tool_calls"
 
         if content:
