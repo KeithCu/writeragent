@@ -231,6 +231,9 @@ class _MovePage:
     def add(self, shape: _MoveShape) -> None:
         self.shapes.append(shape)
 
+    def remove(self, shape: _MoveShape) -> None:
+        self.shapes.remove(shape)
+
 
 class _MovePages:
     def __init__(self, pages: list[_MovePage]) -> None:
@@ -244,7 +247,12 @@ class _MovePages:
 
     def insertNewByIndex(self, index: int) -> _MovePage:
         page = _MovePage("", [])
-        self.pages.insert(index, page)
+        if not self.pages:
+            self.pages.append(page)
+            return page
+        # InsertSdPage inserts after min(count-1, nIndex), never at index 0.
+        land = min(len(self.pages) - 1, index) + 1
+        self.pages.insert(land, page)
         return page
 
     def remove(self, page: _MovePage) -> None:
@@ -276,9 +284,12 @@ def test_move_slide_copies_then_removes_source():
     assert bridge.move_slide(2, 0) is True
     assert [page.Name for page in pages.pages] == ["C", "A", "B"]
     assert pages.pages[0].shapes[0].getString() == "c"
+    assert bridge.move_slide(0, 2) is True
+    assert [page.Name for page in pages.pages] == ["A", "B", "C"]
+    assert pages.pages[2].shapes[0].getString() == "c"
     assert bridge.move_slide(0, 0) is True
     assert bridge.move_slide(99, 99) is False
-    assert [page.Name for page in pages.pages] == ["C", "A", "B"]
+    assert [page.Name for page in pages.pages] == ["A", "B", "C"]
 
 
 def test_move_slide_keeps_source_when_copy_fails():

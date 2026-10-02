@@ -389,6 +389,8 @@ class InsertTable(ToolDrawSpecialBase):
 - `move_slide(from_page: int, to_page: int)`
 - `rename_slide(page: int, name: str)`
 
+`move_slide` copies onto a new page and removes the source only after that copy succeeds. LibreOffice `InsertSdPage` inserts **after** `insertNewByIndex`'s index, so a move to index 0 lands the copy at 1 and then exchanges it with the first page. The page name moves with that copy. Placeholder roles come from `ShapeType` (`TitleTextShape`, `OutlinerShape`) when `ClassName` is not a property; untagged text boxes are still not guessed by position.
+
 ---
 
 #### 5.2.5 Images on slides (`image_insert`)
