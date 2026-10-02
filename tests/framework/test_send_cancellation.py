@@ -201,19 +201,37 @@ def test_agent_session_aborts_cancel_registered_clients():
 
 
 def test_agent_session_success_does_not_cancel():
+    import queue as queue_mod
+
     from plugin.framework.queue_executor import _WorkItem
 
     client = MagicMock()
     item = _WorkItem("pending", lambda: None, (), {}, blocking=True)
     default_executor._work_queue.put(item)
+    try:
+        with agent_session() as scope:
+            scope.register_client(client)
 
-    with agent_session() as scope:
-        scope.register_client(client)
-
-    client.stop.assert_not_called()
-    assert not scope.is_cancelled()
-    assert not item.cancelled
-    assert is_agent_active() is False
+        client.stop.assert_not_called()
+        assert not scope.is_cancelled()
+        assert not item.cancelled
+        assert is_agent_active() is False
+    finally:
+        # What was wrong: this item stayed on the process-wide work queue after
+        # a passing test. The next test on the same xdist worker saw qsize() != 0.
+        # How it happened: the assertion only checks that success does not cancel;
+        # nothing dequeued the item.
+        # Why this change: put back only items this test did not add, or
+        # wait_while_pumping skips its off-main post for the whole timeout.
+        leftover: list[object] = []
+        while True:
+            try:
+                leftover.append(default_executor._work_queue.get_nowait())
+            except queue_mod.Empty:
+                break
+        for other in leftover:
+            if other is not item:
+                default_executor._work_queue.put(other)
 
 
 def test_agent_session_stop_then_success_does_not_double_cancel():

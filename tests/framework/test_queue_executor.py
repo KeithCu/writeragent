@@ -101,13 +101,25 @@ def test_grammar_llm_request_gate_limit_2_allows_parallel() -> None:
     assert max(inside) == 2
 
 
-@pytest.fixture(autouse=True)
-def empty_work_queue():
-    while (not default_executor._work_queue.empty()):
+def _drain_default_work_queue() -> None:
+    while not default_executor._work_queue.empty():
         try:
             default_executor._work_queue.get_nowait()
         except queue.Empty:
             break
+
+
+@pytest.fixture(autouse=True)
+def empty_work_queue():
+    # What was wrong: setup-only drain left a cancelled timeout item queued.
+    # How it happened: execute()'s timeout marks the item cancelled and does not
+    # dequeue it, and the mocked poke never runs process_queue. The next test
+    # on this xdist worker is often another module.
+    # Why this change: drain after the test too. qsize() != 0 makes
+    # wait_while_pumping skip its off-main post until the 1s timeout.
+    _drain_default_work_queue()
+    yield
+    _drain_default_work_queue()
 
 def test_work_item():
 
