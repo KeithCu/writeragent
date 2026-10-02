@@ -47,9 +47,22 @@ def test_get_ctx_with_uno():
     # tests/conftest.py). The old pop('uno') left the whole run without a 'uno' module, so any
     # later test that imports uno lazily hit the real uno.py -> "No module named 'pyuno'"
     # (this is what broke tests/mcp/test_long_running_concurrency.py in combined runs).
-    with patch.dict(sys.modules, {'uno': mock_uno}):
-        assert (get_ctx() == mock_ctx)
-        mock_uno.getComponentContext.assert_called_once()
+    #
+    # bootstrap() pins whatever get_ctx() returned into _fallback_ctx. On an
+    # xdist worker an earlier test has already done that, so get_ctx() returns
+    # the session uno mock's getComponentContext() child instead of mock_ctx.
+    # Both are named mock.getComponentContext(); only the ids differ. This
+    # test is the unset-fallback path. Put the pin back for later tests.
+    from plugin.framework import uno_context as uc
+
+    saved = uc._fallback_ctx
+    set_fallback_ctx(None)
+    try:
+        with patch.dict(sys.modules, {'uno': mock_uno}):
+            assert (get_ctx() == mock_ctx)
+            mock_uno.getComponentContext.assert_called_once()
+    finally:
+        set_fallback_ctx(saved)
 
 
 def test_uno_module_restored_after_get_ctx_with_uno():
