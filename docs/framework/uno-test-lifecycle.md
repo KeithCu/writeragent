@@ -882,8 +882,8 @@ What the two killer tests do (no product change):
   `duplicate_slide(page=0, activate=False)` → `DrawBridge.duplicate_slide`
   → `self.doc.duplicate(source)`, then `getString` on the copy.
 - `test_duplicate_rename_move_slide` (usual victim): `duplicate_slide`
-  (activate default True), `rename_slide`, `move_slide` (`remove` +
-  `insertByIndex`).
+  (activate default True), `rename_slide`, `move_slide` (`duplicate` +
+  reorder).
 - `test_get_draw_tree_marks_blank_and_label_hint`: two `TextShape`s
   (label + empty named blank), `get_draw_tree` → `build_shape_tree`
   (`getString`, geometry, `FillColor` / `CustomShapeGeometry`).

@@ -185,6 +185,8 @@ class _MoveShape:
         self._text = text
         self.ShapeType = "com.sun.star.drawing.RectangleShape"
         self.Name = ""
+        self.payload: object = None
+        self.from_duplicate = False
 
     def getShapeType(self) -> str:
         return self.ShapeType
@@ -269,24 +271,44 @@ class _MoveDoc:
     def createInstance(self, shape_type: str) -> _MoveShape:
         return _MoveShape("")
 
+    def duplicate(self, page: _MovePage) -> _MovePage:
+        """Same slot as ``SdXImpressDocument::duplicate``: the clone is inserted after *page*."""
+        idx = self._pages.pages.index(page)
+        clones: list[_MoveShape] = []
+        for shape in page.shapes:
+            clone = _MoveShape(shape.getString())
+            clone.payload = getattr(shape, "payload", None)
+            clone.from_duplicate = True
+            clones.append(clone)
+        copy = _MovePage("", clones)
+        self._pages.pages.insert(idx + 1, copy)
+        return copy
+
 
 def test_move_slide_copies_then_removes_source():
     from plugin.draw.bridge import DrawBridge
 
+    rich = _MoveShape("c")
+    rich.payload = ("group", 2)
     pages = _MovePages(
         [
             _MovePage("A", [_MoveShape("a")]),
             _MovePage("B", [_MoveShape("b-text")]),
-            _MovePage("C", [_MoveShape("c")]),
+            _MovePage("C", [rich]),
         ]
     )
     bridge = DrawBridge(_MoveDoc(pages))
     assert bridge.move_slide(2, 0) is True
     assert [page.Name for page in pages.pages] == ["C", "A", "B"]
-    assert pages.pages[0].shapes[0].getString() == "c"
+    moved = pages.pages[0].shapes[0]
+    assert moved.getString() == "c"
+    # The surviving shape is the duplicate's clone, not a createInstance shell.
+    assert moved.from_duplicate is True
+    assert moved.payload == ("group", 2)
     assert bridge.move_slide(0, 2) is True
     assert [page.Name for page in pages.pages] == ["A", "B", "C"]
     assert pages.pages[2].shapes[0].getString() == "c"
+    assert pages.pages[2].shapes[0].payload == ("group", 2)
     assert bridge.move_slide(0, 0) is True
     assert bridge.move_slide(99, 99) is False
     assert [page.Name for page in pages.pages] == ["A", "B", "C"]
@@ -295,19 +317,80 @@ def test_move_slide_copies_then_removes_source():
 def test_move_slide_keeps_source_when_copy_fails():
     from plugin.draw.bridge import DrawBridge
 
+    original = _MoveShape("a")
     pages = _MovePages(
         [
-            _MovePage("A", [_MoveShape("a")]),
+            _MovePage("A", [original]),
             _MovePage("B", [_MoveShape("b")]),
         ]
     )
     doc = _MoveDoc(pages)
 
-    def _boom(shape_type: str) -> _MoveShape:
-        raise RuntimeError("no factory")
+    def _boom(page: _MovePage) -> _MovePage:
+        raise RuntimeError("no duplicate")
 
-    doc.createInstance = _boom  # type: ignore[method-assign]
+    doc.duplicate = _boom  # type: ignore[method-assign]
     bridge = DrawBridge(doc)
     assert bridge.move_slide(0, 1) is False
     assert [page.Name for page in pages.pages] == ["A", "B"]
-    assert pages.pages[0].shapes[0].getString() == "a"
+    assert pages.pages[0].shapes[0] is original
+
+
+def test_move_slide_to_front_restores_order_when_reorder_fails():
+    """A failed bubble must not leave the clone parked between other slides."""
+    from plugin.draw.bridge import DrawBridge
+
+    rich = _MoveShape("c")
+    rich.payload = ("group", 2)
+    pages = _MovePages(
+        [
+            _MovePage("A", [_MoveShape("a")]),
+            _MovePage("B", [_MoveShape("b")]),
+            _MovePage("C", [rich]),
+        ]
+    )
+    bridge = DrawBridge(_MoveDoc(pages))
+    calls = {"n": 0}
+    real_exchange = bridge._exchange_page_contents
+
+    def _flaky(first: object, second: object) -> None:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("exchange failed")
+        real_exchange(first, second)
+
+    bridge._exchange_page_contents = _flaky  # type: ignore[method-assign]
+    assert bridge.move_slide(2, 0) is False
+    assert [page.Name for page in pages.pages] == ["A", "B", "C"]
+    survivor = pages.pages[2].shapes[0]
+    assert survivor.getString() == "c"
+    assert survivor.payload == ("group", 2)
+    assert survivor.from_duplicate is True
+    assert len(pages.pages) == 3
+
+
+def test_move_slide_restores_shapes_when_exchange_fails_midway():
+    from plugin.draw.bridge import DrawBridge
+
+    pages = _MovePages(
+        [
+            _MovePage("A", [_MoveShape("a")]),
+            _MovePage("B", [_MoveShape("b")]),
+            _MovePage("C", [_MoveShape("c")]),
+        ]
+    )
+    bridge = DrawBridge(_MoveDoc(pages))
+    calls = {"n": 0}
+    real_move = bridge._move_shapes
+
+    def _flaky(shapes: list[_MoveShape], src: _MovePage, dest: _MovePage) -> None:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("shape move failed")
+        real_move(shapes, src, dest)
+
+    bridge._move_shapes = _flaky  # type: ignore[method-assign]
+    assert bridge.move_slide(2, 0) is False
+    assert [page.Name for page in pages.pages] == ["A", "B", "C"]
+    assert [page.shapes[0].getString() for page in pages.pages] == ["a", "b", "c"]
+    assert len(pages.pages) == 3

@@ -247,6 +247,73 @@ def test_duplicate_rename_move_slide(ctx, doc):
     assert "move-me" in texts
 
 
+def _page_shape_marks(page):
+    texts = []
+    group_children = []
+    for i in range(page.getCount()):
+        shape = page.getByIndex(i)
+        try:
+            shape_type = shape.getShapeType()
+        except Exception:
+            shape_type = ""
+        try:
+            texts.append(shape.getString())
+        except Exception:
+            pass
+        if "GroupShape" in shape_type:
+            group_children.append(shape.getCount())
+    return texts, group_children
+
+
+@native_test
+@with_native_doc("draw")
+def test_move_slide_keeps_group(ctx, doc):
+    """A grouped slide still has its children after a move, including back to index 0."""
+    for label, x in (("g-left", 1000), ("g-right", 4000)):
+        created = _exec_tool(doc, ctx, "shape_upsert", {
+            "action": "create",
+            "shape_type": "rectangle",
+            "page": 0,
+            "x": x, "y": 1000, "width": 2000, "height": 1500,
+            "text": label,
+        })
+        assert json.loads(created).get("status") == "ok", created
+    grouped = _exec_tool(doc, ctx, "shape_group", {"page": 0, "indices": [0, 1]})
+    assert json.loads(grouped).get("status") == "ok", grouped
+    labeled = _exec_tool(doc, ctx, "shape_upsert", {
+        "action": "create",
+        "shape_type": "rectangle",
+        "page": 0,
+        "x": 1000, "y": 4000, "width": 2000, "height": 800,
+        "text": "move-me",
+    })
+    assert json.loads(labeled).get("status") == "ok", labeled
+    renamed = _exec_tool(doc, ctx, "rename_slide", {"page": 0, "name": "Copy"})
+    assert json.loads(renamed).get("status") == "ok", renamed
+    added = _exec_tool(doc, ctx, "add_slide", {})
+    assert json.loads(added).get("status") == "ok", added
+    assert doc.getDrawPages().getCount() == 2
+
+    moved = _exec_tool(doc, ctx, "move_slide", {"from_page": 0, "to_page": 1})
+    assert json.loads(moved).get("status") == "ok", moved
+    page = doc.getDrawPages().getByIndex(1)
+    texts, groups = _page_shape_marks(page)
+    assert "move-me" in texts, texts
+    assert 2 in groups, groups
+    if hasattr(page, "Name"):
+        assert page.Name == "Copy"
+
+    back = _exec_tool(doc, ctx, "move_slide", {"from_page": 1, "to_page": 0})
+    assert json.loads(back).get("status") == "ok", back
+    page = doc.getDrawPages().getByIndex(0)
+    texts, groups = _page_shape_marks(page)
+    assert "move-me" in texts, texts
+    assert 2 in groups, groups
+    if hasattr(page, "Name"):
+        assert page.Name == "Copy"
+    assert doc.getDrawPages().getCount() == 2
+
+
 @native_test
 @with_native_doc("draw")
 def test_align_and_insert_table(ctx, doc):
