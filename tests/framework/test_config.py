@@ -596,14 +596,40 @@ class TestConfigSyncFileIO:
         data = self._load_written()
         assert (data.get('extend_selection_max_tokens')) == (1200)
 
-    def test_set_config_clamps_schema_bounds(self):
-        set_config('extend_selection_max_tokens', '1')
-        set_config('edit_selection_max_new_tokens', '99999')
+    def test_set_config_out_of_range_raises_and_keeps_file(self):
+        """module.yaml ints are not WriterAgentConfig fields.
 
+        set_config coerces with strict=True. An out-of-range number used to
+        be saved as min or max with no error, because those keys never reached
+        validate(). Load and WriterAgentConfig.validate still clamp. A write
+        must refuse the value and leave the file alone.
+        """
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump({'text_model': 'keep-me'}, f)
+        reset_config_for_tests()
+
+        with pytest.raises(ConfigValidationError):
+            set_config('extend_selection_max_tokens', '1')
+        with pytest.raises(ConfigValidationError):
+            set_config('edit_selection_max_new_tokens', '99999')
+
+        data = self._load_written()
+        assert ('extend_selection_max_tokens') not in (data)
+        assert ('edit_selection_max_new_tokens') not in (data)
+        assert (data.get('text_model')) == ('keep-me')
+        assert (get_config_int('extend_selection_max_tokens')) == (1000)
+        assert (get_config_int('edit_selection_max_new_tokens')) == (1000)
+        assert ('temperature') not in (data)
+        assert ('chat_max_tokens') not in (data)
+        assert ('saved_python_scripts') not in (data)
+
+        # Bounds themselves are still legal, and a real write still omits defaults.
+        set_config('extend_selection_max_tokens', '10')
+        set_config('edit_selection_max_new_tokens', '4096')
         data = self._load_written()
         assert (data.get('extend_selection_max_tokens')) == (10)
         assert (data.get('edit_selection_max_new_tokens')) == (4096)
-        # Verify no default fields leaked into file
+        assert (data.get('text_model')) == ('keep-me')
         assert ('temperature') not in (data)
         assert ('chat_max_tokens') not in (data)
         assert ('saved_python_scripts') not in (data)
