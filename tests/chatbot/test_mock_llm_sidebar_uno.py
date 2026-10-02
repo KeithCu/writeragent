@@ -1110,27 +1110,41 @@ def test_b19_stop_after_first_sequential_tool(ctx):
 
 @native_test
 def test_b21_clear_during_ramble_then_stop(ctx):
-    """Clear wipes transcript; it does not Stop. Then Stop; idle; hello."""
+    """Clear while busy stops the stream, shows the greeting, then hello stays clean."""
     from plugin.chatbot.sidebar_test_hooks import uno_click
 
     _reset_mock_runtime()
-    before = _start_until_stop_enabled("keep talking", delay_ms=40)
+    _start_until_stop_enabled("keep talking", delay_ms=40)
     try:
         controls = getattr(_session, "controls", None) or {}
         clear = controls.get("clear")
         if clear is None:
             raise unittest.SkipTest("B21 needs controls['clear'] over URP")
         uno_click(clear)
-        time.sleep(0.4)
+        # What was wrong: this case required Clear to leave Stop enabled.
+        # Clear wiped the transcript on the UI thread and the in-flight ramble
+        # was then appended onto that greeting. Clear now dispatches
+        # STOP_CLICKED while is_busy (#958). Stop stays enabled until the
+        # drain finishes, so wait for that idle instead of pressing Stop.
+        deadline = time.monotonic() + 25.0
+        while time.monotonic() <= deadline and _is_busy():
+            time.sleep(0.1)
         body = _transcript()
-        assert "i can edit or translate" in body.lower() or "try me" in body.lower(), (
+        low = body.lower()
+        assert not _is_busy(), "B21 Clear must Stop the in-flight stream"
+        assert "i can edit or translate" in low or "try me" in low, (
             "B21 expected greeting after Clear, got %r" % body[-400:]
         )
-        assert _is_busy(), "B21 Clear must not Stop the stream (Stop still enabled)"
-        _stop_and_wait_idle(before, timeout=25.0)
+        assert "word199" not in low, "B21 ramble landed on the wiped chat: %r" % body[-400:]
     finally:
         _reset_mock_runtime()
+    before_hello = _transcript()
     _hello_ok()
+    after = _transcript()
+    suffix = after[len(before_hello) :] if before_hello and after.startswith(before_hello) else after
+    assert "word199" not in suffix.lower(), (
+        "B21 hello resurrected the ramble: %r" % suffix[-400:]
+    )
 
 
 # --- Packet C: empty / truncated model ---

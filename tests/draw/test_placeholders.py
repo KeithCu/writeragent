@@ -102,6 +102,33 @@ def test_list_placeholders_roles_from_class_map():
     assert [entry.get("role") for entry in listed] == ["title", "body"]
 
 
+def test_role_from_shape_type_when_class_name_is_missing():
+    """Impress layout placeholders expose ShapeType, not ClassName."""
+
+    class _Typed:
+        def __init__(self, shape_type: str, text: str) -> None:
+            self._type = shape_type
+            self._text = text
+
+        def getShapeType(self) -> str:
+            return self._type
+
+        def getString(self) -> str:
+            return self._text
+
+    page = _FakePage(
+        [
+            _Typed("com.sun.star.presentation.TitleTextShape", "T"),
+            _Typed("com.sun.star.presentation.OutlinerShape", "B"),
+        ]
+    )
+    assert _find_placeholder(page, "title")[1] == 0
+    assert _find_placeholder(page, "body")[1] == 1
+    listed = _list_placeholders(page)
+    assert [entry.get("role") for entry in listed] == ["title", "body"]
+    assert "TitleTextShape" in listed[0]["class"]
+
+
 def test_untagged_text_shapes_are_not_positional_roles():
     page = _FakePage(
         [

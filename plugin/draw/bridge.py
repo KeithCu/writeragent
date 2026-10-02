@@ -236,9 +236,10 @@ class DrawBridge:
         inserted an empty page and returned True. The original slide was gone.
         How it happened: there is no UNO call that puts an existing draw page
         back into the container.
-        Why this fixes it: insert a new page at the destination first, copy
-        the source onto it, and remove the source only after that copy
-        succeeds. A failed copy deletes the new page and leaves the source.
+        Why this fixes it: insert a new page, copy the source onto it, and
+        remove the source only after that copy succeeds. A failed copy
+        deletes the new page and leaves the source. insertNewByIndex inserts
+        after its index, so a move to the front exchanges the copy with page 0.
         """
         pages = self.get_pages()
         count = pages.getCount()
@@ -247,11 +248,20 @@ class DrawBridge:
         if from_index == to_index:
             return True
         source = pages.getByIndex(from_index)
-        # Source still occupies a slot. Inserting at to_index+1 when moving
-        # forward lands the copy at to_index after the source is removed.
-        insert_at = to_index + 1 if from_index < to_index else to_index
+        # InsertSdPage (sd/source/ui/unoidl/unomodel.cxx) inserts the new
+        # page after GetSdPage(min(count-1, nIndex)). insertNewByIndex(0)
+        # therefore lands at index 1 and cannot create a page at index 0.
+        # Moving forward, source removal shifts the copy down one slot, so
+        # the copy must land one past to_index. Moving backward, land on
+        # to_index. A move to 0 lands at 1, then the two pages exchange.
+        if to_index == 0:
+            land_at = 1
+        elif from_index < to_index:
+            land_at = to_index + 1
+        else:
+            land_at = to_index
         try:
-            dest = pages.insertNewByIndex(insert_at)
+            dest = pages.insertNewByIndex(land_at - 1)
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
@@ -273,7 +283,55 @@ class DrawBridge:
             log.debug("move_slide remove source failed: %s", exc)
             self._remove_page_quietly(pages, dest)
             return False
+        if to_index == 0:
+            try:
+                self._exchange_page_contents(pages.getByIndex(0), pages.getByIndex(1))
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+                log.debug("move_slide exchange with first page failed: %s", exc)
+                return False
         return True
+
+    def _clear_page_shapes(self, page: Any) -> None:
+        try:
+            count = int(page.getCount())
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return
+        for index in range(count - 1, -1, -1):
+            shape = page.getByIndex(index)
+            page.remove(shape)
+
+    def _replace_page_contents(self, dest: Any, source: Any) -> None:
+        """Replace *dest* shapes and page props with a copy of *source*."""
+        self._clear_page_shapes(dest)
+        self._copy_page_for_move(source, dest)
+
+    def _exchange_page_contents(self, first: Any, second: Any) -> None:
+        """Swap two pages' copied contents.
+
+        insertNewByIndex cannot place a page at index 0, so a move to the
+        front copies onto index 1 and exchanges that page with page 0.
+        """
+        pages = self.get_pages()
+        temp = pages.insertNewByIndex(pages.getCount() - 1)
+        try:
+            self._copy_page_for_move(first, temp)
+            self._replace_page_contents(first, second)
+            self._replace_page_contents(second, temp)
+        except Exception:
+            # first may already have been cleared. Put its copy back before
+            # dropping the temporary page.
+            try:
+                if int(first.getCount()) == 0 and int(temp.getCount()) > 0:
+                    self._copy_page_for_move(temp, first)
+            except Exception:
+                log.debug("move_slide restore first page failed", exc_info=True)
+            raise
+        finally:
+            self._remove_page_quietly(pages, temp)
 
     def _remove_page_quietly(self, pages: Any, page: Any) -> None:
         try:
