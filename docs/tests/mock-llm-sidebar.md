@@ -208,7 +208,7 @@ Every test must satisfy:
 | **B15** | CI | Multi-step serial | hello → ramble + Stop → `say nothing` → hello | Four distinct terminal states; never gets stuck busy | **OK / Landed** |
 | **B16** | CI | `add_comment` (tool-only), high delay | Stop **before** tool executes | Comment never added to document; `is_busy` becomes False; `next_hello_ok()` | **OK / Landed** |
 | **B19** | CI | `insert a comment` on empty doc | Stop after first tool result (sequential rounds) | Second tool never runs; returns to idle; `next_hello_ok()` | **OK / Landed** |
-| **B21** | CI | Ramble | Click `controls["clear"]` during stream | Greeting visible; Stop still enabled; press Stop → idle; `next_hello_ok()` | **OK / Landed** |
+| **B21** | CI | Ramble | Click `controls["clear"]` during stream | Greeting visible; Clear stops the stream (idle, ramble does not land); `next_hello_ok()` does not resurrect the ramble | **OK / Landed** |
 
 #### Dropped Cases (Packet B)
 - **B1b (GTK mouse Stop):** Same FSM as B1a (`press_stop()`). Not worth an in-process mouse hook.
