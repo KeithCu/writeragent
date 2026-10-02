@@ -181,6 +181,37 @@ def test_position_in_schema():
     assert props["position"]["enum"] == ["replace", "before", "after"]
 
 
+def test_apply_document_content_validate_accepts_string_or_array():
+    """UNO tests pass one string. The schema was array-only, so validate rejected it.
+
+    execute() still treats a string as one block and joins a list with newlines.
+    A dict is not either shape.
+    """
+    from plugin.writer.content import ApplyDocumentContent
+
+    tool = ApplyDocumentContent()
+    samples = [
+        (
+            "<p>Intro</p>"
+            '<math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><mi>q</mi></mrow></math>'
+            "<p>Outro</p>"
+        ),
+        "<b>replaced</b>",
+        "Line 1\nLine 2\n\nParagraph 2",
+        "Line A\r\nLine B\nUNIQUE_CRLF_TEST",
+        "zBertTicklez",
+        "zNormaGlintez",
+        "zGordonStumpz",
+        ["<p>A</p>", "<p>B</p>"],
+    ]
+    for content in samples:
+        ok, err = tool.validate(content=content, target="end")
+        assert ok is True and err is None, (content, err)
+    ok, err = tool.validate(content={"html": "<p>x</p>"}, target="end")
+    assert ok is False
+    assert err is not None and "Invalid type for content" in err
+
+
 
 def test_truncated_flag_on_get_document_content():
     from unittest.mock import patch
