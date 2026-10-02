@@ -934,7 +934,16 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 log.exception("_on_mcp_result UI update error")
 
         try:
-            self.queue_executor.post(_update_ui)
+            # The send drain pumps default_executor only. A post on the panel
+            # queue sits until the drain ends, so an MCP result during Send
+            # never reaches the sidebar until the turn is over.
+            from plugin.framework.queue_executor import post_to_main_thread
+            from plugin.framework.thread_guard import get_background_task_name, on_main_thread
+
+            if on_main_thread() and not get_background_task_name():
+                _update_ui()
+            else:
+                post_to_main_thread(_update_ui)
         except Exception:
             log.exception("_on_mcp_result post error")
 

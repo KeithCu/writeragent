@@ -31,6 +31,7 @@ dropped). Python cannot kill a thread cleanly. Cooperative cancel is
 
 from __future__ import annotations
 
+import json
 import logging
 import queue
 from abc import ABC, abstractmethod
@@ -812,6 +813,24 @@ class ToolRegistry:
             if isinstance(kwargs.get("range"), str) and _schema_type_includes_array(range_type):
                 kwargs = dict(kwargs)
                 kwargs["range"] = [kwargs["range"]]
+
+            # What was wrong: MCP hosts send write_formula_range values as a
+            # native JSON array (to_mcp_schema widens that one field to
+            # string|array). How: validate() uses the source schema, which
+            # stays type string so Gemini/Groq never see a union, so the array
+            # failed with "Invalid type for values" before execute could
+            # json.dumps it. Why: coerce list/number here, same place range
+            # strings are wrapped. OpenAI schemas stay string-only.
+            if tool.name == "write_formula_range":
+                fov = kwargs.get("values")
+                coerced: str | None = None
+                if isinstance(fov, list):
+                    coerced = json.dumps(fov) if fov else ""
+                elif isinstance(fov, (int, float)) and not isinstance(fov, bool):
+                    coerced = str(fov)
+                if coerced is not None:
+                    kwargs = dict(kwargs)
+                    kwargs["values"] = coerced
 
             # Common context for all error details
             common_details = {"tool_name": tool_name}

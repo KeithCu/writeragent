@@ -390,6 +390,9 @@ class LlmClient:
             return "retry"
         err_msg = _format_http_error_response(response.status, response.reason, err_body, context_window=n_ctx)
         err_msg = append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
+        # Logs already redact the key. The sidebar string is this message, and
+        # a provider that echoes the key in error.message would show it.
+        err_msg = _redact_secret_from_log_text(err_msg, api_key)
         raise NetworkError(err_msg, code="HTTP_ERROR", details={"url": path, "status": response.status})
 
     def _send_http_attempt(self, method: str, path: str, body: Any, headers: dict[str, str], *, sends_left: int, wait_index: int, emitted_any: bool, stop_checker: Any, status_callback: Any) -> tuple[str, Any, int, int]:
@@ -920,6 +923,16 @@ class LlmClient:
                             pass
 
             except CONNECTION_ERRORS as e:
+                # What was wrong: Stop after the first token was reported as
+                # CONNECTION_LOST. How: stop() closes the socket, so the blocked
+                # read raises here, and this branch only looked at emitted_any.
+                # Why: a latched Stop (or the abort checker) is a user cancel,
+                # same as the pre-token path. A real drop still refuses retry
+                # once any token reached the UI.
+                if self._stopped or abort_checker():
+                    self._stopped = True
+                    self._close_connection()
+                    return "stop"
                 # A retry after tokens already reached the UI would duplicate text.
                 if emitted_any:
                     self._close_connection()

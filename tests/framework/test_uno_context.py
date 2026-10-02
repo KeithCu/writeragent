@@ -1008,6 +1008,22 @@ def test_clear_writer_body_cannot_spin_on_a_page_that_never_empties():
     assert stuck.remove.call_count == 1
 
 
+def test_clear_writer_body_reraises_disposal():
+    """A disposed scratch doc must not look like an empty one."""
+    from unittest.mock import MagicMock
+
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.framework.uno_context import clear_writer_body
+
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock()
+    doc.getTextTables.side_effect = DisposedException("dead")
+    with pytest.raises(DocumentDisposedError):
+        clear_writer_body(doc)
+
+
 def test_clear_writer_body_survives_a_hostile_doc():
     """Never let a scratch-buffer cleanup take down the caller."""
     from unittest.mock import MagicMock

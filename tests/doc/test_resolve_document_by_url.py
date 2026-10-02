@@ -10,7 +10,10 @@ here; the live UNO path is exercised by the MCP integration run.
 """
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.doc.doc_type import DocumentType
+from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url
 
 
@@ -85,6 +88,32 @@ def test_no_match_returns_none():
     a = _model("file:///docs/a.odt", "uid-a")
     assert _resolve([a], "file:///docs/nope.odt") == (None, None)
     assert _resolve([a], "uid-does-not-exist") == (None, None)
+
+
+def test_disposed_element_does_not_hide_a_later_match():
+    class DisposedException(Exception):
+        pass
+
+    bad = MagicMock()
+    bad.getURL.side_effect = DisposedException("gone")
+    good = _model("file:///docs/a.odt", "uid-a")
+    doc, doc_type = _resolve([bad, good], "file:///docs/a.odt")
+    assert doc is good
+    assert doc_type == "writer"
+
+
+def test_resolve_reraises_when_desktop_is_disposed():
+    class DisposedException(Exception):
+        pass
+
+    with patch("plugin.framework.uno_context.get_desktop", side_effect=DisposedException("dead")):
+        with pytest.raises(DocumentDisposedError):
+            resolve_document_by_url(MagicMock(), "file:///tmp/note.odt")
+
+
+def test_resolve_returns_none_when_desktop_is_missing():
+    with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+        assert resolve_document_by_url(MagicMock(), "file:///tmp/note.odt") == (None, None)
 
 
 def test_empty_inputs_never_match():

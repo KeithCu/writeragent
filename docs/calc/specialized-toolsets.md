@@ -53,7 +53,7 @@ When sending a user query in Calc, WriterAgent dynamically builds a structured d
 
 ## 1.3 System prompt and formula syntax guidance
 
-Calc chat uses `DEFAULT_CALC_CHAT_SYSTEM_PROMPT` (defined in [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py)). Prompt selection is governed by `get_chat_system_prompt_for_document(model, additional_instructions)`, ensuring Writer and Calc prompts are never mixed.
+Calc chat prompt text is `DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE` in [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py), assembled by `get_chat_system_prompt_for_document(model, additional_instructions)` so Writer and Calc prompts are never mixed.
 
 - **Formula Parameter Separator**: Calc formulas use **semicolons** (`;`) as parameter separators (e.g. `=SUM(A1; A2)` or `=IF(A1>0; "Yes"; "No")`), matching LibreOffice Calc standards.
 - **Cross-Sheet References**: Cross-sheet references use **dot notation** (e.g. `Orders.A1` or `'Sheet Name'.B5`). Excel-style exclamation points (`Sheet1!A1`) cause `#NAME?` errors in Calc.

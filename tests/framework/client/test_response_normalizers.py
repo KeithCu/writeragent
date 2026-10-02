@@ -80,7 +80,7 @@ def test_anthropic_shim_parse_sync_response():
     
     content, finish_reason, tool_calls, usage, images, message = shim.parse_sync_response(mock_payload)
     assert content == "Hello from Anthropic"
-    assert finish_reason == "tool_use"
+    assert finish_reason == "tool_calls"
     assert len(tool_calls) == 1
     assert tool_calls[0]["function"]["name"] == "do_work"
     assert usage["input_tokens"] == 20

@@ -306,6 +306,23 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
     return doc
 
 
+def _reraise_document_disposed(exc: BaseException, object_type: str) -> None:
+    """Re-raise real UNO disposal. Other exceptions stay with the caller.
+
+    What was wrong: scratch cleanup and document lookup caught Exception and
+    treated a disposed document as empty or not open. How: DisposedException
+    is an Exception, so those handlers swallowed it. Why: only real disposal
+    (not a bare RuntimeException) becomes DocumentDisposedError.
+    """
+    from plugin.framework.errors import _is_real_disposal
+
+    if not _is_real_disposal(exc):
+        return
+    if isinstance(exc, DocumentDisposedError):
+        raise exc
+    raise DocumentDisposedError(str(exc) or "UNO object was disposed", object_type=object_type) from exc
+
+
 def clear_writer_body(doc: Any) -> bool:
     """Empty *doc* of everything a template can put in it. True when something was removed.
 
@@ -324,14 +341,16 @@ def clear_writer_body(doc: Any) -> bool:
         try:
             container = getattr(doc, supplier)()
             names = list(container.getElementNames())
-        except Exception:
+        except Exception as e:
+            _reraise_document_disposed(e, "Writer")
             continue
         for name in names:
             try:
                 if container.hasByName(name):  # a nested table goes with its parent
                     container.getByName(name).dispose()
                     removed = True
-            except Exception:
+            except Exception as e:
+                _reraise_document_disposed(e, "Writer")
                 log.debug("clear_writer_body: could not dispose %s %r", supplier, name, exc_info=True)
     try:
         page = doc.getDrawPage()
@@ -347,14 +366,16 @@ def clear_writer_body(doc: Any) -> bool:
             if page.getCount() >= before:
                 break
             removed = True
-    except Exception:
+    except Exception as e:
+        _reraise_document_disposed(e, "Writer")
         log.debug("clear_writer_body: could not empty the draw page", exc_info=True)
     try:
         text = doc.getText()
         if (text.getString() or "").strip():
             removed = True
         text.setString("")
-    except Exception:
+    except Exception as e:
+        _reraise_document_disposed(e, "Writer")
         log.debug("clear_writer_body failed", exc_info=True)
     if removed:
         log.debug("clear_writer_body: dropped default-template content from a scratch Writer")
@@ -987,6 +1008,8 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
     target = _doc_identity_url(url)
     try:
         desktop = get_desktop(ctx)
+        if desktop is None:
+            return (None, None)
         comps = desktop.getComponents()
         if not comps:
             return (None, None)
@@ -1013,9 +1036,14 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                         doc_type = _doc_type.doc_type_label_for_enum(doc_type_enum, impress_as_draw=True)
                         return (_guard_returned_uno(model), doc_type)
             except Exception as e:
+                # One dead window must not hide the rest of the desktop.
+                # Disposal of the enumeration itself is the outer handler.
                 logging.getLogger(__name__).debug("resolve_document_by_url element error: %s", type(e).__name__)
                 continue
-    except Exception:
+    except DocumentDisposedError:
+        raise
+    except Exception as e:
+        _reraise_document_disposed(e, "Desktop")
         logging.getLogger(__name__).exception("resolve_document_by_url enumeration error")
     return (None, None)
 

@@ -30,6 +30,7 @@ Other important prompts (not assembled here):
 """
 
 import logging
+import threading
 from typing import Any
 
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
@@ -238,9 +239,14 @@ Prioritize what reduces future user steering."""
 # this prompt. Not scheduled.
 PYTHON_VENV_AUTO_IMPORTS_ALIASES = '`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), `scipy.stats` (as `st`), `matplotlib.pyplot` (as `plt`), `plugin.scripting.calc_functions` (as `calc`), standard library `math`, `datetime` (as `dt`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv`. When `=PY` has data range args, a binding-only `xl("%Pn%")` helper is also injected (Excel import; not a live sheet read)'
 
-# Populated at module end (after full constants init) to avoid import cycles via smolagents.
+# Populated on first prompt assembly (import_policy pulls smolagents).
+# ``_venv_policy_ready`` flips only after every dependent global is assigned.
+# Checking the compact string alone let a second eval worker return early.
 _VENV_IMPORT_POLICY_COMPACT = ""
 _VENV_IMPORT_POLICY_FULL = ""
+_venv_policy_lock = threading.Lock()
+_venv_policy_ready = False
+_venv_policy_owner: int | None = None
 
 PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = ""
 
@@ -843,11 +849,6 @@ DEFAULT_DRAW_GREETING = "AI: I can help you create and edit polished, colorful s
 # Assembly (dispatch + late init)
 # ---------------------------------------------------------------------------
 
-DEFAULT_CHAT_SYSTEM_PROMPT = ""
-DEFAULT_CALC_CHAT_SYSTEM_PROMPT = ""
-DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = ""
-
-
 def peer_outer_delegate_tool_name(model: Any) -> str:
     """Writer / Calc / Draw specialized gateway used for document_research peer work."""
     from plugin.doc.doc_type import is_calc, is_draw
@@ -1210,26 +1211,12 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
 
     if is_calc(model):
         base = _fill_chat_role_template(DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, CALC_CORE_DIRECTIVES)
-
-        global DEFAULT_CALC_CHAT_SYSTEM_PROMPT
-        if not DEFAULT_CALC_CHAT_SYSTEM_PROMPT:
-            DEFAULT_CALC_CHAT_SYSTEM_PROMPT = base
     elif is_draw(model):
         base = _fill_chat_role_template(DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, DRAW_CORE_DIRECTIVES)
-
-        global DEFAULT_DRAW_CHAT_SYSTEM_PROMPT
-        if not DEFAULT_DRAW_CHAT_SYSTEM_PROMPT:
-            DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = base
-        # F: drop the get_image TOOLS bullet when the selected model cannot see PNGs.
-        # After the cache so DEFAULT_DRAW_CHAT_SYSTEM_PROMPT stays the ungated template.
+        # Drop the get_image TOOLS bullet when the selected model cannot see PNGs.
         base = _apply_draw_get_image_tool_line(base)
     else:
         base = _fill_chat_role_template(DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, delegation, WRITER_CORE_DIRECTIVES)
-
-        # update the static variable once it's lazily generated so tests and imports works
-        global DEFAULT_CHAT_SYSTEM_PROMPT
-        if not DEFAULT_CHAT_SYSTEM_PROMPT:
-            DEFAULT_CHAT_SYSTEM_PROMPT = base
 
     base = base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions(ctx))
 
@@ -1285,10 +1272,30 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
 
 
 def _ensure_venv_import_policy_strings() -> None:
-    """Fill venv-policy prompt strings on first use (import_policy pulls smolagents)."""
-    if _VENV_IMPORT_POLICY_COMPACT:
+    """Fill venv-policy prompt strings on first use (import_policy pulls smolagents).
+
+    What was wrong: a second caller returned as soon as the compact string
+    was non-empty. How: ``_init`` assigns that string before
+    ``DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE``, and eval workers call
+    ``get_chat_system_prompt_for_kind`` concurrently. Why: other threads
+    wait until init returns. Same-thread re-entry is allowed because
+    ``_build_calc_chat_system_prompt_template`` calls back here while the
+    lock is held.
+    """
+    global _venv_policy_ready, _venv_policy_owner
+    if _venv_policy_ready:
         return
-    _init_venv_import_policy_strings()
+    if _venv_policy_owner == threading.get_ident():
+        return
+    with _venv_policy_lock:
+        if _venv_policy_ready or _venv_policy_owner == threading.get_ident():
+            return
+        _venv_policy_owner = threading.get_ident()
+        try:
+            _init_venv_import_policy_strings()
+            _venv_policy_ready = True
+        finally:
+            _venv_policy_owner = None
 
 
 def _init_venv_import_policy_strings() -> None:

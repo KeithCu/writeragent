@@ -611,6 +611,54 @@ class TestExecuteKwargsAndFailure:
         assert result["status"] == "success"
         assert result["got"] == {"arg1": "val1"}
 
+    def test_execute_coerces_write_formula_range_array_and_number(self):
+        class WriteFormulaRange(ToolBase):
+            name = "write_formula_range"
+            description = "write"
+            parameters = {
+                "type": "object",
+                "properties": {
+                    "range": {"type": "array", "items": {"type": "string"}},
+                    "values": {"type": "string"},
+                },
+                "required": ["range"],
+            }
+            uno_services = ["com.sun.star.text.TextDocument"]
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok", "values": kwargs.get("values")}
+
+        services = ServiceRegistry()
+        reg = ToolRegistry(services)
+        reg.register(WriteFormulaRange())
+        ctx = ToolContext(doc=TestingFactory.create_doc(doc_type="writer"), ctx=None, doc_type="writer", services=services, caller="mcp")
+
+        listed = reg.execute("write_formula_range", ctx, range=["A1:B1"], values=["a", "b"])
+        assert listed["status"] == "ok"
+        assert listed["values"] == '["a", "b"]'
+
+        number = reg.execute("write_formula_range", ctx, range=["A1"], values=3)
+        assert number["values"] == "3"
+
+        empty = reg.execute("write_formula_range", ctx, range=["A1"], values=[])
+        assert empty["values"] == ""
+
+        # A plain string parameter must still reject a list. The coerce is
+        # only the MCP widening for write_formula_range values.
+        class StringArg(ToolBase):
+            name = "string_arg"
+            description = "string only"
+            parameters = {"type": "object", "properties": {"arg1": {"type": "string"}}}
+            uno_services = ["com.sun.star.text.TextDocument"]
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok"}
+
+        reg.register(StringArg())
+        rejected = reg.execute("string_arg", ctx, arg1=["nope"])
+        assert rejected["status"] == "error"
+        assert rejected["code"] == "VALIDATION_ERROR"
+
     def test_execute_failure_returns_error_dict(self):
         class FailingToolWithParams(ToolBase):
             name = "failing_tool_with_params"

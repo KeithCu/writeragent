@@ -1,3 +1,4 @@
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -794,3 +795,42 @@ def test_user_memory_long_blob_is_truncated_short_is_unchanged():
     short_prompt = _prompt(short_mem)
     assert short_mem in short_prompt
     assert _INJECTED_BLOB_TRUNCATION_MARKER not in short_prompt
+
+
+def test_calc_prompt_late_init_waits_until_template_is_assigned():
+    """A published compact string must not skip Calc template init."""
+    import plugin.framework.prompts as prompts
+
+    prompts._venv_policy_ready = False
+    prompts._VENV_IMPORT_POLICY_COMPACT = "already-published"
+    prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
+    prompts._ensure_venv_import_policy_strings()
+    assert "FORMULA SYNTAX" in prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
+    assert prompts._venv_policy_ready is True
+
+
+def test_concurrent_calc_prompt_init_sees_full_template():
+    import plugin.framework.prompts as prompts
+
+    prompts._venv_policy_ready = False
+    prompts._VENV_IMPORT_POLICY_COMPACT = ""
+    prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = ""
+    barrier = threading.Barrier(4)
+    results: list[bool] = []
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            barrier.wait(timeout=5)
+            text = prompts.get_chat_system_prompt_for_kind("calc")
+            results.append("FORMULA SYNTAX" in text and len(text) > 100)
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert errors == []
+    assert results == [True, True, True, True]

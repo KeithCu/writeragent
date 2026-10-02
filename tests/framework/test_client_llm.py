@@ -1313,11 +1313,34 @@ def test_anthropic_stream_tool_use_accumulates(client):
         if delta:
             accumulate_delta(snapshot, delta)
     assert contents == ["Hi"]
-    assert finish == "tool_use"
+    assert finish == "tool_calls"
     calls = snapshot["tool_calls"]
     assert calls[0]["index"] == 0
     assert calls[0]["function"]["name"] == "do_work"
     assert calls[0]["function"]["arguments"] == "{\"x\":1}"
+
+
+def test_anthropic_message_stop_does_not_clobber_max_tokens(client):
+    """message_stop used to overwrite message_delta stop_reason with 'stop'."""
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "anthropic"}
+        shim = client._get_shim()
+    finish = None
+    for event in (
+        {"type": "message_delta", "delta": {"stop_reason": "max_tokens"}},
+        {"type": "message_stop"},
+    ):
+        _content, finish_reason, _thinking, _delta = shim.parse_response_chunk(event)
+        if finish_reason:
+            finish = finish_reason
+    assert finish == "length"
+    _content, alone, _thinking, _delta = shim.parse_response_chunk({"type": "message_stop"})
+    assert alone is None
+    content, sync_reason, _thinking, _delta = shim.parse_response_chunk(
+        {"type": "message", "content": [{"type": "text", "text": "hi"}], "stop_reason": "end_turn"}
+    )
+    assert content == "hi"
+    assert sync_reason == "stop"
 
 
 def test_anthropic_message_delta_ignores_non_dict_delta(client):
@@ -1362,7 +1385,7 @@ def test_anthropic_stream_loop_keeps_tool_events(client):
         )
     assert "Hi" in result["content"]
     assert result["tool_calls"][0]["function"]["name"] == "do_work"
-    assert result["finish_reason"] == "tool_use"
+    assert result["finish_reason"] == "tool_calls"
 
 
 def test_make_chat_request_coalesces_mixed_system_messages(client):
@@ -1782,10 +1805,14 @@ def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
     err = _raise_http_error(client, 500, "Internal Server Error", body, err_json)
     assert err.value.code == "HTTP_ERROR"
     assert err.value.details["status"] == 500
-    expected_user = _format_http_error_response(
-        500, "Internal Server Error", json.dumps(err_json)
+    from plugin.framework.client.llm_client import _redact_secret_from_log_text
+
+    expected_user = _redact_secret_from_log_text(
+        _format_http_error_response(500, "Internal Server Error", json.dumps(err_json)),
+        api_key,
     )
     assert str(err.value) == expected_user
+    assert api_key not in str(err.value)
     joined = "\n".join(r.getMessage() for r in caplog.records)
     _assert_http_500_diag_safe(
         joined,
@@ -2209,6 +2236,50 @@ def test_stream_usage_only_chunk_reaches_result(client):
         result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
     assert result["content"] == "Hi"
     assert result["usage"]["prompt_tokens"] == 3
+
+
+def test_stream_stop_after_content_returns_stop(client):
+    """Stop closes the socket. A reset after tokens is cancel, not CONNECTION_LOST."""
+    state = {"stop": False}
+
+    def _iter():
+        yield f'data: {json.dumps({"choices": [{"delta": {"content": "Hello"}}]})}\n'.encode()
+        state["stop"] = True
+        raise ConnectionResetError("reset after stop")
+
+    resp = create_mock_http_response(sse_lines=[])
+    resp.__iter__.return_value = _iter()
+    chunks: list[str] = []
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+            append_callback=chunks.append,
+            stop_checker=lambda: state["stop"],
+        )
+    assert result["finish_reason"] == "stop"
+    assert client._stopped is True
+    assert chunks == ["Hello"]
+    assert mock_https.call_count == 1
+
+
+def test_stream_http_error_redacts_echoed_api_key(client):
+    secret = client.config["api_key"]
+    body = json.dumps({"error": {"message": f"bad key {secret}"}}).encode()
+    with patch("http.client.HTTPSConnection") as mock_https:
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+        mock_response = MagicMock()
+        mock_response.status = 401
+        mock_response.reason = "Unauthorized"
+        mock_response.read.return_value = body
+        mock_conn.getresponse.return_value = mock_response
+        with pytest.raises(NetworkError) as err:
+            client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert err.value.code == "HTTP_ERROR"
+    assert secret not in str(err.value)
+    assert "<redacted>" in str(err.value)
 
 
 def test_stream_reset_after_content_is_connection_lost(client):

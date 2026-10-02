@@ -201,12 +201,12 @@ flowchart TD
         Dialogs --> ProcessEvents
     end
 
-    NestedSend[Second Send] -->|reject NestedDrainOwnerError only if owner name differs; same-owner stream nests| Send
+    NestedSend[Second Send] -->|reject NestedDrainOwnerError while any owner is active| Send
 ```
 
 ### Architectural Invariants
 
-1. **One active drain owner per UI session:** [`drain_owner_scope`](../../plugin/framework/async_drain_guard.py) marks the active drain stack. Same-owner `drain_owner_scope("stream")` **nests** (`_drain_depth += 1`). `NestedDrainOwnerError` fires only when the **owner name differs**. Do not treat a second `"stream"` drain as a sentry exception.
+1. **One active stream drain per UI session:** [`drain_owner_scope`](../../plugin/framework/async_drain_guard.py) itself nests a same-name owner (`_drain_depth += 1`) and raises `NestedDrainOwnerError` only when the **owner name differs**. [`run_stream_drain_loop`](../../plugin/framework/async_stream.py) is stricter: it refuses to start when **any** owner is already set, including another `"stream"`. A nested stream drain is the thread already inside `processEventsToIdle`, so its `pump_ui_idle` would see depth > 1 and skip VCL (Stop stops working). Peer execute under an existing scope still uses `drain_owner_scope` directly.
 2. **Approved pump entry points only:**
    - [`pump_ui_idle`](../../plugin/framework/queue_executor.py): Drains the `QueueExecutor` work queue **then** pumps VCL (only when called by the active owner or when no owner is active).
    - [`process_events_to_idle`](../../plugin/framework/uno_context.py): Pumps VCL only when permitted (no active owner or called by owner).

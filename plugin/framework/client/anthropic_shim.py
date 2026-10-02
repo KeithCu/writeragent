@@ -77,6 +77,24 @@ def _parse_tool_input(args: Any) -> dict[str, Any] | None:
     return parsed
 
 
+# OpenAI-style finish_reason values the tool loop already understands.
+# Unknown Anthropic reasons pass through so a new API value is not hidden.
+_ANTHROPIC_FINISH_REASONS = {
+    "end_turn": "stop",
+    "stop_sequence": "stop",
+    "tool_use": "tool_calls",
+    "max_tokens": "length",
+    "refusal": "content_filter",
+}
+
+
+def _map_anthropic_finish_reason(reason: Any) -> str | None:
+    """Map an Anthropic ``stop_reason`` onto the finish_reason the tool loop checks."""
+    if not isinstance(reason, str) or not reason:
+        return None
+    return _ANTHROPIC_FINISH_REASONS.get(reason, reason)
+
+
 class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
 
@@ -247,7 +265,7 @@ class AnthropicShim(BaseProviderShim):
             # SYNC response
             content_parts = chunk.get("content", [])
             content = "".join([p.get("text", "") for p in content_parts if p.get("type") == "text"])
-            finish_reason = chunk.get("stop_reason")
+            finish_reason = _map_anthropic_finish_reason(chunk.get("stop_reason"))
             # Handle tools
             tool_calls = []
             for p in content_parts:
@@ -269,9 +287,15 @@ class AnthropicShim(BaseProviderShim):
             # missing or string delta used to raise AttributeError here.
             raw_delta = chunk.get("delta")
             if isinstance(raw_delta, dict):
-                finish_reason = raw_delta.get("stop_reason")
+                finish_reason = _map_anthropic_finish_reason(raw_delta.get("stop_reason"))
         elif msg_type == "message_stop":
-            finish_reason = "stop"
+            # What was wrong: this event always returned finish_reason "stop".
+            # How: the stream loop keeps the last non-empty reason, and Anthropic
+            # sends stop_reason on message_delta then a bare message_stop, so
+            # max_tokens / tool_use were overwritten and a truncated reply looked
+            # like a normal stop. Why: leave the reason unset so the mapped
+            # message_delta value survives.
+            finish_reason = None
         return content, finish_reason, thinking, delta
 
     def parse_sync_response(self, response_data: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
