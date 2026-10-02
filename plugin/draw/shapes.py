@@ -22,7 +22,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
-from plugin.framework.errors import WriterAgentException
+from plugin.framework.errors import WriterAgentException, is_disposed_exception
 from .base import ToolDrawShapeBase
 
 if TYPE_CHECKING:
@@ -418,7 +418,11 @@ class DrawShapes:
             # Re-raise our draw errors
             raise
         except Exception as e:
-            # Wrap other exceptions
+            # A disposed document must reach execute_safe as DisposedException.
+            # Wrapping it in DrawError made a closed document look like a
+            # normal shape-creation failure.
+            if is_disposed_exception(e):
+                raise
             raise DrawError(f"Failed to create shape: {str(e)}", code="DRAW_SHAPE_CREATION_ERROR", details={"shape_type": shape_type, "position": position, "size": size, "original_error": str(e), "error_type": type(e).__name__}) from e
 
 
@@ -738,6 +742,22 @@ class UpsertShape(ToolDrawShapeBase):
         return self._tool_error("Unknown action: '%s'. Must be 'create' or 'edit'" % action)
 
 
+def _mutation_page(ctx: ToolContext, page_index: Any) -> Any:
+    """Page upsert uses: explicit index, else chat active_page_index, else the controller.
+
+    Connect, group, and delete used ``get_active_page()`` and ignored
+    ``ctx.active_page_index``, so a turn could create on one page and
+    connect or delete on another. ``get_slide_for_tool`` re-raises dispose.
+    """
+    from plugin.draw.bridge import DrawBridge
+
+    bridge = DrawBridge(ctx.doc)
+    actual = page_index if page_index is not None else ctx.active_page_index
+    if actual is None:
+        actual = bridge.get_active_page_index()
+    return DrawBridge.get_slide_for_tool(ctx.doc, actual)
+
+
 class ConnectShapes(ToolDrawShapeBase):
     """Connect two shapes with a connector."""
 
@@ -760,14 +780,13 @@ class ConnectShapes(ToolDrawShapeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
+        from plugin.framework.errors import ToolExecutionError
         from com.sun.star.awt import Point, Size
 
-        bridge = DrawBridge(ctx.doc)
-        idx = kwargs.get("page")
-        page = bridge.get_pages().getByIndex(idx) if idx is not None else bridge.get_active_page()
-        if page is None:
-            return self._tool_error("No draw page available or invalid page index.")
+        try:
+            page = _mutation_page(ctx, kwargs.get("page"))
+        except ToolExecutionError as exc:
+            return self._tool_error(str(exc))
 
         start_idx = kwargs.get("start")
         end_idx = kwargs.get("end")
@@ -778,6 +797,8 @@ class ConnectShapes(ToolDrawShapeBase):
             start_shape = page.getByIndex(start_idx)
             end_shape = page.getByIndex(end_idx)
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             return self._tool_error(f"Failed to find shapes at given indices: {str(e)}")
 
         draw_shapes = DrawShapes()
@@ -796,6 +817,15 @@ class ConnectShapes(ToolDrawShapeBase):
             _apply_shape_properties(shape, kwargs)
 
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
+            # The connector is already on the page. Remove it so a failed
+            # connect does not leave an unbound shape.
+            try:
+                page.remove(shape)
+            except Exception as remove_exc:
+                if is_disposed_exception(remove_exc):
+                    raise
             return self._tool_error(f"Failed to set connector properties: {str(e)}")
 
         return {"status": "ok", "message": f"Connected shape {start_idx} to {end_idx}", "index": page.getCount() - 1}
@@ -844,13 +874,12 @@ class GroupShapes(ToolDrawShapeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
+        from plugin.framework.errors import ToolExecutionError
 
-        bridge = DrawBridge(ctx.doc)
-        idx = kwargs.get("page")
-        page = bridge.get_pages().getByIndex(idx) if idx is not None else bridge.get_active_page()
-        if page is None:
-            return self._tool_error("No draw page available or invalid page index.")
+        try:
+            page = _mutation_page(ctx, kwargs.get("page"))
+        except ToolExecutionError as exc:
+            return self._tool_error(str(exc))
 
         indices = kwargs.get("indices")
         if not indices or len(indices) < 2:
@@ -866,6 +895,8 @@ class GroupShapes(ToolDrawShapeBase):
             # Group the shapes
             page.group(shape_collection)
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             return self._tool_error(f"Failed to group shapes: {str(e)}")
 
         return {
@@ -1087,16 +1118,20 @@ class DeleteShape(ToolDrawShapeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
+        from plugin.framework.errors import ToolExecutionError
 
-        bridge = DrawBridge(ctx.doc)
-        idx = kwargs.get("page")
-        page = bridge.get_pages().getByIndex(idx) if idx is not None else bridge.get_active_page()
-        if page is None:
-            return self._tool_error("No draw page available or invalid page index.")
+        try:
+            page = _mutation_page(ctx, kwargs.get("page"))
+        except ToolExecutionError as exc:
+            return self._tool_error(str(exc))
         shape_idx = kwargs.get("index")
         if shape_idx is None:
             return self._tool_error("index is required.")
-        shape = page.getByIndex(shape_idx)
-        page.remove(shape)
+        try:
+            shape = page.getByIndex(shape_idx)
+            page.remove(shape)
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return self._tool_error("Failed to delete shape at index %s: %s" % (shape_idx, exc))
         return {"status": "ok", "message": "Shape deleted"}

@@ -227,25 +227,174 @@ class DrawBridge:
         return None
 
     def move_slide(self, from_index: int, to_index: int) -> bool:
-        """Move slide from_index to to_index."""
-        if from_index == to_index:
-            return True
+        """Move the page at from_index so it occupies to_index.
+
+        What was wrong: the method called ``pages.remove`` and then
+        ``insertByIndex``. ``XDrawPages.remove`` disposes the page
+        (``XDrawPages.idl``), and the published interface only has
+        ``insertNewByIndex`` (a new blank page). The fallback therefore
+        inserted an empty page and returned True. The original slide was gone.
+        How it happened: there is no UNO call that puts an existing draw page
+        back into the container.
+        Why this fixes it: insert a new page at the destination first, copy
+        the source onto it, and remove the source only after that copy
+        succeeds. A failed copy deletes the new page and leaves the source.
+        """
         pages = self.get_pages()
         count = pages.getCount()
         if from_index < 0 or from_index >= count or to_index < 0 or to_index >= count:
             return False
-        page = pages.getByIndex(from_index)
-        pages.remove(page)
+        if from_index == to_index:
+            return True
+        source = pages.getByIndex(from_index)
+        # Source still occupies a slot. Inserting at to_index+1 when moving
+        # forward lands the copy at to_index after the source is removed.
+        insert_at = to_index + 1 if from_index < to_index else to_index
         try:
-            pages.insertByIndex(to_index, page)
-        except Exception:
-            # Some builds only expose insertNewByIndex; re-append at end as fallback.
-            try:
-                pages.insertNewByIndex(min(to_index, pages.getCount()))
-            except Exception as exc:
-                log.debug("move_slide insert failed: %s", exc)
-                return False
+            dest = pages.insertNewByIndex(insert_at)
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            log.debug("move_slide insertNewByIndex failed: %s", exc)
+            return False
+        try:
+            self._copy_page_for_move(source, dest)
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            log.debug("move_slide copy failed: %s", exc)
+            self._remove_page_quietly(pages, dest)
+            return False
+        try:
+            pages.remove(source)
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            log.debug("move_slide remove source failed: %s", exc)
+            self._remove_page_quietly(pages, dest)
+            return False
         return True
+
+    def _remove_page_quietly(self, pages: Any, page: Any) -> None:
+        try:
+            pages.remove(page)
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            log.debug("move_slide rollback remove failed: %s", exc)
+
+    def _copy_page_for_move(self, source: Any, dest: Any) -> None:
+        """Copy name, layout, master, shapes, and speaker notes onto *dest*."""
+        self._copy_page_props_for_move(source, dest)
+        count = 0
+        try:
+            count = int(source.getCount())
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            count = 0
+        for i in range(count):
+            src_shape = source.getByIndex(i)
+            self._copy_shape_for_move(dest, src_shape)
+        self._copy_notes_for_move(source, dest)
+        self._take_page_name(source, dest)
+
+    def _copy_page_props_for_move(self, source: Any, dest: Any) -> None:
+        # Background is an SfxItem from the source pool; copying it aborts
+        # soffice the same way a blind master-style copy does. Layout and
+        # MasterPage are references the destination document already owns.
+        for prop in ("Layout", "MasterPage"):
+            try:
+                if hasattr(source, "getPropertyValue"):
+                    value = source.getPropertyValue(prop)
+                    dest.setPropertyValue(prop, value)
+                else:
+                    setattr(dest, prop, getattr(source, prop))
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+                log.debug("move_slide skip page prop %s", prop)
+
+    def _copy_shape_for_move(self, dest_page: Any, src_shape: Any) -> None:
+        try:
+            shape_type = src_shape.getShapeType()
+        except Exception:
+            shape_type = getattr(src_shape, "ShapeType", "")
+        if not shape_type:
+            return
+        clone = self.doc.createInstance(shape_type)
+        if clone is None:
+            raise RuntimeError("Could not copy shape %s" % shape_type)
+        dest_page.add(clone)
+        try:
+            clone.setPosition(src_shape.getPosition())
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+        try:
+            clone.setSize(src_shape.getSize())
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+        for prop in ("Name", "FillStyle", "FillColor", "LineStyle", "LineColor", "LineWidth", "String"):
+            try:
+                if hasattr(src_shape, "getPropertyValue"):
+                    clone.setPropertyValue(prop, src_shape.getPropertyValue(prop))
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+        try:
+            if hasattr(src_shape, "getString") and hasattr(clone, "setString"):
+                clone.setString(src_shape.getString())
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+
+    def _copy_notes_for_move(self, source: Any, dest: Any) -> None:
+        try:
+            src_notes = source.getNotesPage()
+            dest_notes = dest.getNotesPage()
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return
+        src_shape = find_notes_shape(src_notes)
+        dest_shape = find_notes_shape(dest_notes)
+        if src_shape is None or dest_shape is None:
+            return
+        try:
+            dest_shape.setString(src_shape.getString())
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+
+    def _take_page_name(self, source: Any, dest: Any) -> None:
+        try:
+            name = str(source.Name or "")
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return
+        if not name:
+            return
+        # Two pages cannot share a name. Park the source name, then give it
+        # to the copy. Put it back if the destination rejects it.
+        parked = name + "\u200b"
+        try:
+            source.Name = parked
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+        try:
+            dest.Name = name
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            try:
+                source.Name = name
+            except Exception as restore_exc:
+                if is_disposed_exception(restore_exc):
+                    raise
 
     def rename_slide(self, index: int, name: str) -> bool:
         page = self.get_pages().getByIndex(index)
@@ -271,25 +420,64 @@ class DrawBridge:
     def get_active_page_index(self) -> int:
         try:
             page = self.get_active_page()
-            if page:
-                # In Draw, getNumber() - 1 is often the index.
+            # An empty XDrawPage is falsy. `if page` then fell through to 0,
+            # so a blank Impress slide was reported as slide 0.
+            if page is not None:
+                pages = self.get_pages()
+                count = pages.getCount()
+                # getNumber() is missing or None on Impress after insert.
+                # Only an in-range int may win over identity.
                 if hasattr(page, "getNumber"):
                     try:
-                        return page.getNumber() - 1
+                        number = page.getNumber()
+                        if isinstance(number, int) and not isinstance(number, bool):
+                            idx = number - 1
+                            if 0 <= idx < count:
+                                return idx
                     except Exception:
                         pass
 
-                # Fallback: compare pages by UNO identity (PyUNO wrappers can differ).
                 from plugin.framework.uno_context import uno_same
 
-                pages = self.get_pages()
-                count = pages.getCount()
                 for i in range(count):
                     if uno_same(pages.getByIndex(i), page):
                         return i
         except Exception:
             log.debug("get_active_page_index failed", exc_info=True)
+        # Callers outside this package require an int. A total miss still
+        # reports 0; an empty page and a missing getNumber() no longer do.
         return 0
+
+
+_NOTES_SHAPE_TYPE = "com.sun.star.presentation.NotesShape"
+
+
+def find_notes_shape(notes_page: Any) -> Any | None:
+    """The NotesShape on an Impress notes page, not whatever sits at index 1.
+
+    A notes-master header, footer, date, or slide number can be inserted
+    ahead of the notes body, so getByIndex(1) reads or overwrites the wrong
+    shape. Chat context, read_slide_text, and the notes tools share this.
+    """
+    if notes_page is None:
+        return None
+    try:
+        count = notes_page.getCount()
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
+        return None
+    for i in range(count):
+        try:
+            shape = notes_page.getByIndex(i)
+            shape_type = shape.getShapeType() if hasattr(shape, "getShapeType") else getattr(shape, "ShapeType", "")
+            if shape_type == _NOTES_SHAPE_TYPE:
+                return shape
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            continue
+    return None
 
 
 @main_thread_only
@@ -335,11 +523,10 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
             if is_impress and hasattr(active_page, "getNotesPage"):
                 try:
                     notes_page = safe_call(active_page.getNotesPage, "Get notes page")
+                    notes_shape = find_notes_shape(notes_page)
                     notes_text = ""
-                    for i in range(safe_call(notes_page.getCount, "Get notes page count")):
-                        shape = safe_call(notes_page.getByIndex, "Get notes shape by index", i)
-                        if safe_call(shape.getShapeType, "Get notes shape type") == "com.sun.star.presentation.NotesShape":
-                            notes_text += safe_call(shape.getString, "Get notes shape string") + "\n"
+                    if notes_shape is not None:
+                        notes_text = safe_call(notes_shape.getString, "Get notes shape string")
                     if notes_text.strip():
                         ctx_str += "\nSpeaker Notes:\n%s\n" % notes_text.strip()
                 except UnoObjectError:

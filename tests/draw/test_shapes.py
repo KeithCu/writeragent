@@ -385,6 +385,7 @@ def test_shape_group_uses_service_manager_not_document_factory() -> None:
             bridge = bridge_cls.return_value
             bridge.get_pages.return_value = pages
             bridge.get_active_page.return_value = page
+            bridge_cls.get_slide_for_tool.return_value = page
             result = cls().execute(tool_ctx, indices=[0, 1])
 
         assert result["status"] == "ok", result

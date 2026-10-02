@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
@@ -15,8 +14,6 @@ from plugin.draw.bridge import DrawBridge
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-
-log = logging.getLogger("nelson.draw")
 
 
 # Named FadeEffect values for agent convenience.
@@ -277,24 +274,31 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
             except ImportError:
                 return self._tool_error("FadeEffect enum not available.")
 
-        # Speed
+        # Speed and TransitionDuration are one LibreOffice double.
+        # unopage.cxx WID_PAGE_SPEED writes setTransitionDuration (slow 3s,
+        # medium 2s, fast 1s) and the getter derives speed from that double.
+        # Setting both used to leave the duration and report the overwritten speed.
         speed = kwargs.get("speed")
-        if speed is not None:
-            from com.sun.star.presentation.AnimationSpeed import SLOW, MEDIUM, FAST
-
-            speed_map = {"slow": SLOW, "medium": MEDIUM, "fast": FAST}
-            if speed.lower() in speed_map:
-                page.setPropertyValue("Speed", speed_map[speed.lower()])
-                updated.append("speed")
-
-        # Transition animation duration
         td = kwargs.get("transition_duration")
         if td is not None:
             try:
                 page.setPropertyValue("TransitionDuration", float(td))
                 updated.append("transition_duration")
-            except Exception:
-                pass
+            except Exception as exc:
+                from plugin.framework.errors import is_disposed_exception
+
+                if is_disposed_exception(exc):
+                    raise
+                return self._tool_error("Could not set transition_duration: %s" % exc)
+        elif speed is not None:
+            from com.sun.star.presentation.AnimationSpeed import SLOW, MEDIUM, FAST
+
+            speed_map = {"slow": SLOW, "medium": MEDIUM, "fast": FAST}
+            speed_key = str(speed).lower()
+            if speed_key not in speed_map:
+                return self._tool_error("Unknown speed: %s" % speed, available=sorted(speed_map.keys()))
+            page.setPropertyValue("Speed", speed_map[speed_key])
+            updated.append("speed")
 
         # Auto-advance duration
         duration = kwargs.get("duration")
@@ -305,6 +309,8 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         # Advance mode
         advance = kwargs.get("advance")
         if advance is not None:
+            if advance not in ("on_click", "auto"):
+                return self._tool_error("Unknown advance: %s" % advance, available=["on_click", "auto"])
             change = 0 if advance == "on_click" else 1
             page.setPropertyValue("Change", change)
             updated.append("advance")

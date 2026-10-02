@@ -13,7 +13,6 @@ from plugin.draw.designs import (
     ListDesigns,
     _blank_master_signal,
     _clone_one_shape,
-    _is_safe_style_value,
     _split_pathsettings_value,
     apply_design_to_current_doc,
     enumerate_impress_designs,
@@ -320,13 +319,22 @@ def test_find_imported_master_prefers_design_name():
     assert shapes == 6
 
 
-def test_safe_style_value_rejects_uno_structs():
-    assert _is_safe_style_value(16777215) is True
-    assert _is_safe_style_value(33.0) is True
-    assert _is_safe_style_value("Liberation Sans") is True
-    assert _is_safe_style_value(True) is True
-    assert _is_safe_style_value(MagicMock()) is False
-    assert _is_safe_style_value({"Color": 1}) is False
+def test_apply_design_partial_assign_is_error():
+    dest = MagicMock()
+    dest.getDrawPages().getCount.return_value = 2
+    src = MagicMock()
+    master = MagicMock()
+    with (
+        patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=(master, "Metropolis", 6)),
+        patch("plugin.draw.designs._close_hidden_doc"),
+        patch("plugin.draw.designs.assign_master_to_all_slides", return_value=1),
+        patch("plugin.draw.designs._master_entries", return_value=[]),
+    ):
+        out = apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
+    assert out["status"] == "error"
+    assert out["slides_updated"] == 1
+    assert out["slide_count"] == 2
 
 
 def test_clone_one_shape_rejects_non_uno_type():

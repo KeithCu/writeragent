@@ -223,7 +223,7 @@ These tools now work with both Draw and Impress documents.
 
 ### 4.2 Impress-Only vs Delegated APIs
 
-The following are **Impress-only** (Draw has no equivalent): speaker notes; slide placeholders; slide transitions and Impress slide layouts. They are exposed via **`delegate_to_specialized_draw_toolset`** with domains `speaker_notes` and `slide_transitions` (not on the default main-agent tool list).
+The following are **Impress-only** (Draw has no equivalent): speaker notes, slide transitions, and Impress slide layouts. Notes, transitions, and layouts are exposed via **`delegate_to_specialized_draw_toolset`** (domains `speaker_notes`, `slide_transitions`, `slide_layouts`) and are not on the default main-agent tool list. Slide placeholders are Impress-only and stay on the default list.
 
 **Slide master** tools (`list_master_slides`, `get_slide_master`, `set_slide_master`) work in both Draw and Impress but are **`slide_masters`** specialized tools—delegate when the user needs master assignment or listing beyond what `get_presentation_info` summarizes.
 

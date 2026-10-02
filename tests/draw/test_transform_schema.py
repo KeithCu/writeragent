@@ -22,8 +22,8 @@ def test_collabora_dsl_url_is_https():
 def test_resolve_layout_autolayout_and_alias():
     assert resolve_layout_id("AUTOLAYOUT_TITLE") == 0
     assert resolve_layout_id("autolayout_title_content") == 1
-    assert resolve_layout_id("title") == 0
-    assert resolve_layout_id("blank") == 11
+    assert resolve_layout_id("AUTOLAYOUT_NONE") == 20
+    assert resolve_layout_id("blank") is None
     assert resolve_layout_id(19) == 19
 
 
@@ -57,10 +57,10 @@ def test_resolve_layout_id_comprehensive():
     assert resolve_layout_id("  autolayout_title_2content  ") == 3
     assert resolve_layout_id("autolayout_title_only") == 19
 
-    # Strings: _LAYOUTS alias names
-    assert resolve_layout_id("title") == 0
-    assert resolve_layout_id("  BLANK  ") == 11
-    assert resolve_layout_id("two_column_text") == 2
+    # PowerPoint-style aliases are not Impress page.Layout ids.
+    assert resolve_layout_id("title") is None
+    assert resolve_layout_id("  BLANK  ") is None
+    assert resolve_layout_id("two_column_text") is None
 
     # Strings: Numeric strings
     assert resolve_layout_id("19") == 19

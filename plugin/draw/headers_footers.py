@@ -192,18 +192,6 @@ def _shape_get_datetime_fixed(shape: Any) -> bool:
         return False
 
 
-def _shape_set_datetime_fixed(shape: Any, fixed: bool) -> bool:
-    if shape is None:
-        return False
-    try:
-        if hasattr(shape, "setPropertyValue"):
-            shape.setPropertyValue("IsFixed", fixed)
-            return True
-    except Exception:
-        return False
-    return False
-
-
 def _read_impress_master_hf_shapes(page: Any, out: Dict[str, Any]) -> None:
     h = _find_shape_on_page(page, _SVC_HEADER)
     f = _find_shape_on_page(page, _SVC_FOOTER)
@@ -248,8 +236,6 @@ def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> int:
     if "is_date_time_visible" in kwargs and _shape_set_visible(d, _coerce_bool_arg(kwargs, "is_date_time_visible", False)):
         updated += 1
     if "is_page_number_visible" in kwargs and _shape_set_visible(s, _coerce_bool_arg(kwargs, "is_page_number_visible", False)):
-        updated += 1
-    if "is_date_time_fixed" in kwargs and _shape_set_datetime_fixed(d, _coerce_bool_arg(kwargs, "is_date_time_fixed", False)):
         updated += 1
     return updated
 
@@ -304,14 +290,14 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
         "properties": {
             "page": {"type": "integer", "description": ("0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.")},
             "is_master_page": {"type": "boolean", "description": "If True, update the master page linked to the slide at page. Defaults to False."},
-            "header": {"type": "string", "description": "The text for the header."},
+            "header": {"type": "string", "description": "Header text. Not available on a normal slide (notes page and handout master only). On an Impress master, written to the header shape."},
             "footer": {"type": "string", "description": "The text for the footer."},
             "date_time": {"type": "string", "description": "The fixed date/time text."},
             "header_visible": {"type": "boolean", "description": "Whether the header is visible."},
             "footer_visible": {"type": "boolean", "description": "Whether the footer is visible."},
             "page_number_visible": {"type": "boolean", "description": "Whether the slide number is visible."},
             "date_time_visible": {"type": "boolean", "description": "Whether the date/time is visible."},
-            "date_time_fixed": {"type": "boolean", "description": "If True, uses 'date_time'. If False, LibreOffice automatically updates it."},
+            "date_time_fixed": {"type": "boolean", "description": "If True, uses 'date_time'. If False, LibreOffice automatically updates it. Slide property only; a master DateTimeShape has no fixed-date flag."},
         },
         "required": ["page"],
     }
@@ -356,8 +342,22 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
         }
 
         if _impress_master_hf_use_shapes(ctx.doc, is_master_page):
+            if "is_date_time_fixed" in norm_kwargs:
+                # DateTimeShape has no IsFixed. IsDateTimeFixed is a page
+                # property, and a normal master does not publish it
+                # (unoobj.cxx IMPRESS_MAP_ENTRIES). Writing it used to fail
+                # and still return status ok.
+                return self._tool_error("date_time_fixed is not available on a master page. Set it on the slide.")
             updated_count = _write_impress_master_hf_shapes(page, norm_kwargs)
+            requested = sum(1 for key in ("header_text", "footer_text", "date_time_text", "is_header_visible", "is_footer_visible", "is_page_number_visible", "is_date_time_visible") if key in norm_kwargs)
+            if requested and updated_count < requested:
+                return self._tool_error("Could not update every requested master header/footer field.", updated_properties=updated_count)
         else:
+            if not is_master_page and ("header_text" in norm_kwargs or "is_header_visible" in norm_kwargs):
+                # A normal slide's property map has FooterText / DateTimeText
+                # and no HeaderText (unopage.cxx aDrawPagePropertyMap_Impl).
+                # HeaderText is on notes pages and the handout master.
+                return self._tool_error("header is not a property of a normal slide. Notes pages and the handout master expose it.")
             # Draw / non-Impress masters: UNO exposes HeaderText/FooterText on the page.
             if is_master_page:
                 if "footer_text" in norm_kwargs and "is_footer_visible" not in norm_kwargs:
@@ -372,6 +372,7 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
                         log.debug("Could not enable IsHeaderVisible on master: %s", e)
 
             updated_count = 0
+            failed: list[str] = []
             for kwarg_key, prop_name in prop_map.items():
                 if kwarg_key in norm_kwargs:
                     val = norm_kwargs[kwarg_key]
@@ -379,6 +380,13 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
                         page.setPropertyValue(prop_name, val)
                         updated_count += 1
                     except Exception as e:
+                        from plugin.framework.errors import is_disposed_exception
+
+                        if is_disposed_exception(e):
+                            raise
                         log.debug("Could not set property %s: %s", prop_name, e)
+                        failed.append(prop_name)
+            if failed:
+                return self._tool_error("Could not set %s." % ", ".join(failed), updated_properties=updated_count)
 
         return {"status": "ok", "updated_properties": updated_count, "message": f"Successfully updated {updated_count} header/footer properties on {'master page' if is_master_page else 'slide'} {page_index}."}

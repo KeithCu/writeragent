@@ -65,3 +65,32 @@ def test_calc_shape_group(ctx, doc):
     page, start, grouped = _group_two_rectangles(ctx, doc, "calc")
     page.ungroup(grouped)
     assert page.getCount() == start + 2
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_octagon_geometry_after_add(ctx, doc):
+    """Writer reapplies CustomShapeGeometry after add so the shape paints.
+
+    Draw and Impress must not do that second write (it can abort soffice).
+    This test is the Writer exception: the process stays up and the geometry
+    has a type plus Path or ViewBox.
+    """
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    created = UpsertShape().execute(
+        tctx,
+        action="create",
+        shape_type="octagon",
+        page=0,
+        x=1000,
+        y=1000,
+        width=4000,
+        height=4000,
+    )
+    assert created.get("status") == "ok", created
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    shape = page.getByIndex(page.getCount() - 1)
+    geom = shape.getPropertyValue("CustomShapeGeometry")
+    names = {str(prop.Name) for prop in geom}
+    assert "Type" in names
+    assert "Path" in names or "ViewBox" in names

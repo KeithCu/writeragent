@@ -102,17 +102,15 @@ def test_list_placeholders_roles_from_class_map():
     assert [entry.get("role") for entry in listed] == ["title", "body"]
 
 
-def test_positional_fallback_when_no_class_tags():
+def test_untagged_text_shapes_are_not_positional_roles():
     page = _FakePage(
         [
             _FakeShape(text="first"),
             _FakeShape(text="second"),
         ]
     )
-    _unused_shape, title_idx = _find_placeholder(page, "title")
-    _unused_body, body_idx = _find_placeholder(page, "body")
-    assert title_idx == 0
-    assert body_idx == 1
+    assert _find_placeholder(page, "title") == (None, None)
+    assert _find_placeholder(page, "body") == (None, None)
     listed = _list_placeholders(page)
     assert "role" not in listed[0]
     assert "role" not in listed[1]

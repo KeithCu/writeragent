@@ -12,12 +12,9 @@ to placeholders by role rather than shape index.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from plugin.framework.tool import ToolBase, ToolContext
-
-log = logging.getLogger("nelson.draw")
 
 # Presentation object types (from com.sun.star.presentation.PresentationObjectType)
 # Shapes on Impress slides have a "PresObj" property or can be identified
@@ -65,7 +62,9 @@ def _find_placeholder(page: Any, role: str) -> tuple[Any | None, int | None]:
     Tries multiple identification strategies:
     1. ClassName via the priority class→role map (TitleText→title, …)
     2. Shape Name via the same map
-    3. Positional heuristic (first text shape = title, second = body)
+
+    Untagged text boxes are not guessed by position. That used to write the
+    first text shape as title while list_placeholders left role unset.
     """
     role_lower = role.lower()
 
@@ -88,18 +87,6 @@ def _find_placeholder(page: Any, role: str) -> tuple[Any | None, int | None]:
         except Exception:
             pass
 
-    # Strategy 3: positional heuristic for common roles
-    text_shapes = []
-    for i in range(page.getCount()):
-        shape = page.getByIndex(i)
-        if hasattr(shape, "getString"):
-            text_shapes.append((shape, i))
-
-    if role_lower == "title" and len(text_shapes) >= 1:
-        return text_shapes[0]
-    if role_lower in ("subtitle", "body") and len(text_shapes) >= 2:
-        return text_shapes[1]
-
     return None, None
 
 
@@ -119,7 +106,7 @@ def _list_placeholders(page: Any) -> list[dict[str, Any]]:
         class_name = _shape_class_name(shape)
         if class_name:
             entry["class"] = class_name
-        role = _role_from_label(class_name)
+        role = _role_from_label(class_name) or _role_from_label(entry.get("name"))
         if role:
             entry["role"] = role
         result.append(entry)

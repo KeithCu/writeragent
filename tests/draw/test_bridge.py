@@ -178,3 +178,125 @@ def test_get_slide_for_tool_wraps_other_errors():
     with patch.object(DrawBridge, "resolve_slide", side_effect=RuntimeError("No draw page available.")):
         with pytest.raises(ToolExecutionError, match="No draw page available"):
             DrawBridge.get_slide_for_tool("doc")
+
+
+class _MoveShape:
+    def __init__(self, text: str) -> None:
+        self._text = text
+        self.ShapeType = "com.sun.star.drawing.RectangleShape"
+        self.Name = ""
+
+    def getShapeType(self) -> str:
+        return self.ShapeType
+
+    def getString(self) -> str:
+        return self._text
+
+    def setString(self, text: str) -> None:
+        self._text = text
+
+    def getPosition(self) -> object:
+        return type("P", (), {"X": 1, "Y": 2})()
+
+    def setPosition(self, pos: object) -> None:
+        return None
+
+    def getSize(self) -> object:
+        return type("S", (), {"Width": 3, "Height": 4})()
+
+    def setSize(self, size: object) -> None:
+        return None
+
+    def getPropertyValue(self, name: str) -> object:
+        if name == "String":
+            return self._text
+        raise AttributeError(name)
+
+    def setPropertyValue(self, name: str, value: object) -> None:
+        if name == "String":
+            self._text = str(value)
+
+
+class _MovePage:
+    def __init__(self, name: str, shapes: list[_MoveShape]) -> None:
+        self.Name = name
+        self.shapes = shapes
+
+    def getCount(self) -> int:
+        return len(self.shapes)
+
+    def getByIndex(self, index: int) -> _MoveShape:
+        return self.shapes[index]
+
+    def add(self, shape: _MoveShape) -> None:
+        self.shapes.append(shape)
+
+
+class _MovePages:
+    def __init__(self, pages: list[_MovePage]) -> None:
+        self.pages = pages
+
+    def getCount(self) -> int:
+        return len(self.pages)
+
+    def getByIndex(self, index: int) -> _MovePage:
+        return self.pages[index]
+
+    def insertNewByIndex(self, index: int) -> _MovePage:
+        page = _MovePage("", [])
+        self.pages.insert(index, page)
+        return page
+
+    def remove(self, page: _MovePage) -> None:
+        self.pages.remove(page)
+
+
+class _MoveDoc:
+    def __init__(self, pages: _MovePages) -> None:
+        self._pages = pages
+
+    def getDrawPages(self) -> _MovePages:
+        return self._pages
+
+    def createInstance(self, shape_type: str) -> _MoveShape:
+        return _MoveShape("")
+
+
+def test_move_slide_copies_then_removes_source():
+    from plugin.draw.bridge import DrawBridge
+
+    pages = _MovePages(
+        [
+            _MovePage("A", [_MoveShape("a")]),
+            _MovePage("B", [_MoveShape("b-text")]),
+            _MovePage("C", [_MoveShape("c")]),
+        ]
+    )
+    bridge = DrawBridge(_MoveDoc(pages))
+    assert bridge.move_slide(2, 0) is True
+    assert [page.Name for page in pages.pages] == ["C", "A", "B"]
+    assert pages.pages[0].shapes[0].getString() == "c"
+    assert bridge.move_slide(0, 0) is True
+    assert bridge.move_slide(99, 99) is False
+    assert [page.Name for page in pages.pages] == ["C", "A", "B"]
+
+
+def test_move_slide_keeps_source_when_copy_fails():
+    from plugin.draw.bridge import DrawBridge
+
+    pages = _MovePages(
+        [
+            _MovePage("A", [_MoveShape("a")]),
+            _MovePage("B", [_MoveShape("b")]),
+        ]
+    )
+    doc = _MoveDoc(pages)
+
+    def _boom(shape_type: str) -> _MoveShape:
+        raise RuntimeError("no factory")
+
+    doc.createInstance = _boom  # type: ignore[method-assign]
+    bridge = DrawBridge(doc)
+    assert bridge.move_slide(0, 1) is False
+    assert [page.Name for page in pages.pages] == ["A", "B"]
+    assert pages.pages[0].shapes[0].getString() == "a"
