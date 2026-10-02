@@ -103,6 +103,14 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
     sys.modules["tests.eval_runner"] = fake_mod
     dialog, controls = _dialog()
     listener = EvalRunListener(MagicMock(), dialog)
+    # What was wrong: joining the suite worker was enough to see "Finished".
+    # post() no longer runs inline on a tagged background task, so the worker
+    # only queues _show_summary. The line stays "Running..." until this thread
+    # drains that post. Force-marshal keeps the post instead of dropping it
+    # when AsyncCallback is missing.
+    from plugin.framework import queue_executor as qe
+
+    qe.set_force_marshal_mode(True)
     try:
         with patch("plugin.framework.uno_context.process_events_to_idle"), patch(
             "plugin.chatbot.eval_dashboard_ui.get_active_document", return_value=MagicMock()
@@ -116,8 +124,12 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
             release.set()
             assert listener._job is not None
             listener._job.join(timeout=2)
+            assert controls["status"].text == "Running..."
+            _drain_posted_main_thread()
     finally:
         release.set()
+        qe.set_force_marshal_mode(False)
+        _drain_posted_main_thread()
         sys.modules.pop("tests.eval_runner", None)
     assert controls["status"].text == "Finished"
 
@@ -134,6 +146,9 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
     sys.modules["tests.eval_runner"] = fake_mod
     dialog, controls = _dialog()
     listener = EvalRunListener(MagicMock(), dialog)
+    from plugin.framework import queue_executor as qe
+
+    qe.set_force_marshal_mode(True)
     try:
         with patch("plugin.framework.uno_context.process_events_to_idle"), patch(
             "plugin.chatbot.eval_dashboard_ui.get_active_document", return_value=MagicMock()
@@ -141,7 +156,13 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
             listener.run_suite()
             assert listener._job is not None
             listener._job.join(timeout=2)
+            # Same contract as a clean summary: the worker posts _show_failure
+            # and leaves the line on Running... until the main thread paints it.
+            assert controls["status"].text == "Running..."
+            _drain_posted_main_thread()
     finally:
+        qe.set_force_marshal_mode(False)
+        _drain_posted_main_thread()
         sys.modules.pop("tests.eval_runner", None)
     assert controls["status"].text == "Finished"
     assert "suite blew up before the summary" in controls["log_area"].text
@@ -178,6 +199,16 @@ def test_tool_execution_hops_to_the_main_thread_from_the_suite_worker() -> None:
     assert seen == [True]
     hop.assert_called_once()
     assert ran == ["marker", "marker"]
+
+
+def _drain_posted_main_thread() -> None:
+    """Run callbacks the eval worker posted for the main thread."""
+    from plugin.framework.queue_executor import default_executor
+
+    for _unused in range(8):
+        if default_executor._work_queue.empty():
+            return
+        default_executor.process_queue()
 
 
 class _Ctrl:
