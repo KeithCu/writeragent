@@ -209,6 +209,15 @@ def test_duplicate_slide_copies_shapes(ctx, doc):
 @with_native_doc("draw")
 def test_duplicate_rename_move_slide(ctx, doc):
     initial = doc.getDrawPages().getCount()
+    created = _exec_tool(doc, ctx, "shape_upsert", {
+        "action": "create",
+        "shape_type": "rectangle",
+        "page": 0,
+        "x": 1000, "y": 1000, "width": 2000, "height": 1500,
+        "text": "move-me",
+    })
+    assert json.loads(created).get("status") == "ok", created
+
     result = _exec_tool(doc, ctx, "duplicate_slide", {"page": 0})
     data = json.loads(result)
     assert data.get("status") == "ok", result
@@ -224,6 +233,18 @@ def test_duplicate_rename_move_slide(ctx, doc):
     result = _exec_tool(doc, ctx, "move_slide", {"from_page": 1, "to_page": 0})
     data = json.loads(result)
     assert data.get("status") == "ok", result
+    moved = doc.getDrawPages().getByIndex(0)
+    if hasattr(moved, "Name"):
+        assert moved.Name == "Copy"
+    assert doc.getDrawPages().getCount() == initial + 1
+    texts = []
+    for i in range(moved.getCount()):
+        shape = moved.getByIndex(i)
+        try:
+            texts.append(shape.getString())
+        except Exception:
+            pass
+    assert "move-me" in texts
 
 
 @native_test

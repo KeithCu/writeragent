@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSpeakerNotesBase
-from plugin.draw.bridge import DrawBridge
+from plugin.draw.bridge import DrawBridge, find_notes_shape
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -28,11 +28,10 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
-        notes_page = page.getNotesPage()
+        notes_shape = find_notes_shape(page.getNotesPage())
         notes_text = ""
-        if notes_page and notes_page.getCount() > 1:
-            notes_shape = notes_page.getByIndex(1)
-            notes_text = notes_shape.getString()
+        if notes_shape is not None:
+            notes_text = notes_shape.getString() or ""
         return {"status": "ok", "page": page_idx, "notes": notes_text}
 
 
@@ -56,11 +55,9 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
 
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
-        notes_page = page.getNotesPage()
-        if notes_page is None or notes_page.getCount() < 2:
+        notes_shape = find_notes_shape(page.getNotesPage())
+        if notes_shape is None:
             return self._tool_error("No notes page available.")
-
-        notes_shape = notes_page.getByIndex(1)
         if append:
             existing = notes_shape.getString()
             if existing:

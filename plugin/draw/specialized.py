@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, ClassVar, Type
 
 from plugin.doc.specialized_base import DelegateToSpecializedBase
@@ -27,8 +26,6 @@ from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase
-
-log = logging.getLogger("writeragent.draw")
 
 
 class DelegateToSpecializedDraw(DelegateToSpecializedBase):

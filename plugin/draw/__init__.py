@@ -20,12 +20,6 @@ from typing import Any
 
 from plugin.framework.module_base import ModuleBase
 
-# Import submodules to ensure tools are registered via auto_discover_package
-from . import specialized as specialized
-from . import tree as tree
-from . import headers_footers as headers_footers
-from . import designs as designs
-
 
 class DrawModule(ModuleBase):
     """Registers Draw/Impress tools for shapes, pages/slides."""

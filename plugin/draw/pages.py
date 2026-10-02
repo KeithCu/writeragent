@@ -113,12 +113,12 @@ class DeleteSlide(ToolBase):
         page_idx = kwargs.get("page")
         if page_idx is None:
             return self._tool_error("page is required.")
+        pages = bridge.get_pages()
+        if page_idx < 0 or page_idx >= pages.getCount():
+            return self._tool_error("Page index %s out of range." % page_idx)
         bridge.delete_slide(page_idx)
 
-        # Resolve active index
-        active_idx = bridge.get_active_page_index()
-
-        return {"status": "ok", "message": "Slide deleted", "active_page_index": active_idx}
+        return {"status": "ok", "message": "Slide deleted", "active_page_index": bridge.get_active_page_index()}
 
 
 class ListPages(ToolBase):
@@ -150,7 +150,8 @@ class ReadSlideText(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
+        from plugin.draw.bridge import DrawBridge, find_notes_shape
+        from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 
         bridge = DrawBridge(ctx.doc)
         idx = kwargs.get("page")
@@ -159,11 +160,9 @@ class ReadSlideText(ToolBase):
             actual_idx = bridge.get_active_page_index()
 
         try:
-            page = DrawBridge.resolve_slide(ctx.doc, actual_idx)
-        except IndexError:
-            return self._tool_error("Invalid page index: %s" % actual_idx)
-        except Exception:
-            return self._tool_error("No draw page available.")
+            page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
+        except ToolExecutionError as exc:
+            return self._tool_error(str(exc))
 
         texts = []
         for i in range(page.getCount()):
@@ -174,21 +173,22 @@ class ReadSlideText(ToolBase):
                     entry = {"index": i, "text": txt}
                     try:
                         entry["shape_name"] = shape.Name
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        if is_disposed_exception(exc):
+                            raise
                     texts.append(entry)
-            except Exception:
-                pass
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
 
-        # Speaker notes
         notes_text = ""
         try:
-            notes_page = page.getNotesPage()
-            if notes_page and notes_page.getCount() > 1:
-                notes_shape = notes_page.getByIndex(1)
-                notes_text = notes_shape.getString()
-        except Exception:
-            pass
+            notes_shape = find_notes_shape(page.getNotesPage())
+            if notes_shape is not None:
+                notes_text = notes_shape.getString() or ""
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
 
         return {"status": "ok", "page": actual_idx, "texts": texts, "notes": notes_text}
 
@@ -210,13 +210,16 @@ class GetPresentationInfo(ToolBase):
         # Dimensions from first page
         width_mm = 0
         height_mm = 0
+        from plugin.framework.errors import is_disposed_exception
+
         if count > 0:
             p = pages.getByIndex(0)
             try:
                 width_mm = p.Width // 100
                 height_mm = p.Height // 100
-            except Exception:
-                pass
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
 
         # Master pages
         masters = []
@@ -225,8 +228,9 @@ class GetPresentationInfo(ToolBase):
             for i in range(mp.getCount()):
                 m = mp.getByIndex(i)
                 masters.append(m.Name if hasattr(m, "Name") else "Master_%d" % i)
-        except Exception:
-            pass
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
 
         from plugin.draw.bridge import DrawBridge
 
@@ -234,7 +238,7 @@ class GetPresentationInfo(ToolBase):
         active_idx = ctx.active_page_index
         if active_idx is None:
             active_idx = bridge.get_active_page_index()
-        is_impress = hasattr(doc, "getPresentation")
+        is_impress = _is_impress_doc(doc)
 
         return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress, "active_page_index": active_idx}
 
@@ -294,7 +298,11 @@ class DuplicateSlide(ToolBase):
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
         bridge.duplicate_slide(page_idx, switch=switch_view)
-        return {"status": "ok", "message": "Slide duplicated", "source_page": page_idx, "active_page_index": bridge.get_active_page_index()}
+        # The copy is inserted immediately after the source. Do not re-read
+        # getNumber() — Impress leaves it missing and the helper used to
+        # report 0 after a successful switch.
+        active_idx = page_idx + 1 if switch_view else bridge.get_active_page_index()
+        return {"status": "ok", "message": "Slide duplicated", "source_page": page_idx, "active_page_index": active_idx}
 
 
 class MoveSlide(ToolBase):

@@ -21,8 +21,9 @@ controllers from PyUNO.
 Working path: Hidden-open the listed ``.otp``, **clone** its master into
 the open deck (``createInstance`` + ``add`` + set Size/Position **after**
 add so placeholder geometry matches; GraphicObjectShape via ``Graphic``),
-copy the design's presentation-style family, then
-``page.MasterPage = cloned_master`` on every slide (Exchange-all).
+then ``page.MasterPage = cloned_master`` on every slide (Exchange-all).
+Style-family copies share the hidden source item pool and abort soffice,
+so they are not part of this path.
 
 ``apply_design`` always restyles the **open** Impress deck this way. A new
 window would spawn a second sidebar agent with empty chat context — do not
@@ -43,6 +44,7 @@ from typing import Any
 from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_directory_path, _should_skip_filename
 from plugin.draw.design_look import derive_otp_look
 from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.errors import is_disposed_exception
 from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger("writeragent.draw.designs")
@@ -274,22 +276,6 @@ def _blank_master_signal(masters: list[dict[str, Any]]) -> bool:
     return all(int(m.get("shape_count") or 0) < 3 for m in masters)
 
 
-def assign_primary_master_to_slides(doc: Any) -> str:
-    """Assign the first (design) master to every slide. Returns the master name."""
-    masters = doc.getMasterPages()
-    if masters.getCount() < 1:
-        return ""
-    target = masters.getByIndex(0)
-    name = target.Name if hasattr(target, "Name") else ""
-    pages = doc.getDrawPages()
-    for i in range(pages.getCount()):
-        try:
-            pages.getByIndex(i).MasterPage = target
-        except Exception:
-            log.debug("assign_primary_master_to_slides failed on page %s", i, exc_info=True)
-    return name or ""
-
-
 def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> str:
     """Copy MasterPage from the slide that was adjacent at insert time.
 
@@ -419,31 +405,41 @@ def _graphic_from_file_url(uno_ctx: Any, file_url: str) -> Any | None:
         return None
 
 
-def _extract_otp_picture(otp_path: str, dest_dir: str) -> str | None:
-    """Extract the first Pictures/* media file from a shipped ``.otp`` ZIP."""
+def _otp_picture_members(otp_path: str) -> list[str]:
+    """``Pictures/`` members in ZIP order. Each graphic shape takes one."""
     if not otp_path or not os.path.isfile(otp_path):
-        return None
+        return []
     import zipfile
 
     try:
         with zipfile.ZipFile(otp_path, "r") as zf:
-            names = [n for n in zf.namelist() if n.startswith("Pictures/") and not n.endswith("/")]
-            if not names:
-                return None
-            # Prefer SVG (Metropolis chrome), then any other picture.
-            names.sort(key=lambda n: (0 if n.lower().endswith(".svg") else 1, n.lower()))
-            member = names[0]
+            return [n for n in zf.namelist() if n.startswith("Pictures/") and not n.endswith("/")]
+    except Exception:
+        log.debug("otp picture list failed path=%s", otp_path, exc_info=True)
+        return []
+
+
+def _extract_otp_picture(otp_path: str, dest_dir: str, index: int = 0) -> str | None:
+    """Extract ``Pictures/`` member *index* (ZIP order) from a shipped ``.otp``."""
+    members = _otp_picture_members(otp_path)
+    if index < 0 or index >= len(members):
+        return None
+    import zipfile
+
+    member = members[index]
+    try:
+        with zipfile.ZipFile(otp_path, "r") as zf:
             base = os.path.basename(member) or "chrome.bin"
             out = os.path.join(dest_dir, base)
             with zf.open(member) as src, open(out, "wb") as dst:
                 dst.write(src.read())
             return out
     except Exception:
-        log.debug("extract_otp_picture failed path=%s", otp_path, exc_info=True)
+        log.debug("extract_otp_picture failed path=%s index=%s", otp_path, index, exc_info=True)
         return None
 
 
-def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any, *, otp_path: str | None = None) -> bool:
+def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any, *, otp_path: str | None = None, picture_index: int = 0) -> bool:
     """Attach chrome without sharing the Hidden source SfxItemPool.
 
     Prefer extracting ``Pictures/*`` from the shipped ``.otp`` ZIP and loading
@@ -461,7 +457,7 @@ def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any, *, otp_path
     if otp_path:
         tmp_dir = tempfile.mkdtemp(prefix="wa_otp_pic_")
         try:
-            extracted = _extract_otp_picture(otp_path, tmp_dir)
+            extracted = _extract_otp_picture(otp_path, tmp_dir, picture_index)
             if extracted:
                 url = path_to_file_url(extracted)
                 log.info("clone_master graphic via otp extract path=%s", extracted)
@@ -513,7 +509,7 @@ def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any, *, otp_path
     return False
 
 
-def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any, uno_ctx: Any = None, *, otp_path: str | None = None) -> str:
+def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any, uno_ctx: Any = None, *, otp_path: str | None = None, picture_index: int | None = None) -> str:
     """Create a dest-owned shape, add it, then copy visual props + geometry.
 
     Adding first is required: presentation placeholders ignore Size/Position
@@ -528,70 +524,12 @@ def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any, uno_ctx: A
     for prop in _CLONE_SHAPE_PROPS:
         _copy_uno_prop(clone, src_shape, prop)
     if "GraphicObject" in shape_type:
-        ok = _reimport_graphic(uno_ctx, src_shape, clone, otp_path=otp_path)
+        ok = _reimport_graphic(uno_ctx, src_shape, clone, otp_path=otp_path, picture_index=0 if picture_index is None else picture_index)
         log.info("clone_master graphic_reimport ok=%s type=%s", ok, shape_type)
     # Geometry last so layout does not overwrite chrome metrics.
     _copy_uno_prop(clone, src_shape, "Position")
     _copy_uno_prop(clone, src_shape, "Size")
     return shape_type
-
-
-def _is_safe_style_value(value: Any) -> bool:
-    """True for primitives only. XComplexColor / BorderLine2 / GrabBag crash
-    soffice in the style pool (GetUserOrPoolDefaultItem) when copied blindly.
-    """
-    return isinstance(value, (int, float, bool, str))
-
-
-def copy_master_style_family(src_doc: Any, dest_doc: Any, family_name: str) -> int:
-    """Copy presentation-layout styles (title / outline / background) by name.
-
-    Each Impress master owns a style family of the same name. insertByName of
-    the whole family fails; copy safe primitive props onto dest's family after
-    the master exists. Skip structs and vetoes — do not invent styles.
-    """
-    if not family_name:
-        return 0
-    try:
-        src_fam = src_doc.getStyleFamilies().getByName(family_name)
-        dest_fam = dest_doc.getStyleFamilies().getByName(family_name)
-    except Exception:
-        log.debug("copy_master_style_family missing family %s", family_name, exc_info=True)
-        return 0
-    copied = 0
-    try:
-        names = list(src_fam.getElementNames())
-    except Exception:
-        return 0
-    for style_name in names:
-        try:
-            src_style = src_fam.getByName(style_name)
-            dest_style = dest_fam.getByName(style_name)
-        except Exception:
-            continue
-        info = None
-        try:
-            info = src_style.getPropertySetInfo()
-        except Exception:
-            info = None
-        if info is None:
-            continue
-        for prop in info.getProperties():
-            pname = str(getattr(prop, "Name", "") or "")
-            if not pname:
-                continue
-            try:
-                value = src_style.getPropertyValue(pname)
-            except Exception:
-                continue
-            if not _is_safe_style_value(value):
-                continue
-            try:
-                dest_style.setPropertyValue(pname, value)
-                copied += 1
-            except Exception:
-                continue
-    return copied
 
 
 def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], uno_ctx: Any = None) -> tuple[Any, str, int]:
@@ -629,55 +567,64 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 design_name = "Imported"
 
     dest_masters = dest_doc.getMasterPages()
-    dest_master = None
-    for i in range(dest_masters.getCount()):
-        candidate = dest_masters.getByIndex(i)
-        try:
-            name = str(candidate.Name or "")
-        except Exception:
-            name = ""
-        if name.strip().lower() == design_name.lower():
-            dest_master = candidate
-            break
-    if dest_master is None:
-        dest_master = dest_masters.insertNewByIndex(dest_masters.getCount())
-        try:
-            dest_master.Name = design_name
-        except Exception:
-            log.debug("rename cloned master to %s failed", design_name, exc_info=True)
+    # Always insert a new master. Reusing a same-named master cleared its
+    # shapes before the copy, so a later failure left that master empty.
+    dest_master = dest_masters.insertNewByIndex(dest_masters.getCount())
     if dest_master is None:
         raise RuntimeError("Could not insert a destination master page.")
-    _clear_master_shapes(dest_master)
-    for prop in _CLONE_MASTER_PAGE_PROPS:
-        _copy_uno_prop(dest_master, src_master, prop)
     try:
-        src_count = int(src_master.getCount())
-    except Exception:
-        src_count = 0
-    otp_path = str(design.get("path") or "").strip() or None
-    cloned_types: list[str] = []
-    for i in range(src_count):
-        src_shape = src_master.getByIndex(i)
-        st = str(getattr(src_shape, "ShapeType", "") or "")
-        log.info("clone_master step=shape i=%s/%s type=%s", i, src_count, st)
-        cloned_types.append(_clone_one_shape(dest_doc, dest_master, src_shape, uno_ctx, otp_path=otp_path))
-        log.info("clone_master step=shape_done i=%s type=%s", i, cloned_types[-1])
+        dest_master.Name = design_name
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
+        log.debug("rename cloned master to %s failed", design_name, exc_info=True)
     try:
-        dest_name = str(dest_master.Name or "") or design_name
+        # Factory placeholders on the new master are not user content.
+        _clear_master_shapes(dest_master)
+        for prop in _CLONE_MASTER_PAGE_PROPS:
+            _copy_uno_prop(dest_master, src_master, prop)
+        try:
+            src_count = int(src_master.getCount())
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            src_count = 0
+        otp_path = str(design.get("path") or "").strip() or None
+        cloned_types: list[str] = []
+        graphic_index = 0
+        for i in range(src_count):
+            src_shape = src_master.getByIndex(i)
+            st = str(getattr(src_shape, "ShapeType", "") or "")
+            log.info("clone_master step=shape i=%s/%s type=%s", i, src_count, st)
+            picture_index = graphic_index if "GraphicObject" in st else None
+            cloned_types.append(_clone_one_shape(dest_doc, dest_master, src_shape, uno_ctx, otp_path=otp_path, picture_index=picture_index))
+            if picture_index is not None:
+                graphic_index += 1
+            log.info("clone_master step=shape_done i=%s type=%s", i, cloned_types[-1])
+        try:
+            dest_name = str(dest_master.Name or "") or design_name
+        except Exception:
+            dest_name = design_name
+        # Do not copy the presentation style family here. Blind style-prop copies
+        # share the Hidden source SfxItemPool and abort soffice on source close
+        # (GetUserOrPoolDefaultItem). Shape primitives + reimported Graphic are
+        # enough for Metropolis chrome (title geom 14800 + SVG).
+        try:
+            shape_count = int(dest_master.getCount())
+        except Exception:
+            shape_count = len(cloned_types)
+        if shape_count < 1:
+            raise RuntimeError("Cloned master '%s' has no shapes." % dest_name)
+        log.debug("clone_master_into_doc name=%s shapes=%s types=%s", dest_name, shape_count, cloned_types)
+        return dest_master, dest_name, shape_count
     except Exception:
-        dest_name = design_name
-    # Do not copy the presentation style family here. Blind style-prop copies
-    # share the Hidden source SfxItemPool and abort soffice on source close
-    # (GetUserOrPoolDefaultItem). Shape primitives + reimported Graphic are
-    # enough for Metropolis chrome (title geom 14800 + SVG).
-    try:
-        shape_count = int(dest_master.getCount())
-    except Exception:
-        shape_count = len(cloned_types)
-    if shape_count < 1:
-        raise RuntimeError("Cloned master '%s' has no shapes." % dest_name)
-    log.debug("clone_master_into_doc name=%s shapes=%s types=%s", dest_name, shape_count, cloned_types)
-    return dest_master, dest_name, shape_count
+        try:
+            dest_masters.remove(dest_master)
+        except Exception as remove_exc:
+            if is_disposed_exception(remove_exc):
+                raise
+            log.debug("remove partial cloned master failed", exc_info=True)
+        raise
 
 
 def find_imported_master(doc: Any, design: dict[str, str], before_names: set[str]) -> tuple[Any | None, str, int]:
@@ -725,7 +672,9 @@ def assign_master_to_all_slides(doc: Any, master: Any) -> int:
         try:
             pages.getByIndex(i).MasterPage = master
             updated += 1
-        except Exception:
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
             log.debug("assign_master_to_all_slides failed on page %s", i, exc_info=True)
     return updated
 
@@ -743,7 +692,9 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     original_count = 0
     try:
         original_count = int(dest_doc.getDrawPages().getCount())
-    except Exception:
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
         original_count = 0
     src = None
     master: Any = None
@@ -773,8 +724,22 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     slide_count = original_count
     try:
         slide_count = int(dest_doc.getDrawPages().getCount())
-    except Exception:
-        pass
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
+        slide_count = original_count
+    if master is None or slides_updated != slide_count:
+        return {
+            "status": "error",
+            "message": "Applied design '%s' to %s of %s slides." % (design.get("name"), slides_updated, slide_count),
+            "design": design,
+            "applied_master": master_name,
+            "applied_master_shape_count": shape_count,
+            "masters": masters,
+            "slides_updated": slides_updated,
+            "slide_count": slide_count,
+            "import_method": "clone_master",
+        }
     return {
         "status": "ok",
         "design": design,
@@ -844,9 +809,11 @@ class ApplyDesign(ToolBase):
     intent: str | None = "edit"
     description: str = (
         "Restyle the OPEN Impress deck from a listed .otp: Hidden-load the "
-        "template, clone its master (shapes + layout styles) into this document, "
-        "and assign that master to every slide. Does not use the system clipboard "
-        "and does not open a new presentation. Existing title/body text stays. "
+        "template, clone its master shapes and reimported graphics into this "
+        "document, and assign that master to every slide. Does not copy "
+        "style families (that shares the hidden source item pool and aborts "
+        "LibreOffice). Does not use the system clipboard and does not open a "
+        "new presentation. Existing title/body text stays. "
         "Call list_designs first. Draw documents return a not-Impress error."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from list_designs (e.g. Metropolis)."}}, "required": ["design"]}
@@ -869,5 +836,7 @@ class ApplyDesign(ToolBase):
         try:
             return apply_design_to_current_doc(ctx.ctx, ctx.doc, entry)
         except Exception as e:
+            if is_disposed_exception(e):
+                raise
             log.exception("current-doc apply_design failed for %s", entry.get("path"))
             return self._tool_error("Failed to apply design to the current presentation: %s" % e, reason="current_doc_import_failed", hint="Hidden .otp master clone or MasterPage assign did not complete.")

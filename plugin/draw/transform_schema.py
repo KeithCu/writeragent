@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.draw.transitions import _LAYOUTS
 from plugin.framework.json_utils import safe_json_loads
 
 # Upstream source for TRANSFORM_PARAM_DESCRIPTION and layout name tables.
@@ -102,7 +101,13 @@ _DEFERRED_EXACT = frozenset({"MarkObject", "UnMarkObject"})
 
 
 def resolve_layout_id(name_or_id: Any) -> int | None:
-    """Resolve Collabora AUTOLAYOUT name, WriterAgent layout alias, or numeric id."""
+    """Resolve a Collabora AUTOLAYOUT name or a numeric Impress page.Layout id.
+
+    WriterAgent ``_LAYOUTS`` aliases (blank=11, title_only=10, …) are
+    PowerPoint numbering. Impress ``page.Layout`` uses AutoLayout ids
+    (``AUTOLAYOUT_NONE`` is 20, ``AUTOLAYOUT_TITLE_ONLY`` is 19). Writing the
+    alias numbers onto ``page.Layout`` selected a different layout.
+    """
     if isinstance(name_or_id, bool):
         return None
     if isinstance(name_or_id, int):
@@ -116,11 +121,6 @@ def resolve_layout_id(name_or_id: Any) -> int | None:
         return None
     upper = key.upper()
     if upper in AUTOLAYOUT_BY_NAME:
-        return AUTOLAYOUT_BY_NAME[upper]
-    lower = key.lower()
-    if lower in _LAYOUTS:
-        return _LAYOUTS[lower]
-    if upper.startswith("AUTOLAYOUT_") and upper in AUTOLAYOUT_BY_NAME:
         return AUTOLAYOUT_BY_NAME[upper]
     try:
         return int(key)

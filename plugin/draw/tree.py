@@ -32,13 +32,11 @@ This is a hint, not a reading-order parser.
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import Any
 
+from plugin.framework.errors import is_disposed_exception
 from plugin.framework.tool import ToolBase, ToolContext
-
-log = logging.getLogger(__name__)
 
 # Placeholder-only text: underscores, leaders, box drawings, whitespace.
 _NEAR_EMPTY_RE = re.compile(r"^[\s._\-–—•·□■☐☑☒╳]+$")
@@ -263,6 +261,8 @@ def find_shape_on_page(page: Any, *, index: int | None = None, name: str | None 
                 return None, None, "Invalid shape index: %s" % idx
             return idx, page.getByIndex(idx), None
         except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
             return None, None, "Failed to find shape at index %s: %s" % (index, exc)
 
     wanted = (name or "").strip()
@@ -274,23 +274,53 @@ def find_shape_on_page(page: Any, *, index: int | None = None, name: str | None 
     try:
         count = page.getCount()
     except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
         return None, None, "Could not read page shapes: %s" % exc
+
+    def _consider(shape: Any, top_index: int) -> None:
+        try:
+            shape_type = shape.getShapeType()
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            shape_type = ""
+        if _shape_name(shape) == wanted:
+            name_hits.append((top_index, shape))
+            return
+        try:
+            if is_control_shape_type(shape_type):
+                control = getattr(shape, "Control", None)
+                if control is not None and _safe_attr(control, "Name") == wanted:
+                    control_hits.append((top_index, shape))
+                    return
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+        if "GroupShape" in str(shape_type):
+            try:
+                child_count = shape.getCount()
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+                return
+            for j in range(child_count):
+                try:
+                    child = shape.getByIndex(j)
+                except Exception as exc:
+                    if is_disposed_exception(exc):
+                        raise
+                    continue
+                _consider(child, top_index)
 
     for i in range(count):
         try:
             shape = page.getByIndex(i)
-        except Exception:
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
             continue
-        if _shape_name(shape) == wanted:
-            name_hits.append((i, shape))
-            continue
-        try:
-            if is_control_shape_type(shape.getShapeType()):
-                control = getattr(shape, "Control", None)
-                if control is not None and _safe_attr(control, "Name") == wanted:
-                    control_hits.append((i, shape))
-        except Exception:
-            continue
+        _consider(shape, i)
 
     hits = name_hits if name_hits else control_hits
     if len(hits) == 1:
@@ -311,13 +341,17 @@ def _collect_shape_nodes(xshapes: Any, base_index: str | None = None) -> list[di
     tree: list[dict[str, Any]] = []
     try:
         count = xshapes.getCount()
-    except Exception:
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
         return tree
 
     for i in range(count):
         try:
             shape = xshapes.getByIndex(i)
-        except Exception:
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
             continue
 
         current_index = str(i) if base_index is None else f"{base_index}.{i}"
@@ -446,14 +480,17 @@ class GetDrawTree(ToolBase):
             actual_idx = bridge.get_active_page_index()
 
         try:
-            page = bridge.get_pages().getByIndex(actual_idx)
-        except Exception:
+            page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
+        except Exception as exc:
+            from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+
+            if is_disposed_exception(exc):
+                raise
+            if isinstance(exc, ToolExecutionError):
+                return self._tool_error(str(exc))
             return self._tool_error("Invalid page index: %s" % actual_idx)
 
         if page is None:
             return self._tool_error("No draw page available.")
 
         return {"status": "ok", "page": actual_idx, "tree": build_shape_tree(page)}
-
-    def _build_shape_tree(self, xshapes: Any, base_index: str | None = None) -> list[dict[str, Any]]:
-        return build_shape_tree(xshapes, base_index)

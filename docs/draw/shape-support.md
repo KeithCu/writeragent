@@ -21,7 +21,7 @@ To create one of these specific shapes:
 1. Instantiate `com.sun.star.drawing.CustomShape`.
 2. Set `CustomShapeEngine` to `com.sun.star.drawing.EnhancedCustomShapeEngine` and configure `CustomShapeGeometry` **before** `page.add`. This property accepts a sequence of `com.sun.star.beans.PropertyValue`.
 3. Set a `PropertyValue` with `Name="Type"` and `Value="<shape_name>"`.
-4. Add the shape to the drawing page. Do **not** set `CustomShapeGeometry` again after add — swapping Type on a live inserted shape (default CustomShape is an `SdrRectObj`) can abort LibreOffice in `SfxItemPool::unregisterNameOrIndex`.
+4. Add the shape to the drawing page. On Draw and Impress, do **not** set `CustomShapeGeometry` again after add — swapping Type on a live inserted shape (default CustomShape is an `SdrRectObj`) can abort LibreOffice in `SfxItemPool::unregisterNameOrIndex`. Writer and Calc set the type again after add: pre-add `Type` alone stays Type-only (no Path/ViewBox) and the shape does not paint. That second write is intentional for `TextDocument` and `SpreadsheetDocument` only.
 
 Writer-only: set `AnchorType=AT_PAGE` before add (already inside `safe_create_shape`). Fill/line properties stay after add.
 
