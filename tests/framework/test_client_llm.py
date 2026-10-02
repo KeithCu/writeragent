@@ -1169,21 +1169,19 @@ def test_openrouter_shim_image_flux_klein_png_aspect_not_size(client):
 
 
 def test_is_image_only_model(client):
-    from plugin.framework.client.model_fetcher import is_image_only_model, _model_output_modalities
+    from plugin.framework.client.model_fetcher import is_image_only_model
 
-    # Reset cache
-    _model_output_modalities.clear()
+    # The image-id list is the catalog. A gemini image id is image-only even
+    # though the name heuristic would treat "gemini" as chat.
+    with patch("plugin.framework.client.model_fetcher.fetch_available_image_models", return_value=["flux", "google/gemini-2.5-flash-image"]):
+        assert is_image_only_model("https://openrouter.ai/api", "flux") is True
+        assert is_image_only_model("https://openrouter.ai/api", "google/gemini-2.5-flash-image") is True
+        assert is_image_only_model("https://openrouter.ai/api", "google/gemini-2.5-flash") is False
 
-    # If cache has modalities
-    _model_output_modalities["flux"] = ["image"]
-    _model_output_modalities["gemini-image"] = ["image", "text"]
-
-    assert is_image_only_model("https://openrouter.ai/api", "flux") is True
-    assert is_image_only_model("https://openrouter.ai/api", "gemini-image") is False
-
-    # Fallback to name heuristic
-    assert is_image_only_model("https://openrouter.ai/api", "nonexistent-flux") is True
-    assert is_image_only_model("https://openrouter.ai/api", "nonexistent-gemini") is False
+    # None means the catalog did not answer; the name heuristic still applies.
+    with patch("plugin.framework.client.model_fetcher.fetch_available_image_models", return_value=None):
+        assert is_image_only_model("https://openrouter.ai/api", "nonexistent-flux") is True
+        assert is_image_only_model("https://openrouter.ai/api", "nonexistent-gemini") is False
 
 
 
@@ -1392,8 +1390,7 @@ def test_make_chat_request_coalesces_mixed_system_messages(client):
 
 
 def test_prepend_dev_build_prefix_supports_list_content():
-    from plugin.framework.client.llm_client import _prepend_dev_build_system_prefix_to_messages
-    from plugin.framework.client.response_normalizers import LLM_DEV_BUILD_SYSTEM_PREFIX
+    from plugin.framework.client.response_normalizers import LLM_DEV_BUILD_SYSTEM_PREFIX, prepend_dev_build_system_prefix_to_messages as _prepend_dev_build_system_prefix_to_messages
 
     messages = [
         {"role": "system", "content": [{"type": "text", "text": "Existing text."}]}
@@ -1457,7 +1454,7 @@ def test_normalize_multimodal_messages_openai(client):
         {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
     ]
     
-    from plugin.framework.client.llm_client import normalize_multimodal_messages
+    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
     normalize_multimodal_messages(messages, "openai")
     
     # Tool message content should have its image replaced with [Image Ref]
@@ -1478,7 +1475,7 @@ def test_normalize_multimodal_messages_anthropic(client):
         {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
     ]
     
-    from plugin.framework.client.llm_client import normalize_multimodal_messages
+    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
     normalize_multimodal_messages(messages, "anthropic")
     
     # Tool message content should also be stripped of the raw base64 string,
@@ -1500,7 +1497,7 @@ def test_normalize_multimodal_messages_gemini(client):
         {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
     ]
     
-    from plugin.framework.client.llm_client import normalize_multimodal_messages
+    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
     normalize_multimodal_messages(messages, "google")
     
     assert messages[2]["content"] == "Here is the page: [Image Ref]"
@@ -2176,6 +2173,57 @@ def test_stream_reset_after_content_is_connection_lost(client):
     assert mock_https.call_count == 1
 
 
+def test_stream_reset_after_tool_call_delta_is_connection_lost(client):
+    """Tool-call bytes already reached on_delta. A reset must not retry and merge the call."""
+    first = create_mock_http_response(
+        sse_lines=[
+            b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}',
+        ],
+        iter_side_effect=ConnectionResetError("reset after tool"),
+    )
+    # A retry would concatenate this fragment onto the same snapshot.
+    second = create_mock_http_response(
+        sse_lines=[
+            b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]}',
+            b'data: {"choices": [{"finish_reason": "tool_calls", "delta": {}}]}',
+            b"data: [DONE]",
+        ]
+    )
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, first, second)
+        with pytest.raises(NetworkError) as err:
+            client.stream_request_with_tools(
+                messages=[{"role": "user", "content": "Weather?"}],
+                max_tokens=100,
+                tools=[{"type": "function", "function": {"name": "get_weather"}}],
+            )
+    assert err.value.code == "CONNECTION_LOST"
+    assert mock_https.call_count == 1
+
+
+def test_stream_abort_during_tool_call_stays_stop(client):
+    """Stop after a tool-call delta must not remap finish_reason to a runnable tool_calls."""
+    state = {"abort": False}
+
+    def _iter():
+        yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}\n'
+        state["abort"] = True
+        yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]}\n'
+
+    resp = create_mock_http_response(sse_lines=[])
+    resp.__iter__.return_value = _iter()
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Weather?"}],
+            max_tokens=100,
+            tools=[{"type": "function", "function": {"name": "get_weather"}}],
+            stop_checker=lambda: state["abort"],
+        )
+    assert result["finish_reason"] == "stop"
+    assert client._stopped is True
+
+
 def test_stream_malformed_and_truncated_chunks_are_skipped(client):
     """Bad JSON, JSON-but-not-object, unexpected schema: skip; later valid deltas still apply."""
     lines = [
@@ -2243,18 +2291,80 @@ def test_transcribe_unknown_audio_tries_native_chat(tmp_path):
     chat.assert_called_once()
 
 
-def test_peek_ollama_num_ctx_caches_a_miss():
-    from plugin.framework.client import llm_client as llm_mod
+def test_http_500_does_not_call_ollama_show(mock_ctx, caplog):
+    """A 500 formats from the body already in hand. It must not POST /api/show."""
+    import logging
 
-    llm_mod._ollama_num_ctx_misses.clear()
+    from plugin.framework.client.model_fetcher import _ollama_show_cache
+
+    prompt = "UNIQUE_PROMPT_BLOB_FOR_500_NO_SHOW"
+    ollama = LlmClient(
+        {"endpoint": "http://127.0.0.1:11434", "api_key": "", "model": "qwen2.5:7b"},
+        mock_ctx,
+    )
+    body = _http_500_diag_body(stream=True, tools=None, prompt=prompt, model="qwen2.5:7b")
+    caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
+    _ollama_show_cache.clear()
+    with (
+        patch("plugin.framework.client.model_fetcher.query_ollama_show") as show,
+        patch("plugin.framework.client.model_fetcher.query_ollama_runtime_num_ctx") as num_ctx,
+        patch("plugin.framework.client.requests.sync_request") as sync,
+    ):
+        err = _raise_http_error(ollama, 500, "Internal Server Error", body, {"error": {"message": "boom"}})
+    assert err.value.code == "HTTP_ERROR"
+    show.assert_not_called()
+    num_ctx.assert_not_called()
+    sync.assert_not_called()
+
+
+def test_peek_ollama_num_ctx_reads_show_cache_without_http():
+    from plugin.framework.client import llm_client as llm_mod
+    from plugin.framework.client.model_fetcher import _ollama_show_cache
+    from plugin.framework.url_utils import normalize_endpoint_url
+
+    endpoint = "http://127.0.0.1:11434"
+    model = "llama"
+    cache_key = f"{normalize_endpoint_url(endpoint)}@{model}"
+    _ollama_show_cache[cache_key] = {"capabilities": [], "num_ctx": 4096}
     client = MagicMock()
     client._get_provider.return_value = "ollama"
-    client.config = {"model": "llama"}
-    client._endpoint.return_value = "http://127.0.0.1:11434"
-    with patch("plugin.framework.client.model_fetcher.query_ollama_runtime_num_ctx", return_value=None) as query:
-        assert llm_mod._peek_live_ollama_num_ctx(client) is None
-        assert llm_mod._peek_live_ollama_num_ctx(client) is None
-    assert query.call_count == 1
+    client.config = {"model": model}
+    client._endpoint.return_value = endpoint
+    try:
+        with patch("plugin.framework.client.model_fetcher.query_ollama_show") as show:
+            assert llm_mod._peek_live_ollama_num_ctx(client) == 4096
+            assert llm_mod._peek_live_ollama_num_ctx(MagicMock(_get_provider=MagicMock(return_value="ollama"), config={"model": "missing"}, _endpoint=MagicMock(return_value=endpoint))) is None
+        show.assert_not_called()
+    finally:
+        _ollama_show_cache.pop(cache_key, None)
+
+
+def test_request_json_200_clears_stuck_host_gap(client):
+    from plugin.framework.client.request_controls import _host_gap_sec, remember_host_gap
+
+    remember_host_gap("api.openai.com", 12.0)
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = b'{"ok": true}'
+    body = json.dumps({"model": "gpt-4o"}).encode()
+    with patch.object(client, "_send_request", return_value=response), patch.object(client, "_close_if_connection_close"):
+        assert client._request_json("POST", "/v1/images/generations", body, {}) == {"ok": True}
+    assert "api.openai.com" not in _host_gap_sec
+
+
+def test_request_json_200_resets_free_gap_to_floor(client):
+    from plugin.framework.client.request_controls import OPENROUTER_FREE_MIN_GAP_SEC, _host_gap_sec, remember_host_gap
+
+    client.config["endpoint"] = "https://openrouter.ai/api/v1"
+    remember_host_gap("openrouter.ai:free", 12.0)
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = b'{"text": "ok"}'
+    body = json.dumps({"model": "deepseek/deepseek-r1:free"}).encode()
+    with patch.object(client, "_send_request", return_value=response), patch.object(client, "_close_if_connection_close"):
+        client._request_json("POST", "/v1/audio/transcriptions", body, {})
+    assert _host_gap_sec.get("openrouter.ai:free") == OPENROUTER_FREE_MIN_GAP_SEC
+    assert "openrouter.ai" not in _host_gap_sec
 
 
 

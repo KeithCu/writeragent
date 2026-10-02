@@ -29,7 +29,7 @@ from plugin.framework.errors import NetworkError
 from plugin.framework.url_utils import get_url_hostname
 
 from plugin.framework.errors import format_error_message
-from .request_controls import LocalHttpsCertificateFallback, RequestPacer, backoff_delay_sec, emit_retry_status, ensure_free_model_pacing, mark_host_sent, remember_host_gap, request_model_from_body, wait_abortable, wait_host_gap
+from .request_controls import LocalHttpsCertificateFallback, RequestPacer, backoff_delay_sec, emit_retry_status, ensure_free_model_pacing, mark_host_sent, pacing_key, remember_host_gap, request_model_from_body, wait_abortable, wait_host_gap
 from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context
 
 log = logging.getLogger(__name__)
@@ -149,7 +149,7 @@ class LlmHttpTransport:
             self.close()
         return enabled
 
-    def handle_connection_error(self, err: Exception, *, path: str, retries_left: int, retry_log_message: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, attempt: int = 1) -> RetryAction:
+    def handle_connection_error(self, err: Exception, *, path: str, retries_left: int, retry_log_message: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, attempt: int = 1, model: str | None = None) -> RetryAction:
         """Close failed connections and decide whether a request should retry."""
         log.error("Connection error, closing: %s" % err)
         self.close()
@@ -164,7 +164,10 @@ class LlmHttpTransport:
         if retries_left > 0:
             log.warning(retry_log_message)
             delay = backoff_delay_sec(attempt=attempt)
-            remember_host_gap(self.current_host(), delay)
+            # What was wrong: the backoff was stored under current_host() only.
+            # An OpenRouter ``:free`` failure then slowed paid traffic on that
+            # host and did not pace ``:free``. Chat already uses pacing_key.
+            remember_host_gap(pacing_key(self.current_host(), model), delay)
             emit_retry_status(status_callback, delay)
             if not wait_abortable(delay, stop_checker):
                 return "stop"

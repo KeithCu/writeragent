@@ -44,7 +44,7 @@ import threading
 import uuid
 from collections import deque
 from concurrent.futures import CancelledError, Future, TimeoutError as FuturesTimeoutError
-from typing import Optional, Callable, Any, ClassVar, IO
+from typing import Optional, Callable, Any, ClassVar, IO, Iterator
 
 from plugin.framework.constants import BACKGROUND_POOL_MAX_WORKERS
 from plugin.framework.errors import WorkerPoolError
@@ -364,6 +364,32 @@ def _read_stderr_chunk(stream: IO[Any]) -> bytes | str | None:
         return None
 
 
+def _iter_decoded_chunks(stream: IO[Any]) -> Iterator[str]:
+    """Yield text from ``_read_stderr_chunk``, joining UTF-8 split across reads.
+
+    What was wrong: ``AsyncProcess._read_stream`` and ``_drain_stream`` decoded
+    each chunk with ``errors='replace'``. A code point split across two short
+    reads became U+FFFD twice. How it happened: those readers grew up separate
+    from ``start_stderr_drain``, which already kept an incremental UTF-8 decoder.
+    Why this change: one decoder feeds all three. ``final=True`` runs only at
+    EOF, so a trailing incomplete sequence is replaced once, not per read.
+    """
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    while True:
+        chunk = _read_stderr_chunk(stream)
+        if chunk is None or chunk == "" or chunk == b"":
+            break
+        if isinstance(chunk, str):
+            text = chunk
+        else:
+            text = decoder.decode(chunk)
+        if text:
+            yield text
+    tail = decoder.decode(b"", final=True)
+    if tail:
+        yield tail
+
+
 def start_stderr_drain(stream: IO[Any] | None, *, max_tail_chars: int = _DEFAULT_STDERR_TAIL_CHARS, name: str = "stderr-drain") -> StderrTail | None:
     """Continuously drain a child stderr pipe into a bounded :class:`StderrTail`.
 
@@ -375,18 +401,9 @@ def start_stderr_drain(stream: IO[Any] | None, *, max_tail_chars: int = _DEFAULT
     tail = StderrTail(max_chars=max_tail_chars)
 
     def _loop() -> None:
-        # Incremental: a UTF-8 character may be split across two short reads.
-        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         try:
-            while True:
-                chunk = _read_stderr_chunk(stream)
-                if not chunk:
-                    break
-                if isinstance(chunk, str):
-                    tail._append(chunk)
-                else:
-                    tail._append(decoder.decode(chunk))
-            tail._append(decoder.decode(b"", final=True))
+            for text in _iter_decoded_chunks(stream):
+                tail._append(text)
         except Exception:
             log.debug("%s failed", name, exc_info=True)
         finally:
@@ -470,15 +487,13 @@ class AsyncProcess:
         # ``for line in stream`` blocks in readline. A child that writes a long
         # burst with no newline fills the OS pipe and deadlocks. A callback
         # exception used to leave that loop and close the pipe while the child
-        # was still writing. Short reads match start_stderr_drain.
+        # was still writing. Short reads go through ``_iter_decoded_chunks`` so
+        # a UTF-8 code point split across reads is not replaced twice. The
+        # callback try/except stays inside the loop: a bad callback must not
+        # close the pipe early.
         pending = ""
         try:
-            while True:
-                chunk = _read_stderr_chunk(stream)
-                if chunk is None or chunk == "" or chunk == b"":
-                    break
-                if isinstance(chunk, bytes):
-                    chunk = chunk.decode("utf-8", errors="replace")
+            for chunk in _iter_decoded_chunks(stream):
                 pending += chunk
                 lines = pending.splitlines(keepends=True)
                 if lines and not lines[-1].endswith(("\n", "\r")):
@@ -503,10 +518,8 @@ class AsyncProcess:
 
     def _drain_stream(self, stream: Any) -> None:
         try:
-            while True:
-                chunk = _read_stderr_chunk(stream)
-                if chunk is None or chunk == "" or chunk == b"":
-                    break
+            for _text in _iter_decoded_chunks(stream):
+                pass
         finally:
             try:
                 stream.close()

@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from com.sun.star.lang import EventObject
 
 from plugin.framework.constants import EXTENSION_ID_LIBREHARPER, EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
-from plugin.framework.thread_guard import main_thread_only, on_main_thread, _wrap_uno
+from plugin.framework.thread_guard import main_thread_only, on_main_thread
 
 log = logging.getLogger("writeragent.context")
 
@@ -200,6 +200,24 @@ def product_display_name(ctx: Any | None = None) -> str:
     return "WriterAgent"
 
 
+def _guard_returned_uno(obj: Any) -> Any:
+    """Wrap a UNO boundary return. Imports ``guard_uno`` at the call.
+
+    What was wrong: ``get_ctx``, ``get_desktop``, ``get_active_document``,
+    ``get_package_info``, ``get_toolkit``, and ``resolve_document_by_url``
+    called a module-level ``_wrap_uno`` copied in at import. Patching
+    ``plugin.framework.thread_guard.guard_uno`` never saw those returns.
+    How it happened: ``from thread_guard import _wrap_uno`` binds the
+    function object; a later patch of ``guard_uno`` does not replace it.
+    Why this change: import ``guard_uno`` here, the same pattern as
+    ``get_document_from_frame``. PropertyValue media descriptors are not
+    passed through this helper.
+    """
+    from plugin.framework.thread_guard import guard_uno
+
+    return guard_uno(obj)
+
+
 @main_thread_only
 def get_ctx() -> Any:
     """Return the UNO component context.
@@ -214,20 +232,20 @@ def get_ctx() -> Any:
     # We prefer the explicitly set _fallback_ctx (which holds the remote connection context)
     # to prevent standalone runs from trying to use the local PyUNO context.
     if _fallback_ctx is not None:
-        return _wrap_uno(_fallback_ctx)
+        return _guard_returned_uno(_fallback_ctx)
     try:
         import uno
 
         if hasattr(uno, "getComponentContext"):
             ctx = uno.getComponentContext()
             if ctx is not None:
-                return _wrap_uno(ctx)
+                return _guard_returned_uno(ctx)
     except ImportError:
         pass
-    return _wrap_uno(_fallback_ctx)
+    return _guard_returned_uno(_fallback_ctx)
 
 
-from plugin.framework.errors import check_disposed, safe_call, UnoObjectError
+from plugin.framework.errors import DocumentDisposedError, check_disposed, safe_call, UnoObjectError
 
 
 def get_service_manager(ctx: Any) -> Any | None:
@@ -259,7 +277,7 @@ def get_desktop(ctx: Any | None = None) -> Any:
     smgr = get_service_manager(ctx_any)
     assert smgr is not None
     desktop = cast("Any", smgr).createInstanceWithContext("com.sun.star.frame.Desktop", ctx_any)
-    return _wrap_uno(desktop)
+    return _guard_returned_uno(desktop)
 
 
 def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0, extra_props: tuple[Any, ...] = ()) -> Any:
@@ -352,7 +370,16 @@ def get_active_document(ctx: Any | None = None) -> Any:
             return None
         check_disposed(desktop, "Desktop")
         doc = safe_call(desktop.getCurrentComponent, "Desktop component resolution")
-        return _wrap_uno(doc)
+        return _guard_returned_uno(doc)
+    except DocumentDisposedError:
+        # What was wrong: a document that died mid-call looked like nothing
+        # was open. How it happened: DocumentDisposedError subclasses
+        # UnoObjectError, and this handler returned None for every
+        # UnoObjectError (safe_call wraps DisposedException that way).
+        # Why this change: re-raise disposal so callers cannot treat a dying
+        # document as "no document". None stays the answer when get_desktop()
+        # is None or the component itself is missing.
+        raise
     except UnoObjectError:
         log.exception("get_active_document UnoObjectError")
         return None
@@ -371,7 +398,7 @@ def get_package_info(ctx: Any | None = None) -> Any:
     if gvn is None:
         return None
     pip = gvn("/singletons/com.sun.star.deployment.PackageInformationProvider")
-    return _wrap_uno(pip)
+    return _guard_returned_uno(pip)
 
 
 @main_thread_only
@@ -437,7 +464,7 @@ def get_toolkit(ctx: Any | None = None) -> Any:
         if smgr is None:
             return None
         tk = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)
-        return _wrap_uno(tk)
+        return _guard_returned_uno(tk)
     except Exception:
         log.exception("Failed to create toolkit")
         return None
@@ -755,7 +782,17 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
 
 def _post_secondary_idle(ctx: Any) -> None:
     """Enqueue one PE2I tick on the VCL thread. Must not run PE2I on the waiter."""
-    from plugin.framework.queue_executor import post_to_main_thread
+    from plugin.framework.queue_executor import default_executor, post_to_main_thread
+
+    # What was wrong: each 75ms tick posted another marshal item, so a 15s
+    # wait could enqueue ~200 no-op pumps ahead of a real execute_on_main_thread.
+    # How it happened: wait_while_pumping called this on every poll whether or
+    # not the previous pump was still sitting in the work queue.
+    # Why this change: skip while default_executor's queue is non-empty. One
+    # outstanding pump is enough. qsize() is not a sticky flag — if post()
+    # drops the callback the queue stays empty and the next tick tries again.
+    if default_executor._work_queue.qsize() != 0:
+        return
 
     def _pump() -> None:
         # QueueExecutor.post can fall back onto the caller when AsyncCallback
@@ -846,6 +883,14 @@ def get_runtime_uid(model: Any) -> str:
     return ""
 
 
+# What was wrong: off-thread, proxy __eq__ raises RuntimeError from
+# assert_main_thread, the bare except Exception swallowed it, then uno.isSame
+# ran on unwrapped PyUNO. How it happened: the identity ladder treats any
+# comparison error as "try the next step", and the guard's RuntimeError is an
+# Exception. Why this change: @main_thread_only (same decorator as
+# resolve_document_by_url) never enters the ladder off the main thread. The
+# on-thread ladder, including unwrap before uno.isSame, stays.
+@main_thread_only
 def uno_same(a: Any, b: Any) -> bool:
     """True when *a* and *b* are the same underlying UNO object.
 
@@ -940,7 +985,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                     if (doc_url and doc_url == target) or (uid and uid == target):
                         doc_type_enum = _doc_type.get_document_type(model)
                         doc_type = _doc_type.doc_type_label_for_enum(doc_type_enum, impress_as_draw=True)
-                        return (_wrap_uno(model), doc_type)
+                        return (_guard_returned_uno(model), doc_type)
             except Exception as e:
                 logging.getLogger(__name__).debug("resolve_document_by_url element error: %s", type(e).__name__)
                 continue
@@ -959,7 +1004,6 @@ def get_document_from_frame(frame: Any) -> Any:
     if not frame:
         return None
     from plugin.framework.errors import suppress_disposed
-    from plugin.framework.thread_guard import guard_uno
 
     with suppress_disposed("resolve document from frame", logger=logging.getLogger(__name__)):
         check_disposed(frame, "Frame")
@@ -969,5 +1013,5 @@ def get_document_from_frame(frame: Any) -> Any:
         check_disposed(controller, "Controller")
         model = controller.getModel()
         if model is not None:
-            return guard_uno(model)
+            return _guard_returned_uno(model)
     return None

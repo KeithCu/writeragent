@@ -32,6 +32,35 @@ _DEAL_MAX_HTML_CHUNK = DEAL_MAX_HTML_CHUNK
 _HTML_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
 _deal_strip_html_ok = ascii_bounded if _HTML_CROSSHAIR else str_bounded
 
+# Element text used to survive (``<script>alert(1)</script>`` → ``alert(1)``).
+# Drop the body until the matching close tag, not only the tag bytes.
+_DISCARD_ELEMENTS = frozenset({"script", "style"})
+
+
+def _html_tag_name(buf: str) -> tuple[str, bool, bool]:
+    """Return ``(lower_name, is_close, is_empty)`` for a tag buffer without ``>``.
+
+    ``buf`` is everything after ``<`` was seen and before an unquoted ``>``.
+    """
+    inner = buf[1:] if buf.startswith("<") else buf
+    if not inner:
+        return "", False, False
+    is_close = False
+    if inner[0] == "/":
+        is_close = True
+        inner = inner[1:].lstrip()
+    elif inner[0] in "!?":
+        return "", False, False
+    name: list[str] = []
+    for char in inner:
+        if char.isalnum() or char in "-:":
+            name.append(char.lower())
+        else:
+            break
+    # ``<script/>`` and ``<script />`` have no element body to discard.
+    is_empty = (not is_close) and buf.rstrip().endswith("/")
+    return "".join(name), is_close, is_empty
+
 
 class StreamingHTMLStripper:
     """Stateful, stream-friendly HTML tag stripper.
@@ -44,10 +73,52 @@ class StreamingHTMLStripper:
 
     in_tag: bool
     tag_buffer: str
+    # Quote character currently open inside a tag (``"`` or ``'``), else "".
+    _quote: str
+    # ``script`` / ``style`` whose element text is discarded, else "".
+    _discard_until: str
 
     def __init__(self) -> None:
         self.in_tag = False
         self.tag_buffer = ""
+        self._quote = ""
+        self._discard_until = ""
+
+    def _release_tag_buffer(self, out: list[str], *, force_emit: bool) -> None:
+        """Stop buffering a tag. Emit unless we are discarding element text."""
+        if (force_emit or not self._discard_until) and self.tag_buffer:
+            out.append(self.tag_buffer)
+        self.in_tag = False
+        self.tag_buffer = ""
+        self._quote = ""
+
+    def _push_tag_char(self, char: str, out: list[str], *, reject_bad_start: bool) -> None:
+        self.tag_buffer += char
+        if reject_bad_start and len(self.tag_buffer) == 2:
+            first_char = self.tag_buffer[1]
+            # Second character must look like a tag. ``3 < 5`` stays text;
+            # a space (or digit) after ``<`` is not the start of a tag.
+            if not (first_char.isalpha() or first_char in ("/", "!", "?")):
+                self._release_tag_buffer(out, force_emit=not bool(self._discard_until))
+                return
+        if len(self.tag_buffer) > 256:
+            # Never-closed '<' used to grow without bound. The cap still
+            # applies inside script/style: a missed close tag must not
+            # swallow the rest of the stream. Flush emits those bytes.
+            self._release_tag_buffer(out, force_emit=True)
+
+    def _end_tag(self) -> None:
+        """Drop a completed tag. script/style then discard until the close tag."""
+        name, is_close, is_empty = _html_tag_name(self.tag_buffer)
+        self.in_tag = False
+        self.tag_buffer = ""
+        self._quote = ""
+        if self._discard_until:
+            if is_close and name == self._discard_until:
+                self._discard_until = ""
+            return
+        if name in _DISCARD_ELEMENTS and not is_close and not is_empty:
+            self._discard_until = name
 
     @deal.pre(lambda self, chunk: str_bounded(chunk, _DEAL_MAX_HTML_CHUNK))
     @deal.post(lambda result: isinstance(result, str))
@@ -65,33 +136,31 @@ class StreamingHTMLStripper:
                 if char == "<":
                     self.in_tag = True
                     self.tag_buffer = "<"
-                else:
+                    self._quote = ""
+                elif not self._discard_until:
                     out.append(char)
-            else:
-                if char == "<":
-                    # A new '<' while inside a tag means the previous one was not a tag.
-                    # Flush the previous buffer and start a new one.
+                # else: element text of script/style is discarded
+            elif self._quote:
+                # The first '>' used to end the tag even inside quotes, so
+                # ``<img alt="a>b" src="x">`` leaked ``b" src="x">``.
+                if char == self._quote:
+                    self._quote = ""
+                self._push_tag_char(char, out, reject_bad_start=False)
+            elif char in ('"', "'"):
+                self._push_tag_char(char, out, reject_bad_start=True)
+                if self.in_tag:
+                    self._quote = char
+            elif char == "<":
+                # A new '<' while inside a tag means the previous one was not a tag.
+                # Flush the previous buffer and start a new one.
+                if not self._discard_until:
                     out.append(self.tag_buffer)
-                    self.tag_buffer = "<"
-                elif char == ">":
-                    # Tag is completed! Strip it by discarding the buffer.
-                    self.in_tag = False
-                    self.tag_buffer = ""
-                else:
-                    self.tag_buffer += char
-                    # If we just started buffering, make sure it looks like a tag.
-                    if len(self.tag_buffer) == 2:
-                        first_char = self.tag_buffer[1]
-                        if not (first_char.isalpha() or first_char in ("/", "!", "?")):
-                            # Not a valid HTML tag start (e.g. "< 5"). Flush buffer.
-                            self.in_tag = False
-                            out.append(self.tag_buffer)
-                            self.tag_buffer = ""
-                    elif len(self.tag_buffer) > 256:
-                        # Exceeded safe limit for an LLM HTML tag. Flush buffer.
-                        self.in_tag = False
-                        out.append(self.tag_buffer)
-                        self.tag_buffer = ""
+                self.tag_buffer = "<"
+                self._quote = ""
+            elif char == ">":
+                self._end_tag()
+            else:
+                self._push_tag_char(char, out, reject_bad_start=True)
         return "".join(out)
 
     @deal.post(lambda result: isinstance(result, str))
@@ -116,10 +185,18 @@ class StreamingHTMLStripper:
     @deal.post(lambda result: isinstance(result, str))
     def finalize(self) -> str:
         """Return any remaining buffered text when the stream is completed."""
+        # Unclosed script/style must not leak the held tag tail on stream end.
+        if self._discard_until:
+            self.in_tag = False
+            self.tag_buffer = ""
+            self._quote = ""
+            self._discard_until = ""
+            return ""
         if self.in_tag and self.tag_buffer:
             buf = self.tag_buffer
             self.in_tag = False
             self.tag_buffer = ""
+            self._quote = ""
             return buf
         return ""
 

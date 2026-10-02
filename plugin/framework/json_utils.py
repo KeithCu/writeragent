@@ -202,6 +202,16 @@ def _deal_json_text_ok_crosshair(text: object) -> bool:
 _deal_json_text_ok = _deal_json_text_ok_crosshair if UNDER_CROSSHAIR else _deal_json_text_ok_pytest
 
 
+def _debug_json_stage(stage: str) -> None:
+    """Log which fallback accepted the text.
+
+    What was wrong: step 1 can fail and a later step still return a value
+    with no trace. Logging the source would dump secrets and document text.
+    The stage name is enough to see which step won.
+    """
+    log.debug("safe_json_loads stage=%s", stage)
+
+
 @deal.pre(lambda text: _deal_json_text_ok(text))
 def repair_json(text: str) -> str:
     """Attempt to repair common JSON syntax errors from LLMs using json-repair.
@@ -317,18 +327,22 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     # 2. strict=False attempt (handles bare control characters in non-strict LLM mode)
     try:
         parsed = json.loads(stripped, strict=False)
+        _debug_json_stage("non-strict")
         return parsed
     except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
         pass
 
     # 3. ast.literal_eval fallback (handles single quotes and Python-isms)
     # Inspired by hermes-agent/environments/tool_call_parsers/qwen3_coder_parser.py
+    # Do not swap this ahead of repair: literal_eval accepting a truncated
+    # fragment is accepted behavior, not a bug.
     try:
         # literal_eval handles 'True', 'False', 'None' out of the box.
         # It also handles single quotes and tuple-like syntax.
         parsed = ast.literal_eval(stripped)
         # literal_eval also returns tuples, sets, and bytes. Callers expect JSON.
         if parsed is None or type(parsed) in (bool, int, float, str, list, dict):
+            _debug_json_stage("literal_eval")
             return parsed
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         pass
@@ -338,6 +352,7 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         repaired = repair_json(stripped)
         if repaired != stripped:
             parsed = json.loads(repaired, strict=False)
+            _debug_json_stage("json_repair")
             return parsed
     except (json.JSONDecodeError, TypeError, ValueError, RecursionError, ImportError):
         pass

@@ -155,6 +155,34 @@ class TestGetProviderDefaults:
         assert (resolve_model_id(row, "openai")) is None
         assert (resolve_model_id(row, "custom")) is None
 
+    def test_chat_audio_rows_are_not_speech_fallbacks(self):
+        # CHAT|AUDIO with neither stt nor tts flag must not become the speech default.
+        google = get_provider_defaults("google")
+        assert google.get("text_model") == "gemini-3.1-flash-lite-preview"
+        assert google.get("stt_model") is None
+        assert google.get("tts_model") is None
+        mock = get_provider_defaults("mock")
+        assert mock.get("text_model") == "writeragent-mock"
+        assert mock.get("stt_model") is None
+        assert mock.get("tts_model") is None
+
+    def test_together_nemotron_stt_prefix_requires_asr(self):
+        from plugin.framework.default_models import together_speech_ids
+
+        merged = together_speech_ids(
+            "stt",
+            [
+                "nvidia/nemotron-nano",
+                "nvidia/nemotron-9-asr-test",
+                "openai/whisper-medium",
+                "nvidia/parakeet-extra",
+            ],
+        )
+        assert "nvidia/nemotron-nano" not in merged
+        assert "nvidia/nemotron-9-asr-test" in merged
+        assert "openai/whisper-medium" in merged
+        assert "nvidia/parakeet-extra" in merged
+
     def test_together_deepseek_v4_flash_catalog(self):
         from plugin.framework.default_models import DEFAULT_MODELS
         from plugin.framework.constants import ModelCapability

@@ -55,23 +55,27 @@ def sync_request(url: str | Request, data: bytes | None = None, headers: dict[st
     else:
         req = url
 
+    full_url = getattr(req, "full_url", url)
+    # What was wrong: details['url'] kept the query, and format_error_payload
+    # copies details into the UI payload, so ``?api_key=`` left the process.
+    # Stash the same host-plus-path string the debug line already logs.
+    logged_target = _log_request_target(full_url)
+    parsed = urlparse(str(full_url))
+    host = parsed.hostname or ""
+    is_https = parsed.scheme.lower() == "https"
+
     # Debug: log which headers we are actually sending (keys only)
     try:
         header_keys = list(req.headers.keys()) if hasattr(req, "headers") else []
         if not header_keys and hasattr(req, "get_full_url"):
             # If it's a urllib Request object, headers might be in .headers
             pass
-        log.debug("Request to %s with header keys: %s", _log_request_target(req), header_keys)
+        log.debug("Request to %s with header keys: %s", logged_target, header_keys)
     except Exception:
         pass
 
-    full_url = getattr(req, "full_url", url)
-    parsed = urlparse(str(full_url))
-    host = parsed.hostname or ""
-    is_https = parsed.scheme.lower() == "https"
-
     def _read_with_context(context: Any) -> Any:
-        log.debug("About to open URL: %s", _log_request_target(req))
+        log.debug("About to open URL: %s", logged_target)
         with urlopen(req, timeout=timeout, context=context) as resp:
             log.debug(f"URL opened, status={resp.getcode()}. Heading to read...")
             raw = resp.read()
@@ -95,8 +99,8 @@ def sync_request(url: str | Request, data: bytes | None = None, headers: dict[st
         msg = _format_http_error_response(status, reason, err_body)
         # Status and target only. ``msg`` includes the provider body, which can
         # echo a key; the NetworkError still carries the full text for the UI.
-        log.exception("HTTP Error %s %s for %s", status, reason, _log_request_target(full_url))
-        raise NetworkError(msg, code="HTTP_ERROR", details={"url": url, "status": status}) from e
+        log.exception("HTTP Error %s %s for %s", status, reason, logged_target)
+        raise NetworkError(msg, code="HTTP_ERROR", details={"url": logged_target, "status": status}) from e
     except NetworkError:
         raise
     except Exception as e:
@@ -114,10 +118,10 @@ def sync_request(url: str | Request, data: bytes | None = None, headers: dict[st
                 except Exception:
                     err_body = ""
                 msg = _format_http_error_response(status, reason, err_body)
-                log.exception("HTTP Error %s %s for %s", status, reason, _log_request_target(full_url))
-                raise NetworkError(msg, code="HTTP_ERROR", details={"url": url, "status": status}) from retry_http_e
+                log.exception("HTTP Error %s %s for %s", status, reason, logged_target)
+                raise NetworkError(msg, code="HTTP_ERROR", details={"url": logged_target, "status": status}) from retry_http_e
             except Exception as retry_e:
                 log.exception("Request retry failed: %s", format_error_message(retry_e))
-                raise NetworkError(format_error_message(retry_e), details={"url": url}) from retry_e
+                raise NetworkError(format_error_message(retry_e), details={"url": logged_target}) from retry_e
         log.exception("Request failed: %s", format_error_message(e))
-        raise NetworkError(format_error_message(e), details={"url": url}) from e
+        raise NetworkError(format_error_message(e), details={"url": logged_target}) from e

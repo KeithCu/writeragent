@@ -192,6 +192,12 @@ class AnthropicShim(BaseProviderShim):
         data: dict[str, Any] = {"model": model_name or "claude-3-5-sonnet-20241022", "messages": converted, "max_tokens": max_tokens, "stream": stream}
         if temperature is not None:
             data["temperature"] = temperature
+        # What was wrong: response_format was accepted and ignored, so a
+        # json_object grammar call went out as free text. Anthropic has no
+        # OpenAI response_format field on this shim; one system line is the hint.
+        if isinstance(response_format, dict) and response_format.get("type") == "json_object":
+            hint = "Respond with a single JSON object and no other text."
+            system_msg = f"{system_msg}\n\n{hint}" if system_msg else hint
         if system_msg:
             data["system"] = system_msg
         if tools:
@@ -224,6 +230,13 @@ class AnthropicShim(BaseProviderShim):
                 content = d.get("text") or ""
                 if content:
                     delta = {"content": content}
+            elif d.get("type") == "thinking_delta":
+                # text_delta maps onto content. Extended-thinking chunks use the
+                # same return slot the OpenAI shim already calls thinking.
+                # signature_delta stays ignored.
+                thinking = d.get("thinking") or ""
+                if thinking:
+                    delta = {"thinking": thinking}
             elif d.get("type") == "input_json_delta":
                 # partial_json is a fragment. accumulate_delta concatenates
                 # function.arguments across chunks that share an index.

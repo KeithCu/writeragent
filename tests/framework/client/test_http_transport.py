@@ -195,3 +195,24 @@ def test_transport_send_injects_user_agent():
     assert called_headers["Content-Type"] == "application/json"
 
 
+def test_connection_error_backoff_uses_free_pacing_key_not_paid_host():
+    """An OpenRouter ``:free`` failure must not stick a gap on the paid host key."""
+    from plugin.framework.client.request_controls import _host_gap_sec
+
+    transport = LlmHttpTransport(lambda: "https://openrouter.ai/api/v1", lambda: 30)
+    with (
+        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
+        patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=4.0),
+    ):
+        action = transport.handle_connection_error(
+            OSError("reset"),
+            path="/api/v1/chat/completions",
+            retries_left=1,
+            retry_log_message="retry",
+            model="deepseek/deepseek-r1:free",
+        )
+    assert action == "retry"
+    assert _host_gap_sec.get("openrouter.ai:free") == 4.0
+    assert "openrouter.ai" not in _host_gap_sec
+
+

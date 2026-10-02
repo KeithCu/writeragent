@@ -505,6 +505,63 @@ def test_post_to_main_thread_drops_when_no_async_from_background():
         post_to_main_thread(fn)
         assert not called
 
+
+def test_post_tagged_worker_under_testing_enqueues_not_inline(monkeypatch):
+    """WRITERAGENT_TESTING must not run a tagged worker's post() on that worker."""
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    executor = mt.QueueExecutor()
+    ran_on: list[str] = []
+
+    def fn() -> None:
+        ran_on.append(threading.current_thread().name)
+
+    def run_on_worker() -> None:
+        with (
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
+            patch.object(executor, "_get_async_callback", return_value=MagicMock()),
+            patch.object(executor, "_poke_main_thread", lambda: None),
+        ):
+            executor.post(fn)
+
+    worker = threading.Thread(target=run_on_worker, name="bg-worker")
+    worker.start()
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert ran_on == []
+    executor.process_queue()
+    assert ran_on == ["MainThread"]
+
+
+def test_post_tagged_worker_under_testing_drops_without_async(monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    executor = mt.QueueExecutor()
+    called: list[int] = []
+
+    def run_on_worker() -> None:
+        with (
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
+            patch.object(executor, "_get_async_callback", return_value=None),
+        ):
+            executor.post(lambda: called.append(1))
+
+    worker = threading.Thread(target=run_on_worker, name="bg-worker")
+    worker.start()
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert called == []
+    assert executor._work_queue.empty()
+
+
+def test_post_untagged_under_testing_still_inlines(monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    executor = mt.QueueExecutor()
+    called: list[str] = []
+    with patch("plugin.framework.thread_guard.get_background_task_name", return_value=None):
+        executor.post(lambda: called.append(threading.current_thread().name))
+    assert called == ["MainThread"]
+    assert executor._work_queue.empty()
+
+
 def test_execute_on_main_thread_success():
     with patch('threading.current_thread') as mock_thread, patch('threading.main_thread') as mock_main, patch.object(default_executor, '_get_async_callback') as mock_get, patch.object(default_executor, '_poke_main_thread') as mock_poke:
         mock_cur = MagicMock()

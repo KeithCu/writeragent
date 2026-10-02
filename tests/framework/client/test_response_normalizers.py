@@ -129,3 +129,35 @@ def test_google_shim_parse_sync_response():
     assert len(tool_calls) == 1
     assert tool_calls[0]["function"]["name"] == "web_search"
     assert usage["prompt_tokens"] == 15
+
+
+def test_anthropic_json_object_is_a_system_hint_not_a_request_field():
+    import json
+
+    client = MagicMock()
+    client._endpoint.return_value = "https://api.anthropic.com"
+    client._headers.return_value = {}
+    shim = AnthropicShim(client)
+    _method, _path, body, _headers = shim.build_chat_request(
+        [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "hi"}],
+        32,
+        None,
+        None,
+        False,
+        "claude-test",
+        {"type": "json_object"},
+    )
+    data = json.loads(body)
+    assert "response_format" not in data
+    assert data["system"] == "Be brief.\n\nRespond with a single JSON object and no other text."
+
+
+def test_anthropic_thinking_delta_maps_onto_thinking():
+    shim = AnthropicShim(MagicMock())
+    content, _finish, thinking, delta = shim.parse_response_chunk({"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "hmm"}})
+    assert content == ""
+    assert thinking == "hmm"
+    assert delta.get("thinking") == "hmm"
+    content, _finish, thinking, delta = shim.parse_response_chunk({"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "sig"}})
+    assert thinking in (None, "")
+    assert delta == {}

@@ -184,10 +184,11 @@ def _load_google() -> type[BaseProviderShim]:
     return GoogleShim
 
 
-_SHIM_REGISTRY: dict[str, Callable[[], type[BaseProviderShim]]] = {"anthropic": _load_anthropic, "google": _load_google, "xai": _load_grok, "grok": _load_grok, "ollama": lambda: OllamaShim, "openrouter": lambda: OpenRouterShim, "together": lambda: TogetherShim}
+# ``grok`` duplicated ``xai``. Detection returns ``xai``; nothing reads ``grok``.
+_SHIM_REGISTRY: dict[str, Callable[[], type[BaseProviderShim]]] = {"anthropic": _load_anthropic, "google": _load_google, "xai": _load_grok, "ollama": lambda: OllamaShim, "openrouter": lambda: OpenRouterShim, "together": lambda: TogetherShim}
 
 
-def get_provider_shim_class(provider: str, endpoint: str | None = None) -> type[BaseProviderShim]:
+def get_provider_shim_class(provider: str) -> type[BaseProviderShim]:
     """Return the provider shim class matching the provider name, defaulting to OpenAIShim.
 
     Standard OpenAI-compatible providers (DeepSeek, Mistral, Cerebras, Groq, NVIDIA NIM, Z.ai)

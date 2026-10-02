@@ -369,11 +369,54 @@ class TestExecute:
         assert result.get("details", {}).get("tool_name") == "nope"
 
 
-    def test_incompatible_doc_type_raises(self):
+    def test_incompatible_doc_type_returns_unsupported_document(self):
         reg = _make_registry(FakeTool())
         ctx = _make_ctx("calc")
-        with pytest.raises(ValueError, match="does not support"):
-            reg.execute("fake_tool", ctx, text="x")
+        result = reg.execute("fake_tool", ctx, text="x")
+        assert result["status"] == "error"
+        assert result.get("code") == "UNSUPPORTED_DOCUMENT"
+        assert "fake_tool" in result.get("message", "")
+        assert result.get("details", {}).get("tool_name") == "fake_tool"
+
+    def test_string_range_stays_string_when_schema_is_not_array(self):
+        class StringRangeTool(ToolBase):
+            name = "string_range_tool"
+            description = "range is a string, not an array"
+            parameters = {
+                "type": "object",
+                "properties": {"range": {"type": "string"}},
+                "required": ["range"],
+            }
+            uno_services = None
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok", "range": kwargs["range"]}
+
+        reg = _make_registry(StringRangeTool())
+        ctx = _make_ctx()
+        result = reg.execute("string_range_tool", ctx, range="A1:D20")
+        assert result["status"] == "ok"
+        assert result["range"] == "A1:D20"
+
+    def test_string_range_wraps_when_schema_type_lists_array(self):
+        class ListedRangeTool(ToolBase):
+            name = "listed_range_tool"
+            description = "range type is a list that includes array"
+            parameters = {
+                "type": "object",
+                "properties": {"range": {"type": ["string", "array"], "items": {"type": "string"}}},
+                "required": ["range"],
+            }
+            uno_services = None
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok", "range": kwargs["range"], "first": kwargs["range"][0]}
+
+        reg = _make_registry(ListedRangeTool())
+        ctx = _make_ctx()
+        result = reg.execute("listed_range_tool", ctx, range="A1:D20")
+        assert result["range"] == ["A1:D20"]
+        assert result["first"] == "A1:D20"
 
     def test_validation_failure_returns_error(self):
         reg = _make_registry(FakeTool())

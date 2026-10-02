@@ -11,13 +11,15 @@ control tokens, and extract base64 images.
 
 from __future__ import annotations
 
+import copy
+import datetime
 import logging
 import re
 from typing import Any, cast
 
 from plugin.framework.deal_shim import deal
 
-__all__ = ["LLM_DEV_BUILD_SYSTEM_PREFIX", "extract_and_strip_images_from_message", "normalize_multimodal_messages", "prepend_dev_build_system_prefix_to_messages", "should_prepend_dev_llm_system_prefix", "strip_leaked_chat_template_control_tokens"]
+__all__ = ["LLM_DEV_BUILD_SYSTEM_PREFIX", "extract_and_strip_images_from_message", "normalize_multimodal_messages", "prepare_chat_messages", "prepend_dev_build_system_prefix_to_messages", "should_prepend_dev_llm_system_prefix", "strip_leaked_chat_template_control_tokens"]
 
 log = logging.getLogger(__name__)
 
@@ -200,6 +202,108 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
         for img in imgs:
             new_content.append({"type": "image_url", "image_url": {"url": f"data:{img['mime_type']};base64,{img['data']}"}})
         target_dict["content"] = new_content
+
+
+def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_build_system_prefix: bool = True) -> list[Any]:
+    """Coalesce consecutive system messages, inject the date line, then flatten text-only system content.
+
+    Dev-build prefix and ``normalize_multimodal_messages`` stay between the date
+    line and the flatten. That was the order inside ``make_chat_request``;
+    pulling the three blocks out must not reorder them around image normalization.
+    """
+    coalesced_messages: list[Any] = []
+    coalesced_any = False
+    for m in messages:
+        if coalesced_messages and m.get("role") == "system" and coalesced_messages[-1].get("role") == "system":
+            prev_content = coalesced_messages[-1].get("content", "")
+            curr_content = m.get("content", "")
+
+            # Merge logic supporting both str and list content
+            if isinstance(prev_content, str) and isinstance(curr_content, str):
+                coalesced_messages[-1]["content"] = prev_content + "\n\n" + curr_content
+            else:
+                # Normalize both to list and extend
+                merged = []
+                if isinstance(prev_content, str):
+                    merged.append({"type": "text", "text": prev_content})
+                elif isinstance(prev_content, list):
+                    merged.extend(prev_content)
+
+                if isinstance(curr_content, str):
+                    merged.append({"type": "text", "text": curr_content})
+                elif isinstance(curr_content, list):
+                    merged.extend(curr_content)
+
+                coalesced_messages[-1]["content"] = merged
+
+            coalesced_any = True
+        else:
+            coalesced_messages.append(copy.deepcopy(m) if isinstance(m, dict) else m)
+
+    if coalesced_any:
+        log.error("make_chat_request: Coalesced multiple consecutive system messages.")
+
+    messages = coalesced_messages
+
+    # Inject date into the first system message
+    today = datetime.date.today().strftime("%A, %Y-%m-%d")
+    date_msg = f"Today's date is {today}."
+    system_message: Any = None
+    for m in messages:
+        if m.get("role") == "system":
+            system_message = m
+            break
+
+    if system_message:
+        old_content = system_message.get("content")
+        if isinstance(old_content, str):
+            already_has_date_line = old_content.startswith(date_msg) or old_content.startswith("Today's date is ") or date_msg in old_content
+            if not already_has_date_line:
+                system_message["content"] = f"{date_msg}\n\n{old_content}" if old_content else date_msg
+        elif isinstance(old_content, list):
+            already_has_date_line = False
+            text_item = None
+            for item in old_content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    if text_item is None:
+                        text_item = item
+                    t = item.get("text", "")
+                    if date_msg in t or "Today's date is " in t:
+                        already_has_date_line = True
+                        break
+
+            if not already_has_date_line:
+                if text_item:
+                    t = text_item.get("text", "")
+                    text_item["text"] = f"{date_msg}\n\n{t}" if t else date_msg
+                else:
+                    old_content.insert(0, {"type": "text", "text": date_msg})
+    else:
+        messages.insert(0, {"role": "system", "content": date_msg})
+
+    if prepend_dev_build_system_prefix:
+        prepend_dev_build_system_prefix_to_messages(messages)
+
+    normalize_multimodal_messages(messages, provider)
+
+    # Flatten system message back to string if it only contains text (for max compatibility)
+    for m in messages:
+        if m.get("role") == "system":
+            content = m.get("content")
+            if isinstance(content, list):
+                all_text = []
+                only_text = True
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        all_text.append(item.get("text", ""))
+                    else:
+                        only_text = False
+                        break
+                if only_text:
+                    m["content"] = "\n\n".join(all_text)
+            break
+
+    return messages
 
 
 def prepend_dev_build_system_prefix_to_messages(messages: list[dict[str, Any]]) -> None:

@@ -38,6 +38,23 @@ def test_strip_html_tags_math_comparison():
     assert strip_html_tags(text) == "If 3 < 5 and y > 2, then success."
 
 
+def test_strip_html_tags_drops_script_and_style_bodies():
+    # Tag bytes used to be dropped but element text survived.
+    assert strip_html_tags("<script>alert(1)</script><p>ok</p>") == "ok"
+    assert strip_html_tags("<style>p > b { color: red }</style><p>ok</p>") == "ok"
+    assert strip_html_tags("<SCRIPT>alert(1)</SCRIPT>ok") == "ok"
+
+
+def test_strip_html_tags_quoted_gt_does_not_end_tag():
+    # The first '>' inside quotes used to end the tag and leak the tail.
+    assert strip_html_tags('<img alt="a>b" src="x">tail') == "tail"
+    assert strip_html_tags("<img alt='a>b' src='x'>tail") == "tail"
+
+
+def test_strip_html_tags_comparison_stays_text():
+    assert strip_html_tags("3 < 5") == "3 < 5"
+
+
 def test_streaming_html_stripper_chunks():
     stripper = StreamingHTMLStripper()
     chunks = [

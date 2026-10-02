@@ -135,11 +135,14 @@ def probe_vcl_dpi_scale(ctx: Any = None) -> float | None:
     often has no usable style window at menu-icon time.
     """
     try:
-        for win in _candidate_windows(ctx):
+        # The debug line used to call _candidate_windows again, so a total
+        # miss built the desktop/frame list twice.
+        windows = _candidate_windows(ctx)
+        for win in windows:
             scale = _ppm_scale(win)
             if scale is not None:
                 return scale
-        log.debug("menu_icon_dpi probe_vcl_dpi: no PixelPerMeterX on %s windows", len(_candidate_windows(ctx)))
+        log.debug("menu_icon_dpi probe_vcl_dpi: no PixelPerMeterX on %s windows", len(windows))
         return None
     except Exception:
         log.debug("probe_vcl_dpi_scale failed", exc_info=True)
@@ -267,7 +270,10 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
     px = interpolate_menu_icon_px(float(scale))
     _cached_scale = float(scale)
     _cached_px = px
-    _cached_weak = False
+    # Only vcl_dpi (PixelPerMeterX) is a strong reading. Font, toolbar config,
+    # and env used to set _cached_weak False, so a startup call before a real
+    # window existed never upgraded when a later window reported ~2x.
+    _cached_weak = source != "vcl_dpi"
     if not _logged_strong:
         log.info("menu_icon_dpi source=%s scale=%.3f px=%s", source, scale, px)
         _logged_strong = True

@@ -18,7 +18,7 @@ Before consolidation the same (or very similar) string matching logic was
 scattered across at least these locations:
 
 - plugin/framework/client/model_fetcher.py          (imports get_provider_from_endpoint)
-- plugin/framework/client/auth.py                    (_resolve_provider_id + host_matches)
+- plugin/framework/client/auth.py                    (_resolve_provider_id)
 - plugin/framework/client/llm_client.py              (is_openrouter_endpoint)
 - plugin/framework/client/requests.py / request_controls.py (is_local_host)
 - plugin/framework/client/errors.py (historical)     (connection refused / DNS strings in the mapper)
@@ -32,8 +32,8 @@ drift between the SSL fallback path and the friendly error messages.
 ### Design principles for this module (first pass)
 
 - Pure functions only — no I/O, no config side effects.
-- Keep the nice data-driven table in auth.py (PROVIDERS + host_matches) as the
-  authority for *authentication behavior*. Detection feeds it, it does not replace it.
+- Detection in this module is the host matcher. auth.PROVIDERS is authentication
+  behavior (header style, model id style), not a second host table.
 - First-pass scope: the highest-ROI, lowest-risk functions only
   (get_provider_from_endpoint, is_local_host, is_openrouter_endpoint).
 - Audio capability heuristics, full preset lists, and shim selection stay in

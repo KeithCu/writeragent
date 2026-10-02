@@ -86,7 +86,7 @@ class TestSetGet():
         from unittest.mock import patch
 
         with (
-            patch("plugin.framework.config_service.get_stt_model", return_value="from-dual-read") as mock_get,
+            patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="from-dual-read") as mock_get,
             patch("plugin.framework.config_service.set_config") as mock_set,
             patch("plugin.framework.config_service.global_event_bus"),
         ):
@@ -216,3 +216,61 @@ def test_dummy_impl_decorator_annotates_cls() -> None:
     hints = get_type_hints(decorator)
     assert hints["cls"] == type[Any]
     assert decorator(int) is int
+
+
+def test_initialize_applies_public_flags_without_set_manifest(config_svc, manifest, monkeypatch) -> None:
+    """Bootstrap never calls set_manifest. initialize() must load public flags."""
+    from plugin.framework.errors import ConfigError
+
+    modules = [{"name": mod_name, "config": mod_data.get("config", {})} for mod_name, mod_data in manifest.items()]
+    monkeypatch.setattr("plugin.framework.config_service.get_manifest_modules", lambda: modules)
+    config_svc.initialize(None)
+
+    def missing(_key: str):
+        raise ConfigError("missing")
+
+    monkeypatch.setattr("plugin.framework.config_service.get_config", missing)
+    assert config_svc.get("mcp.mcp_port", caller_module="chatbot") == 18765
+    with pytest.raises(ConfigAccessError, match="cannot read private"):
+        config_svc.get("mcp.ssl_key", caller_module="chatbot")
+
+
+def test_get_empty_string_false_and_zero_are_real_values(config_svc, monkeypatch) -> None:
+    config_svc._config_path = None
+    stored = {"note": "", "flag": False, "count": 0, "missing": None}
+
+    monkeypatch.setattr("plugin.framework.config_service.get_config", lambda key: stored[key])
+    assert config_svc.get("note", default="fallback") == ""
+    assert config_svc.get("flag", default=True) is False
+    assert config_svc.get("count", default=5) == 0
+    assert config_svc.get("missing", default="fallback") == "fallback"
+
+
+def test_set_does_not_emit_when_replace_fails(config_svc, manifest) -> None:
+    from unittest.mock import patch
+
+    from plugin.framework.errors import ConfigError
+
+    config_svc.set_manifest(manifest)
+    bus = EventBus()
+    config_svc.set_events(bus)
+    events = []
+    bus.subscribe("config:changed", lambda **kw: events.append(kw))
+    with patch("plugin.framework.config_service._write_config_file", side_effect=OSError("disk full")):
+        with pytest.raises(ConfigError) as err:
+            config_svc.set("mcp.mcp_port", 9000)
+    assert err.value.code == "CONFIG_SAVE_ERROR"
+    assert events == []
+
+
+def test_model_fetcher_is_not_a_top_level_import() -> None:
+    import ast
+    import inspect
+
+    import plugin.framework.config_service as config_service_mod
+    import plugin.framework.client.model_fetcher as model_fetcher_mod
+
+    tree = ast.parse(inspect.getsource(config_service_mod))
+    top_level = [node for node in tree.body if isinstance(node, ast.ImportFrom) and node.module and "model_fetcher" in node.module]
+    assert top_level == []
+    assert "config_service" not in inspect.getsource(model_fetcher_mod)

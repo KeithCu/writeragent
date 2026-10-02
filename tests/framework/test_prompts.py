@@ -216,8 +216,10 @@ def test_writer_apply_document_math_latex_rules_document_only():
     assert "interior line" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "|outline" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "page-number" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "page_get_header_footer_text" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "page_set_header_footer_text" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert 'delegate_to_specialized_writer_toolset(domain="page", task=...)' in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "page_get_header_footer_text" not in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "page_set_header_footer_text" not in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "page_set_style_properties" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "setString wipe" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "force=true" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "target='search' still reaches headers" not in WRITER_APPLY_DOCUMENT_HTML_RULES
@@ -763,3 +765,32 @@ def test_tts_short_answers_absent_when_checkbox_off():
 
     assert _TTS_SHORT_INSTRUCTION not in prompt
     assert _TTS_SHORT_REMINDER not in prompt
+
+
+def test_user_memory_long_blob_is_truncated_short_is_unchanged():
+    """USER.md is capped like the chat document excerpt; a short profile is not marked truncated."""
+    from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+    from plugin.framework.prompts import _INJECTED_BLOB_TRUNCATION_MARKER
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+    long_mem = "U" * (CHAT_DOCUMENT_CONTEXT_MAX_CHARS + 500)
+    short_mem = "Prefers short paragraphs."
+
+    def _prompt(mem: str) -> str:
+        with (
+            patch("plugin.chatbot.memory.MemoryStore") as store_cls,
+            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        ):
+            store_cls.return_value.read.return_value = mem
+            return get_chat_system_prompt_for_document(model, ctx=MagicMock())
+
+    long_prompt = _prompt(long_mem)
+    assert "[USER PROFILE / MEMORY]" in long_prompt
+    assert long_mem not in long_prompt
+    assert "U" * CHAT_DOCUMENT_CONTEXT_MAX_CHARS in long_prompt
+    assert _INJECTED_BLOB_TRUNCATION_MARKER in long_prompt
+
+    short_prompt = _prompt(short_mem)
+    assert short_mem in short_prompt
+    assert _INJECTED_BLOB_TRUNCATION_MARKER not in short_prompt
