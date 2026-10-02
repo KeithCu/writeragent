@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -50,11 +51,14 @@ from plugin.chatbot.rich_text_control import (
     _apply_sidebar_para_margins,
     _insert_string_at_rich_cursor,
     _is_automatic_char_color,
+    append_text_chunk,
     get_control_text_length,
+    truncate_control_from,
     _scroll_rich_to_tail,
     log_rich_scroll,
 )
 from plugin.calc.navigation import (
+    drop_cell_link_spans_from,
     extract_cell_links_from_html,
     normalize_cell_address,
     portion_cell_href,
@@ -588,6 +592,40 @@ def _copy_formatted_from_hidden_doc_to_control(
     return False, reason
 
 
+def _plain_fallback_text(text: str) -> str:
+    """Visible text when the hidden Writer that formats HTML is missing.
+
+    What was wrong: a missing Writer returned without inserting the message,
+    so the sidebar skipped it. ``_HTML_TAG_RE`` only matches opening tags the
+    importer knows, and a closing ``</p>`` would still show. Strip every tag,
+    then unescape entities.
+    """
+    stripped = re.sub(r"<[^>]+>", "", text or "")
+    return html.unescape(stripped)
+
+
+def _rollback_rich_insert(control: Any, before: int) -> None:
+    """Undo a separator or partial copy that did not finish as a full insert.
+
+    What was wrong: the separator (and any partial copy) stayed in the
+    control when the formatted insert returned false, and cell-link spans
+    recorded for that tail still resolved clicks into deleted text.
+    """
+    truncate_control_from(control, before)
+    drop_cell_link_spans_from(control, before)
+
+
+def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False) -> bool:
+    wrote = False
+    for _role, content in batch:
+        plain = _plain_fallback_text(content or "")
+        if not plain.strip():
+            continue
+        append_text_chunk(control, plain, auto_scroll=auto_scroll, style_window=style_window, ctx=ctx)
+        wrote = True
+    return wrote
+
+
 def _append_hidden_doc_to_control(doc: Any, control: Any, ctx: Any, style_window: Any = None, auto_scroll: bool = True, cell_link_targets: Any = None) -> bool:
     """Copy hidden Writer content into the sidebar control via direct copy."""
     ok, _unused = _copy_formatted_from_hidden_doc_to_control(
@@ -618,14 +656,20 @@ def append_rich_messages_via_clipboard(
     any_inserted = False
     batches = list(iter_history_message_batches(items, batch_chars))
     for batch in batches:
+        # Length before this batch. A failed copy must not keep a partial
+        # insert or the cell-link spans recorded for it.
+        before = get_control_text_length(control)
         doc = None
+        inserted = False
         try:
             doc = create_hidden_html_writer(ctx)
             if doc is None:
-                # This used to return out of the batch loop. One hidden-Writer
-                # failure then dropped every later history batch. The failure
-                # is only this batch; keep going so the rest still render.
+                # This used to continue and drop the batch. One hidden-Writer
+                # failure then skipped that history entirely. Later batches
+                # still render; this one is written as plain text.
                 log.warning("append_rich_messages_via_clipboard: hidden Writer unavailable")
+                if _plain_append_messages(control, batch, ctx, style_window):
+                    any_inserted = True
                 continue
             configure_hidden_writer_for_chat(doc)
             batch_links: list[tuple[str, str]] = []
@@ -643,6 +687,7 @@ def append_rich_messages_via_clipboard(
             if _append_hidden_doc_to_control(
                 doc, control, ctx, style_window=style_window, auto_scroll=False, cell_link_targets=batch_links,
             ):
+                inserted = True
                 any_inserted = True
                 _scroll_rich_to_tail(control, ctx)
             else:
@@ -650,8 +695,11 @@ def append_rich_messages_via_clipboard(
                     "append_rich_messages_via_clipboard: batch insert into control failed messages=%d",
                     len(batch),
                 )
+                _rollback_rich_insert(control, before)
         except Exception:
             log.exception("append_rich_messages_via_clipboard batch failed")
+            if not inserted:
+                _rollback_rich_insert(control, before)
         finally:
             if doc is not None:
                 try:
@@ -719,7 +767,8 @@ def append_rich_text_via_clipboard(
 ) -> bool:
     """Import HTML in a hidden Writer doc and copy formatted content directly into the RichText control.
 
-    Returns True only for a full insert. False when a later body element was
+    Returns True for a full formatted insert, or for the plain-text fallback
+    when the hidden Writer is missing. False when a later body element was
     skipped, so a caller that already cut plain text can put it back.
     """
     if not control or not text or not text.strip():
@@ -730,17 +779,30 @@ def append_rich_text_via_clipboard(
 
     text = render_calc_cell_refs(text)
     cell_link_targets = extract_cell_links_from_html(text)
+    # Remember the length before the separator. A failed copy used to leave
+    # that blank gap, and a missing Writer returned False so the message
+    # never appeared. Roll back, then plain-append only when there is no
+    # Writer: a False copy still lets the caller restore its own tail.
+    before = get_control_text_length(control)
     _ensure_message_separator(control)
     doc = None
+    inserted = False
     try:
         doc = create_hidden_html_writer(ctx)
         if doc is None:
             log.warning("append_rich_text_via_clipboard: hidden Writer unavailable")
-            return False
+            _rollback_rich_insert(control, before)
+            append_text_chunk(
+                control,
+                _plain_fallback_text(text),
+                auto_scroll=auto_scroll,
+                style_window=style_window,
+                ctx=ctx,
+            )
+            return True
         configure_hidden_writer_for_chat(doc)
         append_rich_text(doc, text, role=role, style_window=style_window)
         log.debug("append_rich_text_via_clipboard: hidden doc ready len=%d role=%s", len(text), role)
-        inserted = False
         ok, direct_reason = _copy_formatted_from_hidden_doc_to_control(
             doc,
             control,
@@ -763,6 +825,7 @@ def append_rich_text_via_clipboard(
                 direct_reason,
                 role,
             )
+            _rollback_rich_insert(control, before)
         if inserted and role == "user":
             with focus_preserved(ctx):
                 _ensure_trailing_line_break(control)
@@ -782,6 +845,8 @@ def append_rich_text_via_clipboard(
             return True
     except Exception:
         log.exception("append_rich_text_via_clipboard failed")
+        if not inserted:
+            _rollback_rich_insert(control, before)
     finally:
         if doc is not None:
             try:

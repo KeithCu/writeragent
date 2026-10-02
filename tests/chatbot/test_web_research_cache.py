@@ -206,8 +206,12 @@ def test_translated_research_cache_fluff_returns_gettext_strings():
     from plugin.chatbot.research_cache_fluff import translated_research_cache_fluff
 
     fluff = translated_research_cache_fluff()
-    assert len(fluff) >= 60
+    assert len(fluff) >= 50
     assert all(isinstance(s, str) and s for s in fluff)
+    for topical in ("awards", "features", "ratings", "reviews", "signature", "trends", "depth", "notable"):
+        assert topical not in fluff
+    assert "please" in fluff
+    assert "summary" in fluff
 
 
 def test_get_research_fluff_words_includes_gettext_tokens(monkeypatch):

@@ -462,6 +462,17 @@ def set_default_focus_restore(control: Any) -> None:
     _default_focus_restore = control
 
 
+def clear_default_focus_restore_if(control: Any) -> None:
+    """Clear the restore pin only when it still points at *control*.
+
+    What was wrong: every sidebar dispose set the pin to None, including a
+    second window closing while another sidebar's query field was the pin.
+    """
+    global _default_focus_restore
+    if control is not None and _default_focus_restore is control:
+        _default_focus_restore = None
+
+
 def note_user_wants_query() -> None:
     """Mark Ask/instruct as the restore target after a stream SelectAll.
 

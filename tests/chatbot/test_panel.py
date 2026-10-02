@@ -67,6 +67,64 @@ def _make_send_listener() -> SendButtonListener:
     )
 
 
+class TestGrammarStatusDocType:
+    def test_non_writer_sidebar_ignores_grammar_bus(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "calc"
+        listener._on_grammar_status(phase="request", preview="Hello", length=5, result="LLM request")
+        listener.status_control.setText.assert_not_called()
+
+    def test_writer_sidebar_shows_grammar_status(self) -> None:
+        listener = _make_send_listener()
+        listener.cached_doc_type = "writer"
+        listener._on_grammar_status(phase="failed", preview="sample", length=6, result="API error")
+        listener.status_control.setText.assert_called_once_with("Grammar: failed 'sample' len 6: API error")
+
+
+class TestSidebarModeFinishApplies:
+    def _listener(self) -> MagicMock:
+        from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+        listener = MagicMock()
+        listener.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=True)
+        listener.chat_mode_selector = MagicMock()
+        listener._apply_sidebar_mode_fn = MagicMock()
+        listener._brainstorming_topic = "Kitchen remodel"
+        listener._in_brainstorming_mode = True
+        return listener
+
+    def test_saved_spec_keeps_topic_and_applies_writing_plan(self) -> None:
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WRITING_PLAN
+
+        listener = self._listener()
+        with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
+            SendButtonListener.on_brainstorming_session_finished(listener, spec_saved=True)
+        assert listener._writing_plan_topic == "Implement the saved spec: Kitchen remodel"
+        assert listener._brainstorming_topic == ""
+        assert mock_set.call_args[0][1] == CHAT_MODE_WRITING_PLAN
+        listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_WRITING_PLAN)
+
+    def test_brainstorm_without_spec_applies_chat(self) -> None:
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+        listener = self._listener()
+        with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
+            SendButtonListener.on_brainstorming_session_finished(listener, spec_saved=False)
+        listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+
+    def test_writing_plan_and_ppt_finish_apply_chat(self) -> None:
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+        for method in (
+            SendButtonListener.on_writing_plan_session_finished,
+            SendButtonListener.on_ppt_master_session_finished,
+        ):
+            listener = self._listener()
+            with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
+                method(listener)
+            listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+
+
 class TestSendDispose:
     def setup_method(self) -> None:
         self._modules_patcher = patch.dict(sys.modules, {"plugin.main": MagicMock()}, clear=False)
@@ -95,6 +153,126 @@ class TestSendDispose:
         assert (listener._stop_requested_fallback)
         assert (listener.ctx) is None
         assert (listener.panel) is None
+
+    def test_disposing_stops_the_microphone_and_leaves_stop_rec(self) -> None:
+        listener = _make_send_listener()
+        listener.audio_recorder = MagicMock()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, True, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="recording"),
+        )
+        send_model = MagicMock()
+        send_model.Label = "Stop Rec"
+        listener.send_control.getModel.return_value = send_model
+        listener.disposing(None)
+        assert listener._panel_teardown is True
+        listener.audio_recorder.cleanup.assert_called_once()
+        assert listener.sidebar_state.send.is_recording is False
+        assert send_model.Label != "Stop Rec"
+        assert listener.ctx is None
+
+    def test_drain_after_dispose_skips_status_tts_and_sticky(self) -> None:
+        listener = _make_send_listener()
+        listener._do_send = MagicMock()
+        listener.session.messages = [{"role": "assistant", "content": "hello"}]
+        listener._terminal_status = "Ready"
+        listener._panel_teardown = True
+        listener._sticky_restart_pending = True
+        listener._record_gesture = RecordGesture(sticky=True)
+        listener.audio_recorder = MagicMock()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, False, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener.status_control.setText.reset_mock()
+        with (
+            patch("plugin.audio.tts_service.speak_text_async") as speak,
+            patch("plugin.audio.tts_service.is_speaking", return_value=False),
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+        ):
+            listener._run_send_drain()
+        speak.assert_not_called()
+        listener.audio_recorder.start_recording.assert_not_called()
+        listener.status_control.setText.assert_not_called()
+
+    def test_peer_drain_after_dispose_skips_status(self) -> None:
+        listener = _make_send_listener()
+        listener._panel_teardown = True
+        listener._do_send_extracted_peer = MagicMock()
+        listener._extracted_peer_query = "hello"
+        listener._sticky_restart_pending = True
+        listener._record_gesture = RecordGesture(sticky=True)
+        listener.audio_recorder = MagicMock()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, False, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener.status_control.setText.reset_mock()
+        listener._run_extracted_peer_drain()
+        listener.status_control.setText.assert_not_called()
+        listener.audio_recorder.start_recording.assert_not_called()
+
+    def test_clear_while_busy_drops_the_in_flight_reply(self) -> None:
+        from plugin.chatbot.panel import ChatSession
+        from plugin.chatbot.tool_loop_actions import bind_turn_session, persist_assistant_on_turn
+
+        listener = _make_send_listener()
+        session = ChatSession("system prompt")
+        session.add_user_message("question")
+        listener.session = session
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, True, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        bind_turn_session(listener)
+        clear = ClearButtonListener(session, None, None, send_listener=listener)
+        with patch("plugin.audio.tts_service.stop_speech"):
+            clear.on_action_performed(MagicMock())
+        assert listener._stop_requested_fallback is True
+        persist_assistant_on_turn(listener, content="late reply")
+        assert all(message.get("role") != "assistant" for message in session.messages)
+        assert session.compaction is None
+
+    def test_swapped_session_does_not_receive_the_in_flight_reply(self) -> None:
+        from plugin.chatbot.panel import ChatSession
+        from plugin.chatbot.tool_loop_actions import bind_turn_session, persist_assistant_on_turn, session_for_turn
+
+        listener = _make_send_listener()
+        original = ChatSession("system prompt")
+        original.add_user_message("question")
+        other = ChatSession("other mode")
+        listener.session = original
+        bind_turn_session(listener)
+        listener.set_session(other)
+        assert session_for_turn(listener) is original
+        persist_assistant_on_turn(listener, content="answer")
+        assert any(message.get("content") == "answer" for message in original.messages)
+        assert all(message.get("role") != "assistant" for message in other.messages)
+
+    def test_clear_during_recording_stops_the_microphone(self) -> None:
+        listener = _make_send_listener()
+        listener.audio_recorder = MagicMock()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, True, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="recording"),
+        )
+        send_model = MagicMock()
+        send_model.Label = "Stop Rec"
+        listener.send_control.getModel.return_value = send_model
+        listener.response_control = None
+        listener.rich_text_widget = None
+        clear = ClearButtonListener(listener.session, None, listener.status_control, send_listener=listener)
+        with patch("plugin.audio.tts_service.stop_speech"):
+            clear.on_action_performed(MagicMock())
+        listener.audio_recorder.cleanup.assert_called_once()
+        assert listener.sidebar_state.send.is_recording is False
+        assert send_model.Label != "Stop Rec"
+        listener.session.clear.assert_called_once()
 
     def test_start_send_posts_drain_off_action_listener(self) -> None:
         """Send must return from actionPerformed before drain so GTK delivers Stop."""

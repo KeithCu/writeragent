@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import getpass
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, cast
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBase
 
@@ -101,8 +101,7 @@ def _run_librarian_agent(
     from plugin.framework.errors import format_error_payload, ToolExecutionError
 
     try:
-        from plugin.chatbot.smol_agent import build_toolcalling_agent, SmolToolAdapter
-        from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
+        from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
         from plugin.chatbot.smol_examples import get_examples_block
         from plugin.chatbot.memory import MemoryTool, MemoryStore
     except (ImportError, ValueError, TypeError) as e:
@@ -111,7 +110,6 @@ def _run_librarian_agent(
     status_callback = getattr(ctx, "status_callback", None)
     append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
     chat_append_callback = getattr(ctx, "chat_append_callback", None)
-    stop_checker = getattr(ctx, "stop_checker", None)
 
     if history_text:
         if len(history_text) > 4000:
@@ -216,43 +214,32 @@ TOOLS FOR COMPLETION:
 
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
 
-    final_ans = None
-
-    run_stream = cast("Iterable[Any]", agent.run(task, stream=True))
-    for step in run_stream:
-        if stop_checker and stop_checker():
-            return format_error_payload(ToolExecutionError("Librarian stopped by user.", code="USER_STOPPED"))
-        if isinstance(step, ToolCall):
-            if step.name == "upsert_memory":
-                line = format_upsert_memory_chat_line_from_arguments(step.arguments)
-                if callable(chat_append_callback):
-                    chat_append_callback(line)
-                elif append_thinking_callback:
-                    append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+    def tool_call_handler(step: Any) -> None:
+        if step.name == "upsert_memory":
+            line = format_upsert_memory_chat_line_from_arguments(step.arguments)
+            if callable(chat_append_callback):
+                chat_append_callback(line)
             elif append_thinking_callback:
                 append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
-            if status_callback:
-                status_callback(f"{step.name}...")
-        elif isinstance(step, ActionStep):
-            if append_thinking_callback:
-                msg = f"Step {step.step_number}:\n"
-                if step.model_output:
-                    mo = step.model_output
-                    msg += f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n"
-                else:
-                    mom = getattr(step, "model_output_message", None)
-                    if mom is not None and getattr(mom, "content", None):
-                        mc = mom.content
-                        msg += f"{(mc.strip() if isinstance(mc, str) else str(mc).strip())}\n"
+        elif append_thinking_callback:
+            append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+        if status_callback:
+            status_callback(f"{step.name}...")
 
-                if step.observations:
-                    msg += f"Observation: {str(step.observations).strip()}\n"
-
-                append_thinking_callback(msg + "\n")
-        elif isinstance(step, FinalAnswerStep):
-            final_ans = step.output
-
-    return interpret_sticky_final_answer(final_ans, leave_status=LIBRARIAN_REPLY_SPEC.leave_status)
+    # What was wrong: Stop returned a payload from this loop and left agent.run()
+    # going, because the loop never called interrupt(). The model's HTTP client
+    # stayed open after the sidebar had stopped. execute_safe calls interrupt()
+    # before it reports USER_STOPPED, which closes that client.
+    res = SmolAgentExecutor(ctx).execute_safe(
+        agent,
+        task,
+        tool_call_handler=tool_call_handler,
+        stop_message="Librarian stopped by user.",
+        error_prefix="Librarian failed",
+    )
+    if isinstance(res, dict) and res.get("status") == "error":
+        return res
+    return interpret_sticky_final_answer(res, leave_status=LIBRARIAN_REPLY_SPEC.leave_status)
 
 
 class LibrarianOnboardingTool(ToolBase):

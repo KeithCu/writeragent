@@ -57,6 +57,7 @@ def test_history_roundtrip_sqlite(tmp_path):
     assert len(messages) == 3
     assert messages[0]["role"] == "user"
     assert messages[0]["content"] == "Hello SQLite!"
+    assert "tool_calls" not in messages[0]
 
     assert messages[1]["role"] == "assistant"
     assert messages[1]["content"] is None
@@ -90,6 +91,7 @@ def test_history_roundtrip_json(tmp_path):
     assert len(messages) == 3
     assert messages[0]["role"] == "user"
     assert messages[0]["content"] == "Hello JSON!"
+    assert "tool_calls" not in messages[0]
 
     assert messages[1]["role"] == "assistant"
     assert messages[1]["content"] == "Thinking..."
@@ -208,13 +210,16 @@ def test_message_to_dict_text():
     res = message_to_dict("user", "hello")
     assert res["role"] == "user"
     assert res["content"] == "hello"
-    assert res["tool_calls"] is None
+    assert "tool_calls" not in res
 
 def test_message_to_dict_list():
     res = message_to_dict("user", [{"type": "text", "text": "hello"}, {"type": "input_audio"}])
     assert res["role"] == "user"
     assert "hello" in res["content"]
     assert "[Audio Attached]" in res["content"]
+    image = message_to_dict("user", [{"type": "text", "text": "see"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}])
+    assert image["content"] == "see [Image Attached]"
+    assert "AAAA" not in image["content"]
 
 
 def test_sqlite_available():

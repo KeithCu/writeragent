@@ -90,6 +90,7 @@ flowchart TB
 |---------|-----------|
 | Smol wire policy **send generated schemas** | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `WriterAgentSmolModel.generate` |
 | Smol agent construction | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `build_toolcalling_agent` |
+| Brainstorming, writing plan, deep research turns | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `run_smol_side_turn` (librarian keeps its own `execute_safe` call so `upsert_memory` can write the chat line; PPT-Master stays on `run_ppt_master_venv_turn`) |
 | Smol few-shot examples (Action/Observation) | [`plugin/chatbot/smol_examples.py`](../../plugin/chatbot/smol_examples.py) — edit in place; refresh with [`scripts/generate_smol_examples.py`](../../scripts/generate_smol_examples.py) |
 | `ToolBase` → smol `inputs` | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `to_smol_inputs` / `SmolToolAdapter` |
 | Librarian | [`plugin/chatbot/librarian.py`](../../plugin/chatbot/librarian.py) |
@@ -122,11 +123,12 @@ The shared ReAct **system template** lives in [`toolcalling_agent_prompts.py`](.
 |-----|--------|-------------------------|
 | `librarian` | `LIBRARIAN_EXAMPLES` in `smol_examples.py` | `reply_to_user` |
 | `web_research` | `WEB_RESEARCH_EXAMPLES_BLOCK` | `final_answer` |
+| `ppt-master` | `PPT_MASTER_EXAMPLES` in `smol_examples.py` | `ppt_master_finished` |
 | `writer:python`, `calc:python`, `draw:python`, … | `PYTHON_SPECIALIZED_EXAMPLES` | **`specialized_workflow_finished`** (after `run_venv_python_script`) |
 | `writer:images`, `calc:images`, `draw:images`, … | `IMAGES_SPECIALIZED_EXAMPLES` | **`specialized_workflow_finished`** (after `image_generate` with `source_image='selection'` for edits) |
 | Any other (`writer:shapes`, `document_research:calc`, …) | `DELEGATE_GENERIC_EXAMPLES_BLOCK` | **`specialized_workflow_finished`** |
 
-The delegate block reuses the web-research *shape* (two `web_search` steps) only to teach the ReAct JSON format; those tool names are not on the specialized tool list. The real task is the manager’s user message; domain behavior is in `instructions=` and `__TOOLS_LIST__`.
+The delegate block reuses the web-research *shape* (two `web_search` steps) only to teach the ReAct JSON format; those tool names are not on the specialized tool list. Both blocks pass `{"query": "..."}`, matching `DuckDuckGoSearchTool.inputs`. The real task is the manager’s user message; domain behavior is in `instructions=` and `__TOOLS_LIST__`. The venv PPT-Master agent passes `get_examples_block("ppt-master")` as `system_prompt_examples` so it does not fall through to the web-research demo.
 
 Refresh librarian copy only:
 

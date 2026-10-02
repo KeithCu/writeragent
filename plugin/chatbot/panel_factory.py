@@ -109,6 +109,35 @@ def unregister_debug_live_panel(element: Any) -> None:
         panels.discard(element)
 
 
+def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
+    """Drop this sidebar from the uid map and the focus pin, then cancel send.
+
+    What was wrong: dispose looked up the document on the frame again and
+    popped that uid unconditionally, so the other window of the same model
+    lost its panel. It also cleared the focus pin even when another sidebar
+    owned it. The uid stored at register time is the slot this panel owns.
+    """
+    unregister_debug_live_panel(panel)
+    try:
+        from plugin.doc.live_panels import unregister_live_panel
+
+        uid = getattr(panel, "_live_panel_uid", "") or ""
+        if uid:
+            unregister_live_panel(uid, panel)
+    except Exception as exc:
+        log.debug("live panel unregister on dispose: %s", exc)
+    try:
+        listener = getattr(panel, "send_listener", None)
+        if listener:
+            listener.disposing(None)
+    except Exception as exc:
+        log.info("send_listener.disposing raised from sidebar release: %s", exc)
+    with suppress_disposed("set_default_focus_restore on dispose", logger=log):
+        from plugin.framework.uno_context import clear_default_focus_restore_if
+
+        clear_default_focus_restore_if(query_control)
+
+
 def iter_debug_live_chat_panels() -> list[Any]:
     """debug-only: omitted in release."""
     panels = _live_chat_panels()
@@ -139,13 +168,6 @@ from plugin.doc.doc_type import get_document_type, DocumentType
 from plugin.doc.udprops import get_document_property, set_document_property
 
 log = logging.getLogger(__name__)
-
-DEFAULT_RESEARCH_GREETING = "AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat."
-DEFAULT_DEEP_RESEARCH_GREETING = "AI: Deep Research mode runs a multi-step web investigation (planning, several searches, synthesis) and can insert a formatted report into your document. It takes longer but produces more thorough results."
-DEFAULT_BRAINSTORMING_GREETING = "AI: Let's explore and design your idea together. I'll ask questions, suggest approaches, and help you build an approved spec in your document when you're ready."
-DEFAULT_WRITING_PLAN_GREETING = "AI: Let's draft your document section-by-section. I'll help you create a writing plan outline, and then implement it incrementally with your approval."
-DEFAULT_PPT_MASTER_GREETING = "AI: PPT-Master mode — I'll run the ppt-master workflow in your configured Python venv (scripts + export to Impress). Describe your topic or point me at a project folder."
-DEFAULT_LIBRARIAN_GREETING = "AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite colors, and give a short tour. Pick Chat in the dropdown whenever you want to work on the document."
 
 # XDL path inside the .oxt
 XDL_PATH = "Dialogs/ChatPanelDialog.xdl"
@@ -359,6 +381,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     web_session: Any
     librarian_session: Any
     send_listener: Any
+    _live_panel_uid: str
 
     def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str) -> None:
         self.ctx = ctx
@@ -370,6 +393,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.toolpanel = None
         self.m_panelRootWindow = None
         self.session: Any = None  # Created in _wireControls
+        self._live_panel_uid = ""
         self.rich_text_widget = None
         log.debug("[RICH-LIFECYCLE] ChatPanelElement.__init__ resource_url=%s parent_window=%s",
                   resource_url, id(parent_window) if parent_window else None)
@@ -409,13 +433,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _getOrCreatePanelRootWindow(self) -> Any:
         log.debug("[RICH-LIFECYCLE] _getOrCreatePanelRootWindow entered (xParentWindow=%s)",
                   id(self.xParentWindow) if self.xParentWindow else None)
-        base_url = get_extension_url()
+        base_url = get_extension_url(self.ctx)
         dialog_url = base_url + "/" + XDL_PATH
         # INFO so missing-XDL failures are visible at default WARN when we escalate below.
         log.info("[RICH-LIFECYCLE] dialog_url=%s", dialog_url)
-        from plugin.framework.uno_context import get_ctx
-
-        ctx = get_ctx()
+        # The extension context, not a fresh bootstrap context. get_ctx() can
+        # be a different component context and the dialog URL lookup misses.
+        ctx = self.ctx
         provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", ctx)
         log.info("[RICH-LIFECYCLE] calling createContainerWindow for chat sidebar...")
         self.m_panelRootWindow = provider.createContainerWindow(dialog_url, "", self.xParentWindow, None)
@@ -474,26 +498,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         log.info("[RICH-LIFECYCLE] ChatPanelElement.disposing called Source=%s has_send_listener=%s",
                  id(Source) if Source else None,
                  hasattr(self, "send_listener") and bool(self.send_listener))
-        unregister_debug_live_panel(self)
-        try:
-            from plugin.doc.live_panels import unregister_live_panel
-            from plugin.framework.uno_context import get_document_from_frame, get_runtime_uid
-
-            model = get_document_from_frame(self.xFrame) if getattr(self, "xFrame", None) else None
-            if model is not None:
-                unregister_live_panel(get_runtime_uid(model))
-        except Exception as e:
-            log.debug("live panel unregister on dispose: %s", e)
-        try:
-            if hasattr(self, "send_listener") and self.send_listener:
-                self.send_listener.disposing(None)
-        except Exception as e:
-            log.info("[RICH-SHUTDOWN]   send_listener.disposing raised from element: %s", e)
-        # Teardown races with VCL/sidebar dispose; silent pass hid unexpected errors.
-        with suppress_disposed("set_default_focus_restore on dispose", logger=log):
-            from plugin.framework.uno_context import set_default_focus_restore
-
-            set_default_focus_restore(None)
+        listener = getattr(self, "send_listener", None)
+        query = getattr(listener, "query_control", None) if listener is not None else None
+        release_live_sidebar(self, query)
 
         # Clean up the always-present resize listener.
         # This listener is attached unconditionally in panel_wiring. Failing to
@@ -1125,7 +1132,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             from plugin.doc.live_panels import register_live_panel
             from plugin.framework.uno_context import get_runtime_uid
 
-            register_live_panel(get_runtime_uid(model), self)
+            # Remember the uid here. Dispose must not ask the frame again:
+            # the model can already be gone, and a newer window may own the slot.
+            self._live_panel_uid = get_runtime_uid(model)
+            register_live_panel(self._live_panel_uid, self)
 
 
 

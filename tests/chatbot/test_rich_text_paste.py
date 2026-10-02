@@ -333,6 +333,7 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
              patch("plugin.chatbot.rich_text_paste.append_rich_text") as mock_append, \
              patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=True) as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain, \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
             append_rich_messages_via_clipboard(ctx, control, items, batch_chars=HISTORY_RENDER_BATCH_CHARS)
 
@@ -340,6 +341,8 @@ class TestHistoryMessageBatching:
         mock_cfg.assert_called_once_with(doc)
         mock_append.assert_called_once()
         mock_copy.assert_called_once()
+        mock_plain.assert_called_once()
+        assert mock_plain.call_args.args[1] == chunk
         doc.close.assert_called_once_with(True)
 
 
@@ -398,6 +401,60 @@ class TestRichInsertFallbackLogging:
 
         joined = " ".join(r.message for r in caplog.records)
         assert "formatted copy failed direct_copy_reason=no_content_inserted" in joined
+
+    def test_failed_copy_rolls_back_separator_and_drops_spans(self):
+        from plugin.calc.navigation import cell_link_registry
+
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = "hello"
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+        doc = MagicMock()
+        cell_link_registry.clear(control)
+        cell_link_registry.add(control, 0, 5, "A1")
+        cell_link_registry.add(control, 5, 9, "B2")
+
+        def _grow(_model, _cursor, text, char_color=None, **kwargs):
+            model.Text = model.Text + text
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
+             patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
+             patch(
+                 "plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control",
+                 return_value=(False, "no_content_inserted"),
+             ), \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_grow):
+            ok = append_rich_text_via_clipboard(ctx, control, "<p>x</p>", role="assistant")
+
+        assert ok is False
+        model.createTextCursor.return_value.setString.assert_called_with("")
+        assert cell_link_registry.lookup(control, 0) == "A1"
+        assert cell_link_registry.lookup(control, 5) is None
+        cell_link_registry.clear(control)
+
+    def test_missing_hidden_writer_plain_appends(self):
+        control = MagicMock()
+        model = MagicMock()
+        model.Text = "prior"
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        ctx = MagicMock()
+
+        def _grow(_model, _cursor, text, char_color=None, **kwargs):
+            model.Text = model.Text + text
+
+        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=None), \
+             patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_grow), \
+             patch("plugin.chatbot.rich_text_paste.append_text_chunk") as mock_plain:
+            ok = append_rich_text_via_clipboard(ctx, control, "<p>Hi &amp; you</p>", role="assistant")
+
+        assert ok is True
+        mock_plain.assert_called_once()
+        assert mock_plain.call_args.args[1] == "Hi & you"
+        model.createTextCursor.return_value.setString.assert_called_with("")
 
     def test_copy_logs_no_content_inserted_when_nothing_written(self, caplog):
         control = MagicMock()

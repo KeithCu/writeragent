@@ -222,16 +222,22 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     if not skill.get("ok"):
         return {"status": "error", "message": skill.get("block", "PPT-Master data root not configured.")}
 
+    from plugin.chatbot.smol_examples import get_examples_block
+
     instructions = _instructions_for_session(session_id, topic=topic, ctx_block=str(skill.get("block", "")))
     tools = _build_tools()
     smol_model = HostRpcModel(model_id=model, max_tokens=max_tokens, status_callback=lambda s: emit_worker_event({"kind": "status", "text": s}))
 
+    # What was wrong: system_prompt_examples was omitted, so ToolCallingAgent
+    # filled in the web-research demo (web_search / final_answer). This agent
+    # finishes with ppt_master_finished. Pass that block instead.
     agent = ToolCallingAgent(
         tools=tools,
         model=smol_model,
         max_steps=max_steps,
         instructions=instructions,
         final_answer_tool_name="reply_to_user",
+        system_prompt_examples=get_examples_block("ppt-master"),
     )
 
     if history_text and len(str(history_text)) > 4000:

@@ -613,6 +613,130 @@ def test_web_search_no_prompt_dedup_when_matches_outer_query():
     assert chat_lines == []
 
 
+def test_visit_handler_does_not_preclaim_the_url():
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+    from plugin.contrib.smolagents.memory import ToolCall
+
+    visited: set[str] = set()
+    params = WebAgentRunParams(
+        smol_model=MagicMock(),
+        max_steps=5,
+        cache_path=None,
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        cdp_enabled=False,
+        cdp_url=None,
+        stop_checker=lambda: False,
+        status_callback=None,
+        append_thinking_callback=None,
+        approval_callback=None,
+        chat_append_callback=None,
+        prompt_for_web_research=False,
+        outer_query="topic",
+        visited_urls=visited,
+        visited_urls_lock=__import__("threading").Lock(),
+    )
+
+    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        step = ToolCall(name="visit_webpage", arguments={"url": "https://example.com/a/"}, id="v1")
+        assert tool_call_handler is not None
+        assert tool_call_handler(step) is None
+        return "done"
+
+    with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls, \
+         patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
+         patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
+         patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"), \
+         patch("plugin.chatbot.web_research._VisitWebpageDedupTool"):
+        mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
+        _run_web_agent(MagicMock(), "topic", None, params)
+
+    assert visited == set()
+
+
+def test_visit_dedup_fetches_the_first_url_only():
+    from plugin.chatbot.web_research import _VisitWebpageDedupTool
+
+    inner = MagicMock()
+    inner.forward.return_value = "page body"
+    seen: set[str] = set()
+    tool = _VisitWebpageDedupTool(inner, seen, __import__("threading").Lock())
+    assert tool.forward("https://example.com/a") == "page body"
+    assert "Already visited" in tool.forward("https://example.com/a/")
+    inner.forward.assert_called_once_with("https://example.com/a")
+
+
+def test_cdp_visit_uses_a_private_target(monkeypatch):
+    import json
+
+    from plugin.chatbot.web_research import VisitWebpageCdpTool
+
+    calls: list[tuple[str, str | None]] = []
+    ids = iter(["tab-a", "tab-b"])
+
+    def fake_cdp(method, params=None, target_id=None, **kwargs):
+        calls.append((method, target_id if method != "Target.closeTarget" else (params or {}).get("targetId")))
+        if method == "Target.createTarget":
+            return json.dumps({"success": True, "result": {"targetId": next(ids)}})
+        if method in ("Page.navigate", "Runtime.evaluate", "Target.closeTarget"):
+            if method == "Runtime.evaluate":
+                return json.dumps({"success": True, "result": {"result": {"value": "body text"}}})
+            return json.dumps({"success": True})
+        raise AssertionError(method)
+
+    monkeypatch.setattr("plugin.contrib.cdp.browser_cdp_tool.browser_cdp", fake_cdp)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    assert "body text" in VisitWebpageCdpTool("ws://local").forward("https://a.test")
+    assert "body text" in VisitWebpageCdpTool("ws://local").forward("https://b.test")
+    assert [method for method, _target in calls if method == "Target.getTargets"] == []
+    assert [target for method, target in calls if method == "Page.navigate"] == ["tab-a", "tab-b"]
+    assert [target for method, target in calls if method == "Target.closeTarget"] == ["tab-a", "tab-b"]
+
+
+def test_cdp_cleanup_waits_until_visit_leaves():
+    import threading
+
+    from plugin.chatbot import web_research as wr
+
+    wr._cdp_visits_inflight = 0
+    wr._cdp_closing = False
+    started = threading.Event()
+    release = threading.Event()
+    cleaned = threading.Event()
+
+    def visit() -> None:
+        assert wr._cdp_visit_enter()
+        started.set()
+        assert release.wait(2)
+        wr._cdp_visit_leave()
+
+    thread = threading.Thread(target=visit)
+    finisher = None
+    try:
+        thread.start()
+        assert started.wait(1)
+        with patch("plugin.contrib.cdp.browser_cdp_tool.cleanup_local_chrome", side_effect=cleaned.set):
+            finisher = threading.Thread(target=wr._finish_cdp_browser)
+            finisher.start()
+            assert not cleaned.wait(0.15)
+            release.set()
+            finisher.join(2)
+            thread.join(2)
+        assert cleaned.is_set()
+        assert wr._cdp_closing is False
+        assert wr._cdp_visits_inflight == 0
+    finally:
+        release.set()
+        wr._cdp_visits_inflight = 0
+        wr._cdp_closing = False
+        with wr._cdp_visits_cond:
+            wr._cdp_visits_cond.notify_all()
+        thread.join(1)
+        if finisher is not None:
+            finisher.join(1)
+
+
 def test_web_search_prompt_shows_preview_even_when_matches_outer_query():
     chat_lines, _ = _run_web_search_tool_call_handler(
         outer_query="best pizza madison",
@@ -1195,6 +1319,16 @@ def test_web_search_parses_split_row_layout():
     assert "two.example/b" in result
 
 
+def test_web_search_does_not_cache_empty_parse(tmp_path):
+    from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, _search_cache_key, _web_cache_get
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    with patch("urllib.request.urlopen", return_value=_FakeUrlopenResponse(b"<html><body>no results</body></html>")):
+        result = DuckDuckGoSearchTool(cache_max_age_days=30, cache_path=db_file, cache_max_mb=10).forward("nothing here")
+    assert "No results found" in result
+    assert _web_cache_get(db_file, "search", _search_cache_key("nothing here", None), max_age_days=30) is None
+
+
 def test_visit_webpage_does_not_cache_fetch_errors(tmp_path):
     """Transient fetch failures must not poison the page cache."""
     from plugin.contrib.smolagents.default_tools import VisitWebpageTool, _web_cache_get
@@ -1280,6 +1414,47 @@ def test_web_research_tool_includes_instruction_in_result(tmp_path):
         assert "instruction" in res
         assert "write_cell_range" in res["instruction"]
         assert "sent ONLY to you — the user has NOT seen it yet" in res["instruction"]
+
+
+def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.contrib.smolagents.default_tools import _web_cache_list_keys
+    from plugin.tests.testing_utils import MockContext
+
+    notes = {
+        "status": "ok",
+        "message": "Web research completed.",
+        "result": "Research notes (automatic synthesis failed) for: topic\n\nFinding X",
+        "cacheable": False,
+    }
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.doc_type = "writer"
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    ctx.chat_append_callback = None
+    ctx.stop_checker = None
+    ctx.send_cancellation = None
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
+         patch("plugin.framework.config.get_config_int", return_value=30), \
+         patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.framework.client.llm_client.LlmClient", return_value=MagicMock()), \
+         patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
+         patch("plugin.chatbot.web_research._run_deep_web_research", return_value=dict(notes)):
+        res = WebResearchTool().execute(ctx, query="topic ratings", deep=True)
+
+    assert res["status"] == "ok"
+    assert "Finding X" in res["result"]
+    assert "cacheable" not in res
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    assert _web_cache_list_keys(db_file, "research", 30) == []
 
 
 

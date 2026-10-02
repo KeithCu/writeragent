@@ -33,6 +33,7 @@ from plugin.framework.client.llm_client import LlmClient
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from plugin.chatbot.sticky_reply import StickyReplySpec
     from plugin.framework.tool import ToolBase
     from plugin.framework.tool import ToolContext
 
@@ -381,3 +382,90 @@ def run_subagent_tool(
         log.exception("%s execution failed", agent_label)
         err = ToolExecutionError(f"{agent_label} failed: {str(e)}\n\n{tb}", details={"query": query})
         return format_error_payload(err)
+
+
+def _document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:
+    """Brainstorming and writing report each delegate_read_document in the chat.
+
+    The status line is the tool name alone. Deep research does not use this
+    handler, so its steps keep the executor default (``Tool: name...``).
+    """
+    status_callback = getattr(ctx, "status_callback", None)
+    append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
+    chat_append_callback = getattr(ctx, "chat_append_callback", None)
+    document_open_step_index = 0
+
+    def tool_call_handler(step: ToolCall) -> None:
+        nonlocal document_open_step_index
+        if step.name == "delegate_read_document" and chat_append_callback:
+            from plugin.chatbot.web_research_chat import document_open_step_chat_text
+            from plugin.doc.specialized_base import _field_from_tool_arguments
+
+            path_or_name = _field_from_tool_arguments(step.arguments, "path_or_name")
+            chat_append_callback(document_open_step_chat_text(path_or_name, document_open_step_index))
+            document_open_step_index += 1
+        if append_thinking_callback:
+            append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+        if status_callback:
+            status_callback(f"{step.name}...")
+
+    return tool_call_handler
+
+
+def run_smol_side_turn(
+    ctx: ToolContext,
+    *,
+    query: str,
+    history_text: str | None,
+    collector: Callable[[ToolContext], Sequence[ToolBase]],
+    instructions: str,
+    examples_key: str,
+    reply_spec: StickyReplySpec | None = None,
+    report_document_opens: bool = False,
+    status_message: str,
+    stop_message: str,
+    error_prefix: str,
+) -> dict[str, Any]:
+    """One smol turn shared by brainstorming, writing plan, and deep research.
+
+    The three runners were the same setup. Status text, the stop message, and
+    whether a document open is written into the chat stay arguments so deep
+    research can keep the executor's default tool status.
+    """
+    from plugin.chatbot.smol_examples import get_examples_block
+
+    status_callback = getattr(ctx, "status_callback", None)
+    if history_text and len(history_text) > 4000:
+        history_text = "..." + history_text[-4000:]
+    if status_callback:
+        status_callback(status_message)
+
+    smol_tools: list[SmolTool] = [SmolToolAdapter(t, ctx, safe=True, inputs_style="specialized") for t in collector(ctx)]
+    if reply_spec is not None:
+        from plugin.chatbot.sticky_reply import StickyReplyToUserTool
+
+        smol_tools.append(SmolToolAdapter(StickyReplyToUserTool(reply_spec), ctx, safe=False, inputs_style="librarian"))
+
+    agent = build_toolcalling_agent(
+        ctx,
+        smol_tools,
+        instructions=instructions,
+        final_answer_tool_name="reply_to_user",
+        examples_block=get_examples_block(examples_key),
+        status_callback=status_callback,
+    )
+    task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
+    res = SmolAgentExecutor(ctx).execute_safe(
+        agent,
+        task,
+        tool_call_handler=_document_open_tool_handler(ctx) if report_document_opens else None,
+        stop_message=stop_message,
+        error_prefix=error_prefix,
+    )
+    if isinstance(res, dict) and res.get("status") == "error":
+        return res
+    if reply_spec is not None:
+        from plugin.chatbot.sticky_reply import interpret_sticky_final_answer
+
+        return interpret_sticky_final_answer(res, leave_status=reply_spec.leave_status)
+    return {"status": "ok", "result": str(res)}

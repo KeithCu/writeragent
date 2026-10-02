@@ -290,10 +290,13 @@ class TestRunDeepResearch:
             plain_text_format="Use plain text.",
             initial_search_snippet="preview hit",
         )
-        assert isinstance(result, str)
-        assert "Finding X" in result
-        assert "https://a.test" in result
-        assert "synthesis failed" in result.lower() or "automatic synthesis" in result.lower()
+        assert isinstance(result, dict)
+        assert result.get("cacheable") is False
+        assert result.get("status") == "ok"
+        text = str(result.get("result") or "")
+        assert "Finding X" in text
+        assert "https://a.test" in text
+        assert "synthesis failed" in text.lower() or "automatic synthesis" in text.lower()
 
     def test_user_stopped_during_extraction_is_not_partial_success(self):
         from plugin.framework.errors import ToolExecutionError
@@ -585,18 +588,32 @@ def test_deep_preview_approval_uses_edited_query():
         return True, "edited topic"
 
     params = _deep_preview_params(approval, prompt=True)
+    captured: dict[str, object] = {}
+
+    def _capture_agent(_ctx, _query, _history, sub_params, research_goal=None):
+        captured["prompt"] = sub_params.prompt_for_web_research
+        captured["approval"] = sub_params.approval_callback
+        return "sub"
+
     with patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg, \
          patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
          patch("plugin.framework.config.get_config_int", return_value=1), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=1):
+         patch("plugin.framework.config.get_config_int_safe", return_value=1), \
+         patch("plugin.framework.client.llm_client.LlmClient", return_value=MagicMock()), \
+         patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
+         patch("plugin.chatbot.web_research._run_web_agent", side_effect=_capture_agent):
         ddg.return_value.forward.return_value = "snippet text"
         out = _run_deep_web_research(
             MagicMock(), "topic", None, params,
             cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
         )
+        run_sub, _chat = run_deep.call_args.kwargs["worker_factory"]()
+        run_sub("q", "goal", None)
     assert out == "report"
     ddg.return_value.forward.assert_called_once_with("edited topic")
     assert run_deep.call_args.kwargs["initial_search_snippet"] == "snippet text"
+    assert captured["prompt"] is False
+    assert captured["approval"] is None
 
 
 class _RecordingClient:

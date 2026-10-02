@@ -111,7 +111,7 @@ config:
     label: Layout model
     options:
       - {value: heron, label: Heron (default)}
-      - {value: egret_large, label: Egret large (slower, complex docs)}
+      - {value: egret_large, label: "Egret large (slower, complex docs)"}
 
   do_formula_enrichment:
     type: boolean

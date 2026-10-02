@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import os
 import logging
+import os
 import tempfile
+import threading
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from plugin.framework.tool import ToolBase
@@ -13,6 +14,10 @@ from plugin.framework.config import user_config_dir
 from plugin.framework.errors import ConfigError
 
 log = logging.getLogger(__name__)
+
+# Librarian and chat can upsert the same USER.md from different threads.
+# os.replace is atomic; the read-modify-write around it was not.
+_MEMORY_WRITE_LOCK = threading.Lock()
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
@@ -191,8 +196,6 @@ class MemoryTool(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # crosshair: off
-        import json
-
         key = kwargs.get("key")
         content = kwargs.get("content", "")
 
@@ -205,6 +208,13 @@ class MemoryTool(ToolBase):
             return self._tool_error(f"Failed to initialize memory store: {e}")
 
         target = "user"
+        with _MEMORY_WRITE_LOCK:
+            return self._upsert_locked(store, key, content, target)
+
+    def _upsert_locked(self, store: MemoryStore, key: str, content: Any, target: str) -> dict[str, Any]:
+        # crosshair: off
+        import json
+
         try:
             current = store.read(target)
         except OSError as e:
@@ -224,8 +234,10 @@ class MemoryTool(ToolBase):
                 return self._tool_error("USER.md is not a JSON object; left unchanged.")
 
         # Nested update. content "" used to store an empty string; pop the key.
+        # JSON null is the same delete. A dotted key must not replace a string
+        # value with {} (name="Ada" then name.nickname wiped the profile).
         parts = key.split(".")
-        if content == "":
+        if content is None or content == "":
             node: Any = parsed
             for part in parts[:-1]:
                 child = node.get(part) if isinstance(node, dict) else None
@@ -236,10 +248,10 @@ class MemoryTool(ToolBase):
             if isinstance(node, dict):
                 node.pop(parts[-1], None)
         else:
-            # Bind the child before descending. A missing or non-dict node
-            # becomes {} so the next key is written on a dict, not on None.
             current_dict: dict[str, Any] = parsed
             for part in parts[:-1]:
+                if part in current_dict and not isinstance(current_dict.get(part), dict):
+                    return self._tool_error(f"Memory key '{key}' would replace a non-object value; left unchanged.")
                 child = current_dict.get(part)
                 if not isinstance(child, dict):
                     child = {}

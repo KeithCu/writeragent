@@ -905,9 +905,15 @@ def _run_deep_research_body(
         )
     except Exception as exc:
         # A timeout here used to discard the whole run; return the raw notes.
-        # USER_STOPPED must not take that path: the partial string was cached
-        # by execute() as a successful deep-research report.
+        # USER_STOPPED must not take that path. The notes are a plain string,
+        # and execute() cached every non-error string as a finished deep
+        # report, so the next identical query never retried synthesis.
         if getattr(exc, "code", None) == "USER_STOPPED":
             raise
         log.exception("deep_research: synthesis failed; returning collected evidence")
-        return _partial_report_from_evidence(query, cited_learnings, sources)
+        return {
+            "status": "ok",
+            "message": _("Web research completed."),
+            "result": _partial_report_from_evidence(query, cited_learnings, sources),
+            "cacheable": False,
+        }

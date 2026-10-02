@@ -163,6 +163,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     they emit for their own keys. A batch that changes nothing does not emit.
     """
     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text, update_lru_history
+    from plugin.chatbot.settings_fields import stored_select_value
     from plugin.framework.client.model_fetcher import _sanitize_stored_model_value
     from plugin.framework.url_utils import normalize_endpoint_url
 
@@ -206,11 +207,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
         spec = field_specs_by_name.get(key)
         opts = spec.get("options") if spec else None
         if isinstance(opts, list):
-            for opt in opts:
-                if isinstance(opt, dict):
-                    if opt.get("label") == val or opt.get("value") == val:
-                        val = opt.get("value", val)
-                        break
+            val = stored_select_value(val, opts)
 
         if key in ("audio__stt_provider", "audio.stt_provider"):
             from plugin.audio.stt_service import normalize_stt_provider

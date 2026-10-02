@@ -43,6 +43,8 @@ config:
     default: false
     widget: checkbox
     label: Enable Speech Output (TTS)
+    # Default checkbox width is 120 and clips this caption. Dutch is longer.
+    width: 220
     helper: Speak assistant responses aloud using text-to-speech.
 
   tts_sentence_mode:

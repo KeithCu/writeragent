@@ -792,9 +792,10 @@ def voice_options_for_provider(
 ) -> list[dict[str, str]]:
     """Voice rows for Settings.
 
-    Together + LLM Endpoint uses ``cached_tts_supported_voices`` for
-    that TTS model, fetching ``GET /v1/voices?model=`` on a miss.
-    OpenRouter models with a harvested ``supported_voices`` list use those ids.
+    Together + LLM Endpoint reads ``cached_tts_supported_voices`` for
+    that TTS model. A miss does not HTTP: the Settings worker fills the
+    cache before the dialog applies it. OpenRouter models with a harvested
+    ``supported_voices`` list use those ids.
     An OpenRouter speech model whose list omitted voices, or whose speech list
     has not been fetched yet, returns ``[]`` so the combo stays free text
     instead of the OpenAI alloy list. Other OpenAI-compatible endpoints keep
@@ -829,24 +830,21 @@ def _together_endpoint_voice_rows(
 
     Kokoro with no Together answer falls through to the local Kokoro catalog.
     Orpheus and Cartesia do not: an empty list beats the OpenAI alloy list.
+
+    What was wrong: a cache miss called ``GET /v1/voices?model=`` here, and
+    Settings ``sync_ui`` runs on the UI thread (open, provider change, model
+    change). That blocked the dialog for the fetch timeout. The Settings
+    worker owns the GET; this function only reads the cache it fills.
     """
+    del api_key
     if not endpoint_is_together(endpoint):
         return None
     mid = (model or "").strip()
     if not mid:
         return []
-    from plugin.framework.client.model_fetcher import (
-        cached_tts_supported_voices,
-        fetch_together_tts_voices,
-    )
-    from plugin.framework.config import get_current_endpoint as saved_endpoint
+    from plugin.framework.client.model_fetcher import cached_tts_supported_voices
 
     voices = cached_tts_supported_voices(mid)
-    if not voices:
-        url = endpoint if endpoint is not None else (saved_endpoint() or "")
-        if url:
-            fetch_together_tts_voices(url, model_id=mid, api_key_override=api_key)
-            voices = cached_tts_supported_voices(mid)
     if voices:
         # Label equals the token /audio/speech must send (Cartesia id or voice name).
         return [{"value": voice, "label": voice} for voice in voices]
@@ -931,12 +929,17 @@ def voice_choice_to_id(choice: str, options: list[dict[str, str]] | None = None)
     text = (choice or "").strip()
     if not text:
         return ""
+    from plugin.framework.i18n import _
+
     rows = options or []
     for opt in rows:
         if text == str(opt.get("value") or ""):
             return text
     for opt in rows:
-        if text == str(opt.get("label") or ""):
+        label = str(opt.get("label") or "")
+        # The combo shows _(label). English still matches the catalog
+        # string; a translated caption used to be stored as the voice id.
+        if text == label or (label and text == _(label)):
             return str(opt.get("value") or "")
     return clean_voice_name(text)
 

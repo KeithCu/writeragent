@@ -587,14 +587,33 @@ def cached_stt_models(endpoint: str, api_key_override: str | None = None) -> lis
     return _cached_id_list(_model_fetch_stt_cache, key)
 
 
+def _together_voices_cache_keys(base: str, api_key_override: str | None) -> list[str]:
+    """List-all and ``?model=`` memo keys for this endpoint+key."""
+    root = _together_voices_url(base)
+    sample = _model_fetch_cache_key(root, base, api_key_override)
+    digest = sample.split("\x1f", 1)[1]
+    found: list[str] = []
+    for key in _together_voices_fetch_cache:
+        url, sep, key_digest = key.partition("\x1f")
+        if sep and key_digest == digest and (url == root or url.startswith(root + "?")):
+            found.append(key)
+    return found
+
+
 def _together_voices_list_cached(endpoint: str, api_key_override: str | None) -> bool:
-    """True after a successful list-all ``GET /v1/voices`` for this endpoint+key."""
+    """True after a successful ``GET /v1/voices`` for this endpoint+key.
+
+    List-all and ``?model=`` are different URLs. Either memo means the Speech
+    tab has something to read. A stored dict is success, including empty.
+    A failure is not stored.
+    """
     base = _catalog_base(endpoint)
     if not base:
         return False
-    key = _model_fetch_cache_key(_together_voices_url(base), base, api_key_override)
-    # A stored dict is success, including empty. A failure is not stored.
-    return isinstance(_together_voices_fetch_cache.get(key), dict)
+    for key in _together_voices_cache_keys(base, api_key_override):
+        if isinstance(_together_voices_fetch_cache.get(key), dict):
+            return True
+    return False
 
 
 def settings_catalog_is_warm(endpoint: str, api_key_override: str | None = None) -> bool:
@@ -602,9 +621,9 @@ def settings_catalog_is_warm(endpoint: str, api_key_override: str | None = None)
 
     OpenRouter needs text, ``/v1/images/models``, speech, and transcription.
     Together has no modality model list; it needs the text list, the image ids
-    harvested from that body, and list-all ``/v1/voices`` (the Speech tab reads
-    that on the UI thread when the memo is missing). A missing or failed entry
-    is cold. Empty lists count as success.
+    harvested from that body, and a successful ``/v1/voices`` memo (list-all
+    or ``?model=``). The Speech tab only reads ``cached_tts_supported_voices``.
+    A missing or failed entry is cold. Empty lists count as success.
     """
     base = _catalog_base(endpoint)
     if not base:
@@ -645,8 +664,10 @@ def clear_settings_catalog_cache(endpoint: str, api_key_override: str | None = N
     stt_key = _model_fetch_cache_key(_openrouter_modality_models_url(base, "transcription"), base, api_key_override)
     _model_fetch_tts_cache.pop(tts_key, None)
     _model_fetch_stt_cache.pop(stt_key, None)
-    voices_key = _model_fetch_cache_key(_together_voices_url(base), base, api_key_override)
-    _together_voices_fetch_cache.pop(voices_key, None)
+    # ?model= is a different memo from list-all. Test Connection must drop both
+    # or the next Speech fetch returns the stale scoped body without HTTP.
+    for voices_key in _together_voices_cache_keys(base, api_key_override):
+        _together_voices_fetch_cache.pop(voices_key, None)
 
 
 def cached_tts_supported_voices(model_id: str) -> list[str]:

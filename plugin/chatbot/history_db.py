@@ -51,24 +51,33 @@ def _get_db_path() -> str:
 
 # LangChain-compatible JSON conversion
 def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str, Any]:
-    # Don't persist MBs of base64 audio to history db.
+    # Don't persist MBs of base64 audio or images to history db.
     if isinstance(content, list):
         text_parts = []
         has_audio = False
+        has_image = False
         for item in content:
             if isinstance(item, dict):
                 if item.get("type") == "text":
                     text_parts.append(item.get("text", ""))
                 elif item.get("type") == "input_audio":
                     has_audio = True
+                elif item.get("type") == "image_url":
+                    has_image = True
         content = " ".join(text_parts)
         if has_audio:
-            if content:
-                content += " [Audio Attached]"
-            else:
-                content = "[Audio Attached]"
+            content = f"{content} [Audio Attached]" if content else "[Audio Attached]"
+        if has_image:
+            # A vision turn used to reload as ordinary text, with the image
+            # parts dropped and no marker that one had been attached.
+            content = f"{content} [Image Attached]" if content else "[Image Attached]"
 
-    return {"role": role, "content": content, "tool_calls": tool_calls}
+    row: dict[str, Any] = {"role": role, "content": content}
+    # tool_calls: null on user and system rows makes strict
+    # OpenAI-compatible servers reject the transcript after a restart.
+    if tool_calls is not None:
+        row["tool_calls"] = tool_calls
+    return row
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +116,20 @@ class SQLite3History:
     def get_messages(self) -> list[dict[str, Any]]:
         assert sqlite3 is not None
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("SELECT message FROM message_store WHERE session_id = ? ORDER BY id ASC", (self.session_id,))
-            msgs = [json.loads(row[0]) for row in cursor.fetchall()]
+            cursor = conn.execute("SELECT id, message FROM message_store WHERE session_id = ? ORDER BY id ASC", (self.session_id,))
+            msgs: list[dict[str, Any]] = []
+            for row_id, raw in cursor.fetchall():
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    # One torn row used to raise out of the whole session, so
+                    # later turns inserted and then vanished on the next open.
+                    log.exception("SQLite3: skipping undecodable message id=%s session=%s", row_id, self.session_id)
+                    continue
+                if not isinstance(parsed, dict):
+                    log.error("SQLite3: skipping non-object message id=%s session=%s", row_id, self.session_id)
+                    continue
+                msgs.append(parsed)
             log.debug(f"SQLite3: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
 
@@ -178,6 +199,11 @@ class JSONHistory:
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 msgs = json.load(f)
+            if not isinstance(msgs, list) or any(not isinstance(item, dict) for item in msgs):
+                # A JSON object or a bare null used to become session.messages
+                # and then throw on append, or look empty and get overwritten.
+                log.error("JSONHistory: session %s is not a list of objects", self.session_id)
+                raise json.JSONDecodeError("session is not a list of objects", "", 0)
             log.debug(f"JSONHistory: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
         except json.JSONDecodeError:
@@ -185,9 +211,11 @@ class JSONHistory:
             # file as an empty history and write a fresh system row over it.
             log.exception("JSONHistory: Error reading messages")
             raise
-        except (OSError, IOError):
+        except OSError:
+            # An OSError used to return [] and the next add_message replaced
+            # the file. Same refusal as a decode error: leave the file alone.
             log.exception("JSONHistory: Error reading messages")
-            return []
+            raise
 
     def clear(self) -> None:
         if os.path.exists(self.file_path):

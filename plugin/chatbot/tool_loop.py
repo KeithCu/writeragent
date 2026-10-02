@@ -52,7 +52,12 @@ from plugin.framework.config_schema import as_bool
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.uno_context import get_toolkit
 from plugin.framework.i18n import _
-from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, build_tool_execute_fn
+from plugin.chatbot.tool_loop_actions import (
+    ToolLoopEffectInterpreter,
+    bind_turn_session,
+    build_tool_execute_fn,
+    session_for_turn,
+)
 
 from plugin.chatbot.tool_loop_state import (
     ToolLoopState,
@@ -77,7 +82,7 @@ log = logging.getLogger(__name__)
 # of each burst ("send data every N ms max, or when done" / flush on boundary).
 # Change this one constant to experiment with different smoothing cadences.
 # 0.25 = 250 ms (current recommended default for "leisurely but still alive" feel).
-CHAT_STREAM_BATCH_INTERVAL = 1.0  # seconds
+CHAT_STREAM_BATCH_INTERVAL = 0.25  # seconds
 
 
 class ToolLoopHost(Protocol):
@@ -333,6 +338,9 @@ class ToolCallingMixin:
 
         # Peer extracted send already appended the envelope + body once.
         # Calling add_user_message again would double-post that turn.
+        # Bind after the document refresh so the pinned list is the one
+        # this user row is appended to (refresh edits that list in place).
+        bind_turn_session(self)
         if skip_append_user:
             b64_image = None
         else:
@@ -438,6 +446,7 @@ class ToolCallingMixin:
         self._record_assistant_start = True
 
         def run() -> None:
+            session = session_for_turn(self)
             try:
                 # B13: Stop before first SSE — do not acquire llm_request_lane.
                 stop_checker = self.resolve_stop_checker()
@@ -454,7 +463,7 @@ class ToolCallingMixin:
                     # not take the non-reentrant lock itself.
                     if get_config_bool_safe("chat_compaction_enabled"):
                         result = compact_session(
-                            self.session,
+                            session,
                             client,
                             window=resolve_context_window(client),
                             tools=tools,
@@ -472,7 +481,7 @@ class ToolCallingMixin:
                                 batched.flush()
                             real_q.put((StreamQueueKind.STOPPED,))
                             return
-                    payload = messages_for_llm(self.session)
+                    payload = messages_for_llm(session)
                     response = client.stream_request_with_tools(
                         payload, max_tokens, tools=tools,
                         append_callback=(batched.content_cb() if batched else lambda t: real_q.put((StreamQueueKind.CHUNK, t))),
@@ -510,6 +519,7 @@ class ToolCallingMixin:
         self._record_assistant_start = True
 
         def run_final() -> None:
+            session = session_for_turn(self)
             last_streamed: list[str] = []
             try:
                 def append_c(c: str) -> None:
@@ -533,7 +543,7 @@ class ToolCallingMixin:
                     # is over the tiered threshold.
                     if get_config_bool_safe("chat_compaction_enabled"):
                         result = compact_session(
-                            self.session,
+                            session,
                             client,
                             window=resolve_context_window(client),
                             tools=None,
@@ -552,7 +562,7 @@ class ToolCallingMixin:
                             real_q.put((StreamQueueKind.STOPPED,))
                             return
                     client.stream_chat_response(
-                        messages_for_llm(self.session), max_tokens, append_c, append_t,
+                        messages_for_llm(session), max_tokens, append_c, append_t,
                         stop_checker=stop_checker,
                         status_callback=status_cb,
                     )

@@ -454,3 +454,76 @@ def test_settings_explicit_tooltip_overrides_helper(tmp_path: Path) -> None:
     assert "hlp_sample__plain" not in tips
 
 
+# Captions the generator's default width of 120 clips. Width stays in the
+# module YAML; the fallback in manifest_registry is unchanged.
+_LONG_CHECKBOXES = (
+    ("audio", "tts_enabled", 220),
+    ("doc", "chat_enter_key_sends_message", 300),
+    ("calc", "ods_cache_enabled", 220),
+    ("chatbot", "rich_text_control_sidebar", 200),
+    ("chatbot", "humanizer_enabled", 240),
+    ("embeddings", "folder_rerank_enabled", 200),
+    ("mcp", "mcp_enabled", 168),
+)
+
+
+def test_long_checkbox_captions_are_wider_than_the_default(tmp_path: Path) -> None:
+    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
+    attrs = _control_attrs(xdl_path)
+    window = ET.parse(xdl_path).getroot()
+    dlg_width = int(window.get(f"{{{_DLG_NS}}}width") or 0)
+    assert dlg_width == 440
+    for module, field, width in _LONG_CHECKBOXES:
+        ctrl = attrs[f"{module}__{field}"]
+        assert int(ctrl["width"]) == width
+        assert int(ctrl["width"]) > 120
+        assert int(ctrl["left"]) + int(ctrl["width"]) <= dlg_width
+    # The known-good Speech checkbox is untouched.
+    assert attrs["audio__tts_sentence_mode"]["width"] == "168"
+
+
+def test_settings_cancel_sits_beside_ok_and_does_not_take_default(tmp_path: Path) -> None:
+    xdl_path, xdl = _generate_settings_xdl(tmp_path)
+    attrs = _control_attrs(xdl_path)
+    ok = attrs["btn_ok"]
+    cancel = attrs["btn_cancel"]
+    assert ok["left"] == "170"
+    assert ok["top"] == cancel["top"] == "188"
+    assert int(cancel["left"]) >= int(ok["left"]) + int(ok["width"])
+    window = ET.parse(xdl_path).getroot()
+    dlg_width = int(window.get(f"{{{_DLG_NS}}}width") or 0)
+    assert int(cancel["left"]) + int(cancel["width"]) <= dlg_width
+    cancel_tag = re.search(r'<dlg:button[^>]*dlg:id="btn_cancel"[^>]*/>', xdl)
+    assert cancel_tag is not None
+    assert 'dlg:button-type="cancel"' in cancel_tag.group(0)
+    assert 'dlg:value="Cancel"' in cancel_tag.group(0)
+    assert "dlg:default" not in cancel_tag.group(0)
+    ok_tag = re.search(r'<dlg:button[^>]*dlg:id="btn_ok"[^>]*/>', xdl)
+    assert ok_tag is not None
+    assert 'dlg:button-type="ok"' in ok_tag.group(0)
+    assert 'dlg:default="true"' in ok_tag.group(0)
+
+
+def test_vision_helper_lines_fit_the_dialog(tmp_path: Path) -> None:
+    from manifest_xdl import generate_standalone_config_dialog
+    from plugin._manifest import MODULES
+
+    vision = next(module for module in MODULES if module["name"] == "vision")
+    out = tmp_path / "VisionSettingsDialog.xdl"
+    out.write_text(generate_standalone_config_dialog(vision), encoding="utf-8")
+    root = ET.parse(out).getroot()
+    dlg_width = int(root.get(f"{{{_DLG_NS}}}width") or 0)
+    assert dlg_width == 350
+    helpers = [
+        el for el in root.iter()
+        if str(el.get(f"{{{_DLG_NS}}}id") or "").startswith("hlp_")
+    ]
+    assert helpers
+    for el in helpers:
+        left = int(el.get(f"{{{_DLG_NS}}}left") or 0)
+        width = int(el.get(f"{{{_DLG_NS}}}width") or 0)
+        assert left == 8
+        assert width == dlg_width - 16
+        assert left + width <= dlg_width
+
+

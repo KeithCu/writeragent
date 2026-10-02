@@ -203,25 +203,12 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
         _tp = getattr(self, "toolpanel", None)
         def _release_sidebar_on_window_dispose() -> None:
             # Same send-cancel and live-panel drop as ChatPanelElement.disposing.
-            # That method is not called when the deck closes. It still removes
-            # this listener when something else calls it.
-            from plugin.chatbot.panel_factory import unregister_debug_live_panel
+            # That method is not called when the deck closes. Do not resolve the
+            # model from the frame: it may already be dead. The uid stored at
+            # register time is the slot this panel owns.
+            from plugin.chatbot.panel_factory import release_live_sidebar
 
-            unregister_debug_live_panel(self)
-            try:
-                from plugin.doc.live_panels import unregister_live_panel
-                from plugin.framework.uno_context import get_document_from_frame, get_runtime_uid
-
-                model = get_document_from_frame(self.xFrame) if getattr(self, "xFrame", None) else None
-                if model is not None:
-                    unregister_live_panel(get_runtime_uid(model))
-            except Exception as exc:
-                log.debug("live panel unregister on window dispose: %s", exc)
-            try:
-                if hasattr(self, "send_listener") and self.send_listener:
-                    self.send_listener.disposing(None)
-            except Exception as exc:
-                log.info("send_listener.disposing raised from window dispose: %s", exc)
+            release_live_sidebar(self, controls.get("query"))
 
         _resize = _PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose)
         _resize._root_window = root_window

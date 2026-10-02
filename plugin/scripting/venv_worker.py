@@ -101,6 +101,7 @@ def _maybe_dispatch_ppt_master_response(
     stdin_write: Callable[[bytes], None],
     on_worker_event: Callable[[dict[str, Any]], None] | None = None,
     stop_checker: Callable[[], bool] | None = None,
+    cancellation_scope: Any | None = None,
 ) -> bool:
     """Handle ppt-master intermediate worker frames; no-op when ppt_master is not bundled."""
     try:
@@ -112,6 +113,7 @@ def _maybe_dispatch_ppt_master_response(
         stdin_write=stdin_write,
         on_worker_event=on_worker_event,
         stop_checker=stop_checker,
+        cancellation_scope=cancellation_scope,
     )
 
 
@@ -123,6 +125,7 @@ def _maybe_dispatch_intermediate_response(
     caller: str = "script",
     on_worker_event: Callable[[dict[str, Any]], None] | None = None,
     stop_checker: Callable[[], bool] | None = None,
+    cancellation_scope: Any | None = None,
     script_session_id: str | None = None,
 ) -> bool:
     """Handle tool_call (any build) then ppt-master llm_request / worker_event frames."""
@@ -143,6 +146,7 @@ def _maybe_dispatch_intermediate_response(
         stdin_write=stdin_write,
         on_worker_event=on_worker_event,
         stop_checker=stop_checker,
+        cancellation_scope=cancellation_scope,
     )
 
 
@@ -417,6 +421,7 @@ class PythonWorkerManager:
         on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
         on_worker_event: Callable[[dict[str, Any]], None] | None = None,
         stop_checker: Callable[[], bool] | None = None,
+        cancellation_scope: Any | None = None,
         python_tool_domain: str | None = None,
         caller: str = "script",
     ) -> dict[str, Any]:
@@ -440,6 +445,7 @@ class PythonWorkerManager:
             on_heartbeat=on_heartbeat,
             on_worker_event=on_worker_event,
             stop_checker=stop_checker,
+            cancellation_scope=cancellation_scope,
             python_tool_domain=python_tool_domain,
             caller=caller,
         )
@@ -454,6 +460,7 @@ class PythonWorkerManager:
         on_heartbeat: Callable[[dict[str, Any]], None] | None,
         on_worker_event: Callable[[dict[str, Any]], None] | None,
         stop_checker: Callable[[], bool] | None,
+        cancellation_scope: Any | None,
         python_tool_domain: str | None,
         caller: str,
     ) -> dict[str, Any]:
@@ -525,6 +532,7 @@ class PythonWorkerManager:
                                 caller=caller,
                                 on_worker_event=on_worker_event,
                                 stop_checker=stop_checker,
+                                cancellation_scope=cancellation_scope,
                                 script_session_id=script_session_id,
                             )
                         finally:
@@ -683,8 +691,14 @@ class PythonWorkerManager:
         timeout_sec: int,
         on_worker_event: Callable[[dict[str, Any]], None] | None = None,
         stop_checker: Callable[[], bool] | None = None,
+        cancellation_scope: Any | None = None,
     ) -> dict[str, Any]:
-        """Run one PPT-Master sidebar turn in the venv worker (LLM + scripts + host UNO RPC)."""
+        """Run one PPT-Master sidebar turn in the venv worker (LLM + scripts + host UNO RPC).
+
+        ``cancellation_scope`` is host-side only. ``data`` is pickled to the child,
+        so the scope is passed beside it and attached when an llm_request frame
+        comes back, the same way as ``stop_checker``.
+        """
         try:
             import plugin.ppt_master  # noqa: F401  # pyright: ignore[reportUnusedImport]
         except ImportError:
@@ -706,6 +720,7 @@ class PythonWorkerManager:
                 action="ppt_master_turn",
                 on_worker_event=on_worker_event,
                 stop_checker=stop_checker,
+                cancellation_scope=cancellation_scope,
                 caller="ppt_master_venv",
             )
         finally:

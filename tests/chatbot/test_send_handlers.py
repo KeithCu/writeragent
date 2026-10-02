@@ -470,6 +470,21 @@ def test_do_send_direct_image_with_selection_passes_source_image():
     assert kwargs["source_image"] == "selection"
 
 
+def test_direct_image_stop_keeps_stopped_status():
+    panel = DummyChatbotPanel()
+    panel._terminal_status = "Ready"
+    state = SendHandlerState(handler_type="image", status="ready")
+    interpreter = EffectInterpreter(panel)
+
+    def fake_drain(q, worker, current_state, interpreter, **kwargs):
+        panel._terminal_status = "Stopped"
+
+    with patch("plugin.chatbot.send_handlers.update_lru_history"):
+        with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=fake_drain):
+            panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)
+    assert panel._terminal_status == "Stopped"
+
+
 def test_do_send_direct_image_error():
     panel = DummyChatbotPanel()
     model = MockDocument()

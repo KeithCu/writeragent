@@ -107,6 +107,8 @@ config:
     default: true
     widget: checkbox
     label: Enter key sends sidebar chat message
+    # Default checkbox width is 120 and clips this caption.
+    width: 300
     helper: "When on, Enter in the sidebar query runs the same action as Send; Shift+Enter inserts a newline. When off, Enter inserts a newline."
 
   agent_edit_review_mode:

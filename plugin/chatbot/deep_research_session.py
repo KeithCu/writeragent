@@ -98,36 +98,19 @@ class DeepResearchWebTool(ToolBase):
 
 def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, **kwargs: Any) -> dict[str, Any]:
     """Run one turn of the Deep Research smol sub-agent."""
-    from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
-    from plugin.chatbot.smol_examples import get_examples_block
+    from plugin.chatbot.smol_agent import run_smol_side_turn
 
-    status_callback = getattr(ctx, "status_callback", None)
-
-    if history_text and len(history_text) > 4000:
-        history_text = "..." + history_text[-4000:]
-
-    if status_callback:
-        status_callback("Deep research...")
-
-    domain_tools = collect_deep_research_tools(ctx)
-    smol_tools = [SmolToolAdapter(t, ctx, safe=True, inputs_style="specialized") for t in domain_tools]
-
-    instructions = get_deep_research_sub_agent_instructions(ctx.ctx)
-    agent = build_toolcalling_agent(
+    return run_smol_side_turn(
         ctx,
-        smol_tools,
-        instructions=instructions,
-        final_answer_tool_name="reply_to_user",
-        examples_block=get_examples_block("deep_research"),
-        status_callback=status_callback,
+        query=query,
+        history_text=history_text,
+        collector=collect_deep_research_tools,
+        instructions=get_deep_research_sub_agent_instructions(ctx.ctx),
+        examples_key="deep_research",
+        status_message="Deep research...",
+        stop_message="Deep research stopped by user.",
+        error_prefix="Deep research failed",
     )
-
-    task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
-    executor = SmolAgentExecutor(ctx)
-    res = executor.execute_safe(agent, task, stop_message="Deep research stopped by user.", error_prefix="Deep research failed")
-    if isinstance(res, dict) and res.get("status") == "error":
-        return res
-    return {"status": "ok", "result": str(res)}
 
 
 class DeepResearchSessionTool(ToolBase):

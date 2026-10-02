@@ -406,6 +406,8 @@ class DuckDuckGoSearchTool(Tool):
         results = parser.results[:self.max_results]
 
         if len(results) == 0:
+            # An empty parse (challenge page, layout change) used to be stored
+            # for web_cache_validity_days, so later steps replayed "No results".
             result = "No results found! Try a less restrictive/shorter query."
         else:
             if USE_MARKDOWN:
@@ -415,14 +417,14 @@ class DuckDuckGoSearchTool(Tool):
                 postprocessed_results = [f"<div><h3><a href='{r['link']}'>{r['title']}</a></h3><p>{r['description']}</p></div>" for r in results]
                 result = "<h2>Search Results</h2>\n" + "\n".join(postprocessed_results)
 
-        if self._cache_path and self._cache_max_mb > 0 and cache_key:
-            _web_cache_set(
-                self._cache_path,
-                "search",
-                cache_key,
-                result,
-                self._cache_max_mb * 1024 * 1024,
-            )
+            if self._cache_path and self._cache_max_mb > 0 and cache_key:
+                _web_cache_set(
+                    self._cache_path,
+                    "search",
+                    cache_key,
+                    result,
+                    self._cache_max_mb * 1024 * 1024,
+                )
         return result
 
 

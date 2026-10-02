@@ -150,6 +150,7 @@ class TestToolcallingPromptExamples:
         assert ("specialized_workflow_finished") in (block)
         assert ('"name": "final_answer"') not in (block)
         assert ("web_search") in (block)
+        assert '"query": "Population Guangzhou"' in block
 
     def test_get_examples_block_web_research_uses_final_answer(self):
         from plugin.chatbot.smol_examples import get_examples_block
@@ -157,6 +158,16 @@ class TestToolcallingPromptExamples:
         block = get_examples_block("web_research")
         assert ('"name": "final_answer"') in (block)
         assert ("specialized_workflow_finished") not in (block)
+        assert '"query": "Population Guangzhou"' in block
+        assert '"arguments": "Population Guangzhou"' not in block
+
+    def test_get_examples_block_ppt_master_finishes_the_deck(self):
+        from plugin.chatbot.smol_examples import get_examples_block
+
+        block = get_examples_block("ppt-master")
+        assert "ppt_master_finished" in block
+        assert "export_presentation_project" in block
+        assert "final_answer" not in block
 
     def test_get_examples_block_librarian_uses_reply_to_user(self):
         from plugin.chatbot.smol_examples import get_examples_block
@@ -505,6 +516,70 @@ def test_build_toolcalling_agent_wires_max_tokens_and_steps(
     assert tca_kw["system_prompt_examples"] == "examples"
 
 
+def test_run_smol_side_turn_trims_history_and_reports_document_opens():
+    from plugin.chatbot.smol_agent import run_smol_side_turn
+    from plugin.chatbot.smol_examples import get_examples_block
+
+    ctx = MagicMock()
+    ctx.ctx = MagicMock()
+    executor = MagicMock()
+    executor.execute_safe.return_value = "<p>kept</p>"
+    with patch("plugin.chatbot.smol_agent.build_toolcalling_agent", return_value=MagicMock()) as mock_build, patch(
+        "plugin.chatbot.smol_agent.SmolAgentExecutor", return_value=executor
+    ):
+        out = run_smol_side_turn(
+            ctx,
+            query="hello",
+            history_text="h" * 4001,
+            collector=lambda c: [],
+            instructions="inst",
+            examples_key="brainstorming",
+            report_document_opens=True,
+            status_message="Brainstorming...",
+            stop_message="Brainstorming stopped by user.",
+            error_prefix="Brainstorming failed",
+        )
+
+    assert out == {"status": "ok", "result": "<p>kept</p>"}
+    assert mock_build.call_args.kwargs["examples_block"] == get_examples_block("brainstorming")
+    task = executor.execute_safe.call_args.args[1]
+    assert task.startswith("### CONVERSATION HISTORY:\n...")
+    assert "h" * 4001 not in task
+    handler = executor.execute_safe.call_args.kwargs["tool_call_handler"]
+    handler(ToolCall(name="delegate_read_document", arguments={"path_or_name": "notes.odt"}, id="1"))
+    opened = ctx.chat_append_callback.call_args[0][0]
+    assert "delegate_read_document" in opened
+    assert "notes.odt" in opened
+    ctx.status_callback.assert_any_call("delegate_read_document...")
+
+
+def test_run_smol_side_turn_without_document_opens_keeps_the_default_handler():
+    from plugin.chatbot.smol_agent import run_smol_side_turn
+
+    ctx = MagicMock()
+    ctx.ctx = MagicMock()
+    executor = MagicMock()
+    executor.execute_safe.return_value = "notes"
+    with patch("plugin.chatbot.smol_agent.build_toolcalling_agent", return_value=MagicMock()), patch(
+        "plugin.chatbot.smol_agent.SmolAgentExecutor", return_value=executor
+    ):
+        out = run_smol_side_turn(
+            ctx,
+            query="topic",
+            history_text=None,
+            collector=lambda c: [],
+            instructions="inst",
+            examples_key="deep_research",
+            status_message="Deep research...",
+            stop_message="Deep research stopped by user.",
+            error_prefix="Deep research failed",
+        )
+
+    assert out == {"status": "ok", "result": "notes"}
+    assert executor.execute_safe.call_args.kwargs["tool_call_handler"] is None
+    ctx.status_callback.assert_called_once_with("Deep research...")
+
+
 # =============================================================================
 # Librarian smol tests (from test_librarian_smol.py)
 # =============================================================================
@@ -686,6 +761,24 @@ class TestLibrarianSmol:
             assert ("Ask what they would like to be called") in (kwargs["instructions"])
             assert ("called Keith") not in (kwargs["instructions"])
 
+    def test_librarian_stop_calls_interrupt(self, mock_get_api, mock_get_int):
+        ctx = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.stop_checker.return_value = True
+
+        with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, patch(
+            "plugin.chatbot.smol_agent.ToolCallingAgent"
+        ) as mock_agent_class:
+            mock_store_class.return_value.read.return_value = ""
+            mock_agent = mock_agent_class.return_value
+            mock_agent.run.return_value = [FinalAnswerStep(output="should not finish")]
+
+            res = LibrarianOnboardingTool().execute(ctx, query="stop now")
+
+        mock_agent.interrupt.assert_called()
+        assert res["status"] == "error"
+        assert res["code"] == "USER_STOPPED"
+
 
 def test_get_os_login_name_filters_generic_user():
     with patch("plugin.chatbot.librarian.getpass.getuser", return_value="user"):
@@ -820,6 +913,18 @@ def test_format_grammar_status_failed_language_vs_grammar() -> None:
         }
     )
     assert lang == "Language: failed 'Language d…' len 19: TimeoutError"
+
+    # The bus clips before format_grammar_status; the clipped sentinel
+    # must stay a language failure, not Grammar.
+    clipped = format_grammar_status(
+        {
+            "phase": "failed",
+            "preview": "Language d\u2026",
+            "length": 19,
+            "result": "TimeoutError",
+        }
+    )
+    assert clipped == "Language: failed 'Language d…' len 19: TimeoutError"
 
     grm = format_grammar_status(
         {

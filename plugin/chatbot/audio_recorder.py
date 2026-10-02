@@ -111,6 +111,7 @@ class AudioRecorder:
     channels: int = 1
     ctx: Any
     _auto_stop_lock: threading.Lock
+    _wav_lock: threading.Lock
     state: AudioRecorderState
     _test_skip_spawn: bool
     _test_missing_wav: bool
@@ -125,6 +126,9 @@ class AudioRecorder:
         self._stop_handoff: RecordingStopHandoff | None = None
         self._auto_stopped_path: str | None = None
         self._auto_stop_lock = threading.Lock()
+        # Held across host writeframes so Stop can close the WAV only after
+        # that callback has dropped the file.
+        self._wav_lock = threading.Lock()
         self.stream: Any = None
         self.wav_file: Any = None
         self._silence_detector: SilenceDetector | None = None
@@ -373,10 +377,23 @@ class AudioRecorder:
                     def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
                         if status:
                             print(status, file=sys.stderr)
-                        if self.state.status != "recording" or not self.wav_file:
-                            return
                         pcm = bytes(indata)
-                        self.wav_file.writeframes(pcm)
+                        with self._wav_lock:
+                            wav = self.wav_file
+                            # Status and the file are read together. Stop nulls
+                            # wav_file under the same lock before close, so a
+                            # chunk cannot pass this check and then write a
+                            # closed file.
+                            if self.state.status != "recording" or wav is None:
+                                return
+                            try:
+                                wav.writeframes(pcm)
+                            except Exception:
+                                # What was wrong: writeframes ran after Stop had
+                                # closed the WAV. The exception aborted the
+                                # PortAudio thread, so later chunks never landed.
+                                log.debug("host recording writeframes failed", exc_info=True)
+                                return
                         detector = self._silence_detector
                         if detector is None or not silence_config.enabled:
                             return
@@ -432,12 +449,9 @@ class AudioRecorder:
                     log.debug("Failed to close stream on StopRecordingEffect: %s", e)
                 self.stream = None
 
-            if self.wav_file is not None:
-                try:
-                    self.wav_file.close()
-                except Exception as e:
-                    log.debug("Failed to close wav_file on StopRecordingEffect: %s", e)
-                self.wav_file = None
+            # stream.stop() returns only after the current callback does, and
+            # that callback no longer holds _wav_lock. Close after that.
+            self._close_host_wav()
             self._silence_detector = None
 
             proc = self._proc
@@ -485,12 +499,34 @@ class AudioRecorder:
         self._apply_event(StopRequestedEvent())
         return self.temp_filename
 
+    def _close_host_wav(self) -> None:
+        """Close the host WAV after the capture callback has dropped it.
+
+        What was wrong: Stop set the recorder idle and then closed wav_file
+        while the PortAudio callback could already be inside writeframes.
+        cleanup's failure path never closed the file, so the mic handle
+        stayed open. This waits for _wav_lock, clears the attribute the
+        callback checks, then closes.
+        """
+        with self._wav_lock:
+            wav = self.wav_file
+            self.wav_file = None
+            if wav is None:
+                return
+            try:
+                wav.close()
+            except Exception as e:
+                log.debug("Failed to close wav_file: %s", e)
+
     def cleanup(self) -> None:
         """Terminate an in-flight recording child (panel teardown)."""
         if self._proc is not None or self.stream is not None or self.state.status in ("initializing", "recording"):
             try:
                 self._apply_event(StopRequestedEvent())
             except Exception:
+                # What was wrong: a failed Stop left the host WAV open. The
+                # callback can still be inside writeframes, so stop the
+                # stream first (that waits for the callback) and close after.
                 terminate_recording_process(self._proc)
                 self._proc = None
                 self._stdout_monitor = None
@@ -505,3 +541,5 @@ class AudioRecorder:
                     except Exception:
                         pass
                     self.stream = None
+                self._close_host_wav()
+                self._silence_detector = None

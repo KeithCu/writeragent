@@ -18,6 +18,8 @@ config:
     default: true
     widget: checkbox
     label: Cache Excel siblings as ODS
+    # Default checkbox width is 120 and clips this caption.
+    width: 220
     helper: >-
       Convert sibling .xlsx/.xls to writeragent_ods_cache/ beside the folder so
       repeated DuckDB SQL reuses the ODS. Native .ods and the live workbook are

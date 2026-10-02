@@ -38,6 +38,12 @@ from plugin.contrib.smolagents.agents import ToolCallingAgent
 
 log = logging.getLogger("writeragent.web_research")
 
+# Page visits and Chrome teardown share this count. Stop shuts the deep pool
+# down without joining, so execute must not kill the browser until forward returns.
+_cdp_visits_cond = threading.Condition()
+_cdp_visits_inflight = 0
+_cdp_closing = False
+
 # Web-research sub-agent only (main chat delegate + web-research checkbox). Facts in plain text;
 # main agent applies HTML, memory colors, and apply_document_content when the user wanted a doc edit.
 WEB_RESEARCH_PLAIN_TEXT_FORMAT = """Research output: plain text only in final_answer.
@@ -229,6 +235,48 @@ class _VisitWebpageDedupTool(Tool):
         return self._inner.forward(url)
 
 
+def _cdp_visit_enter() -> bool:
+    """Count one in-flight page read. False once teardown has started."""
+    global _cdp_visits_inflight
+    with _cdp_visits_cond:
+        if _cdp_closing:
+            return False
+        _cdp_visits_inflight += 1
+        return True
+
+
+def _cdp_visit_leave() -> None:
+    global _cdp_visits_inflight
+    with _cdp_visits_cond:
+        _cdp_visits_inflight = max(0, _cdp_visits_inflight - 1)
+        if _cdp_visits_inflight == 0:
+            _cdp_visits_cond.notify_all()
+
+
+def _finish_cdp_browser() -> None:
+    """Stop local Chrome only after in-flight page visits have left forward.
+
+    What was wrong: Stop shut the deep-research pool down without waiting, and
+    execute's finally terminated Chrome while a worker was still inside
+    Page.navigate. Parallel workers also shared the first open tab, so one
+    navigation replaced the other's page.
+    """
+    global _cdp_closing
+    from plugin.contrib.cdp.browser_cdp_tool import cleanup_local_chrome
+
+    with _cdp_visits_cond:
+        _cdp_closing = True
+        while _cdp_visits_inflight > 0:
+            _cdp_visits_cond.wait()
+    try:
+        cleanup_local_chrome()
+    except Exception as exc:
+        log.warning("Failed to clean up local Chrome process: %s", exc)
+    finally:
+        with _cdp_visits_cond:
+            _cdp_closing = False
+
+
 class VisitWebpageCdpTool(Tool):
     name: str = "visit_webpage"
     description: str = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
@@ -247,21 +295,17 @@ class VisitWebpageCdpTool(Tool):
         import json
         import time
 
+        # Each visit opens and closes its own target. Reusing the first page
+        # tab meant two deep-research workers navigated the same document.
+        if not _cdp_visit_enter():
+            return "Error visiting webpage via CDP: browser is closing"
+        target_id = None
         try:
-            targets_raw = browser_cdp("Target.getTargets")
-            targets_data = json.loads(targets_raw)
-            if not targets_data.get("success"):
-                return f"Failed to list browser targets: {targets_data.get('error')}"
-            
-            targets = targets_data.get("result", {}).get("targetInfos", [])
-            page_target = next((t for t in targets if t.get("type") == "page"), None)
-            if page_target is None:
-                created_raw = browser_cdp("Target.createTarget", {"url": "about:blank"})
-                created_data = json.loads(created_raw)
-                target_id = created_data.get("result", {}).get("targetId")
-            else:
-                target_id = page_target["targetId"]
-                
+            created_raw = browser_cdp("Target.createTarget", {"url": "about:blank"})
+            created_data = json.loads(created_raw)
+            if not created_data.get("success"):
+                return f"Failed to create page target: {created_data.get('error')}"
+            target_id = created_data.get("result", {}).get("targetId")
             if not target_id:
                 return "Failed to find or create page target"
 
@@ -269,27 +313,34 @@ class VisitWebpageCdpTool(Tool):
             nav_data = json.loads(nav_raw)
             if not nav_data.get("success"):
                 return f"Failed to navigate to {url}: {nav_data.get('error')}"
-            
+
             time.sleep(3.0)
-            
+
             eval_raw = browser_cdp(
                 "Runtime.evaluate",
                 {"expression": "document.body.innerText", "returnByValue": True},
-                target_id=target_id
+                target_id=target_id,
             )
             eval_data = json.loads(eval_raw)
             if not eval_data.get("success"):
                 return f"Failed to retrieve page text content: {eval_data.get('error')}"
-            
+
             text = eval_data.get("result", {}).get("result", {}).get("value") or ""
             if not text:
                 text = eval_data.get("result", {}).get("result", {}).get("description") or ""
-                
+
             if len(text) > self.max_output_length:
                 return text[:self.max_output_length] + f"\n..._This content has been truncated to stay below {self.max_output_length} characters_...\n"
             return text
         except Exception as e:
             return f"Error visiting webpage via CDP: {e}"
+        finally:
+            if target_id:
+                try:
+                    browser_cdp("Target.closeTarget", {"targetId": target_id})
+                except Exception:
+                    log.debug("visit_webpage: closeTarget failed for %s", target_id)
+            _cdp_visit_leave()
 
 
 def _run_web_agent(
@@ -403,14 +454,9 @@ def _run_web_agent(
             status_msg = f"Search: {q[:25]}"
         elif step.name == "visit_webpage":
             url = str(step.arguments.get("url", "")) if isinstance(step.arguments, dict) else ""
-            norm_url = _normalize_visit_url(url)
-            if norm_url and params.visited_urls is not None:
-                lock = params.visited_urls_lock
-                if lock:
-                    with lock:
-                        params.visited_urls.add(norm_url)
-                else:
-                    params.visited_urls.add(norm_url)
+            # Do not mark the URL visited here. This handler runs before the
+            # tool, and _VisitWebpageDedupTool.forward treats a URL already in
+            # the set as a skip, so the first fetch never reached the page.
             if params.append_thinking_callback:
                 params.append_thinking_callback(f"Running tool: {step.name} with {{'url': '{url}'}}\n")
             from plugin.framework.url_utils import get_url_domain
@@ -526,6 +572,14 @@ def _run_deep_web_research(
             preview_query = None
         elif query_override is not None:
             preview_query = str(query_override)
+        # The sidebar has one approval slot. A second web_search prompt from a
+        # parallel sub-agent is rejected as USER_STOPPED and aborts the pool.
+        # This preview consumed that slot; later searches run without it.
+        deep_params = replace(
+            deep_params,
+            prompt_for_web_research=False,
+            approval_callback=None,
+        )
 
     initial_snippet = ""
     if preview_query is not None:
@@ -738,9 +792,12 @@ class WebResearchTool(ToolBase):
 
             cache_fields = {}
             if isinstance(final_ans, dict) and "status" in final_ans:
+                # Synthesis notes set cacheable False. A missing flag still
+                # caches a normal ok payload. Pop it so the model does not see it.
+                cacheable = final_ans.pop("cacheable", True)
                 if final_ans.get("status") == "ok":
                     final_ans.setdefault("instruction", instruction)
-                if final_ans.get("status") == "ok" and cache_enabled and cache_path and unique_key:
+                if final_ans.get("status") == "ok" and cacheable and cache_enabled and cache_path and unique_key:
                     try:
                         raw_mb = get_config_int_safe("web_cache_max_mb")
                         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
@@ -768,11 +825,7 @@ class WebResearchTool(ToolBase):
             return out
         finally:
             if cdp_enabled:
-                try:
-                    from plugin.contrib.cdp.browser_cdp_tool import cleanup_local_chrome
-                    cleanup_local_chrome()
-                except Exception as e:
-                    log.warning("Failed to clean up local Chrome process: %s", e)
+                _finish_cdp_browser()
 
 
 def _web_search_query_from_arguments(arguments: Any) -> str:

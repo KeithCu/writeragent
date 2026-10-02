@@ -13,6 +13,16 @@ from plugin.chatbot.settings_fields import (
 )
 
 
+def test_egret_layout_label_keeps_the_comma():
+    """A flow-scalar comma used to end the label at 'slower'."""
+    from plugin._manifest import MODULES
+
+    vision = next(m for m in MODULES if m.get("name") == "vision")
+    options = vision["config"]["layout_model"]["options"]
+    egret = next(opt for opt in options if opt.get("value") == "egret_large")
+    assert egret["label"] == "Egret large (slower, complex docs)"
+
+
 def test_build_module_field_specs_prefixed_and_flat():
     manifest = {
         "name": "scripting",
@@ -72,6 +82,32 @@ def test_apply_field_specs_result_uses_config_key():
     mock_set.assert_called_once_with({"scripting.python_venv_path": "/opt/venv"})
     # set_configs emits when a value changes. This function must not emit again.
     mock_emit.assert_not_called()
+
+
+def test_apply_field_specs_result_maps_translated_label_to_value():
+    specs = [{
+        "name": "scripting__python_session_mode",
+        "config_key": "scripting.python_session_mode",
+        "options": [
+            {"value": "isolated", "label": "Isolated (default)"},
+            {"value": "shared", "label": "Shared kernel"},
+        ],
+    }]
+
+    def _fake_gettext(text: str) -> str:
+        return {"Shared kernel": "Gedeelde kernel"}.get(text, text)
+
+    with (
+        patch("plugin.chatbot.settings_fields.set_configs") as mock_set,
+        patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
+    ):
+        apply_field_specs_result(MagicMock(), {"scripting__python_session_mode": "Gedeelde kernel"}, specs)
+        apply_field_specs_result(MagicMock(), {"scripting__python_session_mode": "Shared kernel"}, specs)
+        apply_field_specs_result(MagicMock(), {"scripting__python_session_mode": "shared"}, specs)
+
+    assert mock_set.call_args_list[0].args[0] == {"scripting.python_session_mode": "shared"}
+    assert mock_set.call_args_list[1].args[0] == {"scripting.python_session_mode": "shared"}
+    assert mock_set.call_args_list[2].args[0] == {"scripting.python_session_mode": "shared"}
 
 
 def test_apply_field_specs_result_skips_unknown_keys():

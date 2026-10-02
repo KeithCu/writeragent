@@ -227,6 +227,28 @@ def test_upsert_rejects_non_json_user_md(tmp_path):
     assert store.read("user") == before
 
 
+def test_upsert_dotted_key_does_not_replace_string(tmp_path):
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore(ctx)
+        store.write("user", json.dumps({"name": "Ada"}))
+        res = tool.execute(ctx, key="name.nickname", content="A")
+        assert res["status"] != "ok"
+        assert json.loads(store.read("user")) == {"name": "Ada"}
+
+
+def test_upsert_null_content_pops_key(tmp_path):
+    ctx = object()
+    tool = MemoryTool()
+    with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        store = MemoryStore(ctx)
+        store.write("user", json.dumps({"name": "Ada", "editor": "vim"}))
+        res = tool.execute(ctx, key="editor", content=None)
+        assert res["status"] == "ok"
+        assert json.loads(store.read("user")) == {"name": "Ada"}
+
+
 def test_upsert_empty_content_pops_key(tmp_path):
     ctx = object()
     tool = MemoryTool()
