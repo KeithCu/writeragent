@@ -297,11 +297,9 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
 
         # Read current actual size *before* we decide.
         before = None
-        current_w = 0
         current_h = 0
         with suppress_disposed("getHeightForWidth getPosSize", logger=log):
             before = self.PanelWindow.getPosSize()
-            current_w = before.Width if before else 0
             current_h = before.Height if before else 0
 
         # Width is negotiated here; height stays whatever LO/deck already allocated.
@@ -310,7 +308,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
 
         # Fill the content box. min(nWidth, parent); 180 AppFont is a leak.
         min_w = self.getMinimalWidth()
-        eff_w = sidebar_column_width(deck_w, parent_w, current_w, min_w=min_w)
+        eff_w = sidebar_column_width(deck_w, parent_w, min_w=min_w)
 
         log.info("getHeightForWidth deck_hint=%s parent=%sx%s current_root=%s eff_W=%s" % (deck_w, parent_w, parent_h, "%sx%s" % (before.Width, before.Height) if before else None, eff_w))
         rl = getattr(self, "resize_listener", None)

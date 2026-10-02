@@ -3,7 +3,7 @@
 import inspect
 import logging
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 
 import pytest
@@ -39,3 +39,18 @@ def test_sync_request_log_omits_query_and_body(caplog):
     assert "?" not in stashed
     assert stashed == "https://api.example/v1/models"
     assert secret in str(raised.value)
+
+
+def test_sync_request_retries_429_then_succeeds():
+    busy = HTTPError("https://api.example/v1/models", 429, "Too Many Requests", hdrs=None, fp=BytesIO(b"busy"))
+    ok = MagicMock()
+    ok.getcode.return_value = 200
+    ok.read.return_value = b'{"data":[]}'
+    ok.__enter__.return_value = ok
+    ok.__exit__.return_value = False
+    with (
+        patch("plugin.framework.client.requests.wait_abortable", return_value=True),
+        patch("plugin.framework.client.requests.urlopen", side_effect=[busy, ok]),
+    ):
+        result = sync_request("https://api.example/v1/models", timeout=1)
+    assert result == {"data": []}

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared AST edits for expression-statement call sites (release strip + Excel PY).
+"""Shared AST edits for expression-statement call sites (release strip).
 
+No plugin module imports this. ``scripts/strip_code.py`` does, at build time.
 Used by [`scripts/strip_code.py`](../../scripts/strip_code.py) to remove
 ``grammar_obs(...)``, logger ``.debug``/``.info``, and most ``print``/``pprint``
 statements from production bundles.

@@ -20,7 +20,7 @@ from plugin.framework.config import (
     reset_config_for_tests,
     set_config,
 )
-from plugin.framework.errors import ConfigError
+from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.constants import get_plugin_dir
@@ -585,12 +585,13 @@ class TestConfigSyncFileIO:
         with open(self.config_path, encoding='utf-8') as f:
             assert f.read() == original
 
-    def test_set_config_invalid_numeric_falls_back_to_current_value(self):
+    def test_set_config_invalid_numeric_raises_and_keeps_file(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'extend_selection_max_tokens': 1200}, f)
         reset_config_for_tests()
 
-        set_config('extend_selection_max_tokens', 'not-a-number')
+        with pytest.raises(ConfigValidationError):
+            set_config('extend_selection_max_tokens', 'not-a-number')
 
         data = self._load_written()
         assert (data.get('extend_selection_max_tokens')) == (1200)

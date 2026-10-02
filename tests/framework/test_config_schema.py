@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from plugin.framework.errors import ConfigValidationError
 from plugin.framework.config_schema import (
     DEFAULT_IMAGE_BASE_SIZE,
     WriterAgentConfig,
@@ -30,7 +31,6 @@ from plugin.framework.config_schema import (
     _get_schema_default,
     _normalize_configured_endpoint,
 )
-from plugin.framework.errors import ConfigValidationError
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "plugin" / "framework" / "config_schema.py"
 _FORBIDDEN_IMPORT_ROOTS = frozenset(
@@ -180,6 +180,8 @@ def test_coerce_and_clamp_use_manifest_schema(restore_manifest) -> None:
     assert clamp_schema_value("demo.count", 1) == 2
     assert clamp_schema_value("demo.count", 99) == 10
     assert coerce_config_value("demo.count", "not-a-number") == 5
+    with pytest.raises(ConfigValidationError):
+        coerce_config_value("demo.count", "not-a-number", strict=True)
     schema = get_config_schema("demo.count")
     assert schema is not None
     assert schema["default"] == 5

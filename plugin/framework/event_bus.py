@@ -184,13 +184,8 @@ class EventBus:
                     continue
                 try:
                     resolved(**data)
-                except TypeError:
-                    log.exception("TypeError in event handler %s for %s", resolved, event)
-                except ValueError:
-                    log.exception("ValueError in event handler %s for %s", resolved, event)
                 except Exception as e:
-                    # Still catch Exception to avoid one bad listener breaking the whole bus,
-                    # but log it clearly as an unhandled application error
+                    # One bad listener must not stop the rest of the fan-out.
                     log.exception("Unhandled error in event handler %s for %s: %s", resolved, event, e)
         finally:
             active.discard(token)

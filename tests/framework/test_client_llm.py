@@ -6,7 +6,7 @@ import pytest
 
 from plugin.framework.client.auth import AuthError
 from plugin.framework.client.llm_client import LlmClient, strip_leaked_chat_template_control_tokens
-from plugin.framework.client.request_controls import reset_host_pacing_for_tests
+from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.tests.testing_utils import MockContext, create_mock_http_response
 
@@ -36,6 +36,7 @@ def client(default_config, mock_ctx):
 def _fast_retry_waits():
     """Backoff must not sleep in unit tests; still assert call sites separately."""
     reset_host_pacing_for_tests()
+    reset_local_unverified_hosts_for_tests()
     with (
         patch("plugin.framework.client.llm_client.wait_abortable", return_value=True) as llm_wait,
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as transport_wait,
@@ -2151,6 +2152,63 @@ def test_stream_reset_before_tokens_retries_once(client):
         )
     assert result["content"] == "Recovered"
     assert mock_https.call_count == 2
+
+
+def test_stream_reset_after_think_tag_is_connection_lost(client):
+    """<think> text already reached on_thinking. A reset must not retry that block."""
+    resp = create_mock_http_response(
+        sse_lines=[f'data: {json.dumps({"choices": [{"delta": {"content": "<think>because"}}]})}'.encode()],
+        iter_side_effect=ConnectionResetError("reset during think"),
+    )
+    thinking: list[str] = []
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        with pytest.raises(NetworkError) as err:
+            client.stream_chat_response(
+                [{"role": "user", "content": "Hi"}],
+                max_tokens=10,
+                append_callback=lambda _t: None,
+                append_thinking_callback=thinking.append,
+            )
+    assert err.value.code == "CONNECTION_LOST"
+    assert thinking == ["because"]
+    assert mock_https.call_count == 1
+
+
+def test_stream_provider_error_event_is_stream_error(client):
+    """An error object inside HTTP 200 is not a successful empty answer."""
+    resp = create_mock_http_response(
+        sse_lines=[b'data: {"error": {"message": "model exploded", "type": "server_error"}}', b"data: [DONE]"],
+    )
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        with pytest.raises(NetworkError) as err:
+            client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert err.value.code == "STREAM_ERROR"
+
+
+def test_stream_overloaded_before_tokens_retries(client, _fast_retry_waits):
+    bad = create_mock_http_response(sse_lines=[b'data: {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}'])
+    ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, bad, ok)
+        result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert result["content"] == "Recovered"
+    assert mock_https.call_count == 2
+
+
+def test_stream_usage_only_chunk_reaches_result(client):
+    lines = [
+        *_sse_content_lines("Hi")[:-1],
+        b'data: {"choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 1}}',
+        b"data: [DONE]",
+    ]
+    resp = create_mock_http_response(sse_lines=lines)
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert result["content"] == "Hi"
+    assert result["usage"]["prompt_tokens"] == 3
 
 
 def test_stream_reset_after_content_is_connection_lost(client):

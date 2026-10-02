@@ -108,8 +108,8 @@ class ServiceRegistry:
     Usage::
 
         services = ServiceRegistry()
-        services.register(my_document_service)
-        services.register(my_config_service)
+        services.register("document", my_document_service)
+        services.register("config", my_config_service)
 
         # Access by name:
         services.document.build_heading_tree(doc)

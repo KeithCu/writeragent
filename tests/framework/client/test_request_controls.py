@@ -20,12 +20,14 @@ from plugin.framework.client.request_controls import (
     remember_host_gap,
     request_model_from_body,
     reset_host_pacing_for_tests,
+    reset_local_unverified_hosts_for_tests,
     wait_abortable,
 )
 
 
 def setup_function() -> None:
     reset_host_pacing_for_tests()
+    reset_local_unverified_hosts_for_tests()
 
 
 def test_request_pacer_sleeps_for_back_to_back_sends():
@@ -52,6 +54,11 @@ def test_local_https_certificate_fallback_only_enables_for_local_cert_errors():
     assert fallback.enable_if_applicable("api.openai.com", ssl.SSLCertVerificationError("self-signed certificate")) is False
     assert fallback.enable_if_applicable("localhost", OSError("connection reset")) is False
     assert fallback.ssl_mode_for("http", "localhost") == "plain"
+    # The next client must not pay the failed handshake again.
+    assert LocalHttpsCertificateFallback().ssl_mode_for("https", "localhost") == "unverified"
+    # A dotless name is not local. Search-domain names must stay verified.
+    assert fallback.enable_if_applicable("ollama-box", ssl.SSLCertVerificationError("self-signed certificate")) is False
+    assert fallback.ssl_mode_for("https", "ollama-box") == "verified"
 
 
 def test_parse_retry_after_seconds_and_http_date():

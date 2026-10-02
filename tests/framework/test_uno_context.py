@@ -1018,3 +1018,10 @@ def test_clear_writer_body_survives_a_hostile_doc():
     doc.getText.side_effect = RuntimeError("disposed")
     assert clear_writer_body(doc) is False
     assert clear_writer_body(None) is False
+
+
+def test_doc_identity_url_repairs_file_slash_without_changing_normalize():
+    from plugin.framework.uno_context import _doc_identity_url, normalize_doc_url
+
+    assert normalize_doc_url("file:/tmp/note.odt") == "file:/tmp/note.odt"
+    assert _doc_identity_url("file:/tmp/note.odt") == _doc_identity_url("file:///tmp/note.odt")

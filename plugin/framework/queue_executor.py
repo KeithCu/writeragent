@@ -14,8 +14,9 @@ into the VCL event loop. The HTTP thread blocks on a threading.Event
 until the main thread has executed the work item and stored the result.
 
 If AsyncCallback is unavailable off the main thread, execute() raises
-RuntimeError instead of calling the function on the caller. post() drops
-the callback when the caller is a background task; it does not run it there.
+RuntimeError instead of calling the function on the caller. post() keeps a
+short pending list and flushes it once AsyncCallback exists; it does not
+run the callback on the background thread.
 
 Concurrency: ``_claim_lock`` decides whether a timed-out waiter or the
 main thread “owns” a queued function so UNO does not run after the
@@ -334,6 +335,7 @@ class QueueExecutor:
     _callback_instance: Any
     _init_lock: threading.Lock
     _claim_lock: threading.Lock
+    _pending_lock: threading.Lock
     _initialized: bool
     _logged_missing_ctx: bool
     _logged_async_callback_failure: bool
@@ -350,6 +352,8 @@ class QueueExecutor:
         self._initialized = False
         self._logged_missing_ctx = False
         self._logged_async_callback_failure = False
+        self._pending_posts: list[tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any]]] = []
+        self._pending_lock = threading.Lock()
 
     def set_context(self, ctx: Any) -> None:
         """Update or set the UNO component context (e.g. at bootstrap)."""
@@ -365,6 +369,21 @@ class QueueExecutor:
                 self._initialized = False
                 self._async_callback_service = None
                 self._callback_instance = None
+        # Do not create AsyncCallback here. A new context must stay uninitialized
+        # until the next marshal. Flush only when a callback is already live
+        # (same context). _get_async_callback takes _init_lock; calling it while
+        # that lock is held deadlocks bootstrap.
+        self._flush_pending_posts()
+
+    def _flush_pending_posts(self) -> None:
+        """Enqueue posts that arrived before AsyncCallback existed."""
+        if not self._initialized or self._async_callback_service is None:
+            return
+        with self._pending_lock:
+            pending = self._pending_posts
+            self._pending_posts = []
+        for fn, args, kwargs in pending:
+            self._enqueue_work(fn, args, kwargs, blocking=False)
 
     def _get_async_callback(self) -> Any:
         """Lazily create the AsyncCallback UNO service and XCallback instance."""
@@ -674,6 +693,7 @@ class QueueExecutor:
                 log.exception("%s %s", msg, tag)
                 raise
 
+        self._flush_pending_posts()
         log.debug("marshal route=enqueue fn=%s %s", fn_label, tag)
         item = self._enqueue_work(fn, args, kwargs, blocking=True)
         return self._wait_for_result(item, timeout)
@@ -709,9 +729,17 @@ class QueueExecutor:
                 log.debug("marshal route=post_inline_logical_main fn=%s %s", fn_label, tag)
                 fn(*args, **kwargs)
                 return
-            log.warning("marshal route=post_dropped (AsyncCallback unavailable, background task %r) fn=%s %s", bg_task, fn_label, tag)
+            # What was wrong: post() returned after a warning, so icon and
+            # status updates from before set_context never ran.
+            with self._pending_lock:
+                if len(self._pending_posts) < 32:
+                    self._pending_posts.append((fn, args, kwargs))
+                    log.debug("marshal route=post_pending fn=%s %s", fn_label, tag)
+                    return
+            log.warning("marshal route=post_dropped (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, tag)
             return
 
+        self._flush_pending_posts()
         log.debug("marshal route=post_enqueue fn=%s %s", fn_label, tag)
         self._enqueue_work(fn, args, kwargs, blocking=False)
 

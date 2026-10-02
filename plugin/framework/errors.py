@@ -557,15 +557,26 @@ def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
     return True
 
 
-# Three wrappers, three jobs: safe_uno_call is for probes (RuntimeException is
-# not disposal — return default). handle_errors / safe_call are for real
-# operations (RuntimeException usually means the object is gone).
+def _is_real_disposal(exc: BaseException) -> bool:
+    """True only for DisposedException / DocumentDisposedError.
+
+    A bare UNO RuntimeException on a live document is a real error. Mapping it
+    to DocumentDisposedError made is_tool_document_disposed skip the live-doc
+    check and report "Document was closed".
+    """
+    return isinstance(exc, DocumentDisposedError) or "DisposedException" in type(exc).__name__
+
+
+# safe_uno_call is for probes (any failure returns default, except real disposal).
+# handle_errors / safe_call wrap real operations. Both treat only DisposedException
+# as disposal. suppress_disposed still uses the broad is_disposed_exception heuristic.
 def safe_uno_call(default: Any = None) -> Any:
     """Decorator to safely call UNO methods with automatic error handling, returning default on failure (disposal exceptions re-raised).
 
-    Unlike :func:`handle_errors` / :func:`safe_call`, a UNO ``RuntimeException``
-    is *not* treated as disposal here: probes (e.g. ``doc_type``) must fall back
-    to ``default``. Re-raise only ``DisposedException`` / ``DocumentDisposedError``.
+    A UNO ``RuntimeException`` is not disposal: probes return ``default``, and
+    :func:`safe_call` / :func:`handle_errors` wrap it as ``UnoObjectError`` /
+    ``ToolExecutionError``. Re-raise only ``DisposedException`` /
+    ``DocumentDisposedError``.
     See ``docs/framework/uno-thread-safety.md`` and
     ``test_safe_uno_call_returns_default_on_runtime_error``.
     """
@@ -578,9 +589,8 @@ def safe_uno_call(default: Any = None) -> Any:
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                e_name = type(e).__name__
                 # Do not add "RuntimeException": that is a probe failure, not disposal.
-                if "DisposedException" in e_name or isinstance(e, DocumentDisposedError):
+                if _is_real_disposal(e):
                     raise DocumentDisposedError(f"UNO object disposed during {func.__name__}", object_type=func.__name__, details={"args": str(args), "kwargs": str(kwargs), "original_error": str(e)}) from e
                 logging.getLogger("writeragent.errors").debug("safe_uno_call: %s failed (%s), returning default %r", func.__name__, e, default)
                 return default
@@ -606,9 +616,10 @@ def handle_errors(context_name: str) -> Any:
                 # We catch Exception here because pyuno bridge exceptions don't always inherit from Python's standard Exception cleanly in all builds,
                 # but catching Exception is the standard way to grab them. We immediately wrap it.
                 e_name = type(e).__name__
-                # Real operations: UNO RuntimeException usually means the object is gone.
-                # Contrast safe_uno_call, which returns default for that name (probes).
-                if is_disposed_exception(e):
+                # What was wrong: is_disposed_exception matches any RuntimeException
+                # name, so a live-document failure became DocumentDisposedError and
+                # skipped the live-doc check in is_tool_document_disposed.
+                if _is_real_disposal(e):
                     raise DocumentDisposedError(f"UNO object disposed during {context_name}", object_type=context_name, details={"original_error": str(e)}) from e
                 else:
                     raise ToolExecutionError(f"{context_name} failed: {e}", code="INTERNAL_ERROR", details={"error": str(e), "type": e_name}) from e
@@ -623,9 +634,11 @@ def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
     try:
         return fn(*args, **kwargs)
     except Exception as e:
-        # Real UNO calls: RuntimeException ≈ disposed. safe_uno_call does not.
+        # What was wrong: is_disposed_exception treated RuntimeException as
+        # disposal. A live document then looked closed. Only DisposedException
+        # is disposal; other UNO failures stay UnoObjectError.
         e_name = type(e).__name__
-        if is_disposed_exception(e):
+        if _is_real_disposal(e):
             raise DocumentDisposedError(f"UNO object disposed during {context_name}", object_type=context_name, details={"original_error": str(e)}) from e
 
         # We catch Exception here because pyuno bridge exceptions don't always inherit from Python's standard Exception cleanly in all builds,

@@ -19,8 +19,8 @@ from plugin.framework.service import ServiceBase
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.errors import ConfigError, ConfigValidationError
 
-from plugin.framework.config import get_config, set_config, remove_config, get_config_dict, get_current_endpoint, set_api_key_for_endpoint, parse_config_json_text, _load_config_dict, _write_config_file, AI_SIMPLE_FIELDS
-from plugin.framework.config_schema import WriterAgentConfig, get_manifest_modules
+from plugin.framework.config import get_config, set_config, remove_config, get_config_dict, get_current_endpoint, set_api_key_for_endpoint, parse_config_json_text, _config_write_lock, _load_config_dict, _stage_config_assignment, _validate_config_data, _write_config_file, AI_SIMPLE_FIELDS
+from plugin.framework.config_schema import get_manifest_modules
 
 # get_stt_model / set_image_model / set_text_model stay inside the ai.* branches.
 # What was wrong: importing them here pulled model_fetcher whenever ConfigService
@@ -199,11 +199,16 @@ class ConfigService(ServiceBase):
             if val is not None:
                 return val
         except ConfigError:
-            pass
+            val = None
 
-        if key not in self._defaults:
+        # A caller-supplied default wins over a registered None default.
+        # Otherwise get("mcp.tool_exposure_mode", "delegate") returned None
+        # when the key was registered with default None.
+        if default is not None:
             return default
-        return self._defaults[key]
+        if key in self._defaults:
+            return self._defaults[key]
+        return default
 
     def set(self, key: str, value: Any, caller_module: str | None = None) -> None:
         """Set a config value."""
@@ -248,25 +253,23 @@ class ConfigService(ServiceBase):
                     set_config(field, value, event_key=key)
                 return
 
-        # Test fallback
+        # Test fallback. Same staging and lock as set_config so a test file
+        # cannot skip coercion or race a production write.
         if self._config_path:
-            if os.path.exists(self._config_path):
-                data = _load_config_dict(self._config_path, allow_repair=True, persist_repair=False)
-            else:
-                data = {}
-            test_data = dict(data)
-            test_data[key] = value
             try:
-                test_config = WriterAgentConfig.from_dict(test_data)
-                test_config.validate()
-                data = test_config.to_dict()
-            except ConfigValidationError as e:
-                raise e
-            except Exception as e:
-                raise ConfigValidationError(f"Invalid configuration value for {key}: {e}") from e
-
-            try:
-                _write_config_file(self._config_path, data)
+                with _config_write_lock:
+                    if os.path.exists(self._config_path):
+                        data = _load_config_dict(self._config_path, allow_repair=True, persist_repair=False)
+                    else:
+                        data = {}
+                    changed, _coerced, _previous = _stage_config_assignment(data, key, value)
+                    if changed:
+                        data = _validate_config_data(data, key)
+                        _write_config_file(self._config_path, data)
+            except ConfigValidationError:
+                raise
+            except ConfigError:
+                raise
             except OSError as exc:
                 # What was wrong: a failed replace was logged and config:changed
                 # still fired, so listeners reloaded a file that did not have

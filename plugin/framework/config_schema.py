@@ -697,12 +697,21 @@ def clamp_schema_value(key: str, value: Any) -> Any:
     return numeric_value
 
 
-def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_VALUE) -> Any:
+def _strict_bool_ok(value: Any) -> bool:
+    if type(value) in (bool, int, float):
+        return True
+    if type(value) is str:
+        return value.strip().lower() in ("", "0", "1", "true", "false", "yes", "no", "on", "off")
+    return False
+
+
+def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_VALUE, strict: bool = False) -> Any:
     """Coerce a config value according to its schema and canonicalize options.
 
-    Invalid numeric/list values use ``fallback_value`` when supplied (used by
-    ``set_config`` to preserve the previous saved value), otherwise the schema
-    default. Unknown keys are returned unchanged.
+    Invalid numeric/list values use ``fallback_value`` when supplied (load and
+    repair), otherwise the schema default. ``strict=True`` (``set_config``)
+    raises ``ConfigValidationError`` instead of silently keeping the previous
+    value. Unknown keys are returned unchanged.
     """
     schema = get_config_schema(key)
     if not schema:
@@ -711,19 +720,27 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
     value = _canonicalize_schema_option_value(schema, value)
     schema_type = _normalize_schema_type(schema.get("type"))
 
+    def _invalid(reason: str) -> Any:
+        if strict:
+            raise ConfigValidationError(f"Invalid configuration value for {key}: {reason}", code="CONFIG_INVALID_VALUE", details={"key": key, "value": value})
+        fallback = _fallback_value_for_invalid(key, schema, fallback_value)
+        return fallback
+
     if schema_type == "int":
         try:
             value = parse_int_robust(value)
         except ValueError:
-            fallback = _fallback_value_for_invalid(key, schema, fallback_value)
+            fallback = _invalid("not an integer")
             return fallback if fallback is not _MISSING_VALUE else value
     elif schema_type == "float":
         try:
             value = parse_float_robust(value)
         except ValueError:
-            fallback = _fallback_value_for_invalid(key, schema, fallback_value)
+            fallback = _invalid("not a number")
             return fallback if fallback is not _MISSING_VALUE else value
     elif schema_type == "boolean":
+        if strict and not _strict_bool_ok(value):
+            raise ConfigValidationError(f"Invalid configuration value for {key}: not a boolean", code="CONFIG_INVALID_VALUE", details={"key": key, "value": value})
         value = as_bool(value)
     elif schema_type == "list":
         if isinstance(value, list):
@@ -731,14 +748,14 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
         elif isinstance(value, str) and value.strip():
             value = [value.strip()]
         else:
-            fallback = _fallback_value_for_invalid(key, schema, fallback_value)
+            fallback = _invalid("not a list")
             if fallback is not _MISSING_VALUE:
                 value = fallback if isinstance(fallback, list) else [fallback]
             else:
                 value = []
     elif schema_type == "string":
         if value is None:
-            fallback = _fallback_value_for_invalid(key, schema, fallback_value)
+            fallback = _invalid("missing string")
             value = fallback if fallback is not _MISSING_VALUE else ""
         else:
             value = str(value)

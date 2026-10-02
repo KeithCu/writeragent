@@ -449,7 +449,8 @@ class TestExecute:
         ctx = _make_ctx("writer")
         result = reg.execute("type_checker", ctx, text=["not", "a", "string"])
         assert result["status"] == "error"
-        assert "text must be a string" in result.get("message", "")
+        assert result.get("code") == "VALIDATION_ERROR"
+        assert "Invalid type for text" in result.get("message", "")
 
 class TestExcludeSpecializedTiers:
     def test_default_excludes_specialized_tier(self):

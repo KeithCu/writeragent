@@ -65,12 +65,19 @@ def document_scripts_identity(doc: Any) -> str:
 
 
 def get_active_document_for_scripts(ctx: Any) -> Any | None:
+    """Active Writer, Calc, or Draw model.
+
+    Uses ``get_active_document`` so a disposed document is not reported as
+    Start Center (``None``). ``None`` remains the answer when nothing is open
+    or the active component is another type.
+    """
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.framework.uno_context import get_active_document
+
     try:
-        desktop = get_desktop(ctx)
-        doc = desktop.getCurrentComponent()
-    except Exception:
-        log.debug("document_scripts: could not resolve active document", exc_info=True)
-        return None
+        doc = get_active_document(ctx)
+    except DocumentDisposedError:
+        raise
     if doc is None:
         return None
     if is_writer(doc) or is_calc(doc) or is_draw(doc):

@@ -35,6 +35,7 @@ docs/framework/threading.md.
 from __future__ import annotations
 
 import codecs
+import contextvars
 import logging
 import os
 import queue
@@ -100,6 +101,11 @@ class BackgroundHandle:
         fut = self._future
         if fut is None:
             return
+        # What was wrong: join() from a wa-bg-* pool thread waits on a Future
+        # that only another pool worker can finish. With two workers both
+        # blocked in join, the pool deadlocks and the timeout hides it.
+        if threading.current_thread().name.startswith("wa-bg-"):
+            raise RuntimeError("join() of a pooled job from a pool thread would deadlock the background pool")
         try:
             fut.result(timeout=timeout)
         except FuturesTimeoutError:
@@ -234,6 +240,11 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
     :return: A :class:`BackgroundHandle` with ``join`` / ``is_alive``.
     """
 
+    # Stop cancellation is a contextvar on the send thread. Pool and dedicated
+    # workers did not inherit it, so marshal items they enqueued had scope None
+    # and survived cancel_pending_work.
+    caller_ctx = contextvars.copy_context()
+
     def _worker() -> Any:
         task_id = str(uuid.uuid4())
         task_name = name or getattr(func, "__name__", "anon")
@@ -263,14 +274,17 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
         finally:
             thread_guard.set_background_task(None)
 
+    def _run_in_caller_context() -> Any:
+        return caller_ctx.run(_worker)
+
     use_dedicated = dedicated or (daemon is False)
     if use_dedicated:
         thread_name = name or f"worker-{getattr(func, '__name__', 'anon')}"
-        t = threading.Thread(target=_worker, name=thread_name, daemon=daemon)
+        t = threading.Thread(target=_run_in_caller_context, name=thread_name, daemon=daemon)
         t.start()
         return BackgroundHandle(thread=t)
 
-    fut = _get_pool().submit(_worker)
+    fut = _get_pool().submit(_run_in_caller_context)
     return BackgroundHandle(future=fut)
 
 

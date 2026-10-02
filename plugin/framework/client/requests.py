@@ -13,8 +13,8 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from plugin.framework.constants import USER_AGENT
 from plugin.framework.errors import NetworkError
-from .request_controls import LocalHttpsCertificateFallback
-from .ssl_helpers import get_verified_ssl_context, get_unverified_ssl_context
+from .request_controls import RETRY_MAX_ATTEMPTS, RETRYABLE_HTTP_STATUS, LocalHttpsCertificateFallback, backoff_delay_sec, parse_retry_after, wait_abortable
+from .ssl_helpers import _is_certificate_verify_error, get_verified_ssl_context, get_unverified_ssl_context
 from plugin.framework.errors import format_error_message
 from .errors import _format_http_error_response
 
@@ -84,44 +84,58 @@ def sync_request(url: str | Request, data: bytes | None = None, headers: dict[st
                 return json.loads(raw.decode("utf-8"))
             return raw
 
-    # Always verify first. Local self-signed hosts retry unverified below.
-    ctx = get_verified_ssl_context()
-    try:
-        return _read_with_context(ctx)
-    except urllib.error.HTTPError as e:
+    # Always verify first unless this process already recorded a local cert failure.
+    cert_fallback = LocalHttpsCertificateFallback()
+    ctx = get_unverified_ssl_context() if is_https and cert_fallback.ssl_mode_for("https", host) == "unverified" else get_verified_ssl_context()
+    sends_left = RETRY_MAX_ATTEMPTS
+    attempt = 0
+
+    def _http_error(e: urllib.error.HTTPError) -> NetworkError:
         status = e.code
         reason = e.reason
         try:
             err_body = e.read().decode("utf-8", errors="replace")
         except Exception:
             err_body = ""
-
         msg = _format_http_error_response(status, reason, err_body)
         # Status and target only. ``msg`` includes the provider body, which can
         # echo a key; the NetworkError still carries the full text for the UI.
         log.exception("HTTP Error %s %s for %s", status, reason, logged_target)
-        raise NetworkError(msg, code="HTTP_ERROR", details={"url": logged_target, "status": status}) from e
-    except NetworkError:
-        raise
-    except Exception as e:
-        # Fresh instance: this call still tries verified TLS first. Remembering the
-        # host here would change the next sync_request. enable_if_applicable logs.
-        cert_fallback = LocalHttpsCertificateFallback()
-        if is_https and cert_fallback.enable_if_applicable(host, e):
-            try:
-                return _read_with_context(get_unverified_ssl_context())
-            except urllib.error.HTTPError as retry_http_e:
-                status = retry_http_e.code
-                reason = retry_http_e.reason
-                try:
-                    err_body = retry_http_e.read().decode("utf-8", errors="replace")
-                except Exception:
-                    err_body = ""
-                msg = _format_http_error_response(status, reason, err_body)
-                log.exception("HTTP Error %s %s for %s", status, reason, logged_target)
-                raise NetworkError(msg, code="HTTP_ERROR", details={"url": logged_target, "status": status}) from retry_http_e
-            except Exception as retry_e:
-                log.exception("Request retry failed: %s", format_error_message(retry_e))
-                raise NetworkError(format_error_message(retry_e), details={"url": logged_target}) from retry_e
-        log.exception("Request failed: %s", format_error_message(e))
-        raise NetworkError(format_error_message(e), details={"url": logged_target}) from e
+        return NetworkError(msg, code="HTTP_ERROR", details={"url": logged_target, "status": status})
+
+    while True:
+        try:
+            return _read_with_context(ctx)
+        except urllib.error.HTTPError as e:
+            if e.code in RETRYABLE_HTTP_STATUS and sends_left > 1:
+                sends_left -= 1
+                attempt += 1
+                retry_after = None
+                headers_obj = getattr(e, "headers", None)
+                if headers_obj is not None:
+                    retry_after = parse_retry_after(headers_obj.get("Retry-After"))
+                delay = backoff_delay_sec(attempt=attempt, retry_after_sec=retry_after)
+                # Catalog and update checks have no Stop callback. Chat stays on LlmHttpTransport.
+                wait_abortable(delay, None)
+                continue
+            raise _http_error(e) from e
+        except NetworkError:
+            raise
+        except Exception as e:
+            if is_https and cert_fallback.enable_if_applicable(host, e):
+                ctx = get_unverified_ssl_context()
+                continue
+            # A public cert failure must not be retried as a generic connection
+            # error, and must not switch this URL to unverified TLS.
+            if _is_certificate_verify_error(e):
+                log.exception("Request failed: %s", format_error_message(e))
+                raise NetworkError(format_error_message(e), details={"url": logged_target}) from e
+            retryable = isinstance(e, (TimeoutError, ConnectionError, OSError)) or (isinstance(e, urllib.error.URLError) and not isinstance(e, urllib.error.HTTPError))
+            if retryable and sends_left > 1:
+                sends_left -= 1
+                attempt += 1
+                delay = backoff_delay_sec(attempt=attempt)
+                wait_abortable(delay, None)
+                continue
+            log.exception("Request failed: %s", format_error_message(e))
+            raise NetworkError(format_error_message(e), details={"url": logged_target}) from e

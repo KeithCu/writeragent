@@ -77,16 +77,17 @@ def _candidate_windows(ctx: Any = None) -> list[Any]:
     except Exception:
         pass
     try:
-        from plugin.framework.uno_context import desktop_create_is_unsafe, get_ctx, get_service_manager
+        from plugin.framework.uno_context import desktop_create_is_unsafe, get_ctx, get_desktop
 
         if desktop_create_is_unsafe():
             return wins
         if ctx is None:
             ctx = get_ctx()
-        sm = get_service_manager(ctx)
-        if sm is None:
+        # What was wrong: this created Desktop itself, bypassing get_desktop's
+        # no-VCL guard (#768).
+        desktop = get_desktop(ctx)
+        if desktop is None:
             return wins
-        desktop = sm.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
         frames_to_try: list[Any] = []
         try:
             active = desktop.getActiveFrame()

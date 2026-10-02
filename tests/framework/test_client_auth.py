@@ -176,6 +176,17 @@ def test_resolve_auth_for_config_local_no_api_key(mock_get_provider, mock_normal
 
 @patch("plugin.framework.client.auth.normalize_endpoint_url")
 @patch("plugin.framework.client.auth.get_provider_from_endpoint")
+def test_resolve_auth_for_config_lmstudio_no_api_key(mock_get_provider, mock_normalize):
+    mock_normalize.return_value = "http://localhost:1234"
+    mock_get_provider.return_value = "lmstudio"
+    result = resolve_auth_for_config({"endpoint": "http://localhost:1234", "api_key": ""})
+    assert result["provider"] == "lmstudio"
+    assert result["header_style"] == "none"
+    assert result["api_key"] == ""
+
+
+@patch("plugin.framework.client.auth.normalize_endpoint_url")
+@patch("plugin.framework.client.auth.get_provider_from_endpoint")
 def test_resolve_auth_for_config_custom_no_api_key(mock_get_provider, mock_normalize):
     mock_normalize.return_value = "http://my-custom-endpoint:8080/v1"
     mock_get_provider.return_value = None

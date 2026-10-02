@@ -104,18 +104,16 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         parent_w = parent_rect.Width
         parent_h = parent_rect.Height
         current_h = 0
-        current_w = 0
         with suppress_disposed("getHeightForWidth getPosSize", logger=log):
             before = self.PanelWindow.getPosSize()
             current_h = before.Height if before else 0
-            current_w = before.Width if before else 0
         if current_h <= 0:
             current_h = parent_h if parent_h > 0 else 400
 
         # Fill the content box. min(nWidth, parent); 180 AppFont is a leak.
         # Do not cap at 800px: HiDPI columns are often 900+.
         min_w = self.getMinimalWidth()
-        eff_w = sidebar_column_width(width, parent_w, current_w, min_w=min_w)
+        eff_w = sidebar_column_width(width, parent_w, min_w=min_w)
 
         log.info("[LIBREPY LAYOUT] getHeightForWidth deck_hint=%s parent=%sx%s eff_w=%s", width, parent_w, parent_h, eff_w)
         with suppress_disposed("getHeightForWidth setPosSize", logger=log):

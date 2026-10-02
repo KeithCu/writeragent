@@ -592,7 +592,9 @@ def _stage_config_assignment(config_data: dict[str, Any], key: str, value: Any) 
     """
     current_value = _raw_config_value_for_key(config_data, key)
     previous = None if current_value is _config_schema._MISSING_VALUE else current_value
-    coerced = _config_schema.coerce_config_value(key, value, fallback_value=current_value)
+    # strict: an unparseable write must not look like success by snapping back
+    # to the previous value. Load/repair stays non-strict.
+    coerced = _config_schema.coerce_config_value(key, value, fallback_value=current_value, strict=True)
     # Unchanged means the coerced value already matches what is on disk.
     # A present key compares to the stored value. An omitted key is not
     # stored as None: dict.get returns None, None != the schema default,

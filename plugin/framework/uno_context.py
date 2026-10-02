@@ -854,11 +854,26 @@ def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, pol
     return True
 
 
+def _doc_identity_url(url: Any) -> str:
+    """Comparison key for resolve-by-URL.
+
+    Repairs ``file:/`` to ``file:///`` before :func:`normalize_doc_url`. The
+    identity function itself stays unrepaired so MCP and script keys do not change.
+    """
+    raw = str(url or "").strip()
+    if raw.startswith("file:"):
+        from plugin.doc.text_helpers import normalize_file_url
+
+        raw = normalize_file_url(raw)
+    return normalize_doc_url(raw)
+
+
 def normalize_doc_url(url: Any) -> str:
     """Normalize document URL for comparison (strip, optional trailing slash).
 
     Shared by resolve-by-URL, MCP doc keys, and document-script stale detection.
     Does not repair ``file:/`` vs ``file:///`` — that is ``text_helpers.normalize_file_url``.
+    Resolve compares via :func:`_doc_identity_url`, which repairs first.
     """
     if not url:
         return ""
@@ -969,7 +984,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
         return (None, None)
     from plugin.doc import doc_type as _doc_type
 
-    target = normalize_doc_url(url)
+    target = _doc_identity_url(url)
     try:
         desktop = get_desktop(ctx)
         comps = desktop.getComponents()
@@ -991,7 +1006,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                     if controller is not None and hasattr(controller, "getModel"):
                         model = controller.getModel()
                 if model is not None:
-                    doc_url = normalize_doc_url(model.getURL()) if hasattr(model, "getURL") else ""
+                    doc_url = _doc_identity_url(model.getURL()) if hasattr(model, "getURL") else ""
                     uid = get_runtime_uid(model)
                     if (doc_url and doc_url == target) or (uid and uid == target):
                         doc_type_enum = _doc_type.get_document_type(model)

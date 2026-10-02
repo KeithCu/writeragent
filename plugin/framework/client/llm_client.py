@@ -108,6 +108,31 @@ def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
     return chunk.get("type") in _ANTHROPIC_STREAM_TYPES
 
 
+def _stream_error_message(chunk: dict[str, Any]) -> str | None:
+    """Provider error carried inside an HTTP 200 SSE object, or None.
+
+    ``error: null`` and an empty error object are not failures. A real
+    ``{"type":"error"}`` or a non-empty top-level ``error`` object is.
+    """
+    err = chunk.get("error")
+    if isinstance(err, dict) and err:
+        message = err.get("message") or err.get("type") or "stream error"
+        return str(message)
+    if isinstance(err, str) and err.strip():
+        return err.strip()
+    event_type = chunk.get("type")
+    if event_type == "error" or (isinstance(event_type, str) and event_type.endswith("_error")):
+        return str(event_type)
+    return None
+
+
+def _stream_error_is_overload(message: str) -> bool:
+    """True when a mid-stream error is worth one retry before any UI text."""
+    low = message.lower()
+    markers = ("overload", "rate_limit", "rate limit", "too many", "429", "503", "unavailable")
+    return any(marker in low for marker in markers)
+
+
 def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
     """Parse encoded chat JSON for diagnostics. Empty dict if unreadable."""
     if not body:
@@ -367,6 +392,35 @@ class LlmClient:
         err_msg = append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
         raise NetworkError(err_msg, code="HTTP_ERROR", details={"url": path, "status": response.status})
 
+    def _send_http_attempt(self, method: str, path: str, body: Any, headers: dict[str, str], *, sends_left: int, wait_index: int, emitted_any: bool, stop_checker: Any, status_callback: Any) -> tuple[str, Any, int, int]:
+        """One send. ``('ok', response, ...)`` on HTTP 200.
+
+        ``('retry', None, ...)`` after a bounded 429/503 wait.
+        ``('stop', None, ...)`` when Stop aborted that wait.
+        Raises ``NetworkError`` on a terminal HTTP status.
+
+        Connection errors stay with the caller: a mid-stream reset is caught
+        around the body read, not only around this send.
+        """
+        response = self._send_request(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
+        if response.status != 200:
+            sends_left -= 1
+            wait_index += 1
+            action = self._retry_or_raise_http_error(response, body, path, retries_left=sends_left, emitted_any=emitted_any, stop_checker=stop_checker, status_callback=status_callback, attempt=wait_index)
+            if action == "stop":
+                return "stop", None, sends_left, wait_index
+            return "retry", None, sends_left, wait_index
+        if wait_index == 0:
+            clear_host_gap(pacing_key(self._current_host(), request_model_from_body(body)))
+        return "ok", response, sends_left, wait_index
+
+    def _after_connection_error(self, err: Exception, *, path: str, body: Any, sends_left: int, wait_index: int, stop_checker: Any, status_callback: Any, retry_log_message: str) -> tuple[str, int, int]:
+        """Shared connection-error budget. Returns ``('retry'|'stop', sends_left, wait_index)``."""
+        sends_left -= 1
+        wait_index += 1
+        action = self._transport.handle_connection_error(err, path=path, retries_left=sends_left, retry_log_message=retry_log_message, stop_checker=stop_checker, status_callback=status_callback, attempt=wait_index, model=request_model_from_body(body))
+        return action, sends_left, wait_index
+
     def stop(self) -> None:
         """Abort the in-flight request: latch + close socket (even if not open yet).
 
@@ -526,19 +580,11 @@ class LlmClient:
             try:
                 if self._stopped:
                     raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-                response = self._send_request(method, path, body, headers)
-                if response.status != 200:
-                    sends_left -= 1
-                    wait_index += 1
-                    action = self._retry_or_raise_http_error(response, body, path, retries_left=sends_left, emitted_any=False, stop_checker=_stopped, attempt=wait_index)
-                    if action == "stop":
-                        raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                action, response, sends_left, wait_index = self._send_http_attempt(method, path, body, headers, sends_left=sends_left, wait_index=wait_index, emitted_any=False, stop_checker=_stopped, status_callback=None)
+                if action == "stop":
+                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                if action == "retry":
                     continue
-                if wait_index == 0:
-                    # What was wrong: image/STT success never cleared the host gap,
-                    # so a 429 backoff stuck after a later 200. Chat already clears
-                    # pacing_key on a first-try 200.
-                    clear_host_gap(pacing_key(self._current_host(), request_model_from_body(body)))
                 raw = response.read().decode("utf-8", errors="replace")
                 self._close_if_connection_close(response)
                 parsed = safe_json_loads(raw)
@@ -547,9 +593,7 @@ class LlmClient:
                     raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
                 return parsed
             except CONNECTION_ERRORS as e:
-                sends_left -= 1
-                wait_index += 1
-                action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying JSON request on fresh connection", stop_checker=_stopped, attempt=wait_index, model=request_model_from_body(body))
+                action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=_stopped, status_callback=None, retry_log_message="Retrying JSON request on fresh connection")
                 if action == "stop":
                     raise NetworkError("LLM request aborted by Stop", code="STOPPED") from e
 
@@ -687,18 +731,11 @@ class LlmClient:
                     self._stopped = True
                     self._close_connection()
                     return "stop"
-                response = self._send_request(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
-
-                if response.status != 200:
-                    sends_left -= 1
-                    wait_index += 1
-                    action = self._retry_or_raise_http_error(response, body, path, retries_left=sends_left, emitted_any=emitted_any, stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index)
-                    if action == "stop":
-                        return "stop"
+                action, response, sends_left, wait_index = self._send_http_attempt(method, path, body, headers, sends_left=sends_left, wait_index=wait_index, emitted_any=emitted_any, stop_checker=abort_checker, status_callback=status_callback)
+                if action == "stop":
+                    return "stop"
+                if action == "retry":
                     continue
-
-                if wait_index == 0:
-                    clear_host_gap(pacing_key(self._current_host(), request_model_from_body(body)))
 
                 try:
                     # Use a flag to stop logical processing but keep reading to exhaust the stream
@@ -708,11 +745,7 @@ class LlmClient:
                     think_tag_splitter = ThinkTagStreamSplitter()
                     requested_model = request_model_from_body(body)
                     used_model = None
-
-                    self._get_provider()
-                    # Google Gemini stream is a JSON array of objects, not SSE.
-                    # Actually, iterate_sse might fail if it's not 'data: ...'.
-                    # For now, we assume it's SSE-like or we add custom iteration.
+                    retry_outer = False
 
                     for payload in iterate_sse(response):
                         if payload == "[DONE]":
@@ -738,9 +771,10 @@ class LlmClient:
                             used_model = str(chunk_model)
                             log.info("LLM response stream started: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
 
-                        # Log all chunks for debugging, even after content_finished
-                        # (this might contain 'usage' data)
-                        if "usage" in chunk:
+                        usage_obj = chunk.get("usage")
+                        if not isinstance(usage_obj, dict) or not usage_obj:
+                            usage_obj = None
+                        elif "usage" in chunk:
                             log.debug("streaming_loop: received usage: %s" % chunk["usage"])
 
                         if content_finished:
@@ -757,10 +791,33 @@ class LlmClient:
                             self._close_connection()
                             break
 
+                        # A 200 stream can still carry a provider error object. Skipping it
+                        # used to look like a short successful answer.
+                        stream_err = _stream_error_message(chunk)
+                        if stream_err is not None:
+                            if (not emitted_any) and _stream_error_is_overload(stream_err) and sends_left > 1:
+                                self._close_connection()
+                                sends_left -= 1
+                                wait_index += 1
+                                delay = backoff_delay_sec(attempt=wait_index)
+                                remember_host_gap(pacing_key(self._current_host(), requested_model), delay)
+                                log.warning("Retrying mid-stream error after %.3fs (%s)", delay, stream_err)
+                                emit_retry_status(status_callback, delay)
+                                if not wait_abortable(delay, abort_checker):
+                                    self._stopped = True
+                                    return "stop"
+                                retry_outer = True
+                                break
+                            raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
+
                         # Grok/xAI sends a final chunk with empty choices + usage.
                         # Anthropic SSE events have no choices array; dropping them
                         # discarded text_delta and tool_use before the shim could parse.
+                        # Usage-only chunks still reach on_delta so request_with_tools
+                        # can fill its usage field. They are not emitted text.
                         if not _chunk_should_parse(chunk):
+                            if usage_obj and on_delta:
+                                on_delta({"usage": usage_obj})
                             continue
 
                         content, finish_reason, thinking, delta = self.extract_content_from_response(chunk)
@@ -786,8 +843,13 @@ class LlmClient:
                             pieces = think_tag_splitter.feed(content)
                             for is_think, text_piece in pieces:
                                 if is_think:
-                                    if on_thinking:
+                                    # What was wrong: <think> text called on_thinking
+                                    # without setting emitted_any. A drop during the
+                                    # reasoning block retried and duplicated it.
+                                    # Dedicated thinking fields already set the flag.
+                                    if text_piece and on_thinking:
                                         on_thinking(text_piece)
+                                        emitted_any = True
                                 else:
                                     if on_content:
                                         on_content(text_piece)
@@ -809,25 +871,35 @@ class LlmClient:
                             # the retry branch raises CONNECTION_LOST. Do not clear or
                             # replay the snapshot; callbacks have already run.
                             emitted_any = True
-                        if delta and on_delta:
-                            _normalize_delta(delta)
-                            if chunk_model and "model" not in delta:
-                                delta["model"] = str(chunk_model)
-                            on_delta(delta)
+                        outgoing: dict[str, Any] | None = delta if isinstance(delta, dict) else None
+                        if usage_obj:
+                            outgoing = dict(outgoing or {})
+                            outgoing["usage"] = usage_obj
+                        if outgoing and on_delta:
+                            _normalize_delta(outgoing)
+                            if chunk_model and "model" not in outgoing:
+                                outgoing["model"] = str(chunk_model)
+                            on_delta(outgoing)
 
                         if finish_reason:
                             log.debug("streaming_loop: logical finish_reason=%s" % finish_reason)
                             last_finish_reason = finish_reason
+
+                    if retry_outer:
+                        continue
 
                     log.info("LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s", self._get_provider(), requested_model, used_model or requested_model, last_finish_reason)
 
                     # Flush any trailing buffered text from the think tag splitter
                     # (trailing buffer contains small tag prefix remnants like '<' at EOF)
                     for is_think, text_piece in think_tag_splitter.flush():
-                        if is_think and on_thinking:
+                        if is_think and text_piece and on_thinking:
                             on_thinking(text_piece)
+                            emitted_any = True
                         elif not is_think and on_content:
                             on_content(text_piece)
+                            if text_piece:
+                                emitted_any = True
                 finally:
                     # Drain leftover body only when we still own a live connection.
                     # After Stop we closed the sock — response.read() would block until
@@ -852,9 +924,7 @@ class LlmClient:
                 if emitted_any:
                     self._close_connection()
                     raise NetworkError(format_error_message(e), code="CONNECTION_LOST", details={"url": path}) from e
-                sends_left -= 1
-                wait_index += 1
-                action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying streaming request on fresh connection", stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index, model=request_model_from_body(body))
+                action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=abort_checker, status_callback=status_callback, retry_log_message="Retrying streaming request on fresh connection")
                 if action == "stop":
                     # Same latch as the pre-send and in-loop Stop paths. Without it
                     # the shared post-processing saw finish_reason "stop" plus any
@@ -980,21 +1050,16 @@ class LlmClient:
                         self._stopped = True
                         self._close_connection()
                         return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-                    response = self._send_request(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
-                    if response.status != 200:
+                    action, response, sends_left, wait_index = self._send_http_attempt(method, path, body, headers, sends_left=sends_left, wait_index=wait_index, emitted_any=False, stop_checker=abort_checker, status_callback=status_callback)
+                    if action == "stop":
+                        return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
+                    if action == "retry":
                         try:
                             redacted_msgs = redact_sensitive_payload_for_log(messages)
                             log.debug("request_with_tools outgoing messages (redacted): %s", json.dumps(redacted_msgs, indent=2, ensure_ascii=False))
                         except Exception as log_exc:
                             log.warning("Could not log redacted outgoing messages: %s", log_exc)
-                        sends_left -= 1
-                        wait_index += 1
-                        action = self._retry_or_raise_http_error(response, body, path, retries_left=sends_left, emitted_any=False, stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index)
-                        if action == "stop":
-                            return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
                         continue
-                    if wait_index == 0:
-                        clear_host_gap(pacing_key(self._current_host(), request_model_from_body(body)))
                     from plugin.framework.errors import safe_json_loads
 
                     raw = response.read()
@@ -1004,9 +1069,7 @@ class LlmClient:
                         raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
                     break
                 except CONNECTION_ERRORS as e:
-                    sends_left -= 1
-                    wait_index += 1
-                    action = self._transport.handle_connection_error(e, path=path, retries_left=sends_left, retry_log_message="Retrying request_with_tools on fresh connection", stop_checker=abort_checker, status_callback=status_callback, attempt=wait_index, model=request_model_from_body(body))
+                    action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=abort_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection")
                     if action == "stop":
                         self._stopped = True
                         return {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}

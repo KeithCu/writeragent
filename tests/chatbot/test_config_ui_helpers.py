@@ -290,16 +290,16 @@ class TestPopulateComboboxWithLruFetchOptions:
         assert ('llama3.2') not in (items)
         assert ('(Enter API Key to load models)') in (items)
 
-    def test_lmstudio_without_key_shows_enter_api_key(self):
-        # localhost:1234 is the LM Studio provider (bearer). An empty key blocks
-        # the catalog fetch; a down server is not "(Connection failed)".
+    def test_lmstudio_without_key_fetches_models(self):
+        # localhost:1234 is LM Studio. An empty key is allowed, same as Ollama.
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
+        with patch('plugin.chatbot.config_ui_helpers.fetch_available_models', return_value=['local-model']) as mock_fetch:
             populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'http://localhost:1234', api_key_override='')
-            mock_fetch.assert_not_called()
+            mock_fetch.assert_called_once()
         items = list(ctrl.addItems.call_args[0][0])
-        assert (items) == (['(Enter API Key to load models)'])
+        assert 'local-model' in items
+        assert '(Enter API Key to load models)' not in items
 
     def test_placeholder_current_val_ignored_when_models_available(self):
         ctrl = MagicMock()

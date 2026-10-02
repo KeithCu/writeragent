@@ -133,9 +133,7 @@ def is_local_host(host: str) -> bool:
         ip = ipaddress.ip_address(host)
         return ip.is_loopback or ip.is_private or ip.is_link_local
     except ValueError:
-        pass
-    # Single-label hostnames are usually local network names (e.g. "ollama-box").
-    return "." not in host
+        return False
 
 
 def is_openrouter_endpoint(endpoint: str, explicit_is_openrouter: bool | None = False) -> bool:

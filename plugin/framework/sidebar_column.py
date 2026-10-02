@@ -23,10 +23,8 @@ _XDL_APPFONT_LEAK_PX = 180
 _FRAME_VS_COLUMN = 1.5
 
 
-def sidebar_column_width(n_width: int, parent_w: int, current_w: int = 0, min_w: int = 180) -> int:
+def sidebar_column_width(n_width: int, parent_w: int, min_w: int = 180) -> int:
     """Pixel width the panel window and ChildFrame must fill."""
-    del current_w
-
     # XDL dlg:width="180" is AppFont, not pixels.
     if n_width == _XDL_APPFONT_LEAK_PX and parent_w > _XDL_APPFONT_LEAK_PX:
         return parent_w

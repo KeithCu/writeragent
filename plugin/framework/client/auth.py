@@ -84,7 +84,9 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         header_style="bearer",
     ),
     "ollama": ProviderConfig(id="ollama", name="Ollama", header_style="none"),
-    "lmstudio": ProviderConfig(id="lmstudio", name="LM Studio", header_style="bearer"),
+    # Local LM Studio accepts an empty key the way Ollama does. A key, when
+    # set, still becomes Authorization: Bearer via the legacy header fallback.
+    "lmstudio": ProviderConfig(id="lmstudio", name="LM Studio", header_style="none"),
     "zai": ProviderConfig(id="zai", name="Z.ai", header_style="bearer"),
     "nvidia": ProviderConfig(id="nvidia", name="NVIDIA NIM", header_style="bearer"),
     # Fallback for endpoints we don't recognize explicitly.

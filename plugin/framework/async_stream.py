@@ -40,12 +40,12 @@ import queue
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, TypeAlias, Callable, cast
+from typing import Any, ClassVar, TypeAlias, Callable, cast
 
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
-from plugin.framework.queue_executor import NestedDrainOwnerError, _marshal_thread_tag, default_executor, drain_owner_scope, pump_ui_idle
+from plugin.framework.queue_executor import NestedDrainOwnerError, _marshal_thread_tag, default_executor, drain_owner_scope, get_drain_owner, pump_ui_idle
 
 log = logging.getLogger(__name__)
 
@@ -504,6 +504,13 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
     state = _DrainState(q=q, apply_chunk_fn=apply_chunk_fn, on_stream_done=on_stream_done, on_stopped=on_stopped, on_error=on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, show_search_thinking=show_search_thinking, job_done=job_done)
     log.debug("run_stream_drain_loop start %s", _marshal_thread_tag())
     try:
+        # Same-name nesting is legal for a peer execute under an existing scope.
+        # A second stream drain on that stack would be the waiter and would skip
+        # processEventsToIdle while the outer loop is blocked inside it.
+        # Raised inside this try so NestedDrainOwnerError sets job_done and on_error.
+        existing_owner = get_drain_owner()
+        if existing_owner is not None:
+            raise NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
         # One active drain owner: nested Send/drain must not start a second pump loop.
         with drain_owner_scope("stream"):
             while not job_done[0]:
@@ -624,14 +631,41 @@ def run_async_worker_with_drain(
     _batched: BatchingStreamQueue | None = q if isinstance(q, BatchingStreamQueue) else None
     _real_q: queue.Queue[Any] = cast("queue.Queue[Any]", _batched.raw if _batched is not None else q)
 
+    class _TerminalWatch:
+        """Forward puts and remember a worker-queued terminal item.
+
+        Workers that catch, queue ERROR or STREAM_DONE, and return used to get
+        a second STREAM_DONE from this wrapper. on_error returning True then
+        ended the drain before a replacement worker's chunks.
+        """
+
+        __slots__: ClassVar[tuple[str, ...]] = ("raw", "saw_terminal")
+        raw: queue.Queue[Any]
+        saw_terminal: bool
+
+        def __init__(self, raw: queue.Queue[Any]) -> None:
+            self.raw = raw
+            self.saw_terminal = False
+
+        def put(self, item: Any, *args: Any, **kwargs: Any) -> None:
+            if isinstance(item, tuple) and item and item[0] in (StreamQueueKind.STREAM_DONE, StreamQueueKind.ERROR, StreamQueueKind.STOPPED, StreamQueueKind.FINAL_DONE):
+                self.saw_terminal = True
+            self.raw.put(item, *args, **kwargs)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self.raw, name)
+
+    watched = _TerminalWatch(_real_q)
+
     def worker_wrapper() -> None:
         # What was wrong: ``finally`` always queued STREAM_DONE after ERROR.
         # A handler that returns True (keep draining, e.g. STT fallback) then
         # saw that sentinel and ended the job before the replacement worker's
-        # chunks. Skip the sentinel only when this wrapper already queued ERROR.
+        # chunks. Skip the sentinel when this wrapper or the worker already
+        # queued a terminal item.
         failed = False
         try:
-            worker_fn(cast("queue.Queue[Any]", _batched.raw if _batched is not None else q))  # worker always sees a real Queue
+            worker_fn(cast("queue.Queue[Any]", cast("object", watched)))
         except BaseException as e:
             from plugin.framework.errors import format_error_payload
 
@@ -645,7 +679,7 @@ def run_async_worker_with_drain(
             # the batcher, then emit the sentinel on the real queue.
             if _batched is not None:
                 _batched.flush()
-            if not failed:
+            if not failed and not watched.saw_terminal:
                 _real_q.put((StreamQueueKind.STREAM_DONE, None))
 
     from plugin.framework.uno_context import get_toolkit

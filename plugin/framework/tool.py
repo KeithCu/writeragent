@@ -187,6 +187,34 @@ class ToolContext:
             self.stop_checker = send_cancellation.is_cancelled
 
 
+def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
+    """True when *value* fits a JSON Schema ``type`` (string or union list).
+
+    Unknown or missing types are accepted. Unions accept any listed member.
+    """
+    if schema_type is None:
+        return True
+    types = schema_type if isinstance(schema_type, list) else [schema_type]
+    for one in types:
+        if one == "string" and isinstance(value, str):
+            return True
+        if one == "integer" and type(value) is int:
+            return True
+        if one == "number" and type(value) in (int, float):
+            return True
+        if one == "boolean" and type(value) is bool:
+            return True
+        if one == "array" and isinstance(value, list):
+            return True
+        if one == "object" and isinstance(value, dict):
+            return True
+        if one == "null" and value is None:
+            return True
+        if one not in ("string", "integer", "number", "boolean", "array", "object", "null"):
+            return True
+    return False
+
+
 class ToolBase(ABC):
     """Abstract base for every tool exposed to LLM agents and MCP clients.
 
@@ -278,6 +306,15 @@ class ToolBase(ABC):
         for key in kwargs:
             if props and key not in props and key not in extra_ok:
                 return False, f"Unknown parameter: {key}"
+        for key, value in kwargs.items():
+            prop = props.get(key) if isinstance(props, dict) else None
+            if not isinstance(prop, dict) or key in extra_ok:
+                continue
+            enum = prop.get("enum")
+            if isinstance(enum, list) and enum and value not in enum:
+                return False, f"Invalid value for {key}: {value!r}"
+            if not _tool_arg_matches_type(value, prop.get("type")):
+                return False, f"Invalid type for {key}"
         return True, None
 
     @abstractmethod

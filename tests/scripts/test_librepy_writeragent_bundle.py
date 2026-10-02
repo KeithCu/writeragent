@@ -31,7 +31,7 @@ def test_librepy_bundle_includes_settings_fields():
 
 
 def test_librepy_bundle_includes_ast_stmt_edit():
-    """excel_py_convert/to_dag imports this; must ship in LibrePy.oxt allowlist."""
+    """Still on the LibrePy allowlist. No plugin module imports it; strip_code does at build time."""
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
     assert "plugin/framework/ast_stmt_edit.py" in paths
 

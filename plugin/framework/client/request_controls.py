@@ -5,12 +5,11 @@
 
 """Low-level pacing and retry policy helpers for outbound LLM requests.
 
-Concurrency: ``RequestPacer`` (minimum gap between sends) and
-``LocalHttpsCertificateFallback`` (which local hosts retried without TLS
-verify) are fields on one transport. They are not locked: each
-``LlmClient`` has its own transport and typically one in-flight stream.
-Chat and grammar do not share a pacer. Adding a lock here would not
-protect a connection you must not share in the first place.
+Concurrency: ``RequestPacer`` (minimum gap between sends) is a field on one
+transport and is not locked. Each ``LlmClient`` has its own transport.
+``LocalHttpsCertificateFallback`` remembers local hosts process-wide (same
+locking style as the host-gap cache) so the next client does not pay a
+failed handshake for a self-signed localhost cert. Public hosts stay verified.
 
 Backoff helpers port OpenClaw ``packages/retry`` delay math (jitter,
 Retry-After floor, delay cap) without the RetrySupervisor / retryAsync
@@ -309,11 +308,27 @@ class RequestPacer:
         self.last_sent_monotonic = self._now()
 
 
-class LocalHttpsCertificateFallback:
-    """Track local HTTPS hosts that should retry with certificate verification disabled."""
+_local_unverified_hosts: set[str] = set()
+_local_unverified_lock = threading.Lock()
 
-    def __init__(self) -> None:
-        self._fallback_hosts: set[str] = set()
+
+def reset_local_unverified_hosts_for_tests() -> None:
+    """Drop process-wide local TLS fallback memory between tests."""
+    with _local_unverified_lock:
+        _local_unverified_hosts.clear()
+
+
+def _local_host_unverified(host: str) -> bool:
+    with _local_unverified_lock:
+        return host in _local_unverified_hosts
+
+
+class LocalHttpsCertificateFallback:
+    """Track local HTTPS hosts that should retry with certificate verification disabled.
+
+    The host set is process-wide. A new ``LlmClient`` per sidebar send used to
+    forget the fallback and fail TLS verify on every request.
+    """
 
     def ssl_mode_for(self, scheme: str, host: str) -> str:
         """Return ``verified``, ``unverified``, or ``plain`` for the next connection.
@@ -326,7 +341,7 @@ class LocalHttpsCertificateFallback:
         """
         if scheme != "https":
             return "plain"
-        if is_local_host(host) and host in self._fallback_hosts:
+        if is_local_host(host) and _local_host_unverified(host):
             return "unverified"
         return "verified"
 
@@ -334,8 +349,9 @@ class LocalHttpsCertificateFallback:
         """Enable unverified retry for a local host after certificate validation fails."""
         if not host or not is_local_host(host) or not _is_certificate_verify_error(err):
             return False
-        if host in self._fallback_hosts:
-            return False
-        self._fallback_hosts.add(host)
+        with _local_unverified_lock:
+            if host in _local_unverified_hosts:
+                return False
+            _local_unverified_hosts.add(host)
         log.error("Local HTTPS certificate verification failed for %s; retrying unverified." % host)
         return True

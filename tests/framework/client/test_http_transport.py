@@ -4,15 +4,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.client.http_transport import LlmHttpTransport
-from plugin.framework.client.request_controls import reset_host_pacing_for_tests
+from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError
 
 
 @pytest.fixture(autouse=True)
 def _reset_host_pacing():
     reset_host_pacing_for_tests()
+    reset_local_unverified_hosts_for_tests()
     yield
     reset_host_pacing_for_tests()
+    reset_local_unverified_hosts_for_tests()
 
 
 def test_transport_reuses_connection_and_reopens_on_endpoint_change():
