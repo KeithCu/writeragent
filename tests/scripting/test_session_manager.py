@@ -149,6 +149,35 @@ def test_reset_workbook_python_session_uses_focused_writer() -> None:
     mock_calc.assert_not_called()
 
 
+def test_document_for_script_session_matches_ppt_master_url() -> None:
+    from unittest.mock import MagicMock, patch
+
+    focused = MagicMock()
+    focused.getURL.return_value = "file:///focused.odp"
+    deck = MagicMock()
+    deck.getURL.return_value = "file:///deck-b.odp"
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [focused, deck]
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
+    focused_only = MagicMock()
+    focused_only.hasMoreElements.side_effect = [True, False]
+    focused_only.nextElement.return_value = focused
+    focused_comps = MagicMock()
+    focused_comps.createEnumeration.return_value = focused_only
+    focused_desktop = MagicMock()
+    focused_desktop.getComponents.return_value = focused_comps
+    with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
+        found = session_manager.document_for_script_session(MagicMock(), "ppt_master:file:///deck-b.odp")
+    with patch("plugin.scripting.session_manager.get_desktop", return_value=focused_desktop):
+        missing = session_manager.document_for_script_session(MagicMock(), "ppt_master:active")
+    assert found is deck
+    assert missing is None
+
+
 def test_document_for_script_session_matches_url_not_focused() -> None:
     from unittest.mock import MagicMock, patch
 

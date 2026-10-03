@@ -34,6 +34,7 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     if not callable(stop_checker):
         stop_checker = None
 
+    from plugin.framework.errors import ToolExecutionError
     from plugin.framework.queue_executor import execute_on_main_thread
 
     # Bugfix: handle_llm_request is called on a background worker thread.
@@ -57,6 +58,13 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
             prepend_dev_build_system_prefix=False,
             stop_checker=stop_checker,
         )
+    except ToolExecutionError as exc:
+        # What was wrong: Stop raised USER_STOPPED and this handler turned it
+        # into a generic error string. The child kept the turn going.
+        if getattr(exc, "code", None) == "USER_STOPPED":
+            return {"status": "error", "code": "USER_STOPPED", "message": exc.message}
+        log.exception("ppt-master llm_request failed")
+        return {"status": "error", "message": str(exc)}
     except Exception as exc:
         log.exception("ppt-master llm_request failed")
         return {"status": "error", "message": str(exc)}
@@ -95,7 +103,12 @@ def dispatch_worker_response(
     if frame_type == "tool_call":
         from plugin.scripting.host_rpc import handle_tool_call_frame
 
-        return handle_tool_call_frame(response, stdin_write=stdin_write, caller="ppt_master_venv")
+        return handle_tool_call_frame(
+            response,
+            stdin_write=stdin_write,
+            caller="ppt_master_venv",
+            stop_checker=stop_checker,
+        )
 
     if frame_type == "llm_request":
         call_id = response.get("id")

@@ -156,6 +156,41 @@ def test_intermediate_llm_frame_forwards_cancellation_scope():
     assert mock_llm.call_args[0][0]["_cancellation_scope"] is scope
 
 
+def test_handle_llm_request_returns_user_stopped():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.ppt_master.venv.host_rpc import handle_llm_request
+
+    client = MagicMock()
+    client.request_with_tools.side_effect = ToolExecutionError("LLM request stopped by user.", code="USER_STOPPED")
+    with (
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
+        patch("plugin.framework.client.llm_client.LlmClient", return_value=client),
+    ):
+        out = handle_llm_request({"messages": [{"role": "user", "content": "x"}], "max_tokens": 16})
+    assert out["status"] == "error"
+    assert out["code"] == "USER_STOPPED"
+
+
+def test_execute_ppt_master_turn_passes_frame_session_id():
+    from plugin.scripting.venv_worker import PythonWorkerManager
+
+    manager = PythonWorkerManager("/usr/bin/python3", {})
+    with (
+        patch.object(manager, "_acquire_io", return_value=None),
+        patch.object(manager, "_release_io"),
+        patch.object(manager, "_ensure_warmed_unlocked", return_value=None),
+        patch.object(manager, "_execute_ipc_unlocked", return_value={"status": "ok", "result": {"status": "ok"}}) as mock_ipc,
+    ):
+        manager.execute_ppt_master_turn(
+            {"query": "q", "session_id": "ppt_master:file:///deck-b.odp"},
+            timeout_sec=5,
+        )
+    assert mock_ipc.call_args.kwargs["session_id"] == "ppt_master:file:///deck-b.odp"
+    assert mock_ipc.call_args.kwargs["data"]["session_id"] == "ppt_master:file:///deck-b.odp"
+
+
 def test_execute_ppt_master_turn_does_not_pickle_cancellation_scope():
     from plugin.scripting.venv_worker import PythonWorkerManager
 

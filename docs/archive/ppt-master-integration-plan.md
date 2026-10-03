@@ -110,7 +110,7 @@ Sidebar send → ppt_master_session (host)
 | `apply_ppt_master_template_fill` / `apply_ppt_master_native_enhance` | Host RPC |
 | `reply_to_user` / `ppt_master_finished` | Session continue / HTML handoff |
 
-**Session model:** Multi-turn chat reuses the warm venv worker; `session_id` is derived from the document URL ([`ppt_master_session_id`](../plugin/ppt_master/venv/host.py)). Conversation history is passed each turn; SKILL context is cached in the venv process per session.
+**Session model:** Multi-turn chat reuses the warm venv worker; `session_id` is derived from the document URL ([`ppt_master_session_id`](../plugin/ppt_master/venv/host.py)). That same id is the IPC `session_id`, so host tool RPC exports into the sidebar frame's deck rather than whichever window is focused. `ppt_master:active` (no URL) still uses the focused document. Conversation history is passed each turn; SKILL context is cached in the venv process per session. Stop during the turn returns `USER_STOPPED` and does not run the next host tool.
 
 **Model guidance:** Upstream recommends **Claude Opus/Sonnet** with large context (~1M) for best results; GPT/Gemini/Kimi work with a lower ceiling. Sidebar model selection is forwarded through `llm_request` RPC.
 

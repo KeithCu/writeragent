@@ -544,11 +544,15 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     ``wa.doc`` used to call ``get_active_document``, so with two files open the
     focused library was eval'd into whichever executor was running. The host
     is single-flight and already has the in-flight session id.
+
+    ``ppt_master:{url}`` uses that same URL key. A long PPT-Master turn then
+    exports into the sidebar frame's deck. ``ppt_master:active`` (no URL)
+    does not match and the caller falls back to the focused document.
     """
     if not isinstance(session_id, str) or ":" not in session_id:
         return None
     prefix, key = session_id.split(":", 1)
-    if prefix not in {"calc", "rps", "notebook"}:
+    if prefix not in {"calc", "rps", "notebook", "ppt_master"}:
         return None
     if prefix == "calc" and key.endswith(":init"):
         key = key[: -len(":init")]

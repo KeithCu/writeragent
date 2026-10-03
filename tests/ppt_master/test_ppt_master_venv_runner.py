@@ -86,6 +86,55 @@ def test_resolve_writeragent_skill_md_fallback(tmp_path: Path, monkeypatch: pyte
     assert skill_paths.resolve_writeragent_skill_md().resolve() == fallback.resolve()
 
 
+def test_parse_finished_keeps_apostrophe():
+    from plugin.ppt_master.venv.runner import _parse_finished
+
+    observations = str({"status": "finished", "result": "it's \"quoted\"", "exported": True})
+    parsed = _parse_finished(observations)
+    assert parsed is not None
+    assert parsed["result"] == "it's \"quoted\""
+    assert parsed["exported"] is True
+
+
+def test_rpc_tool_raises_user_stopped(monkeypatch: pytest.MonkeyPatch):
+    from plugin.ppt_master.venv.ipc import UserStopped, rpc_tool
+
+    monkeypatch.setattr("plugin.ppt_master.venv.ipc._write_frame", lambda payload: None)
+    monkeypatch.setattr(
+        "plugin.ppt_master.venv.ipc._read_host_response",
+        lambda context: {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."},
+    )
+    with pytest.raises(UserStopped):
+        rpc_tool("export_presentation_project", project_path="/p")
+
+
+def test_run_turn_returns_user_stopped_when_host_stops(monkeypatch: pytest.MonkeyPatch):
+    from plugin.contrib.smolagents.memory import ActionStep
+    from plugin.contrib.smolagents.monitoring import Timing
+    from plugin.contrib.smolagents.utils import AgentError
+    from plugin.ppt_master.venv.ipc import UserStopped
+    from plugin.ppt_master.venv.runner import clear_session, run_turn
+
+    stopped = UserStopped("Stopped by user.")
+    wrapped = AgentError("tool failed", MagicMock())
+    wrapped.__cause__ = stopped
+    step = ActionStep(step_number=1, timing=Timing(start_time=0), error=wrapped)
+    agent = MagicMock()
+    agent.run.return_value = [step]
+    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "/tmp/ppt-master-stop")
+    with (
+        patch("plugin.ppt_master.venv.runner.load_skill_context", return_value={"ok": True, "block": "skill"}),
+        patch("plugin.ppt_master.venv.runner._build_tools", return_value=[]),
+        patch("plugin.ppt_master.venv.runner.ToolCallingAgent", return_value=agent),
+        patch("plugin.ppt_master.venv.runner.HostRpcModel"),
+        patch("plugin.ppt_master.venv.runner.emit_worker_event"),
+    ):
+        result = run_turn({"query": "hi", "session_id": "stop-test"})
+    clear_session("stop-test")
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+
+
 def test_run_turn_missing_skill_returns_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from plugin.ppt_master.venv.runner import run_turn
 

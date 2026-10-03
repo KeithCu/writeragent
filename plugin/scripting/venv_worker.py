@@ -139,6 +139,7 @@ def _maybe_dispatch_intermediate_response(
         allowed_tools=allowed_tools,
         caller=caller,
         script_session_id=script_session_id,
+        stop_checker=stop_checker,
     ):
         return True
     return _maybe_dispatch_ppt_master_response(
@@ -713,11 +714,17 @@ class PythonWorkerManager:
             warm_err = self._ensure_warmed_unlocked()
             if warm_err is not None:
                 return warm_err
+            # The child reads session_id from payload (skill cache). The request
+            # field is host-only: tool frames resolve the frame document from it.
+            # ppt_master_turn does not use it as a Python namespace.
+            raw_session = payload.get("session_id")
+            session_id = raw_session.strip() if isinstance(raw_session, str) else ""
             raw = self._execute_ipc_unlocked(
                 None,
                 data=payload,
                 timeout_sec=timeout_sec,
                 action="ppt_master_turn",
+                session_id=session_id or None,
                 on_worker_event=on_worker_event,
                 stop_checker=stop_checker,
                 cancellation_scope=cancellation_scope,

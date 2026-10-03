@@ -219,6 +219,50 @@ def test_handle_tool_call_frame_writes_ok_response():
     assert resp["result"] == {"status": "ok"}
 
 
+def test_execute_tool_prefers_script_session_document():
+    focused = MagicMock()
+    bound = MagicMock()
+    registry = MagicMock()
+    registry._services = {}
+    registry.execute.return_value = {"status": "ok"}
+    with (
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
+        patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
+        patch("plugin.main.get_tools", return_value=registry),
+        patch("plugin.doc.doc_type.is_draw", return_value=True),
+        patch("plugin.doc.doc_type.is_calc", return_value=False),
+        patch("plugin.doc.doc_type.is_writer", return_value=False),
+    ):
+        execute_tool(
+            "export_presentation_project",
+            {"project_path": "/p"},
+            script_session_id="ppt_master:file:///deck-b.odp",
+        )
+    mock_session.assert_called_once()
+    assert mock_session.call_args.args[1] == "ppt_master:file:///deck-b.odp"
+    mock_active.assert_not_called()
+    assert registry.execute.call_args.args[1].doc is bound
+
+
+def test_handle_tool_call_frame_refuses_when_stopped():
+    written: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:
+        handled = handle_tool_call_frame(
+            {"type": "tool_call", "id": "stop1", "tool": "export_presentation_project", "args": {}},
+            stdin_write=written.append,
+            stop_checker=lambda: True,
+        )
+    assert handled is True
+    mock_tool.assert_not_called()
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["code"] == "USER_STOPPED"
+    assert resp["id"] == "stop1"
+
+
 def test_handle_tool_call_frame_writes_error_response():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("boom")):

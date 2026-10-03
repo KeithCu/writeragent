@@ -347,8 +347,18 @@ def execute_tool(
                 "Document tool RPC is not available in this extension build."
             ) from exc
 
+        from plugin.scripting.session_manager import document_for_script_session
+
         uno_ctx = get_ctx()
-        doc = get_active_document(uno_ctx)
+        # What was wrong: every venv tool used the focused document. A PPT-Master
+        # turn started on deck A exported into B after the user switched windows.
+        # How: the frame URL lived only inside the child payload, so this RPC
+        # had no session id. Named scripts already resolve document_for_script_session
+        # before get_active_document. Why this works: the IPC request now carries
+        # ppt_master:{url}, and that lookup matches the open component's URL.
+        doc = document_for_script_session(uno_ctx, script_session_id)
+        if doc is None:
+            doc = get_active_document(uno_ctx)
         if not doc:
             raise RuntimeError("No active document found to run tool")
         if is_calc(doc):
@@ -458,6 +468,7 @@ def handle_tool_call_frame(
     allowed_tools: frozenset[str] | None = None,
     caller: str = "script",
     script_session_id: str | None = None,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> bool:
     """Handle a worker ``tool_call`` frame. Returns True if the host should keep reading."""
     if not isinstance(response, dict) or response.get("type") != "tool_call":
@@ -468,6 +479,20 @@ def handle_tool_call_frame(
         raise RuntimeError(f"Invalid tool_call: {tool_name!r}")
     args = response.get("args") or {}
     call_id = response.get("id")
+    # What was wrong: Stop was checked once before the venv turn. The child
+    # then kept calling host tools, including export, after the sidebar went idle.
+    # Why this works: the same checker the LLM frame already receives refuses
+    # the call and tells the child to end with USER_STOPPED.
+    if stop_checker is not None and stop_checker():
+        tool_response = {
+            "status": "error",
+            "id": call_id,
+            "code": "USER_STOPPED",
+            "message": "Stopped by user.",
+        }
+        frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+        stdin_write(frame)
+        return True
     try:
         res = execute_tool(
             tool_name,
