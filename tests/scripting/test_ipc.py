@@ -426,14 +426,104 @@ def test_exchange_tool_call_plain_error_stays_runtime_error(monkeypatch):
 def test_exchange_tool_call_rejects_mismatched_id(monkeypatch):
     from plugin.scripting import ipc
 
+    drained: list[object] = []
     monkeypatch.setattr(ipc, "write_pickle_frame", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         ipc,
         "read_pickle_frame",
         lambda *args, **kwargs: {"status": "ok", "id": "other", "result": {"n": 1}},
     )
+    monkeypatch.setattr(ipc, "_drain_queued_pipe_bytes", lambda stream, **kwargs: drained.append(stream))
     with pytest.raises(RuntimeError, match="does not match"):
         ipc.exchange_tool_call("get_named_python_script", {})
+    assert len(drained) == 1
+
+
+def test_drain_queued_pipe_bytes_returns_when_idle():
+    """An open pipe with nothing queued must not block until the deadline."""
+    from plugin.scripting import ipc
+
+    read_fd, write_fd = os.pipe()
+    stream = os.fdopen(read_fd, "rb")
+    try:
+        os.write(write_fd, b"xyz")
+        assert stream.read(1) == b"x"
+        started = time.monotonic()
+        ipc._drain_queued_pipe_bytes(stream, timeout_sec=0.5)
+        assert time.monotonic() - started < 0.4
+        started = time.monotonic()
+        ipc._drain_queued_pipe_bytes(stream, timeout_sec=0.5)
+        assert time.monotonic() - started < 0.3
+    finally:
+        os.close(write_fd)
+        stream.close()
+
+
+def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
+    """A foreign frame plus bytes already in the stdin buffer must not desync the next call.
+
+    What was wrong: read_pickle_frame fills BufferedReader ahead. Raising on
+    the id check left that tail for the next exchange_tool_call.
+    """
+    import threading
+
+    from plugin.scripting import ipc
+
+    in_r, in_w = os.pipe()
+    out_r, out_w = os.pipe()
+    stdin_buf = os.fdopen(in_r, "rb")
+    stdout_buf = os.fdopen(out_w, "wb", buffering=0)
+    stdout_reader = os.fdopen(out_r, "rb", buffering=0)
+
+    class _PipeEnd:
+        def __init__(self, buffer: object) -> None:
+            self.buffer = buffer
+
+    monkeypatch.setattr(sys, "stdin", _PipeEnd(stdin_buf))
+    monkeypatch.setattr(sys, "stdout", _PipeEnd(stdout_buf))
+    os.write(
+        in_w,
+        pack_pickle_frame({"status": "ok", "id": "stale", "result": {"n": 0}})
+        + pack_pickle_frame({"status": "ok", "id": "tail", "result": {"n": 9}}),
+    )
+    worker: threading.Thread | None = None
+    try:
+        started = time.monotonic()
+        with pytest.raises(RuntimeError, match="does not match"):
+            ipc.exchange_tool_call("list_named_python_scripts", {})
+        assert time.monotonic() - started < 1.0
+
+        holder: dict[str, object] = {}
+
+        def _second() -> None:
+            try:
+                holder["result"] = ipc.exchange_tool_call("list_named_python_scripts", {})
+            except BaseException as exc:
+                holder["error"] = exc
+
+        worker = threading.Thread(target=_second, daemon=True)
+        worker.start()
+        first_req = read_pickle_frame_with_timeout(stdout_reader, 2.0, require_dict=True)
+        second_req = read_pickle_frame_with_timeout(stdout_reader, 2.0, require_dict=True)
+        assert isinstance(first_req, dict) and isinstance(second_req, dict)
+        assert first_req.get("id") != second_req.get("id")
+        os.write(
+            in_w,
+            pack_pickle_frame(
+                {"status": "ok", "id": second_req["id"], "result": {"n": 1}}
+            ),
+        )
+        worker.join(2.0)
+        assert holder.get("error") is None
+        assert holder.get("result") == {"n": 1}
+    finally:
+        for closer in (in_w, stdin_buf, stdout_buf, stdout_reader):
+            try:
+                closer.close()
+            except OSError:
+                pass
+        if worker is not None:
+            worker.join(1.0)
 
 
 def test_json_line_timeout_falls_back_when_fileno_not_int():
