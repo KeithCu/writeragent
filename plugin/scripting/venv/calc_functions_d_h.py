@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from .calc_functions_util import _extract_numeric_array, _npf_result
+from .calc_functions_util import _dollar_fraction_terms, _extract_numeric_array, _npf_result
 
 
 __all__ = [
@@ -363,61 +363,20 @@ def dollar(number: Any, decimals: Any = 2) -> str | float:
         return float("nan")
 
 
-def _fractional_dollar_digits(fraction: int) -> int:
-    """Digits Excel/Calc use when reading a fractional dollar price.
-
-    LibreOffice ``AnalysisAddIn::getDollarde`` / ``getDollarfr``
-    (``scaddins/source/analysis/financial.cxx``) scale by
-    ``10**ceil(log10(fraction))``. That count comes from the denominator,
-    not from how many decimals the price was typed with: ``DOLLARDE(1.02, 4)``
-    is 1.05 and ``DOLLARDE(1.1, 32)`` is 1.3125 (Excel's documented
-    "1 and 10/32"). ``fraction == 1`` has ``ceil(log10(1)) == 0``; forcing
-    one digit made ``DOLLARDE(1.02, 1)`` return 1.2 instead of 1.02.
-    """
-    if fraction <= 1:
-        return 0
-    digits = math.ceil(math.log10(fraction))
-    # log10(10**k) can land just above k, so ceil is one too high.
-    if 10 ** (digits - 1) == fraction:
-        digits -= 1
-    return digits
-
-
 # Group B - Financial 2
 def dollarde(fractional_dollar: Any, fraction: Any) -> float:
-    try:
-        fd = float(fractional_dollar)
-        f = int(float(fraction))
-    except (ValueError, TypeError):
+    terms = _dollar_fraction_terms(fractional_dollar, fraction)
+    if terms is None:
         return float("nan")
-    if f < 0:
-        return float("nan")
-    if f == 0:
-        return float("nan")  # #DIV/0!
-
-    sign = -1.0 if fd < 0 else 1.0
-    fd = abs(fd)
-    i_part = math.floor(fd)
-    f_part = fd - i_part
-    scale = 10 ** _fractional_dollar_digits(f)
+    sign, i_part, f_part, f, scale = terms
     return sign * (i_part + (f_part * scale) / f)
 
 
 def dollarfr(decimal_dollar: Any, fraction: Any) -> float:
-    try:
-        dd = float(decimal_dollar)
-        f = int(float(fraction))
-    except (ValueError, TypeError):
+    terms = _dollar_fraction_terms(decimal_dollar, fraction)
+    if terms is None:
         return float("nan")
-    if f < 0:
-        return float("nan")
-    if f == 0:
-        return float("nan")
-    sign = -1.0 if dd < 0 else 1.0
-    dd = abs(dd)
-    i_part = math.floor(dd)
-    f_part = dd - i_part
-    scale = 10 ** _fractional_dollar_digits(f)
+    sign, i_part, f_part, f, scale = terms
     return sign * (i_part + (f_part * f) / scale)
 
 

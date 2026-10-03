@@ -11,14 +11,22 @@ import math
 import numpy as np
 
 from plugin.scripting.venv.calc_functions_util import (
+    _bessel_iv_jv,
+    _bessel_kn_yn,
     _build_holiday_set,
     _collect_a_values,
+    _criteria_numbers,
+    _dollar_fraction_terms,
     _extract_numeric_array,
     _find_match_index,
     _find_text_cut,
+    _fractional_dollar_digits,
+    _int_bitwise,
+    _int_shift,
     _npf_result,
     _parse_weekend,
     _serial_to_date,
+    _simple_accrual,
     _to_float_a,
     _wildcard_fullmatch,
     match_criteria,
@@ -227,5 +235,112 @@ def test_find_text_cut():
     # Non-numeric instance raises ValueError
     with pytest.raises(ValueError):
         _find_text_cut("a-b-c", "-", "invalid")
+
+
+def test_int_bitwise():
+    import operator
+
+    assert _int_bitwise(operator.and_, 5, 3) == 1.0
+    assert _int_bitwise(operator.or_, 5, 3) == 7.0
+    assert _int_bitwise(operator.xor, 5, 3) == 6.0
+    assert _int_bitwise(operator.and_, "5", "3") == 1.0
+
+    # Errors return NaN
+    assert math.isnan(_int_bitwise(operator.and_, "invalid", 1))
+    assert math.isnan(_int_bitwise(operator.and_, None, 1))
+    assert math.isnan(_int_bitwise(operator.and_, float("inf"), 1))
+
+
+def test_int_shift():
+    assert _int_shift(5, 2, left=True) == 20.0
+    assert _int_shift(20, 2, left=False) == 5.0
+    assert _int_shift(10, 0, left=True) == 10.0
+    assert _int_shift(10, 0, left=False) == 10.0
+
+    # Negative shift returns NaN without swapping direction
+    assert math.isnan(_int_shift(10, -1, left=True))
+    assert math.isnan(_int_shift(10, -1, left=False))
+
+    # Invalid / inf inputs return NaN
+    assert math.isnan(_int_shift("invalid", 1, left=True))
+    assert math.isnan(_int_shift(1, float("inf"), left=True))
+    assert math.isnan(_int_shift(float("inf"), 1, left=False))
+
+
+def test_bessel_iv_jv():
+    def dummy_fn(v, z):
+        return v * 10.0 + z
+
+    assert _bessel_iv_jv(dummy_fn, 2.5, 3) == 32.5
+    # n < 0 returns NaN
+    assert math.isnan(_bessel_iv_jv(dummy_fn, 2.5, -1))
+    # Errors return NaN
+    assert math.isnan(_bessel_iv_jv(dummy_fn, "invalid", 1))
+
+
+def test_bessel_kn_yn():
+    def dummy_fn(v, z):
+        return v * 10.0 + z
+
+    assert _bessel_kn_yn(dummy_fn, 2.5, 3) == 32.5
+    # x <= 0 returns NaN
+    assert math.isnan(_bessel_kn_yn(dummy_fn, 0.0, 1))
+    assert math.isnan(_bessel_kn_yn(dummy_fn, -2.5, 1))
+    # Errors return NaN
+    assert math.isnan(_bessel_kn_yn(dummy_fn, "invalid", 1))
+
+
+def test_simple_accrual():
+    # 43831 = 2020-01-01, 43891 = 2020-03-01
+    res = _simple_accrual(43831, 43891, 0.05, 1000)
+    assert not math.isnan(res)
+    assert res > 0.0
+
+    # Invalid values return NaN
+    assert math.isnan(_simple_accrual("invalid", 43891, 0.05, 1000))
+    assert math.isnan(_simple_accrual(43831, 43891, "invalid", 1000))
+
+
+def test_criteria_numbers():
+    # Same range for criteria and values
+    assert _criteria_numbers([10, 20, 30, 40], ">20") == [30.0, 40.0]
+
+    # Separate value range with text and NaN filtering
+    cond = ["yes", "no", "yes", "yes"]
+    vals = [10.0, 20.0, "bad", 30.0]
+    assert _criteria_numbers(cond, "yes", vals) == [10.0, 30.0]
+
+    # No matches returns empty list
+    assert _criteria_numbers([1, 2, 3], ">10") == []
+
+
+def test_dollar_fraction_terms():
+    assert _fractional_dollar_digits(1) == 0
+    assert _fractional_dollar_digits(4) == 1
+    assert _fractional_dollar_digits(16) == 2
+    assert _fractional_dollar_digits(32) == 2
+
+    # dollarde terms
+    terms = _dollar_fraction_terms(1.02, 4)
+    assert terms is not None
+    sign, i_part, f_part, f, scale = terms
+    assert sign == 1.0
+    assert i_part == 1.0
+    assert abs(f_part - 0.02) < 1e-9
+    assert f == 4
+    assert scale == 10
+
+    # Negative amount
+    neg_terms = _dollar_fraction_terms(-1.02, 4)
+    assert neg_terms is not None
+    assert neg_terms[0] == -1.0
+    assert neg_terms[1] == 1.0
+
+    # Non-positive or invalid fraction returns None
+    assert _dollar_fraction_terms(1.02, 0) is None
+    assert _dollar_fraction_terms(1.02, -4) is None
+    assert _dollar_fraction_terms("invalid", 4) is None
+    assert _dollar_fraction_terms(1.02, "invalid") is None
+
 
 

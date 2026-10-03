@@ -12,11 +12,24 @@ from __future__ import annotations
 import datetime as dt
 import builtins
 import math
+import operator
 from typing import Any
 
 import numpy as np
 
-from .calc_functions_util import _collect_a_values, _extract_numeric_array, _npf_result, _to_float_a, match_criteria
+from .calc_functions_util import (
+    _bessel_iv_jv,
+    _bessel_kn_yn,
+    _collect_a_values,
+    _criteria_numbers,
+    _extract_numeric_array,
+    _int_bitwise,
+    _int_shift,
+    _npf_result,
+    _simple_accrual,
+    _to_float_a,
+    match_criteria,
+)
 from .coerce import header_label, is_missing_value
 
 
@@ -262,31 +275,11 @@ def _year_frac(d1: float, d2: float, basis: int) -> float:
 
 
 def accrint(issue: Any, first_interest: Any, settlement: Any, rate: Any, par: Any, frequency: Any, basis: Any = 0, calc_method: Any = True) -> float:
-    from plugin.scripting.venv.calc_functions_t_z import yearfrac
-
-    try:
-        r = float(rate)
-        p = float(par)
-        yf = yearfrac(issue, settlement, basis)
-        if math.isnan(yf):
-            return float("nan")
-        return float(p * r * yf)
-    except Exception:
-        return float("nan")
+    return _simple_accrual(issue, settlement, rate, par, basis)
 
 
 def accrintm(issue: Any, settlement: Any, rate: Any, par: Any, basis: Any = 0) -> float:
-    from plugin.scripting.venv.calc_functions_t_z import yearfrac
-
-    try:
-        r = float(rate)
-        p = float(par)
-        yf = yearfrac(issue, settlement, basis)
-        if math.isnan(yf):
-            return float("nan")
-        return float(p * r * yf)
-    except Exception:
-        return float("nan")
+    return _simple_accrual(issue, settlement, rate, par, basis)
 
 
 def acot(x: Any) -> float:
@@ -500,17 +493,7 @@ def averagea(*args: Any) -> float:
 
 
 def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
-    r_flat = np.asarray(r).ravel()
-    ar_flat = np.asarray(ar).ravel() if ar is not None else r_flat
-    vals = []
-    for i in range(min(len(r_flat), len(ar_flat))):
-        if match_criteria(r_flat[i], crit):
-            try:
-                val = float(ar_flat[i])
-                if not np.isnan(val):
-                    vals.append(val)
-            except (ValueError, TypeError):
-                pass
+    vals = _criteria_numbers(r, crit, ar)
     if not vals:
         return float("nan")
     return float(np.mean(vals))
@@ -581,11 +564,7 @@ def besseli(x: Any, n: Any) -> float:
     try:
         import scipy.special  # type: ignore[import-untyped]
 
-        v1 = float(x)
-        v2 = int(float(n))
-        if v2 < 0:
-            return float("nan")
-        return float(scipy.special.iv(v2, v1))
+        return _bessel_iv_jv(scipy.special.iv, x, n)
     except Exception:
         return float("nan")
 
@@ -594,11 +573,7 @@ def besselj(x: Any, n: Any) -> float:
     try:
         import scipy.special
 
-        v1 = float(x)
-        v2 = int(float(n))
-        if v2 < 0:
-            return float("nan")
-        return float(scipy.special.jv(v2, v1))
+        return _bessel_iv_jv(scipy.special.jv, x, n)
     except Exception:
         return float("nan")
 
@@ -607,11 +582,7 @@ def besselk(x: Any, n: Any) -> float:
     try:
         from scipy.special import kn
 
-        xv = float(x)
-        nv = int(float(n))
-        if xv <= 0:
-            return float("nan")
-        return float(kn(nv, xv))
+        return _bessel_kn_yn(kn, x, n)
     except Exception:
         return float("nan")
 
@@ -620,11 +591,7 @@ def bessely(x: Any, n: Any) -> float:
     try:
         from scipy.special import yn
 
-        xv = float(x)
-        nv = int(float(n))
-        if xv <= 0:
-            return float("nan")
-        return float(yn(nv, xv))
+        return _bessel_kn_yn(yn, x, n)
     except Exception:
         return float("nan")
 
@@ -691,51 +658,23 @@ def binomdist(*args: Any) -> float:
 
 
 def bitand(n1: Any, n2: Any) -> float:
-    try:
-        return float(int(float(n1)) & int(float(n2)))
-    except (ValueError, TypeError, OverflowError):
-        # int(float(inf)) raises OverflowError, which used to escape this helper.
-        return float("nan")
+    return _int_bitwise(operator.and_, n1, n2)
 
 
 def bitlshift(number: Any, shift: Any) -> float:
-    try:
-        n = int(float(number))
-        s = int(float(shift))
-        if s < 0:
-            return float(n >> abs(s))
-        return float(n << s)
-    except (ValueError, TypeError, OverflowError):
-        # int(float(inf)) raises OverflowError, which used to escape this helper.
-        return float("nan")
+    return _int_shift(number, shift, left=True)
 
 
 def bitor(n1: Any, n2: Any) -> float:
-    try:
-        return float(int(float(n1)) | int(float(n2)))
-    except (ValueError, TypeError, OverflowError):
-        # int(float(inf)) raises OverflowError, which used to escape this helper.
-        return float("nan")
+    return _int_bitwise(operator.or_, n1, n2)
 
 
 def bitrshift(number: Any, shift: Any) -> float:
-    try:
-        n = int(float(number))
-        s = int(float(shift))
-        if s < 0:
-            return float(n << abs(s))
-        return float(n >> s)
-    except (ValueError, TypeError, OverflowError):
-        # int(float(inf)) raises OverflowError, which used to escape this helper.
-        return float("nan")
+    return _int_shift(number, shift, left=False)
 
 
 def bitxor(n1: Any, n2: Any) -> float:
-    try:
-        return float(int(float(n1)) ^ int(float(n2)))
-    except (ValueError, TypeError, OverflowError):
-        # int(float(inf)) raises OverflowError, which used to escape this helper.
-        return float("nan")
+    return _int_bitwise(operator.xor, n1, n2)
 
 
 def char(n: Any) -> str:

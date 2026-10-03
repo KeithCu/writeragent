@@ -19,6 +19,7 @@ import numpy as np
 from .calc_functions_util import (
     _build_holiday_set,
     _collect_a_values,
+    _criteria_numbers,
     _extract_numeric_array,
     _find_text_cut,
     _npf_result,
@@ -922,18 +923,8 @@ def subtotal(fn_num: Any, r: Any) -> float:
 
 
 def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
-    r_flat = np.asarray(r).ravel()
-    sr_flat = np.asarray(sr).ravel() if sr is not None else r_flat
-    total = 0.0
-    for i in range(min(len(r_flat), len(sr_flat))):
-        if match_criteria(r_flat[i], crit):
-            try:
-                val = float(sr_flat[i])
-                if not np.isnan(val):
-                    total += val
-            except (ValueError, TypeError):
-                pass
-    return float(total)
+    vals = _criteria_numbers(r, crit, sr)
+    return float(sum(vals))
 
 
 def sumifs(sr: Any, *args: Any) -> float:

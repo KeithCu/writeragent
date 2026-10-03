@@ -16,14 +16,22 @@ import numpy as np
 from .coerce import is_missing_value
 
 __all__ = [
+    "_bessel_iv_jv",
+    "_bessel_kn_yn",
     "_build_holiday_set",
     "_collect_a_values",
+    "_criteria_numbers",
+    "_dollar_fraction_terms",
     "_extract_numeric_array",
     "_find_match_index",
     "_find_text_cut",
+    "_fractional_dollar_digits",
+    "_int_bitwise",
+    "_int_shift",
     "_npf_result",
     "_parse_weekend",
     "_serial_to_date",
+    "_simple_accrual",
     "_to_float_a",
     "_wildcard_fullmatch",
     "match_criteria",
@@ -320,3 +328,110 @@ def _find_text_cut(
         for _unused in range(abs_inst):
             idx = s_search.rfind(delim_search, 0, idx)
         return s, delim, inst, idx, False
+
+
+def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
+    """Apply a binary integer bitwise operator to n1 and n2."""
+    try:
+        return float(op(int(float(n1)), int(float(n2))))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+
+
+def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
+    """Integer bit shift. A negative shift returns NaN. Do not swap direction."""
+    try:
+        n = int(float(number))
+        s = int(float(shift))
+        if s < 0:
+            return float("nan")
+        return float(n << s) if left else float(n >> s)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+
+
+def _bessel_iv_jv(scipy_fn: Any, x: Any, n: Any) -> float:
+    """Evaluate modified/regular Bessel function of the first kind (iv or jv)."""
+    try:
+        v1 = float(x)
+        v2 = int(float(n))
+        if v2 < 0:
+            return float("nan")
+        return float(scipy_fn(v2, v1))
+    except Exception:
+        return float("nan")
+
+
+def _bessel_kn_yn(scipy_fn: Any, x: Any, n: Any) -> float:
+    """Evaluate modified/regular Bessel function of the second kind (kn or yn)."""
+    try:
+        xv = float(x)
+        nv = int(float(n))
+        if xv <= 0:
+            return float("nan")
+        return float(scipy_fn(nv, xv))
+    except Exception:
+        return float("nan")
+
+
+def _simple_accrual(
+    issue: Any, settlement: Any, rate: Any, par: Any, basis: Any = 0
+) -> float:
+    """Simple accrual interest calculation for accrint and accrintm."""
+    from .calc_functions_t_z import yearfrac
+
+    try:
+        r = float(rate)
+        p = float(par)
+        yf = yearfrac(issue, settlement, basis)
+        if math.isnan(yf):
+            return float("nan")
+        return float(p * r * yf)
+    except Exception:
+        return float("nan")
+
+
+def _criteria_numbers(r: Any, crit: Any, val_range: Any | None = None) -> list[float]:
+    """Collect matching numeric values for criteria-based functions (averageif, sumif)."""
+    r_flat = np.asarray(r).ravel()
+    v_flat = np.asarray(val_range).ravel() if val_range is not None else r_flat
+    vals: list[float] = []
+    for i in range(min(len(r_flat), len(v_flat))):
+        if match_criteria(r_flat[i], crit):
+            try:
+                val = float(v_flat[i])
+                if not np.isnan(val):
+                    vals.append(val)
+            except (ValueError, TypeError):
+                pass
+    return vals
+
+
+def _fractional_dollar_digits(fraction: int) -> int:
+    """Digits Excel/Calc use when reading a fractional dollar price."""
+    if fraction <= 1:
+        return 0
+    digits = math.ceil(math.log10(fraction))
+    if 10 ** (digits - 1) == fraction:
+        digits -= 1
+    return digits
+
+
+def _dollar_fraction_terms(
+    amount: Any, fraction: Any
+) -> tuple[float, float, float, int, int] | None:
+    """Parse and compute terms for dollarde and dollarfr: (sign, i_part, f_part, f, scale)."""
+    try:
+        amt = float(amount)
+        f = int(float(fraction))
+    except (ValueError, TypeError):
+        return None
+    if f <= 0:
+        return None
+    sign = -1.0 if amt < 0 else 1.0
+    amt = abs(amt)
+    i_part = math.floor(amt)
+    f_part = amt - i_part
+    scale = 10 ** _fractional_dollar_digits(f)
+    return sign, float(i_part), f_part, f, scale
+
