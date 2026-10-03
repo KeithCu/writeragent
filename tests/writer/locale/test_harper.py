@@ -1311,44 +1311,69 @@ def test_harper_try_lint_pumps_events_while_lint_outstanding() -> None:
 
 
 def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
-    """doProofreading is Dummy-*; in-loop PE2I there is a UNO thread violation."""
-    lint_started = threading.Event()
-    release_lint = threading.Event()
+    """doProofreading is Dummy-*; in-loop PE2I there is a UNO thread violation.
 
-    def _slow_lint(*_a: object, **_k: object) -> list:
-        lint_started.set()
-        release_lint.wait(timeout=2.0)
-        return []
+    Seed a leftover marshal item and leave it queued. That queue is
+    process-wide; pytest-xdist often arrives here with one already sitting.
+    The linguistic wait must still post. Draining first would hide the miss
+    (stub times out at 2s, ``posts["n"]`` stays 0, lint returns empty errors).
+    """
+    from plugin.framework.queue_executor import default_executor
 
-    _ready_harper_client(_slow_lint)
-    pe2i_threads: list[str] = []
-    posts = {"n": 0}
-    box: dict[str, object] = {}
+    saved: list[object] = []
+    while True:
+        try:
+            saved.append(default_executor._work_queue.get_nowait())
+        except queue.Empty:
+            break
+    default_executor._work_queue.put(object())
+    try:
+        lint_started = threading.Event()
+        release_lint = threading.Event()
 
-    def _pe2i(_ctx: object, rounds: int = 1, force: bool = False) -> bool:
-        del rounds, force
-        pe2i_threads.append(threading.current_thread().name)
-        return True
+        def _slow_lint(*_a: object, **_k: object) -> list:
+            lint_started.set()
+            release_lint.wait(timeout=2.0)
+            return []
 
-    def _post(fn: object, *args: object, **kwargs: object) -> None:
-        del fn, args, kwargs
-        posts["n"] += 1
-        if lint_started.is_set():
-            release_lint.set()
+        _ready_harper_client(_slow_lint)
+        pe2i_threads: list[str] = []
+        posts = {"n": 0}
+        box: dict[str, object] = {}
 
-    def _run() -> None:
-        with (
-            patch("plugin.framework.uno_context.process_events_to_idle", side_effect=_pe2i),
-            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
-        ):
-            box["res"] = harper_try_lint("Hello.", "/tmp", ctx=MagicMock())
+        def _pe2i(_ctx: object, rounds: int = 1, force: bool = False) -> bool:
+            del rounds, force
+            pe2i_threads.append(threading.current_thread().name)
+            return True
 
-    worker = threading.Thread(target=_run, name="Dummy-21")
-    worker.start()
-    worker.join(timeout=3.0)
-    assert box.get("res") == {"errors": []}
-    assert posts["n"] >= 1
-    assert pe2i_threads == []
+        def _post(fn: object, *args: object, **kwargs: object) -> None:
+            del fn, args, kwargs
+            posts["n"] += 1
+            if lint_started.is_set():
+                release_lint.set()
+
+        def _run() -> None:
+            with (
+                patch("plugin.framework.uno_context.process_events_to_idle", side_effect=_pe2i),
+                patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
+            ):
+                box["res"] = harper_try_lint("Hello.", "/tmp", ctx=MagicMock())
+
+        worker = threading.Thread(target=_run, name="Dummy-21")
+        worker.start()
+        worker.join(timeout=3.0)
+        assert not worker.is_alive()
+        assert box.get("res") == {"errors": []}
+        assert posts["n"] >= 1
+        assert pe2i_threads == []
+    finally:
+        while True:
+            try:
+                default_executor._work_queue.get_nowait()
+            except queue.Empty:
+                break
+        for item in saved:
+            default_executor._work_queue.put(item)
 
 
 def test_harper_try_lint_reenter_during_wait_logs_and_returns_none(caplog: pytest.LogCaptureFixture) -> None:

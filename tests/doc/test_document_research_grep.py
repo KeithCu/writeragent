@@ -216,3 +216,63 @@ def test_grep_nearby_files_open_error_continues(mock_resolve, mock_open, mock_cl
 def test_grep_nearby_files_requires_pattern():
     result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "  ")
     assert result["status"] == "error"
+
+
+def _draw_text_shape(text: str) -> MagicMock:
+    shape = MagicMock()
+    shape.getString.return_value = text
+    shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    return shape
+
+
+def _draw_page(shapes: list[MagicMock]) -> MagicMock:
+    page = MagicMock()
+    page.getCount.return_value = len(shapes)
+    page.getByIndex.side_effect = lambda index: shapes[index]
+    return page
+
+
+def test_grep_text_in_draw_match_count_uses_remaining_page_budget():
+    """A later page must not search with the original max_results."""
+    from plugin.doc.document_research_grep import _grep_text_in_draw
+
+    page0 = _draw_page([_draw_text_shape("alpha one"), _draw_text_shape("alpha two"), _draw_text_shape("nope")])
+    page1 = _draw_page(
+        [_draw_text_shape("alpha three"), _draw_text_shape("alpha four"), _draw_text_shape("alpha five")]
+    )
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+    pages.getByIndex.side_effect = lambda index: (page0, page1)[index]
+    model = MagicMock()
+    model.getDrawPages.return_value = pages
+
+    matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=3)
+
+    assert [row["text"] for row in matches] == ["alpha one", "alpha two", "alpha three"]
+    assert count == len(matches) == 3
+    assert partial is False
+    # Remaining budget was 1, so the second page stops after its first hit.
+    assert page1.getByIndex.call_count == 1
+
+
+def test_grep_text_in_draw_count_matches_sliced_return_when_page_overshoots():
+    from plugin.doc.document_research_grep import _grep_text_in_draw
+
+    def overshoot(*args: object, **kwargs: object) -> tuple[list[dict[str, str]], int, bool]:
+        assert kwargs["max_results"] == 2
+        return (
+            [{"page_index": 0, "shape_index": str(i), "text": "x"} for i in range(4)],
+            4,
+            False,
+        )
+
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = MagicMock()
+    model = MagicMock()
+    model.getDrawPages.return_value = pages
+    with patch("plugin.doc.document_research_grep._grep_shapes_on_page", side_effect=overshoot):
+        matches, count, partial = _grep_text_in_draw(model, "x", max_results=2)
+    assert len(matches) == 2
+    assert count == 2
+    assert partial is False

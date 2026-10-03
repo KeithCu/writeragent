@@ -409,3 +409,67 @@ def test_converter_cache_keeps_only_the_latest():
     docling_mod._store_converter(("new",), object())
     assert list(docling_mod._converter_cache) == [("new",)]
 
+
+def _cache_key_for(params: dict) -> tuple:
+    return docling_mod._cache_key(params, for_structure=True, input_format="image")
+
+
+def test_text_score_zero_is_its_own_cache_key():
+    missing = _cache_key_for({})
+    default = _cache_key_for({"text_score": 0.5})
+    zero = _cache_key_for({"text_score": 0.0})
+    zero_int = _cache_key_for({"text_score": 0})
+    zero_str = _cache_key_for({"text_score": "0.0"})
+    blank = _cache_key_for({"text_score": ""})
+    assert missing == default == blank
+    assert zero == zero_int == zero_str
+    assert zero != default
+    assert docling_mod._text_score_for_cache({"text_score": 0.0}) == 0.0
+    assert docling_mod._text_score_for_cache({}) == 0.5
+
+
+def test_converter_cache_does_not_reuse_default_for_text_score_zero():
+    """A warm 0.5 converter must not be returned when the threshold is 0.0."""
+    built: list[float] = []
+
+    def fake_build(params, *, for_structure, input_format="image"):
+        del for_structure, input_format
+        score = docling_mod._text_score_for_cache(params)
+        built.append(score)
+        pipeline = MagicMock()
+        pipeline.captured_text_score = score
+        return pipeline
+
+    base_models = MagicMock()
+    base_models.InputFormat.IMAGE = "IMAGE"
+    created: list[MagicMock] = []
+
+    def fake_converter(**kwargs):
+        conv = MagicMock()
+        conv.kwargs = kwargs
+        created.append(conv)
+        return conv
+
+    converter_mod = MagicMock()
+    converter_mod.DocumentConverter.side_effect = fake_converter
+    converter_mod.ImageFormatOption.side_effect = lambda **kw: kw
+
+    def fake_import(name):
+        if name == "docling.datamodel.base_models":
+            return base_models
+        if name == "docling.document_converter":
+            return converter_mod
+        raise ImportError(name)
+
+    with patch.object(docling_mod, "_import_docling"), patch.object(
+        docling_mod, "_build_pipeline_options", side_effect=fake_build
+    ), patch.object(docling_mod.importlib, "import_module", side_effect=fake_import):
+        first = docling_mod._get_docling_converter({"text_score": 0.5}, for_structure=True)
+        again = docling_mod._get_docling_converter({"text_score": 0.5}, for_structure=True)
+        second = docling_mod._get_docling_converter({"text_score": 0.0}, for_structure=True)
+
+    assert first is again
+    assert first is not second
+    assert built == [0.5, 0.0]
+    assert created[1].kwargs["format_options"]["IMAGE"]["pipeline_options"].captured_text_score == 0.0
+

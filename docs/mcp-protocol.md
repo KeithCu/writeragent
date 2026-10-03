@@ -31,6 +31,10 @@ what to consider doing next.
 
 The chosen binary must be on `PATH`. There is **no auth** on the MCP HTTP API itself — anyone who has the public URL can call tools against open documents. Tunnel start/auth failures (missing binary, bad ngrok/Cloudflare token, early process exit) are stored on `TunnelManager.last_error` and shown in **MCP Server Status** (and the Start toast when known immediately). When a tunnel connection drops unexpectedly, the pure state machine in [`plugin/mcp/tunnel_state.py`](../plugin/mcp/tunnel_state.py) automatically transitions through **reconnecting** with exponential backoff (1s, 2s, 4s, 8s, up to max retries) before declaring a failure. Fatal auth errors fail immediately without retrying. Implementation: [`plugin/mcp/tunnel.py`](../plugin/mcp/tunnel.py), [`plugin/mcp/tunnel_state.py`](../plugin/mcp/tunnel_state.py), wired from [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py).
 
+**Port rebind:** Changing `mcp.mcp_port` while MCP is enabled stops and starts the HTTP listener so the socket matches Settings. A port-only save emits `config:changed` with `key="mcp.mcp_port"` (a bulk `key=""` is only used when more than one key changes). Both paths rebind when the live port differs. MCP does not need a LibreOffice restart.
+
+**Tunnel restart:** A provider or token change terminates the old subprocess and starts a new one. The old process's exit callback is ignored unless that process is still the one `TunnelManager` is tracking, so it cannot clear the new process or force a reconnect. `TerminateProcessEffect.provider` is the provider that owned the process being stopped. Leaving Tailscale runs that provider's `post_stop` (`tailscale funnel reset` and `tailscale serve reset`) even though state has already switched to the new provider.
+
 **Start failures:** If the HTTP listener cannot bind (usually port already in use), Toggle / Settings / Status show `host:port`, the exception line, and guidance to free the port or change `mcp.mcp_port` — not only “check the debug log”. Port conflicts do not offer Report bug. Full traceback remains in `writeragent_debug.log`. Formatter: `format_mcp_start_failure` in [`plugin/mcp/server.py`](../plugin/mcp/server.py).
 
 | Method | Path | Purpose |
@@ -354,7 +358,7 @@ External MCP hosts often fire several `tools/call` requests at once (e.g. resear
 
 Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `image_generate`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
 
-**UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden).
+**UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden). Both paths wait for that gate on the HTTP worker. A backpressure tool then runs its body on the main thread, so a long-running mutator cannot freeze the LibreOffice UI for the gate timeout. A `tools/call` argument cannot disable the thread guard.
 
 **Targeting:** Pass **`document_url`** in each `tools/call` `arguments` (preferred — a `url` or `uid` from `list_open_documents`). The legacy **`X-Document-URL`** HTTP header still works for clients that set headers once per connection. Resolved URLs and RuntimeUIDs map to the same per-document gate key (normalized trailing slashes stripped).
 

@@ -29,33 +29,37 @@ The plugin runs an embedded HTTP server to provide a local API and support the M
 
 MCP `tools/call` routes to one of two handlers in [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py), depending on the tool's `long_running` flag:
 
-| Path | Method | Thread | Global limit | Per-document gate |
-|------|--------|--------|--------------|-------------------|
-| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only |
-| Long-running | `_execute_long_running` | HTTP worker | None (by design) | Mutating tools only |
+| Path | Method | Tool body | Global limit | Per-document gate |
+|------|--------|-----------|--------------|-------------------|
+| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only; **acquired on the HTTP worker** |
+| Long-running | `_execute_long_running` | HTTP worker (UNO marshalled) | None (by design) | Mutating tools only; acquired on the HTTP worker |
 
 ```mermaid
 flowchart TB
     subgraph backpressure [Backpressure path]
-        Sem["_tool_semaphore acquire"]
-        MainRun["_prepare_mcp_execution + execute on main thread"]
-        Sem --> MainRun
+        Sem["_tool_semaphore on HTTP worker"]
+        PrepBp["prepare on main thread"]
+        GateBp["gate acquire on HTTP worker"]
+        BodyBp["tool body on main thread"]
+        Sem --> PrepBp --> GateBp --> BodyBp
     end
     subgraph longrun [Long-running path]
-        HttpRun["tool body on HTTP thread"]
+        PrepLr["prepare on main thread"]
+        GateLr["gate acquire on HTTP worker"]
+        BodyLr["tool body on HTTP thread"]
+        PrepLr --> GateLr --> BodyLr
     end
-    MainRun --> Gate["_document_mutation_gate when mutating"]
-    HttpRun --> Gate
-    Gate --> Uno["UNO via main-thread dispatch"]
+    BodyBp --> Uno["UNO on the main thread"]
+    BodyLr --> Uno
 ```
 
 **Why two layers?** The global semaphore keeps fast MCP tools from piling up on the main thread and surfaces `BusyError` (HTTP 429) under overload. Long-running tools (image generation, delegate sub-agents) skip the semaphore so a minutes-long job does not block every other MCP client. That left a hole: parallel long-running mutators could target the same document. The per-document gate closes that without blocking read-only work or work on other documents.
 
-**Per-document gate:** [`_document_mutation_gate`](../../plugin/mcp/mcp_protocol.py) serializes mutating MCP runs that share a normalized document key (`X-Document-URL`, `doc.getURL()`, or `RuntimeUID`). Tools opt out via [`ToolBase.requires_document_lock()`](../../plugin/framework/tool.py) (defaults to `detects_mutation()`). Delegate gateways return `False` for read-only domains (`document_research`, `web_research`, `vision`).
+**Per-document gate:** [`_document_mutation_gate`](../../plugin/mcp/mcp_protocol.py) serializes mutating MCP runs that share a normalized document key (`X-Document-URL`, `doc.getURL()`, or `RuntimeUID`). Tools opt out via [`ToolBase.requires_document_lock()`](../../plugin/framework/tool.py) (defaults to `detects_mutation()`). Delegate gateways return `False` for read-only domains (`document_research`, `web_research`, `vision`). Both paths acquire the gate on the HTTP worker. The backpressure path used to acquire it inside the main-thread dispatch, so a long-running mutator holding the gate froze the UI for up to the 30s timeout and stalled that mutator's own UNO marshal.
 
-**UNO thread safety:** All UNO access is marshalled to the LibreOffice main thread. The per-document gate is **logical** serialization — it prevents overlapping mutating MCP tool runs on the same file, not raw cross-thread UNO calls.
+**UNO thread safety:** All UNO access is marshalled to the LibreOffice main thread. The per-document gate is **logical** serialization — it prevents overlapping mutating MCP tool runs on the same file, not raw cross-thread UNO calls. A client `tools/call` argument cannot set `bypass_thread_guard`; that flag is an eval-harness switch on `ToolRegistry.execute`, and MCP always passes `False`.
 
-**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), and unknown-tool conservative locking.
+**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), unknown-tool conservative locking, and backpressure waiting for the gate off the main thread. [`tests/mcp/test_mcp_protocol.py`](../../tests/mcp/test_mcp_protocol.py) covers a client `bypass_thread_guard` argument.
 
 **Not covered by MCP gates (different models):**
 *   **Sidebar chat** ([`tool_loop.py`](../../plugin/chatbot/tool_loop.py)) — one tool per LLM round; async tools run on worker threads but the loop waits for `TOOL_RESULT` before spawning the next.
@@ -71,7 +75,7 @@ External agent binaries (Hermes, Claude, Grok, OpenCode, …) speak the Agent Co
 *   **`acp_connection.py` (`ACPConnection`):** Spawns the subprocess, then:
     *   **Threads:** `run_in_background(..., name="acp-reader", dedicated=True)` parses JSON-RPC from stdout; `start_stderr_drain(..., name=f"acp-stderr-{pid}")` drains stderr so the kernel pipe cannot fill.
     *   **Synchronization:** `threading.Lock` (`_lock`) guards `_pending` (request id → event + response dict). Each `send_request` waits on its own `threading.Event` until the reader stores the matching response.
-*   **`acp_backend.py`:** ACP client that uses `ACPConnection` for handshake, prompt sessions, and streaming notifications.
+*   **`acp_backend.py`:** ACP client that uses `ACPConnection` for handshake, prompt sessions, and streaming notifications. Each `send()` calls `shutdown()` → `ACPConnection.stop()` when the turn ends (success, error, or cancel), so the CLI and its reader do not survive into the next chat message. `stop()` notifies `session/cancel`, answers pending `session/request_permission` with `outcome: cancelled`, then terminates the subprocess. Permission replies are `outcome.selected` plus an `optionId` from the request, or `outcome.cancelled`. `session/update` is dispatched on `sessionUpdate`: `agent_message_chunk` is assistant text, `agent_thought_chunk` is thinking (not the saved answer), and `tool_call` / `tool_call_update` are tool transcript lines.
 
 ### 4. Chatbot Streaming and Tool Execution (`plugin/chatbot/`)
 
@@ -212,7 +216,7 @@ flowchart TD
 2. **Approved pump entry points only:**
    - [`pump_ui_idle`](../../plugin/framework/queue_executor.py): Drains the `QueueExecutor` work queue **then** pumps VCL (only when called by the active owner or when no owner is active).
    - [`process_events_to_idle`](../../plugin/framework/uno_context.py): Pumps VCL only when permitted (no active owner or called by owner).
-   - [`wait_while_pumping`](../../plugin/framework/uno_context.py): Secondary **wait** loops (Harper READY lint). On VCL, calls `process_events_to_idle(force=False)` each tick; off-main (Writer `doProofreading` is a `Dummy-*` worker) **posts** PE2I to the main thread — never pump on the waiter. The post is skipped while `default_executor.pending_work_count()` is non-zero (one outstanding marshal is enough). That queue is process-wide, so a unit test that leaves an item queued makes a later off-main wait on the same pytest-xdist worker time out. Drain the item before the test returns. Do not copy a local PE2I `while` into feature modules. Drain-owner waits stay on `pump_ui_idle` / `run_blocking_in_thread`.
+   - [`wait_while_pumping`](../../plugin/framework/uno_context.py): Secondary **wait** loops (Harper READY lint). On VCL, calls `process_events_to_idle(force=False)` each tick; off-main (Writer `doProofreading` is a `Dummy-*` worker) **posts** PE2I to the main thread — never pump on the waiter. Repeated ticks coalesce to one outstanding secondary-idle pump (`callable_is_scheduled` on that callable, including the pre-AsyncCallback pending list). Unrelated marshal items do not suppress the post: the queue is process-wide, and a leftover item used to skip PE2I for the whole linguistic wait. A dropped post is not sticky. Do not copy a local PE2I `while` into feature modules. Drain-owner waits stay on `pump_ui_idle` / `run_blocking_in_thread`.
    - Direct calls to `toolkit.processEventsToIdle()` outside these helpers are forbidden and enforced via Opengrep rule `raw-process-events-to-idle`.
 3. **Secondary pump suppression:** When a drain owner is active, secondary callers (document research grep progress, Harper status pump, dialog probes, `wait_while_pumping`) become no-ops for VCL pumping to prevent double-pumping and listener re-entry.
 4. **`post_to_main_thread` execution behavior:** [`QueueExecutor.post`](../../plugin/framework/queue_executor.py) can execute inline under `WRITERAGENT_TESTING=1` or when `AsyncCallback` is unavailable. Do not assume `post_to_main_thread` strictly defers without an explicit enqueue-only boundary.

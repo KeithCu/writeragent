@@ -51,7 +51,7 @@ class AddSlide(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
-        from plugin.draw.transitions import _LAYOUTS, apply_slide_layout, layout_id
+        from plugin.draw.transitions import apply_slide_layout, available_layout_names, layout_id
 
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs.get("page")
@@ -68,7 +68,7 @@ class AddSlide(ToolBase):
                 layout_name = str(raw).strip().lower()
             # Validate before insert so a bad name does not leave a stray page.
             if layout_id(layout_name) is None:
-                return self._tool_error("Unknown layout: %s" % layout_name, available=sorted(_LAYOUTS.keys()))
+                return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
 
         # Do not trust get_active_page_index after insert — Impress
         # DrawPage.getNumber() is missing/None, so the bridge helper falls
@@ -90,13 +90,11 @@ class AddSlide(ToolBase):
                 result["master"] = inherited
         if is_impress and layout_name is not None:
             result["placeholders_hint"] = "call list_placeholders on this page"
-            # insertNewByIndex is already empty (Layout=20, 0 shapes). _LAYOUTS
-            # "blank"=11 is a different autolayout that still grows placeholders.
-            # Skip assignment so blank/none keep today's empty-page hatch.
-            if layout_name in ("blank", "none"):
-                result["layout"] = "blank"
-            else:
-                result["layout"] = apply_slide_layout(new_page, layout_name)
+            # blank/none are AUTOLAYOUT_NONE (20). insertNewByIndex already
+            # leaves that id with 0 shapes; assigning it keeps the page empty.
+            # Skipping used to be required because the PowerPoint blank id (11)
+            # is AUTOLAYOUT_OBJ and grew a title plus an OLE placeholder.
+            result["layout"] = apply_slide_layout(new_page, layout_name)
         return result
 
 

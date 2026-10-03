@@ -263,16 +263,8 @@ def _restore_default_work_queue(saved: list[object]) -> None:
 def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
     """Writer doProofreading is Dummy-*; PE2I on that stack is a thread violation.
 
-    What was wrong: ``result["ok"]`` was False after the 1s timeout. The patched
-    post never ran, so the event stayed unset.
-    How it happened: ``_post_secondary_idle`` returns without posting when
-    ``default_executor._work_queue`` is already non-empty. That queue is
-    process-wide. pytest-xdist runs many tests in one worker, and a passing
-    test can leave an item queued. ``on_main_thread`` is false for ``Dummy-*``
-    (it is not ``threading.main_thread()``), so the wait does take the post
-    path — and then skips it.
-    Why this change: seed that leftover, then park the queue before the wait.
-    Removing the park makes this fail on its own, not only after another test.
+    The marshal queue is process-wide. A leftover item must not skip the post:
+    that left the event unset (and harper_try_lint with posts=0 under xdist).
     """
     from plugin.framework.queue_executor import default_executor
     from plugin.framework.uno_context import wait_while_pumping
@@ -280,7 +272,7 @@ def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
     saved = _park_default_work_queue()
     try:
         default_executor._work_queue.put(object())
-        assert _park_default_work_queue(), "seeded leftover must be queued before the wait"
+        assert default_executor.pending_work_count() >= 1
         done = threading.Event()
         posts: list[object] = []
         pe2i_threads: list[str] = []
@@ -316,8 +308,8 @@ def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
 def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
     """QueueExecutor.post can run the callback on the waiter; still no PE2I off-main.
 
-    Same dirty-queue skip as the post test above: a leftover item means the
-    patched post never runs, the event stays unset, and the wait returns False.
+    A leftover marshal item must not skip that post. The inlined pump still
+    must not call PE2I on Dummy-*.
     """
     from plugin.framework.queue_executor import default_executor
     from plugin.framework.uno_context import wait_while_pumping
@@ -325,7 +317,7 @@ def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
     saved = _park_default_work_queue()
     try:
         default_executor._work_queue.put(object())
-        assert _park_default_work_queue(), "seeded leftover must be queued before the wait"
+        assert default_executor.pending_work_count() >= 1
         done = threading.Event()
         pe2i_threads: list[str] = []
         result: dict[str, bool] = {}
@@ -356,66 +348,66 @@ def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
         _restore_default_work_queue(saved)
 
 
-def test_wait_while_pumping_skips_post_while_work_queue_nonempty():
-    """One queued pump is enough; a later empty queue must post again (not a sticky flag)."""
-    import queue as queue_mod
+def test_post_secondary_idle_coalesces_own_pump_not_queue_depth():
+    """One outstanding secondary-idle pump; an unrelated queued item does not suppress it.
 
+    Once that pump leaves the queue the next call posts again (not a sticky flag).
+    """
+    from plugin.framework import uno_context as uno_context_mod
     from plugin.framework.queue_executor import default_executor
-    from plugin.framework.uno_context import wait_while_pumping
 
-    saved: list[object] = []
-    while True:
-        try:
-            saved.append(default_executor._work_queue.get_nowait())
-        except queue_mod.Empty:
-            break
-    default_executor._work_queue.put(object())
-    posts: list[int] = []
-    result: dict[str, bool] = {}
+    class _Item:
+        def __init__(self, fn: object) -> None:
+            self.fn = fn
+
+    saved = _park_default_work_queue()
+    leftover = object()
+    uno_context_mod._secondary_idle_posted = None
     try:
-        done = threading.Event()
+        default_executor._work_queue.put(leftover)
+        posts: list[object] = []
 
-        def _post_ignored(fn: object, *args: object, **kwargs: object) -> None:
-            del fn, args, kwargs
-            posts.append(1)
-            done.set()
+        def _post(fn: object, *args: object, **kwargs: object) -> None:
+            del args, kwargs
+            posts.append(fn)
+            default_executor._work_queue.put(_Item(fn))
 
-        def _waiter() -> None:
-            with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post_ignored):
-                result["skipped"] = wait_while_pumping(done, MagicMock(), timeout=0.04, poll_sec=0.01)
+        def _twice() -> None:
+            with (
+                patch("plugin.framework.uno_context.process_events_to_idle") as pe2i,
+                patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
+            ):
+                uno_context_mod._post_secondary_idle(MagicMock())
+                uno_context_mod._post_secondary_idle(MagicMock())
+                pe2i.assert_not_called()
 
-        worker = threading.Thread(target=_waiter, name="Dummy-21")
+        worker = threading.Thread(target=_twice, name="Dummy-21")
         worker.start()
-        worker.join(timeout=2)
+        worker.join(timeout=2.0)
         assert not worker.is_alive()
-        assert result.get("skipped") is False
-        assert posts == []
+        assert len(posts) == 1
+        assert default_executor.pending_work_count() >= 2
 
-        default_executor._work_queue.get_nowait()
-        done2 = threading.Event()
+        parked = _park_default_work_queue()
+        assert any(getattr(item, "fn", None) is posts[0] for item in parked)
+        default_executor._work_queue.put(leftover)
+        posts.clear()
 
-        def _post_once(fn: object, *args: object, **kwargs: object) -> None:
+        def _post_again(fn: object, *args: object, **kwargs: object) -> None:
             del fn, args, kwargs
             posts.append(1)
-            done2.set()
 
-        def _waiter2() -> None:
-            with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post_once):
-                result["posted"] = wait_while_pumping(done2, MagicMock(), timeout=1.0, poll_sec=0.01)
+        def _once() -> None:
+            with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post_again):
+                uno_context_mod._post_secondary_idle(MagicMock())
 
-        worker2 = threading.Thread(target=_waiter2, name="Dummy-22")
+        worker2 = threading.Thread(target=_once, name="Dummy-22")
         worker2.start()
-        worker2.join(timeout=2)
-        assert result.get("posted") is True
+        worker2.join(timeout=2.0)
         assert posts == [1]
     finally:
-        while True:
-            try:
-                default_executor._work_queue.get_nowait()
-            except queue_mod.Empty:
-                break
-        for item in saved:
-            default_executor._work_queue.put(item)
+        uno_context_mod._secondary_idle_posted = None
+        _restore_default_work_queue(saved)
 
 
 def test_resolve_package_extension_id_prefers_librepy():

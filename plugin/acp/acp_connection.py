@@ -82,24 +82,43 @@ class ACPConnection:
         self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader", dedicated=True)
 
     def stop(self) -> None:
-        """Terminate the subprocess."""
-        self._running = False
-        if self._proc:
-            try:
-                if self._proc.stdin:
-                    self._proc.stdin.close()
-            except Exception:
-                pass
-            try:
-                self._proc.terminate()
-                self._proc.wait(timeout=3)
-            except Exception:
-                try:
-                    self._proc.kill()
-                except Exception:
-                    pass
+        """Terminate the subprocess and unblock in-flight ``send_request`` calls.
+
+        What was wrong: ``stop()`` closed the child but left every
+        ``send_request`` waiting on its ``Event`` until the caller's timeout
+        (the prompt uses 600s). The chat worker stayed parked after the UI
+        had already shown Stopped, and the reader stayed in ``readline``
+        until that timeout too. Why: publish a cancellation error and set
+        every pending event, then terminate. A second ``stop()`` sees no
+        process and only wakes waiters.
+        """
+        with self._lock:
+            self._running = False
+            for entry in self._pending.values():
+                if entry.get("response") is None:
+                    entry["response"] = {"error": {"message": "ACP process stopped"}}
+                event = entry.get("event")
+                if event is not None:
+                    event.set()
+            proc = self._proc
+            # Claim it so a concurrent shutdown does not terminate twice.
             self._proc = None
             self._stderr_drain = None
+        if proc is None:
+            return
+        try:
+            if proc.stdin:
+                proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            proc.terminate()
+            proc.wait(timeout=3)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
     @property
     def is_alive(self) -> bool:
@@ -120,6 +139,11 @@ class ACPConnection:
 
         event = threading.Event()
         with self._lock:
+            # stop() may have swept _pending and dropped _proc between the
+            # is_alive check above and this registration. Registering after
+            # that sweep would wait until timeout: the event is never set.
+            if not self._running or self._proc is None:
+                raise ToolExecutionError("ACP process is not running")
             self._pending[req_id] = {"event": event, "response": None}
 
         line = json.dumps(msg) + "\n"
