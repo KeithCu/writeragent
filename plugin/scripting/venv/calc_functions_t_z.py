@@ -16,7 +16,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from .calc_functions_util import _wildcard_fullmatch
+from .calc_functions_util import _find_match_index
 from .coerce import _LO_ERROR_TOKENS, is_missing_value
 
 
@@ -655,51 +655,10 @@ def _scalar_if_singleton(values: list[Any]) -> Any:
 
 
 def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any | None = None, match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
-    l_flat = np.asarray(lookup_arr).ravel()
-    r_flat = np.asarray(return_arr)
-    indices = list(range(len(l_flat)))
-    if search_mode == -1:
-        indices.reverse()
-    best_idx = None
-    if match_mode == 0:
-        for idx in indices:
-            if l_flat[idx] == lookup_val:
-                best_idx = idx
-                break
-    elif match_mode in (-1, 1):
-        for idx in indices:
-            if l_flat[idx] == lookup_val:
-                best_idx = idx
-                break
-        if best_idx is None:
-            best_diff = None
-            for idx in indices:
-                try:
-                    diff = float(l_flat[idx]) - float(lookup_val)
-                    if match_mode == -1 and diff < 0:
-                        if best_diff is None or diff > best_diff:
-                            best_diff = diff
-                            best_idx = idx
-                    elif match_mode == 1 and diff > 0:
-                        if best_diff is None or diff < best_diff:
-                            best_diff = diff
-                            best_idx = idx
-                except (ValueError, TypeError):
-                    pass
-    elif match_mode == 2:
-        if isinstance(lookup_val, str):
-            for idx in indices:
-                cell = l_flat[idx]
-                if isinstance(cell, str) and _wildcard_fullmatch(lookup_val, cell):
-                    best_idx = idx
-                    break
-        else:
-            for idx in indices:
-                if l_flat[idx] == lookup_val:
-                    best_idx = idx
-                    break
+    best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is None:
         return if_not_found
+    r_flat = np.asarray(return_arr)
     if r_flat.ndim == 1:
         return r_flat[best_idx]
     if r_flat.ndim == 2:
@@ -715,48 +674,8 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
 
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:
-    try:
-        l_flat = np.asarray(lookup_arr).ravel()
-        indices = list(range(len(l_flat)))
-        if int(float(search_mode)) == -1:
-            indices.reverse()
-        mm = int(float(match_mode))
-    except (TypeError, ValueError, OverflowError):
-        return float("nan")
-    if mm == 0:
-        for idx in indices:
-            if l_flat[idx] == lookup_val:
-                return float(idx + 1)
-    elif mm in (-1, 1):
-        for idx in indices:
-            if l_flat[idx] == lookup_val:
-                return float(idx + 1)
-        best_idx = None
-        for idx in indices:
-            try:
-                diff = float(l_flat[idx]) - float(lookup_val)
-                if mm == -1 and diff < 0:
-                    if best_idx is None or diff > float(l_flat[best_idx]) - float(lookup_val):
-                        best_idx = idx
-                elif mm == 1 and diff > 0:
-                    if best_idx is None or diff < float(l_flat[best_idx]) - float(lookup_val):
-                        best_idx = idx
-            except (ValueError, TypeError):
-                pass
-        return float(best_idx + 1) if best_idx is not None else float("nan")
-    elif mm == 2:
-        # match_mode 2 used to fall through to NaN. Wildcards match xlookup (* and ?).
-        if isinstance(lookup_val, str):
-            for idx in indices:
-                cell = l_flat[idx]
-                if isinstance(cell, str) and _wildcard_fullmatch(lookup_val, cell):
-                    return float(idx + 1)
-        else:
-            for idx in indices:
-                if l_flat[idx] == lookup_val:
-                    return float(idx + 1)
-        return float("nan")
-    return float("nan")
+    best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
+    return float(best_idx + 1) if best_idx is not None else float("nan")
 
 
 def xnpv(rate: Any, values: Any, dates: Any) -> float:
