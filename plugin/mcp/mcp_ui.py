@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import TYPE_CHECKING, Any
 
 from com.sun.star.awt import XItemListener, XTextListener
@@ -21,6 +22,9 @@ from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from plugin.chatbot.dialogs import copy_to_clipboard, get_checkbox_state, get_control_text, get_optional, set_checkbox_state, set_control_text
 
 _active_settings_dialog_ref: Any = None
+# Tunnel workers and the UI thread both touch the dialog ref. The lock
+# covers the pointer only; the posted refresh re-reads it on the UI thread.
+_active_settings_dialog_lock = threading.Lock()
 _tested_provider_tunnel_urls: dict[str, str] = {}
 # Providers whose cached public URL must not be shown. Set when the tunnel
 # stops, fails, or drops the URL; cleared by a fresh Test or a new connect.
@@ -33,14 +37,21 @@ _PROVIDER_DEFAULT_URLS = {"cloudflare": "https://<subdomain>.trycloudflare.com/m
 def set_active_settings_dialog(dlg: Any) -> None:
     """Track active settings dialog reference for tunnel updates."""
     global _active_settings_dialog_ref
-    _active_settings_dialog_ref = dlg
+    with _active_settings_dialog_lock:
+        _active_settings_dialog_ref = dlg
 
 
 def clear_active_settings_dialog(dlg: Any) -> None:
     """Clear active settings dialog reference if it matches dlg."""
     global _active_settings_dialog_ref
-    if _active_settings_dialog_ref is dlg:
-        _active_settings_dialog_ref = None
+    with _active_settings_dialog_lock:
+        if _active_settings_dialog_ref is dlg:
+            _active_settings_dialog_ref = None
+
+
+def _current_settings_dialog() -> Any:
+    with _active_settings_dialog_lock:
+        return _active_settings_dialog_ref
 
 
 def build_mcp_config_snippet(port: int | None = None, url: str | None = None) -> str:
@@ -89,12 +100,21 @@ class CopyMcpConfigListener(BaseActionListener):
 
 def _refresh_active_snippet() -> None:
     """Push the current snippet into the open Settings dialog, if any."""
-    dlg = _active_settings_dialog_ref
-    if dlg is None:
-        return
     from plugin.framework.queue_executor import post_to_main_thread
 
-    post_to_main_thread(lambda: sync_mcp_config_snippet(dlg))
+    def _apply() -> None:
+        # What was wrong: the tunnel worker read _active_settings_dialog_ref
+        # and the posted lambda closed over that object. The UI thread can
+        # clear the dialog before the lambda runs; QueueExecutor then
+        # swallows the disposed-dialog error and the update is dropped.
+        # Why: re-read under the same lock on the UI thread. If clear won,
+        # there is nothing to update.
+        dlg = _current_settings_dialog()
+        if dlg is None:
+            return
+        sync_mcp_config_snippet(dlg)
+
+    post_to_main_thread(_apply)
 
 
 def remember_tested_tunnel_url(provider: str, url: str) -> None:
@@ -173,7 +193,10 @@ def _schedule_mcp_snippet_refresh(dlg: Any) -> None:
 
     from plugin.framework.worker_pool import run_in_background
 
-    run_in_background(_wait, name="mcp-snippet-refresh")
+    # What was wrong: this wait (up to 1.2s) used the shared background
+    # pool. Several Settings saves in a row could pin every pool worker
+    # on the poll. Why: the job is short but must not take a pool slot.
+    run_in_background(_wait, name="mcp-snippet-refresh", dedicated=True)
 
 
 def sync_mcp_config_snippet(
