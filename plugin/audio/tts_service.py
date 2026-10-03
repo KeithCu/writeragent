@@ -46,6 +46,7 @@ from plugin.audio.voice_catalog import (
 from plugin.framework.config import (
     get_api_key_for_endpoint,
     get_config,
+    get_config_int_safe,
     get_config_str,
     set_config,
 )
@@ -1208,19 +1209,6 @@ _PCM_RATE_RE = re.compile(r"rate\s*=\s*(\d+)", re.IGNORECASE)
 _DEFAULT_PCM_RATE = 24000
 
 
-def _response_content_type(resp: Any) -> str:
-    """Content-Type from a urllib response, or empty when the mock has none."""
-    headers = getattr(resp, "headers", None)
-    getter = getattr(headers, "get", None)
-    if not callable(getter):
-        return ""
-    try:
-        value = getter("Content-Type")
-    except Exception:
-        return ""
-    return value if isinstance(value, str) else ""
-
-
 def _content_type_is_pcm(content_type: str) -> bool:
     low = (content_type or "").lower()
     return "audio/pcm" in low or "audio/l16" in low
@@ -1312,46 +1300,62 @@ def _speech_failure_message(code: int, body: str) -> str:
     return _("Speech request failed.")
 
 
+def _speech_read_timeout() -> float:
+    """Settings read budget. Connect stays on the shared short timeout."""
+    timeout = get_config_int_safe("request_timeout")
+    if timeout <= 0:
+        return 120.0
+    return float(timeout)
+
+
 def _post_audio_speech(
     url: str,
     headers: dict[str, str],
     payload: dict[str, Any],
+    *,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> tuple[bytes | None, str, int, str]:
-    """POST one speech clip.
+    """POST one speech clip on the shared HTTP transport.
 
     Returns ``(audio, content_type, http_code, error_body)``. ``error_body`` is
-    empty on success. The body is the raw response text so format detection and
-    the status line can both show it.
+    empty on success. Failures are the transport's redacted message so a
+    provider that echoes the API key does not land in the status line or the log.
+
+    What was wrong: this used ``urlopen(..., timeout=30)``, so connect waited
+    the whole read budget, Stop during DNS did nothing, and the raw error body
+    was logged. Why: catalog and chat already share ``LlmHttpTransport``.
     """
     import json
-    import urllib.error
-    import urllib.request
+
+    from plugin.framework.client.http_transport import public_target
+    from plugin.framework.client.requests import sync_request
+    from plugin.framework.errors import NetworkError
 
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            code = getattr(resp, "status", None)
-            http_code = code if isinstance(code, int) else 200
-            return resp.read(), _response_content_type(resp), http_code, ""
-    except urllib.error.HTTPError as exc:
-        err_body = ""
+        result = sync_request(
+            url,
+            data=data,
+            headers=headers,
+            parse_json=False,
+            method="POST",
+            timeout=_speech_read_timeout(),
+            stop_checker=stop_checker,
+            include_meta=True,
+        )
+        return result.body, result.content_type, int(result.status or 200), ""
+    except NetworkError as exc:
+        details = exc.details if isinstance(exc.details, dict) else {}
+        code_raw = details.get("status")
         try:
-            raw = exc.read()
-            if isinstance(raw, bytes):
-                err_body = raw.decode("utf-8", errors="replace")
-            elif isinstance(raw, str):
-                err_body = raw
-        except Exception:
-            err_body = ""
-        code = int(getattr(exc, "code", 0) or 0)
-        if not err_body:
-            err_body = str(exc)
-        log.error("TTS HTTP error %d from %s: %s | Response: %s", code, url, exc, err_body)
-        return None, "", code, err_body
-    except Exception as exc:
-        log.exception("TTS error from %s: %s", url, exc)
-        return None, "", 0, str(exc)
+            code = int(code_raw) if code_raw is not None else 0
+        except (TypeError, ValueError):
+            code = 0
+        # The transport already redacted credentials in exc.message.
+        message = str(exc)
+        if getattr(exc, "code", None) != "STOPPED":
+            log.error("TTS HTTP error %s from %s: %s", code, public_target(url), message)
+        return None, "", code, message
 
 
 def _download_endpoint_speech(
@@ -1426,7 +1430,11 @@ def _download_endpoint_speech(
             "Requesting TTS from %s (model=%s, voice=%s, format=%s, text_len=%d)",
             url, payload["model"], eff_voice, response_format, len(text),
         )
-        audio_bytes, content_type, code, err_body = _post_audio_speech(url, headers, payload)
+        audio_bytes, content_type, code, err_body = _post_audio_speech(
+            url, headers, payload, stop_checker=lambda: _playback_blocked(generation)
+        )
+        if _playback_blocked(generation):
+            return None
         if err_body and not tried_alt:
             alt = _alternate_tts_response_format(err_body, response_format)
             if alt and alt != response_format:

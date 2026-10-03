@@ -1121,7 +1121,7 @@ def test_image_completion_stop_during_backoff(client):
         return not bool(checker and checker())
 
     with (
-        patch("plugin.framework.client.llm_client.wait_abortable", side_effect=_wait),
+        patch("plugin.framework.client.http_transport.wait_abortable", side_effect=_wait),
         patch("http.client.HTTPSConnection") as mock_https,
     ):
         _https_steps(mock_https, busy)
@@ -1146,7 +1146,7 @@ def test_sync_request_with_tools_stop_during_backoff_returns_stop_dict(client):
         return not bool(checker and checker())
 
     with (
-        patch("plugin.framework.client.llm_client.wait_abortable", side_effect=_wait),
+        patch("plugin.framework.client.http_transport.wait_abortable", side_effect=_wait),
         patch("http.client.HTTPSConnection") as mock_https,
     ):
         _https_steps(mock_https, busy)
@@ -1840,7 +1840,7 @@ def test_stream_http_429_and_503_retry_once(client, status, reason, _fast_retry_
         )
     assert result["content"] == "Hello"
     assert mock_https.call_count == 2
-    _fast_retry_waits["llm"].assert_called_once()
+    _fast_retry_waits["transport"].assert_called_once()
 
 
 def test_stream_http_429_emits_status_callback(client, _fast_retry_waits):
@@ -2110,7 +2110,7 @@ def test_stream_http_429_succeeds_on_third_attempt(client, _fast_retry_waits):
         )
     assert result["content"] == "Hello"
     assert mock_https.call_count == 3
-    assert _fast_retry_waits["llm"].call_count == 2
+    assert _fast_retry_waits["transport"].call_count == 2
 
 
 def test_stream_timeout_retries_wait_then_succeeds(client, _fast_retry_waits):
@@ -2169,7 +2169,7 @@ def test_buffered_sse_honors_stop_latch_without_stop_checker(client):
 
 def test_stream_retry_wait_aborts_when_client_stopped(client, _fast_retry_waits):
     """stop() during a 429 backoff must end the stream even with no stop_checker."""
-    _fast_retry_waits["llm"].side_effect = _abort_wait_on_stop(client)
+    _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, busy)
@@ -2196,7 +2196,7 @@ def test_stream_connection_retry_aborts_when_client_stopped(client, _fast_retry_
 
 
 def test_sync_request_with_tools_retry_wait_aborts_when_client_stopped(client, _fast_retry_waits):
-    _fast_retry_waits["llm"].side_effect = _abort_wait_on_stop(client)
+    _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, busy)
@@ -2223,7 +2223,7 @@ def test_request_json_retry_wait_aborts_when_stopped(client, _fast_retry_waits):
     def abortable(delay, stop_checker=None, **kwargs):
         return real_wait(delay, stop_checker, sleep=sleep_then_stop, monotonic=lambda: clock["t"])
 
-    _fast_retry_waits["llm"].side_effect = abortable
+    _fast_retry_waits["transport"].side_effect = abortable
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, busy)
@@ -2286,7 +2286,7 @@ def test_request_with_tools_closes_on_connection_close(client):
 
 
 def test_stream_retry_backoff_stop_skips_second_send(client, _fast_retry_waits):
-    _fast_retry_waits["llm"].return_value = False
+    _fast_retry_waits["transport"].return_value = False
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, busy)

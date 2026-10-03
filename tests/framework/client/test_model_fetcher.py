@@ -912,3 +912,53 @@ class TestFetchAvailableSpeechModels:
         with patch("plugin.framework.client.requests.sync_request") as mock_sync:
             assert cfg.fetch_together_tts_voices("https://openrouter.ai/api", model_id="hexgrad/Kokoro-82M") is None
             mock_sync.assert_not_called()
+
+
+def test_catalog_error_does_not_include_secret(caplog):
+    """A /v1/models failure must not log the API key the provider echoed."""
+    import logging
+    from unittest.mock import MagicMock, patch
+
+    from plugin.framework.client import model_fetcher as cfg
+    from plugin.framework.client.request_controls import reset_host_pacing_for_tests
+
+    secret = "sk-catalog-unique-secret"
+    endpoint = "https://catalog-secret.example/v1"
+    cfg.clear_settings_catalog_cache(endpoint, api_key_override=secret)
+    reset_host_pacing_for_tests()
+    response = MagicMock()
+    response.status = 401
+    response.reason = "Unauthorized"
+    response.read.return_value = f'{{"error":{{"message":"bad {secret}"}}}}'.encode()
+    response.getheader.return_value = None
+    conn = MagicMock()
+    conn.getresponse.return_value = response
+    with caplog.at_level(logging.DEBUG), patch("http.client.HTTPSConnection", return_value=conn):
+        assert cfg.fetch_available_models(endpoint, api_key_override=secret) is None
+    assert secret not in caplog.text
+    assert "<redacted>" in caplog.text
+
+
+def test_catalog_truncated_json_is_not_a_model_list():
+    """Truncated catalog JSON must not be repaired into a finished model id."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.framework.client import model_fetcher as cfg
+    from plugin.framework.client.request_controls import reset_host_pacing_for_tests
+    from plugin.framework.json_utils import safe_json_loads
+
+    raw = b'{"data":[{"id":"gpt-secret-model"'
+    repaired = safe_json_loads(raw)
+    assert repaired["data"][0]["id"] == "gpt-secret-model"
+    endpoint = "https://catalog-trunc.example/v1"
+    cfg.clear_settings_catalog_cache(endpoint, api_key_override="sk-catalog-trunc")
+    reset_host_pacing_for_tests()
+    response = MagicMock()
+    response.status = 200
+    response.reason = "OK"
+    response.read.return_value = raw
+    response.getheader.return_value = None
+    conn = MagicMock()
+    conn.getresponse.return_value = response
+    with patch("http.client.HTTPSConnection", return_value=conn):
+        assert cfg.fetch_available_models(endpoint, api_key_override="sk-catalog-trunc") is None

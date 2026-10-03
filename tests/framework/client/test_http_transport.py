@@ -147,8 +147,8 @@ def test_transport_send_uses_free_pacing_key_for_openrouter_free():
     assert wait.call_args[0][0] == "openrouter.ai:free"
 
 
-def test_transport_send_stop_after_connect_does_not_send_body():
-    """Stop that lands while sock is still None must not send the prompt."""
+def test_transport_send_stop_already_set_does_not_open_or_send():
+    """Stop latched before DNS must not connect and must not send the prompt."""
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     mock_conn = MagicMock()
     mock_conn.sock = None
@@ -162,9 +162,83 @@ def test_transport_send_stop_after_connect_does_not_send_body():
             stop_checker=lambda: True,
         )
     assert err.value.code == "STOPPED"
-    mock_conn.connect.assert_called_once()
+    mock_conn.connect.assert_not_called()
     mock_conn.request.assert_not_called()
-    mock_conn.close.assert_called_once()
+
+
+def test_transport_stop_during_connect_does_not_wait_or_send():
+    """Stop during DNS/connect must abort the caller. Waiting out connect is a no-op Stop."""
+    import threading
+    import time
+
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 120)
+    mock_conn = MagicMock()
+    mock_conn.sock = None
+    started = threading.Event()
+    release = threading.Event()
+
+    def _connect() -> None:
+        started.set()
+        release.wait(10)
+        mock_conn.sock = MagicMock()
+
+    mock_conn.connect.side_effect = _connect
+    stop = {"on": False}
+
+    def _stop_later() -> None:
+        assert started.wait(2)
+        stop["on"] = True
+
+    threading.Thread(target=_stop_later, daemon=True).start()
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(NetworkError) as err:
+            transport.send(
+                "POST",
+                "/v1/chat/completions",
+                b"{}",
+                headers={"Content-Type": "application/json"},
+                connection_getter=lambda: mock_conn,
+                stop_checker=lambda: stop["on"],
+            )
+        assert err.value.code == "STOPPED"
+        assert time.monotonic() - t0 < 2
+        mock_conn.request.assert_not_called()
+    finally:
+        release.set()
+
+
+def test_transport_connect_timeout_does_not_wait_for_read_budget(monkeypatch):
+    """A hung connect must use the connect budget, not Settings request_timeout."""
+    import threading
+    import time
+
+    monkeypatch.setattr("plugin.framework.constants.LLM_CONNECT_TIMEOUT_SEC", 0.2)
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    mock_conn = MagicMock()
+    mock_conn.sock = None
+    release = threading.Event()
+
+    def _connect() -> None:
+        release.wait(10)
+        mock_conn.sock = MagicMock()
+
+    mock_conn.connect.side_effect = _connect
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError):
+            transport.send(
+                "POST",
+                "/v1/chat/completions",
+                b"{}",
+                headers={"User-Agent": "test"},
+                connection_getter=lambda: mock_conn,
+            )
+        elapsed = time.monotonic() - t0
+        assert elapsed < 2
+        mock_conn.request.assert_not_called()
+    finally:
+        release.set()
 
 
 def test_transport_send_stop_on_open_socket_does_not_reconnect():
@@ -286,5 +360,26 @@ def test_connection_error_backoff_uses_free_pacing_key_not_paid_host():
     assert action == "retry"
     assert _host_gap_sec.get("openrouter.ai:free") == 4.0
     assert "openrouter.ai" not in _host_gap_sec
+
+
+def test_exchange_truncated_json_is_not_a_finished_reply():
+    """A cut-off provider body must not be repaired into choices/content."""
+    from plugin.framework.json_utils import safe_json_loads
+
+    raw = b'{"choices":[{"message":{"content":"hel'
+    repaired = safe_json_loads(raw)
+    assert isinstance(repaired, dict)
+    assert repaired["choices"][0]["message"]["content"] == "hel"
+
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = raw
+    response.getheader.return_value = None
+    with patch.object(transport, "send", return_value=response):
+        with pytest.raises(NetworkError) as err:
+            transport.exchange("POST", "/v1/chat/completions", b"{}", {"Content-Type": "application/json"}, parse_json=True)
+    assert err.value.code == "BAD_RESPONSE"
+    assert "hel" not in str(err.value)
 
 

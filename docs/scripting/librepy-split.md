@@ -802,7 +802,7 @@ Deduplicated union of **Layers 0–6**. Counts are approximate (~100 `plugin/` p
 
 Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py) (`LIBREPY_PLUGIN_FILES` + dirs). Do not treat this summary as the build input.
 
-**Framework:** `config.py`, `config_schema.py`, `constants.py`, `errors.py`, `json_utils.py`, `i18n.py`, `event_bus.py`, `service.py`, `url_utils.py`, `thread_guard.py`, `client/errors.py`, `client/requests.py`, `client/ssl_helpers.py`, `client/provider_detection.py`, **lazy** `client/__init__.py`, `framework/__init__.py`, `_manifest.py` (LibrePy: `_manifest_librepy.py` at generate time)
+**Framework:** `config.py`, `config_schema.py`, `constants.py`, `errors.py`, `json_utils.py`, `i18n.py`, `event_bus.py`, `service.py`, `url_utils.py`, `thread_guard.py`, `client/errors.py`, `client/requests.py`, `client/http_transport.py`, `client/request_controls.py`, `client/ssl_helpers.py`, `client/provider_detection.py`, **lazy** `client/__init__.py`, `framework/__init__.py`, `_manifest.py` (LibrePy: `_manifest_librepy.py` at generate time)
 
 **Calc:** `python/addin_librepy.py` (not WriterAgent `addin.py`), `python/function.py`, `addin_common.py`, `calc_addin_data.py`, `calc/__init__.py`
 

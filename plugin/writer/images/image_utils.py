@@ -57,15 +57,29 @@ class EndpointImageProvider(ImageProvider):
             tmp.write(base64.b64decode(b64_data))
             return [tmp.name]
 
-    def _save_url(self, url: str, suffix: str = ".webp") -> list[str]:
+    def _save_url(self, url: str, suffix: str = ".webp", *, stop_checker: Any = None, status_callback: Any = None) -> list[str]:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             # Same Settings budget as image_completion — downloading the
             # generated file can take as long as the provider POST.
-            tmp.write(sync_request(url, parse_json=False, timeout=get_config_int("request_timeout")))
+            # Only pass Stop/status when the caller supplied them so existing
+            # call assertions stay a plain sync_request(url, parse_json, timeout).
+            extra: dict[str, Any] = {}
+            if stop_checker is not None:
+                extra["stop_checker"] = stop_checker
+            if status_callback is not None:
+                extra["status_callback"] = status_callback
+            tmp.write(sync_request(url, parse_json=False, timeout=get_config_int("request_timeout"), **extra))
             return [tmp.name]
 
     def generate(self, prompt: str, width: int = DEFAULT_IMAGE_BASE_SIZE, height: int = DEFAULT_IMAGE_BASE_SIZE, model: str | None = None, steps: int | None = None, **kwargs: Any) -> tuple[list[str], str]:
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
+        status_callback = kwargs.pop("status_callback", None)
+        stop_checker = kwargs.pop("stop_checker", None)
+        wire: dict[str, Any] = {}
+        if status_callback is not None:
+            wire["status_callback"] = status_callback
+        if stop_checker is not None:
+            wire["stop_checker"] = stop_checker
         override = kwargs.pop("image_model", None)
         if isinstance(override, str) and override.strip():
             model = override.strip()
@@ -98,7 +112,7 @@ class EndpointImageProvider(ImageProvider):
             if use_dedicated:
                 valid_steps = steps if (steps is not None and steps > 0) else None
                 try:
-                    b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=source_image)
+                    b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=source_image, **wire)
                     paths = []
                     for b64 in b64_list:
                         paths.extend(self._save_b64(b64))
@@ -134,7 +148,7 @@ class EndpointImageProvider(ImageProvider):
             if "max_tokens" in kwargs:
                 body_dict["max_tokens"] = kwargs["max_tokens"]
 
-            chat_resp = self.client.request_with_tools(messages, body_override=json.dumps(body_dict), model=model)
+            chat_resp = self.client.request_with_tools(messages, body_override=json.dumps(body_dict), model=model, **wire)
             raw_content = chat_resp.get("content")
             fallback_content = raw_content if isinstance(raw_content, str) else ""
 
@@ -156,7 +170,7 @@ class EndpointImageProvider(ImageProvider):
                     if match:
                         paths.extend(self._save_b64(match.group(1)))
                 elif url.startswith("http"):
-                    paths.extend(self._save_url(url))
+                    paths.extend(self._save_url(url, stop_checker=stop_checker, status_callback=status_callback))
 
             if paths:
                 return paths, ""
@@ -164,7 +178,7 @@ class EndpointImageProvider(ImageProvider):
             # Use the unified image_completion method (handles Google, Ollama, OpenAI, etc. via shims)
             valid_steps = steps if (steps is not None and steps > 0) else None
             try:
-                b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=kwargs.get("source_image"))
+                b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=kwargs.get("source_image"), **wire)
                 paths = []
                 for b64 in b64_list:
                     paths.extend(self._save_b64(b64))
@@ -183,7 +197,7 @@ class EndpointImageProvider(ImageProvider):
                     return self._save_b64(match.group(1)), ""
             stripped = fallback_content.strip()
             if stripped.startswith("http"):
-                return self._save_url(stripped), ""
+                return self._save_url(stripped, stop_checker=stop_checker, status_callback=status_callback), ""
 
         return [], ""
 

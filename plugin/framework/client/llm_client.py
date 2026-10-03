@@ -88,8 +88,8 @@ from plugin.framework.url_utils import get_api_version_suffix, normalize_endpoin
 
 from plugin.framework.errors import format_error_message
 from .errors import _format_http_error_response, append_zai_unknown_model_hint
-from .http_transport import CONNECTION_ERRORS, LlmHttpTransport
-from .request_controls import RETRY_MAX_ATTEMPTS, RETRYABLE_HTTP_STATUS, backoff_delay_sec, clear_host_gap, emit_retry_status, pacing_key, parse_retry_after, remember_host_gap, request_model_from_body, wait_abortable
+from .http_transport import CONNECTION_ERRORS, LlmHttpTransport, parse_strict_json, redact_secrets
+from .request_controls import RETRY_MAX_ATTEMPTS, backoff_delay_sec, clear_host_gap, emit_retry_status, pacing_key, remember_host_gap, request_model_from_body, wait_abortable
 from .stream_normalizer import iterate_sse, _normalize_message_content, _normalize_delta, accumulate_streaming_thinking, extract_reasoning_replay_from_response, new_streaming_thinking_meta, THINKING_DELTA_KEYS
 from .provider_detection import is_openrouter_endpoint
 
@@ -155,9 +155,7 @@ def _request_payload_byte_length(body: Any) -> int:
 
 def _redact_secret_from_log_text(text: str, secret: str) -> str:
     """Remove a configured credential from a log string. Empty secret is a no-op."""
-    if not text or not secret:
-        return text
-    return text.replace(secret, "<redacted>")
+    return redact_secrets(text, [secret] if secret else None)
 
 
 def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:
@@ -168,12 +166,11 @@ def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[
     ``{"choices":[{"message":{"content":"hel`` became a dict and looked like a
     finished reply. A JSON array was not ``None``, then ``.get`` ran outside
     the request ``try``.
-    Why: provider envelopes are not model text. Standard ``json.loads`` only,
-    and only a dict is a response.
+    Why: provider envelopes are not model text. ``parse_strict_json`` is
+    ``json.loads`` only (the peel walker stays out of this path), and only a
+    dict is a response.
     """
-    from plugin.framework.errors import safe_json_loads
-
-    parsed = safe_json_loads(raw, strict=True)
+    parsed = parse_strict_json(raw)
     if not isinstance(parsed, dict):
         raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
     # What was wrong: the stream loop raises on {"error": ...} inside HTTP 200,
@@ -394,12 +391,8 @@ class LlmClient:
         if conn_hdr == "close":
             self._close_connection()
 
-    def _retry_or_raise_http_error(self, response: Any, body: Any, path: str, *, retries_left: int, emitted_any: bool, stop_checker: Any, status_callback: Any = None, attempt: int = 1) -> str | None:
-        """On non-200: jittered 429/503 retry while attempts remain; else HTTP_ERROR.
-
-        OpenClaw Retry-After + jitter. Never after tokens already reached the UI.
-        """
-        err_body = response.read().decode("utf-8", errors="replace")
+    def _observe_provider_http_error(self, response: Any, err_body: str, path: str, body: Any) -> str:
+        """Chat-only ERROR line and llama-server 500 shape. Redaction is the transport's."""
         request_model = request_model_from_body(body)
         api_key = str(self.config.get("api_key") or "").strip()
         # Keep the existing response-body ERROR line, but never echo the key if
@@ -408,23 +401,30 @@ class LlmClient:
         n_ctx = _peek_live_ollama_num_ctx(self) if response.status == 500 else None
         if response.status == 500:
             _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
-        self._close_connection()
-        if response.status in RETRYABLE_HTTP_STATUS and retries_left > 0 and not emitted_any:
-            retry_after = parse_retry_after(response.getheader("Retry-After"))
-            delay = backoff_delay_sec(attempt=attempt, retry_after_sec=retry_after)
-            remember_host_gap(pacing_key(self._current_host(), request_model), delay)
-            log.warning("Retrying HTTP %s after %.3fs (Retry-After=%s attempt=%s left=%s)", response.status, delay, retry_after, attempt, retries_left)
-            emit_retry_status(status_callback, delay)
-            if not wait_abortable(delay, stop_checker):
-                self._stopped = True
-                return "stop"
-            return "retry"
         err_msg = _format_http_error_response(response.status, response.reason, err_body, context_window=n_ctx)
-        err_msg = append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
-        # Logs already redact the key. The sidebar string is this message, and
-        # a provider that echoes the key in error.message would show it.
-        err_msg = _redact_secret_from_log_text(err_msg, api_key)
-        raise NetworkError(err_msg, code="HTTP_ERROR", details={"url": path, "status": response.status})
+        return append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
+
+    def _wire_secrets(self) -> list[str]:
+        api_key = str(self.config.get("api_key") or "").strip()
+        return [api_key] if api_key else []
+
+    def _retry_or_raise_http_error(self, response: Any, body: Any, path: str, *, retries_left: int, emitted_any: bool, stop_checker: Any, status_callback: Any = None, attempt: int = 1) -> str | None:
+        """On non-200: shared transport retry. Never after tokens already reached the UI."""
+        action = self._transport.handle_http_status(
+            response,
+            request_body=body,
+            path=path,
+            retries_left=retries_left,
+            emitted_any=emitted_any,
+            stop_checker=stop_checker,
+            status_callback=status_callback,
+            attempt=attempt,
+            secrets=self._wire_secrets(),
+            observe_http_error=self._observe_provider_http_error,
+        )
+        if action == "stop":
+            self._stopped = True
+        return action
 
     def _send_http_attempt(self, method: str, path: str, body: Any, headers: dict[str, str], *, sends_left: int, wait_index: int, emitted_any: bool, stop_checker: Any, status_callback: Any) -> tuple[str, Any, int, int]:
         """One send. ``('ok', response, ...)`` on HTTP 200.
@@ -452,7 +452,7 @@ class LlmClient:
         """Shared connection-error budget. Returns ``('retry'|'stop', sends_left, wait_index)``."""
         sends_left -= 1
         wait_index += 1
-        action = self._transport.handle_connection_error(err, path=path, retries_left=sends_left, retry_log_message=retry_log_message, stop_checker=stop_checker, status_callback=status_callback, attempt=wait_index, model=request_model_from_body(body))
+        action = self._transport.handle_connection_error(err, path=path, retries_left=sends_left, retry_log_message=retry_log_message, stop_checker=stop_checker, status_callback=status_callback, attempt=wait_index, model=request_model_from_body(body), secrets=self._wire_secrets())
         return action, sends_left, wait_index
 
     def stop(self) -> None:
@@ -612,46 +612,41 @@ class LlmClient:
             self._stopped = True
             self._close_connection()
             return "stop", None
-        sends_left = RETRY_MAX_ATTEMPTS
-        wait_index = 0
-        while True:
-            body_in_hand = False
-            try:
-                if self._stopped or (stop_checker and stop_checker()):
-                    self._stopped = True
-                    self._close_connection()
-                    return "stop", None
-                action, response, sends_left, wait_index = self._send_http_attempt(method, path, body, headers, sends_left=sends_left, wait_index=wait_index, emitted_any=False, stop_checker=abort_checker, status_callback=status_callback)
-                if action == "stop":
-                    return "stop", None
-                if action == "retry":
-                    if on_retry is not None:
-                        on_retry()
-                    continue
-                raw = response.read()
-                body_in_hand = True
-                self._close_if_connection_close(response)
-                api_key = str(self.config.get("api_key") or "").strip()
-                return "ok", _parse_provider_envelope(raw, path, api_key=api_key)
-            except CONNECTION_ERRORS as e:
-                if body_in_hand:
-                    raise NetworkError(format_error_message(e), code="CONNECTION_LOST", details={"url": path}) from e
-                action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=abort_checker, status_callback=status_callback, retry_log_message=retry_log_message)
-                if action == "stop":
-                    self._stopped = True
-                    return "stop", None
-                continue
-            except NetworkError as e:
-                if getattr(e, "code", None) == "STOPPED":
-                    self._stopped = True
-                    return "stop", None
+        api_key = str(self.config.get("api_key") or "").strip()
+
+        def _sender(send_method: str, send_path: str, send_body: Any, send_headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
+            return self._send_request(send_method, send_path, send_body, send_headers, stop_checker=stop_checker, status_callback=status_callback)
+
+        try:
+            # Same exchange as catalog and speech. Stop, timeout, retry, and
+            # redaction are not a second loop here.
+            result = self._transport.exchange(
+                method,
+                path,
+                body,
+                headers,
+                stop_checker=abort_checker,
+                status_callback=status_callback,
+                parse_json=False,
+                sender=_sender,
+                secrets=self._wire_secrets(),
+                on_retry=on_retry,
+                after_read=self._close_if_connection_close,
+                observe_http_error=self._observe_provider_http_error,
+                retry_log_message=retry_log_message,
+            )
+        except NetworkError as exc:
+            if getattr(exc, "code", None) == "STOPPED":
+                self._stopped = True
+                return "stop", None
+            raise
+        except Exception as exc:
+            if not wrap_unexpected:
                 raise
-            except Exception as e:
-                if not wrap_unexpected:
-                    raise
-                err_msg = format_error_message(e)
-                log.exception(failure_log)
-                raise NetworkError(err_msg, details={"url": path}) from e
+            err_msg = format_error_message(exc)
+            log.exception(failure_log)
+            raise NetworkError(err_msg, details={"url": path}) from exc
+        return "ok", _parse_provider_envelope(result.body, path, api_key=api_key)
 
     def _request_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
         """Blocking JSON call on the persistent transport.
@@ -839,8 +834,13 @@ class LlmClient:
                             continue
 
                         try:
-                            chunk = json.loads(payload)
-                        except json.JSONDecodeError:
+                            # Same strict parser as sync chat and catalog. A
+                            # truncated SSE line is skipped, not repaired into
+                            # a finished chunk.
+                            chunk = parse_strict_json(payload)
+                        except NetworkError as decode_err:
+                            if getattr(decode_err, "code", None) != "BAD_RESPONSE":
+                                raise
                             if payload and payload != "{}":
                                 log.exception("streaming_loop: JSON decode error in payload: %s", payload)
                             continue
