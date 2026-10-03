@@ -209,6 +209,34 @@ def test_async_process_exit_callback_sees_trailing_stdout():
     assert saw == [["hello"]]
 
 
+def test_wait_for_exit_delivers_callback_when_reader_never_ends():
+    """A reader blocked on an inherited pipe must not skip on_exit_cb."""
+    exits: list[int] = []
+    ap = AsyncProcess(["dummy"], on_exit_cb=exits.append)
+    release = threading.Event()
+    reader = run_in_background(lambda: release.wait(30), dedicated=True, name="held-pipe")
+    proc = MagicMock()
+    proc.wait.return_value = 3
+    done = threading.Event()
+
+    def run() -> None:
+        try:
+            ap._wait_for_exit(proc, reader, None)
+        finally:
+            done.set()
+
+    waiter = threading.Thread(target=run, daemon=True)
+    waiter.start()
+    try:
+        assert done.wait(3), "on_exit_cb blocked on a reader that never saw EOF"
+        assert exits == [3]
+        assert reader.is_alive()
+    finally:
+        release.set()
+        reader.join(timeout=2)
+        waiter.join(timeout=2)
+
+
 def test_async_process_terminate():
     ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(10)"])
     ap.start()
@@ -435,6 +463,40 @@ def test_reset_background_pool_creates_new_executor():
     assert first[0].startswith("wa-bg-")
     assert second[0].startswith("wa-bg-")
     reset_background_pool_for_tests()
+
+
+def test_reset_background_pool_while_job_submits_does_not_deadlock(monkeypatch: pytest.MonkeyPatch):
+    """Joining the pool under _pool_lock deadlocks a job that calls run_in_background."""
+    import plugin.framework.worker_pool as worker_pool
+
+    reset_background_pool_for_tests(max_workers=1)
+    entered = threading.Event()
+    joining = threading.Event()
+    nested = threading.Event()
+    real_join = worker_pool._join_pool_workers
+
+    def wrapped(threads: list[threading.Thread]) -> None:
+        joining.set()
+        real_join(threads)
+
+    monkeypatch.setattr(worker_pool, "_join_pool_workers", wrapped)
+
+    def job() -> None:
+        entered.set()
+        assert joining.wait(3)
+        run_in_background(lambda: nested.set(), name="nested-from-pool-job").join(timeout=2)
+
+    run_in_background(job, name="holds-pool-worker")
+    assert entered.wait(2)
+    reset_thread = threading.Thread(target=lambda: reset_background_pool_for_tests(max_workers=1), daemon=True)
+    reset_thread.start()
+    reset_thread.join(3)
+    try:
+        assert not reset_thread.is_alive(), "reset_background_pool_for_tests deadlocked on _pool_lock"
+        assert nested.is_set()
+    finally:
+        if not reset_thread.is_alive():
+            reset_background_pool_for_tests()
 
 
 def test_background_pool_max_workers_default_and_env(monkeypatch: pytest.MonkeyPatch):

@@ -24,8 +24,10 @@ Concurrency: all background Python work must start here
 fire-and-forget jobs share a **fixed-size daemon pool** (unbounded queue).
 Servers, pipe drains, LLM streams, and anything another thread will
 ``join()`` must pass ``dedicated=True`` so they do not occupy a pool slot
-forever. ``_pool_lock`` only covers creating/resetting that pool.
-``submit`` and the shutdown drain share a lock so a test reset cannot
+forever. ``_pool_lock`` only covers creating the pool or swapping it
+out. ``reset_background_pool_for_tests`` joins the old pool after
+releasing that lock, so a job can call ``run_in_background`` during
+reset. ``submit`` and the shutdown drain share a lock so a test reset cannot
 enqueue work behind the worker sentinels. ``StderrTail``’s lock is only
 the bounded stderr buffer from a child process. Never ``join()`` a pooled
 job from another pooled job (the pool can deadlock). Map:
@@ -247,13 +249,21 @@ def _get_pool() -> _DaemonWorkPool:
 
 
 def reset_background_pool_for_tests(max_workers: int | None = None) -> None:
-    """Tear down the process pool so tests can bound size or avoid leaked work."""
+    """Tear down the process pool so tests can bound size or avoid leaked work.
+
+    What was wrong: ``shutdown`` joined workers while this function held
+    ``_pool_lock``. A pooled job that calls ``run_in_background`` takes
+    that lock in ``_get_pool``, so reset waited on the job and the job
+    waited on reset. Why: detach the pool under the lock, then join it
+    after the lock is released.
+    """
     global _pool, _pool_size_override
     with _pool_lock:
-        if _pool is not None:
-            _pool.shutdown(wait=True, cancel_futures=True)
-            _pool = None
+        old = _pool
+        _pool = None
         _pool_size_override = max_workers
+    if old is not None:
+        old.shutdown(wait=True, cancel_futures=True)
 
 
 def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = None, error_callback: Callable[[WorkerPoolError], None] | None = None, daemon: bool = True, dedicated: bool = False, **kwargs: Any) -> BackgroundHandle:
@@ -622,9 +632,10 @@ class AsyncProcess:
     def _join_handles(self, handles: tuple[BackgroundHandle | None, ...], timeout: float | None = 1.0) -> None:
         """Join reader threads unless this stack is that thread.
 
-        ``timeout`` is forwarded to ``join``. None waits until the reader
-        returns. ``_reap`` keeps the default so a stuck callback cannot block
-        terminate forever. ``_wait_for_exit`` passes None.
+        ``timeout`` is forwarded to ``join``. None would wait until the
+        reader returns. ``_reap`` and ``_wait_for_exit`` keep a bound so a
+        pipe a grandchild inherited cannot block forever. A reader that
+        finishes within the bound still delivers its trailing line first.
         """
         for handle in handles:
             if handle is None:
@@ -654,13 +665,14 @@ class AsyncProcess:
         # on_exit_cb for its exit as well. _reap already captures the
         # handles it was given. Why: wait and join only this call's child.
         rc = proc.wait()
-        # What was wrong: process.wait() returns before the pipe threads
-        # deliver a trailing line that had no newline, and the join used
-        # timeout=1.0. A slow line callback returned from that join early, so
-        # on_exit_cb (PROCESS_EXITED) ran before the line. The comment claimed
-        # the order was guaranteed. Why: wait with no timeout so the trailing
-        # line is delivered first. _reap still uses the 1s join.
-        self._join_handles((stdout_thread, stderr_thread), timeout=None)
+        # What was wrong: this join used timeout=None. A grandchild that
+        # inherited stdout or stderr never closes the pipe, so the readers
+        # never see EOF, on_exit_cb never runs, and this thread leaks. How:
+        # the join was unbounded so a trailing line without a newline could
+        # not lose to the exit callback. Why: a bounded join still delivers
+        # that line when the readers finish in time, and on_exit_cb still
+        # runs when they do not. _reap uses the same 1s bound.
+        self._join_handles((stdout_thread, stderr_thread), timeout=1.0)
         args = self.args
         if isinstance(args, str):
             preview = args
