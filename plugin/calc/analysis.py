@@ -23,8 +23,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 from plugin.framework.tool import ToolBaseDummy
+from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import resolve_cell_address
 from plugin.scripting.analysis import HELPER_NAMES
@@ -41,6 +42,25 @@ except ImportError:
     UNO_AVAILABLE = False
 
 log = logging.getLogger("writeragent.calc")
+
+
+def _output_anchor(output_range: str) -> tuple[int, int]:
+    """Column and row where an analysis report should start.
+
+    What was wrong: ``output_range.rsplit(".", 1)[-1]`` treated the last dot
+    as the sheet separator. A quoted or dotted name (``'Q1.Sales'!B2``) was
+    handed to ``parse_address`` still prefixed, and a range address
+    (``Sheet1.A1:Sheet1.C10`` or ``$A$1:$C$5``) resolved to the end cell or
+    to a token ``parse_address`` rejects.
+
+    ``split_sheet_prefix`` keeps quoted names, dots inside quotes, and both
+    ``.`` and ``!``. The write starts at the first cell, with ``$`` locks
+    removed, then ``parse_address``.
+    """
+    cell_part = split_sheet_prefix(output_range)[1]
+    anchor = cell_part.replace("$", "").split(":", 1)[0].strip()
+    return parse_address(anchor)
+
 
 # Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit
 # NLPSolver engines that open status dialogs (see docs/calc/analysis-tools.md).
@@ -139,6 +159,12 @@ class GoalSeekTool(ToolBaseDummy):
 
             return {"status": "ok", "message": message, "result": {"value": result_val, "divergence": divergence}}
         except Exception as e:
+            # What was wrong: this catch turned DisposedException into
+            # ToolExecutionError, so execute_safe reported TOOL_EXECUTION_ERROR
+            # and the native runner kept going on a dead document.
+            # Re-raise disposal before wrapping so provenance stays intact.
+            if is_disposed_exception(e):
+                raise
             log.exception("Goal Seek failed")
             raise ToolExecutionError(str(e)) from e
 
@@ -315,6 +341,9 @@ class SolverTool(ToolBaseDummy):
                 return {"status": "error", "message": "Solver failed to find a solution.", "result": {"success": False}}
 
         except Exception as e:
+            # Same dispose guard as Goal Seek: do not wrap a dead document.
+            if is_disposed_exception(e):
+                raise
             log.exception("Solver failed")
             raise ToolExecutionError(str(e)) from e
 
@@ -391,7 +420,6 @@ class AnalyzeDataTool(ToolBaseDummy):
 
         from plugin.calc.analysis_runner import run_trusted_analysis
         from plugin.calc.analysis_egress import insert_analysis_result_into_calc
-        from plugin.calc.address_utils import parse_address
         from plugin.framework.queue_executor import execute_on_main_thread
 
         dr = str(data_range).strip() if data_range else None
@@ -411,10 +439,10 @@ class AnalyzeDataTool(ToolBaseDummy):
             return self._tool_error(f"Failed to run analysis: {exc}")
 
         if output_range and result.get("status") == "ok":
+            anchor_ref = output_range
 
             def _write() -> None:
-                cell_part = output_range.rsplit(".", 1)[-1] if output_range else output_range
-                col, row = parse_address(cell_part)
+                col, row = _output_anchor(anchor_ref)
                 insert_analysis_result_into_calc(ctx.doc, ctx.ctx, result, start_col=col, start_row=row)
 
             try:
