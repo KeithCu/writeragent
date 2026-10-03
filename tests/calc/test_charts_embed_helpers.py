@@ -9,6 +9,7 @@
 # Unit tests for chart CLSID / Writer embed helpers (no UNO required).
 
 import logging
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 
 from plugin.calc.charts import (
@@ -101,7 +102,7 @@ class _OleShape:
     def __init__(self, name: str, clsid: str = CHART_CLSID, *, name_error: BaseException | None = None) -> None:
         self._name = name
         self._name_error = name_error
-        self.CLSID = clsid
+        self.CLSID: Any = clsid
 
     def getShapeType(self) -> str:
         return "com.sun.star.drawing.OLE2Shape"
