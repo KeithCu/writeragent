@@ -735,18 +735,16 @@ class LlmClient:
             except NetworkError as e:
                 if self._stopped or getattr(e, "code", None) == "STOPPED":
                     raise
-                # Fall through to the transcription endpoint; keep the traceback.
-                log.exception("Multimodal transcription failed; falling back to stt endpoint")
-            except Exception as e:
-                # What was wrong: user Stop raised ToolExecutionError(USER_STOPPED)
-                # and the bare except fell through to POST .../audio/transcriptions.
-                # How: chat_completion_sync raises USER_STOPPED when stop_checker
-                # is set. Why: treat stop like Auth/Network STOPPED — do not retry
-                # the transcription endpoint after the user cancelled.
-                from plugin.framework.errors import ToolExecutionError
-
-                if self._stopped or (isinstance(e, ToolExecutionError) and getattr(e, "code", None) == "USER_STOPPED"):
-                    raise
+                # What was wrong: a bare ``except Exception`` under this handler
+                # treated a parse error or a bug in the native-audio path as
+                # "this model cannot take input_audio" and POSTed
+                # /audio/transcriptions. How: chat_completion_sync raises
+                # ValueError, JSONDecodeError, or any other non-network error
+                # before an HTTP failure, and that handler logged and fell
+                # through. Why: only a transport failure is a reason to try the
+                # transcription endpoint. AuthError is re-raised above. Stop and
+                # USER_STOPPED are not NetworkError, so they propagate instead of
+                # being posted again. Any other exception propagates too.
                 log.exception("Multimodal transcription failed; falling back to stt endpoint")
 
         endpoint = self._endpoint()

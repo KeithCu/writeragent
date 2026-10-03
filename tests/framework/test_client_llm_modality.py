@@ -126,6 +126,76 @@ def test_transcribe_audio_user_stop_does_not_hit_stt_endpoint(mock_sync_chat, mo
     assert mock_sync_chat.called
     assert not mock_request_json.called
 
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ValueError("bad native-audio parse"),
+        json.JSONDecodeError("Expecting value", "doc", 0),
+        RuntimeError("native-audio programming error"),
+    ],
+)
+@patch("plugin.framework.client.llm_client.LlmClient._request_json")
+@patch("plugin.framework.client.llm_client.LlmClient.chat_completion_sync")
+def test_transcribe_audio_non_network_errors_do_not_hit_stt(mock_sync_chat, mock_request_json, exc):
+    """A parse error or a bug in the native-audio path must not be relabeled as unsupported audio."""
+    mock_sync_chat.side_effect = exc
+    ctx = MagicMock()
+
+    with patch("plugin.framework.client.model_fetcher.has_native_audio", return_value=True):
+        client = LlmClient({"endpoint": "http://test", "stt_model": "gemini-flash"}, ctx)
+        m = mock_open(read_data=b"dummy audio data")
+        with patch("builtins.open", m):
+            with pytest.raises(type(exc)):
+                client.transcribe_audio("dummy.wav")
+
+    assert mock_sync_chat.called
+    assert not mock_request_json.called
+
+
+@patch("plugin.framework.client.llm_client.LlmClient._request_json")
+@patch("plugin.framework.client.llm_client.LlmClient.chat_completion_sync")
+def test_transcribe_audio_auth_error_does_not_hit_stt(mock_sync_chat, mock_request_json):
+    """AuthError from the native-audio chat call propagates."""
+    from plugin.framework.client.auth import AuthError
+
+    mock_sync_chat.side_effect = AuthError("missing key", code="missing_api_key")
+    ctx = MagicMock()
+
+    with patch("plugin.framework.client.model_fetcher.has_native_audio", return_value=True):
+        client = LlmClient({"endpoint": "http://test", "stt_model": "gemini-flash"}, ctx)
+        m = mock_open(read_data=b"dummy audio data")
+        with patch("builtins.open", m):
+            with pytest.raises(AuthError):
+                client.transcribe_audio("dummy.wav")
+
+    assert mock_sync_chat.called
+    assert not mock_request_json.called
+
+
+@patch("plugin.framework.client.llm_client.LlmClient._request_json")
+@patch("plugin.framework.client.llm_client.LlmClient.chat_completion_sync")
+def test_transcribe_audio_network_error_falls_through_to_stt(mock_sync_chat, mock_request_json):
+    """A non-stop NetworkError from native chat still tries POST /audio/transcriptions."""
+    from plugin.framework.errors import NetworkError
+
+    mock_sync_chat.side_effect = NetworkError("model cannot process audio", code="HTTP_ERROR")
+    mock_request_json.return_value = {"text": "from stt"}
+    ctx = MagicMock()
+
+    with patch("plugin.framework.client.model_fetcher.has_native_audio", return_value=True):
+        client = LlmClient({"endpoint": "http://test", "stt_model": "gemini-flash"}, ctx)
+        m = mock_open(read_data=b"dummy audio data")
+        with patch("builtins.open", m):
+            result = client.transcribe_audio("dummy.wav")
+
+    assert result == "from stt"
+    assert mock_sync_chat.called
+    assert mock_request_json.called
+    _method, path, _body, _headers = mock_request_json.call_args.args
+    assert path.endswith("/audio/transcriptions")
+
+
 @patch("plugin.framework.client.llm_client.LlmClient._request_json")
 def test_transcribe_audio_openrouter_uses_json_body(mock_sync):
     """OpenRouter /audio/transcriptions expects JSON with base64 input_audio, not multipart."""
