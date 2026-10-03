@@ -782,6 +782,60 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_reset_keeps_map_when_worker_reset_fails(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A non-ok reset must not forget a namespace the worker still holds."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "reset-fail-keeps-map"
+            ok = pool.execute(code="x = 9\nresult = x", session_id=sid, mode="shared", req_id="rf-1")
+            assert ok.get("status") == "ok"
+            worker = pool._active_sessions[sid]
+            real_execute = worker.execute
+
+            def fail_reset(payload: dict, timeout_sec: float = 5.0) -> dict:
+                if payload.get("action") == "reset_session":
+                    return {"status": "error", "error": "namespace still held"}
+                return real_execute(payload, timeout_sec)
+
+            worker.execute = fail_reset  # type: ignore[method-assign]
+            with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
+                res = pool.reset_session(sid)
+            assert res.get("status") == "error"
+            assert pool._active_sessions.get(sid) is worker
+            assert sid in pool._worker_sessions.get(worker, ())
+            assert "keeping session map" in caplog.text
+            again = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="rf-2")
+            assert again.get("status") == "ok"
+            assert again.get("result") == 9
+        finally:
+            pool.shutdown()
+
+    def test_ttl_keeps_session_when_worker_reset_fails(self, caplog: pytest.LogCaptureFixture) -> None:
+        """TTL eviction must not drop the map when the worker reset is not ok."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
+        try:
+            sid = "ttl-reset-fail"
+            ok = pool.execute(code="x = 4\nresult = x", session_id=sid, mode="shared", req_id="ttl-fail-1")
+            assert ok.get("status") == "ok"
+            worker = pool._active_sessions[sid]
+
+            def fail_reset(payload: dict, timeout_sec: float = 5.0) -> dict:
+                del timeout_sec
+                if payload.get("action") == "reset_session":
+                    return {"status": "error", "error": "namespace still held"}
+                raise AssertionError(payload)
+
+            worker.execute = fail_reset  # type: ignore[method-assign]
+            with pool._cond:
+                pool._session_last_activity[sid] = time.monotonic() - 4000.0
+            with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
+                pool._evict_stale_sessions()
+            assert pool._active_sessions.get(sid) is worker
+            assert sid in pool._worker_sessions.get(worker, ())
+            assert "keeping session map" in caplog.text
+        finally:
+            pool.shutdown()
+
     def test_ttl_skips_session_refreshed_while_waiting(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
         try:
