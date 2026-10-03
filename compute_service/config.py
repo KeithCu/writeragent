@@ -192,9 +192,9 @@ class ComputeSettings:
             object.__setattr__(self, "ocr_workers", 0)
         # Base worker capacity across formula and vision subprocesses.
         # The HTTP server sizes its thread pool above this count (at least W + 2)
-        # and gates worker endpoints via a non-blocking semaphore, ensuring requests
-        # waiting on workers do not hold listener threads and leaving spare threads
-        # free for GET /health.
+        # and gates each pool with its own non-blocking semaphore. A full formula
+        # pool does not take a vision permit (or the reverse). A miss returns 503
+        # without holding a listener thread, leaving spare threads for GET /health.
         object.__setattr__(self, "threads", self.workers + self.ocr_workers)
         object.__setattr__(self, "ocr_allow_paths", _as_path_tuple(self.ocr_allow_paths))
         object.__setattr__(self, "shared_kernel_ttl_sec", float(self.shared_kernel_ttl_sec))

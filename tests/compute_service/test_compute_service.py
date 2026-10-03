@@ -1349,6 +1349,128 @@ class TestSessionResetHttp:
         assert body.get("id") == "v-busy"
         assert body.get("status") == "error"
 
+    def test_formula_permits_do_not_starve_vision_admission(self) -> None:
+        """workers=2 and ocr_workers=4 used to share six permits.
+
+        Six in-flight executes then held every permit, so /v1/vision returned
+        VISION_POOL_BUSY while OCR workers were still idle.
+        """
+        settings = ComputeSettings(workers=2, ocr_workers=4)
+        hold = threading.Event()
+        entered_lock = threading.Lock()
+        entered_count = 0
+        both_in = threading.Event()
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            nonlocal entered_count
+            with entered_lock:
+                entered_count += 1
+                if entered_count >= 2:
+                    both_in.set()
+            assert hold.wait(timeout=5)
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
+
+        app = create_wsgi_app(settings, execute_fn=execute_fn)
+        body = json.dumps({"code": "result = 1"}).encode("utf-8")
+        results: list[tuple[str, str | None]] = []
+        results_lock = threading.Lock()
+
+        def post() -> None:
+            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+            code = parsed.get("code") if isinstance(parsed, dict) else None
+            with results_lock:
+                results.append((status, code))
+
+        threads = [threading.Thread(target=post) for _ in range(6)]
+        fake_pool = MagicMock()
+        fake_pool.execute.return_value = {"id": "v-free", "status": "ok", "text": "ok"}
+        payload = json.dumps({"id": "v-free", "image_b64": "YQ=="}).encode("utf-8")
+        try:
+            for thread in threads:
+                thread.start()
+            assert both_in.wait(timeout=5)
+            deadline = time.monotonic() + 2.0
+            busy: list[tuple[str, str | None]] = []
+            while time.monotonic() < deadline:
+                with results_lock:
+                    busy = [item for item in results if item[0].startswith("503")]
+                if len(busy) >= 4:
+                    break
+                time.sleep(0.01)
+            assert busy == [("503 Service Unavailable", "WORKER_POOL_BUSY")] * 4
+            assert entered_count == 2
+            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+                vstatus, _vheaders, vbody = _wsgi_post(app, payload, path="/v1/vision")
+            assert vstatus.startswith("200")
+            assert vbody.get("code") != "VISION_POOL_BUSY"
+            fake_pool.execute.assert_called_once()
+        finally:
+            hold.set()
+            for thread in threads:
+                thread.join(timeout=5)
+
+    def test_vision_permits_do_not_starve_formula_admission(self) -> None:
+        """The reverse of the shared-permit bug: a full vision pool must not 503 execute."""
+        settings = ComputeSettings(workers=2, ocr_workers=4)
+        hold = threading.Event()
+        entered_lock = threading.Lock()
+        entered_count = 0
+        all_in = threading.Event()
+
+        def vision_execute(**_kwargs: Any) -> dict[str, Any]:
+            nonlocal entered_count
+            with entered_lock:
+                entered_count += 1
+                if entered_count >= 4:
+                    all_in.set()
+            assert hold.wait(timeout=5)
+            return {"status": "ok", "text": "ok"}
+
+        fake_pool = MagicMock()
+        fake_pool.execute.side_effect = vision_execute
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
+
+        app = create_wsgi_app(settings, execute_fn=execute_fn)
+        payload = json.dumps({"image_b64": "YQ=="}).encode("utf-8")
+        results: list[tuple[str, str | None]] = []
+        results_lock = threading.Lock()
+
+        def post() -> None:
+            status, _headers, parsed = _wsgi_post(app, payload, path="/v1/vision")
+            code = parsed.get("code") if isinstance(parsed, dict) else None
+            with results_lock:
+                results.append((status, code))
+
+        threads = [threading.Thread(target=post) for _ in range(5)]
+        try:
+            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+                for thread in threads:
+                    thread.start()
+                assert all_in.wait(timeout=5)
+                deadline = time.monotonic() + 2.0
+                busy: list[tuple[str, str | None]] = []
+                while time.monotonic() < deadline:
+                    with results_lock:
+                        busy = [item for item in results if item[0].startswith("503")]
+                    if len(busy) >= 1:
+                        break
+                    time.sleep(0.01)
+                assert busy == [("503 Service Unavailable", "VISION_POOL_BUSY")]
+                assert entered_count == 4
+                estatus, _eheaders, ebody = _wsgi_post(
+                    app,
+                    json.dumps({"code": "result = 1"}).encode("utf-8"),
+                    path="/v1/execute",
+                )
+            assert estatus.startswith("200")
+            assert ebody.get("code") != "WORKER_POOL_BUSY"
+        finally:
+            hold.set()
+            for thread in threads:
+                thread.join(timeout=5)
+
     def test_non_ascii_bearer_and_key_file(self, tmp_path) -> None:
         """hmac.compare_digest on str raises TypeError for non-ASCII. That escaped the WSGI app."""
         from compute_service.server import authenticate_request
