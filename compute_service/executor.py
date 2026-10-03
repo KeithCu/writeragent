@@ -54,9 +54,13 @@ def release_session_lock(session_id: str) -> None:
 def clamp_timeout_sec(timeout_sec: float | int | None, *, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int = DEFAULT_SETTINGS.max_timeout_sec) -> int:
     if timeout_sec is None:
         return default_timeout_sec
+    # In Python, int(float('inf')) raises OverflowError, which does not inherit from ValueError.
+    # Non-finite floats (inf/nan) must fall back to default_timeout_sec.
+    if isinstance(timeout_sec, float) and not math.isfinite(timeout_sec):
+        return default_timeout_sec
     try:
         sec = int(timeout_sec)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default_timeout_sec
     return max(1, min(max_timeout_sec, sec))
 

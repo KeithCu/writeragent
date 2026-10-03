@@ -319,6 +319,13 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 return err_resp
             assert raw_body is not None
             _set_write_deadline(environ)
+            accept_time = environ.get("compute.accept_time")
+            if accept_time is not None:
+                queue_wait_sec = time.monotonic() - accept_time
+                if queue_wait_sec > _REQUEST_READ_TIMEOUT_SEC:
+                    log.warning("Dropping execute backlog wait %.2fs exceeded %.0fs", queue_wait_sec, _REQUEST_READ_TIMEOUT_SEC)
+                    exec_queue_err: dict[str, Any] = {"status": "error", "code": "QUEUE_TIMEOUT", "error": f"Request queue backlog wait ({int(queue_wait_sec)}s) exceeded timeout."}
+                    return _start_json(start_response, "503 Service Unavailable", exec_queue_err, extra_headers=[("Retry-After", "1")])
 
             from compute_service.json_forward import WIRE_JSON_FORWARD, ExecuteRequestError, is_multipart_content_type, parse_execute_request
 
@@ -450,6 +457,13 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 return err_resp
             assert req_data is not None
             _set_write_deadline(environ)
+            accept_time = environ.get("compute.accept_time")
+            if accept_time is not None:
+                queue_wait_sec = time.monotonic() - accept_time
+                if queue_wait_sec > _REQUEST_READ_TIMEOUT_SEC:
+                    log.warning("Dropping vision backlog wait %.2fs exceeded %.0fs", queue_wait_sec, _REQUEST_READ_TIMEOUT_SEC)
+                    vision_queue_err: dict[str, Any] = {"status": "error", "code": "QUEUE_TIMEOUT", "error": f"Request queue backlog wait ({int(queue_wait_sec)}s) exceeded timeout."}
+                    return _start_json(start_response, "503 Service Unavailable", vision_queue_err, extra_headers=[("Retry-After", "1")])
 
             req_id = req_data.get("id")
             helper = str(req_data.get("helper") or "extract_text").strip()
@@ -502,6 +516,9 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     _dual_is_shut_down: threading.Event
     _dual_shutdown_request: bool
     executor: ThreadPoolExecutor
+    health_executor: ThreadPoolExecutor
+    _accept_times: dict[int, float]
+    _accept_lock: threading.Lock
     address_family: int
     # Match TCPServer: tuple[str,int] is invariant vs the AF_INET/AF_INET6 union.
     server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
@@ -512,7 +529,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         # that type checkers cannot see; our multi-socket ``serve_forever`` must pair with ``shutdown``.
         self._dual_is_shut_down = threading.Event()
         self._dual_shutdown_request = False
+        self._accept_times = {}
+        self._accept_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=max_threads, thread_name_prefix="compute-worker")
+        self.health_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="compute-health")
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
 
         host, port = server_address
@@ -579,6 +599,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         # Do not cancel_futures: those futures already own accepted sockets.
         # Drain waits for them; cancelling dropped the sockets until process exit.
         self.executor.shutdown(wait=False, cancel_futures=False)
+        self.health_executor.shutdown(wait=False, cancel_futures=False)
 
     def drain_executor(self, timeout: float) -> None:
         """Wait until accepted requests finish, then return.
@@ -592,6 +613,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
         def _wait() -> None:
             self.executor.shutdown(wait=True, cancel_futures=False)
+            self.health_executor.shutdown(wait=True, cancel_futures=False)
             done.set()
 
         threading.Thread(target=_wait, name="http-drain", daemon=True).start()
@@ -644,6 +666,20 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         finally:
             self.shutdown_request(request)
 
+    def _is_health_request(self, sock: Any) -> bool:
+        """True if the socket has buffered bytes starting with GET /health."""
+        try:
+            sock.setblocking(False)
+            peek = sock.recv(16, socket.MSG_PEEK)
+            return peek.startswith(b"GET /health")
+        except Exception:
+            return False
+        finally:
+            try:
+                sock.setblocking(True)
+            except Exception:
+                pass
+
     def _handle_request_noblock_for_socket(self, sock: socket.socket) -> None:
         try:
             request, client_address = sock.accept()
@@ -651,7 +687,18 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             return
         if self.verify_request(request, client_address):
             try:
-                self.process_request(request, client_address)
+                fd = request.fileno()
+                with self._accept_lock:
+                    self._accept_times[fd] = time.monotonic()
+            except Exception:
+                pass
+            try:
+                if self._is_health_request(request):
+                    # Dedicated health executor bypasses the formula compute queue so
+                    # Kubernetes / Docker liveness checks are never starved by long cells.
+                    self.health_executor.submit(self.process_request_thread, request, client_address)
+                else:
+                    self.process_request(request, client_address)
             except Exception:
                 self.handle_error(request, client_address)
                 self.shutdown_request(request)
@@ -661,6 +708,19 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                 raise
         else:
             self.shutdown_request(request)
+
+    def shutdown_request(self, request: Any) -> None:
+        try:
+            fd = request.fileno()
+            with self._accept_lock:
+                self._accept_times.pop(fd, None)
+        except Exception:
+            pass
+        super().shutdown_request(request)
+
+    def pop_accept_time(self, fd: int) -> float | None:
+        with self._accept_lock:
+            return self._accept_times.pop(fd, None)
 
 
 # Backwards-compatibility alias
@@ -687,9 +747,23 @@ class WSGIDualStackServer:
                 except Exception:
                     pass
 
+            def address_string(self) -> str:
+                # Return raw client IP without reverse DNS lookup.
+                # BaseHTTPRequestHandler.address_string calls socket.getfqdn(),
+                # which can block for seconds in container environments.
+                return str(self.client_address[0])
+
+            def log_message(self, format: str, *args: Any) -> None:
+                # Route access logs through logging rather than unbuffered raw sys.stderr
+                log.debug(format, *args)
+
             def get_environ(self) -> dict[str, Any]:
                 environ = super().get_environ()
                 environ["compute.connection"] = self.connection
+                pop_fn = getattr(self.server, "pop_accept_time", None)
+                if callable(pop_fn):
+                    fd = getattr(self.connection, "fileno", lambda: -1)()
+                    environ["compute.accept_time"] = pop_fn(fd)
                 return environ
 
         class _WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
@@ -698,7 +772,8 @@ class WSGIDualStackServer:
 
             def __init__(self, server_address: tuple[str, int], RequestHandlerClass: Any, bind_and_activate: bool = True) -> None:
                 DualStackThreadPoolHTTPServer.__init__(self, server_address, RequestHandlerClass, bind_and_activate, max_threads=max_threads)
-                self.server_name = socket.getfqdn(str(self.server_address[0]))
+                raw_host = str(self.server_address[0])
+                self.server_name = raw_host if raw_host and raw_host not in ("", "0.0.0.0", "::") else "localhost"
                 self.server_port = self.server_address[1]
                 self.setup_environ()
 

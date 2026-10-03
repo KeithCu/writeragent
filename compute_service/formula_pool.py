@@ -96,6 +96,8 @@ class FormulaProcessPool(BaseProcessPool):
                 except Exception:
                     log.exception("TTL reset_session failed for %s; killing worker", sid)
                     leased.kill()
+                    with self._cond:
+                        self._clear_worker_sessions_unlocked(leased)
                 self._drop_session_if_worker(sid, leased)
                 evicted.append(sid)
             finally:
@@ -243,8 +245,13 @@ class FormulaProcessPool(BaseProcessPool):
             with self._cond:
                 target_worker = self._active_sessions.get(session_id)
             if target_worker is None:
-                worker_idx = abs(hash(session_id)) % len(workers_snapshot)
-                target_worker = workers_snapshot[worker_idx]
+                # Distribute new shared sessions across workers by choosing the worker
+                # currently hosting the fewest active sessions, using hash as tie-breaker.
+                with self._cond:
+                    target_worker = min(
+                        workers_snapshot,
+                        key=lambda w: (len(self._worker_sessions.get(w, ())), abs(hash((session_id, w.worker_id)))),
+                    )
             leased = self.lease_specific(target_worker, timeout_sec=remaining_sec(deadline))
             busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
         else:

@@ -66,7 +66,9 @@ def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[s
             base = os.path.realpath(os.path.expanduser(raw))
         except (OSError, ValueError):
             continue
-        if resolved == base or resolved.startswith(base + os.sep):
+        # Avoid double slash if base is root ("/") which already ends with os.sep
+        prefix = base if base.endswith(os.sep) else base + os.sep
+        if resolved == base or resolved.startswith(prefix):
             return True
     return False
 

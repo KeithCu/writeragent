@@ -1132,3 +1132,22 @@ class TestFormulaHttpEndpoint:
         assert status2 == 200
         assert body2.get("status") == "error"
         assert "kept" in body2.get("error", "") or "NameError" in body2.get("error", "")
+
+    def test_shared_session_balances_across_least_loaded_worker(self) -> None:
+        """New shared sessions must be assigned to the worker holding the fewest active sessions."""
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
+        try:
+            # First session lands on worker 0 or 1
+            res1 = pool.execute(code="result = 1", session_id="sess-1", mode="shared")
+            assert res1.get("status") == "ok"
+            w1 = pool._active_sessions["sess-1"]
+
+            # Second session should pick the other worker because it has 0 sessions
+            res2 = pool.execute(code="result = 2", session_id="sess-2", mode="shared")
+            assert res2.get("status") == "ok"
+            w2 = pool._active_sessions["sess-2"]
+
+            assert w1 is not w2, "Sessions must balance across distinct workers when both are available"
+        finally:
+            pool.shutdown()
+

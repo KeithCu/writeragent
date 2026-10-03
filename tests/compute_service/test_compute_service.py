@@ -1290,3 +1290,38 @@ def test_ocr_path_is_allowed_nonexistent_file(tmp_path) -> None:
     assert ocr_path_is_allowed(str(missing), ("/other/dir",)) is False
 
 
+def test_clamp_timeout_sec_infinite_and_nan() -> None:
+    """clamp_timeout_sec must handle OverflowError and non-finite floats gracefully."""
+    from compute_service.executor import clamp_timeout_sec
+
+    assert clamp_timeout_sec(float("inf"), default_timeout_sec=30) == 30
+    assert clamp_timeout_sec(float("-inf"), default_timeout_sec=30) == 30
+    assert clamp_timeout_sec(float("nan"), default_timeout_sec=30) == 30
+    assert clamp_timeout_sec(1e309, default_timeout_sec=30) == 30
+
+
+def test_ocr_path_is_allowed_root_directory() -> None:
+    """Allowlisted root directory '/' must not fail due to double slash '//'."""
+    from compute_service.config import ocr_path_is_allowed
+
+    assert ocr_path_is_allowed("/tmp/image.png", ("/",)) is True
+    assert ocr_path_is_allowed("/var/data/doc.pdf", ("/",)) is True
+
+
+def test_address_string_avoids_reverse_dns() -> None:
+    """_DeadlineRequestHandler.address_string must return raw IP without socket.getfqdn()."""
+    from compute_service.server import WSGIDualStackServer
+
+    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    try:
+        handler_cls = server.srv.RequestHandlerClass
+        with patch("socket.getfqdn") as mock_fqdn:
+            handler = handler_cls.__new__(handler_cls)
+            handler.client_address = ("127.0.0.1", 54321)
+            assert handler.address_string() == "127.0.0.1"
+            mock_fqdn.assert_not_called()
+    finally:
+        server.server_close()
+
+
+
