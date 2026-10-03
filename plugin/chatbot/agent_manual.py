@@ -166,7 +166,7 @@ def _app(doc_type: str | None) -> str:
 def doc_type_of(doc: Any) -> str | None:
     """'writer' / 'calc' / 'draw' for a document model, or None when there is no document.
 
-    Same resolution every other tool relies on (lazy import mirrors get_core_directives)."""
+    Same resolution every other tool relies on (lazy import of is_calc / is_draw)."""
     if doc is None:
         return None
     try:

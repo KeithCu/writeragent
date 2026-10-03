@@ -1026,8 +1026,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         # Deferred: importing panel.py at module load breaks unopkg (writeRegistryInfo) — heavy stack.
         from plugin.chatbot.panel import ChatSession
 
-        # This resolves model logic internally
-        system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "")
+        # What was wrong: the seeded prompt skipped vision, peer, and memory/humanizer.
+        # How: this call omitted ctx while refresh_document_context passes the panel ctx.
+        # Why: ChatPanelElement already holds that context; pass it so the seed matches.
+        system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "", ctx=self.ctx)
 
         session_id = get_document_property(model, "WriterAgentSessionID")
         url = model.getURL() if (model and hasattr(model, "getURL")) else ""
