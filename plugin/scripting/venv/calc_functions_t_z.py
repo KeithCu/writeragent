@@ -712,6 +712,14 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
         l_shape = np.asarray(lookup_arr).shape
         if len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1:
             return _scalar_if_singleton(r_flat[best_idx].tolist())
+        # A flat (N,) lookup used the column slice whenever best_idx < width.
+        # xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
+        # returned ["y","w","q"] instead of the "b" row ["z","w"]. When the
+        # return has one row per lookup value, index that row. A wide return
+        # whose columns match the lookup length still uses the column slice
+        # below; (N, 1) and (1, N) lookups are handled by their own branches.
+        if len(l_shape) == 1 and r_flat.shape[0] == l_shape[0]:
+            return _scalar_if_singleton(r_flat[best_idx].tolist())
         if best_idx < r_flat.shape[1]:
             # A horizontal 1×N lookup into a one-row return sliced out a
             # one-element column and .tolist() wrapped it. A 1×1 result is a scalar.

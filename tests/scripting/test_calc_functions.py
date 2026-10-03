@@ -857,6 +857,20 @@ def test_xmatch_wildcards_and_xlookup_horizontal_scalar():
     assert calc.xmatch("b", ["a", "b", "c"]) == 2.0
 
 
+def test_xlookup_flat_lookup_returns_matching_row():
+    # (N,) into (N, M) used r_flat[:, best_idx], so "b" returned column 1.
+    assert calc.xlookup("b", ["a", "b", "c"], [["x", "y"], ["z", "w"], ["p", "q"]]) == ["z", "w"]
+    import numpy as np
+
+    got = calc.xlookup("b", np.array(["a", "b", "c"]), np.array([["x", "y"], ["z", "w"], ["p", "q"]]))
+    assert list(got) == ["z", "w"]
+    # Columns match the lookup length: still the column, not row 1.
+    assert calc.xlookup("b", ["a", "b", "c"], [[10, 20, 30], [40, 50, 60]]) == [20, 50]
+    # (N, 1) column vector and (1, N) horizontal lookup keep their axes.
+    assert calc.xlookup("b", [["a"], ["b"], ["c"]], [["x", "y"], ["z", "w"], ["p", "q"]]) == ["z", "w"]
+    assert calc.xlookup("b", [["a", "b", "c"]], [[10, 20, 30], [40, 50, 60]]) == [20, 50]
+
+
 def test_xnpv_rate_at_or_below_minus_one_is_nan():
     # Excel #NUM!. Equal dates make (1-1)**0 == 1, so the sum used to leak.
     # A fractional year with rate < -1 used to leak a complex.
