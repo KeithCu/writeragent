@@ -579,6 +579,10 @@ def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
         pv_f = float(pv_val)
     except (ValueError, TypeError):
         return float("nan")
+    # nper == 0 used to raise ZeroDivisionError (pv / nper). Excel/Calc are
+    # #NUM!; this module returns NaN. Same guard as pmt.
+    if n == 0:
+        return float("nan")
     # ISPMT calculates interest for a loan with even principal payments
     # principal payment = pv / nper
     # balance after per periods = pv - (pv / nper) * per
@@ -927,8 +931,12 @@ def mode(r: Any) -> Any:
 
 
 def mround(number: Any, multiple: Any) -> float:
-    n = float(number)
-    m = float(multiple)
+    # float() on text or a blank cell used to raise ValueError.
+    try:
+        n = float(number)
+        m = float(multiple)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     if m == 0:
         return 0.0
     if (n > 0 and m < 0) or (n < 0 and m > 0):

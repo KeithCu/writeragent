@@ -600,9 +600,13 @@ class PythonWorkerManager:
                         details={"exe": self.exe},
                     )
                 except RuntimeError as e:
-                    if not dispatched_intermediate:
+                    # Bugfix: OSError already refused a retry once execution_started
+                    # was set. RuntimeError only looked at dispatched_intermediate,
+                    # so a later RuntimeError (bad frame, closed pipe) re-raised
+                    # into the attempt loop and ran the same script on a new child.
+                    if not (dispatched_intermediate or execution_started):
                         raise
-                    log.warning("Python worker failed after a tool call (not replaying): %s", e)
+                    log.warning("Python worker failed after execution started (not replaying): %s", e)
                     self._terminate_worker()
                     _clear_host_state_after_worker_death()
                     return _worker_error(

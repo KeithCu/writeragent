@@ -703,6 +703,33 @@ def test_bool_col_11_split_grid_sums() -> None:
     assert float(np.sum(rng)) == pytest.approx(7.0)
 
 
+def test_large_string_ndarray_packs_instead_of_raising() -> None:
+    """A >=100-cell string or object ndarray must not crash the float64 packer."""
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    n = BINARY_MIN_CELLS
+    texts = np.array(["z"] * (n - 1) + ["02138"])
+    wire = child_pack_result(texts)
+    assert is_split_grid(wire)
+    assert wire["strings"][n - 1] == "02138"
+    back = host_unpack_data(wire, as_nested_list=True)
+    assert back[0] == "z"
+    assert back[-1] == "02138"
+
+    obj = np.empty((10, n // 10), dtype=object)
+    obj[:] = "ab"
+    obj[-1, -1] = "cd"
+    packed = serialize_result(obj)
+    assert is_split_grid(packed)
+    restored = host_unpack_data(packed, as_nested_list=True)
+    assert restored[0][0] == "ab"
+    assert restored[-1][-1] == "cd"
+
+    small = np.array(["a", "b"], dtype=object)
+    assert child_pack_result(small) == ["a", "b"]
+
+
 def test_split_grid_boundary_at_binary_min_cells() -> None:
     """BINARY_MIN_CELLS: at threshold uses split_grid; one below stays nested list."""
     wire_at = host_pack_data(NUMERIC_AT_THRESHOLD, force="auto")

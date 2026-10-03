@@ -1941,7 +1941,16 @@ def child_pack_result(
         if np is not None:
             if isinstance(result, np.ndarray):
                 shape = tuple(int(x) for x in result.shape)
-                if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
+                kind = getattr(result.dtype, "kind", None)
+                # Bugfix: child_pack_split_grid does ascontiguousarray(..., float64).
+                # A unicode/bytes/object ndarray at or above BINARY_MIN_CELLS raised
+                # ValueError and dropped a successful cell. Lists of those strings
+                # already go through host_pack_split_grid's strings map. Numeric
+                # kinds (and datetime64, which must not be rewritten here) stay
+                # on the float64 path.
+                if kind not in ("U", "S", "O") and should_use_binary_envelope(
+                    shape, min_cells=min_cells, force=force
+                ):
                     return child_pack_split_grid(result)
                 # Bugfix: the log said json_list egress, then the ndarray was returned
                 # unchanged. A DataFrame under 100 cells kept an ndarray body, and
@@ -1949,7 +1958,8 @@ def child_pack_result(
                 # became one Calc string. Recurse on tolist() so the list path
                 # (grid_from_nested_list) is what actually goes on the wire.
                 log.debug(
-                    "payload_codec child_pack json_list egress ndarray shape=%s (below_threshold)",
+                    "payload_codec child_pack ndarray via list kind=%s shape=%s",
+                    kind,
                     shape,
                 )
                 return child_pack_result(result.tolist(), min_cells=min_cells, force=force)

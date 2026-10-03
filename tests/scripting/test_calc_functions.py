@@ -959,6 +959,48 @@ def test_networkdays_intl_invalid_weekend_is_nan():
     assert calc.networkdays_intl(46181, 46185, "0000011") == 5.0
 
 
+def test_workday_intl_invalid_weekend_is_nan():
+    assert math.isnan(calc.workday_intl(46181, 1, 8))
+    assert math.isnan(calc.workday_intl(46181, 1, 0))
+    assert math.isnan(calc.workday_intl(46181, 1, 18))
+    assert calc.workday_intl(46181, 1, 1) == calc.workday(46181, 1)
+    assert calc.workday_intl(46181, 1, "0000011") == calc.workday(46181, 1)
+
+
+def test_coupon_nonpositive_frequency_is_nan():
+    assert math.isnan(calc.coupdays(43831, 43983, 0))
+    assert math.isnan(calc.coupdays(43831, 43983, -1))
+    assert math.isnan(calc.coupdaybs(43831, 43983, -2))
+    assert math.isnan(calc.coupdaysnc(43831, 43983, -1))
+    assert math.isnan(calc.coupncd(43831, 43983, 0))
+    assert math.isnan(calc.couppcd(43831, 43983, -4))
+    assert not math.isnan(calc.coupdaybs(43831, 43983, 2))
+
+
+def test_edate_eomonth_text_months_are_nan():
+    assert math.isnan(calc.edate(46182, "x"))
+    assert math.isnan(calc.edate(46182, ""))
+    assert math.isnan(calc.edate(46182, None))
+    assert math.isnan(calc.eomonth(46182, "x"))
+    assert math.isnan(calc.eomonth(46182, ""))
+    assert math.isnan(calc.eomonth(46182, None))
+    assert calc.eomonth(46182, 1) == 46234.0
+    assert not math.isnan(calc.edate(46182, 1))
+
+
+def test_ispmt_zero_nper_and_mround_sort_text_are_nan():
+    assert math.isnan(calc.ispmt(0.1, 1, 0, 1000))
+    assert not math.isnan(calc.ispmt(0.1, 1, 12, 1000))
+    assert math.isnan(calc.mround("x", 1))
+    assert math.isnan(calc.mround(2.5, ""))
+    assert math.isnan(calc.mround(None, 1))
+    assert calc.mround(2.5, 1) == 3.0
+    assert math.isnan(calc.sort([[3, 1], [2, 4]], "a", 1))
+    assert math.isnan(calc.sort([[3, 1], [2, 4]], 1, ""))
+    assert math.isnan(calc.sort([[3, 1], [2, 4]], None, 1))
+    assert calc.sort([3.0, 1.0, 2.0], 1, -1) == [3.0, 2.0, 1.0]
+
+
 def test_rept_negative_count_is_nan():
     assert math.isnan(calc.rept("ab", -1))
     assert math.isnan(calc.rept("ab", -1.2))

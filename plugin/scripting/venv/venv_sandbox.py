@@ -99,6 +99,8 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     # run_sql, and resolve_flat_file_path then accepted files under the
     # rewritten folder. Capture the host path at inject time — after bindings,
     # before user code — and do not consult state again.
+    # run_sandboxed_code drops a previous execute's scoped_dir before bindings,
+    # so this read is only the folder this execute actually bound.
     host_scoped_dir = executor.state.get("scoped_dir")
     if not isinstance(host_scoped_dir, str) or not host_scoped_dir.strip():
         host_scoped_dir = None
@@ -1097,6 +1099,12 @@ def run_sandboxed_code(
         inject_auto_imports(executor, code)
         ranges = _inject_data(executor, data)
         _inject_excel_xl(executor, ranges)
+        # Bugfix: a shared calc: executor is reused by =PY() and Run Python
+        # Script. The cell assignment scoped_dir = "/some/dir" stayed in
+        # state. The next execute that did not bind a folder (RPS injects
+        # none) re-read that path as the host folder. Drop it before bindings
+        # so only this execute's host value is visible.
+        executor.state.pop("scoped_dir", None)
         _inject_bindings(executor, bindings)
         _inject_session_duckdb(executor)
         return _run_on_executor(executor, code)
