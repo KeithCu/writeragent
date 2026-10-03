@@ -41,6 +41,20 @@ _JSONRPC_VERSION = "2.0"
 _ACP_PROTOCOL_VERSION = 1
 
 
+def _is_jsonrpc_id(value: Any) -> bool:
+    """JSON-RPC 2.0 id: string, number, or null. Not an array, object, or boolean.
+
+    ``bool`` subclasses ``int``, and ``True`` hashes equal to ``1``, so a JSON
+    ``true`` id would complete the in-flight integer request if it were used
+    as a ``_pending`` key.
+    """
+    if value is None or isinstance(value, str):
+        return True
+    if isinstance(value, bool):
+        return False
+    return isinstance(value, (int, float))
+
+
 class ACPConnection:
     """Manages a JSON-RPC stdio connection to an ACP subprocess."""
 
@@ -272,6 +286,18 @@ class ACPConnection:
                     if not isinstance(msg, dict):
                         log.debug(f"Non-object JSON output: {line[:200]}")
                         continue
+                    # What was wrong: an object whose "id" is an array or object
+                    # passed the dict guard, then pending.get(req_id) raised
+                    # TypeError (unhashable type). The inner except broke the
+                    # reader, and the finally sweep failed the in-flight
+                    # session/prompt with "ACP process terminated" while the
+                    # child was still alive, discarding later pipe responses.
+                    # Why: JSON-RPC ids are string, number, or null. Anything
+                    # else (array, object, JSON boolean) is stray stdout; log
+                    # it and keep reading.
+                    if "id" in msg and not _is_jsonrpc_id(msg["id"]):
+                        log.debug(f"Non-JSON-RPC id output: {line[:200]}")
+                        continue
 
                     if "id" in msg and msg["id"] is not None and "method" not in msg:
                         # Response to our request
@@ -304,8 +330,9 @@ class ACPConnection:
             # left in-flight Events unset, so session/prompt sat on
             # event.wait(600) and the sidebar stayed on Sending. Why: every
             # reader exit wakes waiters the same way stop() does. A response
-            # stop() already stored is not replaced. Non-object JSON is
-            # skipped above and does not take this path.
+            # stop() already stored is not replaced. Non-object JSON and
+            # objects with a non-JSON-RPC id are skipped above and do not
+            # take this path.
             self._wake_pending("ACP process terminated")
             # Live drain already collected stderr; log a bounded tail for debugging.
             drain = self._stderr_drain
