@@ -97,18 +97,9 @@ class FormulaProcessPool(BaseProcessPool):
                     still_stale = mapped is worker and refreshed is not None and (time.monotonic() - refreshed) >= self.shared_kernel_ttl_sec
                 if not still_stale:
                     continue
-                try:
-                    res = leased.execute({"action": "reset_session", "session_id": sid}, timeout_sec=2.0)
-                except Exception:
-                    # The child never answered. Kill it; the namespace dies with the pid.
-                    log.exception("TTL reset_session failed for %s; killing worker", sid)
-                    leased.kill()
-                    with self._cond:
-                        self._clear_worker_sessions_unlocked(leased)
+                res = self._reset_session_on_worker(leased, sid, timeout_sec=2.0)
+                if res.get("status") == "ok" or sid not in self._active_sessions:
                     evicted.append(sid)
-                else:
-                    if self._drop_session_after_reset(sid, leased, res):
-                        evicted.append(sid)
             finally:
                 self.release_worker(leased)
         if evicted:
@@ -207,25 +198,32 @@ class FormulaProcessPool(BaseProcessPool):
         log.error("reset_session failed for %s; keeping session map because the worker may still hold the namespace: %s", session_id, res)
         return False
 
+    def _reset_session_on_worker(self, worker: BaseProcessWorker, session_id: str, timeout_sec: float = 5.0) -> dict[str, Any]:
+        """Send reset_session action to leased worker and update session map on ok."""
+        try:
+            res = worker.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
+        except Exception:
+            log.exception("reset_session IPC failed for %s; killing worker", session_id)
+            worker.kill()
+            with self._cond:
+                self._clear_worker_sessions_unlocked(worker)
+            return {"status": "error", "code": "WORKER_CRASHED", "error": "Worker failed during session reset"}
+        self._drop_session_after_reset(session_id, worker, res)
+        return res
+
     def should_recycle_worker(self, worker: BaseProcessWorker) -> bool:
         """Recycle worker if tasks_executed >= max_tasks, unless holding active shared sessions.
 
         Workers holding active shared sessions skip normal max_tasks recycling to preserve state.
         Sessions are held indefinitely while active and released after shared_kernel_ttl_sec of inactivity.
-
-        NOTE: Must NOT be called with self._cond or self._lock held by the caller,
-        as this method acquires self._lock internally (prevents lock inversion/deadlock).
         """
-        with self._lock:
+        with self._cond:
             if not worker.is_alive():
                 self._clear_worker_sessions_unlocked(worker)
                 return False
-            has_sessions = bool(self._worker_sessions.get(worker))
-
-        if has_sessions:
-            return False
-
-        return worker.tasks_executed >= self.max_tasks
+            if self._worker_sessions.get(worker):
+                return False
+            return worker.tasks_executed >= self.max_tasks
 
     def _pick_idle_worker(self) -> BaseProcessWorker | None:
         """Pop an idle worker that hosts no shared session.
@@ -278,9 +276,7 @@ class FormulaProcessPool(BaseProcessPool):
             # Same status/code/error shape as execute pool-busy; HTTP maps to 503.
             return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Could not lease worker to reset session."}
         try:
-            res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
-            self._drop_session_after_reset(session_id, leased, res)
-            return res
+            return self._reset_session_on_worker(leased, session_id, timeout_sec=timeout_sec)
         finally:
             self.release_worker(leased)
 
@@ -348,27 +344,22 @@ class FormulaProcessPool(BaseProcessPool):
             return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
 
         leased: BaseProcessWorker | None
-        # Snapshot workers under the pool lock to avoid a TOCTOU race with
-        # concurrent shutdown() which calls self.workers.clear() under the same lock.
-        # Without the snapshot, the IndexError window between len() and [] access
-        # is real even on CPython when shutdown races execute on another thread.
-        with self._lock:
-            workers_snapshot = list(self.workers)
         busy_code = "WORKER_POOL_BUSY"
-        if mode == "shared" and session_id and workers_snapshot:
+        if mode == "shared" and session_id:
             with self._cond:
                 self._reap_dead_sessions_unlocked()
                 target_worker = self._active_sessions.get(session_id)
-            if target_worker is not None and target_worker not in workers_snapshot:
-                target_worker = None
-            if target_worker is None:
-                # Distribute new shared sessions across workers by choosing the worker
-                # currently hosting the fewest active sessions, using hash as tie-breaker.
-                with self._cond:
+                if target_worker is not None and target_worker not in self.workers:
+                    target_worker = None
+                if target_worker is None and self.workers:
+                    # Distribute new shared sessions across workers by choosing the worker
+                    # currently hosting the fewest active sessions, using hash as tie-breaker.
                     target_worker = min(
-                        workers_snapshot,
+                        self.workers,
                         key=lambda w: (len(self._worker_sessions.get(w, ())), abs(hash((session_id, w.worker_id)))),
                     )
+            if target_worker is None:
+                return {"id": req_id, "status": "error", "code": "SERVICE_SHUTDOWN", "error": "Formula compute pool is shutting down."}
             leased = self.lease_specific(target_worker, timeout_sec=remaining_sec(deadline))
             busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
         else:

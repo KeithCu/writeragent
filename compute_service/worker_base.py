@@ -416,7 +416,7 @@ class BaseProcessPool:
     idle_worker_ttl_sec: float | None
     max_payload_bytes: int
     _is_shutdown: bool
-    _lock: threading.Lock
+    _lock: threading.RLock
     _cond: threading.Condition
     _reaper_stop_event: threading.Event
 
@@ -430,7 +430,7 @@ class BaseProcessPool:
         self.max_payload_bytes = max_payload_bytes
         self.workers: list[BaseProcessWorker] = []
         self._is_shutdown = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._idle: set[BaseProcessWorker] = set()
         # Leased or cold-claimed. A dead process is neither idle nor leased
         # until the next lease respawns it.
@@ -611,35 +611,39 @@ class BaseProcessPool:
                 self._leased.discard(worker)
                 self._cond.notify_all()
             return
-        if self.should_recycle_worker(worker):
-            log.info("Recycling %s #%d after %d tasks to refresh memory", self.worker_name, worker.worker_id, worker.tasks_executed)
-            worker.kill()
-            # Re-spawn so the next lease does not pay spawn latency inside execute().
-            # Affinity hashing uses this wrapper list, not process liveness.
-            # The new child is idle only because this respawn's handshake succeeded.
-            worker.respawn()
-        # kill() reaps the child and runs on_process_exit, which takes this
-        # same non-reentrant lock (formula sessions drop the pid here).
-        # Shutdown can flip _is_shutdown after the check above and before
-        # this block. Killing while the lock is held deadlocks the release
-        # thread. Record the kill, then do it after the lock is released.
-        kill_after_release = False
+
+        recycle = self.should_recycle_worker(worker)
+        kill_worker = False
         with self._cond:
             self._leased.discard(worker)
             if self._is_shutdown:
-                # shutdown() may already have killed this child. kill() again
-                # is safe and drops a process respawn() started above.
-                # The worker stays out of idle.
-                kill_after_release = True
+                kill_worker = True
+            elif recycle:
+                pass
             elif worker.is_alive():
-                # The response frame was consumed, or the recycle handshake
-                # just succeeded. A timeout that SIGKILLed the child is not
-                # this branch: the process is dead and stays out of idle.
+                # The response frame was consumed and worker is alive: return to idle.
                 self._idle.add(worker)
                 self._worker_last_active[worker] = time.monotonic()
             self._cond.notify_all()
-        if kill_after_release:
+
+        if kill_worker:
             worker.kill()
+            return
+
+        if recycle:
+            log.info("Recycling %s #%d after %d tasks to refresh memory", self.worker_name, worker.worker_id, worker.tasks_executed)
+            worker.kill()
+            # Re-spawn so the next lease does not pay spawn latency inside execute().
+            worker.respawn()
+            with self._cond:
+                if not self._is_shutdown and worker.is_alive():
+                    self._idle.add(worker)
+                    self._worker_last_active[worker] = time.monotonic()
+                elif self._is_shutdown:
+                    kill_worker = True
+                self._cond.notify_all()
+            if kill_worker:
+                worker.kill()
 
     def shutdown(self) -> None:
         """Terminate all worker processes."""
