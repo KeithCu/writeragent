@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from .calc_functions_util import _extract_numeric_array, _npf_result, match_criteria
+from .calc_functions_util import _extract_numeric_array, _npf_result, _to_float_a, match_criteria
 from .coerce import header_label, is_missing_value
 
 
@@ -252,18 +252,6 @@ def _to_complex(val: Any) -> builtins.complex:
         return builtins.complex(s)
     except ValueError:
         raise TypeError("Invalid complex string")
-
-
-def _to_float_a(val: Any) -> float:
-    """Helper for *A functions (AVERAGEA, STDEVA, etc.)."""
-    if is_missing_value(val):
-        return 0.0
-    if isinstance(val, bool):
-        return 1.0 if val else 0.0
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return 0.0
 
 
 def _year_frac(d1: float, d2: float, basis: int) -> float:
@@ -505,15 +493,7 @@ def avedev(*args: Any) -> float:
 
 
 def averagea(r: Any) -> float:
-    vals = []
-    for x in np.asarray(r).ravel():
-        if is_missing_value(x):
-            vals.append(0.0)
-        else:
-            try:
-                vals.append(float(x))
-            except (ValueError, TypeError):
-                vals.append(0.0)
+    vals = [_to_float_a(x) for x in np.asarray(r).ravel()]
     if not vals:
         return float("nan")
     return float(np.mean(vals))
