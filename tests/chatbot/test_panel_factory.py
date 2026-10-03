@@ -557,3 +557,83 @@ def test_chat_mode_listener_ignores_combo_while_send_is_busy():
     listener = selector.addItemListener.call_args[0][0]
     listener.on_item_state_changed(None)
     el._apply_sidebar_mode.assert_not_called()
+
+
+def test_render_session_history_logs_greeting_argument() -> None:
+    """The failure log must include the greeting, not a literal %s."""
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.rich_text_widget = None
+    response = MagicMock()
+    response.getModel.side_effect = RuntimeError("render boom")
+
+    with patch("plugin.chatbot.panel_factory.log") as factory_log:
+        el._render_session_history(MagicMock(), response, MagicMock(), greeting="Hello there")
+
+    factory_log.exception.assert_called_once_with("_render_session_history failed [greeting=%s]", "Hello there")
+
+
+def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
+    """None mode_flags must not AttributeError inside the Send/Stop try."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.xFrame = MagicMock()
+    el.session = MagicMock()
+    el.frame_session = None
+    el._live_panel_uid = "uid"
+    el._apply_sidebar_mode = MagicMock()
+    el._greeting_for_sidebar_mode = MagicMock(return_value="")
+    send = MagicMock()
+    stop = MagicMock()
+    selector = MagicMock()
+    controls = {
+        "send": send,
+        "stop": stop,
+        "query": MagicMock(),
+        "response": MagicMock(),
+        "image_model_selector": None,
+        "model_selector": None,
+        "status": None,
+        "chat_mode_selector": selector,
+        "aspect_ratio_selector": None,
+        "base_size_input": None,
+        "clear": None,
+        "chk_voice": None,
+        "btn_settings": None,
+        "btn_python": None,
+        "btn_latex": None,
+        "btn_search": None,
+        "btn_hamburger": None,
+    }
+    sentinel = MagicMock(name="send_listener")
+    toggle = MagicMock()
+
+    with (
+        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
+        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
+        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
+        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel) as ctor,
+        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
+        patch("plugin.doc.live_panels.register_live_panel"),
+        patch("plugin.doc.doc_type.get_document_type", return_value=MagicMock()),
+        patch("plugin.doc.doc_type.doc_type_label_for_enum", return_value="writer"),
+        patch("plugin.doc.doc_type.doc_type_title_for_label", return_value="Writer"),
+        patch("plugin.doc.doc_type.get_document_uno_services", return_value=frozenset()),
+        patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
+        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
+    ):
+        el._wire_buttons(controls, MagicMock(), "chat", None, toggle)
+
+    assert ctor.call_args.kwargs["sidebar_include_brainstorming"] is False
+    send.addActionListener.assert_called_once_with(sentinel)
+    stop.addActionListener.assert_called_once()
+    assert isinstance(sentinel.sidebar_mode_flags, SidebarModeFlags)
+    listener = selector.addItemListener.call_args[0][0]
+    assert isinstance(listener.mode_flags, SidebarModeFlags)
+    el._apply_sidebar_mode.assert_called_once()
+    assert el._apply_sidebar_mode.call_args.args[-1] is toggle
