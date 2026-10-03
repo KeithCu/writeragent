@@ -624,9 +624,17 @@ def test_complex_overflow_returns_value_error():
     assert calc.imcosh("1000") == "#VALUE!"
     assert calc.imsin("1000i") == "#VALUE!"
     assert calc.imcos("1000i") == "#VALUE!"
+    # Secant/cosecant call the same cmath functions, then take a reciprocal.
+    # OverflowError used to escape before the division.
+    assert calc.imcsc("1000i") == "#VALUE!"
+    assert calc.imcsch("1000") == "#VALUE!"
+    assert calc.imsec("1000i") == "#VALUE!"
+    assert calc.imsech("1000") == "#VALUE!"
     assert calc.impower("2", 10000) == "#VALUE!"
     assert calc.imexp("0") == "1.0"
     assert calc.imsin("0") == "0.0"
+    assert calc.imcsc("1") != "#VALUE!"
+    assert calc.imsec("1") != "#VALUE!"
 
 
 def test_lookup_short_result_vector_is_na():
@@ -681,6 +689,26 @@ def test_mround_halves_away_from_zero():
     assert calc.mround(-2.5, -1) == -3.0
     assert calc.mround(1.5, 1) == 2.0
     assert calc.mround(1.23, 0.5) == 1.0
+
+
+def test_mround_zero_multiple_is_nan():
+    # Excel/Calc MROUND(n, 0) is #DIV/0!. The helper used to return 0.0.
+    assert math.isnan(calc.mround(10, 0))
+    assert math.isnan(calc.mround(0, 0))
+    assert math.isnan(calc.mround(-4, 0.0))
+    assert calc.mround(10, 2) == 10.0
+
+
+def test_logest_nonpositive_y_is_value_error():
+    # np.log(y<=0) is -inf/nan and used to fit garbage coefficients.
+    assert calc.logest([1, 0, 4]) == "#VALUE!"
+    assert calc.logest([1, -2, 4]) == "#VALUE!"
+    assert calc.logest([0]) == "#VALUE!"
+    assert calc.logest([[1.0], [0.0], [4.0]]) == "#VALUE!"
+    assert calc.logest(["1", "2", "4"]) == "#VALUE!"
+    coeffs = calc.logest([1, 2, 4, 8, 16])
+    assert math.isclose(coeffs[0], 2.0)
+    assert math.isclose(coeffs[1], 0.5)
 
 
 def test_mode_na_without_duplicates_and_lowest_tie():
