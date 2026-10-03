@@ -200,6 +200,20 @@ def test_delete_document_script():
     assert get_document_scripts(doc) == {}
 
 
+def test_delete_document_script_rejects_workbook_init():
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    assert set_document_scripts(doc, {"INIT": "result = 1", "Init": "other", "Hello": "y = 1"}) is None
+    err = delete_document_script(doc, "INIT")
+    assert err is not None and "INIT" in err
+    err_init = delete_document_script(doc, "Init")
+    assert err_init is not None and "Init" in err_init
+    stored = get_document_scripts(doc)
+    assert stored["INIT"] == "result = 1"
+    assert stored["Init"] == "other"
+    assert stored["Hello"] == "y = 1"
+
+
 def test_missing_property_bag_is_not_a_successful_save():
     """No UserDefinedProperties bag used to return None without storing anything."""
 
@@ -615,6 +629,44 @@ def test_doc_save_fallback_sends_success_with_migration_note_only():
     assert "Document is read-only." in msg["status_ok_text"]
 
 
+def test_doc_save_fallback_does_not_overwrite_my_scripts():
+    """A document save error must not replace an existing My Scripts entry."""
+    ctx = MagicMock()
+    doc = _DocWithUserDefinedProperties(_UserDefinedProperties())
+    sent: list = []
+    store = {"DocReport": "keep-me"}
+
+    def _get_config(key: str):
+        if key == "saved_python_scripts":
+            return dict(store)
+        return {}
+
+    with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
+        "plugin.framework.config.set_config"
+    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ), patch(
+        "plugin.scripting.document_scripts.save_document_script",
+        return_value="Document is read-only.",
+    ):
+        assert handle_editor_script_message(
+            "save_script",
+            {"name": "DocReport", "code": "y = 2", "origin": "document"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url=None,
+            send=sent.append,
+        )
+    written = [call.args for call in mock_set.call_args_list if call.args and call.args[0] == "saved_python_scripts"]
+    assert written == []
+    msg = sent[-1]
+    assert "status_ok_text" not in msg
+    assert "already exists" in msg["status_error_text"]
+    assert "Document is read-only." in msg["status_error_text"]
+    assert store["DocReport"] == "keep-me"
+
+
 def test_handle_editor_script_message_copy_updates_config_when_allowed():
     ctx = MagicMock()
     sent: list = []
@@ -674,6 +726,90 @@ def test_handle_editor_script_message_attach_requires_doc():
             send=sent.append,
         )
     assert sent[-1]["status_error_text"]
+
+
+def test_attach_script_stores_display_name_as_property_key():
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    sent: list = []
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.get_config_str", return_value=""
+    ), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ):
+        assert handle_editor_script_message(
+            "attach_script",
+            {"name": "[Doc] Regional", "code": "doc-code", "overwrite": False},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url=None,
+            send=sent.append,
+        )
+    stored = get_document_scripts(doc)
+    assert stored["Regional"] == "doc-code"
+    assert "[Doc] Regional" not in stored
+    assert "Attached script 'Regional'" in sent[-1]["status_ok_text"]
+
+
+def test_handle_editor_script_message_disposed_document_returns_list_error():
+    """Closing the document mid-save must not raise out of the picker handler."""
+    from plugin.framework.errors import DocumentDisposedError
+
+    ctx = MagicMock()
+    sent: list = []
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.get_config_str", return_value=""
+    ), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ), patch(
+        "plugin.scripting.document_scripts.save_document_script",
+        side_effect=DocumentDisposedError("gone"),
+    ):
+        assert (
+            handle_editor_script_message(
+                "save_script",
+                {"name": "A", "code": "x = 1", "origin": "document"},
+                ctx=ctx,
+                session_doc=MagicMock(),
+                session_doc_url="",
+                send=sent.append,
+            )
+            is True
+        )
+    assert sent[-1]["type"] == "scripts_list"
+    assert "closed" in sent[-1]["status_error_text"].lower()
+
+
+def test_request_scripts_disposed_active_document_still_answers():
+    from plugin.framework.errors import DocumentDisposedError
+
+    sent: list = []
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.get_config_str", return_value=""
+    ), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ), patch(
+        "plugin.scripting.document_scripts.get_active_document_for_scripts",
+        side_effect=DocumentDisposedError("gone"),
+    ):
+        assert (
+            handle_editor_script_message(
+                "request_scripts",
+                {},
+                ctx=MagicMock(),
+                session_doc=None,
+                session_doc_url=None,
+                send=sent.append,
+            )
+            is True
+        )
+    assert sent[-1]["type"] == "scripts_list"
+    assert sent[-1]["document_available"] is False
+    assert "closed" in sent[-1]["status_error_text"].lower()
 
 
 def test_builtin_origin_delete_does_not_touch_user_scripts():
