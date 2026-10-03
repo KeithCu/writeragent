@@ -173,7 +173,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes` | `{"status": "error", "error": "Request body too large"}` |
-| **`503 Service Unavailable`** | `/v1/execute` or `/v1/session/reset` when the pool never finished the cell (`WORKER_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_CRASHED`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `EMPTY_RESPONSE`, `QUEUE_TIMEOUT`). Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
+| **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the pool never finished the cell (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_CRASHED`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `EMPTY_RESPONSE`, `QUEUE_TIMEOUT`). A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception or JSON encoding failure | `{"id"?: "...", "status": "error", "error": "..."}` |
 
 ---
@@ -196,7 +196,8 @@ Rules:
 - **Loopback and no key** → `/v1/execute` and `/v1/session/reset` are open (local dev/test only).
 - **Any other bind without a key** → `load_settings` refuses to start. This includes `0.0.0.0` and `::`. The image entrypoint checks the same case before exec.
 - **Key configured** → `/v1/execute` and `/v1/session/reset` require an exact `Bearer <token>` match
-  (`hmac.compare_digest`). Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
+  (`hmac.compare_digest` on the UTF-8 bytes). A non-ASCII token or key is a 401 or a match, not a dropped connection. Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
+- `PYTHON_COMPUTE_API_KEY` is not stripped. A key file drops one trailing newline and keeps surrounding spaces. The same secret text is the same bytes from either source.
 - **Unknown JSON keys** are a startup error. A raw `api_key` in the file is a startup error. Aliases `max_workers` and `session_ttl_sec` are accepted.
 
 Match coolwsd (`coolwsd.xml`):
@@ -223,7 +224,7 @@ Example JSON: [`python-compute.example.json`](python-compute.example.json).
 |----------|---------|---------|
 | `PYTHON_COMPUTE_HOST` | Bind address (loopback default) | `127.0.0.1` |
 | `PYTHON_COMPUTE_PORT` | Listening port | `8000` |
-| `PYTHON_COMPUTE_API_KEY` | Shared Bearer secret | `""` |
+| `PYTHON_COMPUTE_API_KEY` | Shared Bearer secret (not stripped) | `""` |
 | `PYTHON_COMPUTE_API_KEY_FILE` | Path to secret file (strip one trailing newline) | `""` |
 | `PYTHON_COMPUTE_CONFIG` | Path to JSON config | `""` |
 | `PYTHON_COMPUTE_LOG_LEVEL` | Log verbosity (`DEBUG`, `INFO`, `WARN`, `ERROR`) | `INFO` |
@@ -246,7 +247,7 @@ Key file permissions: readable only by the service user (e.g. mode `0400`).
 
 coolwsd is the only hop that should reach this process. Bind loopback, set the same Bearer secret as `security.python_compute.api_key`, and do **not** mount a host venv or docker.sock.
 
-`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Prefer `image_b64`. A vision call waits for a free OCR worker until its timeout, then returns `VISION_POOL_BUSY` in the JSON body. A call that exceeds its own timeout returns `EXECUTION_TIMEOUT` and leaves the process up while the late frame is discarded; a second timeout then kills it.
+`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Prefer `image_b64`. A vision call waits for a free OCR worker until its timeout, then returns HTTP 503 with `VISION_POOL_BUSY` in the JSON body. A call that exceeds its own timeout returns `EXECUTION_TIMEOUT` and leaves the process up while the late frame is discarded; a second timeout then kills it.
 
 `--network=none` cannot be combined with `-p` (published ports need a network namespace). Publish to loopback on the host, or use an internal bridge **without a default route**. Tenant sockets still fail via the AST sandbox plus missing egress.
 
@@ -297,7 +298,7 @@ The host is a proxy: auth, sticky routing, timeouts, worker lease. One deseriali
 - Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker after kit switches to multipart.
 - Multipart (preferred): `parse_multipart_execute` boundary-scans the body and `json.loads` only the small `meta` part (`id`, `mode`, `timeout_ms`; 64 KiB cap). `code` and `init_script` are raw UTF-8 parts. Peel passes those fields as strings. Both are character-capped with `max_code_chars` (not byte length) and both use the same mode check. `data` is `data_json` as-is. `meta` must not nest `code`, `data`, `data_json`, or `init_script`.
 - Envelope: `{code, mode, timeout_sec, session_id, init_script, wire: "json_forward", data_json: <bytes>}`. That is the only payload. `wire` other than `json_forward` is rejected. Pickle copies the byte buffer; it does not walk the JSON tree and there is no `split_grid` field on this pipe.
-- Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`.
+- Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`. Plots `find_image_payloads` returns move to `images` and become null in `result`. An image that scan did not return stays inline; it is not replaced with null.
 - HTTP: `_start_raw_json` writes `result_json` as the response body.
 
 **Pickle framing** (control envelope only — [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py), [`worker_base.py`](worker_base.py)):

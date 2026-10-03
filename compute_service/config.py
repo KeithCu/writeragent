@@ -495,7 +495,10 @@ def load_settings(
     if env.get("PYTHON_COMPUTE_LOG_LEVEL"):
         values["log_level"] = env["PYTHON_COMPUTE_LOG_LEVEL"]
 
-    env_key = (env.get("PYTHON_COMPUTE_API_KEY") or "").strip()
+    # Do not strip. _read_key_file keeps leading and trailing spaces (it
+    # removes one trailing newline only). strip() here made " secret "
+    # from the environment compare unequal to the same bytes from a key file.
+    env_key = env.get("PYTHON_COMPUTE_API_KEY") or ""
     env_key_file = (env.get("PYTHON_COMPUTE_API_KEY_FILE") or "").strip()
     json_key_file = str(values.pop("api_key_file", "") or "").strip()
 

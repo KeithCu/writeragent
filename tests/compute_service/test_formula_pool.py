@@ -1024,6 +1024,36 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_convenience_data_that_is_not_strict_json_returns_error(self) -> None:
+        """json.dumps(allow_nan=False) used to raise out of execute().
+
+        HTTP always passes data_json. Those bytes are forwarded unchanged.
+        """
+        forwarded = FormulaProcessPool._build_execute_payload(
+            code="result = 1",
+            data={"x": float("nan")},
+            data_json=b'{"x": NaN}',
+            session_id=None,
+            mode="isolated",
+            timeout_sec=5,
+            init_script=None,
+            req_id="wire",
+        )
+        assert forwarded["data_json"] == b'{"x": NaN}'
+
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            nan_res = pool.execute(code="result = data", data={"x": float("nan")}, req_id="nan-data")
+            assert nan_res.get("status") == "error"
+            assert nan_res.get("code") == "INVALID_REQUEST"
+            assert nan_res.get("id") == "nan-data"
+            obj_res = pool.execute(code="result = data", data={"x": object()}, req_id="obj-data")
+            assert obj_res.get("status") == "error"
+            assert obj_res.get("code") == "INVALID_REQUEST"
+            assert obj_res.get("id") == "obj-data"
+        finally:
+            pool.shutdown()
+
     def test_build_execute_payload_rejects_unknown_wire(self) -> None:
         """Unknown wire is an error. It used to be rewritten to json_forward."""
         from compute_service.json_forward import ExecuteRequestError
