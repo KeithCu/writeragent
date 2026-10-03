@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from .calc_functions_util import _extract_numeric_array, _npf_result, match_criteria
+from .calc_functions_util import _extract_numeric_array, _npf_result, _to_float_a, match_criteria
 from .coerce import is_blank_value, is_na_value
 
 
@@ -759,12 +759,7 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
 
 
 def maxa(*args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_float_a
-
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            vals.append(_to_float_a(v))
+    vals = [_to_float_a(v) for arg in args for v in np.asarray(arg).ravel()]
     if not vals:
         return 0.0
     return float(np.max(vals))
@@ -801,12 +796,7 @@ def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: 
 
 
 def mina(*args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_float_a
-
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            vals.append(_to_float_a(v))
+    vals = [_to_float_a(v) for arg in args for v in np.asarray(arg).ravel()]
     if not vals:
         return 0.0
     return float(np.min(vals))

@@ -13,6 +13,7 @@ from plugin.scripting.venv.calc_functions_util import (
     _extract_numeric_array,
     _find_match_index,
     _npf_result,
+    _to_float_a,
     _wildcard_fullmatch,
     match_criteria,
 )
@@ -99,3 +100,22 @@ def test_extract_numeric_array():
     # Allow booleans
     arr_with_bool = _extract_numeric_array([10.0, True, False], ignore_bool=False)
     assert np.allclose(arr_with_bool, [10.0, 1.0, 0.0])
+
+
+def test_to_float_a():
+    from plugin.scripting.venv.calc_functions_a_c import _to_float_a as _to_float_a_ac
+
+    # Ensure re-export from a_c matches util
+    assert _to_float_a is _to_float_a_ac
+
+    assert _to_float_a(42) == 42.0
+    assert _to_float_a(3.14) == 3.14
+    assert _to_float_a(True) == 1.0
+    assert _to_float_a(False) == 0.0
+    assert _to_float_a(np.bool_(True)) == 1.0
+    assert _to_float_a(np.bool_(False)) == 0.0
+    assert _to_float_a(None) == 0.0
+    assert _to_float_a("") == 0.0
+    assert _to_float_a("invalid") == 0.0
+    assert _to_float_a("#VALUE!") == 0.0
+
