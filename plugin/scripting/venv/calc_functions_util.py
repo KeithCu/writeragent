@@ -339,12 +339,12 @@ def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
 
 
 def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
-    """Integer bit shift. A negative shift returns NaN. Do not swap direction."""
+    """Integer bit shift. A negative shift swaps direction (Calc/ODFF semantics)."""
     try:
         n = int(float(number))
         s = int(float(shift))
         if s < 0:
-            return float("nan")
+            return float(n >> abs(s)) if left else float(n << abs(s))
         return float(n << s) if left else float(n >> s)
     except (ValueError, TypeError, OverflowError):
         return float("nan")

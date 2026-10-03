@@ -523,10 +523,10 @@ def test_averageifs_and_countifs_reject_odd_predicates():
 def test_bit_char_choose_combin_inf_does_not_raise():
     assert math.isnan(calc.bitand(float("inf"), 1))
     assert math.isnan(calc.bitlshift(1, float("inf")))
-    assert math.isnan(calc.bitlshift(10, -1))
+    assert calc.bitlshift(8, -1) == 4.0
     assert math.isnan(calc.bitor(1, float("inf")))
     assert math.isnan(calc.bitrshift(float("inf"), 1))
-    assert math.isnan(calc.bitrshift(10, -1))
+    assert calc.bitrshift(8, -1) == 16.0
     assert math.isnan(calc.bitxor(float("inf"), 1))
     assert calc.bitand(5, 3) == 1.0
     assert calc.char(float("inf")) == "#VALUE!"

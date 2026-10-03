@@ -257,9 +257,9 @@ def test_int_shift():
     assert _int_shift(10, 0, left=True) == 10.0
     assert _int_shift(10, 0, left=False) == 10.0
 
-    # Negative shift returns NaN without swapping direction
-    assert math.isnan(_int_shift(10, -1, left=True))
-    assert math.isnan(_int_shift(10, -1, left=False))
+    # Negative shift swaps direction (Calc / ODFF semantics)
+    assert _int_shift(8, -1, left=True) == 4.0
+    assert _int_shift(8, -1, left=False) == 16.0
 
     # Invalid / inf inputs return NaN
     assert math.isnan(_int_shift("invalid", 1, left=True))
