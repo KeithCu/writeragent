@@ -108,9 +108,26 @@ def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
         if cells <= _READ_CELL_RANGE_MAX_CELLS:
             return None
         preview_rows = min(rows, _READ_CELL_RANGE_PREVIEW_ROWS)
+        preview_cols = min(cols, _DISTINCT_PEEK_MAX_COLUMNS)
         end_row = int(addr.StartRow) + preview_rows - 1
-        local = f"{index_to_column(int(addr.StartColumn))}{int(addr.StartRow) + 1}:{index_to_column(int(addr.EndColumn))}{end_row + 1}"
-        return {"rows": rows, "columns": cols, "cells": cells, "preview_range": _format_sheet_address(range_name, local), "start_column": int(addr.StartColumn), "start_row": int(addr.StartRow)}
+        end_col = int(addr.StartColumn) + preview_cols - 1
+        local = f"{index_to_column(int(addr.StartColumn))}{int(addr.StartRow) + 1}:{index_to_column(end_col)}{end_row + 1}"
+
+        if "." not in range_name and "!" not in range_name and hasattr(cell_range, "getSpreadsheet"):
+            try:
+                sheet_name = cell_range.getSpreadsheet().getName()
+                if isinstance(sheet_name, str):
+                    quoted = "'" in sheet_name or " " in sheet_name or "-" in sheet_name
+                    name_str = f"'{sheet_name}'" if quoted else sheet_name
+                    preview_range = f"{name_str}.{local}"
+                else:
+                    preview_range = _format_sheet_address(range_name, local)
+            except Exception:
+                preview_range = _format_sheet_address(range_name, local)
+        else:
+            preview_range = _format_sheet_address(range_name, local)
+
+        return {"rows": rows, "columns": cols, "cells": cells, "preview_range": preview_range, "start_column": int(addr.StartColumn), "start_row": int(addr.StartRow)}
     except Exception:
         log.exception("Could not size range %s for read_cell_range cap; reading in full", range_name)
         return None

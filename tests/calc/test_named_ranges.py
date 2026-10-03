@@ -255,3 +255,16 @@ def test_named_range_tools_error_handling():
     assert res_titles["status"] == "error"
     assert res_titles["code"] == "INVALID_BORDER"
 
+    # 7. CreateFromTitles missing range
+    tool_titles = NamedRangeCreateFromTitles()
+    res_titles = tool_titles.execute(ctx, range=[])
+    assert res_titles["status"] == "error"
+    assert res_titles["code"] == "INVALID_ARGUMENT"
+
+    # 8. Add invalid base_cell
+    named_ranges.hasByName.side_effect = None
+    named_ranges.hasByName.return_value = False
+    tool_add = NamedRangeAdd()
+    res_add_invalid_base = tool_add.execute(ctx, name="NewRange", content="A1", base_cell="invalid!")
+    assert res_add_invalid_base["status"] == "error"
+    assert res_add_invalid_base["code"] == "INVALID_BASE_CELL"
