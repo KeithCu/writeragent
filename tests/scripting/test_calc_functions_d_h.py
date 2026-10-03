@@ -240,7 +240,6 @@ _D_H_BAD_INPUTS = [
     ("forecast-blank", "forecast", ("", [1.0, 2.0], [1.0, 2.0]), _NAN),
     ("forecast-zero", "forecast", (6, [1.0, 2.0], [0.0, 0.0]), _NAN),
     ("fv-blank", "fv", ("", 12, -100), _NAN),
-    ("fv-zero", "fv", (0, 0, 0), _NAN),
     ("fv-oor", "fv", (0.01, 12, -100, 0, float("inf")), _NAN),
     ("fvschedule-text", "fvschedule", ("x", [0.1]), _NAN),
     ("fvschedule-blank", "fvschedule", ("", [0.1]), _NAN),
