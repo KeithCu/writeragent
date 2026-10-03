@@ -308,6 +308,30 @@ class TestConfigSyncFileIO:
         assert (data.get("image_model")) == ("flux-keep")
         assert (data.get("text_model")) == ("gpt")
 
+    def test_long_malformed_config_repair_falls_through(self):
+        """A body over DEAL_MAX_SOURCE must not raise PreContractError out of config load."""
+        from plugin.framework.config import _try_repair_config_dict
+        from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+        from plugin.framework.json_utils import repair_json
+        from tests.harness.strip_bundle import deal_pre_present
+
+        body = '{ "text_model": "' + ("x" * (DEAL_MAX_SOURCE + 1))
+        if not deal_pre_present(repair_json):
+            repaired = _try_repair_config_dict(body)
+            assert repaired is None or isinstance(repaired, dict)
+            return
+        assert _try_repair_config_dict(body) is None
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            f.write(body)
+        reset_config_for_tests()
+        assert get_config("calc_prompt_max_tokens") == 4096
+        with open(self.config_path, encoding="utf-8") as f:
+            assert f.read() == body
+        with pytest.raises(ConfigError):
+            set_config("text_model", "should-not-wipe")
+        with open(self.config_path, encoding="utf-8") as f:
+            assert f.read() == body
+
     def test_config_read_creates_backup_on_failure(self):
         corrupt = '{ invalid json '
         with open(self.config_path, 'w', encoding='utf-8') as f:

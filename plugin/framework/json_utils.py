@@ -29,6 +29,22 @@ from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, deal, s
 
 log = logging.getLogger(__name__)
 
+
+def _pre_contract_error_types() -> tuple[type[BaseException], ...]:
+    """``deal.PreContractError`` when deal is installed, else empty.
+
+    The class subclasses ``AssertionError``, not ``ValueError``, so a repair
+    ``except`` that lists only JSON errors does not catch it. LibreOffice
+    without deal leaves this empty; ``@deal.pre`` is a no-op there too.
+    """
+    pre = getattr(deal, "PreContractError", None)
+    if isinstance(pre, type) and issubclass(pre, BaseException):
+        return (pre,)
+    return ()
+
+
+_PRE_CONTRACT_ERRORS = _pre_contract_error_types()
+
 _LATEX_CLASH_WORDS = [
     # \a (Bell)
     "alpha",
@@ -248,8 +264,8 @@ def repair_json(text: str) -> str:
 
 
 @deal.pre(lambda text, *_unused, **__: _deal_json_text_ok(text))
-def repair_json_object(text: str) -> Any:
-    """Repair malformed JSON and return a parsed object (json-repair return_objects=True)."""
+def _repair_json_object_bounded(text: str) -> Any:
+    """Deal-bounded body of ``repair_json_object``. Callers catch ``PreContractError``."""
     # crosshair: off
     if not isinstance(text, str):
         return text
@@ -262,6 +278,25 @@ def repair_json_object(text: str) -> Any:
     import json_repair  # lazy: vendored in plugin/lib or vendor/
 
     return json_repair.repair_json(stripped, return_objects=True)
+
+
+def repair_json_object(text: str) -> Any:
+    """Repair malformed JSON and return a parsed object (json-repair return_objects=True).
+
+    What was wrong: ``@deal.pre`` rejects text longer than ``DEAL_MAX_SOURCE``.
+    ``PreContractError`` subclasses ``AssertionError``, not ``ValueError``, so
+    it escaped callers that only catch JSON errors. The contract stays on
+    ``_repair_json_object_bounded``. A rejected payload returns the original
+    text instead of raising.
+    """
+    # crosshair: off
+    try:
+        return _repair_json_object_bounded(text)
+    except Exception as exc:
+        # Empty when deal is absent. isinstance(exc, ()) is False.
+        if isinstance(exc, _PRE_CONTRACT_ERRORS):
+            return text
+        raise
 
 
 @deal.ensure(lambda text, default=None, strict=False, result=None: isinstance(text, (str, bytes, bytearray)) or result is default)
@@ -347,14 +382,18 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         pass
 
-    # 4. Repair attempt for truncated or malformed JSON
+    # 4. Repair attempt for truncated or malformed JSON.
+    # What was wrong: repair_json's @deal.pre rejects text longer than
+    # DEAL_MAX_SOURCE. PreContractError subclasses AssertionError, not
+    # ValueError, so this except missed it and safe_json_loads raised
+    # instead of returning default.
     try:
         repaired = repair_json(stripped)
         if repaired != stripped:
             parsed = json.loads(repaired, strict=False)
             _debug_json_stage("json_repair")
             return parsed
-    except (json.JSONDecodeError, TypeError, ValueError, RecursionError, ImportError):
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError, ImportError, *_PRE_CONTRACT_ERRORS):
         pass
 
     return default
