@@ -16,6 +16,7 @@ import importlib
 import logging
 import os
 import sys
+import threading
 
 # Minimal stdlib-only bootstrap (must run before the "from plugin..." import below)
 # because unopkg writeRegistryInfo loads this file before the OXT root is on sys.path.
@@ -60,6 +61,9 @@ except ImportError:
     uno_mod = None
 
 # INFO once when grammar is off (Writer still calls doProofreading); reset when enabled again.
+# Several Linguistic workers can enter doProofreading together. The lock makes that
+# notice exact-once for a disabled stretch; a concurrent enable still clears it.
+_GRAMMAR_DISABLED_NOTICE_LOCK = threading.Lock()
 _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
 from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear
@@ -86,6 +90,23 @@ from plugin.writer.locale.grammar_work_queue import (
     grammar_queue,
     next_enqueue_seq,
 )
+
+
+def _mark_grammar_disabled_notice() -> bool:
+    """Return True the first time grammar is seen disabled; later callers stay quiet."""
+    global _GRAMMAR_DISABLED_NOTICE_EMITTED
+    with _GRAMMAR_DISABLED_NOTICE_LOCK:
+        if _GRAMMAR_DISABLED_NOTICE_EMITTED:
+            return False
+        _GRAMMAR_DISABLED_NOTICE_EMITTED = True
+        return True
+
+
+def _clear_grammar_disabled_notice() -> None:
+    """Allow the disabled notice again after grammar is turned back on."""
+    global _GRAMMAR_DISABLED_NOTICE_EMITTED
+    with _GRAMMAR_DISABLED_NOTICE_LOCK:
+        _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
 
 def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
@@ -491,14 +512,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         grammar_bcp47 = self._normalize_locale(a_locale)
 
         if not enabled:
-            global _GRAMMAR_DISABLED_NOTICE_EMITTED
-            if not _GRAMMAR_DISABLED_NOTICE_EMITTED:
-                _GRAMMAR_DISABLED_NOTICE_EMITTED = True
+            if _mark_grammar_disabled_notice():
                 log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
             # do_proofreading_skip for grammar_disabled omitted to avoid log noise
             return None
 
-        _GRAMMAR_DISABLED_NOTICE_EMITTED = False
+        _clear_grammar_disabled_notice()
         if grammar_bcp47 is None:
             grammar_obs("do_proofreading_skip", reason="locale_not_registered", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
             return None
@@ -652,10 +671,13 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
             raise RuntimeError("uno not available")
 
-        a_res: Any = None
+        # Build the empty result before the try. ``_create_empty_result`` already
+        # logs and re-raises (missing ``uno``, ``createUnoStruct`` failure). The
+        # handler used to call it again with the same arguments when ``a_res``
+        # was still None. That second failure left the Linguistic worker with an
+        # unhandled exception and could crash or hang Writer.
+        a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
         try:
-            a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
-
             loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
             if not loc_key:
                 return a_res
@@ -764,11 +786,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
         except Exception as e:
             log.exception("[grammar] doProofreading failed: %s", e)
-            if a_res is not None:
-                return a_res
-
-            # Absolute fallback: try to return a fresh empty result if possible
-            return _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
+            return a_res
 
     def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
         try:
