@@ -163,8 +163,8 @@ class TestACPConnectionReaderExit:
             if calls["n"] == 1:
                 entered.set()
                 assert release.wait(timeout=2)
-                # Non-object JSON. The reader raises and leaves the loop.
-                # A later call is EOF so a handled non-object cannot spin.
+                # Non-object JSON is skipped. The next readline is EOF,
+                # which ends the loop and must still unblock the prompt.
                 return b"[1, 2]\n"
             return b""
 
@@ -196,6 +196,78 @@ class TestACPConnectionReaderExit:
             assert time.monotonic() - started < 2
             assert "terminated" in str(errors[0]).lower()
         finally:
+            release.set()
+            conn.stop()
+            worker.join(timeout=2)
+            reader.join(timeout=2)
+
+    def test_non_object_json_skipped_while_prompt_in_flight(self):
+        """Bare number, true/false, string, and array lines must not kill the reader.
+
+        What was wrong: those lines parse, then ``"id" in msg`` or ``msg.get``
+        raised, the inner except left the loop, and the exit sweep failed the
+        prompt with "ACP process terminated" while the child was still alive.
+        The response that follows those lines has to be returned.
+        """
+        conn = ACPConnection(cmd_line=["agent"])
+        release = threading.Event()
+        entered = threading.Event()
+        done = threading.Event()
+        proc = _live_proc()
+        lines = [
+            b"42\n",
+            b"true\n",
+            b"false\n",
+            b'"stray"\n',
+            b"[1, 2]\n",
+            b'{"jsonrpc": "2.0", "id": 1, "result": {"text": "kept-answer"}}\n',
+        ]
+        calls = {"n": 0}
+
+        def readline() -> bytes:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                entered.set()
+                assert release.wait(timeout=2)
+            index = calls["n"] - 1
+            if index < len(lines):
+                return lines[index]
+            # Hold past the assertion so EOF cannot be what delivered the result.
+            assert done.wait(timeout=5)
+            return b""
+
+        proc.stdout.readline.side_effect = readline
+        conn._proc = proc
+        conn._running = True
+        reader = threading.Thread(target=conn._reader_loop, daemon=True)
+        reader.start()
+        assert entered.wait(timeout=2)
+        results: list[object] = []
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                results.append(conn.send_request("session/prompt", {"sessionId": "s"}, timeout=5))
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        try:
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and not conn._pending:
+                time.sleep(0.01)
+            assert conn._pending
+            started = time.monotonic()
+            release.set()
+            worker.join(timeout=2)
+            assert worker.is_alive() is False
+            assert errors == []
+            assert results == [{"text": "kept-answer"}]
+            assert reader.is_alive()
+            assert time.monotonic() - started < 2
+        finally:
+            done.set()
             release.set()
             conn.stop()
             worker.join(timeout=2)
