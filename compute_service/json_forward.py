@@ -40,6 +40,9 @@ _BOUNDARY_TOKEN_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrs
 
 WIRE_JSON_FORWARD = "json_forward"
 WIRE_PICKLE = "pickle"
+VALID_EXECUTE_MODES = frozenset({"isolated", "shared"})
+VALID_WIRES = frozenset({WIRE_JSON_FORWARD, WIRE_PICKLE})
+VALID_RESPONSE_STATUSES = frozenset({"ok", "error"})
 
 # Peel-walker only (single-JSON ingress). Transitional Collabora contract;
 # delete with peel_execute_request after kit ships multipart.
@@ -49,7 +52,44 @@ _BOM = b"\xef\xbb\xbf"
 
 
 class ExecuteRequestError(ValueError):
-    """Raised when the HTTP body is not a peelable JSON object or multipart kit body."""
+    """Raised when an execute request or response does not match the one schema."""
+
+
+def require_execute_mode(mode: Any) -> str:
+    """Return ``isolated`` or ``shared``.
+
+    Any other value used to be rewritten to isolated and executed, so a
+    typo looked like a successful cell that kept no workbook state. Callers
+    share this check; there is no second, looser interpretation on the worker.
+    """
+    if isinstance(mode, str) and mode in VALID_EXECUTE_MODES:
+        return mode
+    raise ExecuteRequestError("mode must be 'isolated' or 'shared'.")
+
+
+def require_execute_wire(wire: Any) -> str:
+    """Return the one stdio wire name. Unknown values are not rewritten."""
+    if isinstance(wire, str) and wire in VALID_WIRES:
+        return wire
+    raise ExecuteRequestError(f"wire must be {WIRE_JSON_FORWARD!r} or {WIRE_PICKLE!r}.")
+
+
+def validate_execute_response(payload: dict[str, Any]) -> dict[str, Any]:
+    """The one execute response shape, checked once before the worker dumps it.
+
+    ``status`` is ``ok`` (with ``result``) or ``error`` (with ``error`` text).
+    The HTTP host forwards the dumped bytes and does not interpret them again.
+    """
+    if not isinstance(payload, dict):
+        raise ExecuteRequestError("execute response must be an object")
+    status = payload.get("status")
+    if status not in VALID_RESPONSE_STATUSES:
+        raise ExecuteRequestError("execute response status must be 'ok' or 'error'")
+    if status == "error" and not payload.get("error") and not payload.get("message"):
+        raise ExecuteRequestError("execute error response requires error")
+    if status == "ok" and "result" not in payload:
+        raise ExecuteRequestError("execute ok response requires result")
+    return payload
 
 
 @dataclass(frozen=True)

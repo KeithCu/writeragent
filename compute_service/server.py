@@ -45,6 +45,17 @@ _REQUEST_WRITE_TIMEOUT_SEC = 30.0
 # stay HTTP 200 so the sheet shows the error instead of #N/A.
 _POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN", "WORKER_CRASHED", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN", "EMPTY_RESPONSE"})
 
+
+def _request_deadline(accept_time: Any, timeout_sec: float) -> float:
+    """One clock from TCP accept through the worker lease and the child.
+
+    Without an accept timestamp (direct WSGI tests) the clock starts now.
+    Queue wait is subtracted from *timeout_sec*; it is not a second 30s timer.
+    """
+    if isinstance(accept_time, (int, float)) and not isinstance(accept_time, bool):
+        return float(accept_time) + float(timeout_sec)
+    return time.monotonic() + float(timeout_sec)
+
 ExecuteFn = Callable[..., dict[str, Any]]
 ResetFn = Callable[..., dict[str, Any]]
 
@@ -318,21 +329,13 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             if auth_resp is not None:
                 return auth_resp
 
-            accept_time = environ.get("compute.accept_time")
-            if accept_time is not None:
-                queue_wait_sec = time.monotonic() - accept_time
-                if queue_wait_sec > _REQUEST_READ_TIMEOUT_SEC:
-                    log.warning("Dropping execute backlog wait %.2fs exceeded %.0fs", queue_wait_sec, _REQUEST_READ_TIMEOUT_SEC)
-                    exec_queue_err: dict[str, Any] = {"status": "error", "code": "QUEUE_TIMEOUT", "error": f"Request queue backlog wait ({int(queue_wait_sec)}s) exceeded timeout."}
-                    return _start_json(start_response, "503 Service Unavailable", exec_queue_err, extra_headers=[("Retry-After", "1")])
-
             raw_body, err_resp = _read_request_body(environ, settings, start_response)
             if err_resp is not None:
                 return err_resp
             assert raw_body is not None
             _set_write_deadline(environ)
 
-            from compute_service.json_forward import WIRE_JSON_FORWARD, ExecuteRequestError, is_multipart_content_type, parse_execute_request
+            from compute_service.json_forward import WIRE_JSON_FORWARD, ExecuteRequestError, is_multipart_content_type, parse_execute_request, require_execute_mode
 
             content_type = environ.get("CONTENT_TYPE") or ""
             try:
@@ -357,11 +360,12 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
 
             session_id = _parse_session_id(environ)
 
-            mode = parts.mode or "isolated"
-            # A typo such as "Shared" used to be rewritten to isolated and
-            # return 200, so a shared kernel looked successful and kept no state.
-            if not isinstance(mode, str) or mode not in ("isolated", "shared"):
-                err_body = {"status": "error", "error": "mode must be 'isolated' or 'shared'."}
+            # Same check the pool and the worker use. A typo such as "Shared"
+            # used to be rewritten to isolated and return 200.
+            try:
+                mode = require_execute_mode(parts.mode or "isolated")
+            except ExecuteRequestError as exc:
+                err_body = {"status": "error", "error": str(exc)}
                 return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
 
             if mode == "shared" and not session_id:
@@ -382,13 +386,20 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 run_execute = formula_pool.execute
 
             timeout_sec = timeout_ms_to_sec(parts.timeout_ms, default_timeout_sec=settings.default_timeout_sec, max_timeout_sec=settings.max_timeout_sec)
+            # One deadline from accept through the lease to the child. Queue
+            # time is not a separate 30s clock, and the pool must not start
+            # a fresh timeout_sec budget after this wait.
+            deadline = _request_deadline(environ.get("compute.accept_time"), float(timeout_sec))
+            if time.monotonic() >= deadline:
+                late: dict[str, Any] = {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before execution."}
+                return _start_json(start_response, "503 Service Unavailable", _inject_req_id(late, req_id), extra_headers=[("Retry-After", "1")])
             sid = session_id
 
             log.info("exec /v1/execute id=%r mode=%s session=%r code_len=%d timeout=%ds", req_id, mode, sid, len(code), timeout_sec)
 
             start_t = time.perf_counter()
             try:
-                result_payload = run_execute(code=code, data_json=parts.data_json, session_id=sid, timeout_sec=timeout_sec, mode=mode, init_script=init_script, req_id=req_id, wire=WIRE_JSON_FORWARD, decode_result=False)
+                result_payload = run_execute(code=code, data_json=parts.data_json, session_id=sid, timeout_sec=timeout_sec, mode=mode, init_script=init_script, req_id=req_id, wire=WIRE_JSON_FORWARD, decode_result=False, deadline=deadline)
                 duration_ms = (time.perf_counter() - start_t) * 1000.0
                 status = result_payload.get("status") if isinstance(result_payload, dict) else None
                 log.info("done /v1/execute id=%r status=%r duration=%.2fms", req_id, status, duration_ms)
@@ -457,14 +468,6 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             if auth_resp is not None:
                 return auth_resp
 
-            accept_time = environ.get("compute.accept_time")
-            if accept_time is not None:
-                queue_wait_sec = time.monotonic() - accept_time
-                if queue_wait_sec > _REQUEST_READ_TIMEOUT_SEC:
-                    log.warning("Dropping vision backlog wait %.2fs exceeded %.0fs", queue_wait_sec, _REQUEST_READ_TIMEOUT_SEC)
-                    vision_queue_err: dict[str, Any] = {"status": "error", "code": "QUEUE_TIMEOUT", "error": f"Request queue backlog wait ({int(queue_wait_sec)}s) exceeded timeout."}
-                    return _start_json(start_response, "503 Service Unavailable", vision_queue_err, extra_headers=[("Retry-After", "1")])
-
             req_data, err_resp = _read_request_json(environ, settings, start_response)
             if err_resp is not None:
                 return err_resp
@@ -500,9 +503,18 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
 
             from compute_service.vision_pool import get_vision_pool
 
+            vision_budget = float(timeout_sec_opt if timeout_sec_opt is not None else settings.ocr_timeout_sec)
+            vision_deadline = _request_deadline(environ.get("compute.accept_time"), vision_budget)
+            if time.monotonic() >= vision_deadline:
+                vision_late: dict[str, Any] = {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before execution."}
+                return _start_json(start_response, "503 Service Unavailable", _inject_req_id(vision_late, req_id), extra_headers=[("Retry-After", "1")])
+            # The vision pool starts its own clock from timeout_sec. Pass the
+            # time still left on the accept deadline so the two clocks agree.
+            vision_timeout = max(1, int(vision_deadline - time.monotonic()))
+
             vision_pool = get_vision_pool(settings)
             try:
-                result_payload = vision_pool.execute(helper=helper, image_b64=b64_str, file_path=path_str, params=params if isinstance(params, dict) else {}, timeout_sec=timeout_sec_opt, req_id=req_id, allow_paths=settings.ocr_allow_paths)
+                result_payload = vision_pool.execute(helper=helper, image_b64=b64_str, file_path=path_str, params=params if isinstance(params, dict) else {}, timeout_sec=vision_timeout, req_id=req_id, allow_paths=settings.ocr_allow_paths)
                 return _send_execution_result(start_response, result_payload, req_id)
             except Exception as e:
                 log.exception("fail /v1/vision id=%r: %s", req_id, e)

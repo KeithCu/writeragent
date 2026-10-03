@@ -29,7 +29,7 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, dumps_response
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, dumps_response, require_execute_mode, require_execute_wire, validate_execute_response
 from compute_service.worker_base import run_worker_stdio_loop
 
 # execute_code pulls in the sandbox. Import it on the first real request so
@@ -78,7 +78,20 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         return {"id": req_id, "status": "error", "code": "MISSING_CODE", "error": "Missing or invalid 'code' parameter"}
 
     session_id = req.get("session_id")
-    mode = req.get("mode") or "isolated"
+    # Missing mode is isolated (the HTTP default). An explicit other value
+    # used to run as isolated and return success, so the worker disagreed
+    # with the host schema.
+    raw_mode = req.get("mode")
+    try:
+        mode = require_execute_mode("isolated" if raw_mode is None or raw_mode == "" else raw_mode)
+        raw_wire = req.get("wire")
+        if raw_wire is not None:
+            require_execute_wire(raw_wire)
+    except ExecuteRequestError as exc:
+        err = {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc), "stdout": ""}
+        if _is_json_forward(req):
+            return _json_forward_envelope(err, req_id=req_id)
+        return err
     timeout_sec = req.get("timeout_sec")
     init_script = req.get("init_script")
     json_forward = _is_json_forward(req)
@@ -87,7 +100,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         from compute_service.executor import execute_code
 
         data = _load_request_data(req)
-        res = execute_code(code=code, data=data, session_id=session_id, timeout_sec=timeout_sec, mode=mode, init_script=init_script)
+        res = validate_execute_response(execute_code(code=code, data=data, session_id=session_id, timeout_sec=timeout_sec, mode=mode, init_script=init_script))
         if req_id is not None and isinstance(res, dict):
             res["id"] = req_id
         if json_forward:
