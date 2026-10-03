@@ -162,11 +162,30 @@ def _sandbox_session_id() -> str | None:
     return current_sandbox_session_id()
 
 
+def _cell_sandbox_active() -> bool:
+    try:
+        from plugin.scripting.venv.venv_sandbox import sandbox_execute_active
+    except ImportError:
+        return False
+    return sandbox_execute_active()
+
+
 def resolve_duckdb_session_id(session_id: str | None = None) -> str | None:
-    """Explicit id, else the current shared-kernel sandbox session (if persistable)."""
-    if session_id is not None:
-        return persistable_duckdb_session_id(session_id)
-    return persistable_duckdb_session_id(_sandbox_session_id())
+    """Explicit id, else the current shared-kernel sandbox session (if persistable).
+
+    Host callers (trusted SQL, tests) may name a workbook. A sandboxed cell
+    must not: ``session_duckdb("calc:other")`` used to open that catalog.
+    """
+    current = persistable_duckdb_session_id(_sandbox_session_id())
+    if session_id is None:
+        return current
+    requested = persistable_duckdb_session_id(session_id)
+    # Bugfix: the injected helper forwarded any session id. Inside
+    # run_sandboxed_code, a foreign id (or a non-persistable id that would
+    # skip the workbook catalog) is ignored and the cell session is used.
+    if _cell_sandbox_active() and requested != current:
+        return current
+    return requested
 
 
 def _close_connection(con: Any) -> None:

@@ -472,6 +472,35 @@ def test_do_send_direct_image_with_selection_passes_source_image():
     assert kwargs["source_image"] == "selection"
 
 
+def test_direct_image_success_persists_assistant_note():
+    """The [image_generate: …] note is the assistant row, not display-only."""
+    panel = DummyChatbotPanel()
+    _run_direct_image_send(
+        panel,
+        MockDocument(),
+        {"status": "done", "message": "Image generated successfully"},
+    )
+    panel.session.add_assistant_message.assert_called_once_with(
+        content="[image_generate: Image generated successfully]"
+    )
+    assert panel._terminal_status == "Ready"
+    assert any("image_generate: Image generated successfully" in text for text in panel.responses)
+
+
+def test_direct_image_tool_error_persists_assistant_note():
+    """A tool status=error is not the exception path. The note still has to be stored."""
+    panel = DummyChatbotPanel()
+    _run_direct_image_send(
+        panel,
+        MockDocument(),
+        {"status": "error", "message": "Failed to generate image"},
+    )
+    panel.session.add_assistant_message.assert_called_once_with(
+        content="[image_generate: Failed to generate image]"
+    )
+    assert "[image_generate: Failed to generate image]\n" in panel.responses
+
+
 def test_direct_image_stop_keeps_stopped_status():
     panel = DummyChatbotPanel()
     panel._terminal_status = "Ready"
@@ -1312,6 +1341,44 @@ def test_web_stop_without_emitted_text_stores_placeholder():
 
     _drive_unified_drain(panel, worker, "web")
     panel.session.add_assistant_message.assert_called_once_with(content="No response.")
+
+
+def test_specialized_tool_errors_persist_assistant_row():
+    """status=error must store the painted note so the user turn is not left open."""
+    cases = (
+        ("_active_run_librarian", "[Librarian error: nope]"),
+        ("_active_run_brainstorming", "[Brainstorming error: nope]"),
+        ("_active_run_writing_plan", "[Writing plan error: nope]"),
+        ("_active_run_ppt_master", "[PPT-Master error: nope]"),
+        ("_active_run_deep_research", "[Deep research error: nope]"),
+        (None, "[Research error: nope]"),
+    )
+    for flag, needle in cases:
+        panel = DummyChatbotPanel()
+        panel.session.messages = []
+        if flag:
+            setattr(panel, flag, True)
+        state = SendHandlerState(handler_type="web", status="starting")
+        interpreter = EffectInterpreter(panel)
+        mock_main = MagicMock()
+        mock_registry = MagicMock()
+        mock_registry.execute.return_value = {"status": "error", "message": "nope"}
+        mock_registry._services = MagicMock()
+        mock_main.get_tools.return_value = mock_registry
+
+        def fake_run_bg(func, **kwargs):
+            func()
+
+        with patch.dict("sys.modules", {"plugin.main": mock_main}):
+            with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
+                with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
+                    with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain([])):
+                        panel._execute_web_research_effect("query", MagicMock(), state, interpreter)
+
+        content = panel.session.add_assistant_message.call_args.kwargs["content"]
+        assert content == needle
+        assert needle in "".join(panel.responses)
+        assert panel._terminal_status == "Ready"
 
 
 def test_handler_errors_persist_assistant_banner():

@@ -102,3 +102,32 @@ def test_execute_and_insert_detects_text_result_from_venv(mock_venv, mock_insert
     assert outcome["ok"] is True
     assert "Text analytics" in outcome["status_ok_text"]
     mock_insert.assert_called_once()
+
+
+@patch("plugin.scripting.text_analytics.insert_text_analytics_result_into_doc")
+@patch("plugin.scripting.python_runner.run_code_in_user_venv")
+def test_topics_and_sentiment_bind_section_list(mock_venv, mock_insert):
+    """Section lists must be JSON arrays, not the repr of the list."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    sections = ["Section one about revenue.", "Section two about budgets."]
+    mock_venv.return_value = {
+        "status": "ok",
+        "result": {"status": "ok", "result": {"topics": [], "sentiment": {}}},
+    }
+    for helper in ("topics", "sentiment"):
+        mock_venv.reset_mock()
+        code = get_text_analytics_script_templates()[helper]
+        with (
+            patch("plugin.scripting.python_runner.is_writer", return_value=True),
+            patch(
+                "plugin.scripting.text_analytics.resolve_text_analytics_document_inputs",
+                return_value=(sections, {"lang": "en"}),
+            ),
+        ):
+            outcome = execute_and_insert_result(ctx, doc, code)
+        assert outcome["ok"] is True
+        injected = mock_venv.call_args.args[1]
+        assert 'text = ["Section one about revenue.", "Section two about budgets."]' in injected
+        assert "text = \"[" not in injected
+        assert "text = '[" not in injected

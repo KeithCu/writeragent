@@ -48,6 +48,70 @@ def test_get_draw_context_for_chat_summarizes_active_page():
     assert "Hello" in out
 
 
+class _FalsyPage:
+    """Empty XDrawPage: ``__len__`` 0 is falsy, but the page object exists."""
+
+    def __len__(self) -> int:
+        return 0
+
+    def getNotesPage(self):
+        return self.notes
+
+
+class _NotesPage:
+    def __init__(self, shape: object) -> None:
+        self._shape = shape
+
+    def getCount(self) -> int:
+        return 1
+
+    def getByIndex(self, index: int) -> object:
+        if index != 0:
+            raise IndexError(index)
+        return self._shape
+
+
+class _NotesShape:
+    def getShapeType(self) -> str:
+        return "com.sun.star.presentation.NotesShape"
+
+    def getString(self) -> str:
+        return "Cue the blank slide"
+
+
+def test_get_draw_context_for_chat_blank_page_includes_speaker_notes():
+    """A zero-shape slide is falsy in UNO; notes must still reach chat context."""
+    page = _FalsyPage()
+    page.notes = _NotesPage(_NotesShape())
+    assert not page
+    assert page is not None
+
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    model = MagicMock()
+    model.supportsService.return_value = True
+    model.getURL.return_value = "file:///tmp/blank.odp"
+
+    bridge = MagicMock()
+    bridge.get_pages.return_value = pages
+    bridge.get_active_page.return_value = page
+    bridge.get_shapes.return_value = []
+
+    with (
+        patch("plugin.draw.bridge.check_disposed"),
+        patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
+        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+    ):
+        out = get_draw_context_for_chat(model, 8000)
+
+    assert "Impress Presentation" in out
+    assert "Shapes on Slide 0:" in out
+    assert "Speaker Notes:" in out
+    assert "Cue the blank slide" in out
+
+
 class _FakeDrawPages:
     def __init__(self, n=2):
         self._n = n

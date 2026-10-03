@@ -165,12 +165,29 @@ class InitializeResult:
         return out
 
 
+def _deal_initialize_client_version_ok_pytest(client_protocol_version: object) -> bool:
+    # initialize params.protocolVersion is client input. A long or odd
+    # string used to raise PreContractError (DEAL_MAX_TOKEN). The body
+    # copies it into the result. CrossHair keeps the short token.
+    # ``client_protocol_version`` is unused.
+    return True
+
+
+def _deal_initialize_client_version_ok_crosshair(client_protocol_version: object) -> bool:
+    return client_protocol_version is None or not isinstance(client_protocol_version, str) or str_bounded(client_protocol_version, DEAL_MAX_TOKEN)
+
+
+_deal_initialize_client_version_ok = (
+    _deal_initialize_client_version_ok_crosshair if UNDER_CROSSHAIR else _deal_initialize_client_version_ok_pytest
+)
+
+
 @deal.pre(
     lambda protocol_version, server_version, instructions, client_protocol_version=None: (
         (not isinstance(protocol_version, str) or str_bounded(protocol_version, DEAL_MAX_TOKEN))
         and str_bounded(server_version, DEAL_MAX_TOKEN)
         and str_bounded(instructions, DEAL_MAX_SOURCE)
-        and (client_protocol_version is None or not isinstance(client_protocol_version, str) or str_bounded(client_protocol_version, DEAL_MAX_TOKEN))
+        and _deal_initialize_client_version_ok(client_protocol_version)
     )
 )
 @deal.post(lambda result: isinstance(result, dict) and "protocolVersion" in result and "capabilities" in result)

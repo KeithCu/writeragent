@@ -935,6 +935,21 @@ def test_sumifs_unpaired_criteria_is_nan():
     assert calc.sumifs([1.0, 2.0], [1.0, 2.0], ">1") == 2.0
 
 
+def test_irr_subtotal_workday_iseven_bad_input_does_not_raise():
+    assert math.isnan(calc.irr(["a", "b"]))
+    assert math.isnan(calc.irr([-100.0, 110.0], guess="nope"))
+    assert math.isnan(calc.subtotal("nope", [1.0, 2.0, 3.0]))
+    assert calc.subtotal(9, [1.0, 2.0, 3.0]) == 6.0
+    assert math.isnan(calc.workday(46181, "nope"))
+    assert calc.workday(46181, 1) == 46182.0
+    assert math.isnan(calc.workday_intl(46181, "nope", 1))
+    assert math.isnan(calc.workday_intl(46181, 1, None))
+    assert calc.iseven(float("inf")) is False
+    assert calc.isodd(1e309) is False
+    assert calc.iseven(4) is True
+    assert calc.isodd(3) is True
+
+
 def test_networkdays_intl_invalid_weekend_is_nan():
     assert math.isnan(calc.networkdays_intl(46181, 46185, 8))
     assert math.isnan(calc.networkdays_intl(46181, 46185, 0))

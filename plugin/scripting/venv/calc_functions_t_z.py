@@ -565,7 +565,11 @@ def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
                     h_dates.add(dt.date.fromordinal(int(float(h)) + 693594))
                 except Exception:
                     pass
-    remaining = int(float(days))
+    # days sat outside the start-date try, so a text days cell raised.
+    try:
+        remaining = int(float(days))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     step = 1 if remaining >= 0 else -1
     while remaining != 0:
         curr += dt.timedelta(days=step)
@@ -586,7 +590,10 @@ def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | N
             if char == "1":
                 wk_days.add(i)
     else:
-        w_idx = int(float(weekend))
+        try:
+            w_idx = int(float(weekend))
+        except (ValueError, TypeError, OverflowError):
+            return float("nan")
         mapping = {1: (5, 6), 2: (6, 0), 3: (0, 1), 4: (1, 2), 5: (2, 3), 6: (3, 4), 7: (4, 5), 11: (6,), 12: (0,), 13: (1,), 14: (2,), 15: (3,), 16: (4,), 17: (5,)}
         wk_days.update(mapping.get(w_idx, (5, 6)))
 
@@ -599,7 +606,10 @@ def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | N
                 except Exception:
                     pass
 
-    remaining = int(float(days))
+    try:
+        remaining = int(float(days))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     step = 1 if remaining >= 0 else -1
     while remaining != 0:
         curr += dt.timedelta(days=step)

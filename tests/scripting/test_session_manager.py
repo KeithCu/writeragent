@@ -472,6 +472,64 @@ def test_closing_one_workbook_keeps_the_other_document() -> None:
         session_manager.clear_active_calc_session()
 
 
+def test_focus_switch_without_kwargs_does_not_keep_other_init() -> None:
+    """calc_workbook_base_session_id records with init_kwargs=None."""
+    session_manager.clear_active_calc_session()
+    try:
+        session_manager.record_active_calc_session(
+            "calc:file:///a.ods", {"init_script": "A = 1"}
+        )
+        session_manager.record_active_calc_session(
+            "calc:file:///b.ods", {"init_script": "B = 2"}
+        )
+        session_manager.record_active_calc_session("calc:file:///a.ods")
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
+        # B becomes last-active the way workbook focus does: no kwargs.
+        session_manager.record_active_calc_session("calc:file:///b.ods")
+        assert session_manager.get_cached_calc_session_id() == "calc:file:///b.ods"
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "B = 2"
+        session_manager.clear_active_calc_session("calc:file:///a.ods")
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.off_main_calc_session_is_unambiguous()
+        assert session_manager.get_cached_calc_session_id() == "calc:file:///b.ods"
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "B = 2"
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_cleared_init_is_not_restored_on_focus_return() -> None:
+    session_manager.clear_active_calc_session()
+    try:
+        session_manager.record_active_calc_session(
+            "calc:file:///a.ods", {"init_script": "A = 1"}
+        )
+        session_manager.record_active_calc_session(
+            "calc:file:///b.ods", {"init_script": "B = 2"}
+        )
+        session_manager.record_active_calc_session("calc:file:///a.ods")
+        session_manager.record_active_calc_session(None, {})
+        session_manager.record_active_calc_session("calc:file:///b.ods")
+        session_manager.record_active_calc_session("calc:file:///a.ods")
+        assert session_manager.get_cached_calc_init_kwargs() == {}
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_closing_other_workbook_drops_its_init_when_it_still_owns_the_cache() -> None:
+    session_manager.clear_active_calc_session()
+    try:
+        session_manager.record_active_calc_session(
+            "calc:file:///a.ods", {"init_script": "A = 1"}
+        )
+        session_manager.record_active_calc_session("calc:file:///b.ods")
+        assert session_manager.get_cached_calc_init_kwargs() == {}
+        session_manager.clear_active_calc_session("calc:file:///a.ods")
+        assert session_manager.get_cached_calc_session_id() == "calc:file:///b.ods"
+        assert session_manager.get_cached_calc_init_kwargs() == {}
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 
 
 

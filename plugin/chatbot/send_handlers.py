@@ -91,6 +91,19 @@ def _send_worker_queues(host: Any) -> tuple["queue.Queue[Any]", _SendWorkerQueue
     return raw, _SendWorkerQueue(host, raw)
 
 
+def _specialized_tool_error_payload(note: str) -> dict[str, str]:
+    """Assistant row for a specialized tool that returned status=error.
+
+    What was wrong: librarian, brainstorm, writing-plan, PPT, deep research,
+    and shallow research painted the error and finished with an empty
+    STREAM_DONE. on_stream_done stores a non-agent row only when
+    assistant_content is non-empty, so the user turn stayed unanswered
+    while the FSM ended Ready. The open transcript is not a history write.
+    Why: the painted note is the assistant message, same as a stream error.
+    """
+    return {"assistant_content": note.strip()}
+
+
 if TYPE_CHECKING:
     from plugin.chatbot.panel import ChatSession
 
@@ -412,8 +425,14 @@ class SendHandlersMixin:
                 else:
                     log.error("Failed to parse generate_image result in _do_send_direct_image")
                     note = "done"
-                q.put((StreamQueueKind.CHUNK, "[image_generate: %s]\n" % note))
-                q.put((StreamQueueKind.STREAM_DONE, {}))
+                # What was wrong: success (and a tool status=error) put
+                # STREAM_DONE {}. on_stream_done stores a non-agent row only
+                # when assistant_content is set, so the [image_generate: …]
+                # note never reached history. Stop and raised errors already
+                # store a row. Why: this note is the assistant message.
+                note_line = "[image_generate: %s]\n" % note
+                q.put((StreamQueueKind.CHUNK, note_line))
+                q.put((StreamQueueKind.STREAM_DONE, {"assistant_content": note_line.strip()}))
             except Exception as e:
                 doc_type = getattr(self, "cached_doc_type", None) or "unknown"
                 log.exception("Direct image path failed in _do_send_direct_image [doc: %s]", doc_type)
@@ -804,8 +823,9 @@ class SendHandlersMixin:
                         self._in_librarian_mode = False
 
                         msg = data.get("message", _("Unknown librarian error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Librarian error: {0}]").format(msg) + "\n"))
-                        q.put((StreamQueueKind.STREAM_DONE, {}))
+                        note = "\n" + _("[Librarian error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        q.put((StreamQueueKind.STREAM_DONE, _specialized_tool_error_payload(note)))
                 elif is_brainstorming:
                     topic = getattr(self, "_brainstorming_topic", "") or ""
                     res = get_tools().execute(
@@ -841,7 +861,9 @@ class SendHandlersMixin:
                     else:
                         self._in_brainstorming_mode = False
                         msg = data.get("message", _("Unknown brainstorming error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Brainstorming error: {0}]").format(msg) + "\n"))
+                        note = "\n" + _("[Brainstorming error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        done_payload.update(_specialized_tool_error_payload(note))
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 elif is_writing_plan:
@@ -879,7 +901,9 @@ class SendHandlersMixin:
                     else:
                         self._in_writing_plan_mode = False
                         msg = data.get("message", _("Unknown writing plan error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Writing plan error: {0}]").format(msg) + "\n"))
+                        note = "\n" + _("[Writing plan error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        done_payload.update(_specialized_tool_error_payload(note))
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 elif is_ppt_master:
@@ -917,7 +941,9 @@ class SendHandlersMixin:
                     else:
                         self._in_ppt_master_mode = False
                         msg = data.get("message", _("Unknown PPT-Master error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[PPT-Master error: {0}]").format(msg) + "\n"))
+                        note = "\n" + _("[PPT-Master error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        done_payload.update(_specialized_tool_error_payload(note))
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 elif is_deep_research:
@@ -945,7 +971,9 @@ class SendHandlersMixin:
                         done_payload["assistant_content"] = answer
                     else:
                         msg = data.get("message", _("Unknown deep research error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Deep research error: {0}]").format(msg) + "\n"))
+                        note = "\n" + _("[Deep research error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        done_payload.update(_specialized_tool_error_payload(note))
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 else:
@@ -971,7 +999,9 @@ class SendHandlersMixin:
                         done_payload["assistant_content"] = cache_block + answer
                     else:
                         msg = data.get("message", _("Unknown research error."))
-                        q.put((StreamQueueKind.CHUNK, "\n" + _("[Research error: {0}]").format(msg) + "\n"))
+                        note = "\n" + _("[Research error: {0}]").format(msg) + "\n"
+                        q.put((StreamQueueKind.CHUNK, note))
+                        done_payload.update(_specialized_tool_error_payload(note))
 
                     q.put((StreamQueueKind.STREAM_DONE, done_payload))
             except Exception as e:

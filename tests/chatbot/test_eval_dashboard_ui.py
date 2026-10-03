@@ -294,6 +294,93 @@ def test_tool_execution_hops_to_the_main_thread_from_the_suite_worker() -> None:
     assert ran == ["marker", "marker"]
 
 
+def test_populate_locks_endpoint_so_edits_are_not_ignored() -> None:
+    """The suite reads the saved endpoint. The dialog field must not look editable."""
+    from pathlib import Path
+
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+
+    xdl = Path("extension/Dialogs/EvalDialog.xdl").read_text(encoding="utf-8")
+    endpoint_line = next(line for line in xdl.splitlines() if 'dlg:id="endpoint"' in line)
+    assert 'dlg:readonly="true"' in endpoint_line
+
+    dash = EvalDashboard(MagicMock())
+    dialog = MagicMock()
+    endpoint_model = MagicMock()
+    endpoint = MagicMock()
+    endpoint.getModel.return_value = endpoint_model
+
+    def _control(name: str) -> Any:
+        if name == "endpoint":
+            return endpoint
+        return MagicMock()
+
+    dialog.getControl.side_effect = _control
+    dash._dlg = dialog
+    with patch("plugin.chatbot.eval_dashboard_ui.populate_combobox_with_lru"), \
+         patch("plugin.chatbot.eval_dashboard_ui.get_config_str", return_value="http://127.0.0.1:11434"), \
+         patch("plugin.chatbot.eval_dashboard_ui.get_text_model", return_value="llama3"), \
+         patch("plugin.chatbot.eval_dashboard_ui.EvalDashboard._schedule_models_fetch"):
+        dash._populate()
+    assert endpoint_model.ReadOnly is True
+
+
+def test_closed_dialog_skips_late_paint_and_clears_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Close disposes the dialog while the suite can still post. Ignore that window."""
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    dialog, controls = _dialog()
+    dash = EvalDashboard(MagicMock())
+    listener = EvalRunListener(MagicMock(), dialog, dash)
+    summary = {
+        "passed": 1,
+        "failed": 0,
+        "total_cost": 0.25,
+        "results": [{"status": "OK", "name": "t", "latency": 0.1}],
+    }
+    listener.is_running = True
+    listener._show_summary("model", summary)
+    assert controls["status"].text == "Finished"
+    assert "Benchmarks Complete" in controls["log_area"].text
+    assert listener.is_running is False
+
+    listener.is_running = True
+    controls["status"].text = "Running..."
+    controls["log_area"].text = "Starting...\n"
+    dash._closed = True
+    listener._show_summary("model", summary)
+    listener._show_failure(RuntimeError("late failure"))
+    listener._after_test({"status": "OK", "name": "late-test"})
+    _drain_posted_main_thread()
+    assert controls["status"].text == "Running..."
+    assert controls["log_area"].text == "Starting...\n"
+    assert "late-test" not in controls["log_area"].text
+    assert listener.is_running is False
+
+
+def test_disposed_dialog_summary_and_failure_clear_running() -> None:
+    """A disposed window raises instead of painting. is_running still clears."""
+
+    class DisposedException(Exception):
+        pass
+
+    dialog = MagicMock()
+    dialog.getControl.side_effect = DisposedException("disposed")
+    listener = EvalRunListener(MagicMock(), dialog)
+    listener.is_running = True
+    listener._show_summary(
+        "model",
+        {"passed": 0, "failed": 1, "total_cost": 0.0, "results": []},
+    )
+    assert listener.is_running is False
+
+    listener.is_running = True
+    listener._show_failure(RuntimeError("boom"))
+    assert listener.is_running is False
+    dialog.getControl.assert_called()
+
+
 def _drain_posted_main_thread() -> None:
     """Run callbacks the eval worker posted for the main thread."""
     from plugin.framework.queue_executor import default_executor

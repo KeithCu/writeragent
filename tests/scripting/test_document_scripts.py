@@ -259,7 +259,7 @@ def test_build_scripts_list_message_sections():
     assert msg["document_stale"] is False
     sections = {s["id"]: s["scripts"] for s in msg["sections"]}
     assert sections["user"] == {"Prime": "result = 2"}
-    assert sections["document"] == {"Regional": "result = 3"}
+    assert sections["document"] == {"[Doc] Regional": "result = 3"}
     section_ids = [s["id"] for s in msg["sections"]]
     assert section_ids[0] == "user"
     assert section_ids[1] == "document"
@@ -639,6 +639,69 @@ def test_init_script_omitted_from_picker():
 def test_script_picker_message_types():
     assert "request_scripts" in SCRIPT_PICKER_MESSAGE_TYPES
     assert "save" not in SCRIPT_PICKER_MESSAGE_TYPES
+
+
+def test_document_script_reopen_after_select_and_save_uses_display_key():
+    """List, selection, and save share the [Doc] key so a same-named user script is not overwritten."""
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
+    attach_document_script(doc, "Regional", "doc-code")
+    config: dict[str, object] = {
+        "saved_python_scripts": {"Regional": "user-code"},
+        "last_python_script_name_writer": "",
+    }
+
+    def _get_config(key: str):
+        return config.get(key)
+
+    def _get_config_str(key: str) -> str:
+        value = config.get(key)
+        return value if isinstance(value, str) else ""
+
+    def _set_config(key: str, value: object) -> None:
+        config[key] = value
+
+    with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
+        "plugin.framework.config.get_config_str", side_effect=_get_config_str
+    ), patch("plugin.framework.config.set_config", side_effect=_set_config), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ):
+        listed = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
+        sections = {section["id"]: section["scripts"] for section in listed["sections"]}
+        assert sections["user"]["Regional"] == "user-code"
+        assert sections["document"]["[Doc] Regional"] == "doc-code"
+        assert "Regional" not in sections["document"]
+
+        sent: list[dict] = []
+        assert handle_editor_script_message(
+            "select_script",
+            {"name": "[Doc] Regional"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url="file:///tmp/test.odt",
+            send=sent.append,
+        )
+        reopened = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
+        assert reopened["selected_script_name"] == "[Doc] Regional"
+        re_sections = {section["id"]: section["scripts"] for section in reopened["sections"]}
+        assert re_sections["document"][reopened["selected_script_name"]] == "doc-code"
+
+        assert handle_editor_script_message(
+            "save_script",
+            {"name": "[Doc] Regional", "code": "doc-new", "origin": "document"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url="file:///tmp/test.odt",
+            send=sent.append,
+        )
+    stored = get_document_scripts(doc)
+    assert stored["Regional"] == "doc-new"
+    assert "[Doc] Regional" not in stored
+    assert config["saved_python_scripts"] == {"Regional": "user-code"}
+    assert config["last_python_script_name_writer"] == "[Doc] Regional"
 
 
 def test_set_calc_init_script_logs_when_session_cache_fails(caplog) -> None:
