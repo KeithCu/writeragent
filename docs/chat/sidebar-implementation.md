@@ -28,7 +28,7 @@ Prompt text lives in [`plugin/framework/prompts.py`](../../plugin/framework/prom
 
 Stop with no open tool calls stores the streamed assistant text (or `No response.` when there was none). Open tool-call ids get a `Stopped by user.` result so the next request keeps the finished tool bodies. Clear latches Stop, drops delegate-domain state, and later chunks are not painted onto the wiped transcript. `SEND_COMPLETED` still clears `has_text`; the drain then reads the Ask box so a draft typed during the reply stays Send.
 
-**Image mode** skips the chat LLM and calls `image_generate` from [`send_handlers.py`](../../plugin/chatbot/send_handlers.py). No selection: text-to-image insert. Selected document graphic: `source_image='selection'` (img2img + replace in place). Chat/specialist img2img steering is a separate path.
+**Image mode** skips the chat LLM and calls `image_generate` from [`send_handlers.py`](../../plugin/chatbot/send_handlers.py). No selection: text-to-image insert. Selected document graphic: `source_image='selection'` (img2img + replace in place). Chat/specialist img2img steering is a separate path. Success stores the `[image_generate: …]` note as the assistant row so reopen still has it. Librarian, brainstorm, writing-plan, PPT, deep research, and shallow research do the same when the tool returns `status=error`: the painted error is the assistant row, and the turn is not left unanswered when the handler returns to Ready.
 
 ### Reasoning (`[Thinking]`) and tool calls
 

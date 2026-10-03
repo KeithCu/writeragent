@@ -24,7 +24,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 - Text-to-image from a prompt.
 - Img2img when `source_image='selection'` and an image is selected in the document. Omitting `source_image` while a graphic is selected also edits in place (parent/specialist often drop the argument after rewriting an edit into a generate-new prompt).
 
-**Sidebar Image mode** (`chat_mode = Image`, not Chat/specialist) calls `image_generate` directly — no chat LLM. With a document graphic selected, the send path passes `source_image='selection'` so the same img2img + in-place replace runs. With nothing selected, it generates and inserts a new graphic.
+**Sidebar Image mode** (`chat_mode = Image`, not Chat/specialist) calls `image_generate` directly — no chat LLM. With a document graphic selected, the send path passes `source_image='selection'` so the same img2img + in-place replace runs. With nothing selected, it generates and inserts a new graphic. The `[image_generate: …]` note is stored as the assistant history row on success and on a tool `status=error`.
 
 Default **Base Size** is **1024** (vendor `1K`). Models dislike 512 / `0.5K` — OpenRouter chat rejects `image_size '0.5K'` for some Gemini image models.
 
