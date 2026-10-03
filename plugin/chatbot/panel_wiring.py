@@ -47,6 +47,35 @@ def _measure_aux_button_max_width(ctrl: Any, labels: list[str]) -> int | None:
     return None
 
 
+def _install_frame_session_listeners(
+    session: Any,
+    ctx: Any,
+    query: Any,
+    leave_query_controls: Any,
+) -> None:
+    """Pin Ask and attach this frame's focus and click listeners.
+
+    What was wrong: the only caller of ``FrameSession.install`` wrapped it
+    in ``except Exception`` and logged at debug. How: ``install`` re-raises
+    a ``UNO thread violation`` ``RuntimeError`` from ``getController``,
+    ``addFocusListener``, ``addMouseListener``, and ``addMouseClickHandler``
+    so a missed attach is not a successful return. This wrapper caught that
+    error, so the contract never left the sidebar. Why: re-raise the thread
+    boundary. Any other attach failure stays a debug log. The other
+    ``except Exception`` blocks in this module are unchanged.
+    """
+    try:
+        session.set_focus_pin(query)
+        session.install(ctx, query=query, leave_query_controls=leave_query_controls)
+    except Exception as exc:
+        from plugin.framework.uno_listeners import listener_boundary
+
+        boundary = listener_boundary(exc)
+        if boundary is not None and boundary.kind == "thread":
+            raise
+        log.debug("frame session focus install: %s", exc)
+
+
 def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_extension_on_path: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
     """Main entry point to wire all controls for the panel."""
     log.debug("_wireControls entered")
@@ -292,27 +321,24 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     restore_focus=restore_focus,
                 )
                 self.rich_text_widget = widget
-                try:
-                    if session is not None:
-                        session.set_focus_pin(controls.get("query"))
-                        session.install(
-                            self.ctx,
-                            query=controls.get("query"),
-                            leave_query_controls=(
-                                controls.get("stop"),
-                                controls.get("clear"),
-                                controls.get("send"),
-                                controls.get("btn_settings"),
-                                controls.get("btn_python"),
-                                controls.get("btn_latex"),
-                                controls.get("btn_search"),
-                                controls.get("btn_hamburger"),
-                                controls.get("chat_mode_selector"),
-                                controls.get("model_selector"),
-                            ),
-                        )
-                except Exception as e:
-                    log.debug("frame session focus install: %s", e)
+                if session is not None:
+                    _install_frame_session_listeners(
+                        session,
+                        self.ctx,
+                        controls.get("query"),
+                        (
+                            controls.get("stop"),
+                            controls.get("clear"),
+                            controls.get("send"),
+                            controls.get("btn_settings"),
+                            controls.get("btn_python"),
+                            controls.get("btn_latex"),
+                            controls.get("btn_search"),
+                            controls.get("btn_hamburger"),
+                            controls.get("chat_mode_selector"),
+                            controls.get("model_selector"),
+                        ),
+                    )
                 controls["response_rich"] = rich_control
                 if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
                     self._panel_resize_listener._c["response_rich"] = rich_control
