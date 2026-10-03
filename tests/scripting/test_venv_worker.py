@@ -186,6 +186,10 @@ def test_harness_main_loop_integration():
     proc_pickle.stdin.write(pack_pickle_frame(req_dict))
     proc_pickle.stdin.flush()
 
+    started = read_pickle_frame(proc_pickle.stdout, require_dict=True)
+    assert started is not None
+    assert started["type"] == "exec_started"
+    assert started["id"] == "t2"
     resp_dict = read_pickle_frame(proc_pickle.stdout, require_dict=True)
     assert resp_dict is not None
     assert resp_dict["id"] == "t2"
@@ -505,35 +509,8 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     assert mgr._terminate_worker.call_count == 1
 
 
-def test_stdout_close_before_terminal_frame_does_not_replay():
-    """Child death with no frame must not resend the same request id."""
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    mgr._proc = proc
-    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
-    seen_ids: list[object] = []
-
-    def _write_frame(stdin, request, **kwargs):
-        seen_ids.append(request.get("id"))
-
-    mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
-    mgr._read_response_bytes = MagicMock(return_value=b"")  # type: ignore[method-assign]
-    mgr._drain_stderr = MagicMock(return_value="")  # type: ignore[method-assign]
-    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
-
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
-
-    assert result["status"] == "error"
-    assert result["code"] == "WORKER_IPC_ERROR"
-    assert "without a response" in result["message"]
-    assert seen_ids and len(seen_ids) == 1
-    assert mgr._terminate_worker.call_count == 1
-
-
-def test_read_oserror_before_terminal_frame_does_not_replay():
+def test_stdout_close_before_start_retries_once():
+    """A death before exec_started has not run the request; recycle the child."""
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
     proc.poll.return_value = None
@@ -542,15 +519,53 @@ def test_read_oserror_before_terminal_frame_does_not_replay():
     mgr._proc = proc
     mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
     mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
-    mgr._read_response_bytes = MagicMock(side_effect=OSError("pipe closed"))  # type: ignore[method-assign]
+    mgr._read_response_bytes = MagicMock(return_value=b"")  # type: ignore[method-assign]
+    mgr._drain_stderr = MagicMock(return_value="")  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert "without a response" in result["message"]
+    assert mgr._write_frame_with_timeout.call_count == 2
+    assert mgr._terminate_worker.call_count == 2
+
+
+def test_stdout_close_after_exec_started_does_not_replay():
+    """In-process side effects after exec_started must not run under the same id again."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    captured: dict[str, dict] = {}
+
+    def _write_frame(stdin, request, **kwargs):
+        captured["request"] = request
+
+    mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
+    reads = {"n": 0}
+
+    def _read(stdout, timeout_sec):
+        reads["n"] += 1
+        request = captured["request"]
+        if reads["n"] == 1:
+            return pickle.dumps({"type": "exec_started", "id": request["id"]}, protocol=5)
+        return b""
+
+    mgr._read_response_bytes = _read  # type: ignore[method-assign]
+    mgr._drain_stderr = MagicMock(return_value="")  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
     result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
 
     assert result["status"] == "error"
     assert result["code"] == "WORKER_IPC_ERROR"
-    assert "pipe closed" in result["message"]
-    assert mgr._write_frame_with_timeout.call_count == 1
+    assert "without a response" in result["message"]
+    assert "request" in captured
+    assert reads["n"] == 2
     assert mgr._terminate_worker.call_count == 1
 
 
@@ -1024,13 +1039,20 @@ def test_cold_execute_warms_with_separate_timeout():
         r = mgr.execute("result = 42", timeout_sec=3)
         assert r["status"] == "ok"
         assert r["result"] == 42
-        assert timeouts == [WARM_WORKER_TIMEOUT_SEC + HOST_IPC_READ_GRACE_SEC, 3 + HOST_IPC_READ_GRACE_SEC]
+        # exec_started, then the prime result, then exec_started, then user code.
+        grace = HOST_IPC_READ_GRACE_SEC
+        assert timeouts == [
+            WARM_WORKER_TIMEOUT_SEC + grace,
+            WARM_WORKER_TIMEOUT_SEC + grace,
+            3 + grace,
+            3 + grace,
+        ]
     finally:
         PythonWorkerManager.shutdown_all()
 
 
 def test_warm_execute_uses_configured_timeout_only():
-    """After priming, execute sends one IPC round at the configured timeout."""
+    """After priming, execute reads exec_started and the result at the configured timeout."""
     from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
     PythonWorkerManager.shutdown_all()
@@ -1048,7 +1070,8 @@ def test_warm_execute_uses_configured_timeout_only():
         r = mgr.execute("result = 7", timeout_sec=3)
         assert r["status"] == "ok"
         assert r["result"] == 7
-        assert timeouts == [3 + HOST_IPC_READ_GRACE_SEC]
+        grace = HOST_IPC_READ_GRACE_SEC
+        assert timeouts == [3 + grace, 3 + grace]
     finally:
         PythonWorkerManager.shutdown_all()
 
@@ -1073,7 +1096,13 @@ def test_terminate_worker_re_primes_on_next_execute():
         r = mgr.execute("result = 99", timeout_sec=3)
         assert r["status"] == "ok"
         assert r["result"] == 99
-        assert timeouts == [WARM_WORKER_TIMEOUT_SEC + HOST_IPC_READ_GRACE_SEC, 3 + HOST_IPC_READ_GRACE_SEC]
+        grace = HOST_IPC_READ_GRACE_SEC
+        assert timeouts == [
+            WARM_WORKER_TIMEOUT_SEC + grace,
+            WARM_WORKER_TIMEOUT_SEC + grace,
+            3 + grace,
+            3 + grace,
+        ]
     finally:
         PythonWorkerManager.shutdown_all()
 

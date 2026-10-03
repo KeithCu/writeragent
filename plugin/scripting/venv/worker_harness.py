@@ -28,6 +28,7 @@ register_alias_importer()
 
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
+    EXEC_STARTED,
     IpcFrameError,
     UserStopped,
     read_pickle_frame,
@@ -218,6 +219,18 @@ def main() -> None:
                 break
             req_id = str(request.get("id", ""))
             log.debug("Received request id=%s action=%s", req_id, request.get("action") or "execute")
+            # What was wrong: the host retried any death before a terminal
+            # frame. A crash after DuckDB (or any other in-process side effect
+            # that never sent tool_call) ran that work twice. A crash while
+            # reading the request had not run it, and that retry is how a
+            # one-shot child death recovers.
+            # Why this works: the marker is flushed before _handle_request.
+            # The host retries only when it never sees this frame.
+            write_pickle_frame(
+                stdout,
+                {"type": EXEC_STARTED, "id": request.get("id")},
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            )
             response = _handle_request(request, stdout=stdout)
             log.debug("Finished request id=%s, response status=%s", req_id, response.get("status") if response else "none")
         except UserStopped as e:

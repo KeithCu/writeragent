@@ -31,6 +31,12 @@ log = logging.getLogger("writeragent.scripting.ipc")
 PICKLE_PROTOCOL = 5
 FRAME_HEADER_SIZE = 4
 
+# Child writes this before user code, trusted actions, or a ppt turn. The host
+# must not replay the request after seeing it: in-process side effects may
+# already have run without a tool_call frame. A death before this frame is
+# still a failed start and may be retried.
+EXEC_STARTED = "exec_started"
+
 # Shared cap for editor IPC and the venv-worker host read path. A corrupt 4-byte
 # length prefix without this bound can OOM the LibreOffice process. Keep editor
 # and worker on the same inventory — do not pass unbounded read_frame_payload

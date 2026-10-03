@@ -34,6 +34,7 @@ from plugin.scripting.config_limits import (
 )
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
+    EXEC_STARTED,
     pack_pickle_frame,
     read_frame_payload,
     unpack_pickle_frame,
@@ -494,8 +495,11 @@ class PythonWorkerManager:
 
                 # A tool_call frame can already have mutated the document. A later
                 # pipe error must not resend the original script (the write-timeout
-                # path below is the same rule).
+                # path below is the same rule). exec_started is the same rule for
+                # side effects that never sent a tool_call frame. A death before
+                # that marker has not run the request, so the outer loop may retry.
                 dispatched_intermediate = False
+                execution_started = False
                 try:
                     while True:
                         if allow_heartbeat:
@@ -511,21 +515,22 @@ class PythonWorkerManager:
                         else:
                             response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec)
                         if not response_bytes:
-                            # What was wrong: stdout EOF before any terminal frame
-                            # raised RuntimeError, and with no tool_call yet that
-                            # was re-raised into the write-retry loop. The same
-                            # request id ran again, so in-process side effects
-                            # (DuckDB, a trusted update) that never produced a
-                            # tool_call frame ran twice.
-                            # Why this works: the request is already on the pipe.
-                            # A missing frame is not a failed write. Do not resend.
                             stderr_out = self._drain_stderr()
-                            raise _NoTerminalFrame(
-                                f"Worker closed stdout without a response{stderr_out}"
-                            )
+                            message = f"Worker closed stdout without a response{stderr_out}"
+                            if execution_started or dispatched_intermediate:
+                                # Work may already have run. Resending this id would
+                                # run it again. A close before exec_started is a
+                                # failed start and falls through to the retry below.
+                                raise _NoTerminalFrame(message)
+                            raise RuntimeError(message)
                         response = unpack_pickle_frame(response_bytes)
                         if not isinstance(response, dict):
                             raise RuntimeError("Worker response must be a dict")
+                        if response.get("type") == EXEC_STARTED:
+                            execution_started = True
+                            if response.get("id") != request.get("id"):
+                                break
+                            continue
 
                         def _stdin_write(blob: bytes) -> None:
                             try:
@@ -584,18 +589,16 @@ class PythonWorkerManager:
                         details={"exe": self.exe},
                     )
                 except OSError as e:
-                    if dispatched_intermediate:
-                        log.warning("Python worker failed after a tool call (not replaying): %s", e)
-                        self._terminate_worker()
-                        _clear_host_state_after_worker_death()
-                        return _worker_error(
-                            "WORKER_IPC_ERROR",
-                            f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}",
-                            details={"exe": self.exe},
-                        )
-                    # Same hole as a missing frame: the child died on the read,
-                    # before a terminal frame, and the request was already written.
-                    raise _NoTerminalFrame(str(e)) from e
+                    if not (dispatched_intermediate or execution_started):
+                        raise
+                    log.warning("Python worker failed after execution started (not replaying): %s", e)
+                    self._terminate_worker()
+                    _clear_host_state_after_worker_death()
+                    return _worker_error(
+                        "WORKER_IPC_ERROR",
+                        f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}",
+                        details={"exe": self.exe},
+                    )
                 except RuntimeError as e:
                     if not dispatched_intermediate:
                         raise
