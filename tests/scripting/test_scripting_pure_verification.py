@@ -48,11 +48,12 @@ def test_column_vector_as_2d_contracts(vals: list[int]) -> None:
     assert all(isinstance(row, list) and len(row) == 1 and row[0] == val for row, val in zip(res, vals))
 
 
-def test_column_vector_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(column_vector_as_2d):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        column_vector_as_2d([0] * (DEAL_MAX_SHAPE_DIM + 1))
+def test_column_vector_longer_than_shape_dim_wraps() -> None:
+    """A sheet column past SHAPE_DIM is a normal vector, not a contract error."""
+    vals = [0] * (DEAL_MAX_SHAPE_DIM + 1)
+    res = column_vector_as_2d(vals)
+    assert len(res) == len(vals)
+    assert all(row == [0] for row in res)
 
 
 def test_import_policy_contracts() -> None:
@@ -90,11 +91,9 @@ def test_resolve_python_exec_timeout_clamping(val: float | int | str | None) -> 
     assert python_exec_timeout_min() <= timeout <= python_exec_timeout_max()
 
 
-def test_clamp_timeout_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(_clamp_timeout):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        _clamp_timeout(DEAL_MAX_ARGV + 1)
+def test_clamp_timeout_overflow_clamps() -> None:
+    """A timeout past DEAL_MAX_ARGV is user config. Clamp it; do not PreContract."""
+    assert _clamp_timeout(DEAL_MAX_ARGV + 1) == python_exec_timeout_max()
     assert python_exec_timeout_min() <= _clamp_timeout(1) <= python_exec_timeout_max()
 
 
@@ -120,14 +119,12 @@ def test_resolve_python_exec_timeout_rejects_bool_timeout_and_configured() -> No
         resolve_python_exec_timeout(None, configured=True)
     with pytest.raises(deal.PreContractError):
         resolve_python_exec_timeout(None, configured=False)
-    with pytest.raises(deal.PreContractError):
-        resolve_python_exec_timeout(None, configured=DEAL_MAX_ARGV + 1)
+    assert resolve_python_exec_timeout(None, configured=DEAL_MAX_ARGV + 1) == python_exec_timeout_max()
     assert resolve_python_exec_timeout(None, configured=33) == 33
     assert resolve_python_exec_timeout(None, configured=None) == python_exec_timeout_default()
     assert resolve_python_exec_timeout("100") == 100
     assert resolve_python_exec_timeout("bad") == python_exec_timeout_default()
-    with pytest.raises(deal.PreContractError):
-        resolve_python_exec_timeout(str(DEAL_MAX_ARGV + 1))
+    assert resolve_python_exec_timeout(str(DEAL_MAX_ARGV + 1)) == python_exec_timeout_max()
 
 
 @given(grid=st.one_of(

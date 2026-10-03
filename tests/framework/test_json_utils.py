@@ -47,15 +47,11 @@ def test_strict_json_does_not_log_a_stage(monkeypatch) -> None:
 def test_safe_json_loads_long_malformed_returns_default() -> None:
     """A body over DEAL_MAX_SOURCE must not raise deal.PreContractError."""
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-    from plugin.framework.json_utils import repair_json
-    from tests.harness.strip_bundle import deal_pre_present
 
     filler = "x" * (DEAL_MAX_SOURCE + 1)
     payload = '{"a": ' + filler
-    if deal_pre_present(repair_json):
-        assert safe_json_loads(payload, default="SENTINEL") == "SENTINEL"
-        return
-    # Stripped bundles drop @deal.pre, so json_repair still closes the string.
+    # Pytest pre is total, so json_repair closes the string the same way a
+    # stripped release bundle does. PreContractError must not escape.
     assert safe_json_loads(payload, default="SENTINEL") == {"a": filler}
 
 
@@ -68,14 +64,10 @@ def test_safe_json_loads_long_valid_json() -> None:
 
 def test_repair_json_object_long_malformed_does_not_raise() -> None:
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-    from plugin.framework.json_utils import _repair_json_object_bounded, repair_json_object
-    from tests.harness.strip_bundle import deal_pre_present
+    from plugin.framework.json_utils import repair_json_object
 
     filler = "x" * (DEAL_MAX_SOURCE + 1)
     payload = '{"a": ' + filler
-    if deal_pre_present(_repair_json_object_bounded):
-        assert repair_json_object(payload) == payload
-        return
     assert repair_json_object(payload) == {"a": filler}
 
 

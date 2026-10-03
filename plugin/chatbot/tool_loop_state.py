@@ -109,10 +109,11 @@ def is_delegate_gateway(func_name: str) -> bool:
 
 
 def _deal_func_args_ok_pytest(func_args: object) -> bool:
-    return type(func_args) is dict and len(func_args) <= DEAL_MAX_CMD_ARGS and all(
-        type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) and (v is None or (isinstance(v, str) and str_bounded(v, DEAL_MAX_SOURCE)))
-        for k, v in func_args.items()
-    )
+    # Delegate tool arguments are LLM JSON. A task longer than
+    # DEAL_MAX_SOURCE, or a non-string value, raised PreContractError
+    # before the chat line could truncate. The body reads .get.
+    # CrossHair keeps the short string-only dict.
+    return isinstance(func_args, dict)
 
 
 def _deal_func_args_ok_crosshair(func_args: object) -> bool:
@@ -140,11 +141,26 @@ def delegate_status_label(func_args: Mapping[str, Any]) -> str:
     return f"delegate ({domain_from_delegate_args(func_args)})"
 
 
-@deal.pre(
-    lambda task, max_len=DELEGATE_TASK_CHAT_MAX, *_unused, **__: str_bounded(task, _DEAL_TRUNCATE_TASK_LEN)
-    and type(max_len) is int
-    and 1 <= max_len <= _DEAL_TRUNCATE_MAX_LEN
+def _deal_truncate_task_ok_pytest(task: object, max_len: object = DELEGATE_TASK_CHAT_MAX) -> bool:
+    # The preview truncates. Capping the input at DEAL_MAX_SOURCE raised
+    # PreContractError on a long specialize task before that truncate.
+    return isinstance(task, str) and type(max_len) is int and max_len >= 1
+
+
+def _deal_truncate_task_ok_crosshair(task: object, max_len: object = DELEGATE_TASK_CHAT_MAX) -> bool:
+    return (
+        str_bounded(task, _DEAL_TRUNCATE_TASK_LEN)
+        and type(max_len) is int
+        and 1 <= max_len <= _DEAL_TRUNCATE_MAX_LEN
+    )
+
+
+_deal_truncate_task_ok = (
+    _deal_truncate_task_ok_crosshair if UNDER_CROSSHAIR else _deal_truncate_task_ok_pytest
 )
+
+
+@deal.pre(lambda task, max_len=DELEGATE_TASK_CHAT_MAX, *_unused, **__: _deal_truncate_task_ok(task, max_len))
 def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) -> str:
     # crosshair: off
     # cover-all 35526755391: ~31m / 433 examples / 36k lines despite dual-profile len=1. Engine-hostile display helper. Doable later: closed task alphabet.
@@ -158,12 +174,7 @@ def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) ->
     return one_line[: max_len - 3] + "..."
 
 
-@deal.pre(
-    lambda func_args: isinstance(func_args, dict)
-    and len(func_args) <= DEAL_MAX_CMD_ARGS
-    and all(not isinstance(k, str) or str_bounded(k, DEAL_MAX_TOKEN) for k in func_args)
-    and all(not isinstance(v, str) or str_bounded(v, DEAL_MAX_SOURCE) for v in func_args.values())
-)
+@deal.pre(lambda func_args: _deal_func_args_ok(func_args))
 @deal.post(lambda result: isinstance(result, str) and result.startswith("[Running delegate") and result.endswith("\n"))
 def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when a delegate gateway tool starts."""

@@ -9,14 +9,11 @@ from __future__ import annotations
 
 import os
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-import deal
 from plugin.framework.deal_shim import DEAL_MAX_PATH
 from plugin.scripting.sandbox import is_safe_workspace_path
-from tests.harness.strip_bundle import deal_pre_present
 from tests.harness.vhs_budget import vhs_max_examples
 
 
@@ -72,12 +69,10 @@ def test_hypothesis_path_containment_invariants(rel_path: str, root_dir: str) ->
         assert os.path.commonpath([abs_target, abs_root]) == abs_root
 
 
-def test_safe_workspace_path_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(is_safe_workspace_path):
-        pytest.skip("@deal.pre stripped in release bundle")
+def test_safe_workspace_path_long_name_is_bool() -> None:
+    """A path longer than DEAL_MAX_PATH is checked by the body, not a contract error."""
     too_long = "a" * (DEAL_MAX_PATH + 1)
-    with pytest.raises(deal.PreContractError):
-        is_safe_workspace_path(too_long, "/home/user")
+    assert isinstance(is_safe_workspace_path(too_long, "/home/user"), bool)
     assert is_safe_workspace_path("José.txt", "/home/user/workspace") is True
 
 

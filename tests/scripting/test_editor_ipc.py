@@ -148,6 +148,18 @@ def test_target_from_load_aliases_cell_and_script():
     assert t["script_name"] == "demo"
 
 
+def test_stamp_session_and_failure_detail_accept_long_text():
+    """Script source and probe stderr are longer than the old deal caps."""
+    from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
+
+    code = "x" * (DEAL_MAX_TOKEN + 50)
+    msg = stamp_session({"type": "save", "code": code}, session_id="abc", mode="run_script")
+    assert msg["code"] == code
+    detail = failure_detail(detail="e" * (DEAL_MAX_SOURCE + 1))
+    assert detail.startswith("e" * 20)
+    assert len(detail) == DEAL_MAX_SOURCE + 1
+
+
 def test_target_identity_key_same_cell_matches():
     a = target_from_load({"mode": "calc_cell", "cell_address": "A1", "doc_url": "file:///x"})
     b = target_from_load({"mode": "calc_cell", "cell_address": "A1", "doc_url": "file:///x"})

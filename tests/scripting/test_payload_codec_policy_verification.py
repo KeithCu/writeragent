@@ -22,6 +22,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_ROW_INDEX,
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SHAPE_RANK,
+    DEAL_MAX_SOURCE,
 )
 from plugin.scripting.payload_codec import (
     PAYLOAD_CALC_RANGE,
@@ -187,13 +188,12 @@ def test_zip_code_string_not_coercible() -> None:
     assert is_numeric_grid([[1.0, 2.0], [3.0, None]]) is True
 
 
-def test_is_numeric_coercible_pre_rejects_unbounded_any() -> None:
-    if not deal_pre_present(is_numeric_coercible):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        is_numeric_coercible([1])
-    with pytest.raises(deal.PreContractError):
-        is_numeric_coercible({"a": 1})
+def test_is_numeric_coercible_odd_values_return_false() -> None:
+    """A list, a dict, or non-ASCII text is not coercible. It must not PreContract."""
+    assert is_numeric_coercible([1]) is False
+    assert is_numeric_coercible({"a": 1}) is False
+    assert is_numeric_coercible("café") is False
+    assert is_numeric_coercible("x" * (DEAL_MAX_SOURCE + 1)) is False
     assert is_numeric_coercible(None) is True
     assert is_numeric_coercible(True) is True
     assert is_numeric_coercible(1) is True
@@ -266,6 +266,12 @@ def test_plain_dict_over_shape_dim_unpacks_with_deal() -> None:
     assert out["status"] == "ok"
     assert out["result"] == too_many
     assert is_image_payload({"a": 1}) is False
+    # datetime / bytes are ordinary nested results. The type-list pre used
+    # to raise on the recursive call.
+    from datetime import datetime
+
+    nested = {"when": datetime(2026, 1, 2), "blob": b"abc"}
+    assert host_unpack_data(nested) == nested
 
 
 @given(

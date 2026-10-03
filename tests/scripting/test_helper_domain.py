@@ -195,3 +195,11 @@ def test_rps_insert_failed_outcome_logs_type_str_repr(caplog):
     joined = " ".join(r.getMessage() for r in caplog.records)
     assert "RuntimeError" in joined
     assert "insertDocumentFromURL" in joined
+
+
+def test_parse_run_import_call_accepts_long_script():
+    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+    from plugin.scripting.helper_domain import parse_run_import_call_spec
+
+    code = "x = 1\n" * (DEAL_MAX_SOURCE // 4)
+    assert parse_run_import_call_spec(code, run_name="run") is None

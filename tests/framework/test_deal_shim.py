@@ -151,8 +151,9 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
         return
     assert len(product_origin) <= DEAL_MAX_ORIGIN
     is_safe_origin(product_origin)
-    with pytest.raises(deal.PreContractError):
-        is_safe_origin("h" * (DEAL_MAX_ORIGIN + 1))
+    # Pytest origin ingest is total: a huge Origin is unsafe, not a contract error.
+    # The CrossHair subprocess below still rejects length 33.
+    assert is_safe_origin("h" * (DEAL_MAX_ORIGIN + 1)) is False
     # feed() / strip_html_tags slice; overflow is per-slice on _feed_chunk.
     strip_html_tags("x" * (DEAL_MAX_HTML_CHUNK + 1))
     StreamingHTMLStripper().feed("x" * (DEAL_MAX_HTML_CHUNK + 1))

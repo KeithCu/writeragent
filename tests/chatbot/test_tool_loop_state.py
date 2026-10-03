@@ -376,15 +376,14 @@ def test_next_tool_delegate_keeps_full_task_on_spawn():
     assert len(preview) <= DELEGATE_TASK_CHAT_MAX
 
 
-def test_truncate_delegate_task_pre_rejects_over_sanity_cap():
-    from plugin.chatbot.tool_loop_state import _truncate_delegate_task
+def test_truncate_delegate_task_past_source_cap_truncates():
+    """A specialize task longer than DEAL_MAX_SOURCE is previewed, not a contract error."""
+    from plugin.chatbot.tool_loop_state import DELEGATE_TASK_CHAT_MAX, _truncate_delegate_task
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-    from tests.harness.strip_bundle import deal_pre_present
 
-    if not deal_pre_present(_truncate_delegate_task):
-        pytest.skip("@deal.pre stripped in release bundle")
-    with pytest.raises(deal.PreContractError):
-        _truncate_delegate_task("A" * (DEAL_MAX_SOURCE + 1))
+    preview = _truncate_delegate_task("A" * (DEAL_MAX_SOURCE + 1))
+    assert preview.endswith("...")
+    assert len(preview) == DELEGATE_TASK_CHAT_MAX
 
 
 def test_truncate_delegate_task_crosshair_floors_stay_tiny():

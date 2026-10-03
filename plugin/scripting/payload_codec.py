@@ -401,11 +401,21 @@ def _deal_product_grid_ok(grid: object) -> bool:
     return True
 
 
-def _deal_numeric_cell_ok(value: object) -> bool:
-    """CrossHair domain for ``is_numeric_coercible`` / ``is_numeric_grid`` cells.
+def _deal_numeric_cell_ok_pytest(value: object) -> bool:
+    """Pytest/production: the detector is total.
 
-    Numpy scalars stay allowed in the body (``type(value).__name__``) for
-    production; the pre keeps SMT off ``Any`` + ``startswith``.
+    A list, a long string, or non-ASCII text used to raise PreContractError
+    instead of False. The body already returns a bool. CrossHair keeps the
+    scalar/ascii domain. ``value`` is unused.
+    """
+    return True
+
+
+def _deal_numeric_cell_ok_crosshair(value: object) -> bool:
+    """CrossHair domain for ``is_numeric_coercible``.
+
+    Numpy scalars stay allowed in the body (``type(value).__name__``);
+    the pre keeps SMT off ``Any`` + ``startswith``.
     """
     if value is None:
         return True
@@ -417,6 +427,11 @@ def _deal_numeric_cell_ok(value: object) -> bool:
     if t is str:
         return ascii_bounded(value, DEAL_MAX_SOURCE)
     return False
+
+
+_deal_numeric_cell_ok = (
+    _deal_numeric_cell_ok_crosshair if UNDER_CROSSHAIR else _deal_numeric_cell_ok_pytest
+)
 
 
 def _deal_envelope_value_ok(val: object, *, depth: int) -> bool:
@@ -1524,13 +1539,35 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
 
 
-@deal.pre(
-    lambda wire, *_unused, **__: _is_any_payload_envelope(wire)
-    or isinstance(wire, (list, tuple, dict, str, int, float, bool))
-    or wire is None
-    or _is_ndarray(wire)
-    or getattr(type(wire), "__module__", "") == "numpy"
+def _deal_host_unpack_wire_ok_pytest(wire: object) -> bool:
+    """Any worker result is in domain.
+
+    What was wrong: datetime, Decimal, bytes, and other ordinary values
+    failed the type list. PreContractError (an AssertionError) fired on
+    the recursive call inside an accepted dict, before ``return wire``.
+    How: the pre enumerated JSON scalars plus numpy. Why: the body already
+    returns unrecognized objects unchanged. CrossHair keeps that type list.
+    ``wire`` is unused.
+    """
+    return True
+
+
+def _deal_host_unpack_wire_ok_crosshair(wire: object) -> bool:
+    return (
+        _is_any_payload_envelope(wire)
+        or isinstance(wire, (list, tuple, dict, str, int, float, bool))
+        or wire is None
+        or _is_ndarray(wire)
+        or getattr(type(wire), "__module__", "") == "numpy"
+    )
+
+
+_deal_host_unpack_wire_ok = (
+    _deal_host_unpack_wire_ok_crosshair if UNDER_CROSSHAIR else _deal_host_unpack_wire_ok_pytest
 )
+
+
+@deal.pre(lambda wire, *_unused, **__: _deal_host_unpack_wire_ok(wire))
 @deal.raises(ValueError, TypeError, AttributeError, KeyError)
 def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
     """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, dataframe, calc_range)."""
@@ -1747,12 +1784,31 @@ def _child_unpack_single_data(wire: Any) -> Any:
     return unpacked
 
 
-@deal.pre(
-    lambda wire, *_unused, **__: _is_any_payload_envelope(wire)
-    or isinstance(wire, (list, tuple, dict, str, int, float, bool))
-    or wire is None
-    or (hasattr(wire, "__class__") and wire.__class__.__name__ == "ndarray")
+def _deal_child_unpack_wire_ok_pytest(wire: object) -> bool:
+    """Child wire ingest is total on the pytest profile.
+
+    Same class of bug as ``host_unpack_data``: an odd but real payload
+    raised PreContractError instead of the body's ValueError/passthrough.
+    CrossHair keeps the closed type list. ``wire`` is unused.
+    """
+    return True
+
+
+def _deal_child_unpack_wire_ok_crosshair(wire: object) -> bool:
+    return (
+        _is_any_payload_envelope(wire)
+        or isinstance(wire, (list, tuple, dict, str, int, float, bool))
+        or wire is None
+        or (hasattr(wire, "__class__") and wire.__class__.__name__ == "ndarray")
+    )
+
+
+_deal_child_unpack_wire_ok = (
+    _deal_child_unpack_wire_ok_crosshair if UNDER_CROSSHAIR else _deal_child_unpack_wire_ok_pytest
 )
+
+
+@deal.pre(lambda wire, *_unused, **__: _deal_child_unpack_wire_ok(wire))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) is not None)
 @deal.raises(ValueError, TypeError, AttributeError)
 def child_unpack_data(wire: Any) -> Any:

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 import operator
-from typing import Any, ClassVar, Iterator
+from typing import Any, ClassVar, Iterator, cast
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload
@@ -67,7 +67,23 @@ def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
     return [list(grid)]
 
 
-@deal.pre(lambda values: isinstance(values, list) and len(values) <= _DEAL_GRID_DIM)
+def _deal_column_vector_ok_pytest(values: object) -> bool:
+    # A sheet column longer than DEAL_MAX_SHAPE_DIM is a normal vector.
+    # The old cap raised PreContractError before the N×1 wrap. CrossHair
+    # keeps a 1-long list. ``values`` is unused on this profile.
+    return True
+
+
+def _deal_column_vector_ok_crosshair(values: object) -> bool:
+    return isinstance(values, list) and len(values) <= _DEAL_GRID_DIM
+
+
+_deal_column_vector_ok = (
+    _deal_column_vector_ok_crosshair if UNDER_CROSSHAIR else _deal_column_vector_ok_pytest
+)
+
+
+@deal.pre(lambda values: _deal_column_vector_ok(values))
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(row, list) and len(row) == 1 for row in result))
 @deal.ensure(lambda values, result: len(result) == len(values))
 def column_vector_as_2d(values: list[Any]) -> list[list[Any]]:
@@ -102,11 +118,25 @@ def pack_calc_range_envelope(
     return envelope
 
 
-@deal.pre(
-    lambda names: isinstance(names, list)
-    and len(names) <= _DEAL_GRID_DIM
-    and all(str_bounded(x, _DEAL_COL_NAME_LEN) for x in names)
-)
+def _deal_column_names_ok_pytest(names: object) -> bool:
+    # Wide sheets and long headers are real. The 256-name / token-length
+    # cap raised PreContractError inside to_pandas. The body dedupes any
+    # list of strings. CrossHair keeps the short list.
+    return True
+
+
+def _deal_column_names_ok_crosshair(names: object) -> bool:
+    return (
+        isinstance(names, list)
+        and len(names) <= _DEAL_GRID_DIM
+        and all(str_bounded(x, _DEAL_COL_NAME_LEN) for x in names)
+    )
+
+
+_deal_column_names_ok = _deal_column_names_ok_crosshair if UNDER_CROSSHAIR else _deal_column_names_ok_pytest
+
+
+@deal.pre(lambda names: _deal_column_names_ok(names))
 @deal.post(lambda result: isinstance(result, list) and len(set(result)) == len(result))
 def _dedupe_column_names(names: list[str]) -> list[str]:
     """Unique labels, one per input, on the default ``CalcRange.to_pandas`` path.
@@ -168,8 +198,19 @@ _deal_calc_range_other_ok = (
 )
 
 
-def _deal_binary_op_pre(self: Any, other: object) -> bool:
+def _deal_binary_op_pre_pytest(self: Any, other: object) -> bool:
+    # CalcRange.__init__ accepts a full sheet. Arithmetic then hit
+    # _deal_grid_values_ok (256 rows, scalar cells) and raised
+    # PreContractError. The body already does the operation. CrossHair
+    # keeps the 1×1 domain. ``self`` and ``other`` are unused here.
+    return True
+
+
+def _deal_binary_op_pre_crosshair(self: Any, other: object) -> bool:
     return _deal_grid_values_ok(self._values) and _deal_calc_range_other_ok(other)
+
+
+_deal_binary_op_pre = _deal_binary_op_pre_crosshair if UNDER_CROSSHAIR else _deal_binary_op_pre_pytest
 
 
 class CalcRange:
@@ -575,7 +616,12 @@ _deal_inner_grid_cell_ok = _deal_inner_grid_cell_ok_crosshair if UNDER_CROSSHAIR
 
 
 def _deal_json_list_of_grids_arg_ok_pytest(obj: object) -> bool:
-    return (not isinstance(obj, (list, tuple, str, bytes, dict, set))) or len(obj) <= DEAL_MAX_SHAPE_DIM
+    # materialize_inputs asks this before treating a wire as one range.
+    # A 257-row sheet is a list longer than DEAL_MAX_SHAPE_DIM. The old
+    # cap raised PreContractError instead of returning False (scalar cells
+    # are not a list of grids). CrossHair keeps the nested size cap.
+    # ``obj`` is unused.
+    return True
 
 
 def _deal_json_list_of_grids_arg_ok_crosshair(obj: object) -> bool:
@@ -600,20 +646,34 @@ _deal_json_list_of_grids_arg_ok = (
 )
 
 
-@deal.pre(
-    lambda inner: (type(inner) not in (list, tuple))
-    or (
-        len(inner) <= _DEAL_GRID_DIM
-        and all(
-            type(r) not in (list, tuple)
-            or (
-                len(r) <= _DEAL_GRID_DIM
-                and all(_deal_inner_grid_cell_ok(c) for c in r)
-            )
-            for r in inner
+def _deal_materialize_inner_ok_pytest(inner: object) -> bool:
+    # Worker grids are taller than DEAL_MAX_SHAPE_DIM and cells are not
+    # only str/int/float. The cap raised PreContractError inside
+    # materialize_calc_range. The body unpacks and rectangularizes.
+    # CrossHair keeps the 1×1 scalar domain. ``inner`` is unused.
+    return True
+
+
+def _deal_materialize_inner_ok_crosshair(inner: object) -> bool:
+    if type(inner) is not list and type(inner) is not tuple:
+        return True
+    rows = cast("list[Any] | tuple[Any, ...]", inner)
+    return len(rows) <= _DEAL_GRID_DIM and all(
+        type(r) not in (list, tuple)
+        or (
+            len(r) <= _DEAL_GRID_DIM
+            and all(_deal_inner_grid_cell_ok(c) for c in r)
         )
+        for r in rows
     )
+
+
+_deal_materialize_inner_ok = (
+    _deal_materialize_inner_ok_crosshair if UNDER_CROSSHAIR else _deal_materialize_inner_ok_pytest
 )
+
+
+@deal.pre(lambda inner: _deal_materialize_inner_ok(inner))
 def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     """Unpack split_grid / ndarray / nested lists to a rectangular ``list[list]``."""
     # crosshair: off  # Any/numpy/split_grid combinatorics; tiny list domain later (cover-all 33258921875: 575k lines)
@@ -696,29 +756,47 @@ def _is_json_list_of_grids(obj: Any) -> bool:
     return any(item and isinstance(item[0], (list, tuple)) and not isinstance(item[0], (str, bytes)) for item in obj)
 
 
-@deal.pre(
-    lambda columns, data=None, include_header=True, **__: type(columns) is list
-    and len(columns) <= _DEAL_GRID_DIM
-    and all(str_bounded(c, _DEAL_COL_NAME_LEN) for c in columns)
-    and (
-        data is None
-        or (
-            type(data) is list
-            and len(data) <= _DEAL_GRID_DIM
-            and all(
-                (
-                    type(row) is list
-                    and len(row) <= _DEAL_GRID_DIM
-                    and all(_deal_inner_grid_cell_ok(c) for c in row)
+def _deal_labeled_grid_ok_pytest(columns: object, data: object = None, include_header: object = True) -> bool:
+    # =PY dataframe egress is an arbitrary frame, not a 256-square of
+    # scalars. The cap raised PreContractError before the header row was
+    # built. CrossHair keeps the short grid. Arguments are unused.
+    return True
+
+
+def _deal_labeled_grid_ok_crosshair(
+    columns: object, data: object = None, include_header: object = True
+) -> bool:
+    return (
+        type(columns) is list
+        and len(columns) <= _DEAL_GRID_DIM
+        and all(str_bounded(c, _DEAL_COL_NAME_LEN) for c in columns)
+        and (
+            data is None
+            or (
+                type(data) is list
+                and len(data) <= _DEAL_GRID_DIM
+                and all(
+                    (
+                        type(row) is list
+                        and len(row) <= _DEAL_GRID_DIM
+                        and all(_deal_inner_grid_cell_ok(c) for c in row)
+                    )
+                    if type(row) is list
+                    else _deal_inner_grid_cell_ok(row)
+                    for row in data
                 )
-                if type(row) is list
-                else _deal_inner_grid_cell_ok(row)
-                for row in data
             )
         )
+        and type(include_header) is bool
     )
-    and type(include_header) is bool
+
+
+_deal_labeled_grid_ok = (
+    _deal_labeled_grid_ok_crosshair if UNDER_CROSSHAIR else _deal_labeled_grid_ok_pytest
 )
+
+
+@deal.pre(lambda columns, data=None, include_header=True, **__: _deal_labeled_grid_ok(columns, data, include_header))
 def dataframe_to_labeled_grid(
     columns: list[str],
     data: list[list[Any]] | list[Any] | None,

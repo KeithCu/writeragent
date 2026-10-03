@@ -275,3 +275,15 @@ def test_format_upsert_memory_chat_line_dropped_from_check_all_fqns():
     assert not any(f.endswith(".format_upsert_memory_chat_line") for f in fqns)
 
 
+def test_memory_arguments_longer_than_source_normalize():
+    from plugin.chatbot.memory import format_upsert_memory_chat_line, upsert_memory_arguments_dict
+    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+
+    content = "m" * (DEAL_MAX_SOURCE + 1)
+    args = {"key": "notes", "content": content, "extra": 1}
+    assert upsert_memory_arguments_dict(args) == args
+    line = format_upsert_memory_chat_line(args)
+    assert line.startswith("[Memory update:")
+    assert line.endswith("...\n") or "notes" in line
+
+

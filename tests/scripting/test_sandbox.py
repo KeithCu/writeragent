@@ -377,3 +377,19 @@ def test_optimize_pipe_noop_on_macos(mock_fcntl: MagicMock) -> None:
     optimize_pipe(5)
     mock_fcntl.assert_not_called()
 
+
+def test_scrub_env_and_workspace_path_accept_long_values(tmp_path) -> None:
+    """PATH and workspace paths are longer than the old deal caps."""
+    from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_PATH
+    from plugin.scripting.sandbox import is_safe_workspace_path, scrub_subprocess_env
+
+    env = scrub_subprocess_env({"PATH": "p" * (DEAL_MAX_ARGV + 1), "HOME": "/tmp"})
+    assert env["PATH"] == "p" * (DEAL_MAX_ARGV + 1)
+    assert env["PYTHONUTF8"] == "1"
+    root = tmp_path / ("d" * 40)
+    root.mkdir()
+    target = "t" * (DEAL_MAX_PATH + 1)
+    # A long relative name still resolves inside the root. The old pre
+    # raised before that check.
+    assert is_safe_workspace_path(target, str(root)) is True
+

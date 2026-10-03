@@ -23,6 +23,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
     DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
+    UNDER_CROSSHAIR,
     ascii_bounded,
     str_bounded,
     deal,
@@ -90,15 +91,27 @@ def user_profile_exists(ctx: Any) -> bool:
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
-@deal.pre(
-    lambda arguments, *_unused, **__: (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE))
-    or (
+def _deal_memory_args_ok_pytest(arguments: object) -> bool:
+    # Memory tool arguments are LLM JSON. Content longer than
+    # DEAL_MAX_SOURCE, or a key longer than a token, raised
+    # PreContractError before the dict/JSON normalize. The body returns
+    # None when the value is not a dict. CrossHair keeps the short domain.
+    return isinstance(arguments, (str, dict))
+
+
+def _deal_memory_args_ok_crosshair(arguments: object) -> bool:
+    return (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE)) or (
         isinstance(arguments, dict)
         and len(arguments) <= DEAL_MAX_CMD_ARGS
         and (not isinstance(arguments.get("key"), str) or str_bounded(arguments.get("key"), DEAL_MAX_TOKEN))
         and (not isinstance(arguments.get("content"), str) or str_bounded(arguments.get("content"), DEAL_MAX_SOURCE))
     )
-)
+
+
+_deal_memory_args_ok = _deal_memory_args_ok_crosshair if UNDER_CROSSHAIR else _deal_memory_args_ok_pytest
+
+
+@deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     # crosshair: off  # dict|JSON str Any still explodes (cover-all 33569420452: 4656 examples / ~503s est despite DEAL_MAX_SOURCE). Doable later: closed key set.
@@ -116,15 +129,7 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     return None
 
 
-@deal.pre(
-    lambda arguments, *_unused, **__: (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE))
-    or (
-        isinstance(arguments, dict)
-        and len(arguments) <= DEAL_MAX_CMD_ARGS
-        and (not isinstance(arguments.get("key"), str) or str_bounded(arguments.get("key"), DEAL_MAX_TOKEN))
-        and (not isinstance(arguments.get("content"), str) or str_bounded(arguments.get("content"), DEAL_MAX_SOURCE))
-    )
-)
+@deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
 @deal.post(lambda result: result is None or isinstance(result, str))
 def memory_key_from_tool_arguments(arguments: object) -> str | None:
     # crosshair: off  # wraps upsert_memory_arguments_dict (cover-all 33569420452: 4491 examples / ~485s est). Doable later.
@@ -136,11 +141,27 @@ def memory_key_from_tool_arguments(arguments: object) -> str | None:
     return k if isinstance(k, str) else None
 
 
-@deal.pre(
-    lambda func_args: hasattr(func_args, "get")
-    and (not isinstance(func_args.get("key"), str) or str_bounded(func_args.get("key"), DEAL_MAX_TOKEN))
-    and (not isinstance(func_args.get("content"), str) or str_bounded(func_args.get("content"), DEAL_MAX_SOURCE))
+def _deal_memory_chat_line_ok_pytest(func_args: object) -> bool:
+    return hasattr(func_args, "get")
+
+
+def _deal_memory_chat_line_ok_crosshair(func_args: object) -> bool:
+    get = getattr(func_args, "get", None)
+    if not callable(get):
+        return False
+    key = get("key")
+    content = get("content")
+    return (not isinstance(key, str) or str_bounded(key, DEAL_MAX_TOKEN)) and (
+        not isinstance(content, str) or str_bounded(content, DEAL_MAX_SOURCE)
+    )
+
+
+_deal_memory_chat_line_ok = (
+    _deal_memory_chat_line_ok_crosshair if UNDER_CROSSHAIR else _deal_memory_chat_line_ok_pytest
 )
+
+
+@deal.pre(lambda func_args: _deal_memory_chat_line_ok(func_args))
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when upsert_memory starts (main chat tool loop)."""
@@ -162,15 +183,7 @@ def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
     return f"[Memory update: key {key!r} value {one_line!r}]\n"
 
 
-@deal.pre(
-    lambda arguments, *_unused, **__: (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE))
-    or (
-        isinstance(arguments, dict)
-        and len(arguments) <= DEAL_MAX_CMD_ARGS
-        and (not isinstance(arguments.get("key"), str) or str_bounded(arguments.get("key"), DEAL_MAX_TOKEN))
-        and (not isinstance(arguments.get("content"), str) or str_bounded(arguments.get("content"), DEAL_MAX_SOURCE))
-    )
-)
+@deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line_from_arguments(arguments: object) -> str:
     # crosshair: off
