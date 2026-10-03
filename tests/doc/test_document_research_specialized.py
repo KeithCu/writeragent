@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from unittest.mock import MagicMock, patch
 
 from plugin.calc.specialized import DelegateToSpecializedCalc
@@ -595,6 +597,45 @@ def test_delegate_read_document_skips_close_when_reusing_open_doc(
     result = r.get("delegate_read_document").execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
     assert result["status"] == "ok"
     mock_close.assert_called_once_with(reused_model, opened_for_document_research=False)
+
+
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "result": "42"})
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+def test_delegate_read_document_opens_file_url_from_listing(
+    mock_main,
+    mock_open,
+    mock_close,
+    mock_inner,
+):
+    """A file URL returned by list_nearby_files / list_open_documents must open."""
+    from plugin.framework.url_utils import path_to_file_url
+
+    with tempfile.TemporaryDirectory() as tmp:
+        budget = os.path.join(tmp, "Budget.ods")
+        with open(budget, "wb"):
+            pass
+        file_url = path_to_file_url(budget)
+        opened_model = MagicMock()
+        mock_open.return_value = (opened_model, "calc", None, True)
+
+        r = ToolRegistry(services={})
+        r.register(DelegateReadDocument())
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.services = {"tools": r}
+
+        with patch("plugin.doc.document_research.uno.fileUrlToSystemPath", return_value=budget):
+            result = r.get("delegate_read_document").execute_safe(ctx, path_or_name=file_url, task="Q4")
+
+    assert result["status"] == "ok"
+    assert result["result"] == "42"
+    target = mock_open.call_args.args[1]
+    assert target.startswith("file://")
+    assert target == path_to_file_url(os.path.normpath(budget))
+    mock_inner.assert_called_once()
 
 
 def test_get_open_documents():
