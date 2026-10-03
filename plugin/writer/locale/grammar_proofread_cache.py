@@ -181,11 +181,13 @@ def _populate_memory_cache_only(
     sentence: str,
     errors: list[dict[str, Any]],
     checker_identity: str | None = None,
-) -> tuple[str, str, bool, str, list[dict[str, Any]]]:
+) -> tuple[str, str, bool, list[dict[str, Any]]]:
     """Internal: populate memory cache only, no persistence, no compaction.
 
     Used by cache_get_sentence to warm cache from persistence without side effects.
-    Returns (fp, canon, is_complete, key, clipped_errors).
+    Returns the 4-tuple stored in ``sentence_cache``:
+    ``(fp, canon, is_complete, clipped_errors)``. The OrderedDict key is not
+    part of that value.
     """
     canon = _normalize_for_sentence_cache(sentence)
     fp = fingerprint_for_text(canon)
@@ -200,7 +202,7 @@ def _populate_memory_cache_only(
         while len(grammar_registry.sentence_cache) > MAX_CACHE_SIZE:
             grammar_registry.sentence_cache.popitem(last=False)
 
-    return fp, canon, is_complete, key, cloned_errors
+    return fp, canon, is_complete, cloned_errors
 
 
 def _align_persistence_identity(p: Any, ident: str) -> None:
@@ -233,14 +235,16 @@ def cache_get_sentence(
             p = get_persistence(ctx, doc_id)
             if p:
                 _align_persistence_identity(p, ident)
-                p.mark_accessed(fp)
+                p.mark_accessed(fp, locale_key)
         return result
 
     if ctx and doc_id:
         p = get_persistence(ctx, doc_id)
         if p:
             _align_persistence_identity(p, ident)
-            persisted = p.get(fp)
+            # L2 is (locale, fingerprint). Fingerprint alone would return the
+            # other CharLocale's errors, including a good (empty) row.
+            persisted = p.get(fp, locale_key)
             if persisted is not None:
                 _populate_memory_cache_only(locale_key, sentence, persisted, ident)
                 return list(persisted)
@@ -259,7 +263,7 @@ def cache_put_sentence(
     """Cache errors for this sentence text (errors must have offsets relative to sentence start)."""
     ident = resolve_checker_identity(checker_identity)
     # Tier 1 (global LRU) + Tier 2 (document persistence): always warm L1; L2 when doc_id is set.
-    fp, canon, is_complete, _key, clipped_errors = _populate_memory_cache_only(
+    fp, canon, is_complete, clipped_errors = _populate_memory_cache_only(
         locale_key, sentence, errors, ident
     )
 

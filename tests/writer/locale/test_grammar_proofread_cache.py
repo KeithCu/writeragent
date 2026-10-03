@@ -264,7 +264,7 @@ def test_l1_hit_records_session_accessed_for_doc() -> None:
         got = gc.cache_get_sentence("en-US", "Track me.", ctx=ctx, doc_id="doc-track")
         assert got == []
         fp = gc.sentence_identity_fp("Track me.")
-        assert fp in dp._session_accessed
+        assert ("en-US", fp) in dp._session_accessed
 
 
 def test_cache_clear_does_not_register_empty_persistence() -> None:
@@ -332,4 +332,29 @@ def test_recheck_active_document_grammar_broadcasts_from_live_proofreader() -> N
         pr.broadcast_proofread_again.assert_called_once()
     finally:
         grammar_registry.live_proofreaders.discard(pr)
+
+
+def test_l2_same_sentence_is_locale_specific() -> None:
+    """L1 miss must not serve another CharLocale's L2 errors or good row."""
+    from plugin.writer.locale.grammar_persistence import DocumentPersistence
+
+    ctx = MagicMock()
+    model = MagicMock()
+    with patch("plugin.doc.udprops.get_document_property", return_value=None):
+        dp = DocumentPersistence(ctx, "doc-locales", model=model)
+    en_errors = [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "en-rule"}]
+    fr_errors = [{"n_error_start": 1, "n_error_length": 2, "rule_identifier": "fr-rule"}]
+    with patch("plugin.writer.locale.grammar_proofread_cache.get_persistence", return_value=dp):
+        gc.cache_put_sentence("en-US", "Bonjour.", en_errors, ctx=ctx, doc_id="doc-locales")
+        gc.cache_put_sentence("fr-FR", "Bonjour.", fr_errors, ctx=ctx, doc_id="doc-locales")
+        gc.cache_put_sentence("en-US", "Clean sentence.", [], ctx=ctx, doc_id="doc-locales")
+        gc.dump_l1_sentence_cache()
+        got_en = gc.cache_get_sentence("en-US", "Bonjour.", ctx=ctx, doc_id="doc-locales")
+        got_fr = gc.cache_get_sentence("fr-FR", "Bonjour.", ctx=ctx, doc_id="doc-locales")
+        got_clean_fr = gc.cache_get_sentence("fr-FR", "Clean sentence.", ctx=ctx, doc_id="doc-locales")
+        got_clean_en = gc.cache_get_sentence("en-US", "Clean sentence.", ctx=ctx, doc_id="doc-locales")
+    assert got_en is not None and got_en[0]["rule_identifier"] == "en-rule"
+    assert got_fr is not None and got_fr[0]["rule_identifier"] == "fr-rule"
+    assert got_clean_fr is None
+    assert got_clean_en == []
 
