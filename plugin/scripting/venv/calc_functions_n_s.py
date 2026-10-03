@@ -12,7 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import re
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 import numpy as np
 
@@ -136,9 +136,17 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
             if char == "1":
                 wk_days.add(i)
     else:
-        w_idx = int(float(weekend))
+        try:
+            w_idx = int(float(weekend))
+        except (ValueError, TypeError, OverflowError):
+            return float("nan")
+        # Excel weekend codes. An unknown code used to fall back to Sat/Sun
+        # (mapping.get default), so NETWORKDAYS.INTL(…, 8) looked like weekend 1.
+        # Excel returns #NUM!; this module uses NaN.
         mapping = {1: (5, 6), 2: (6, 0), 3: (0, 1), 4: (1, 2), 5: (2, 3), 6: (3, 4), 7: (4, 5), 11: (6,), 12: (0,), 13: (1,), 14: (2,), 15: (3,), 16: (4,), 17: (5,)}
-        wk_days.update(mapping.get(w_idx, (5, 6)))
+        if w_idx not in mapping:
+            return float("nan")
+        wk_days.update(mapping[w_idx])
 
     h_dates: set[dt.date] = set()
     if holidays is not None:
@@ -251,7 +259,15 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
 
 
 def npv(rate: Any, *args: Any) -> float:
-    r = float(rate)
+    # Text rate used to raise ValueError from the bare float() call. rate == -1
+    # makes every denominator (1 + r) ** k zero and raised ZeroDivisionError.
+    # Both are Excel #VALUE! / #NUM!, returned here as NaN.
+    try:
+        r = float(rate)
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    if r == -1.0:
+        return float("nan")
     vals = []
     for arg in args:
         for v in np.asarray(arg).ravel():
@@ -260,8 +276,11 @@ def npv(rate: Any, *args: Any) -> float:
             except (ValueError, TypeError):
                 vals.append(0.0)
     res = 0.0
-    for i, v in enumerate(vals):
-        res += v / ((1 + r) ** (i + 1))
+    try:
+        for i, v in enumerate(vals):
+            res += v / ((1 + r) ** (i + 1))
+    except (ZeroDivisionError, OverflowError, ValueError):
+        return float("nan")
     return float(res)
 
 
@@ -279,8 +298,12 @@ def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
 
 
 def odd(n: Any) -> float:
-    v = float(n)
-    i = int(np.trunc(v))
+    # Text cells used to raise from the unguarded float()/int() coercion.
+    try:
+        v = float(n)
+        i = int(np.trunc(v))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     if i % 2 != 0:
         return float(i)
     return float(i + (1 if v >= 0 else -1))
@@ -300,6 +323,10 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
         f = float(frequency)
         b = int(float(basis))
     except (ValueError, TypeError):
+        return float("nan")
+    # frequency 0 used to reach `r / f` and `y / f` (ZeroDivisionError). The
+    # `n <= 0` check below only hides that when years is finite. Excel #NUM!.
+    if f == 0:
         return float("nan")
     # basic PV approximation
     days_to_mat = _days_between(s, m, b)
@@ -353,6 +380,9 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
         f = float(frequency)
         b = int(float(basis))
     except (ValueError, TypeError):
+        return float("nan")
+    # frequency 0 used to raise ZeroDivisionError on `360 / f` and `y / f`.
+    if f == 0:
         return float("nan")
 
     days_in_reg_period = 365.25 / f if b == 1 else 360.0 / f
@@ -449,11 +479,15 @@ def permut(n: Any, k: Any) -> float:
 
 
 def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
-    r = float(rate)
-    n = float(nper)
-    p = float(pv)
-    f = float(fv_val)
-    t = int(float(type_val))
+    # Same guard as nper: a text cell used to raise ValueError from float().
+    try:
+        r = float(rate)
+        n = float(nper)
+        p = float(pv)
+        f = float(fv_val)
+        t = int(float(type_val))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     if r == 0:
         return float(-(p + f) / n)
     factor = (1 + r) ** n
@@ -495,11 +529,15 @@ def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float
 
 
 def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
-    r = float(rate)
-    n = float(nper)
-    pm = float(pmt_val)
-    f = float(fv_val)
-    t = int(float(type_val))
+    # Same guard as nper: a text cell used to raise ValueError from float().
+    try:
+        r = float(rate)
+        n = float(nper)
+        pm = float(pmt_val)
+        f = float(fv_val)
+        t = int(float(type_val))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     if r == 0:
         return float(-(f + pm * n))
     factor = (1 + r) ** n
@@ -509,20 +547,31 @@ def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -
 
 
 def quartile(r: Any, q: Any) -> float:
+    # Non-numeric quart used to raise ValueError from float(). Out-of-range
+    # quart fell through to `qi * 25` and np.percentile raised ValueError
+    # (percentile outside 0..100). Excel QUARTILE returns #NUM! for both.
+    try:
+        qi = int(float(q))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    if qi < 0 or qi > 4:
+        return float("nan")
     arr = np.asarray(r, dtype=float).ravel()
     arr = arr[~np.isnan(arr)]
-    qi = int(float(q))
-    pct = {0: 0.0, 1: 25.0, 2: 50.0, 3: 75.0, 4: 100.0}.get(qi, float(qi) * 25.0)
+    pct = (0.0, 25.0, 50.0, 75.0, 100.0)[qi]
     return float(np.percentile(arr, pct)) if len(arr) else float("nan")
 
 
 def rank(val: Any, r: Any, order: int | float = 0) -> float:
-    arr = [float(x) for x in np.asarray(r).ravel() if x is not None and x != ""]
+    # The list comprehension called float() with no guard, so a text cell in
+    # the range raised ValueError before the target try/except could run.
     try:
+        arr = [float(x) for x in np.asarray(r).ravel() if x is not None and x != ""]
         target = float(val)
-    except (ValueError, TypeError):
+        descending = int(float(order)) == 0
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
-    if int(float(order)) == 0:
+    if descending:
         arr.sort(reverse=True)
     else:
         arr.sort()
@@ -532,42 +581,57 @@ def rank(val: Any, r: Any, order: int | float = 0) -> float:
         return float("nan")
 
 
-def regex(text: Any, expr: Any, replacement: Any | None = None, flags: str = "") -> str:
-    if text is None:
-        text = ""
-    text_str = str(text)
-    expr_str = str(expr)
-    re_flags = 0
-    if "i" in str(flags).lower():
-        re_flags |= re.IGNORECASE
-    if replacement is None:
-        if "g" in str(flags).lower():
-            matches = re.findall(expr_str, text_str, flags=re_flags)
-            if not matches:
-                return ""
-            if isinstance(matches[0], tuple):
-                return ", ".join("".join(m) for m in matches)
-            return ", ".join(matches)
-        m = re.search(expr_str, text_str, flags=re_flags)
-        if m:
-            return m.group(1) if m.groups() else m.group(0)
-        return ""
-    rep_str = str(replacement)
-    if "g" in str(flags).lower():
-        return re.sub(expr_str, rep_str, text_str, flags=re_flags)
-    return re.sub(expr_str, rep_str, text_str, count=1, flags=re_flags)
-
-
-def rept(text: Any, n: Any) -> str:
+def regex(text: Any, expr: Any, replacement: Any | None = None, flags: str = "") -> str | float:
+    # re.error (re.PatternError on 3.13, an alias of re.error) from an invalid
+    # pattern or a bad replacement backref used to propagate out of findall /
+    # search / sub. Callers expect the module NaN error value.
     try:
-        return str(text) * int(float(n))
+        if text is None:
+            text = ""
+        text_str = str(text)
+        expr_str = str(expr)
+        re_flags = 0
+        if "i" in str(flags).lower():
+            re_flags |= re.IGNORECASE
+        if replacement is None:
+            if "g" in str(flags).lower():
+                matches = re.findall(expr_str, text_str, flags=re_flags)
+                if not matches:
+                    return ""
+                if isinstance(matches[0], tuple):
+                    return ", ".join("".join(m) for m in matches)
+                return ", ".join(matches)
+            m = re.search(expr_str, text_str, flags=re_flags)
+            if m:
+                return m.group(1) if m.groups() else m.group(0)
+            return ""
+        rep_str = str(replacement)
+        if "g" in str(flags).lower():
+            return re.sub(expr_str, rep_str, text_str, flags=re_flags)
+        return re.sub(expr_str, rep_str, text_str, count=1, flags=re_flags)
+    except re.error:
+        return float("nan")
+
+
+def rept(text: Any, n: Any) -> str | float:
+    try:
+        count = int(float(n))
     except (ValueError, TypeError, OverflowError):
         return ""
+    # `"text" * -1` is "" in Python and does not raise. Excel REPT truncates
+    # first, then returns #VALUE! when the count is still negative.
+    if count < 0:
+        return float("nan")
+    return str(text) * count
 
 
 def rsq(data_y: Any, data_x: Any) -> float:
-    y = np.asarray(data_y, dtype=float).ravel()
-    x = np.asarray(data_x, dtype=float).ravel()
+    # dtype=float raises ValueError on a text cell. Return NaN instead.
+    try:
+        y = np.asarray(data_y, dtype=float).ravel()
+        x = np.asarray(data_x, dtype=float).ravel()
+    except (ValueError, TypeError):
+        return float("nan")
     mask = ~np.isnan(y) & ~np.isnan(x)
     y, x = y[mask], x[mask]
     if len(y) < 2:
@@ -628,8 +692,12 @@ def skew(*args: Any) -> float:
 
 
 def slope(data_y: Any, data_x: Any) -> float:
-    y = np.asarray(data_y, dtype=float).ravel()
-    x = np.asarray(data_x, dtype=float).ravel()
+    # dtype=float raises ValueError on a text cell. Return NaN instead.
+    try:
+        y = np.asarray(data_y, dtype=float).ravel()
+        x = np.asarray(data_x, dtype=float).ravel()
+    except (ValueError, TypeError):
+        return float("nan")
     mask = ~np.isnan(y) & ~np.isnan(x)
     y, x = y[mask], x[mask]
     if len(y) < 2:
@@ -641,8 +709,12 @@ def slope(data_y: Any, data_x: Any) -> float:
 
 
 def small(r: Any, k: Any) -> float:
-    arr = sorted([float(x) for x in np.asarray(r).ravel() if x is not None and x != ""])
-    ki = int(float(k))
+    # float() on a text cell, or a non-numeric k, used to raise ValueError.
+    try:
+        arr = sorted(float(x) for x in np.asarray(r).ravel() if x is not None and x != "")
+        ki = int(float(k))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     return float(arr[ki - 1]) if 0 < ki <= len(arr) else float("nan")
 
 
@@ -656,29 +728,98 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
         out = np.sort(arr) if asc else np.sort(arr)[::-1]
         return out.tolist()
     if bool(by_col):
-        order = np.argsort(arr[:, si] if si < arr.shape[1] else arr[:, 0])
+        # Excel SORT(..., by_col=TRUE) orders columns by the sort_index-th ROW
+        # (arr[si, :]). The old path keyed off a column (arr[:, si]) and then
+        # transposed, so both the permutation and the result shape were wrong.
+        key = arr[si, :] if si < arr.shape[0] else arr[0, :]
+        order = np.argsort(key)
         if not asc:
             order = order[::-1]
-        return arr[:, order].T.tolist()
+        return arr[:, order].tolist()
     order = np.argsort(arr[:, si] if si < arr.shape[1] else arr[:, 0])
     if not asc:
         order = order[::-1]
     return arr[order].tolist()
 
 
-def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: Any) -> list[Any]:
+def _sort_order_sign(val: Any) -> int | None:
+    """Scalar Excel sort direction, or None when ``val`` is a by_array.
+
+    Positive and zero are ascending; negative is descending. Lists, tuples, and
+    ndarrays are keys, so an omitted sort_order can be told apart from the next
+    by_array in ``SORTBY(array, by1, [order1], by2, [order2], ...)``.
+    """
+    if isinstance(val, (bool, np.ndarray, list, tuple)):
+        return None
+    try:
+        num = float(val)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    if math.isnan(num) or math.isinf(num):
+        return None
+    return 1 if num >= 0 else -1
+
+
+def _index_key(flat: Any) -> Callable[[int], Any]:
+    def _key(i: int) -> Any:
+        return flat[i]
+
+    return _key
+
+
+def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: Any) -> list[Any] | float:
     arr = np.asarray(range_arr)
-    by = np.asarray(by_array).ravel()
-    asc = int(float(sort_order)) >= 0
-    if arr.ndim == 1:
-        order = np.argsort(by[: len(arr)])
-        if not asc:
-            order = order[::-1]
-        return arr.ravel()[order].tolist()
-    order = np.argsort(by[: arr.shape[0]])
-    if not asc:
-        order = order[::-1]
-    return arr[order].tolist()
+    if arr.size == 0:
+        return []
+    # *extra used to be ignored, so by_array2/sort_order2 never affected the order.
+    specs: list[tuple[Any, int]] = []
+    rest: list[Any] = list(extra)
+    primary = _sort_order_sign(sort_order)
+    if primary is None:
+        specs.append((by_array, 1))
+        rest.insert(0, sort_order)
+    else:
+        specs.append((by_array, primary))
+    idx = 0
+    while idx < len(rest):
+        key = rest[idx]
+        sign = 1
+        if idx + 1 < len(rest):
+            nxt = _sort_order_sign(rest[idx + 1])
+            if nxt is not None:
+                sign = nxt
+                idx += 1
+        specs.append((key, sign))
+        idx += 1
+
+    n = int(arr.shape[0] if arr.ndim > 1 else arr.size)
+    keys: list[tuple[Any, bool]] = []
+    for key, sign in specs:
+        flat = np.asarray(key).ravel()
+        # Slicing a shorter key and indexing arr[order] dropped the leftover
+        # rows. Excel returns #VALUE! when a by_array length does not match.
+        if int(flat.size) != n:
+            return float("nan")
+        keys.append((flat, sign >= 0))
+
+    try:
+        if len(keys) == 1:
+            flat, asc = keys[0]
+            order_arr = np.argsort(flat)
+            if not asc:
+                order_arr = order_arr[::-1]
+        else:
+            # Stable sort from the last key back to the first so ties keep the
+            # secondary order. A single np.argsort cannot see those keys.
+            order_list = list(range(n))
+            for flat, asc in reversed(keys):
+                order_list.sort(key=_index_key(flat), reverse=not asc)
+            order_arr = np.asarray(order_list)
+        if arr.ndim == 1:
+            return arr.ravel()[order_arr].tolist()
+        return arr[order_arr].tolist()
+    except (TypeError, ValueError):
+        return float("nan")
 
 
 def sqrtpi(number: Any) -> float:
@@ -731,8 +872,12 @@ def steyx(data_y: Any, data_x: Any) -> float:
     from plugin.scripting.venv.calc_functions_i_m import intercept
     from plugin.scripting.venv.calc_functions_n_s import slope
 
-    y = np.asarray(data_y, dtype=float).ravel()
-    x = np.asarray(data_x, dtype=float).ravel()
+    # dtype=float raises ValueError on a text cell. Return NaN instead.
+    try:
+        y = np.asarray(data_y, dtype=float).ravel()
+        x = np.asarray(data_x, dtype=float).ravel()
+    except (ValueError, TypeError):
+        return float("nan")
     mask = ~np.isnan(y) & ~np.isnan(x)
     y, x = y[mask], x[mask]
     n = len(y)
@@ -804,6 +949,10 @@ def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
 def sumifs(sr: Any, *args: Any) -> float:
     from plugin.scripting.venv.calc_functions_i_m import match_criteria
 
+    # Arguments after the sum range are (criteria_range, criteria) pairs.
+    # An odd tail used to IndexError on args[i + 1]. Excel returns #VALUE!.
+    if len(args) % 2 != 0:
+        return float("nan")
     sr_flat = np.asarray(sr).ravel()
     cond_ranges = []
     criteria = []
@@ -828,14 +977,19 @@ def sumifs(sr: Any, *args: Any) -> float:
 
 
 def sumproduct(*args: Any) -> float:
-    arrays = [np.asarray(a).ravel() for a in args]
+    arrays = [np.asarray(a) for a in args]
     if not arrays:
         return 0.0
-    min_len = min(len(a) for a in arrays)
+    # Excel SUMPRODUCT returns #VALUE! when the arrays are not the same shape.
+    # Ravelling and stopping at min_len used to drop the tail and return a partial sum.
+    shape = arrays[0].shape
+    if any(a.shape != shape for a in arrays):
+        return float("nan")
+    flat = [a.ravel() for a in arrays]
     total = 0.0
-    for i in range(min_len):
+    for i in range(flat[0].size):
         prod = 1.0
-        for arr in arrays:
+        for arr in flat:
             try:
                 prod *= float(arr[i])
             except (ValueError, TypeError):
