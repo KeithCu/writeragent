@@ -343,6 +343,68 @@ def test_run_python_monaco_on_save_persists_doc_script_with_prefix():
     mock_doc_save.assert_called_once_with(doc, "Regional", "new_code")
 
 
+def test_run_python_monaco_on_save_errors_when_script_was_deleted():
+    """A library name in neither store must not report Save as success."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    captured: dict = {}
+
+    def fake_launch(_ctx, *, exe, load_message, on_save, on_closed=None):
+        captured["on_save"] = on_save
+        return True
+
+    with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
+        with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
+            with patch("plugin.scripting.document_scripts.save_document_script") as mock_doc_save:
+                with patch.object(pr, "get_config_str", return_value="Gone"):
+                    with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
+                        with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}):
+                            pr._run_python_monaco(
+                                ctx,
+                                doc,
+                                initial_code="old",
+                                selected_script_name="Gone",
+                                exe="/venv/bin/python",
+                            )
+                            response = captured["on_save"]("new", False, None, "save")
+
+    mock_save.assert_not_called()
+    mock_doc_save.assert_not_called()
+    assert response["type"] == "error"
+    assert "Gone" in response["message"]
+    assert "not saved" in response["message"]
+
+
+def test_run_python_monaco_on_save_builtin_still_runs():
+    """Built-in templates are not library scripts; Run still executes the buffer."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    captured: dict = {}
+
+    def fake_launch(_ctx, *, exe, load_message, on_save, on_closed=None):
+        captured["on_save"] = on_save
+        return True
+
+    with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
+        with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
+            with patch.object(pr, "execute_and_insert_result", return_value={"ok": True, "status_ok_text": "done"}) as mock_run:
+                with patch.object(pr, "get_config_str", return_value="[Vision] extract_text"):
+                    with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
+                        with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}):
+                            pr._run_python_monaco(
+                                ctx,
+                                doc,
+                                initial_code="# wa_vision extract_text",
+                                selected_script_name="[Vision] extract_text",
+                                exe="/venv/bin/python",
+                            )
+                            response = captured["on_save"]("print(1)", False, None, "run")
+
+    mock_save.assert_not_called()
+    mock_run.assert_called_once()
+    assert response == {"type": "saved", "ok": True, "status_ok_text": "done"}
+
+
 def test_execute_and_insert_result_returns_error_on_failure():
     ctx = MagicMock()
     with patch.object(pr, "run_code_in_user_venv", return_value={"status": "error", "message": "boom"}):
