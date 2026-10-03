@@ -594,8 +594,13 @@ def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | N
             w_idx = int(float(weekend))
         except (ValueError, TypeError, OverflowError):
             return float("nan")
+        # Excel weekend codes. An unknown code used to fall back to Sat/Sun
+        # (mapping.get default), so WORKDAY.INTL(…, 8) looked like weekend 1.
+        # Excel returns #NUM!; this module uses NaN. Same as networkdays_intl.
         mapping = {1: (5, 6), 2: (6, 0), 3: (0, 1), 4: (1, 2), 5: (2, 3), 6: (3, 4), 7: (4, 5), 11: (6,), 12: (0,), 13: (1,), 14: (2,), 15: (3,), 16: (4,), 17: (5,)}
-        wk_days.update(mapping.get(w_idx, (5, 6)))
+        if w_idx not in mapping:
+            return float("nan")
+        wk_days.update(mapping[w_idx])
 
     h_dates: set[dt.date] = set()
     if holidays is not None:

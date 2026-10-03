@@ -706,12 +706,16 @@ def small(r: Any, k: Any) -> float:
     return float(arr[ki - 1]) if 0 < ki <= len(arr) else float("nan")
 
 
-def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 1, by_col: bool = False) -> list[Any]:
+def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 1, by_col: bool = False) -> list[Any] | float:
     arr = np.asarray(range_arr)
     if arr.size == 0:
         return []
-    si = max(1, int(float(sort_index))) - 1
-    asc = int(float(sort_order)) >= 0
+    # int(float()) on text or a blank sort_index/order used to raise ValueError.
+    try:
+        si = max(1, int(float(sort_index))) - 1
+        asc = int(float(sort_order)) >= 0
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     if arr.ndim == 1:
         out = np.sort(arr) if asc else np.sort(arr)[::-1]
         return out.tolist()

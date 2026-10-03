@@ -473,10 +473,12 @@ def dvarp(db: Any, field: Any, criteria: Any) -> float:
 def edate(start_date: Any, months: Any) -> float:
     try:
         date_val = dt.date.fromordinal(int(float(start_date)) + 693594)
+        # months sat outside this try, so a blank or text months cell raised.
+        month_delta = int(float(months))
     except Exception:
         return float("nan")
     y, m = date_val.year, date_val.month
-    m += int(float(months))
+    m += month_delta
     y += (m - 1) // 12
     m = (m - 1) % 12 + 1
     d = min(date_val.day, [31, 29 if y % 4 == 0 and (y % 100 != 0 or y % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1])
@@ -506,10 +508,12 @@ def encodeurl(text: Any) -> str | float:
 def eomonth(start_date: Any, months: Any) -> float:
     try:
         date_val = dt.date.fromordinal(int(float(start_date)) + 693594)
+        # months sat outside this try, so a blank or text months cell raised.
+        month_delta = int(float(months))
     except Exception:
         return float("nan")
     y, m = date_val.year, date_val.month
-    m += int(float(months))
+    m += month_delta
     y += (m - 1) // 12
     m = (m - 1) % 12 + 1
     if m == 12:

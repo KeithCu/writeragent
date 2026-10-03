@@ -88,6 +88,10 @@ __all__ = [
 def _coup_days_in_period(frequency: Any, basis: Any) -> float:
     f = int(float(frequency))
     b = int(float(basis))
+    # Zero used to divide by zero. A negative frequency made days_in_period
+    # negative, so _get_coupon_dates walked prev_ord upward and never returned.
+    if f <= 0:
+        return float("nan")
     if b in (0, 2, 4):
         return 360.0 / f
     if b == 3:
@@ -224,6 +228,10 @@ def _get_coupon_dates(settlement: Any, maturity: Any, frequency: Any, basis: Any
 
     # Approx based on frequency days
     days_in_period = _coup_days_in_period(frequency, basis)
+    # Non-positive (including the NaN from a bad frequency) must not enter the
+    # walk: subtracting a negative step increases prev_ord forever.
+    if not math.isfinite(days_in_period) or days_in_period <= 0:
+        raise ValueError("non-positive coupon frequency")
 
     # walk backwards from maturity
     curr_ord = float(mat_ord)
