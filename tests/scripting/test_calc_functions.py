@@ -675,3 +675,159 @@ def test_imlog2_zero_is_value_error():
     assert calc.imlog10("0") == "#VALUE!"
     assert calc.imlog2("8") == "3.0"
 
+
+def _calc_serial(year: int, month: int, day: int) -> int:
+    import datetime as dt
+
+    return dt.date(year, month, day).toordinal() - 693594
+
+
+def test_text_numeric_formats_round_half_away_and_keep_separators():
+    assert calc.text(1234.5, "0.00") == "1234.50"
+    assert calc.text(1234.5, "0") == "1235"
+    assert calc.text(1234.5, "#,##0") == "1,235"
+    from plugin.scripting.venv.calc_functions_t_z import fmt
+
+    assert fmt(1234.5, "0.00") == "1234.50"
+    assert calc.text(1.5, "0") == "2"
+    assert calc.text(2.5, "0") == "3"
+    assert calc.text(-1.5, "0") == "-2"
+    assert calc.text(-1234.5, "0.00") == "-1234.50"
+    assert calc.text(-1234.5, "#,##0") == "-1,235"
+    assert calc.text(0.4, "0") == "0"
+    assert calc.text(-0.4, "0") == "0"
+    assert calc.text(1234.567, "0.00") == "1234.57"
+    assert calc.text(999.5, "#,##0") == "1,000"
+    assert calc.text("abc", "0") == "abc"
+    # Non-numeric specs are unchanged. 45292 is 2024-01-01 on the Calc epoch.
+    assert calc.text(45292, "MMMM") == "January"
+
+
+def test_type_errors_are_16_and_hash_text_is_text():
+    assert calc.type(1) == 1.0
+    assert calc.type(True) == 4.0
+    assert calc.type("hello") == 2.0
+    assert calc.type("") == 2.0
+    assert calc.type("#hashtag") == 2.0
+    assert calc.type(None) == 1.0
+    for token in ("#N/A", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#NULL!"):
+        assert calc.type(token) == 16.0
+    assert calc.type(float("nan")) == 16.0
+    assert calc.type([1.0, 2.0]) == 64.0
+
+
+def test_time_wraps_modulo_one_day_and_rejects_negative_remainder():
+    assert calc.time(24, 0, 0) == 0.0
+    assert calc.time(48, 0, 0) == 0.0
+    assert calc.time(0, 0, 0) == 0.0
+    assert math.isclose(calc.time(25, 0, 0), 1.0 / 24.0)
+    assert math.isclose(calc.time(12, 0, 0), 0.5)
+    assert math.isclose(calc.time(1, -30, 0), 0.5 / 24.0)
+    assert math.isclose(calc.time(0, 90, 0), 1.5 / 24.0)
+    assert calc.time(23, 59, 60) == 0.0
+    assert math.isclose(calc.time(-1, 120, 0), 1.0 / 24.0)
+    assert calc.time(-0.5, 30, 0) == 0.0
+    assert math.isclose(calc.time(1.9, 0, 0), 1.9 / 24.0)
+    assert math.isnan(calc.time(-1, 0, 0))
+    assert math.isnan(calc.time(0, -1, 0))
+    assert math.isnan(calc.time(0, 0, -0.5))
+    assert math.isnan(calc.time("x", 0, 0))
+
+
+def test_trimmean_text_or_bad_percent_is_nan():
+    assert math.isnan(calc.trimmean(["a", 1.0, 2.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, "#VALUE!", 3.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, 2.0, 3.0], "bad"))
+    assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.4) == 3.0
+
+
+def test_weekday_return_types_and_weeknum_modes():
+    sunday = _calc_serial(2023, 1, 1)
+    monday = _calc_serial(2023, 1, 2)
+    assert calc.weekday(sunday, 1) == 1.0
+    assert calc.weekday(sunday, 2) == 7.0
+    assert calc.weekday(sunday, 3) == 6.0
+    assert calc.weekday(monday, 3) == 0.0
+    assert calc.weekday(sunday, 11) == 7.0
+    assert calc.weekday(sunday, 12) == 6.0
+    assert calc.weekday(sunday, 13) == 5.0
+    assert calc.weekday(sunday, 17) == 1.0
+    assert calc.weekday(_calc_serial(2023, 1, 7), 16) == 1.0
+    assert math.isnan(calc.weekday(sunday, 4))
+
+    jan1_1995 = _calc_serial(1995, 1, 1)
+    assert calc.weeknum(jan1_1995, 1) == 1.0
+    assert calc.weeknum(jan1_1995, 2) == 1.0
+    assert calc.weeknum(jan1_1995, 21) == 52.0
+    assert calc.weeknum(jan1_1995, 150) == calc.isoweeknum(jan1_1995)
+    assert calc.weeknum(_calc_serial(1999, 1, 1), 21) == 53.0
+    dec_2023 = _calc_serial(2023, 12, 31)
+    assert calc.weeknum(dec_2023, 1) == 1.0
+    assert calc.weeknum(dec_2023, 2) == 53.0
+    assert calc.weeknum(dec_2023, 21) == 52.0
+    dec_2016 = _calc_serial(2016, 12, 31)
+    assert calc.weeknum(dec_2016, 1) == 53.0
+    assert calc.weeknum(dec_2016, 2) == 1.0
+    # 2024-01-07 is a Sunday. Sunday-start (1) is week 2; Monday-start (2) is week 1.
+    # Tuesday-start (12) is also week 2: Jan 1 (Monday) still falls in that week.
+    jan7_2024 = _calc_serial(2024, 1, 7)
+    assert calc.weeknum(jan7_2024, 1) == 2.0
+    assert calc.weeknum(jan7_2024, 2) == 1.0
+    assert calc.weeknum(jan7_2024, 12) == 2.0
+    assert math.isnan(calc.weeknum(jan1_1995, 3))
+
+
+def test_unique_by_col_and_exactly_once():
+    assert calc.unique([1.0, 2.0, 1.0, 3.0, 2.0]) == [1.0, 2.0, 3.0]
+    assert calc.unique([1.0, 2.0, 1.0, 3.0, 2.0], unique_only=True) == [3.0]
+    # One row is one row. The old falsy by_col path flattened the cells.
+    assert calc.unique([[1, 2, 1, 3]], by_col=False) == [[1, 2, 1, 3]]
+    assert calc.unique([[1, 2], [3, 4], [1, 2], [5, 6]]) == [[1, 2], [3, 4], [5, 6]]
+    assert calc.unique([[1, 2], [3, 4], [1, 2], [5, 6]], unique_only=True) == [[3, 4], [5, 6]]
+    assert calc.unique([[1], [1], [2]]) == [[1], [2]]
+    columns = [[1, 3, 1, 5], [2, 4, 2, 6]]
+    assert calc.unique(columns, by_col=True) == [[1, 3, 5], [2, 4, 6]]
+    assert calc.unique(columns, by_col=True, unique_only=True) == [[3, 5], [4, 6]]
+    assert calc.unique(columns, 1, 1) == [[3, 5], [4, 6]]
+
+
+def test_xmatch_wildcards_and_xlookup_horizontal_scalar():
+    names = ["apple", "pear", "apricot", "banana"]
+    assert calc.xmatch("ap*", names, 2) == 1.0
+    assert calc.xmatch("a?ple", names, 2) == 1.0
+    assert calc.xmatch("a*", names, 2, -1) == 3.0
+    assert math.isnan(calc.xmatch("z*", names, 2))
+    # Same wildcard helper as xlookup, including its case-sensitive match.
+    assert calc.xlookup("ap*", names, [10, 20, 30, 40], "missing", 2) == 10
+    assert math.isnan(calc.xmatch("Ap*", names, 2))
+    assert calc.xlookup("Ap*", names, [10, 20, 30, 40], "missing", 2) == "missing"
+    assert calc.xlookup("b", [["a", "b", "c"]], [[10, 20, 30]]) == 20
+    assert calc.xlookup("b", [["a", "b", "c"]], [[10, 20, 30], [40, 50, 60]]) == [20, 50]
+    assert calc.xlookup("b", [["a"], ["b"], ["c"]], [[10], [20], [30]]) == 20
+    assert calc.xmatch("b", ["a", "b", "c"]) == 2.0
+
+
+def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
+    import numpy as np
+
+    assert calc.xor(True, False) is True
+    assert calc.xor(True, True) is False
+    assert calc.xor(1, 0, 1) is False
+    assert calc.xor(-1, 0) is True
+    assert calc.xor([True, False, True]) is False
+    assert calc.xor([1, "x", 0]) is True
+    assert calc.xor([1, "", 0]) is True
+    assert calc.xor(1, "a", 0) == "#VALUE!"
+    assert calc.xor("") == "#VALUE!"
+    assert calc.xor([1, "#DIV/0!", 0]) == "#DIV/0!"
+    assert math.isnan(calc.xor([1, float("nan"), 0]))
+    assert calc.xor(np.array([1, 0, 1])) is False
+    assert calc.xor(np.array([[True, False], [True, False]])) is False
+    assert calc.xor() == "#VALUE!"
+
+
+def test_yield_stubs_stay_nan():
+    assert math.isnan(calc.yield_calc(1, 2, 0.05, 95, 100, 2))
+    assert math.isnan(calc.yielddisc(1, 2, 95, 100))
+    assert math.isnan(calc.yieldmat(1, 2, 0, 0.05, 95))
+
