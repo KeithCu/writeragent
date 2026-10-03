@@ -373,11 +373,34 @@ def test_rps_session_id_isolated_is_none():
         assert sm.rps_session_id(ctx, doc) is None
 
 
-def test_host_rpc_named_script_allowed_when_tools_disabled():
+def test_host_rpc_named_script_blocked_when_tools_disabled():
+    """Empty allowlist is =PY() recalc: do not read stored script source."""
     from plugin.scripting.host_rpc import TOOL_RPC_DISABLED, execute_tool, resolve_allowed_tools
 
     allowed = resolve_allowed_tools(TOOL_RPC_DISABLED)
     assert allowed == frozenset()
+
+    def _must_not_read(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("named scripts must not be read during =PY()")
+
+    with (
+        patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_must_not_read),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=_must_not_read),
+    ):
+        with pytest.raises(RuntimeError, match=r"=PY\(\)"):
+            execute_tool(
+                GET_NAMED_PYTHON_SCRIPT,
+                {"name": "Helpers", "origin": "user"},
+                allowed_tools=allowed,
+            )
+        with pytest.raises(RuntimeError, match=r"=PY\(\)"):
+            execute_tool(LIST_NAMED_PYTHON_SCRIPTS, {}, allowed_tools=allowed)
+
+
+def test_host_rpc_named_script_still_allowed_for_domain_allowlist():
+    """A non-empty domain list does not include these names; wa.scripts still loads."""
+    from plugin.scripting.host_rpc import execute_tool
+
     code = "def add(a, b):\n    return a + b\n"
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
@@ -389,7 +412,7 @@ def test_host_rpc_named_script_allowed_when_tools_disabled():
         out = execute_tool(
             GET_NAMED_PYTHON_SCRIPT,
             {"name": "Helpers", "origin": "user"},
-            allowed_tools=allowed,
+            allowed_tools=frozenset({"apply_document_content"}),
         )
     assert out["code"] == code
 

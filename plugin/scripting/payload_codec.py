@@ -1505,6 +1505,11 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     # Convert keys of strings to integers in case legacy test harnesses sent stringified keys.
     # Production wire is length-prefixed Pickle5 carrying split_grid (or nested lists for < BINARY_MIN_CELLS).
     raw_strings = envelope.get("strings", {})
+    # What was wrong: a non-dict strings value (a list, for example) is
+    # truthy, so this called .items() and raised AttributeError mid-unpack.
+    # Why this works: only a dict is a strings map; anything else is a bad envelope.
+    if not isinstance(raw_strings, dict):
+        raise ValueError("split_grid strings must be a dict")
     strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
     uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
 
@@ -1648,6 +1653,9 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
         raw_strings = envelope.get("strings", {})
+        # Same non-dict guard as host_unpack_split_grid: .items() is dict-only.
+        if not isinstance(raw_strings, dict):
+            raise ValueError("split_grid strings must be a dict")
         strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
 
         if not strings:

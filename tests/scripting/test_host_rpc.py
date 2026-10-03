@@ -202,6 +202,32 @@ def test_execute_tool_disabled_during_py_recalc():
         raise AssertionError("expected RuntimeError")
 
 
+def test_execute_tool_named_scripts_blocked_during_py_recalc():
+    """=PY() empty allowlist must not list or read stored script source."""
+    for tool_name in ("get_named_python_script", "list_named_python_scripts"):
+        try:
+            execute_tool(tool_name, {"name": "Helpers"}, allowed_tools=frozenset())
+        except RuntimeError as exc:
+            assert "=PY()" in str(exc)
+        else:
+            raise AssertionError(f"expected RuntimeError for {tool_name}")
+
+
+def test_rpc_tool_name_none_when_candidates_are_parameters():
+    """A const that is only a parameter name is not the RPC tool."""
+    from plugin.scripting.host_rpc import _rpc_tool_name
+
+    def shape_upsert(shape_upsert: str = "shape_upsert") -> str:
+        return shape_upsert
+
+    assert _rpc_tool_name(shape_upsert, frozenset({"shape_upsert"})) is None
+
+    def mixed(shape_upsert: str = "shape_upsert") -> tuple[str, str]:
+        return ("list_open_documents", shape_upsert)
+
+    assert _rpc_tool_name(mixed, frozenset({"shape_upsert", "list_open_documents"})) == "list_open_documents"
+
+
 def test_execute_tool_rejects_out_of_domain():
     try:
         execute_tool("write_formula_range", {}, allowed_tools=frozenset({"apply_document_content"}))
@@ -272,6 +298,38 @@ def test_handle_tool_call_frame_refuses_when_stopped():
     assert resp["status"] == "error"
     assert resp["code"] == "USER_STOPPED"
     assert resp["id"] == "stop1"
+
+
+def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
+    """A dead worker pipe must not escape the USER_STOPPED or result write."""
+
+    def _broken(_blob: bytes) -> None:
+        raise BrokenPipeError("stdin closed")
+
+    with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:
+        stopped = handle_tool_call_frame(
+            {"type": "tool_call", "id": "stop1", "tool": "export_presentation_project", "args": {}},
+            stdin_write=_broken,
+            stop_checker=lambda: True,
+        )
+    assert stopped is True
+    mock_tool.assert_not_called()
+
+    def _oserror(_blob: bytes) -> None:
+        raise OSError("stdin closed")
+
+    with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}):
+        ok = handle_tool_call_frame(
+            {"type": "tool_call", "id": "ok1", "tool": "apply_document_content", "args": {}},
+            stdin_write=_oserror,
+        )
+    assert ok is True
+    with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("boom")):
+        failed = handle_tool_call_frame(
+            {"type": "tool_call", "id": "e1", "tool": "apply_document_content", "args": {}},
+            stdin_write=_oserror,
+        )
+    assert failed is True
 
 
 def test_handle_tool_call_frame_writes_error_response():

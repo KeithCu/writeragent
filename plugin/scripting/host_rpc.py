@@ -11,8 +11,9 @@ protocol is added here.
 
 ``python_tool_domain`` is host-only (never sent to the child):
 - ``None`` — Run Python Script / chat: every registered tool except recursion.
-- ``""`` — ``=PY()`` recalc: tool RPC is disabled (formula evaluation must
-  stay side-effect free).
+- ``""`` — ``=PY()`` recalc: tool RPC is disabled, including named-script
+  fetch (formula evaluation must stay side-effect free and must not read
+  stored script source).
 - a domain name — allow only that domain's proxies plus ``list_open_documents``.
   If ``writeragent_api`` is absent (LibrePy), that string stays unrestricted
   (``None``). An empty allowlist would disable every tool RPC.
@@ -43,7 +44,10 @@ TOOL_RPC_DISABLED = ""
 # ``get_active_document_type()`` always needs this, even in a scoped domain.
 _ALWAYS_ALLOWED = frozenset({"list_open_documents"})
 
-# String fetch of user/document scripts — not document mutation; allowed during =PY().
+# String fetch of user/document scripts — not document mutation.
+# Refused when the allowlist is empty (=PY() recalc). Still dispatched when
+# RPC is unrestricted or the allowlist is a non-empty domain: these names are
+# not in DOMAIN_TOOLS, so a domain list would otherwise hide wa.scripts / wa.doc.
 _NAMED_SCRIPT_TOOLS = frozenset({"get_named_python_script", "list_named_python_scripts"})
 
 
@@ -197,7 +201,11 @@ def _rpc_tool_name(method: Any, known: frozenset[str]) -> str | None:
     for name in found:
         if name not in locals_:
             return name
-    return found[0]
+    # What was wrong: every const that matched a tool name was also a
+    # parameter name. Returning found[0] treated that parameter as the RPC
+    # tool (the skip above exists so a colliding name is not the tool).
+    # Why this works: no remaining candidate is a real tool-name const.
+    return None
 
 
 def _proxy_methods_by_tool(tools: dict[str, list[str]]) -> dict[str, Any] | None:
@@ -320,12 +328,23 @@ def execute_tool(
         raise RuntimeError(
             f"Tool {tool_name!r} cannot run from a venv script (it would re-enter the worker)."
         )
+    # What was wrong: named-script tools dispatched before this gate. =PY()
+    # recalc passes an empty allowlist, so get_named_python_script and
+    # list_named_python_scripts still returned every user script's source.
+    # Why this works: an empty allowlist is recalc-only and now refuses those
+    # tools with the same error as every other tool. A non-empty domain
+    # allowlist still reaches the named-script branch below.
+    if allowed_tools is not None and not allowed_tools:
+        raise RuntimeError(
+            "Document tool RPC is disabled during =PY() recalculation. "
+            "Use Run Python Script… to call writeragent tools."
+        )
     if tool_name in _NAMED_SCRIPT_TOOLS:
         payload = args if isinstance(args, dict) else {}
         from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
 
-        # =PY() recalc runs under sync_host_dispatch off the UI thread.
-        # execute_on_main_thread is refused there (deadlock hazard #402).
+        # Off-main callers cannot wait on execute_on_main_thread (deadlock #402).
+        # =PY() recalc never reaches here: its allowlist is empty and refused above.
         # User scripts are a config dict. Document scripts need UNO.
         if in_sync_host_dispatch() and not on_main_thread():
             return _execute_named_script_tool_off_main(tool_name, payload)
@@ -339,11 +358,6 @@ def execute_tool(
             )
         )
     if allowed_tools is not None and tool_name not in allowed_tools:
-        if not allowed_tools:
-            raise RuntimeError(
-                "Document tool RPC is disabled during =PY() recalculation. "
-                "Use Run Python Script… to call writeragent tools."
-            )
         raise RuntimeError(
             f"Tool {tool_name!r} is not available in this Python tool domain."
         )
@@ -505,7 +519,15 @@ def handle_tool_call_frame(
             "message": "Stopped by user.",
         }
         frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-        stdin_write(frame)
+        # What was wrong: a broken worker pipe raised from stdin_write and
+        # escaped this handler. The host then aborted the stop path, so the
+        # child never received USER_STOPPED and kept calling tools after the
+        # sidebar went idle (or the host replayed the script).
+        # Why this works: pipe failure stays here and the host keeps reading.
+        try:
+            stdin_write(frame)
+        except OSError:
+            log.warning("venv tool_call USER_STOPPED reply failed (worker pipe closed)", exc_info=True)
         return True
     try:
         res = execute_tool(
@@ -528,5 +550,10 @@ def handle_tool_call_frame(
             {"status": "error", "id": call_id, "message": str(exc)},
             max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
         )
-    stdin_write(frame)
+    # Same broken-pipe rule as the USER_STOPPED write above. The tool may
+    # already have run; raising here used to abort the worker loop.
+    try:
+        stdin_write(frame)
+    except OSError:
+        log.warning("venv tool_call reply failed (worker pipe closed)", exc_info=True)
     return True
