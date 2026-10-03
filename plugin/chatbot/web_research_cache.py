@@ -26,6 +26,8 @@ log = logging.getLogger("writeragent.web_research_cache")
 
 _SNOWBALL_LANGS = frozenset(_ISO_TO_SNOWBALL.values())
 _STEMMER_CACHE: dict[str, Any] = {}
+# Pure-Python snowballstemmer.stemWord mutates cursor state on the instance.
+_STEMMER_LOCK = threading.Lock()
 _MIN_TOKEN_LEN = 3
 # (gettext LO locale, snowball_lang) -> assembled fluff + stop words
 _FLUFF_WORDS_CACHE: dict[tuple[str, str], frozenset[str]] = {}
@@ -58,7 +60,11 @@ def stem_word(snowball_lang: str, token: str) -> str:
     if stemmer is None:
         return token
     try:
-        return stemmer.stemWord(token)
+        # What was wrong: concurrent web_research workers shared one stemmer.
+        # stemWord writes cursor/limit on that object, so overlapping calls
+        # mixed stems. The cache stays; the lock covers that mutation.
+        with _STEMMER_LOCK:
+            return stemmer.stemWord(token)
     except Exception:
         return token
 
