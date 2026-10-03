@@ -38,12 +38,12 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    import threading
     from collections.abc import Generator
 
 from plugin.framework.constants import EXTENSION_ID_LIBREHARPER, EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
@@ -646,20 +646,19 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
     return pumped
 
 
+# One in-flight secondary-idle post. ``_SECONDARY_IDLE_RESERVING`` covers the
+# window inside ``post_to_main_thread`` before the callable is visible on the
+# queue. The stored callable is cleared on the next tick once it is no longer
+# scheduled, so a drop is not sticky.
+_SECONDARY_IDLE_RESERVING = object()
+_secondary_idle_lock = threading.Lock()
+_secondary_idle_posted: object | None = None
+
+
 def _post_secondary_idle(ctx: Any) -> None:
     """Enqueue one PE2I tick on the VCL thread. Must not run PE2I on the waiter."""
+    global _secondary_idle_posted
     from plugin.framework.queue_executor import default_executor, post_to_main_thread
-
-    # What was wrong: each 75ms tick posted another marshal item, so a 15s
-    # wait could enqueue ~200 no-op pumps ahead of a real execute_on_main_thread.
-    # How it happened: wait_while_pumping called this on every poll whether or
-    # not the previous pump was still sitting in the work queue.
-    # Why this change: skip while default_executor's queue is non-empty. One
-    # outstanding pump is enough. pending_work_count() is not a sticky flag —
-    # if post() drops the callback the queue stays empty and the next tick
-    # tries again.
-    if default_executor.pending_work_count() != 0:
-        return
 
     def _pump() -> None:
         # QueueExecutor.post can fall back onto the caller when AsyncCallback
@@ -668,7 +667,39 @@ def _post_secondary_idle(ctx: Any) -> None:
             return
         process_events_to_idle(ctx, force=False)
 
-    post_to_main_thread(_pump)
+    with _secondary_idle_lock:
+        posted = _secondary_idle_posted
+        if posted is _SECONDARY_IDLE_RESERVING:
+            return
+        if posted is not None and default_executor.callable_is_scheduled(posted):
+            return
+        # What was wrong: each 75ms tick could enqueue another no-op pump, and
+        # the guard for that skipped the post whenever ``pending_work_count()``
+        # was non-zero. How: that count is the whole process-wide marshal
+        # queue. A leftover item from another test (pytest-xdist) or unrelated
+        # UI work looked like "our pump is already queued", so a Dummy-*
+        # linguistic wait never posted. The lint then ran out its own timeout
+        # (CI: ``posts["n"] == 0``, slow result elapsed_ms=2000). Why: coalesce
+        # only this pump. ``post`` dropping the callable, or a test double that
+        # does not enqueue it, leaves nothing scheduled, so the next tick tries
+        # again.
+        _secondary_idle_posted = _SECONDARY_IDLE_RESERVING
+
+    try:
+        post_to_main_thread(_pump)
+    except Exception:
+        with _secondary_idle_lock:
+            if _secondary_idle_posted is _SECONDARY_IDLE_RESERVING:
+                _secondary_idle_posted = None
+        raise
+
+    with _secondary_idle_lock:
+        if _secondary_idle_posted is not _SECONDARY_IDLE_RESERVING:
+            return
+        if default_executor.callable_is_scheduled(_pump):
+            _secondary_idle_posted = _pump
+        else:
+            _secondary_idle_posted = None
 
 
 def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, poll_sec: float = 0.075) -> bool:
@@ -679,8 +710,10 @@ def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, pol
     Off the main thread (Writer ``doProofreading`` linguistic workers are
     ``Dummy-*``, not VCL) PE2I is **posted** to the main thread — never called
     on the waiter. Calling PE2I on Dummy-21 popped a UNO thread-violation
-    dialog every poll tick (the wait loop from #778). Drain-owner wait loops
-    must keep using :func:`~plugin.framework.queue_executor.pump_ui_idle` /
+    dialog every poll tick (the wait loop from #778). Repeated off-main ticks
+    coalesce to one outstanding secondary-idle pump; other marshal items do
+    not count. Drain-owner wait loops must keep using
+    :func:`~plugin.framework.queue_executor.pump_ui_idle` /
     ``run_blocking_in_thread``, not this helper.
 
     Default *poll_sec* is 75ms (stay inside 50–100ms; same band as the

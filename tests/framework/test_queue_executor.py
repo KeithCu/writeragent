@@ -213,6 +213,26 @@ def test_post_to_main_thread_fire_and_forget(mock_poke, mock_get_async):
     assert (item.fn is my_func)
     mock_poke.assert_called_once()
 
+
+def test_callable_is_scheduled_matches_fn_not_queue_depth() -> None:
+    """Unrelated queued work is not this callback; the pending list counts."""
+    from plugin.framework.queue_executor import QueueExecutor
+
+    def pump() -> None:
+        return None
+
+    queued = QueueExecutor()
+    queued._work_queue.put(object())
+    assert queued.callable_is_scheduled(pump) is False
+    queued._work_queue.put(_WorkItem("pump", pump, (), {}, blocking=False))
+    assert queued.callable_is_scheduled(pump) is True
+
+    pending = QueueExecutor()
+    pending._work_queue.put(object())
+    assert pending.callable_is_scheduled(pump) is False
+    pending._pending_posts.append((pump, (), {}, None))
+    assert pending.callable_is_scheduled(pump) is True
+
 @pytest.fixture(autouse=True)
 def reset_mt_globals():
     default_executor._ctx = None
