@@ -280,7 +280,7 @@ This flat architecture avoids nested callbacks and makes state transitions expli
 
 ### Tool-loop command boundary
 
-The main-chat loop keeps the transition layer pure. Queue items from worker threads are normalized in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) by `_create_event_from_stream_item()`, then [`plugin/chatbot/tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py) `next_state()` returns only a new `ToolLoopState` plus effect dataclasses. Control fields (`round_num`, `pending_tools`, `is_stopped`, …) live solely in that frozen state (`sidebar_state.tool_loop`). [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) is the interpreter that executes those effects against host session handles (`_active_q` / `_active_batched_q`, client, tool schemas/fn, model)—not a parallel copy of the FSM counters. This keeps document mutations out of the FSM while preserving the main-thread drain-loop boundary for UNO work. An async tool closes over the execute function, document model, and stop checker from the spawn that started it. A failure is classified with that captured model, so a later send's document cannot turn a disposed-document error into an ordinary tool result.
+The main-chat loop keeps the transition layer pure. Queue items from worker threads are normalized in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) by `_create_event_from_stream_item()`, then [`plugin/chatbot/tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py) `next_state()` returns only a new `ToolLoopState` plus effect dataclasses. Control fields (`round_num`, `pending_tools`, `is_stopped`, …) live solely in that frozen state (`sidebar_state.tool_loop`). [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) is the interpreter that executes those effects against host session handles (`_active_q` / `_active_batched_q`, client, tool schemas/fn, model)—not a parallel copy of the FSM counters. This keeps document mutations out of the FSM while preserving the main-thread drain-loop boundary for UNO work. An async tool closes over the execute function, document model, and stop checker from the spawn that started it. A failure is classified with that captured model, so a later send's document cannot turn a disposed-document error into an ordinary tool result. Sync tools close over the same document. ``execute_safe`` reports a disposed document as a ``DOCUMENT_DISPOSED`` dict; the chat executor raises that with the spawn document so the failure path queues ``ERROR`` and the loop ends. ``NEXT_TOOL`` while the FSM is already stopped emits ``ExitLoopEffect`` and does not spawn another LLM or final-stream worker.
 
 > [!WARNING]
 > **`job_done` ownership invariant:** `job_done[0]` must **only** be written by the drain loop (main thread) when it processes a terminal queue item (`STREAM_DONE`, `ERROR`, or `STOPPED`). The worker thread must never set `job_done[0] = True` directly, even in a `finally` block.
@@ -305,10 +305,10 @@ To handle both sync and async tools without freezing the UI, WriterAgent uses an
 
 1. **Queueing:** When `"stream_done"` is received with `tool_calls`, the calls are added to a `pending_tools` list, and a `("next_tool",)` message is pushed onto the queue.
 2. **Dispatching:** The main loop picks up `"next_tool"`. It pops the first tool from `pending_tools`:
-   - **Async Tools (`ASYNC_TOOLS` set):** Spawned in a daemon thread. The main loop immediately returns to pumping UI events. When the thread finishes, it pushes a `("tool_done", ...)` message to the queue.
-   - **Sync Tools (UNO operations):** Executed immediately on the main thread. A `("tool_done", ...)` message is pushed to the queue.
+   - **Async Tools (`ASYNC_TOOLS` set):** Spawned on a dedicated thread. The main loop immediately returns to pumping UI events. When the thread finishes, it pushes a `("tool_done", ...)` message to the queue.
+   - **Sync Tools (UNO operations):** Also started on a dedicated thread, so the drain can keep pumping Stop. The worker checks the spawn-time stop checker before the call. UNO still runs on the main thread: ``ToolRegistry.execute`` marshals sync tools with ``execute_on_main_thread``, and the drain's ``pump_ui_idle`` runs that work. The worker then pushes `("tool_done", ...)`.
 3. **Completion:** When `"tool_done"` is received, the result is saved to the session history, and another `("next_tool",)` message is pushed.
-4. **Next Round:** When `"next_tool"` finds an empty `pending_tools` list, all tools are finished. The loop increments the round counter and spawns a new LLM worker to send the results back to the model.
+4. **Next Round:** When `"next_tool"` finds an empty `pending_tools` list and the loop is not stopped, all tools are finished. The loop increments the round counter and spawns a new LLM worker to send the results back to the model. If the loop is already stopped, it exits instead of spawning that worker or the final stream.
 
 This sequentializes tool execution while guaranteeing the UI never freezes during network-bound tool operations.
 
@@ -564,7 +564,7 @@ Inside [panel.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_pa
        pump_ui_idle(toolkit)
    ```
 
-Because we are doing `q.get(timeout=0.1)` followed by `pump_ui_idle(toolkit)`, the loop yields control back to the UI ~10 times a second **and** runs `execute_on_main_thread` callbacks posted by async tools (e.g. web research locale detection). **The UI stays smooth and responsive**, and when a chunk of text or a tool execution request arrives from the worker, sync tool paths still run natively on the main thread.
+Because we are doing `q.get(timeout=0.1)` followed by `pump_ui_idle(toolkit)`, the loop yields control back to the UI ~10 times a second **and** runs `execute_on_main_thread` callbacks posted by tool workers (e.g. web research locale detection, or a sync tool marshaled off the drain). **The UI stays smooth and responsive.** The UNO body of a sync tool still runs on the main thread for that marshal; Stop is processed on the drain before the next model round.
 
 ### The `next_tool` Queuing System
 The final piece of the puzzle handles slow external tools (like Web Research or Image Generation).
@@ -572,8 +572,8 @@ If we executed [`web_research`](../../plugin/chatbot/web_research.py) on the mai
 
 Our solution is the `next_tool` dispatcher:
 - When a tool is popped from the queue, we check `if name in ASYNC_TOOLS`.
-- **Sync Tools (UNO calls):** Run instantly on the main thread, avoiding VCL crashes.
-- **Async Tools (Network/OS calls):** A new minimal daemon thread is launched to execute the tool, pushing a [("tool_done", result)](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/chatbot/panel_factory.py#393-404) message back onto the queue when finished. The Main event loop keeps ticking and pumping the UI while it waits for the async tool thread to return.
+- **Sync Tools (UNO calls):** Started on a dedicated worker (`tool-sync-*`) so the drain can pump. UNO is marshaled back to the main thread, which avoids VCL crashes.
+- **Async Tools (Network/OS calls):** A dedicated thread (`tool-async-*`) executes the tool, pushing a `tool_done` result back onto the queue when finished. The main event loop keeps ticking and pumping the UI while it waits.
 
 ## Summary
 

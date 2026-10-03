@@ -156,7 +156,7 @@ CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would bl
 | `plugin/embeddings/embeddings_periodic.py` | `embeddings_periodic_indexer` |
 | `plugin/framework/async_stream.py` | `stream-completion`, `stream-async`, `async-worker`, `blocking-thread` |
 | `plugin/chatbot/tool_loop.py` | `llm-worker-*`, `llm-worker-final` |
-| `plugin/chatbot/tool_loop_actions.py` | `tool-async-*` |
+| `plugin/chatbot/tool_loop_actions.py` | `tool-async-*`, `tool-sync-*` |
 | `plugin/framework/tool.py` `_execute_with_timeout` | `tool-timeout-*` (caller `join(timeout)`) |
 | `plugin/writer/locale/harper.py` | `harper-ensure-ready` (download + LSP start) |
 | `plugin/embeddings/search_ui.py`, `plugin/scripting/python_runner_ui.py`, `plugin/scripting/editor_host.py` | `warm-venv-worker` |
