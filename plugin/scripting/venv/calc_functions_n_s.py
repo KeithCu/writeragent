@@ -91,13 +91,16 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
     try:
         import scipy.stats as st
 
+        # int(float(+inf)) and int() of an oversized count raise OverflowError.
+        # The old except only named ValueError, so that input escaped. Excel
+        # NEGBINOMDIST is #NUM!, which this module returns as NaN.
         k = int(float(x))
         r_val = int(float(r))
         prob = float(p)
         if k < 0 or r_val < 1 or prob <= 0 or prob > 1:
             return float("nan")
         return float(st.nbinom.pmf(k, r_val, prob))
-    except (ValueError, TypeError, ImportError):
+    except (ValueError, TypeError, ImportError, OverflowError):
         return float("nan")
 
 
@@ -150,8 +153,11 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
 def nominal(effect_rate: Any, npery: Any) -> float:
     try:
         er = float(effect_rate)
+        # int(float(+inf)) and float() of an oversized period count raise
+        # OverflowError. The old except missed it, so NOMINAL crashed. Excel
+        # is #NUM!, returned here as NaN.
         np_y = int(float(npery))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
     # Excel NOMINAL(0, npery) is 0. Only a negative effective rate is #NUM!.
     if er < 0 or np_y < 1:
@@ -348,6 +354,10 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     if years <= 0:
         return float("nan")
     c = 100 * r
+    # (red + price) / 2 is the denominator. Opposite signs of equal magnitude
+    # used to raise ZeroDivisionError. Excel ODDFYIELD is #NUM!.
+    if red + price == 0:
+        return float("nan")
     approx_y = (c + (red - price) / years) / ((red + price) / 2)
     return approx_y
 
@@ -454,7 +464,9 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
             res = r0 + (r1 - r0) * (val - x0) / (x1 - x0)
 
         return float(np.round(res, sig))
-    except (ValueError, TypeError, IndexError):
+    except (ValueError, TypeError, IndexError, OverflowError):
+        # int(+inf) and np.round(..., huge) raise OverflowError. The old
+        # except missed both, so a bad significance crashed. Excel is #NUM!.
         return float("nan")
 
 
@@ -465,7 +477,9 @@ def permut(n: Any, k: Any) -> float:
         if n_val < 0 or k_val < 0 or n_val < k_val:
             return float("nan")
         return float(math.perm(n_val, k_val))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(+inf)) and float() of a huge permutation raise
+        # OverflowError. The old except missed them. Excel PERMUT is #NUM!.
         return float("nan")
 
 
@@ -486,6 +500,8 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
 
 def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
     try:
+        # int(float(+inf)) raises OverflowError. The old except missed it,
+        # so POISSON(+inf) crashed. Excel is #NUM!.
         k = int(float(x))
         m = float(mean)
         if k < 0 or m < 0:
@@ -496,7 +512,7 @@ def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
             return float(scipy.stats.poisson.cdf(k, m))
         else:
             return float(scipy.stats.poisson.pmf(k, m))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -620,6 +636,11 @@ def rsq(data_y: Any, data_x: Any) -> float:
         x = np.asarray(data_x, dtype=float).ravel()
     except (ValueError, TypeError):
         return float("nan")
+    # None becomes a length-1 array. Combining it with a longer partner, or
+    # two different lengths, raised IndexError / ValueError on the mask.
+    # Excel RSQ is #N/A for a length mismatch; this module uses NaN.
+    if y.size != x.size:
+        return float("nan")
     mask = ~np.isnan(y) & ~np.isnan(x)
     y, x = y[mask], x[mask]
     if len(y) < 2:
@@ -678,6 +699,9 @@ def slope(data_y: Any, data_x: Any) -> float:
         x = np.asarray(data_x, dtype=float).ravel()
     except (ValueError, TypeError):
         return float("nan")
+    # Same length-mismatch raise as rsq. Excel SLOPE is #N/A; this module uses NaN.
+    if y.size != x.size:
+        return float("nan")
     mask = ~np.isnan(y) & ~np.isnan(x)
     y, x = y[mask], x[mask]
     if len(y) < 2:
@@ -702,6 +726,10 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
     arr = np.asarray(range_arr)
     if arr.size == 0:
         return []
+    # Text, blank, and a bare number are 0-d. arr.shape[1] then raised
+    # IndexError. Excel SORT of a non-range is #VALUE!, returned here as NaN.
+    if arr.ndim == 0:
+        return float("nan")
     # int(float()) on text or a blank sort_index/order used to raise ValueError.
     # max(1, ...) used to clamp a non-positive index onto the first row/column.
     try:
@@ -762,6 +790,10 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
     arr = np.asarray(range_arr)
     if arr.size == 0:
         return []
+    # A scalar range is 0-d. arr[order] raised IndexError ("too many indices").
+    # Excel SORTBY of a non-range is #VALUE!, returned here as NaN.
+    if arr.ndim == 0:
+        return float("nan")
     # *extra used to be ignored, so by_array2/sort_order2 never affected the order.
     specs: list[tuple[Any, int]] = []
     rest: list[Any] = list(extra)
@@ -858,6 +890,9 @@ def steyx(data_y: Any, data_x: Any) -> float:
         y = np.asarray(data_y, dtype=float).ravel()
         x = np.asarray(data_x, dtype=float).ravel()
     except (ValueError, TypeError):
+        return float("nan")
+    # Same length-mismatch raise as rsq. Excel STEYX is #N/A; this module uses NaN.
+    if y.size != x.size:
         return float("nan")
     mask = ~np.isnan(y) & ~np.isnan(x)
     y, x = y[mask], x[mask]
