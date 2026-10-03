@@ -111,6 +111,7 @@ def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
     Query text is not language-detected; document CharLocale first, then LO UI locale.
     UNO reads are marshalled to the main thread because callers include async web_research.
     """
+    from plugin.framework.errors import is_disposed_exception
     from plugin.framework.queue_executor import SendCancelled, _marshal_thread_tag
 
     log.debug("resolve_research_locale start doc=%s %s", doc is not None, _marshal_thread_tag())
@@ -125,10 +126,14 @@ def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
         except TimeoutError:
             log.warning("research cache: document language detection timed out on main thread")
         except Exception as e:
-            # A disposed document used to look like "no locale" and the cache
-            # key became english. Missing-name and other UNO errors still fall
-            # through; only a real DisposedException must leave this function.
-            if "DisposedException" in type(e).__name__:
+            # What was wrong: only a type name containing DisposedException
+            # left this function. DocumentDisposedError (thread-guard
+            # teardown) does not, so a disposed document fell through to
+            # en_US/english and the research cache could be keyed in the
+            # wrong language. How: the name test missed that type. Why:
+            # is_disposed_exception is the disposal predicate. Cancel and
+            # timeout still fall back; a missing name still does too.
+            if is_disposed_exception(e):
                 raise
             log.debug("research cache: document language detection failed: %s", e)
 

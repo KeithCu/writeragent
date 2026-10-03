@@ -316,7 +316,7 @@ def persist_assistant_on_turn(
     session.add_assistant_message(content=content, **kwargs)
 
 
-def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: Any = None, q: Any = None) -> None:
+def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: Any = None, q: Any = None, *, model: Any) -> None:
     """Queue a tool failure. A disposed document ends the loop.
 
     What was wrong: both workers turned every exception into a JSON tool
@@ -324,6 +324,14 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
     normal tool error and the loop continued. ``is_tool_document_disposed``
     is the tool-boundary check; ``is_disposed_exception`` also matches a
     bare ``RuntimeException`` from a live document.
+
+    What was wrong: the check read ``host._active_model`` when the worker
+    finished. A later send had already stored the new turn's document
+    there, so a disposed-document failure from the tool that already
+    started was scored against that live model. How: a bare
+    ``RuntimeException`` then failed ``is_tool_document_disposed`` and was
+    queued as ``TOOL_DONE``. Why: ``model`` is the document closed over at
+    spawn, the same capture that keeps the tool from running on the new send.
     """
     if turn is None:
         turn = getattr(host, "_active_turn", None)
@@ -333,7 +341,7 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
         q = getattr(host, "_active_q", None)
     payload_error = (StreamQueueKind.ERROR, format_error_payload(exc))
     payload_done = (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(exc)))
-    if is_tool_document_disposed(exc, getattr(host, "_active_model", None)):
+    if is_tool_document_disposed(exc, model):
         put_for_turn(host, turn, q, payload_error)
         return
     put_for_turn(host, turn, q, payload_done)
@@ -693,8 +701,10 @@ class ToolLoopEffectInterpreter:
         # What was wrong: the async body read host._active_execute_tool_fn
         # and host._active_model when the thread ran. A new send replaced
         # both while this tool was still in flight, so the old call ran
-        # against the new send. Why: close over the values this spawn
-        # already had, the same way worker_q is captured above.
+        # against the new send. The failure path had the same hole: it
+        # asked is_tool_document_disposed about the live host model.
+        # Why: close over the values this spawn already had, the same way
+        # worker_q is captured above, and pass that model into the failure.
         execute_tool_fn = host._active_execute_tool_fn
         model = host._active_model
         supports_status = host._active_supports_status
@@ -721,7 +731,7 @@ class ToolLoopEffectInterpreter:
                         res = execute_tool_fn(func_name, func_args, model, host.ctx, stop_checker=bound_stop, captured_turn=turn, captured_q=worker_q, captured_call_id=call_id)
                     emit((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
                 except Exception as e:
-                    _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, worker_q)
+                    _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, worker_q, model=model)
 
             run_in_background(run_async, name=f"tool-async-{func_name}", dedicated=True)
         else:
@@ -738,4 +748,4 @@ class ToolLoopEffectInterpreter:
                 emit((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
             except Exception as e:
                 log.debug("sync tool failed name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
-                _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, worker_q)
+                _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, worker_q, model=model)

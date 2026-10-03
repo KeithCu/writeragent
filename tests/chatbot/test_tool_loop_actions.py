@@ -386,6 +386,65 @@ def _capture_background(started: list):
     return capture
 
 
+def test_async_tool_failure_uses_model_captured_at_spawn():
+    """A later send must not reclassify a disposed-document tool failure.
+
+    A bare RuntimeException is disposal only for the document the tool
+    started against. Scoring it against the next turn's model queues
+    TOOL_DONE when that document was already gone, or ERROR when the
+    tool's own document was still live.
+    """
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    class DisposedDoc:
+        def getImplementationName(self):
+            raise DisposedException("disposed")
+
+    class LiveDoc:
+        def getImplementationName(self):
+            return "SwXTextDocument"
+
+    def run(spawn_model, later_model, expected_kind):
+        host = FakeHost()
+        turn = begin_send_turn(host, "chat")
+        first_q: queue.Queue = queue.Queue()
+        turn.queue = first_q
+        host._active_q = first_q
+        host._active_model = spawn_model
+        host._active_execute_tool_fn = Mock(side_effect=RuntimeException("bridge"))
+        started: list = []
+        interpreter = ToolLoopEffectInterpreter(host)
+        with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+            interpreter.execute(
+                SpawnToolWorkerEffect(
+                    call_id="call_old",
+                    func_name="apply_document_content",
+                    func_args_str="{}",
+                    func_args={},
+                    is_async=True,
+                )
+            )
+        host._active_model = later_model
+        second = begin_send_turn(host, "chat")
+        second_q: queue.Queue = queue.Queue()
+        second.queue = second_q
+        host._active_q = second_q
+        started[0]()
+        assert second_q.empty()
+        item = first_q.get_nowait()
+        assert item[0] == expected_kind
+        assert first_q.empty()
+
+    run(DisposedDoc(), LiveDoc(), StreamQueueKind.ERROR)
+    run(LiveDoc(), DisposedDoc(), StreamQueueKind.TOOL_DONE)
+
+
 def test_async_tool_uses_fn_and_model_captured_at_spawn():
     """A later send must not retarget a tool that already started."""
     from plugin.chatbot.tool_loop_actions import begin_send_turn

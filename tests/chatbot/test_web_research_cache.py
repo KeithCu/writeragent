@@ -283,18 +283,32 @@ def test_store_embeddings_skips_row_whose_parent_was_evicted(tmp_path):
 
 
 def test_resolve_research_locale_reraises_disposed_document():
+    from plugin.framework.errors import DocumentDisposedError
+
     class DisposedException(Exception):
         pass
 
     class RuntimeException(Exception):
         pass
 
+    doc = MagicMock()
     with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=DisposedException("gone")):
         with pytest.raises(DisposedException):
-            resolve_research_locale(None, MagicMock())
+            resolve_research_locale(None, doc)
 
-    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=[RuntimeException("uno"), "en_US"]):
-        assert resolve_research_locale(None, MagicMock())[0] == "en_US"
+    # Thread-guard teardown raises DocumentDisposedError. That name does not
+    # contain DisposedException, so a name-only check used to swallow it and
+    # cache the run as english.
+    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=DocumentDisposedError("gone")):
+        with pytest.raises(DocumentDisposedError):
+            resolve_research_locale(None, doc)
+
+    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=RuntimeException("uno")):
+        with pytest.raises(RuntimeException):
+            resolve_research_locale(None, doc)
+
+    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=[AttributeError("CharLocale"), "fr_FR"]):
+        assert resolve_research_locale(None, doc) == ("fr_FR", "french")
 
 
 def test_lookup_research_cache_fuzzy_hit(tmp_path):
