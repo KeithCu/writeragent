@@ -275,7 +275,13 @@ def _try_repair_config_dict(text: str) -> dict[str, Any] | None:
         data = json.loads(repaired, strict=False)
         if isinstance(data, dict):
             return data
-    except (json.JSONDecodeError, TypeError, ValueError):
+    except Exception:
+        # What was wrong: repair_json's @deal.pre rejects a body longer than
+        # DEAL_MAX_SOURCE. PreContractError subclasses AssertionError, not
+        # ValueError, and mypy rejects that class in an except clause. This
+        # try is only the repair attempt. A contract failure falls through
+        # the existing unrepairable path. A successful repair still returns
+        # the dict above and is written the same way as before.
         pass
 
     return None

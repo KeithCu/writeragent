@@ -232,6 +232,14 @@ def _shared_debug_file_handler() -> OptionalFlushFileHandler:
     current = _debug_file_handler_from_sys()
     if current is not None and getattr(current, "baseFilename", "") == path:
         return current
+    # What was wrong: a path change replaced sys._writeragent_debug_file_handler
+    # and left the previous FileHandler open, so its fd stayed alive. Close
+    # that handler before the replace. A close error must not block the new file.
+    if current is not None:
+        try:
+            current.close()
+        except Exception:
+            pass
     handler = OptionalFlushFileHandler(path, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
     setattr(sys, "_writeragent_debug_file_handler", handler)
@@ -589,17 +597,21 @@ def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any 
     """Write one structured agent trace line to writeragent_debug.log when enable_agent_log is True."""
     if not _enable_agent_log:
         return
-    payload = {"location": location, "message": message, "timestamp": int(time.time() * 1000)}
-    if data is not None:
-        # Copy first so a logged payload cannot mutate the caller's dict.
-        if isinstance(data, (dict, list)):
-            data = redact_sensitive_payload_for_log(data)
-        payload["data"] = data
-    if hypothesis_id is not None:
-        payload["hypothesisId"] = hypothesis_id
-    if run_id is not None:
-        payload["runId"] = run_id
+    # What was wrong: redact_sensitive_payload_for_log deepcopy's the payload
+    # outside the try that only wrapped json.dumps. A Lock (or anything
+    # deepcopy rejects) raised TypeError out of best-effort logging. Redaction
+    # and dumps share this try so a bad payload is dropped instead of raised.
     try:
+        payload = {"location": location, "message": message, "timestamp": int(time.time() * 1000)}
+        if data is not None:
+            # Copy first so a logged payload cannot mutate the caller's dict.
+            if isinstance(data, (dict, list)):
+                data = redact_sensitive_payload_for_log(data)
+            payload["data"] = data
+        if hypothesis_id is not None:
+            payload["hypothesisId"] = hypothesis_id
+        if run_id is not None:
+            payload["runId"] = run_id
         log.debug("[Agent] %s", json.dumps(payload, ensure_ascii=False))
     except Exception:
         pass

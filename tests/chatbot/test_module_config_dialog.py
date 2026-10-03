@@ -84,7 +84,11 @@ def test_populate_settings_control_sets_translated_option_labels():
 
 
 def test_apply_module_config_result_stores_select_option_values():
-    """A select caption is stored as its option value. A number field stays as entered."""
+    """A select caption becomes its option id. An id that already matches disk is not written.
+
+    demo.mode is already ``fast``, so OK writes only ``demo.count``. When the
+    stored mode is different, the caption ``Fast Mode`` is still saved as ``fast``.
+    """
     ctx = object()
     manifest = {
         "name": "demo",
@@ -98,12 +102,17 @@ def test_apply_module_config_result_stores_select_option_values():
             },
         },
     }
+    disk = {"demo.count": 1, "demo.mode": "fast"}
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
-         patch("plugin.chatbot.settings_fields.get_config", side_effect=lambda key: {"demo.count": 1, "demo.mode": "fast"}[key]), \
+         patch("plugin.chatbot.settings_fields.get_config", side_effect=lambda key: disk[key]), \
          patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
         apply_module_config_result(ctx, "demo", {"count": "42", "mode": "Fast Mode"})
+        mock_set_configs.assert_called_once_with({"demo.count": "42"})
 
-    mock_set_configs.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
+        mock_set_configs.reset_mock()
+        disk["demo.mode"] = "slow"
+        apply_module_config_result(ctx, "demo", {"count": "42", "mode": "Fast Mode"})
+        mock_set_configs.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
 
 
 def test_extract_result_prefers_numeric_getvalue_over_stale_gettext():

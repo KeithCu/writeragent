@@ -149,6 +149,59 @@ class TestJsonEgressUnit:
         assert out["result"] == {"title": "t", "plot": None}
         assert "data_b64" not in json.dumps(out["result"])
 
+    def test_image_past_finder_depth_stays_inline(self) -> None:
+        """find_image_payloads stops at depth 12. A deeper plot must not become null.
+
+        drop used to be a bool: any listed image nulled every image, including
+        ones the finder never returned, so those plots vanished from both
+        result and images. Depth is counted from the result root. The value
+        under ``buried`` is one level down, so 12 wrappers put the plot at
+        depth 13 (missed) and 11 wrappers put it at depth 12 (listed).
+        """
+        from plugin.scripting.payload_codec import find_image_payloads
+
+        def _wrap(obj: dict[str, Any], levels: int) -> dict[str, Any]:
+            wrapped = obj
+            for _idx in range(levels):
+                wrapped = {"n": wrapped}
+            return wrapped
+
+        shallow = {"__wa_payload__": "image", "format": "png", "data": b"shallow"}
+        deep = {"__wa_payload__": "image", "format": "png", "data": b"deep-png"}
+        missed = _wrap(deep, 12)
+        listed_nest = _wrap(deep, 11)
+        missed_tree = {"plot": shallow, "buried": missed}
+        listed_tree = {"plot": shallow, "buried": listed_nest}
+        assert [img["data"] for img in find_image_payloads(missed_tree)] == [b"shallow"]
+        assert [img["data"] for img in find_image_payloads(listed_tree)] == [b"shallow", b"deep-png"]
+
+        out = normalize_execute_response({"status": "ok", "result": missed_tree, "stdout": ""})
+        assert len(out.get("images") or []) == 1
+        assert out["result"]["plot"] is None
+        node = out["result"]["buried"]
+        for _idx in range(12):
+            assert isinstance(node, dict)
+            node = node["n"]
+        assert node.get("format") == "png"
+        assert node.get("data_b64")
+
+        listed = normalize_execute_response({"status": "ok", "result": listed_tree, "stdout": ""})
+        assert len(listed.get("images") or []) == 2
+        leaf = listed["result"]["buried"]
+        for _idx in range(11):
+            leaf = leaf["n"]
+        assert leaf is None
+
+    def test_unlisted_image_dict_is_not_nulled(self) -> None:
+        """A plot the finder did not return stays in result when another plot is listed."""
+        listed = {"__wa_payload__": "image", "format": "png", "data": b"png"}
+        # str data fails is_image_payload, so find_image_payloads skips it.
+        unlisted = {"__wa_payload__": "image", "format": "png", "data": "not-bytes"}
+        out = normalize_execute_response({"status": "ok", "result": {"a": listed, "b": unlisted}, "stdout": ""})
+        assert len(out.get("images") or []) == 1
+        assert out["result"]["a"] is None
+        assert out["result"]["b"] == {"format": "png", "data_b64": "not-bytes"}
+
 
 class TestTimeoutHelpers:
     def test_timeout_ms_rounds_up(self) -> None:
@@ -644,6 +697,16 @@ class TestComputeSettings:
         with pytest.raises(ConfigError, match="idle_worker_ttl_sec"):
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
+    def test_env_api_key_keeps_surrounding_spaces(self, tmp_path) -> None:
+        """The env secret used to be strip()'d. The key file is not, so the same text differed."""
+        key = " secret "
+        s = load_settings(environ={"PYTHON_COMPUTE_API_KEY": key, "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert s.api_key == key
+        key_path = tmp_path / "key_spaces"
+        key_path.write_bytes(b" secret ")
+        from_file = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert from_file.api_key == s.api_key
+
     def test_key_file_preserves_leading_and_trailing_spaces(self, tmp_path) -> None:
         """_read_key_file must NOT strip() the key; only the one trailing newline is removed.
         API keys with leading/trailing spaces (unusual but valid) must round-trip intact."""
@@ -1026,6 +1089,69 @@ class TestSessionResetHttp:
         status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
         assert status.startswith("200")
         assert body.get("code") == "EXECUTION_TIMEOUT"
+
+    def test_vision_pool_busy_is_503(self) -> None:
+        """A vision lease miss used to be HTTP 200. The accept-deadline pre-check is already 503."""
+        fake_pool = MagicMock()
+        fake_pool.execute.return_value = {
+            "id": "v-busy",
+            "status": "error",
+            "code": "VISION_POOL_BUSY",
+            "error": "All vision workers are currently busy and request timed out waiting for worker lease.",
+        }
+        app = create_wsgi_app(ComputeSettings())
+        payload = json.dumps({"id": "v-busy", "image_b64": "YQ=="}).encode("utf-8")
+        with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+            status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+        assert status.startswith("503")
+        assert body.get("code") == "VISION_POOL_BUSY"
+        assert body.get("id") == "v-busy"
+        assert body.get("status") == "error"
+
+    def test_non_ascii_bearer_and_key_file(self, tmp_path) -> None:
+        """hmac.compare_digest on str raises TypeError for non-ASCII. That escaped the WSGI app."""
+        from compute_service.server import authenticate_request
+
+        key = "sécret-ключ"
+        key_path = tmp_path / "key"
+        key_path.write_text(key + "\n", encoding="utf-8")
+        settings = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert settings.api_key == key
+
+        principal, err = authenticate_request({"HTTP_AUTHORIZATION": f"Bearer {key}"}, settings)
+        assert err is None
+        assert principal == settings.default_principal
+        principal_bad, err_bad = authenticate_request({"HTTP_AUTHORIZATION": "Bearer café-nope"}, settings)
+        assert principal_bad is None
+        assert err_bad == "invalid"
+
+        ran: list[str] = []
+
+        def execute_fn(**kwargs):
+            ran.append(kwargs["code"])
+            return {"status": "ok", "result": 1, "stdout": ""}
+
+        app = create_wsgi_app(settings, execute_fn=execute_fn)
+        bad_status, bad_headers, bad_body = _wsgi_post(
+            app,
+            json.dumps({"code": "result = 1"}).encode("utf-8"),
+            path="/v1/execute",
+            headers={"Authorization": "Bearer café-nope"},
+        )
+        assert bad_status.startswith("401")
+        assert bad_body.get("error") == "Unauthorized"
+        assert ("WWW-Authenticate", "Bearer") in bad_headers
+        assert ran == []
+
+        ok_status, _ok_headers, ok_body = _wsgi_post(
+            app,
+            json.dumps({"code": "result = 1"}).encode("utf-8"),
+            path="/v1/execute",
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert ok_status.startswith("200")
+        assert ok_body.get("status") == "ok"
+        assert ran == ["result = 1"]
 
     def test_execute_queue_timeout_from_pool_is_503(self) -> None:
         """The pool's own deadline check must not answer 200.
@@ -1478,6 +1604,115 @@ def test_start_docker_keeps_api_key_as_one_argument(tmp_path) -> None:
     assert proc.returncode == 0, proc.stderr
     lines = marker.read_text(encoding="utf-8").splitlines()
     assert f"PYTHON_COMPUTE_API_KEY={key}" in lines
+
+
+def test_start_docker_mounts_api_key_file_read_only(tmp_path) -> None:
+    """The host key file is mounted; the container env points at the mount.
+
+    Forwarding PYTHON_COMPUTE_API_KEY_FILE without -v made the process look
+    for the host path inside the image and exit 2. Spaces and glob characters
+    in the key and the path must stay one docker argument each.
+    """
+    import subprocess
+    from pathlib import Path
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    marker = tmp_path / "args"
+    fake = bindir / "docker"
+    fake.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$DOCKER_ARGS\"\nexit 0\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    key_file = tmp_path / "sec ret *" / "api key"
+    key_file.parent.mkdir()
+    key_file.write_text("from-file\n", encoding="utf-8")
+    script = Path(__file__).resolve().parents[2] / "compute_service" / "start-docker.sh"
+    key = "sec ret *"
+    env = {
+        "PATH": f"{bindir}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "DOCKER_ARGS": str(marker),
+        "PYTHON_COMPUTE_API_KEY": key,
+        "PYTHON_COMPUTE_API_KEY_FILE": str(key_file),
+        "PYTHON_COMPUTE_IMAGE": "python-compute",
+    }
+    proc = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+    lines = marker.read_text(encoding="utf-8").splitlines()
+    mount = f"{key_file}:/run/secrets/python_compute_api_key:ro"
+    assert mount in lines
+    assert "PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key" in lines
+    assert f"PYTHON_COMPUTE_API_KEY_FILE={key_file}" not in lines
+    assert f"PYTHON_COMPUTE_API_KEY={key}" in lines
+
+
+def _runner_stage_copies(dockerfile_text: str) -> list[tuple[str, str]]:
+    """``COPY src dest`` pairs from the runner stage, skipping ``--from``."""
+    stage = ""
+    pairs: list[tuple[str, str]] = []
+    for raw in dockerfile_text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.upper().startswith("FROM "):
+            parts = line.split()
+            stage = parts[-1] if len(parts) >= 4 and parts[-2].upper() == "AS" else ""
+            continue
+        if stage != "runner" or not line.startswith("COPY ") or "--from=" in line:
+            continue
+        parts = line.split()
+        if len(parts) != 3:
+            raise AssertionError(f"unexpected COPY form: {line}")
+        pairs.append((parts[1], parts[2]))
+    return pairs
+
+
+def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
+    """The runner COPY set must import worker_base without the rest of plugin/.
+
+    The image copied only framework __init__, constants, and deal_shim.
+    worker_base imports worker_pool at load, and that import failed, so the
+    container never started. This materializes the Dockerfile COPY lines; it
+    does not need a Docker daemon. queue_executor, uno_context, and logging
+    are not part of that load-time closure.
+    """
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    dockerfile = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
+    pairs = _runner_stage_copies(dockerfile)
+    app = tmp_path / "app"
+    for src, dest in pairs:
+        assert dest.startswith("/app/"), dest
+        source = repo / src
+        target = app / dest[len("/app/") :]
+        assert source.exists(), src
+        if source.is_dir():
+            shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+
+    framework = app / "plugin" / "framework"
+    for name in ("worker_pool.py", "errors.py", "i18n.py", "json_utils.py", "thread_guard.py", "constants.py", "deal_shim.py"):
+        assert (framework / name).is_file(), name
+    for name in ("queue_executor.py", "uno_context.py", "logging.py"):
+        assert not (framework / name).exists(), name
+
+    proc = subprocess.run(
+        [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base"],
+        cwd=app,
+        env={"PYTHONPATH": str(app), "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
 
 
 def test_run_worker_stdio_loop_handles_non_dict_return(monkeypatch) -> None:

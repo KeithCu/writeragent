@@ -98,14 +98,17 @@ class FormulaProcessPool(BaseProcessPool):
                 if not still_stale:
                     continue
                 try:
-                    leased.execute({"action": "reset_session", "session_id": sid}, timeout_sec=2.0)
+                    res = leased.execute({"action": "reset_session", "session_id": sid}, timeout_sec=2.0)
                 except Exception:
+                    # The child never answered. Kill it; the namespace dies with the pid.
                     log.exception("TTL reset_session failed for %s; killing worker", sid)
                     leased.kill()
                     with self._cond:
                         self._clear_worker_sessions_unlocked(leased)
-                self._drop_session_if_worker(sid, leased)
-                evicted.append(sid)
+                    evicted.append(sid)
+                else:
+                    if self._drop_session_after_reset(sid, leased, res):
+                        evicted.append(sid)
             finally:
                 self.release_worker(leased)
         if evicted:
@@ -187,6 +190,23 @@ class FormulaProcessPool(BaseProcessPool):
                 return
             self._drop_one_unlocked(session_id)
 
+    def _drop_session_after_reset(self, session_id: str, worker: BaseProcessWorker, res: dict[str, Any]) -> bool:
+        """Forget *session_id* only when the worker reset reports ``ok``.
+
+        What was wrong: ``_evict_stale_sessions`` and ``reset_session`` called
+        ``_drop_session_if_worker`` after every completed reset, including a
+        response whose ``status`` was not ``ok``. How: the worker can still
+        hold the namespace while the supervisor forgets the id, so the next
+        sticky cell looks new on a kernel that is not empty. Why: drop the
+        map only when ``res["status"] == "ok"``; a failed reset is logged
+        and the map stays.
+        """
+        if res.get("status") == "ok":
+            self._drop_session_if_worker(session_id, worker)
+            return True
+        log.error("reset_session failed for %s; keeping session map because the worker may still hold the namespace: %s", session_id, res)
+        return False
+
     def should_recycle_worker(self, worker: BaseProcessWorker) -> bool:
         """Recycle worker if tasks_executed >= max_tasks, unless holding active shared sessions.
 
@@ -233,10 +253,13 @@ class FormulaProcessPool(BaseProcessPool):
         """Drop the shared sandbox + init companion for *session_id*.
 
         HTTP ``POST /v1/session/reset`` calls this (do not add a second reset
-        path). Unknown / already-gone ids are idempotent ``ok``. TTL eviction
-        in ``_evict_stale_sessions`` stays the safety net if reset is missed.
-        Default timeout_sec=5.0 gives an in-progress calculation time to complete
-        before failing the control-plane reset request.
+        path). Unknown / already-gone ids are idempotent ``ok``. The session
+        map is dropped only when the worker reset returns ``status`` ``ok``.
+        A failed reset is logged and the map stays, because that process may
+        still hold the namespace. TTL eviction in ``_evict_stale_sessions``
+        stays the safety net if reset is missed. Default timeout_sec=5.0
+        gives an in-progress calculation time to complete before failing the
+        control-plane reset request.
         """
         # Do not pop the map before the lease. The old order let a concurrent
         # execute re-register the session and run a cell, then this reset
@@ -256,7 +279,7 @@ class FormulaProcessPool(BaseProcessPool):
             return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Could not lease worker to reset session."}
         try:
             res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
-            self._drop_session_if_worker(session_id, leased)
+            self._drop_session_after_reset(session_id, leased, res)
             return res
         finally:
             self.release_worker(leased)
@@ -402,7 +425,14 @@ class FormulaProcessPool(BaseProcessPool):
         if blob is None and data is not None:
             # Convenience for pool tests / in-process callers. The HTTP
             # path always supplies data_json so the host never dumps the grid.
-            blob = json.dumps(data, allow_nan=False).encode("utf-8")
+            # allow_nan=False raises ValueError for NaN/Inf and TypeError for
+            # a non-JSON object. That escaped execute() before any lease.
+            # execute() already turns ExecuteRequestError into an error
+            # payload. Do not validate data_json: those bytes are the wire.
+            try:
+                blob = json.dumps(data, allow_nan=False).encode("utf-8")
+            except (TypeError, ValueError) as exc:
+                raise ExecuteRequestError(f"data is not JSON-serializable: {exc}") from exc
         if blob is not None:
             payload["data_json"] = bytes(blob)
         return payload

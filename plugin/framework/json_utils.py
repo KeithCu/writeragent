@@ -29,6 +29,16 @@ from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, deal, s
 
 log = logging.getLogger(__name__)
 
+
+def _is_pre_contract_error(exc: BaseException) -> bool:
+    """True for ``deal.PreContractError``.
+
+    That class subclasses ``AssertionError``, not ``ValueError``, so a repair
+    ``except`` that lists only JSON errors does not catch it. Match by name so
+    this stays valid when deal is not installed.
+    """
+    return type(exc).__name__ == "PreContractError"
+
 _LATEX_CLASH_WORDS = [
     # \a (Bell)
     "alpha",
@@ -248,8 +258,8 @@ def repair_json(text: str) -> str:
 
 
 @deal.pre(lambda text, *_unused, **__: _deal_json_text_ok(text))
-def repair_json_object(text: str) -> Any:
-    """Repair malformed JSON and return a parsed object (json-repair return_objects=True)."""
+def _repair_json_object_bounded(text: str) -> Any:
+    """Deal-bounded body of ``repair_json_object``. Callers catch ``PreContractError``."""
     # crosshair: off
     if not isinstance(text, str):
         return text
@@ -262,6 +272,27 @@ def repair_json_object(text: str) -> Any:
     import json_repair  # lazy: vendored in plugin/lib or vendor/
 
     return json_repair.repair_json(stripped, return_objects=True)
+
+
+def repair_json_object(text: str) -> Any:
+    """Repair malformed JSON and return a parsed object (json-repair return_objects=True).
+
+    What was wrong: ``@deal.pre`` rejects text longer than ``DEAL_MAX_SOURCE``.
+    ``PreContractError`` subclasses ``AssertionError``, not ``ValueError``, so
+    it escaped callers that only catch JSON errors. The contract stays on
+    ``_repair_json_object_bounded``. A rejected payload returns the original
+    text instead of raising.
+    """
+    # crosshair: off
+    try:
+        return _repair_json_object_bounded(text)
+    except Exception as exc:
+        # except Exception, not a deal class: mypy rejects a dynamically loaded
+        # PreContractError in an except clause. Only that contract error is
+        # swallowed; other repair failures still propagate.
+        if not _is_pre_contract_error(exc):
+            raise
+        return text
 
 
 @deal.ensure(lambda text, default=None, strict=False, result=None: isinstance(text, (str, bytes, bytearray)) or result is default)
@@ -347,14 +378,19 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         pass
 
-    # 4. Repair attempt for truncated or malformed JSON
+    # 4. Repair attempt for truncated or malformed JSON.
     try:
         repaired = repair_json(stripped)
         if repaired != stripped:
             parsed = json.loads(repaired, strict=False)
             _debug_json_stage("json_repair")
             return parsed
-    except (json.JSONDecodeError, TypeError, ValueError, RecursionError, ImportError):
+    except Exception:
+        # What was wrong: repair_json's @deal.pre rejects text longer than
+        # DEAL_MAX_SOURCE. PreContractError subclasses AssertionError, not
+        # ValueError, and mypy rejects that dynamically loaded class in an
+        # except clause. This try is only the repair attempt, so any failure
+        # returns default.
         pass
 
     return default

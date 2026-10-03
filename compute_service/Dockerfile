@@ -40,6 +40,15 @@ COPY plugin/scripting /app/plugin/scripting
 COPY plugin/framework/__init__.py /app/plugin/framework/__init__.py
 COPY plugin/framework/constants.py /app/plugin/framework/constants.py
 COPY plugin/framework/deal_shim.py /app/plugin/framework/deal_shim.py
+# worker_base imports plugin.framework.worker_pool at load. That imports
+# errors (which imports i18n and json_utils) and thread_guard. constants.py
+# and deal_shim.py above close that graph. queue_executor, uno_context, and
+# logging are not imported at load time — do not copy them.
+COPY plugin/framework/worker_pool.py /app/plugin/framework/worker_pool.py
+COPY plugin/framework/errors.py /app/plugin/framework/errors.py
+COPY plugin/framework/i18n.py /app/plugin/framework/i18n.py
+COPY plugin/framework/json_utils.py /app/plugin/framework/json_utils.py
+COPY plugin/framework/thread_guard.py /app/plugin/framework/thread_guard.py
 COPY plugin/contrib/smolagents /app/plugin/contrib/smolagents
 COPY plugin/contrib/__init__.py /app/plugin/contrib/__init__.py
 # Host-side Cython flatten for large HTTP grids (python:3.12-slim → cp312 .so).

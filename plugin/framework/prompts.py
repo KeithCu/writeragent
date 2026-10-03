@@ -930,17 +930,6 @@ def get_core_directives_for_type(doc_type: str | None) -> str:
     return WRITER_CORE_DIRECTIVES
 
 
-def get_core_directives(model: Any) -> str:
-    """Return the application-specific core directives dynamically based on document type."""
-    from plugin.doc.doc_type import is_calc, is_draw
-
-    if is_calc(model):
-        return get_core_directives_for_type("calc")
-    if is_draw(model):
-        return get_core_directives_for_type("draw")
-    return get_core_directives_for_type("writer")
-
-
 def _catalog_entries_from_base(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
 
@@ -978,7 +967,8 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     all three (e.g. MCP ``find_tools`` with no document open).
 
     ``for_discovery`` is set by MCP ``find_tools``: it keeps the domains whose exclusion only
-    shapes a chat prompt, so discovery covers everything the flat tool list exposes.
+    shapes a chat prompt, so discovery covers everything the flat tool list exposes. The
+    no-document merge uses the same flag as the per-app branches.
     """
     if agent_label == "Calc":
         from plugin.calc.base import ToolCalcSpecialBase
@@ -999,7 +989,12 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
 
         seen: dict[str, str] = {}
         for base, label in ((ToolWriterSpecialBase, "Writer"), (ToolCalcSpecialBase, "Calc"), (ToolDrawSpecialBase, "Draw")):
-            for entry in _catalog_entries_from_base(base, agent_label=label, ctx=ctx):
+            # What was wrong: find_tools with no document asked for discovery, but
+            # this merge left for_discovery false. How: the per-app branches forwarded
+            # the flag and this loop did not, so CALC_HIDDEN_SPECIALIZED_DOMAINS still
+            # applied. python is also on Writer and Draw, which hid the gap. Why:
+            # pass the same flag so a Calc-only hidden domain stays discoverable.
+            for entry in _catalog_entries_from_base(base, agent_label=label, ctx=ctx, for_discovery=for_discovery):
                 dom = entry["domain"]
                 desc = entry["description"]
                 if dom not in seen or len(desc) > len(seen[dom]):
@@ -1275,10 +1270,11 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
             user_mem = store.read("user")
             if user_mem:
                 base += _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).debug(f"Failed to read user memory for prompt: {e}")
+        except Exception:
+            # What was wrong: a broken USER.md dropped the profile with only a
+            # debug line. How: this except used logger.debug. Why: log like the
+            # peer-block failure (exception + traceback) and still build the prompt.
+            logging.getLogger(__name__).exception("Failed to read user memory for prompt")
 
         # Humanizer skill (minimal addition, re-uses the exact same injection pattern as memory above).
         # When enabled, the model receives the rules as ambient context for any prose it generates
@@ -1295,10 +1291,10 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
                 hguidance = hstore.get_humanizer_guidance()
                 if hguidance:
                     base += "\n\n[HUMANIZER GUIDANCE — apply when generating or revising prose]\n" + _cap_injected_prompt_blob(hguidance) + "\n"
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).debug(f"Failed to inject humanizer guidance: {e}")
+        except Exception:
+            # Same as the memory except above: a broken skill store must not
+            # swallow the guidance at debug, and must not abort the prompt.
+            logging.getLogger(__name__).exception("Failed to inject humanizer guidance")
 
     base = _append_additional_instructions(base, additional_instructions)
 
