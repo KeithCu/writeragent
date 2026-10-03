@@ -10,7 +10,14 @@ from pathlib import Path
 
 import pytest
 
-from plugin.draw.design_look import _MAX_MEMBER_BYTES, decode_png_rgb, derive_otp_look
+from plugin.draw.design_look import (
+    _MAX_MEMBER_BYTES,
+    _MAX_XML_SAMPLES,
+    _MAX_XML_SVG_MEMBERS,
+    _xml_color_samples,
+    decode_png_rgb,
+    derive_otp_look,
+)
 
 
 def _chunk(tag: bytes, data: bytes) -> bytes:
@@ -226,6 +233,62 @@ def test_styles_xml_fallback_when_no_thumbnail(tmp_path):
     look = derive_otp_look(path)
     assert "dark background" in look
     assert "blue accents" in look
+
+
+def test_many_cap_sized_svgs_keep_color_fallback_bounded(tmp_path):
+    # No thumbnail, so derive_otp_look scrapes styles.xml and Pictures/*.svg.
+    # Each SVG is one member-cap of the same dark blue. Uncapped, eight of
+    # these were ~180MB and ~12s of hex tuples on the main thread; twenty-four
+    # would be multiple times that. The kept sample list is the bound.
+    color = b"#0a1a3a"
+    payload = color * (_MAX_MEMBER_BYTES // len(color))
+    path = tmp_path / "ManySvg.otp"
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("styles.xml", b'<style draw:fill-color="#0a1a3a" fo:color="#3a7bd5"/>')
+        for i in range(24):
+            zf.writestr("Pictures/bomb%d.svg" % i, payload)
+
+    import time
+    import tracemalloc
+
+    tracemalloc.start()
+    started = time.perf_counter()
+    try:
+        look = derive_otp_look(str(path))
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    elapsed = time.perf_counter() - started
+
+    assert "dark background" in look
+    assert "blue accents" in look
+    # One capped member is held twice for the bytes() copy (~4MB). The
+    # uncapped list is hundreds of MB. 16MB leaves room for zlib and the zip.
+    assert peak < 16 * 1024 * 1024
+    assert elapsed < 5.0
+
+    with zipfile.ZipFile(path) as zf:
+        samples = _xml_color_samples(zf, zf.namelist())
+    assert 0 < len(samples) <= _MAX_XML_SAMPLES
+
+
+def test_svg_color_inside_member_cap_sets_look_and_past_it_does_not(tmp_path):
+    # Yellow sits on the last SVG the fallback may open. Red sits on the
+    # next one. A missing cap would report red; a cap of zero would miss yellow.
+    last = _MAX_XML_SVG_MEMBERS - 1
+    past = _MAX_XML_SVG_MEMBERS
+    pictures: dict[str, bytes] = {}
+    pictures["p000.svg"] = b'<svg fill="#0a1a3a"/>' * 40
+    for i in range(1, last):
+        pictures["p%03d.svg" % i] = b"<svg/>"
+    pictures["p%03d.svg" % last] = b'<svg fill="#e6c200"/>' * 20
+    pictures["p%03d.svg" % past] = b'<svg fill="#ff2020"/>' * 50
+    path = _write_otp(tmp_path, pictures=pictures)
+    look = derive_otp_look(path)
+    assert "dark background" in look
+    assert "blue" in look
+    assert "yellow" in look
+    assert "red" not in look
 
 
 def test_empty_look_when_zip_has_no_usable_signal(tmp_path):
