@@ -85,11 +85,14 @@ class OptimizeDataTool(ToolBaseDummy):
         task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
         output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
 
-        def _run() -> dict[str, Any]:
-            return run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
-
+        # What was wrong: this async tool pushed the whole optimization, including
+        # venv IPC, onto the UI thread via execute_on_main_thread and froze Calc.
+        # How: _run called run_trusted_optimize, which both reads the sheet and
+        # blocks in the optimize client.
+        # Why: call it on this worker. The helper marshals only the UNO read;
+        # the sheet write below stays on the main thread.
         try:
-            result = execute_on_main_thread(_run)
+            result = run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "OPTIMIZE_ERROR"))
         except Exception as exc:

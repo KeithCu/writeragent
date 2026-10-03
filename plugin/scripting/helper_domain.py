@@ -676,8 +676,33 @@ def run_trusted_calc_data_helper(
     if not dr and data is None:
         raise ToolExecutionError("Provide data_range or data", code=error_code)
 
-    tool_ctx = calc_tool_context(uno_ctx, doc)
-    py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
+    def _read_sheet() -> tuple[Any, str | None, dict[str, Any]]:
+        # UNO only. Callers are async workers; the venv IPC must not sit in this hop.
+        tool_ctx = calc_tool_context(uno_ctx, doc)
+        py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
+        context: dict[str, Any] = {}
+        try:
+            bridge = CalcBridge(doc)
+            context["sheet_name"] = bridge.get_active_sheet().getName()
+        except Exception:
+            pass
+        if task_hint:
+            context["task_hint"] = str(task_hint)
+        if dr:
+            context["range_a1"] = dr
+        return py_data, err, context
+
+    # What was wrong: forecast_data / optimize_data wrapped this whole helper in
+    # execute_on_main_thread, so the venv IPC ran on the UI thread and froze Calc.
+    # How: sheet reads and client_run shared one function with no thread split.
+    # Why: hop only the UNO read to the main thread; client_run stays on the caller.
+    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.thread_guard import on_main_thread
+
+    if on_main_thread():
+        py_data, err, context = _read_sheet()
+    else:
+        py_data, err, context = execute_on_main_thread(_read_sheet)
     if err:
         raise ToolExecutionError(err, code=error_code)
     if py_data is None:
@@ -686,17 +711,6 @@ def run_trusted_calc_data_helper(
     spec: dict[str, Any] = {"helper": name, "headers": bool(headers)}
     if isinstance(params, dict) and params:
         spec["params"] = params
-
-    context: dict[str, Any] = {}
-    try:
-        bridge = CalcBridge(doc)
-        context["sheet_name"] = bridge.get_active_sheet().getName()
-    except Exception:
-        pass
-    if task_hint:
-        context["task_hint"] = str(task_hint)
-    if dr:
-        context["range_a1"] = dr
 
     return client_run(uno_ctx, spec, py_data, context=context or None)
 

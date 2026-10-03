@@ -265,6 +265,8 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 **Sub-agent:** [`forecast_data`](../../plugin/calc/forecast.py) in `domain="analysis"` — same delegation as EDA/regression (`optimize_data` precedent); supports `auto_plot` for band charts ([`forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py)).
 
+**Threading:** `forecast_data` and `optimize_data` are async. Sheet reads and result or chart writes run on the LibreOffice main thread. Venv forecast, optimize, and auto-plot viz IPC stay on the worker. Auto-plot history is a `calc_range` envelope from `_resolve_python_data`; [`merge_forecast_plot_data`](../../plugin/calc/forecast_auto_plot.py) materializes that envelope before building the band table. `calc_tool_context` is imported from [`analysis_runner`](../../plugin/calc/analysis_runner.py).
+
 **Fallback:** Simple moving-average projection in pandas when statsmodels forecasting APIs unavailable (`forecast_time_series` with `model="auto"` or `"moving_average"`).
 
 **Tests:** [`test_forecast.py`](../../tests/scripting/test_forecast.py), [`test_forecast_templates.py`](../../tests/scripting/test_forecast_templates.py), [`test_python_runner_forecast.py`](../../tests/scripting/test_python_runner_forecast.py), [`test_forecast_data.py`](../../tests/calc/test_forecast_data.py), [`test_forecast_auto_plot.py`](../../tests/calc/test_forecast_auto_plot.py).

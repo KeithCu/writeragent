@@ -141,3 +141,44 @@ def test_viz_template_body_includes_helper_params():
 def test_parse_viz_script_header_rejects_unknown_helper():
     code = "# writeragent:viz helper=not_a_helper params={}\n"
     assert parse_viz_script_header(code) is None
+
+
+def test_run_trusted_viz_reads_on_main_and_runs_client_off_main():
+    inside = {"flag": False}
+
+    def exec_main(fn, *args, **kwargs):
+        inside["flag"] = True
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            inside["flag"] = False
+
+    def client(_ctx, spec, _data, context=None):
+        del context
+        assert not inside["flag"], "client_run_viz must stay off the UNO hop"
+        assert spec["helper"] == "time_series_plot"
+        return {"status": "ok", "helper": "time_series_plot"}
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=exec_main) as mock_main,
+        patch("plugin.scripting.viz.is_calc", return_value=True),
+        patch("plugin.scripting.viz.is_writer", return_value=False),
+        patch("plugin.scripting.viz.calc_tool_context", return_value=MagicMock()),
+        patch("plugin.scripting.viz._resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
+        patch("plugin.scripting.viz.client_run_viz", side_effect=client) as mock_client,
+        patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
+    ):
+        mock_bridge.return_value.get_active_sheet.return_value.getName.return_value = "Sheet1"
+        from plugin.scripting.viz import run_trusted_viz
+
+        result = run_trusted_viz(
+            MagicMock(),
+            MagicMock(),
+            helper="time_series_plot",
+            data=[["date", "Value"], ["2024-01-01", 1.0]],
+        )
+
+    assert result["status"] == "ok"
+    mock_main.assert_called_once()
+    mock_client.assert_called_once()

@@ -50,9 +50,21 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
     if hasattr(history_data, "columns"):
         hist_df = history_data.copy()
     else:
+        from plugin.scripting.payload_codec import is_calc_range_payload
         from plugin.scripting.venv.coerce import coerce_to_dataframe
 
-        hist_df = coerce_to_dataframe(history_data, headers=True).df
+        grid = history_data
+        if is_calc_range_payload(history_data):
+            # What was wrong: the merged plot was a single cell containing the
+            # whole envelope, so Date/Value columns were missing and auto-plot
+            # dropped the history (or drew garbage).
+            # How: _resolve_python_data returns a calc_range dict, and
+            # coerce_to_dataframe wraps an unrecognized dict as a 1×1 cell.
+            # Why: materialize the envelope to its rectangular values first.
+            from plugin.scripting.calc_range import materialize_calc_range
+
+            grid = materialize_calc_range(history_data).values
+        hist_df = coerce_to_dataframe(grid, headers=True).df
 
     if date_col not in hist_df.columns or value_col not in hist_df.columns:
         return None
@@ -121,11 +133,24 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
     if viz_helper not in HELPER_NAMES:
         return None
 
-    from plugin.scripting.forecast import calc_tool_context
+    # What was wrong: every auto-plot raised AttributeError after a successful forecast.
+    # How: this imported calc_tool_context from plugin.scripting.forecast, which
+    # does not define it (it lives on plugin.calc.analysis_runner).
+    # Why: use the same import as helper_domain / quant / viz / python_runner.
+    from plugin.calc.analysis_runner import calc_tool_context
     from plugin.calc.calc_addin_data import _resolve_python_data
+    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.thread_guard import on_main_thread
 
-    tool_ctx = calc_tool_context(uno_ctx, doc)
-    py_data, err = _resolve_python_data(tool_ctx, data_range=data_range, data=None)
+    def _read_history() -> tuple[Any, str | None]:
+        # Sheet read is UNO. Viz IPC (run_trusted_viz) stays on the caller.
+        tool_ctx = calc_tool_context(uno_ctx, doc)
+        return _resolve_python_data(tool_ctx, data_range=data_range, data=None)
+
+    if on_main_thread():
+        py_data, err = _read_history()
+    else:
+        py_data, err = execute_on_main_thread(_read_history)
     if err or py_data is None:
         return None
 
