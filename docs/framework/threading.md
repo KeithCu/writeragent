@@ -14,7 +14,7 @@ Because WriterAgent connects to external LLM services and relies on streaming re
 
 This is the core concurrency bridge. Because background threads (like the HTTP server or AI streaming loop) cannot safely execute UNO commands, they use `execute_on_main_thread(fn, *args, **kwargs)` to offload UNO interactions back to the main thread.
 
-*   **Mechanism:** It pushes a `_WorkItem` containing the callable and arguments onto a `queue.Queue`. It then signals LibreOffice to wake up and process the queue using `com.sun.star.awt.AsyncCallback`.
+*   **Mechanism:** It pushes a `_WorkItem` containing the callable and arguments onto a `queue.Queue`. It then signals LibreOffice to wake up and process the queue using `com.sun.star.awt.AsyncCallback`. `post()` before that callback exists keeps a short pending list. A full list waits for a flush and then raises `TimeoutError`; it does not drop the callable. The grammar in-flight gate wakes one waiter per release (`notify`), because one slot opened.
 *   **Synchronization:** The calling background thread blocks on a `threading.Event()` (`_WorkItem.event.wait()`) until the main thread picks up the item, executes it, and sets the result or exception. This provides a synchronous feel to the caller while executing safely on the UI thread.
 *   **Safety:** A `threading.Lock` (`_init_lock`) protects the lazy initialization of the AsyncCallback UNO service.
 
@@ -140,6 +140,7 @@ CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would bl
 
 - Size: [`BACKGROUND_POOL_MAX_WORKERS`](../../plugin/framework/constants.py) (2), overridable with `WRITERAGENT_BG_POOL_WORKERS`.
 - Lazy singleton. No production `shutdown()` (lifetime = soffice). Tests use `reset_background_pool_for_tests()`.
+- `shutdown(wait=True)` joins each worker until it has exited. A single 5s `join` used to return while the in-flight job was still running, leaving a `wa-bg-retired-*` thread beside the next pool. Joins are sliced so they stay interruptible; a job that never returns blocks shutdown instead of being abandoned.
 
 #### Dedicated vs pooled
 

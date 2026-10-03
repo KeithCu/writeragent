@@ -61,6 +61,9 @@ from plugin.framework import thread_guard
 _pool_lock = threading.Lock()
 _pool: "_DaemonWorkPool | None" = None
 _pool_size_override: int | None = None
+# shutdown() joins in slices so a KeyboardInterrupt can land between them.
+# One slice used to return while the in-flight job was still running.
+_POOL_SHUTDOWN_JOIN_SLICE_SEC = 5.0
 
 
 def background_pool_max_workers() -> int:
@@ -215,8 +218,24 @@ class _DaemonWorkPool:
         # Join outside the lock: a worker blocked in queue.get() only needs
         # the sentinel, and join must not run while submit is waiting.
         if wait:
-            for t in self._threads:
-                t.join(timeout=5.0)
+            _join_pool_workers(self._threads)
+
+
+def _join_pool_workers(threads: list[threading.Thread]) -> None:
+    """Join each pool worker. Do not return while it is still alive.
+
+    What was wrong: ``join(timeout=5.0)`` once, then drop the pool. Under
+    load the job already dequeued outlasts 5s, the sentinel sits until that
+    job ends, and the thread keeps running as ``wa-bg-retired-*`` next to
+    the next pool.
+    How: shutdown treated the timeout as "joined".
+    Why: keep joining. ``_wait_for_exit`` uses no timeout for the same
+    reason (a reader is not done until it returns). Slices stay interruptible.
+    A job that never returns blocks shutdown instead of leaving a live worker.
+    """
+    for thread in threads:
+        while thread.is_alive():
+            thread.join(timeout=_POOL_SHUTDOWN_JOIN_SLICE_SEC)
 
 
 def _get_pool() -> _DaemonWorkPool:
