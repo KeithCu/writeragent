@@ -289,8 +289,10 @@ def impower(inumber: Any, number: Any) -> str:
         c = _to_complex(inumber)
         p = float(number)
         return _from_complex(c**p)
-    except (ValueError, TypeError, OverflowError):
-        # complex ** raises OverflowError on a huge power (IMPOWER("2", 10000)).
+    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+        # complex ** raises OverflowError on a huge power (IMPOWER("2", 10000))
+        # and ZeroDivisionError for 0 to a negative power, or a finite base
+        # to ±inf. Those used to escape the helper. Excel IMPOWER is #VALUE!.
         return "#VALUE!"
 
 
@@ -453,7 +455,9 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
         inv = float(investment)
         red = float(redemption)
         b = int(float(basis))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(basis)) raises OverflowError on ±inf. That used to escape
+        # the helper. Excel INTRATE is #NUM!, which this module reports as NaN.
         return float("nan")
     if s >= m or inv <= 0 or red <= 0 or b < 0 or b > 4:
         return float("nan")
@@ -473,7 +477,9 @@ def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val:
         pv_f = float(pv_val)
         fv_f = float(fv_val)
         t = 1 if int(float(type_val)) == 1 else 0
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(per)) and int(float(type_val)) raise OverflowError on ±inf.
+        # That used to escape the helper. Excel IPMT is #NUM!, reported as NaN.
         return float("nan")
     # GetIpmt / Excel: per outside 1..nper is #NUM!. numpy-financial returns
     # 0 once per > nper (and NaN only for per < 1).
@@ -787,7 +793,9 @@ def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: 
         y = float(yld)
         f = float(frequency)
         b = int(float(basis))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(basis)) raises OverflowError on ±inf. That used to escape
+        # the helper. Excel MDURATION is #NUM!, which this module reports as NaN.
         return float("nan")
     macd = duration(s, m, c, y, f, b)
     if math.isnan(macd):
@@ -868,6 +876,11 @@ def mround(number: Any, multiple: Any) -> float:
         m = float(multiple)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
+    # math.floor/ceil raise OverflowError on ±inf and ValueError on NaN.
+    # A huge quotient (1e308 / 1e-308) overflows the same way. Excel MROUND
+    # is #NUM! for a non-finite argument; this module reports that as NaN.
+    if not math.isfinite(n) or not math.isfinite(m):
+        return float("nan")
     if m == 0:
         # Excel/Calc MROUND(n, 0) is #DIV/0!. Returning 0.0 hid that error.
         # This module reports #DIV/0! as NaN.
@@ -878,6 +891,8 @@ def mround(number: Any, multiple: Any) -> float:
     # was 2. Excel/Calc round halves away from zero (result 3). Same-sign
     # inputs make the quotient non-negative; floor(q + 0.5) is that rounding.
     quot = n / m
+    if not math.isfinite(quot):
+        return float("nan")
     rounded = math.floor(quot + 0.5) if quot >= 0 else math.ceil(quot - 0.5)
     return float(rounded * m)
 
