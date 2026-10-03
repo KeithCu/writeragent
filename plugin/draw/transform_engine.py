@@ -249,13 +249,18 @@ def _color_from_arguments(arguments: dict[str, Any] | None) -> int | None:
     for key in ("Color.Color", "Color"):
         if key not in arguments:
             continue
-        val = arguments[key]
-        if isinstance(val, dict) and "value" in val:
-            val = val["value"]
-        try:
-            return int(val)
-        except (TypeError, ValueError):
+        raw: Any = arguments[key]
+        if isinstance(raw, dict):
+            raw = raw.get("value")
+        if isinstance(raw, str):
+            try:
+                return int(raw)
+            except ValueError:
+                return None
+        # bool is an int subclass; a JSON true is not a color.
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
             return None
+        return int(raw)
     return None
 
 

@@ -160,4 +160,6 @@ def test_bullet_and_center_and_color_hit_the_cursor():
     assert cursor.ParaAdjust == 3
     assert apply_text_cursor_command(cursor, ".uno:Color", {"Color.Color": 255}) is True
     assert cursor.CharColor == 255
+    assert apply_text_cursor_command(cursor, ".uno:Color", {"Color": {"type": "long", "value": "16711680"}}) is True
+    assert cursor.CharColor == 16711680
     assert apply_text_cursor_command(cursor, ".uno:NotATextCommand") is False
