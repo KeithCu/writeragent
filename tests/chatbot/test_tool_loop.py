@@ -450,6 +450,9 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
         q.get()
         res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
+        # Malformed calls still run on a worker. Take TOOL_DONE before
+        # _start_tool_calling_async returns and abort drops later puts.
+        results.append(q.get(timeout=2))
 
     mock_drain_loop.side_effect = mock_drain_impl
 
@@ -466,8 +469,7 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
 
     assert results[0] is False
 
-    # The sync tool worker queues tool_done after the drain handler returns.
-    tool_done_item = captured_q.get(timeout=2)
+    tool_done_item = results[1]
     assert executed_args['name'] == 'unknown'
     assert executed_args['args'] == {}
     assert tool_done_item[0] == StreamQueueKind.TOOL_DONE
