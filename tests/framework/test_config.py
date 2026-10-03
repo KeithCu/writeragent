@@ -19,6 +19,8 @@ from plugin.framework.config import (
     parse_config_json_text,
     reset_config_for_tests,
     set_config,
+    set_configs,
+    update_config,
 )
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
@@ -129,10 +131,18 @@ class TestConfigSync:
         assert (get_api_key_for_endpoint('http://localhost:11434/')) == ('test-key-123')
 
     def test_set_api_key_for_endpoint(self):
-        set_api_key_for_endpoint('http://localhost:11434', 'new-key')
-        assert (self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434')) == ('new-key')
-        set_api_key_for_endpoint('http://localhost:11434/', 'updated-key')
-        assert (self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434')) == ('updated-key')
+        # This class stubs set_config. API-key writes go through update_config
+        # so the stub still has to record the map the store would patch.
+        def _record(key, fn, event_key=None):
+            del event_key
+            current = self.config_data.get(key, {})
+            self.config_data[key] = fn(current if isinstance(current, dict) else {})
+
+        with patch('plugin.framework.config.update_config', side_effect=_record):
+            set_api_key_for_endpoint('http://localhost:11434', 'new-key')
+            assert (self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434')) == ('new-key')
+            set_api_key_for_endpoint('http://localhost:11434/', 'updated-key')
+            assert (self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434')) == ('updated-key')
 
     def test_event_bus_listener_and_emit(self):
         called = []
@@ -493,9 +503,9 @@ class TestConfigSyncFileIO:
         assert (data['calc_prompt_max_tokens']) == (150)
         assert (data['text_model']) == ('gpt')
 
-    def test_set_config_real_write_prunes_other_defaults(self):
-        # Existing files that still contain default keys are cleaned on the next
-        # write of a non-default value, not on a no-op set of an unchanged key.
+    def test_set_config_one_key_does_not_rewrite_other_keys(self):
+        # A real change patches that key only. Defaults already stored, and
+        # every other key, stay. A full-blob to_dict() used to delete them.
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({
                 'endpoint': 'http://localhost:11434',
@@ -506,6 +516,8 @@ class TestConfigSyncFileIO:
         set_config('request_timeout', 60)
         data = self._load_written()
         assert (data) == ({
+            'endpoint': 'http://localhost:11434',
+            'chat_max_tokens': 16384,
             'text_model': 'custom-model',
             'request_timeout': 60,
         })
@@ -607,6 +619,109 @@ class TestConfigSyncFileIO:
         data = self._load_written()
         assert (data.get('request_timeout')) == (60)
         assert (data.get('text_model')) == ('custom-model')
+
+    def test_two_writers_keep_both_keys(self):
+        """Two writers that each change a different key must not drop either key.
+
+        What was wrong: each writer loaded the whole JSON and wrote the blob
+        back. The second write replaced the file with its earlier copy.
+        """
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump({'custom_unrecognized_key': 'from-earlier-writer'}, f)
+        reset_config_for_tests()
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def _write(key: str, value: object) -> None:
+            try:
+                barrier.wait(timeout=5)
+                set_config(key, value)
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=_write, args=('text_model', 'from-writer-a')),
+            threading.Thread(target=_write, args=('image_model', 'from-writer-b')),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+        assert errors == []
+        assert not any(thread.is_alive() for thread in threads)
+        reset_config_for_tests()
+        data = self._load_written()
+        assert (data.get('text_model')) == ('from-writer-a')
+        assert (data.get('image_model')) == ('from-writer-b')
+        assert (data.get('custom_unrecognized_key')) == ('from-earlier-writer')
+
+    def test_update_config_keeps_both_map_keys(self):
+        """update(key, fn) applies fn to the value just read, under one lock."""
+        reset_config_for_tests()
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def _add(url: str, secret: str) -> None:
+            def _put(current: object) -> dict[str, str]:
+                data = dict(current) if isinstance(current, dict) else {}
+                data[url] = secret
+                return data
+
+            try:
+                barrier.wait(timeout=5)
+                update_config('api_keys_by_endpoint', _put)
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=_add, args=('https://api.openai.com', 'sk-a')),
+            threading.Thread(target=_add, args=('http://localhost:11434', 'sk-b')),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+        assert errors == []
+        reset_config_for_tests()
+        keys = get_config('api_keys_by_endpoint')
+        assert keys.get('https://api.openai.com') == 'sk-a'
+        assert keys.get('http://localhost:11434') == 'sk-b'
+
+    def test_set_configs_unchanged_defaults_do_not_rewrite(self):
+        """A missing key at its default is not a change, even in a batch."""
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump({'text_model': 'custom-model'}, f)
+        reset_config_for_tests()
+        with open(self.config_path, encoding='utf-8') as f:
+            before = f.read()
+        with patch.object(global_event_bus, 'emit') as mock_emit:
+            set_configs({'request_timeout': 120, 'temperature': -1, 'text_model': 'custom-model'})
+            mock_emit.assert_not_called()
+        with open(self.config_path, encoding='utf-8') as f:
+            assert f.read() == before
+
+    def test_set_configs_two_changes_leave_other_keys(self):
+        """One or two real changes patch those keys and emit once."""
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                'endpoint': 'http://localhost:11434',
+                'text_model': 'keep-me',
+                'custom_unrecognized_key': 'stay',
+            }, f)
+        reset_config_for_tests()
+        with patch.object(global_event_bus, 'emit') as mock_emit:
+            set_configs({'image_model': 'flux', 'request_timeout': 60})
+        assert mock_emit.call_count == 1
+        assert mock_emit.call_args.kwargs['key'] == ''
+        assert mock_emit.call_args.kwargs['keys'] == ('image_model', 'request_timeout')
+        data = self._load_written()
+        assert (data) == ({
+            'endpoint': 'http://localhost:11434',
+            'text_model': 'keep-me',
+            'custom_unrecognized_key': 'stay',
+            'image_model': 'flux',
+            'request_timeout': 60,
+        })
 
     def test_get_config_nested_dict_does_not_alias_cache(self):
         with open(self.config_path, "w", encoding="utf-8") as f:
@@ -816,30 +931,38 @@ class TestConfigSyncFileIO:
         remove_config('request_timeout')
 
         data = self._load_written()
-        # All default keys (endpoint, chat_max_tokens) pruned, only custom text_model remains
-        assert (data) == ({'text_model': 'custom-model'})
+        # Only the removed key goes. Other keys, including stored defaults, stay.
+        assert (data) == ({
+            'endpoint': 'http://localhost:11434',
+            'chat_max_tokens': 16384,
+            'text_model': 'custom-model',
+        })
 
-    def test_set_config_drops_unknown_and_retired_keys(self):
+    def test_set_config_does_not_drop_another_writers_keys(self):
+        """A later one-key save must keep keys an earlier writer stored.
+
+        What was wrong: set_config loaded the whole JSON and wrote
+        ``to_dict()`` back. Unknown and retired keys disappeared.
+        """
+        original = {
+            'text_model': 'custom-model',
+            'chat_sidebar_mode': 'chat',
+            'chat_direct_image': False,
+            'writer.track_changes_reviewable': False,
+            'writer.require_edit_review': False,
+            'writer.edit_review_timeout': 900,
+            'doc.edit_review_timeout': 0,
+            'scripting.ppt_master_data_path': '',
+            'scripting.python_convert_datetime': False,
+        }
         with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump({
-                'text_model': 'custom-model',
-                'chat_sidebar_mode': 'chat',
-                'chat_direct_image': False,
-                'writer.track_changes_reviewable': False,
-                'writer.require_edit_review': False,
-                'writer.edit_review_timeout': 900,
-                'doc.edit_review_timeout': 0,
-                'scripting.ppt_master_data_path': '',
-                'scripting.python_convert_datetime': False,
-            }, f)
+            json.dump(original, f)
         reset_config_for_tests()
         set_config('request_timeout', 60)
         data = self._load_written()
-        assert (data) == ({
-            'text_model': 'custom-model',
-            'doc.edit_review_timeout': 0,
-            'request_timeout': 60,
-        })
+        assert (data['request_timeout']) == (60)
+        for key, value in original.items():
+            assert (data[key]) == (value)
 
 
 class TestRobustNumericParsing:

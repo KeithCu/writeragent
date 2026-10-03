@@ -19,7 +19,7 @@ from plugin.framework.service import ServiceBase
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.errors import ConfigError, ConfigValidationError
 
-from plugin.framework.config import get_config, set_config, remove_config, get_config_dict, get_current_endpoint, set_api_key_for_endpoint, parse_config_json_text, _config_write_lock, _load_config_dict, _stage_config_assignment, _validate_config_data, _write_config_file, AI_SIMPLE_FIELDS
+from plugin.framework.config import get_config, set_config, remove_config, get_config_dict, get_current_endpoint, set_api_key_for_endpoint, parse_config_json_text, _config_store, AI_SIMPLE_FIELDS
 from plugin.framework.config_schema import get_manifest_modules
 
 # get_stt_model / set_image_model / set_text_model stay inside the ai.* branches.
@@ -253,62 +253,48 @@ class ConfigService(ServiceBase):
                     set_config(field, value, event_key=key)
                 return
 
-        # Test fallback. Same staging and lock as set_config so a test file
-        # cannot skip coercion or race a production write.
+        # Test fallback. The store patches this file under the same lock as
+        # production set_config. What was wrong: this branch loaded the whole
+        # JSON and wrote it back, so a second writer dropped keys. emit=False
+        # because this method emits the one event below (old_value is the
+        # manifest default, not the store's missing-key None).
         if self._config_path:
+
+            def _replace(_current: Any) -> Any:
+                return value
+
             try:
-                with _config_write_lock:
-                    if os.path.exists(self._config_path):
-                        data = _load_config_dict(self._config_path, allow_repair=True, persist_repair=False)
-                    else:
-                        data = {}
-                    changed, _coerced, _previous = _stage_config_assignment(data, key, value)
-                    if changed:
-                        data = _validate_config_data(data, key)
-                        _write_config_file(self._config_path, data)
+                changed = _config_store.apply(
+                    self._config_path,
+                    [(key, _replace)],
+                    emit=False,
+                    fail_on_unrepairable=False,
+                )
             except ConfigValidationError:
                 raise
             except ConfigError:
                 raise
-            except OSError as exc:
-                # What was wrong: a failed replace was logged and config:changed
-                # still fired, so listeners reloaded a file that did not have
-                # the new value. Re-raise and skip the event.
-                log.exception("ConfigService.set config file save failed")
-                raise ConfigError(f"Failed to save config: {exc}", "CONFIG_SAVE_ERROR") from exc
 
-            ctx = None  # No UNO context in file-based test mode
-        else:
-            # set_config emits the one config:changed for this write.
-            set_config(key, value)
+            if changed:
+                bus = self._events or global_event_bus
+                bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=None)
             return
 
-        if value != old_value:
-            bus = self._events or global_event_bus
-            bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
+        # set_config emits the one config:changed for this write.
+        set_config(key, value)
 
     def remove(self, key: str, caller_module: str | None = None) -> None:
         """Reset a config key."""
         self._check_write_access(key, caller_module)
         if self._config_path:
-            # What was wrong: the test-file branch wrote without
-            # _config_write_lock and skipped config:changed. Production
-            # remove_config does both. Why: same lock + emit on this path.
-            if not os.path.exists(self._config_path):
-                return
-            emit_changed = False
+            # Same store as production remove_config. emit=False so this
+            # method emits the one event (test files have no UNO ctx).
             try:
-                with _config_write_lock:
-                    with open(self._config_path, "r", encoding="utf-8") as f:
-                        data = parse_config_json_text(f.read())
-                    if isinstance(data, dict) and key in data:
-                        del data[key]
-                        _write_config_file(self._config_path, data)
-                        emit_changed = True
-            except OSError as e:
+                changed = _config_store.remove(self._config_path, key, emit=False)
+            except ConfigError as e:
                 log.warning("ConfigService.remove config file error for key %s: %s", key, e)
                 return
-            if emit_changed:
+            if changed:
                 bus = self._events or global_event_bus
                 bus.emit("config:changed", key=key, value=None, old_value=None, ctx=None)
         else:
