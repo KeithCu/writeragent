@@ -16,6 +16,8 @@ from typing import Any
 
 import numpy as np
 
+from .calc_functions_util import _extract_numeric_array, _npf_result
+
 
 __all__ = [
     "datedif",
@@ -290,16 +292,9 @@ def delta(n1: Any, n2: Any = 0) -> float:
 
 
 def devsq(*args: Any) -> float:
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            try:
-                vals.append(float(v))
-            except (ValueError, TypeError):
-                pass
-    if not vals:
+    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
+    if not arr.size:
         return float("nan")
-    arr = np.asarray(vals)
     return float(np.sum((arr - np.mean(arr)) ** 2))
 
 
@@ -853,29 +848,6 @@ def frequency(data: Any, bins: Any) -> Any:
         return []
 
 
-def _npf_result(kind: str, *args: Any) -> float:
-    """One numpy-financial scalar, or NaN where Calc/Excel are #NUM! / #DIV/0!.
-
-    The library returns ±inf for a zero period count and for an NPER that
-    never amortizes, and raises when ``when`` is not 0 or 1. Callers pass
-    0 or 1. A missing install is the same NaN as a missing scipy helper.
-    """
-    try:
-        import numpy_financial as npf  # type: ignore[import-untyped]
-    except ImportError:
-        return float("nan")
-    try:
-        # np.where in pmt/pv evaluates the zero-rate branch and warns on
-        # divide-by-zero even when the other branch is the result.
-        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-            result = float(getattr(npf, kind)(*args))
-    except (OverflowError, ValueError, ZeroDivisionError, TypeError):
-        return float("nan")
-    if not math.isfinite(result):
-        return float("nan")
-    return result
-
-
 def fv(rate: Any, nper: Any, pmt_val: Any, pv_val: Any = 0, type_val: Any = 0) -> float:
     # Unguarded float() raised ValueError/TypeError on text arguments.
     try:
@@ -969,16 +941,16 @@ def gauss(x: Any) -> float:
         return float("nan")
 
 
-def geomean(r: Any) -> float:
-    # asarray(dtype=float) raised on non-numeric cells instead of returning nan.
-    try:
-        arr = np.asarray(r, dtype=float).ravel()
-    except (ValueError, TypeError):
-        return float("nan")
-    arr = arr[~np.isnan(arr)]
+def geomean(*args: Any) -> float:
+    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
     if not arr.size or np.any(arr <= 0):
         return float("nan")
-    return float(np.exp(np.mean(np.log(arr))))
+    try:
+        import scipy.stats
+        res = float(scipy.stats.gmean(arr))
+        return res if math.isfinite(res) else float("nan")
+    except Exception:
+        return float(np.exp(np.mean(np.log(arr))))
 
 
 def gestep(number: Any, step: Any = 0) -> float:
@@ -1017,16 +989,16 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
         return []
 
 
-def harmean(r: Any) -> float:
-    # asarray(dtype=float) raised on non-numeric cells instead of returning nan.
-    try:
-        arr = np.asarray(r, dtype=float).ravel()
-    except (ValueError, TypeError):
-        return float("nan")
-    arr = arr[~np.isnan(arr)]
+def harmean(*args: Any) -> float:
+    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
     if not arr.size or np.any(arr <= 0):
         return float("nan")
-    return float(len(arr) / np.sum(1.0 / arr))
+    try:
+        import scipy.stats
+        res = float(scipy.stats.hmean(arr))
+        return res if math.isfinite(res) else float("nan")
+    except Exception:
+        return float(len(arr) / np.sum(1.0 / arr))
 
 
 def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:

@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, cast
 
 import numpy as np
 
+from .calc_functions_util import (
+    _build_holiday_set,
+    _collect_a_values,
+    _find_match_index,
+    _parse_weekend,
+    _serial_to_date,
+)
 from .coerce import _LO_ERROR_TOKENS, is_missing_value
 
 
@@ -441,25 +447,15 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
 
 
 def vara(*args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_float_a
-
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            vals.append(_to_float_a(v))
-    if len(vals) < 2:
+    vals = _collect_a_values(*args)
+    if vals.size < 2:
         return float("nan")
     return float(np.var(vals, ddof=1))
 
 
 def varpa(*args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_float_a
-
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            vals.append(_to_float_a(v))
-    if not vals:
+    vals = _collect_a_values(*args)
+    if not vals.size:
         return float("nan")
     return float(np.var(vals, ddof=0))
 
@@ -553,18 +549,10 @@ def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
 
 
 def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
-    try:
-        curr = dt.date.fromordinal(int(float(start_date)) + 693594)
-    except Exception:
+    curr = _serial_to_date(start_date)
+    if curr is None:
         return float("nan")
-    h_dates: set[dt.date] = set()
-    if holidays is not None:
-        for h in np.asarray(holidays).ravel():
-            if h is not None and h != "":
-                try:
-                    h_dates.add(dt.date.fromordinal(int(float(h)) + 693594))
-                except Exception:
-                    pass
+    h_dates = _build_holiday_set(holidays)
     # days sat outside the start-date try, so a text days cell raised.
     try:
         remaining = int(float(days))
@@ -579,37 +567,15 @@ def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
 
 
 def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
-    try:
-        curr = dt.date.fromordinal(int(float(start_date)) + 693594)
-    except Exception:
+    curr = _serial_to_date(start_date)
+    if curr is None:
         return float("nan")
 
-    wk_days = set()
-    if isinstance(weekend, str):
-        for i, char in enumerate(weekend[:7]):
-            if char == "1":
-                wk_days.add(i)
-    else:
-        try:
-            w_idx = int(float(weekend))
-        except (ValueError, TypeError, OverflowError):
-            return float("nan")
-        # Excel weekend codes. An unknown code used to fall back to Sat/Sun
-        # (mapping.get default), so WORKDAY.INTL(…, 8) looked like weekend 1.
-        # Excel returns #NUM!; this module uses NaN. Same as networkdays_intl.
-        mapping = {1: (5, 6), 2: (6, 0), 3: (0, 1), 4: (1, 2), 5: (2, 3), 6: (3, 4), 7: (4, 5), 11: (6,), 12: (0,), 13: (1,), 14: (2,), 15: (3,), 16: (4,), 17: (5,)}
-        if w_idx not in mapping:
-            return float("nan")
-        wk_days.update(mapping[w_idx])
+    wk_days = _parse_weekend(weekend)
+    if not isinstance(wk_days, set):
+        return float("nan")
 
-    h_dates: set[dt.date] = set()
-    if holidays is not None:
-        for h in np.asarray(holidays).ravel():
-            if h is not None and h != "":
-                try:
-                    h_dates.add(dt.date.fromordinal(int(float(h)) + 693594))
-                except Exception:
-                    pass
+    h_dates = _build_holiday_set(holidays)
 
     try:
         remaining = int(float(days))
@@ -648,12 +614,6 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
         return float("nan")
 
 
-def _wildcard_fullmatch(pattern: str, text: str) -> bool:
-    """Excel-style * and ? against the whole text. Same translation xlookup already used."""
-    escaped = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
-    return re.fullmatch(escaped, text) is not None
-
-
 def _scalar_if_singleton(values: list[Any]) -> Any:
     if len(values) == 1:
         return values[0]
@@ -661,51 +621,10 @@ def _scalar_if_singleton(values: list[Any]) -> Any:
 
 
 def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any | None = None, match_mode: int | float = 0, search_mode: int | float = 1) -> Any:
-    l_flat = np.asarray(lookup_arr).ravel()
-    r_flat = np.asarray(return_arr)
-    indices = list(range(len(l_flat)))
-    if search_mode == -1:
-        indices.reverse()
-    best_idx = None
-    if match_mode == 0:
-        for idx in indices:
-            if l_flat[idx] == lookup_val:
-                best_idx = idx
-                break
-    elif match_mode in (-1, 1):
-        for idx in indices:
-            if l_flat[idx] == lookup_val:
-                best_idx = idx
-                break
-        if best_idx is None:
-            best_diff = None
-            for idx in indices:
-                try:
-                    diff = float(l_flat[idx]) - float(lookup_val)
-                    if match_mode == -1 and diff < 0:
-                        if best_diff is None or diff > best_diff:
-                            best_diff = diff
-                            best_idx = idx
-                    elif match_mode == 1 and diff > 0:
-                        if best_diff is None or diff < best_diff:
-                            best_diff = diff
-                            best_idx = idx
-                except (ValueError, TypeError):
-                    pass
-    elif match_mode == 2:
-        if isinstance(lookup_val, str):
-            for idx in indices:
-                cell = l_flat[idx]
-                if isinstance(cell, str) and _wildcard_fullmatch(lookup_val, cell):
-                    best_idx = idx
-                    break
-        else:
-            for idx in indices:
-                if l_flat[idx] == lookup_val:
-                    best_idx = idx
-                    break
+    best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
     if best_idx is None:
         return if_not_found
+    r_flat = np.asarray(return_arr)
     if r_flat.ndim == 1:
         return r_flat[best_idx]
     if r_flat.ndim == 2:
@@ -721,62 +640,22 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
 
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:
-    try:
-        l_flat = np.asarray(lookup_arr).ravel()
-        indices = list(range(len(l_flat)))
-        if int(float(search_mode)) == -1:
-            indices.reverse()
-        mm = int(float(match_mode))
-    except (TypeError, ValueError, OverflowError):
-        return float("nan")
-    if mm == 0:
-        for idx in indices:
-            if l_flat[idx] == lookup_val:
-                return float(idx + 1)
-    elif mm in (-1, 1):
-        for idx in indices:
-            if l_flat[idx] == lookup_val:
-                return float(idx + 1)
-        best_idx = None
-        for idx in indices:
-            try:
-                diff = float(l_flat[idx]) - float(lookup_val)
-                if mm == -1 and diff < 0:
-                    if best_idx is None or diff > float(l_flat[best_idx]) - float(lookup_val):
-                        best_idx = idx
-                elif mm == 1 and diff > 0:
-                    if best_idx is None or diff < float(l_flat[best_idx]) - float(lookup_val):
-                        best_idx = idx
-            except (ValueError, TypeError):
-                pass
-        return float(best_idx + 1) if best_idx is not None else float("nan")
-    elif mm == 2:
-        # match_mode 2 used to fall through to NaN. Wildcards match xlookup (* and ?).
-        if isinstance(lookup_val, str):
-            for idx in indices:
-                cell = l_flat[idx]
-                if isinstance(cell, str) and _wildcard_fullmatch(lookup_val, cell):
-                    return float(idx + 1)
-        else:
-            for idx in indices:
-                if l_flat[idx] == lookup_val:
-                    return float(idx + 1)
-        return float("nan")
-    return float("nan")
+    best_idx = _find_match_index(lookup_val, lookup_arr, match_mode, search_mode)
+    return float(best_idx + 1) if best_idx is not None else float("nan")
 
 
 def xnpv(rate: Any, values: Any, dates: Any) -> float:
     try:
         r = float(rate)
-        vals = np.asarray(values).ravel()
-        dts = np.asarray(dates).ravel()
+        vals = np.asarray(values, dtype=float).ravel()
+        dts = np.asarray(dates, dtype=float).ravel()
         if len(vals) != len(dts) or len(vals) == 0:
             return float("nan")
-        res = 0.0
         d0 = float(dts[0])
-        for v, d in zip(vals, dts):
-            res += float(v) / ((1.0 + r) ** ((float(d) - d0) / 365.0))
-        return res
+        durations = (dts - d0) / 365.0
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            res = float(np.sum(vals / ((1.0 + r) ** durations)))
+        return res if math.isfinite(res) else float("nan")
     except Exception:
         return float("nan")
 

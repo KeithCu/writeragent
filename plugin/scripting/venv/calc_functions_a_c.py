@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 
+from .calc_functions_util import _collect_a_values, _extract_numeric_array, _npf_result, _to_float_a, match_criteria
 from .coerce import header_label, is_missing_value
 
 
@@ -116,8 +117,6 @@ def _days_between(d1: float, d2: float, basis: int) -> float:
 
 def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) -> list[Any]:
     """Shared helper for D* functions."""
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     db_arr = np.asarray(db, dtype=object)
     if db_arr.ndim != 2:
         return []
@@ -253,18 +252,6 @@ def _to_complex(val: Any) -> builtins.complex:
         return builtins.complex(s)
     except ValueError:
         raise TypeError("Invalid complex string")
-
-
-def _to_float_a(val: Any) -> float:
-    """Helper for *A functions (AVERAGEA, STDEVA, etc.)."""
-    if is_missing_value(val):
-        return 0.0
-    if isinstance(val, bool):
-        return 1.0 if val else 0.0
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return 0.0
 
 
 def _year_frac(d1: float, d2: float, basis: int) -> float:
@@ -497,47 +484,22 @@ def asc(text: Any) -> str:
         return "#VALUE!"
 
 
-def avedev(r: Any) -> float:
-    # dtype=float on the whole array raised ValueError for text (and "") and
-    # aborted the call. Excel/Calc AVEDEV ignores text and logicals, so each
-    # value is coerced on its own and those cells are skipped.
-    vals: list[float] = []
-    for x in np.asarray(r, dtype=object).ravel():
-        if isinstance(x, (bool, np.bool_)):
-            continue
-        if isinstance(x, str):
-            continue
-        try:
-            val = float(x)
-        except (ValueError, TypeError, OverflowError):
-            continue
-        if math.isnan(val):
-            continue
-        vals.append(val)
-    if not vals:
+def avedev(*args: Any) -> float:
+    # Excel/Calc AVEDEV ignores text and logicals.
+    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
+    if not arr.size:
         return float("nan")
-    arr = np.asarray(vals, dtype=float)
     return float(np.mean(np.abs(arr - np.mean(arr))))
 
 
-def averagea(r: Any) -> float:
-    vals = []
-    for x in np.asarray(r).ravel():
-        if is_missing_value(x):
-            vals.append(0.0)
-        else:
-            try:
-                vals.append(float(x))
-            except (ValueError, TypeError):
-                vals.append(0.0)
-    if not vals:
+def averagea(*args: Any) -> float:
+    vals = _collect_a_values(*args)
+    if not vals.size:
         return float("nan")
     return float(np.mean(vals))
 
 
 def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     r_flat = np.asarray(r).ravel()
     ar_flat = np.asarray(ar).ravel() if ar is not None else r_flat
     vals = []
@@ -555,8 +517,6 @@ def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
 
 
 def averageifs(ar: Any, *args: Any) -> float | str:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     # Criteria arrive as (range, criterion) pairs. An odd tail indexed args[i + 1]
     # and raised IndexError.
     if len(args) % 2 != 0:
@@ -898,8 +858,6 @@ def coth(x: Any) -> float:
 
 
 def countif(r: Any, crit: Any) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     r_flat = np.asarray(r).ravel()
     cnt = 0
     for val in r_flat:
@@ -909,8 +867,6 @@ def countif(r: Any, crit: Any) -> float:
 
 
 def countifs(*args: Any) -> float | str:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     # Criteria arrive as (range, criterion) pairs. An odd tail indexed args[i + 1]
     # and raised IndexError.
     if len(args) % 2 != 0:
@@ -1043,31 +999,15 @@ def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, t
         p = float(pv)
         s = int(float(start_period))
         e = int(float(end_period))
-        t = int(float(type_val))
-
-        if r == 0:
-            pmt_amt = -p / n
-        else:
-            factor = (1 + r) ** n
-            if t == 1:
-                pmt_amt = -(p * factor) * r / (factor - 1) / (1 + r)
-            else:
-                pmt_amt = -(p * factor) * r / (factor - 1)
-
-        tot_i = 0.0
-        rem_p = p
-        for i in range(1, e + 1):
-            if t == 1 and i == 1:
-                ipmt = 0.0
-            else:
-                ipmt = rem_p * r
-            ppmt = pmt_amt - (-ipmt)
-            if s <= i <= e:
-                tot_i += -ipmt
-            rem_p -= -ppmt
-        return float(tot_i)
-    except Exception:
+        t = 1 if int(float(type_val)) == 1 else 0
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
+    if r < 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
+        return float("nan")
+    if r == 0:
+        return 0.0
+    pers = np.arange(s, e + 1)
+    return _npf_result("ipmt", r, pers, n, p, 0, t)
 
 
 def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
@@ -1077,29 +1017,13 @@ def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, 
         p = float(pv)
         s = int(float(start_period))
         e = int(float(end_period))
-        t = int(float(type_val))
-
-        if r == 0:
-            pmt_amt = -p / n
-        else:
-            factor = (1 + r) ** n
-            if t == 1:
-                pmt_amt = -(p * factor) * r / (factor - 1) / (1 + r)
-            else:
-                pmt_amt = -(p * factor) * r / (factor - 1)
-
-        tot_p = 0.0
-        rem_p = p
-        for i in range(1, e + 1):
-            if t == 1 and i == 1:
-                ipmt = 0.0
-            else:
-                ipmt = rem_p * r
-            ppmt = pmt_amt - (-ipmt)
-            if s <= i <= e:
-                tot_p += ppmt
-            rem_p -= -ppmt
-
-        return float(tot_p)
-    except Exception:
+        t = 1 if int(float(type_val)) == 1 else 0
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
+    if r < 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
+        return float("nan")
+    if r == 0:
+        return float(-p * (e - s + 1) / n)
+    pers = np.arange(s, e + 1)
+    return _npf_result("ppmt", r, pers, n, p, 0, t)
+

@@ -1,0 +1,277 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Internal shared utilities for calc_functions formula emulation."""
+
+from __future__ import annotations
+
+import datetime as dt
+import math
+import re
+from typing import Any
+
+import numpy as np
+
+from .coerce import is_missing_value
+
+__all__ = [
+    "_build_holiday_set",
+    "_collect_a_values",
+    "_extract_numeric_array",
+    "_find_match_index",
+    "_npf_result",
+    "_parse_holidays",
+    "_parse_weekend",
+    "_parse_weekend_code",
+    "_serial_to_date",
+    "_to_float_a",
+    "_wildcard_fullmatch",
+    "match_criteria",
+]
+
+_WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
+    1: (5, 6),
+    2: (6, 0),
+    3: (0, 1),
+    4: (1, 2),
+    5: (2, 3),
+    6: (3, 4),
+    7: (4, 5),
+    11: (6,),
+    12: (0,),
+    13: (1,),
+    14: (2,),
+    15: (3,),
+    16: (4,),
+    17: (5,),
+}
+
+
+def _serial_to_date(serial: Any) -> dt.date | None:
+    """Convert an Excel serial date number to datetime.date (+693594 offset), or None."""
+    try:
+        return dt.date.fromordinal(int(float(serial)) + 693594)
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def _build_holiday_set(holidays: Any | None = None) -> set[dt.date]:
+    """Build a set of datetime.date from a holiday argument (scalar or array)."""
+    h_dates: set[dt.date] = set()
+    if holidays is not None:
+        for h in np.asarray(holidays).ravel():
+            if h is not None and h != "":
+                d = _serial_to_date(h)
+                if d is not None:
+                    h_dates.add(d)
+    return h_dates
+
+
+_parse_holidays = _build_holiday_set
+
+
+def _parse_weekend(weekend: Any = 1) -> set[int] | float:
+    """Parse Excel weekend parameter into a set of weekday integers, or NaN if invalid."""
+    if isinstance(weekend, str):
+        wk_days: set[int] = set()
+        for i, char in enumerate(weekend[:7]):
+            if char == "1":
+                wk_days.add(i)
+        return wk_days
+    try:
+        w_idx = int(float(weekend))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    # Excel weekend codes. An unknown code returns NaN (Excel returns #NUM!).
+    if w_idx not in _WEEKEND_MAPPING:
+        return float("nan")
+    return set(_WEEKEND_MAPPING[w_idx])
+
+
+_parse_weekend_code = _parse_weekend
+
+
+
+def _to_float_a(val: Any) -> float:
+    """Helper for *A functions (AVERAGEA, STDEVA, etc.)."""
+    if is_missing_value(val):
+        return 0.0
+    if isinstance(val, (bool, np.bool_)):
+        return 1.0 if val else 0.0
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _collect_a_values(*args: Any) -> np.ndarray:
+    """Collect flat float array for *A functions (AVERAGEA, MAXA, etc.)."""
+    vals = [_to_float_a(v) for arg in args for v in np.asarray(arg).ravel()]
+    return np.asarray(vals, dtype=float)
+
+
+
+
+def _npf_result(kind: str, *args: Any) -> float:
+    """One numpy-financial scalar, or NaN where Calc/Excel are #NUM! / #DIV/0!.
+
+    The library returns ±inf for a zero period count and for an NPER that
+    never amortizes, and raises when ``when`` is not 0 or 1. Callers pass
+    0 or 1. A missing install is the same NaN as a missing scipy helper.
+    """
+    try:
+        import numpy_financial as npf  # type: ignore[import-untyped]
+    except ImportError:
+        return float("nan")
+    try:
+        # np.where in pmt/pv evaluates the zero-rate branch and warns on
+        # divide-by-zero even when the other branch is the result.
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            result = float(np.sum(getattr(npf, kind)(*args)))
+    except (AttributeError, OverflowError, ValueError, ZeroDivisionError, TypeError):
+        return float("nan")
+    if not math.isfinite(result):
+        return float("nan")
+    return result
+
+
+def _wildcard_fullmatch(pattern: str, text: str) -> bool:
+    """Excel-style * and ? wildcard match against the whole text."""
+    escaped = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
+    return re.fullmatch(escaped, text) is not None
+
+
+def match_criteria(val: Any, crit: Any) -> bool:
+    """Evaluate an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*')."""
+    if is_missing_value(crit):
+        return is_missing_value(val)
+    if isinstance(crit, str):
+        m = re.match(r"^([<>=]+)(.*)$", crit)
+        if m:
+            op, val_str = m.groups()
+            try:
+                c_num = float(val_str)
+            except (ValueError, TypeError):
+                c_num = None
+            try:
+                v_num = float(val)
+            except (ValueError, TypeError):
+                v_num = None
+            # A numeric criterion used to fall through to lexicographic
+            # compare whenever the cell failed float(). "abc" > "5" is True,
+            # so COUNTIF(["abc"], ">5") counted the text. Excel/Calc compare
+            # numbers only; <> still matches because the text is not the number.
+            if c_num is not None and v_num is None:
+                if op == "<>":
+                    return True
+                if op in ("=", "==", "<", "<=", ">", ">="):
+                    return False
+            elif c_num is not None and v_num is not None:
+                if op in ("=", "=="):
+                    return v_num == c_num
+                if op == "<>":
+                    return v_num != c_num
+                if op == "<":
+                    return v_num < c_num
+                if op == "<=":
+                    return v_num <= c_num
+                if op == ">":
+                    return v_num > c_num
+                if op == ">=":
+                    return v_num >= c_num
+            else:
+                c_str = val_str
+                v_str = str(val)
+                if op in ("=", "=="):
+                    return v_str == c_str
+                if op == "<>":
+                    return v_str != c_str
+                if op == "<":
+                    return v_str < c_str
+                if op == "<=":
+                    return v_str <= c_str
+                if op == ">":
+                    return v_str > c_str
+                if op == ">=":
+                    return v_str >= c_str
+    try:
+        if float(val) == float(crit):
+            return True
+    except (ValueError, TypeError):
+        pass
+    return str(val) == str(crit)
+
+
+def _find_match_index(
+    lookup_val: Any,
+    lookup_arr: Any,
+    match_mode: int | float = 0,
+    search_mode: int | float = 1,
+) -> int | None:
+    """Find 0-based index matching Excel lookup semantics (exact, smaller, larger, wildcard)."""
+    try:
+        l_flat = np.asarray(lookup_arr).ravel()
+        indices = list(range(len(l_flat)))
+        if int(float(search_mode)) == -1:
+            indices.reverse()
+        mm = int(float(match_mode))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+    if mm == 0:
+        for idx in indices:
+            if l_flat[idx] == lookup_val:
+                return idx
+    elif mm in (-1, 1):
+        for idx in indices:
+            if l_flat[idx] == lookup_val:
+                return idx
+        best_idx = None
+        for idx in indices:
+            try:
+                diff = float(l_flat[idx]) - float(lookup_val)
+                if mm == -1 and diff < 0:
+                    if best_idx is None or diff > float(l_flat[best_idx]) - float(lookup_val):
+                        best_idx = idx
+                elif mm == 1 and diff > 0:
+                    if best_idx is None or diff < float(l_flat[best_idx]) - float(lookup_val):
+                        best_idx = idx
+            except (ValueError, TypeError):
+                pass
+        return best_idx
+    elif mm == 2:
+        if isinstance(lookup_val, str):
+            for idx in indices:
+                cell = l_flat[idx]
+                if isinstance(cell, str) and _wildcard_fullmatch(lookup_val, cell):
+                    return idx
+        else:
+            for idx in indices:
+                if l_flat[idx] == lookup_val:
+                    return idx
+    return None
+
+
+def _extract_numeric_array(
+    *args: Any,
+    ignore_text: bool = True,
+    ignore_bool: bool = True,
+    propagate_nan: bool = True,
+) -> np.ndarray:
+    """Collect flat float array from arguments, filtering out non-numeric cells per Excel conventions."""
+    vals: list[float] = []
+    for arg in args:
+        for x in np.asarray(arg, dtype=object).ravel():
+            if ignore_bool and isinstance(x, (bool, np.bool_)):
+                continue
+            if ignore_text and isinstance(x, str):
+                continue
+            try:
+                v = float(x)
+            except (ValueError, TypeError, OverflowError):
+                continue
+            if not propagate_nan and math.isnan(v):
+                continue
+            vals.append(v)
+    return np.asarray(vals, dtype=float)
