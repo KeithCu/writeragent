@@ -1,5 +1,6 @@
 import queue
 import sys
+import threading
 import types
 from unittest.mock import MagicMock, Mock, patch
 
@@ -161,7 +162,7 @@ def test_sync_tool_disposed_document_queues_error_not_tool_done():
             is_async=False,
         )
     )
-    item = host._active_q.get_nowait()
+    item = host._active_q.get(timeout=2)
     assert item[0] == StreamQueueKind.ERROR
     assert host._active_q.empty()
 
@@ -208,8 +209,13 @@ def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
         )
     )
 
-    host._active_execute_tool_fn.assert_called_once_with("apply_document_content", {"content": "hi"}, host._active_model, host.ctx)
-    assert host._active_q.get_nowait() == (StreamQueueKind.TOOL_DONE, "call_1", "apply_document_content", '{"content": "hi"}', '{"status": "ok"}')
+    item = host._active_q.get(timeout=2)
+    host._active_execute_tool_fn.assert_called_once()
+    assert host._active_execute_tool_fn.call_args.args == ("apply_document_content", {"content": "hi"}, host._active_model, host.ctx)
+    assert host._active_execute_tool_fn.call_args.kwargs["stop_checker"]() is False
+    assert host._active_execute_tool_fn.call_args.kwargs["captured_call_id"] == "call_1"
+    assert host._active_execute_tool_fn.call_args.kwargs["captured_q"] is host._active_q
+    assert item == (StreamQueueKind.TOOL_DONE, "call_1", "apply_document_content", '{"content": "hi"}', '{"status": "ok"}')
     assert host._current_tool_call_id == "call_1"
 
 
@@ -229,6 +235,163 @@ def _restore_main(old_main):
         sys.modules["plugin.main"] = old_main
     else:
         sys.modules.pop("plugin.main", None)
+
+
+def test_sync_tool_returns_before_the_tool_finishes():
+    """The drain caller must get back while a sync tool is still running.
+
+    Stop is delivered by pump_ui_idle on that thread. An inline tool held
+    the drain until the call returned.
+    """
+    host = FakeHost()
+    started = threading.Event()
+    release = threading.Event()
+
+    def execute_tool(*args, **kwargs):
+        started.set()
+        assert release.wait(timeout=2)
+        return '{"status": "ok"}'
+
+    host._active_execute_tool_fn = execute_tool
+    interpreter = ToolLoopEffectInterpreter(host)
+    interpreter.execute(
+        SpawnToolWorkerEffect(
+            call_id="call_1",
+            func_name="apply_document_content",
+            func_args_str="{}",
+            func_args={},
+            is_async=False,
+        )
+    )
+    assert started.wait(timeout=2)
+    release.set()
+    item = host._active_q.get(timeout=2)
+    assert item[0] == StreamQueueKind.TOOL_DONE
+
+
+def test_sync_tool_stop_before_body_does_not_run_the_tool():
+    host = FakeHost()
+    host.resolve_stop_checker = lambda: (lambda: True)
+    started: list = []
+    interpreter = ToolLoopEffectInterpreter(host)
+    with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+        interpreter.execute(
+            SpawnToolWorkerEffect(
+                call_id="call_1",
+                func_name="apply_document_content",
+                func_args_str="{}",
+                func_args={},
+                is_async=False,
+            )
+        )
+    started[0]()
+    host._active_execute_tool_fn.assert_not_called()
+    assert host._active_q.get_nowait()[0] == StreamQueueKind.STOPPED
+
+
+def test_execute_fn_reraises_document_disposed_payload():
+    """execute_safe reports disposal as a dict. Chat must not treat that as a normal result."""
+    from plugin.framework.errors import DocumentDisposedError
+
+    host = FakeHost()
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    registry, old_main = _install_fake_main_registry()
+    registry.execute.return_value = {
+        "status": "error",
+        "code": "DOCUMENT_DISPOSED",
+        "message": "Document was closed or disposed by LibreOffice",
+    }
+    try:
+        with pytest.raises(DocumentDisposedError):
+            execute_fn("apply_document_content", {}, MagicMock(), MagicMock())
+    finally:
+        _restore_main(old_main)
+    registry.execute.assert_called_once()
+
+
+def test_sync_document_disposed_dict_queues_error():
+    host = FakeHost()
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    host._active_execute_tool_fn = execute_fn
+    registry, old_main = _install_fake_main_registry()
+    registry.execute.return_value = {
+        "status": "error",
+        "code": "DOCUMENT_DISPOSED",
+        "message": "Document was closed or disposed by LibreOffice",
+    }
+    started: list = []
+    interpreter = ToolLoopEffectInterpreter(host)
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+            interpreter.execute(
+                SpawnToolWorkerEffect(
+                    call_id="call_1",
+                    func_name="apply_document_content",
+                    func_args_str="{}",
+                    func_args={},
+                    is_async=False,
+                )
+            )
+        started[0]()
+    finally:
+        _restore_main(old_main)
+    assert host._active_q.get_nowait()[0] == StreamQueueKind.ERROR
+
+
+def test_sync_disposed_payload_queues_error_for_the_spawn_document():
+    """A disposed-document result ends the loop on the document the tool started with.
+
+    execute_fn classifies with the ``doc`` argument. The worker must pass that
+    same object into ``_queue_tool_failure``. Swapping host._active_model to a
+    live document before the failure is scored must not turn it into TOOL_DONE.
+    """
+
+    class RuntimeException(Exception):
+        pass
+
+    class DisposedException(Exception):
+        pass
+
+    class DisposedDoc:
+        def getImplementationName(self):
+            raise DisposedException("disposed")
+
+    class LiveDoc:
+        def getImplementationName(self):
+            return "SwXTextDocument"
+
+    host = FakeHost()
+    spawn_doc = DisposedDoc()
+    host._active_model = spawn_doc
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    host._active_execute_tool_fn = execute_fn
+    registry, old_main = _install_fake_main_registry()
+
+    def registry_execute(name, ctx, **kwargs):
+        assert ctx.doc is spawn_doc
+        host._active_model = LiveDoc()
+        raise RuntimeException("bridge")
+
+    registry.execute.side_effect = registry_execute
+    started: list = []
+    interpreter = ToolLoopEffectInterpreter(host)
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+            interpreter.execute(
+                SpawnToolWorkerEffect(
+                    call_id="call_1",
+                    func_name="apply_document_content",
+                    func_args_str="{}",
+                    func_args={},
+                    is_async=False,
+                )
+            )
+        started[0]()
+    finally:
+        _restore_main(old_main)
+    item = host._active_q.get_nowait()
+    assert item[0] == StreamQueueKind.ERROR
+    assert host._active_q.empty()
 
 
 @pytest.mark.parametrize("doc_type_str", ["draw", "impress"])

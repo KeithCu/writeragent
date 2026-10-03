@@ -526,17 +526,24 @@ def test_stopped_effects_exclude_tool_spawns_predicate():
     assert stopped_effects_exclude_tool_spawns(running, [spawn]) is True
     assert stopped_effects_exclude_tool_spawns(stopped, [spawn]) is False
     assert stopped_effects_exclude_tool_spawns(stopped, []) is True
+    llm = SpawnLLMWorkerEffect(round_num=1)
+    final = SpawnFinalStreamEffect()
+    assert stopped_effects_exclude_tool_spawns(running, [llm, final]) is True
+    assert stopped_effects_exclude_tool_spawns(stopped, [llm]) is False
+    assert stopped_effects_exclude_tool_spawns(stopped, [final]) is False
 
 
 def test_next_tool_when_stopped():
-    # If is_stopped=True but empty pending_tools, it shouldn't update status
-    state = create_base_state(is_stopped=True)
+    # Stop must leave the loop. Another LLM or final stream is a wasted HTTP round.
+    state = create_base_state(round_num=4, max_rounds=5, is_stopped=True)
     event = create_event(EventKind.NEXT_TOOL)
     tr = next_state(state, event)
-    _new_state, effects = tr.state, tr.effects
-    
-    assert not any(isinstance(e, ToolLoopUIEffect) and e.kind == "status" for e in effects)
-    assert any(isinstance(e, SpawnLLMWorkerEffect) for e in effects)
+
+    assert tr.state.round_num == 4
+    assert tr.state.is_stopped is True
+    assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    assert not any(isinstance(e, ToolLoopUIEffect) and e.kind == "status" for e in tr.effects)
+    assert not any(isinstance(e, (SpawnLLMWorkerEffect, SpawnFinalStreamEffect, SpawnToolWorkerEffect)) for e in tr.effects)
 
 
 def test_next_tool_when_stopped_with_pending_does_not_spawn_tool():
@@ -547,10 +554,13 @@ def test_next_tool_when_stopped_with_pending_does_not_spawn_tool():
     test_stream_done_after_stop_may_append_and_trigger_next); that is allowed.
     """
     tool_calls = [{"id": "call_1", "function": {"name": "test_tool", "arguments": "{}"}}]
-    state = create_base_state(pending_tools=tool_calls, is_stopped=True)
+    state = create_base_state(round_num=4, max_rounds=5, pending_tools=tool_calls, is_stopped=True)
     tr = next_state(state, create_event(EventKind.NEXT_TOOL))
     assert not any(isinstance(e, SpawnToolWorkerEffect) for e in tr.effects)
+    assert not any(isinstance(e, (SpawnLLMWorkerEffect, SpawnFinalStreamEffect)) for e in tr.effects)
+    assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
     assert tr.state.pending_tools == tool_calls
+    assert tr.state.round_num == 4
     assert tr.state.is_stopped is True
 
 

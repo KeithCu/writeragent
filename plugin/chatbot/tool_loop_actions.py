@@ -31,7 +31,7 @@ from plugin.chatbot.tool_loop_state import (
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
 from plugin.framework.config import get_config_bool, get_current_endpoint
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception, is_tool_document_disposed
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception, is_tool_document_disposed
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.tool import ToolContext
@@ -564,6 +564,15 @@ def build_tool_execute_fn(
         )
         try:
             res = _get_tools().execute(name, tctx, **safe_args)
+            # What was wrong: execute_safe turns a disposed document into a
+            # DOCUMENT_DISPOSED dict. This returned JSON, the worker queued
+            # TOOL_DONE, and the loop kept going on a dead document. The
+            # raise below is classified with this same ``doc`` (the document
+            # passed in at spawn) in ``_queue_tool_failure``.
+            if isinstance(res, dict) and res.get("code") == "DOCUMENT_DISPOSED":
+                message = res.get("message")
+                text = message.strip() if isinstance(message, str) and message.strip() else "Document was closed or disposed by LibreOffice"
+                raise DocumentDisposedError(text)
             return json.dumps(res) if isinstance(res, dict) else str(res)
         except (ToolExecutionError, UnoObjectError) as e:
             if is_tool_document_disposed(e, doc):
@@ -724,7 +733,9 @@ class ToolLoopEffectInterpreter:
         # Why: close over the values this spawn already had, the same way
         # worker_q is captured above, and pass that model into the failure.
         execute_tool_fn = host._active_execute_tool_fn
-        model = host._active_model
+        # Same object execute_fn receives as ``doc``. A later send can replace
+        # host._active_model; the failure check must not read that live model.
+        spawn_doc = host._active_model
         supports_status = host._active_supports_status
         bound_stop = host.resolve_stop_checker()
 
@@ -735,35 +746,45 @@ class ToolLoopEffectInterpreter:
         def tool_status_callback(msg: str) -> None:
             emit((StreamQueueKind.STATUS, msg))
 
-        if effect.is_async:
-
-            def run_async() -> None:
-                try:
-
-                    def tool_thinking_callback(msg: str) -> None:
-                        emit((StreamQueueKind.TOOL_THINKING, msg))
-
-                    if supports_status:
-                        res = execute_tool_fn(func_name, func_args, model, host.ctx, status_callback=tool_status_callback, append_thinking_callback=tool_thinking_callback, stop_checker=bound_stop, captured_turn=turn, captured_q=worker_q, captured_call_id=call_id)
-                    else:
-                        res = execute_tool_fn(func_name, func_args, model, host.ctx, stop_checker=bound_stop, captured_turn=turn, captured_q=worker_q, captured_call_id=call_id)
-                    emit((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
-                except Exception as e:
-                    _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, worker_q, model=model)
-
-            run_in_background(run_async, name=f"tool-async-{func_name}", dedicated=True)
-        else:
-            # Sync tools run inline on the drain thread — if Stop appears broken, check these
-            # enter/exit timings against document_to_content phase logs for the stuck step.
+        def run_tool() -> None:
             t0 = time.perf_counter()
-            log.debug("sync tool start name=%s", func_name)
+            sync = not effect.is_async
+            if sync:
+                log.debug("sync tool start name=%s", func_name)
             try:
+                # Stop can land after spawn and before this body. Do not start
+                # the tool; the drain's on_stopped path closes the turn.
+                if sync and bound_stop():
+                    emit((StreamQueueKind.STOPPED,))
+                    return
+
+                call_kwargs: dict[str, Any] = {
+                    "stop_checker": bound_stop,
+                    "captured_turn": turn,
+                    "captured_q": worker_q,
+                    "captured_call_id": call_id,
+                }
                 if supports_status:
-                    res = execute_tool_fn(func_name, func_args, model, host.ctx, status_callback=tool_status_callback)
-                else:
-                    res = execute_tool_fn(func_name, func_args, model, host.ctx)
-                log.debug("sync tool done name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
+                    call_kwargs["status_callback"] = tool_status_callback
+                    if effect.is_async:
+
+                        def tool_thinking_callback(msg: str) -> None:
+                            emit((StreamQueueKind.TOOL_THINKING, msg))
+
+                        call_kwargs["append_thinking_callback"] = tool_thinking_callback
+                res = execute_tool_fn(func_name, func_args, spawn_doc, host.ctx, **call_kwargs)
+                if sync:
+                    log.debug("sync tool done name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
                 emit((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
             except Exception as e:
-                log.debug("sync tool failed name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
-                _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, worker_q, model=model)
+                if sync:
+                    log.debug("sync tool failed name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
+                _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, worker_q, model=spawn_doc)
+
+        # What was wrong: the sync branch called the tool on the drain thread.
+        # pump_ui_idle did not run, so Stop was not delivered until the tool
+        # returned, and the next round could start. Why: use the same dedicated
+        # worker as async tools. Sync UNO still runs on the main thread —
+        # ToolRegistry.execute marshals it, and the drain pumps that queue.
+        worker_name = f"tool-async-{func_name}" if effect.is_async else f"tool-sync-{func_name}"
+        run_in_background(run_tool, name=worker_name, dedicated=True)

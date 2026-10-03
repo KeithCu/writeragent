@@ -316,12 +316,9 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
     panel._set_status.assert_called_with("Running: apply_document_content")
     panel._append_response.assert_called_with("[Running tool: apply_document_content...]\n")
 
-    # Ensure tool execution was synchronous for this tool and was called
+    # The tool runs on a worker so the drain can keep pumping. Wait for its result.
+    queued_item = captured_q.get(timeout=2)
     execute_tool_mock.assert_called_once()
-
-    # The synchronous tool execution pushes 'tool_done' to the queue
-    assert not captured_q.empty()
-    queued_item = captured_q.get()
 
     assert queued_item[0] == StreamQueueKind.TOOL_DONE
     assert queued_item[1] == "call_abc"
@@ -401,7 +398,10 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_dr
         on_stream_done((StreamQueueKind.STREAM_DONE, {"content": None, "tool_calls": tool_calls}))
         item = q.get()
         assert item == (StreamQueueKind.NEXT_TOOL,)
-        
+
+        # Kickoff already spawned the first worker. The stop must not spawn another.
+        panel._spawn_llm_worker.reset_mock()
+        panel._spawn_final_stream.reset_mock()
         panel.stop_requested = True
         res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
@@ -413,13 +413,12 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_dr
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
 
-    assert results[0] is False
+    assert results[0] is True
 
-    # Verify execute tool was NOT called because StopRequested skips the pending tools
+    # Stop skips the pending tool and does not start another model round.
     execute_tool_mock.assert_not_called()
-
-    # Verify that it spawned worker (or final stream), which would then emit the stopped sentinel
-    panel._spawn_llm_worker.assert_called()
+    panel._spawn_llm_worker.assert_not_called()
+    panel._spawn_final_stream.assert_not_called()
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
@@ -458,12 +457,10 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
 
     assert results[0] is False
 
-    # Verify execute tool was called with fallbacks
+    # The sync tool worker queues tool_done after the drain handler returns.
+    tool_done_item = captured_q.get(timeout=2)
     assert executed_args['name'] == 'unknown'
     assert executed_args['args'] == {}
-
-    # Check the queue for tool_done and verify fallback values
-    tool_done_item = captured_q.get()
     assert tool_done_item[0] == StreamQueueKind.TOOL_DONE
     assert tool_done_item[1] == ""  # Missing ID fallback
     assert tool_done_item[2] == "unknown" # Missing name fallback
