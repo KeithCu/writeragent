@@ -432,8 +432,9 @@ class BaseProcessPool:
         self._is_shutdown = False
         self._lock = threading.RLock()
         self._idle: set[BaseProcessWorker] = set()
-        # Leased or cold-claimed. A dead process is neither idle nor leased
-        # until the next lease respawns it.
+        # Leased, cold-claimed, or mid-recycle. A dead pid nobody holds is
+        # not idle; the next lease respawns it. Recycle stays in this set
+        # until respawn finishes, or lease_any treats that dead pid as free.
         self._leased: set[BaseProcessWorker] = set()
         self._worker_last_active: dict[BaseProcessWorker, float] = {}
         self._cond = threading.Condition(self._lock)
@@ -615,16 +616,25 @@ class BaseProcessPool:
         recycle = self.should_recycle_worker(worker)
         kill_worker = False
         with self._cond:
-            self._leased.discard(worker)
             if self._is_shutdown:
+                self._leased.discard(worker)
                 kill_worker = True
+                self._cond.notify_all()
             elif recycle:
+                # Stay leased across kill/respawn. Those calls run outside
+                # this lock because kill re-enters it from on_process_exit.
+                # Dropping the lease first made is_alive() false look like a
+                # free slot: lease_any claimed this same wrapper, the in-flight
+                # call failed (pipe broken, empty response, or spawn failed),
+                # and the wrapper ended in both _idle and _leased.
                 pass
-            elif worker.is_alive():
-                # The response frame was consumed and worker is alive: return to idle.
-                self._idle.add(worker)
-                self._worker_last_active[worker] = time.monotonic()
-            self._cond.notify_all()
+            else:
+                self._leased.discard(worker)
+                if worker.is_alive():
+                    # The response frame was consumed and worker is alive: return to idle.
+                    self._idle.add(worker)
+                    self._worker_last_active[worker] = time.monotonic()
+                self._cond.notify_all()
 
         if kill_worker:
             worker.kill()
@@ -636,6 +646,10 @@ class BaseProcessPool:
             # Re-spawn so the next lease does not pay spawn latency inside execute().
             worker.respawn()
             with self._cond:
+                # Drop the recycle lease before idle. The other order lets a
+                # concurrent lease pop idle while this wrapper is still leased,
+                # then this discard clears the lease that pop just took.
+                self._leased.discard(worker)
                 if not self._is_shutdown and worker.is_alive():
                     self._idle.add(worker)
                     self._worker_last_active[worker] = time.monotonic()

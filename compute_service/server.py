@@ -362,20 +362,32 @@ def create_wsgi_app(
     execute_fn: ExecuteFn | None = None,
     reset_fn: ResetFn | None = None,
     worker_semaphore: threading.Semaphore | None = None,
+    vision_semaphore: threading.Semaphore | None = None,
 ) -> Callable[[dict[str, Any], Any], list[bytes]]:
     """Build a WSGI app bound to *settings* (and optional test hooks).
 
     Executor / pool imports are deferred until the first ``/v1/execute`` or
     ``/v1/session/reset`` so config/auth startup does not pull WriterAgent
     ``plugin.framework.config``.
+
+    ``/v1/execute`` and ``/v1/session/reset`` share a non-blocking permit
+    count sized to the formula pool. ``/v1/vision`` has its own, sized to
+    the vision pool. One shared count let formula traffic hold every permit
+    and 503 vision while OCR workers were idle (and the reverse).
+    ``worker_semaphore`` and ``vision_semaphore`` override those gates in tests.
     """
     # Lazy-initialized on first execute/reset request if not injected via execute_fn/reset_fn
     # (avoids heavy imports during server startup).
     run_execute = execute_fn
     run_reset = reset_fn
     if worker_semaphore is None:
-        total_workers = max(1, settings.workers + settings.ocr_workers)
-        worker_semaphore = threading.Semaphore(total_workers)
+        # workers is >= 1 (ComputeSettings.validate).
+        worker_semaphore = threading.Semaphore(settings.workers)
+    if vision_semaphore is None:
+        # ocr_workers=0 has no pool. A zero permit would answer VISION_POOL_BUSY
+        # for a disabled service; one permit lets the handler return
+        # VISION_SERVICE_DISABLED. That permit is not a formula permit.
+        vision_semaphore = threading.Semaphore(max(1, settings.ocr_workers))
 
     def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         nonlocal run_execute, run_reset
@@ -547,7 +559,7 @@ def create_wsgi_app(
             if auth_resp is not None:
                 return auth_resp
 
-            if not worker_semaphore.acquire(blocking=False):
+            if not vision_semaphore.acquire(blocking=False):
                 busy = {"status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy."}
                 return _start_json(start_response, "503 Service Unavailable", busy, extra_headers=[("Retry-After", "1")])
 
@@ -606,7 +618,7 @@ def create_wsgi_app(
                     err_body = {"status": "error", "error": f"Server execution failure: {e}"}
                     return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
             finally:
-                worker_semaphore.release()
+                vision_semaphore.release()
 
         start_response("404 Not Found", [("Content-Type", "text/plain"), ("Content-Length", "9")])
         return [b"Not Found"]
@@ -618,12 +630,11 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     """HTTPServer that listens on both IPv4 and IPv6 loopback (or a single host) using a ThreadPoolExecutor.
 
     The thread pool capacity is sized larger than the worker count (at least ``W + 2`` threads).
-    Worker routes (``/v1/execute``, ``/v1/session/reset``, ``/v1/vision``) gate admission
-    via a non-blocking worker-capacity semaphore before reading request bodies. Requests
-    that cannot acquire an immediate worker permit are rejected fast (503 Service Unavailable)
-    rather than blocking HTTP listener threads. This guarantees that at least two listener
-    threads remain strictly and unconditionally available for immediate ``GET /health`` responses
-    at all times.
+    ``/v1/execute`` and ``/v1/session/reset`` share a non-blocking semaphore sized to the
+    formula pool; ``/v1/vision`` has its own sized to the vision pool. Both gates run
+    before the request body is read. A miss is 503 Service Unavailable, so a full pool
+    does not hold a listener thread and does not consume the other pool's permits.
+    At least two listener threads stay available for immediate ``GET /health``.
     """
 
     request_queue_size: int = 128
