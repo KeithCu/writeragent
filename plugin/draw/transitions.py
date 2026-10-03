@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
 from plugin.draw.bridge import DrawBridge
+from plugin.draw.transform_schema import AUTOLAYOUT_ID
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -45,55 +46,75 @@ _FADE_EFFECTS = {
     "random": "RANDOM",
 }
 
-# Layout name → short value mapping (from PpSlideLayout).
-_LAYOUTS = {
-    "title": 0,
-    "text": 1,
-    "two_column_text": 2,
-    "table": 3,
-    "text_and_chart": 4,
-    "chart_and_text": 5,
-    "org_chart": 6,
-    "chart": 7,
-    "text_and_clipart": 8,
-    "clipart_and_text": 9,
-    "title_only": 10,
-    "blank": 11,
-    "text_and_object": 12,
-    "object_and_text": 13,
-    "large_object": 14,
-    "object": 15,
-    "text_and_media": 16,
-    "media_and_text": 17,
-    "object_over_text": 18,
-    "text_over_object": 19,
-    "two_column_and_object": 20,
-    "object_and_two_column": 21,
-    "two_objects_over_text": 22,
-    "four_objects": 23,
-    "vertical_text": 24,
-    "vertical_title_and_text": 25,
-    "vertical_title_and_text_over_chart": 26,
-    "two_objects": 27,
-    "object_and_two_objects": 28,
-    "two_objects_and_object": 29,
+# Friendly name → AutoLayout constant in AUTOLAYOUT_ID.
+# What was wrong: this table used PowerPoint PpSlideLayout minus one
+# (title_only=10, blank=11, four_objects=23, …). Impress ``page.Layout`` is
+# the LibreOffice AutoLayout enum (include/xmloff/autolayout.hxx), so those
+# numbers selected a different layout — title-only became TEXTOBJ, blank
+# became an OLE object, four objects became a handout page. Ids are looked
+# up from the shared table so set/get cannot drift from transform_engine.
+_LAYOUT_AUTOLAYOUT = {
+    "title": "AUTOLAYOUT_TITLE",
+    "text": "AUTOLAYOUT_TITLE_CONTENT",
+    "chart": "AUTOLAYOUT_CHART",
+    "two_column_text": "AUTOLAYOUT_TITLE_2CONTENT",
+    "text_and_chart": "AUTOLAYOUT_TEXTCHART",
+    "org_chart": "AUTOLAYOUT_ORG",
+    "text_and_clipart": "AUTOLAYOUT_TEXTCLIP",
+    "chart_and_text": "AUTOLAYOUT_CHARTTEXT",
+    "table": "AUTOLAYOUT_TAB",
+    "clipart_and_text": "AUTOLAYOUT_CLIPTEXT",
+    "text_and_object": "AUTOLAYOUT_TEXTOBJ",
+    "object": "AUTOLAYOUT_OBJ",
+    "two_column_and_object": "AUTOLAYOUT_TITLE_CONTENT_2CONTENT",
+    "object_and_text": "AUTOLAYOUT_OBJTEXT",
+    "object_over_text": "AUTOLAYOUT_TITLE_CONTENT_OVER_CONTENT",
+    "object_and_two_column": "AUTOLAYOUT_TITLE_2CONTENT_CONTENT",
+    "two_objects_over_text": "AUTOLAYOUT_TITLE_2CONTENT_OVER_CONTENT",
+    "text_over_object": "AUTOLAYOUT_TEXTOVEROBJ",
+    "four_objects": "AUTOLAYOUT_TITLE_4CONTENT",
+    "title_only": "AUTOLAYOUT_TITLE_ONLY",
+    "blank": "AUTOLAYOUT_NONE",
+    "vertical_title_and_text_over_chart": "AUTOLAYOUT_VTITLE_VCONTENT_OVER_VCONTENT",
+    "vertical_title_and_text": "AUTOLAYOUT_VTITLE_VCONTENT",
+    "vertical_text": "AUTOLAYOUT_TITLE_VCONTENT",
+    "title_two_vertical_text": "AUTOLAYOUT_TITLE_2VTEXT",
+    "only_text": "AUTOLAYOUT_ONLY_TEXT",
+    "six_objects": "AUTOLAYOUT_TITLE_6CONTENT",
 }
 
-# Reverse lookup for display.
-_LAYOUT_NAMES = {v: k for k, v in _LAYOUTS.items()}
+# Canonical name → AutoLayout id. One name per id so get_slide_layout is stable.
+_LAYOUTS = {name: AUTOLAYOUT_ID[auto] for name, auto in _LAYOUT_AUTOLAYOUT.items()}
+_LAYOUT_NAMES = {lid: name for name, lid in _LAYOUTS.items()}
 
-# add_slide escape hatch: "none" means today's blank-page behavior.
-_LAYOUT_ALIASES = {"none": "blank"}
+# Names that share a canonical layout. "none" is the empty-page hatch.
+# two_objects is the two-box content layout (not the old id 27, which is a
+# vertical title layout). large_object is the OLE object layout.
+# text_and_media / media_and_text had no AutoLayout constant.
+_LAYOUT_ALIASES = {
+    "none": "blank",
+    "centered_text": "only_text",
+    "large_object": "object",
+    "two_objects": "two_column_text",
+    "object_and_two_objects": "two_column_and_object",
+    "two_objects_and_object": "object_and_two_column",
+}
 
 
 def _canonical_layout_name(name: str) -> str:
     return _LAYOUT_ALIASES.get(name.strip().lower(), name.strip().lower())
 
 
-def layout_id(name: str) -> int | None:
-    """Return PpSlideLayout id for a named layout, or None if unknown.
+def available_layout_names() -> list[str]:
+    """Canonical names plus aliases accepted by set_slide_layout / add_slide."""
+    return sorted(set(_LAYOUTS) | set(_LAYOUT_ALIASES))
 
-    ``none`` is an alias for ``blank`` so add_slide can keep an empty-page hatch.
+
+def layout_id(name: str) -> int | None:
+    """Return the LibreOffice AutoLayout id for a layout name, or None.
+
+    ``none`` aliases ``blank`` (``AUTOLAYOUT_NONE``, 20) so add_slide can
+    keep an empty page. Ids come from ``AUTOLAYOUT_ID``, not PpSlideLayout.
     """
     if not isinstance(name, str):
         return None
@@ -330,9 +351,9 @@ class GetSlideLayout(ToolDrawSlideLayoutBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
-        layout_id = page.Layout
-        layout_name = _LAYOUT_NAMES.get(layout_id, "unknown_%d" % layout_id)
-        return {"status": "ok", "page": page_idx, "layout_id": layout_id, "layout_name": layout_name, "available_layouts": sorted(_LAYOUTS.keys())}
+        current_id = page.Layout
+        layout_name = _LAYOUT_NAMES.get(current_id, "unknown_%d" % current_id)
+        return {"status": "ok", "page": page_idx, "layout_id": current_id, "layout_name": layout_name, "available_layouts": available_layout_names()}
 
 
 class SetSlideLayout(ToolDrawSlideLayoutBase):
@@ -350,7 +371,7 @@ class SetSlideLayout(ToolDrawSlideLayoutBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         layout_name = kwargs.get("layout", "").strip().lower()
         if layout_id(layout_name) is None:
-            return self._tool_error("Unknown layout: %s" % layout_name, available=sorted(_LAYOUTS.keys()))
+            return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         applied = apply_slide_layout(page, layout_name)
