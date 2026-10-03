@@ -214,7 +214,11 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
 
 
 def test_crosshair_env_rejects_pytest_collection_width() -> None:
-    """SHAPE_DIM / CMD_ARGS stay product-wide here; CrossHair table rejects the same inputs."""
+    """CMD_ARGS stays product-wide here. CrossHair's short table rejects a 5-key image probe.
+
+    Envelope detectors are total on the pytest table: a plain dict wider than
+    SHAPE_DIM returns False. The CrossHair subprocess still caps them at 4.
+    """
     import ast
 
     from plugin.framework.ast_stmt_edit import is_name_call_expr
@@ -229,8 +233,7 @@ def test_crosshair_env_rejects_pytest_collection_width() -> None:
     assert is_name_call_expr(node, five_names) is False
     if not deal_pre_present(is_image_payload):
         return
-    with pytest.raises(deal.PreContractError):
-        is_image_payload({f"k{i}": i for i in range(DEAL_MAX_SHAPE_DIM + 1)})
+    assert is_image_payload({f"k{i}": i for i in range(DEAL_MAX_SHAPE_DIM + 1)}) is False
     with pytest.raises(deal.PreContractError):
         is_name_call_expr(node, frozenset(f"n{i}" for i in range(DEAL_MAX_CMD_ARGS + 1)))
     is_name_call_expr(node, frozenset({"xl"}))
