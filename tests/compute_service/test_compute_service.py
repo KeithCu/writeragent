@@ -399,10 +399,9 @@ class TestComputeHttp:
                 except Exception as exc:
                     out_list.append((599, str(exc)))
 
-            # Launch 6 concurrent posters: 1 occupies the worker, 5 exceed the 4-thread pool capacity.
-            # If waiting requests blocked listener threads, all 4 threads would be pinned,
-            # starving /health. With non-blocking semaphore gating, the 5 excess requests
-            # receive fast 503s without holding listener threads.
+            # Six posters, one worker permit. Listener threads are max(4, 1 + 2) = 4,
+            # so extra accepts queue instead of pinning every thread. Health must still
+            # return, and the five executes that miss the permit must 503.
             for idx in range(6):
                 p = threading.Thread(target=_post, args=(results[idx],))
                 p.start()
@@ -416,6 +415,19 @@ class TestComputeHttp:
                 assert resp.status == 200
                 assert json.loads(resp.read().decode())["status"] == "healthy"
                 assert t_elapsed < 0.5, f"/health took too long: {t_elapsed:.3f}s"
+
+            # The permit is taken inside the handler, before the body is read, and only
+            # by routes that wait on a worker. Releasing the in-flight execute first
+            # let accepts still sitting in the backlog or the listener queue take that
+            # permit and return 200 (CI: six 200s, no WORKER_POOL_BUSY). One of the six
+            # calls is inside execute and cannot finish until hold is set, so the other
+            # five responses have to arrive as 503s while the permit is still held.
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and sum(1 for item in results if item) < 5:
+                time.sleep(0.01)
+            shed = [item[0] for item in results if item]
+            assert len(shed) >= 5, f"overflow was not rejected while the worker was held: {results!r}"
+            assert all(status == 503 and isinstance(body, dict) and body.get("code") == "WORKER_POOL_BUSY" for status, body in shed)
         finally:
             hold.set()
             for p in posters:
@@ -426,8 +438,8 @@ class TestComputeHttp:
 
         # 1 active calculation succeeded (200), and 5 excess requests received fast 503 WORKER_POOL_BUSY
         statuses = [r[0][0] for r in results if r]
-        assert 200 in statuses
-        assert 503 in statuses
+        assert statuses.count(200) == 1
+        assert statuses.count(503) == 5
         busy_codes = [r[0][1].get("code") for r in results if r and r[0][0] == 503]
         assert all(c == "WORKER_POOL_BUSY" for c in busy_codes)
 
