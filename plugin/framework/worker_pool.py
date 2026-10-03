@@ -44,7 +44,7 @@ import sys
 import threading
 import uuid
 from collections import deque
-from concurrent.futures import CancelledError, Future, TimeoutError as FuturesTimeoutError
+from concurrent.futures import Future, TimeoutError as FuturesTimeoutError
 from typing import Optional, Callable, Any, ClassVar, IO, Iterator
 
 from plugin.framework.constants import BACKGROUND_POOL_MAX_WORKERS
@@ -110,10 +110,9 @@ class BackgroundHandle:
             fut.result(timeout=timeout)
         except FuturesTimeoutError:
             return
-        except CancelledError:
-            # 3.9+: concurrent.futures.CancelledError is BaseException, not Exception.
-            return
         except Exception:
+            # concurrent.futures.CancelledError subclasses Exception (via Error),
+            # including on Python 3.13. A cancelled future is swallowed here.
             # Do not catch BaseException: KeyboardInterrupt/SystemExit from
             # fut.set_exception must still escape join().
             return
@@ -552,8 +551,13 @@ class AsyncProcess:
             except OSError:
                 pass
 
-    def _join_handles(self, handles: tuple[BackgroundHandle | None, ...]) -> None:
-        """Join reader threads unless this stack is that thread."""
+    def _join_handles(self, handles: tuple[BackgroundHandle | None, ...], timeout: float | None = 1.0) -> None:
+        """Join reader threads unless this stack is that thread.
+
+        ``timeout`` is forwarded to ``join``. None waits until the reader
+        returns. ``_reap`` keeps the default so a stuck callback cannot block
+        terminate forever. ``_wait_for_exit`` passes None.
+        """
         current = threading.current_thread()
         for handle in handles:
             if handle is None:
@@ -561,7 +565,7 @@ class AsyncProcess:
             thread = handle._thread
             if thread is not None and thread is current:
                 continue
-            handle.join(timeout=1.0)
+            handle.join(timeout=timeout)
 
     def _close_child_pipes(self) -> None:
         proc = self.process
@@ -579,10 +583,13 @@ class AsyncProcess:
         if self.process is None:
             return
         rc = self.process.wait()
-        # process.wait() returns before the pipe threads deliver a trailing
-        # line that had no newline. Join them before the exit callback so
-        # URL parsing is not overtaken by PROCESS_EXITED.
-        self._join_handles((self._stdout_thread, self._stderr_thread))
+        # What was wrong: process.wait() returns before the pipe threads
+        # deliver a trailing line that had no newline, and the join used
+        # timeout=1.0. A slow line callback returned from that join early, so
+        # on_exit_cb (PROCESS_EXITED) ran before the line. The comment claimed
+        # the order was guaranteed. Why: wait with no timeout so the trailing
+        # line is delivered first. _reap still uses the 1s join.
+        self._join_handles((self._stdout_thread, self._stderr_thread), timeout=None)
         args = self.args
         if isinstance(args, str):
             preview = args

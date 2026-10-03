@@ -1228,22 +1228,17 @@ def test_batching_stream_queue_preserves_thinking_before_content():
 
 
 def test_batching_stream_queue_interleaved_kinds_keep_deadline():
-    """A THINKING fragment must not restart the timer armed by the first CHUNK."""
+    """A THINKING fragment must not restart the deadline armed by the first CHUNK."""
     raw = queue.Queue()
     bq = BatchingStreamQueue(raw, batch_interval=10.0)
-    cancels: list[threading.Timer] = []
-    orig_cancel = threading.Timer.cancel
-
-    def spy_cancel(self):
-        cancels.append(self)
-        orig_cancel(self)
-
-    with patch.object(threading.Timer, "cancel", spy_cancel):
-        bq.put((StreamQueueKind.CHUNK, "a"))
-        armed = bq._timer
-        bq.put((StreamQueueKind.THINKING, "t"))
-        assert bq._timer is armed
-        assert cancels == []
+    bq.put((StreamQueueKind.CHUNK, "a"))
+    armed = bq._timer
+    assert armed is not None
+    deadline = armed._deadline
+    assert deadline is not None
+    bq.put((StreamQueueKind.THINKING, "t"))
+    assert bq._timer is armed
+    assert armed._deadline == deadline
     bq.flush()
     assert raw.get_nowait() == (StreamQueueKind.CHUNK, "a")
     assert raw.get_nowait() == (StreamQueueKind.THINKING, "t")
@@ -1256,11 +1251,11 @@ def test_batching_stream_queue_timer_emission(monkeypatch):
 
     bq.put((StreamQueueKind.CHUNK, "delayed"))
 
-    # Force the timer callback to run immediately for the test
-    # (real Timer would fire after 50 ms)
+    # Fire the flush directly. Cancel first so the reusable timer thread
+    # does not emit the same burst again when the interval elapses.
     if bq._timer is not None:
         bq._timer.cancel()
-    bq._timer_flush()  # direct call simulates expiry
+    bq._timer_flush()
 
     item = raw.get_nowait()
     assert item == (StreamQueueKind.CHUNK, "delayed")

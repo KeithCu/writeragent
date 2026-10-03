@@ -255,7 +255,7 @@ def _marshal_thread_tag(executor: "QueueExecutor | None" = None) -> str:
     py_main = cur is main
     ex = executor or default_executor
     try:
-        qdepth = ex._work_queue.qsize()
+        qdepth = ex.pending_work_count()
     except Exception:
         qdepth = -1
     return "thread=%r ident=%s py_main=%s logical_main=%s bg_task=%r agent_active=%s queue_depth=%s" % (cur_name, cur_ident, py_main, on_main_thread(), get_background_task_name(), is_agent_active(), qdepth)
@@ -381,6 +381,14 @@ class QueueExecutor:
         # (same context). _get_async_callback takes _init_lock; calling it while
         # that lock is held deadlocks bootstrap.
         self._flush_pending_posts()
+
+    def pending_work_count(self) -> int:
+        """How many marshal items are queued and not yet taken by ``process_queue``.
+
+        Callers outside this class use this instead of ``_work_queue``. The
+        count matches ``Queue.qsize`` (approximate if a producer is mid-put).
+        """
+        return self._work_queue.qsize()
 
     def _flush_pending_posts(self) -> None:
         """Enqueue posts that arrived before AsyncCallback existed."""
@@ -842,7 +850,7 @@ def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor |
     ex = executor or default_executor
     processed = 0
     for _unused in range(max_items):
-        if ex._work_queue.empty():
+        if ex.pending_work_count() == 0:
             break
         ex.process_queue()
         processed += 1
