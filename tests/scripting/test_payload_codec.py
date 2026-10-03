@@ -598,6 +598,48 @@ def test_decimal_split_grid_stays_float_not_truncated_int() -> None:
     assert out[0][1] == pytest.approx(2.25)
 
 
+def test_decimal_fraction_encoding_ignores_earlier_text() -> None:
+    """Decimal and Fraction stay floats after a text cell, same as before one."""
+    from fractions import Fraction
+
+    from plugin.scripting.payload_codec import host_pack_split_grid
+
+    def _check() -> None:
+        after_text = host_unpack_split_grid(
+            host_pack_split_grid([["02138", Decimal("1.25"), Fraction(1, 4)]])
+        )
+        assert after_text[0][0] == "02138"
+        assert after_text[0][1] == pytest.approx(1.25)
+        assert after_text[0][2] == pytest.approx(0.25)
+        assert type(after_text[0][1]) is float
+        assert type(after_text[0][2]) is float
+
+        before_text = host_unpack_split_grid(
+            host_pack_split_grid([[Decimal("1.25"), Fraction(1, 4), "02138"]])
+        )
+        assert before_text[0][0] == pytest.approx(1.25)
+        assert before_text[0][1] == pytest.approx(0.25)
+        assert before_text[0][2] == "02138"
+        assert type(before_text[0][0]) is type(after_text[0][1])
+        assert type(before_text[0][1]) is type(after_text[0][2])
+
+        wire = host_pack_split_grid(
+            [["label", "x"], [Decimal("1.50"), Fraction(1, 4)]]
+        )
+        assert "1.50" not in wire["strings"].values()
+        assert "1/4" not in wire["strings"].values()
+        same_col = host_unpack_split_grid(wire)
+        assert same_col[0] == ["label", "x"]
+        assert same_col[1][0] == pytest.approx(1.5)
+        assert same_col[1][1] == pytest.approx(0.25)
+        assert wire["column_kinds"] == ["float", "float"]
+
+    with cython_accelerator_context(enabled=False):
+        _check()
+    if payload_codec.fast_flatten_grid_2d is not None:
+        _check()
+
+
 def test_wide_sheet_above_shape_dim_unpacks() -> None:
     """Pack accepts real sheet widths; unpack must not cap columns at SHAPE_DIM."""
     import deal
