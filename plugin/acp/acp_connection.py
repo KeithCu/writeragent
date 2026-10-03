@@ -225,7 +225,17 @@ class ACPConnection:
         """Read JSON-RPC messages from stdout and dispatch them."""
         log.info("Reader loop started")
         try:
-            while self._running and self._proc and self._proc.poll() is None:
+            # What was wrong: this guard also required poll() is None.
+            # Popen.poll() is waitpid(WNOHANG) and becomes set the moment the
+            # child exits, independent of unread stdout. If the child wrote
+            # the session/prompt response and exited while this thread was
+            # inside a session/update callback, the loop never called
+            # readline() again. The finally sweep then failed the turn with
+            # "ACP process terminated" and the answer was discarded.
+            # Why: readline() returns b"" at EOF, so the poll() check only
+            # dropped buffered bytes. Waiters that still have no response
+            # are failed by the sweep below.
+            while self._running and self._proc:
                 try:
                     if self._proc.stdout is None:
                         break
