@@ -132,6 +132,31 @@ def test_extract_result_prefers_numeric_getvalue_over_stale_gettext():
     assert result == {"count": 42}
 
 
+def test_tab_buttons_follow_element_order_and_skip_other_controls():
+    from plugin.chatbot.module_config_dialog import _tab_buttons_in_order
+
+    buttons = {
+        "btn_tab_general": MagicMock(),
+        "btn_ok": MagicMock(),
+        "btn_tab_ocr": MagicMock(),
+    }
+    dlg = MagicMock()
+    dlg.getModel.return_value.ElementNames = ("btn_tab_general", "btn_ok", "btn_tab_ocr")
+    dlg.getControl.side_effect = lambda name: buttons[name]
+    assert _tab_buttons_in_order(dlg) == [buttons["btn_tab_general"], buttons["btn_tab_ocr"]]
+
+
+def test_apply_stays_open_when_save_fails():
+    dialog = ModuleConfigDialog(MagicMock(), "demo")
+    dialog._dlg = MagicMock()
+    dialog.close = MagicMock()
+    with patch.object(dialog, "_extract_result", side_effect=RuntimeError("bad")), \
+         patch("plugin.chatbot.dialogs.msgbox") as box:
+        dialog._apply(close=True)
+    dialog.close.assert_not_called()
+    box.assert_called_once()
+
+
 def test_open_passes_ctx_to_get_extension_url():
     ctx = MagicMock()
     smgr = MagicMock()

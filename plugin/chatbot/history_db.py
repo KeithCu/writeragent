@@ -16,6 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
+import hashlib
 import logging
 import json
 import os
@@ -140,6 +141,25 @@ class SQLite3History:
             conn.commit()
 
 
+def _json_history_filename(session_id: str) -> str:
+    """One path segment under the history directory.
+
+    Regenerated ids are SHA-256 hex or UUID. A WriterAgentSessionID document
+    property is used as-is, so an absolute path or ``..`` must not be joined
+    onto the directory. Unsafe ids are hashed for the filename only.
+    """
+    name = session_id or ""
+    if (
+        not name
+        or name in (".", "..")
+        or "/" in name
+        or "\\" in name
+        or os.path.basename(name) != name
+    ):
+        name = hashlib.sha256((session_id or "").encode("utf-8")).hexdigest()
+    return f"{name}.json"
+
+
 # ---------------------------------------------------------------------------
 # JSON Implementation (Fallback)
 # ---------------------------------------------------------------------------
@@ -159,7 +179,7 @@ class JSONHistory:
         except OSError:
             log.exception("JSONHistory: Error creating directory")
 
-        self.file_path = os.path.join(self.history_dir, f"{session_id}.json")
+        self.file_path = os.path.join(self.history_dir, _json_history_filename(session_id))
 
     def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         msg_dict = message_to_dict(role, content, tool_calls)
@@ -175,8 +195,11 @@ class JSONHistory:
         try:
             self._replace_messages(messages)
             log.info(f"JSONHistory: Added message for session {self.session_id}")
-        except (OSError, IOError, TypeError):
+        except (OSError, TypeError):
+            # The turn is already in ChatSession.messages. Swallowing the save
+            # left the next open without that row. get_messages already re-raises.
             log.exception("JSONHistory: Error saving message")
+            raise
 
     def _replace_messages(self, messages: list[dict[str, Any]]) -> None:
         """Atomic replace in the session directory (same pattern as MemoryStore.write)."""
@@ -240,5 +263,12 @@ def get_chat_history(session_id: str, db_path: str | None = None) -> SQLite3Hist
         log.info(f"Using SQLite for chat history at {db_path}")
         return SQLite3History(session_id, db_path)
     except sqlite3.Error:
+        # What was wrong: any sqlite error, including a lock on an existing
+        # writeragent_history.db, opened a JSON file under *.db.d/ and later
+        # turns never returned to SQLite. connect() already waits on a lock.
+        # Why this change: fall back only when there is no database file yet.
+        if os.path.isfile(db_path):
+            log.exception("SQLite failed for existing history database %s", db_path)
+            raise
         log.exception("SQLite failed, falling back to JSON")
         return JSONHistory(session_id, db_path)

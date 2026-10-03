@@ -248,6 +248,55 @@ def test_get_research_fluff_words_cached_per_locale(monkeypatch):
     assert len(calls) == 2
 
 
+def test_lookup_bare_key_is_english_only(tmp_path):
+    from plugin.contrib.smolagents.default_tools import _web_cache_set
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    _web_cache_set(db_file, "research", "paris restaurants", "english legacy", 50 * 1024 * 1024)
+    _web_cache_set(db_file, "research", "french|paris restaurants", "french row", 50 * 1024 * 1024)
+
+    french = lookup_research_cache(
+        db_file, "paris restaurants", "french", max_age_days=30, jaccard_percent=100, min_overlap=99,
+    )
+    english = lookup_research_cache(
+        db_file, "paris restaurants", "english", max_age_days=30, jaccard_percent=100, min_overlap=99,
+    )
+    assert french is not None and french[4] == "french row"
+    assert english is not None and english[4] == "english legacy"
+
+
+def test_store_embeddings_skips_row_whose_parent_was_evicted(tmp_path):
+    import sqlite3
+
+    db_file = str(tmp_path / "writeragent_web_cache.db")
+    store_research_cache_embeddings(
+        db_file,
+        [("english|gone", "gone", [1.0, 0.0])],
+        embedding_model="test-model",
+    )
+    conn = sqlite3.connect(db_file)
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM web_cache_embeddings").fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 0
+
+
+def test_resolve_research_locale_reraises_disposed_document():
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=DisposedException("gone")):
+        with pytest.raises(DisposedException):
+            resolve_research_locale(None, MagicMock())
+
+    with patch("plugin.chatbot.web_research_cache._resolve_on_main", side_effect=[RuntimeException("uno"), "en_US"]):
+        assert resolve_research_locale(None, MagicMock())[0] == "en_US"
+
+
 def test_lookup_research_cache_fuzzy_hit(tmp_path):
     from plugin.contrib.smolagents.default_tools import _web_cache_set
 

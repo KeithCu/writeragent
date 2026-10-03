@@ -125,6 +125,11 @@ def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
         except TimeoutError:
             log.warning("research cache: document language detection timed out on main thread")
         except Exception as e:
+            # A disposed document used to look like "no locale" and the cache
+            # key became english. Missing-name and other UNO errors still fall
+            # through; only a real DisposedException must leave this function.
+            if "DisposedException" in type(e).__name__:
+                raise
             log.debug("research cache: document language detection failed: %s", e)
 
     try:
@@ -139,12 +144,6 @@ def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
     except Exception as e:
         log.debug("research cache: LO locale detection failed: %s", e)
     return "en_US", "english"
-
-
-def resolve_research_stem_language(ctx: Any, doc: Any = None) -> str:
-    """Snowball language only; prefer resolve_research_locale when gettext tag is needed."""
-    _lo_tag, snowball_lang = resolve_research_locale(ctx, doc)
-    return snowball_lang
 
 
 def tokenize_query_words(query: str) -> list[str]:
@@ -342,11 +341,24 @@ def store_research_cache_embeddings(
                 now,
             ))
         if payload:
-            conn.executemany(
-                "INSERT OR REPLACE INTO web_cache_embeddings "
-                "(kind, key, embedding_model, embedding_text, text_hash, dim, vector_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                payload,
-            )
+            # Backfill drops the cache lock, embeds, then writes. Eviction can
+            # delete the parent web_cache row in that window. Inserting anyway
+            # left orphans that the size cap never counts (it sums web_cache.size).
+            kept = []
+            for row in payload:
+                kind, raw_key = row[0], row[1]
+                parent = conn.execute(
+                    "SELECT 1 FROM web_cache WHERE kind = ? AND key = ?",
+                    (kind, raw_key),
+                ).fetchone()
+                if parent is not None:
+                    kept.append(row)
+            if kept:
+                conn.executemany(
+                    "INSERT OR REPLACE INTO web_cache_embeddings "
+                    "(kind, key, embedding_model, embedding_text, text_hash, dim, vector_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    kept,
+                )
             conn.commit()
 
     _web_cache_with_connection(cache_path, do_store)
@@ -650,7 +662,8 @@ def lookup_research_cache(
 ) -> tuple[str, str, str | None, float, str] | None:
     """Return (event, display_key, matched_raw_key, score, cached_value) or None on miss.
 
-    Shallow lookup tries the bare word key, then the language-prefixed key.
+    English shallow lookup tries the bare word key, then the language-prefixed key.
+    Other languages try only the prefixed key, so a legacy English row is not a hit.
     ``mode='deep'`` tries only ``deep|{lang}|{words}`` so a shallow row is not
     served as a deep report.
     """
@@ -664,8 +677,13 @@ def lookup_research_cache(
         # are a different report (ordinary web_research / brainstorm), and
         # returning them made Deep Research skip the live run.
         exact_keys: tuple[str, ...] = (format_research_cache_key(snowball_lang, word_key, mode="deep"),)
-    else:
+    elif snowball_lang == "english":
+        # Legacy rows were stored under the bare word key before language
+        # prefixes. A French query whose words are "paris restaurants" must
+        # not hit that English row (and must not refresh its created_at).
         exact_keys = (word_key, format_research_cache_key(snowball_lang, word_key))
+    else:
+        exact_keys = (format_research_cache_key(snowball_lang, word_key),)
     for storage_key in exact_keys:
         cached = _web_cache_get(cache_path, "research", storage_key, max_age_days=max_age_days)
         if cached is not None:

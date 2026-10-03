@@ -118,23 +118,12 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
         return messages
 
 
-def _get_unique_words_key(query: str, *, snowball_lang: str = "english") -> str:
-    """Normalize query, filter locale-aware fluff, sort unique words and return space-separated key."""
+def _ordered_unique_query_words(query: str, *, snowball_lang: str) -> list[str]:
+    """Fluff-filtered tokens, first-seen order. Storage keys sort a copy of this list."""
     from plugin.chatbot.web_research_cache import get_research_fluff_words, tokenize_query_words
 
     if not query:
-        return ""
-    fluff = get_research_fluff_words(snowball_lang=snowball_lang)
-    unique = sorted({w for w in tokenize_query_words(query) if w not in fluff and len(w) >= 3})
-    return " ".join(unique)
-
-
-def _get_embedding_words_text(query: str, *, snowball_lang: str = "english") -> str:
-    """Normalize query terms for embeddings while preserving original word order."""
-    from plugin.chatbot.web_research_cache import get_research_fluff_words, tokenize_query_words
-
-    if not query:
-        return ""
+        return []
     fluff = get_research_fluff_words(snowball_lang=snowball_lang)
     seen: set[str] = set()
     ordered: list[str] = []
@@ -143,7 +132,17 @@ def _get_embedding_words_text(query: str, *, snowball_lang: str = "english") -> 
             continue
         seen.add(token)
         ordered.append(token)
-    return " ".join(ordered)
+    return ordered
+
+
+def _get_unique_words_key(query: str, *, snowball_lang: str = "english") -> str:
+    """Normalize query, filter locale-aware fluff, sort unique words and return space-separated key."""
+    return " ".join(sorted(_ordered_unique_query_words(query, snowball_lang=snowball_lang)))
+
+
+def _get_embedding_words_text(query: str, *, snowball_lang: str = "english") -> str:
+    """Normalize query terms for embeddings while preserving original word order."""
+    return " ".join(_ordered_unique_query_words(query, snowball_lang=snowball_lang))
 
 
 def _research_cache_result_fields(
@@ -202,6 +201,12 @@ def _normalize_visit_url(url: str) -> str:
     return str(url or "").strip().rstrip("/")
 
 
+def _visit_result_is_error(text: Any) -> bool:
+    """True when visit_webpage reported a fetch failure instead of page text."""
+    body = str(text or "").lstrip()
+    return body.startswith("Error") or body.startswith("Failed")
+
+
 class _VisitWebpageDedupTool(Tool):
     """Wraps visit_webpage and skips URLs already read in this deep-research run."""
 
@@ -221,18 +226,27 @@ class _VisitWebpageDedupTool(Tool):
 
     def forward(self, url: str) -> str:
         key = _normalize_visit_url(url)
+        lock = self._visited_urls_lock if key and self._visited_urls is not None else None
         if key and self._visited_urls is not None:
-            lock = self._visited_urls_lock
             if lock:
                 with lock:
                     if key in self._visited_urls:
                         return f"(Already visited in this research run: {key})"
-                    self._visited_urls.add(key)
             elif key in self._visited_urls:
                 return f"(Already visited in this research run: {key})"
+        text = self._inner.forward(url)
+        # What was wrong: the URL was inserted before the fetch returned, so a
+        # CDP or HTTP error ("Error visiting...", "Failed to navigate...") stayed
+        # in the set and later sub-queries got "Already visited" instead of a retry.
+        # Why this change: record the URL only after a non-error body, under the
+        # same lock as the check.
+        if key and self._visited_urls is not None and not _visit_result_is_error(text):
+            if lock:
+                with lock:
+                    self._visited_urls.add(key)
             else:
                 self._visited_urls.add(key)
-        return self._inner.forward(url)
+        return text
 
 
 def _cdp_visit_enter() -> bool:

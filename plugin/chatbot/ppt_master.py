@@ -15,7 +15,11 @@ log = logging.getLogger(__name__)
 
 
 def _selected_chat_model(ctx: ToolContext) -> str | None:
-    """Send handlers pass the sidebar model id via ToolContext.doc (not the UNO document)."""
+    """Return a model id only when ctx.doc is not a UNO document.
+
+    On the live path ctx.doc is the document model (it has getURL). A leftover
+    string id is the only case that is not a document.
+    """
     doc = ctx.doc
     if doc is None or hasattr(doc, "getURL"):
         return None

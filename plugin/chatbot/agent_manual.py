@@ -156,6 +156,10 @@ _ALIASES = {
 def _app(doc_type: str | None) -> str:
     if doc_type is None:
         return "generic"  # no document open -> only the generic rules apply
+    # Impress is a Draw model. An unknown label used to fall through to the
+    # Writer manual, so an agent-backend turn labeled "impress" got Writer topics.
+    if doc_type == "impress":
+        return "draw"
     return doc_type if doc_type in _SECTIONS_BY_APP else "writer"
 
 

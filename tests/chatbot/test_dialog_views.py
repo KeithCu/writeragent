@@ -1693,3 +1693,25 @@ def test_stt_settings_listener_enables_one_model_control() -> None:
         assert enabled[endpoint_label] is False
 
 
+def test_settings_hf_button_uses_router():
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dialog = SettingsDialog.__new__(SettingsDialog)
+    dialog._dlg = MagicMock()
+    dialog._ctx = MagicMock()
+    seen: list[str] = []
+
+    def _capture(_ctx, _dlg, endpoint_url, _signup):
+        seen.append(endpoint_url)
+        return MagicMock()
+
+    with (
+        patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _dlg, name: MagicMock() if name == "btn_hf" else None),
+        patch("plugin.chatbot.dialog_views.ProviderStarterListener", side_effect=_capture),
+        patch("plugin.chatbot.dialog_views.apply_provider_button_icon"),
+        patch("plugin.chatbot.dialog_views.setup_module_tabs"),
+    ):
+        dialog._setup_tabs()
+    assert seen == ["https://router.huggingface.co/v1"]
+
+

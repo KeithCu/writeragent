@@ -22,7 +22,9 @@ def _measure_send_button_max_width(send_ctrl: Any, has_recording: bool) -> int |
         labels = ["Send", "Record", "Stop Rec", "Accept"] if has_recording else ["Send", "Accept"]
         wmax = send_ctrl.getPosSize().Width
         for lab in labels:
-            m.Label = lab
+            # Live labels are _(effect.send_label). Measuring the English
+            # string let a longer translation change width before the pin.
+            m.Label = _(lab)
             wmax = max(wmax, send_ctrl.getPosSize().Width)
         m.Label = saved
         return wmax if wmax > 0 else None
@@ -38,7 +40,7 @@ def _measure_aux_button_max_width(ctrl: Any, labels: list[str]) -> int | None:
         saved = m.Label
         wmax = ctrl.getPosSize().Width
         for lab in labels:
-            m.Label = lab
+            m.Label = _(lab)
             wmax = max(wmax, ctrl.getPosSize().Width)
         m.Label = saved
         return wmax if wmax > 0 else None

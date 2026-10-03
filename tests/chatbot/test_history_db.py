@@ -77,6 +77,45 @@ def test_message_to_dict_omits_null_tool_calls_and_marks_images():
     assert "AAAA" not in marked["content"]
 
 
+def test_json_history_hashes_unsafe_session_id(tmp_path):
+    from plugin.chatbot.history_db import _json_history_filename
+
+    history = JSONHistory("../outside", str(tmp_path / "writeragent_history.db"))
+    assert os.path.dirname(history.file_path) == history.history_dir
+    assert os.path.basename(history.file_path) == _json_history_filename("../outside")
+    assert "/" not in os.path.basename(history.file_path)
+    plain = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
+    assert plain.file_path.endswith("session_abc.json")
+
+
+def test_json_history_reraises_save_oserror(tmp_path, monkeypatch):
+    history = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("disk")
+
+    monkeypatch.setattr("plugin.chatbot.history_db.os.replace", _boom)
+    with pytest.raises(OSError):
+        history.add_message("user", "new")
+
+
+def test_existing_sqlite_db_does_not_fall_back_to_json(tmp_path, monkeypatch):
+    import sqlite3
+
+    from plugin.chatbot import history_db
+
+    db_path = tmp_path / "writeragent_history.db"
+    db_path.write_text("not a database", encoding="utf-8")
+
+    def _boom(*_args, **_kwargs):
+        raise sqlite3.OperationalError("locked")
+
+    monkeypatch.setattr(history_db.sqlite3, "connect", _boom)
+    with pytest.raises(sqlite3.OperationalError):
+        history_db.get_chat_history("sid", str(db_path))
+    assert not (tmp_path / "writeragent_history.db.d").exists()
+
+
 def test_sqlite_skips_undecodable_row(tmp_path):
     from plugin.chatbot.history_db import SQLite3History
     import sqlite3

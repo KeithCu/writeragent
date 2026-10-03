@@ -121,7 +121,7 @@ class TestRunDeepResearch:
             stop_checker=None,
             status_callback=None,
             breadth=1,
-            depth=1,
+            max_rounds=1,
             plain_text_format="Use plain text.",
             initial_search_snippet="preview hit",
             max_sub_queries=5,
@@ -143,7 +143,7 @@ class TestRunDeepResearch:
             stop_checker=lambda: True,
             status_callback=None,
             breadth=1,
-            depth=1,
+            max_rounds=1,
             plain_text_format="plain",
         )
         assert isinstance(result, dict)

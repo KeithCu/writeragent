@@ -24,7 +24,7 @@ Prompt text lives in [`plugin/framework/prompts.py`](../../plugin/framework/prom
 
 **Menu chat** (non-sidebar entry) has no tool-calling; it is conversational only.
 
-**Sidebar mode dropdown** (Chat, Image, Web Research, …, Librarian last) is session-only and is **not** persisted to `writeragent.json`. On load the panel selects **Librarian** when `USER.md` is empty, otherwise **Chat**. Chat and Web Research histories are per document; Librarian uses a fixed session id in the same history DB (one transcript per LibreOffice user profile). Switching modes swaps the active `ChatSession` and does not mix transcripts.
+**Sidebar mode dropdown** (Chat, Image, Web Research, …, Librarian last) is session-only and is **not** persisted to `writeragent.json`. On load the panel selects **Librarian** the first time (`chatbot.librarian_invoked` / `librarian_default_mode`), otherwise **Chat**. An empty `USER.md` does not choose the mode. Chat and Web Research histories are per document; Librarian uses a fixed session id in the same history DB (one transcript per LibreOffice user profile). Switching modes swaps the active `ChatSession` and does not mix transcripts.
 
 **Image mode** skips the chat LLM and calls `image_generate` from [`send_handlers.py`](../../plugin/chatbot/send_handlers.py). No selection: text-to-image insert. Selected document graphic: `source_image='selection'` (img2img + replace in place). Chat/specialist img2img steering is a separate path.
 

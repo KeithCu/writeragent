@@ -771,14 +771,9 @@ def run_deep_research(
     max_sub_queries: int = 14,
     quality_threshold: int = 7,
     on_progress: ProgressCallback = None,
-    depth: int | None = None,
     worker_factory: WorkerFactory | None = None,
 ) -> str | dict[str, Any]:
     """Run adaptive multi-round deep research; returns report string or error payload dict."""
-    # depth kept for backward compatibility; max_rounds is primary.
-    if depth is not None and max_rounds == 3:
-        max_rounds = depth
-
     stopped = _check_stopped(stop_checker)
     if stopped is not None:
         return stopped

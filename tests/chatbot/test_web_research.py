@@ -321,8 +321,8 @@ def test_step_one_same_format_as_first():
 
 def test_web_research_engine_chat_block_ignores_legacy_approval_flag():
     q = "x"
-    assert web_research_engine_chat_block(q, approval_required=True) == web_search_engine_step_chat_text(q, 0)
-    assert "approval required" not in web_research_engine_chat_block(q, approval_required=True).lower()
+    assert web_research_engine_chat_block(q) == web_search_engine_step_chat_text(q, 0)
+    assert "approval required" not in web_research_engine_chat_block(q).lower()
 
 
 def test_step_index_negative_treated_as_first():
@@ -665,6 +665,32 @@ def test_visit_dedup_fetches_the_first_url_only():
     assert tool.forward("https://example.com/a") == "page body"
     assert "Already visited" in tool.forward("https://example.com/a/")
     inner.forward.assert_called_once_with("https://example.com/a")
+
+
+def test_visit_dedup_retries_after_a_fetch_error():
+    from plugin.chatbot.web_research import _VisitWebpageDedupTool
+
+    inner = MagicMock()
+    inner.forward.return_value = "Error visiting page"
+    seen: set[str] = set()
+    tool = _VisitWebpageDedupTool(inner, seen, __import__("threading").Lock())
+    assert tool.forward("https://example.com/a").startswith("Error")
+    assert seen == set()
+    inner.forward.side_effect = RuntimeError("navigate failed")
+    try:
+        tool.forward("https://example.com/b")
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("forward should raise")
+    assert "https://example.com/b" not in seen
+    inner.forward.side_effect = None
+    inner.forward.return_value = "Failed to navigate"
+    assert tool.forward("https://example.com/a").startswith("Failed")
+    assert seen == set()
+    inner.forward.return_value = "page body"
+    assert tool.forward("https://example.com/a") == "page body"
+    assert seen == {"https://example.com/a"}
 
 
 def test_cdp_visit_uses_a_private_target(monkeypatch):

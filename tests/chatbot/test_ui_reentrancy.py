@@ -141,6 +141,57 @@ def test_refresh_controls_does_not_recurse_when_combo_fires_listeners():
     assert set_config_keys == []
 
 
+def test_typed_image_model_is_saved_unless_refreshing():
+    image = FiringCombo()
+    panel = _make_panel(FiringCombo())
+    saved: list[str] = []
+
+    def set_image_model(txt, update_lru=False):
+        saved.append(txt)
+
+    with (
+        patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", side_effect=_fake_populate),
+        patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", return_value=""),
+        patch("plugin.chatbot.panel_factory.get_text_model", return_value=_MODEL),
+        patch("plugin.chatbot.panel_factory.get_image_model", return_value=""),
+        patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=_ENDPOINT),
+        patch("plugin.chatbot.panel_factory.get_config", return_value=""),
+        patch("plugin.chatbot.panel_factory.set_text_model"),
+        patch("plugin.chatbot.panel_factory.set_image_model", side_effect=set_image_model),
+    ):
+        ChatPanelElement._wire_model_selectors(panel, None, image)
+        image.setText("vendor/typed-image")
+        assert saved == ["vendor/typed-image"]
+        panel._in_refresh_controls = True
+        image.setText("vendor/during-refresh")
+        assert saved == ["vendor/typed-image"]
+
+
+def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
+    from plugin.chatbot.panel_wiring import _measure_aux_button_max_width
+
+    class _Pos:
+        def __init__(self, width: int) -> None:
+            self.Width = width
+
+    class _Model:
+        Label = "Stop"
+
+    model = _Model()
+
+    class _Ctrl:
+        def getModel(self):
+            return model
+
+        def getPosSize(self):
+            return _Pos(len(model.Label))
+
+    monkeypatch.setattr("plugin.chatbot.panel_wiring._", lambda text: text + "XX")
+    width = _measure_aux_button_max_width(_Ctrl(), ["Stop", "Change"])
+    assert model.Label == "Stop"
+    assert width == len("ChangeXX")
+
+
 def test_unguarded_listener_does_not_infinite_loop_because_event_bus_drops():
     """Without the panel flag, VCL-like setText still writes LRU; bus drop stops the hang.
 

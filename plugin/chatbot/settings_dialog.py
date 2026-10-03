@@ -190,7 +190,8 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
         if key in ("endpoint", "api_key") or key not in field_specs_by_name:
             continue
 
-        save_key = key.replace("__", ".")
+        spec = field_specs_by_name[key]
+        save_key = str(spec.get("config_key") or key.replace("__", "."))
 
         if save_key == "text_model":
             # set_text_model drops placeholders and writes text_model. Doing
@@ -204,8 +205,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
                 text_model_lru = sanitized
             continue
 
-        spec = field_specs_by_name.get(key)
-        opts = spec.get("options") if spec else None
+        opts = spec.get("options")
         if isinstance(opts, list):
             val = stored_select_value(val, opts)
 

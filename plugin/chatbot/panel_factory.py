@@ -423,7 +423,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                 _run_on_main_thread(_create_panel)
             except Exception as e:
+                # What was wrong: toolpanel was assigned before wiring. A later
+                # getControl failure left the half-built panel latched, so the
+                # next getRealInterface returned it and never retried.
                 log.exception("getRealInterface failed [resource_url=%s]", self.ResourceURL)
+                self.toolpanel = None
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
         # Panel is a Python UNO component; stubs do not overlap XInterface.
         return cast("XInterface", cast("object", self.toolpanel))
@@ -743,7 +747,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if hasattr(model_selector, "addTextListener"):
                 model_selector.addTextListener(ModelTextSyncListener(self, self.ctx))
 
-        if image_model_selector and hasattr(image_model_selector, "addItemListener"):
+        if image_model_selector:
 
             class ImageModelSyncListener(BaseItemListener):
                 panel: Any
@@ -763,7 +767,31 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         return
                     set_image_model(txt, update_lru=False)
 
-            image_model_selector.addItemListener(ImageModelSyncListener(self, self.ctx))
+            class ImageModelTextSyncListener(BaseTextListener):
+                panel: Any
+                ctx: Any
+
+                def __init__(self, panel: Any, ctx: Any) -> None:
+                    self.panel = panel
+                    self.ctx = ctx
+
+                def on_text_changed(self, rEvent: Any) -> None:
+                    # List selection and typing do not share one event. Without
+                    # this, a typed image id never reached set_image_model, and
+                    # the next config refresh painted the old id back.
+                    if getattr(self.panel, "_in_refresh_controls", False):
+                        return
+                    txt = image_model_selector.getText()
+                    if not txt:
+                        return
+                    if txt == str(get_config("image_model") or "").strip():
+                        return
+                    set_image_model(txt, update_lru=False)
+
+            if hasattr(image_model_selector, "addItemListener"):
+                image_model_selector.addItemListener(ImageModelSyncListener(self, self.ctx))
+            if hasattr(image_model_selector, "addTextListener"):
+                image_model_selector.addTextListener(ImageModelTextSyncListener(self, self.ctx))
 
     def _sidebar_include_brainstorming(self, model: Any, *, cached_doc_type: str | None = None) -> bool:
         if cached_doc_type is not None:
@@ -1025,10 +1053,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         self.doc_session = ChatSession(system_prompt, session_id=session_id)
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
-        from plugin.chatbot.chat_sidebar_mode import LIBRARIAN_HISTORY_SESSION_ID
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, LIBRARIAN_HISTORY_SESSION_ID
 
         self.librarian_session = ChatSession(
-            _("AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite colors, and give a short tour. Pick Chat in the dropdown whenever you want to work on the document."),
+            self._greeting_for_sidebar_mode(CHAT_MODE_LIBRARIAN, model),
             session_id=LIBRARIAN_HISTORY_SESSION_ID,
         )
         self.session = self.doc_session

@@ -59,7 +59,7 @@ PROVIDER_STARTERS: list[dict[str, Any]] = [
         "id": "huggingface",
         "name": "Hugging Face",
         "display_name": "Hugging Face Inference (Hosted)",
-        "url": "https://api-inference.huggingface.co/v1",
+        "url": "https://router.huggingface.co/v1",
         "models": ["Qwen/Qwen2.5-72B-Instruct", "mistralai/Mistral-7B-Instruct-v0.3"],
         "signup_url": "https://huggingface.co/settings/tokens",
     },

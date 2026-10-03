@@ -23,12 +23,18 @@ log = logging.getLogger(__name__)
 
 _active_dialogs: dict[str, Any] = {}
 
-_TAB_PAGE_MAP = {
-    "btn_tab_general": 1,
-    "btn_tab_ocr": 2,
-    "btn_tab_tables": 3,
-    "btn_tab_advanced": 4,
-}
+def _tab_buttons_in_order(dlg: Any) -> list[Any]:
+    """btn_tab_* controls in dialog-model order (the order the XDL generator writes)."""
+    from plugin.chatbot.dialogs import _dialog_model_element_names
+
+    buttons: list[Any] = []
+    for name in _dialog_model_element_names(dlg):
+        if not str(name).startswith("btn_tab_"):
+            continue
+        btn = get_optional(dlg, str(name))
+        if btn is not None:
+            buttons.append(btn)
+    return buttons
 
 
 def get_module_config_dialog_id(module_name: str) -> str | None:
@@ -156,10 +162,11 @@ class ModuleConfigDialog:
 
     def _setup_tabs(self) -> None:
         assert self._dlg is not None
-        for tab_id, page_num in _TAB_PAGE_MAP.items():
-            btn = get_optional(self._dlg, tab_id)
-            if btn is not None:
-                btn.addActionListener(TabListener(self._dlg, page_num))
+        # Step numbers follow control order, which is the page order the
+        # generator writes. A new page: in module.yaml then gets a listener
+        # without a second hardcoded map.
+        for page_num, btn in enumerate(_tab_buttons_in_order(self._dlg), start=1):
+            btn.addActionListener(TabListener(self._dlg, page_num))
 
     def _wire_buttons(self) -> None:
         assert self._dlg is not None
@@ -201,7 +208,7 @@ class ModuleConfigDialog:
 
         assert self._dlg is not None
         for field in field_specs:
-            ctrl = self._dlg.getControl(field["name"])
+            ctrl = get_optional(self._dlg, field["name"])
             if ctrl is None:
                 log.warning(
                     "Module config dialog %s missing control %r",
@@ -218,7 +225,7 @@ class ModuleConfigDialog:
         result: dict[str, Any] = {}
         for field in get_module_config_field_specs(self._ctx, self._module_name):
             name = field["name"]
-            ctrl = self._dlg.getControl(name)
+            ctrl = get_optional(self._dlg, name)
             if ctrl is None:
                 continue
             value = read_settings_control(ctrl, field)
@@ -234,11 +241,18 @@ class ModuleConfigDialog:
         return result
 
     def _apply(self, *, close: bool) -> None:
+        from plugin.chatbot.dialogs import msgbox
+        from plugin.framework.i18n import _
+
         try:
             result = self._extract_result()
             apply_module_config_result(self._ctx, self._module_name, result)
-        except Exception:
+        except Exception as exc:
+            # What was wrong: a failed save still called close(), so OK
+            # dismissed the dialog after the values were not stored.
             log.exception("Failed to apply module config for %s", self._module_name)
+            msgbox(self._ctx, _("Invalid Setting"), str(exc))
+            return
         if close:
             self.close()
 

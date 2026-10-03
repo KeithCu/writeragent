@@ -288,7 +288,7 @@ class SettingsDialog:
         starters = [
             ("btn_openrouter", "https://openrouter.ai/api", "https://openrouter.ai/keys"),
             ("btn_together", "https://api.together.xyz", "https://api.together.ai/settings/api-keys"),
-            ("btn_hf", "https://api-inference.huggingface.co/v1", "https://huggingface.co/settings/tokens"),
+            ("btn_hf", "https://router.huggingface.co/v1", "https://huggingface.co/settings/tokens"),
             ("btn_nvidia", "https://integrate.api.nvidia.com/v1", "https://build.nvidia.com/settings/api-keys"),
         ]
         for btn_id, ep_url, signup_url in starters:
@@ -361,7 +361,9 @@ class SettingsDialog:
             # Register module tabs in the Settings dialog
             setup_module_tabs(self._dlg)
         except Exception:
-            pass
+            # setup_module_tabs already logs its own failures. This used to
+            # swallow that and leave the dialog with dead module tabs.
+            log.exception("Failed to set up module tabs")
 
     def _api_key_from_field_specs(self, field_specs: list[dict[str, Any]]) -> str:
         for field in field_specs:
