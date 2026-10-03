@@ -17,6 +17,7 @@ from plugin.doc.document_research import (
     _collect_open_file_urls,
     _system_path_from_url,
     close_document_research_document,
+    get_open_documents,
     guess_doc_type_from_path,
     get_document_directory,
     get_work_directory,
@@ -466,3 +467,117 @@ def test_is_same_document_uses_uid_not_identity():
     a, b = Doc(None, "file:///x.odt"), Doc(None, "file:///x.odt")
     assert _is_same_document(a, b) is True
     assert _is_same_document(Doc(None, ""), Doc(None, "")) is False
+
+
+class _DisposedException(Exception):
+    pass
+
+
+def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
+    """A dead desktop enumeration must not look like no documents are open."""
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = _DisposedException("enum dead")
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    docs = None
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        try:
+            try:
+                docs = get_open_documents(MagicMock())
+            except Exception as exc:
+                raise AssertionError("generic handler swallowed a disposed desktop") from exc
+        except ListenerBoundary as boundary:
+            assert boundary.kind == "disposed"
+            return
+    raise AssertionError(f"disposed desktop reported as an empty document list: {docs!r}")
+
+
+def test_get_open_documents_disposed_component_access_is_not_empty():
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    desktop = MagicMock()
+    desktop.getComponents.side_effect = _DisposedException("desktop gone")
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        try:
+            try:
+                get_open_documents(MagicMock())
+            except Exception as exc:
+                raise AssertionError("generic handler swallowed a disposed desktop") from exc
+        except ListenerBoundary as boundary:
+            assert boundary.kind == "disposed"
+            return
+    raise AssertionError("disposed desktop did not leave get_open_documents")
+
+
+def test_get_open_documents_empty_desktop_is_not_disposed():
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    desktop = MagicMock()
+    desktop.getComponents.return_value = None
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        try:
+            docs = get_open_documents(MagicMock())
+        except ListenerBoundary as boundary:
+            raise AssertionError(f"empty document list reported as {boundary.kind}") from boundary
+    assert docs == []
+
+
+def test_get_open_documents_off_thread_is_not_an_empty_list():
+    """A caller's except Exception must not hide the main-thread check."""
+    import threading
+
+    from plugin.framework import thread_guard as tg
+    from plugin.framework.uno_listeners import ListenerBoundary
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("release bundles stub the main-thread guard")
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    previous_testing = os.environ.get("WRITERAGENT_TESTING")
+    os.environ["WRITERAGENT_TESTING"] = "1"
+    holder: dict[str, BaseException] = {}
+
+    def _call() -> None:
+        try:
+            try:
+                get_open_documents(MagicMock())
+            except Exception as exc:
+                holder["swallowed"] = exc
+        except BaseException as exc:
+            holder["exc"] = exc
+
+    try:
+        worker = threading.Thread(target=_call, name="bg-open-docs")
+        worker.start()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert "swallowed" not in holder
+        exc = holder.get("exc")
+        assert isinstance(exc, ListenerBoundary)
+        assert exc.kind == "thread"
+    finally:
+        tg.GUARD_ON = was
+        if previous_testing is None:
+            os.environ.pop("WRITERAGENT_TESTING", None)
+        else:
+            os.environ["WRITERAGENT_TESTING"] = previous_testing
+
+
+def test_get_open_documents_runtime_error_is_not_disposal_or_empty():
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = RuntimeError("not disposed")
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        try:
+            get_open_documents(MagicMock())
+        except ListenerBoundary as boundary:
+            raise AssertionError(f"runtime error reported as {boundary.kind}") from boundary
+        except RuntimeError as exc:
+            assert "not disposed" in str(exc)
+            return
+    raise AssertionError("runtime error was reported as an empty document list")

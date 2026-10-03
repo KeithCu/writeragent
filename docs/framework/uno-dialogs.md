@@ -99,7 +99,7 @@ For building dialogs entirely in code or adding dynamic widgets:
 
 ### 3.6 Exception-Safe UNO Listeners (`plugin.framework.uno_listeners`)
 
-All listener base classes catch and log exceptions in callbacks, preventing PyUNO bridge crashes:
+All listener base classes catch and log ordinary exceptions in callbacks, so a Python bug does not enter the PyUNO bridge. `ListenerBoundary` is not an `Exception`: the main-thread guard and a disposed desktop leave the callback as that one type, and a generic `except Exception` cannot report them as an empty success. Close and termination vetoes are re-raised as the original UNO exception. `disposing` logs disposal instead of raising, so the broadcaster can notify the remaining listeners. A runtime error is logged and is not reported as disposal:
 
 ```python
 from plugin.framework.uno_listeners import (

@@ -22,4 +22,14 @@ Do **not** wrap UNO dispose as `ToolExecutionError(str(e))`. That strips dispose
 
 Best-effort probes (missing properties, optional controllers, “is this a graphic?”) may still catch `Exception` and return empty. That is not the hang class of bug. Re-raise disposal where a UI callback or tool loop would otherwise keep running on a dead object; do not sprinkle re-raises through every helper.
 
+UNO listener callbacks (`_catch_and_log` in `plugin/framework/uno_listeners.py`) are the one place that classifies a callback failure. `ListenerBoundary` subclasses `BaseException`, not `Exception`, so a generic `except Exception` cannot turn it into an empty document or a swallowed main-thread check. Kinds:
+
+| Kind | What it is | What leaves the callback |
+|------|------------|--------------------------|
+| `thread` | `assert_main_thread` `RuntimeError` (`UNO thread violation`) | `ListenerBoundary` |
+| `disposed` | `DisposedException` / `DocumentDisposedError` only | `ListenerBoundary`, except `disposing` |
+| `veto` | `CloseVetoException` / `TerminationVetoException` | the original UNO exception, so the bridge can still veto |
+
+A bare `RuntimeException` is not disposal: the callback logs it and returns `None` or `False`. `disposing` logs real disposal and returns, because a throw there stops the broadcaster from notifying the remaining listeners. Any other callback is a query: a dead desktop must not look like a successful empty result. `get_open_documents` calls `reraise_listener_boundary`, so a disposed enumeration is not `[]` and an empty desktop is not disposal.
+
 Related: [chat sidebar lifecycle](../chat/sidebar-implementation.md#ui-lifecycle-exception-handling-suppress_disposed), [UNO thread safety](uno-thread-safety.md).
