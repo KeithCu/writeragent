@@ -183,6 +183,11 @@ def test_custom_empty_api_key_omits_auth_headers():
 
 
 def test_persistent_connections(client):
+    # What was wrong: this still expected the Settings read timeout (60).
+    # Connect uses LLM_CONNECT_TIMEOUT_SEC so a dead host does not wait the
+    # full stream stall budget. The read timeout is applied after connect.
+    from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
+
     with (
         patch("http.client.HTTPSConnection") as mock_https,
         patch("http.client.HTTPConnection") as mock_http,
@@ -193,7 +198,7 @@ def test_persistent_connections(client):
 
         assert conn1 is conn2
         mock_https.assert_called_once_with(
-            "api.openai.com", 443, context=mock_ssl.return_value, timeout=60
+            "api.openai.com", 443, context=mock_ssl.return_value, timeout=LLM_CONNECT_TIMEOUT_SEC
         )
 
         client._close_connection()
@@ -208,7 +213,7 @@ def test_persistent_connections(client):
         client.config["endpoint"] = "http://localhost:11434"
         conn4 = client._get_connection()
         assert conn4 is not conn3
-        mock_http.assert_called_once_with("localhost", 11434, timeout=60)
+        mock_http.assert_called_once_with("localhost", 11434, timeout=LLM_CONNECT_TIMEOUT_SEC)
 
 
 def test_stream_request_with_tools_text_and_tool(client):
