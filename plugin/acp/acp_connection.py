@@ -100,6 +100,16 @@ class ACPConnection:
                     pass
             self._proc = None
             self._stderr_drain = None
+        self._clear_pending("ACP process stopped")
+
+    def _clear_pending(self, reason: str = "ACP process terminated") -> None:
+        """Unblock any pending requests when connection closes."""
+        with self._lock:
+            pending_items = list(self._pending.values())
+        for entry in pending_items:
+            if not entry.get("response"):
+                entry["response"] = {"error": {"message": reason}}
+            entry["event"].set()
 
     @property
     def is_alive(self) -> bool:
@@ -239,11 +249,14 @@ class ACPConnection:
                     log.exception("Reader error")
                 break
 
-        # Live drain already collected stderr; log a bounded tail for debugging.
-        drain = self._stderr_drain
-        if drain is not None:
-            stderr_text = drain.finish_text().strip()
-            if stderr_text:
-                log.warning("ACP stderr: %s", stderr_text[:500])
+        try:
+            # Live drain already collected stderr; log a bounded tail for debugging.
+            drain = self._stderr_drain
+            if drain is not None:
+                stderr_text = drain.finish_text().strip()
+                if stderr_text:
+                    log.warning("ACP stderr: %s", stderr_text[:500])
 
-        log.info("Reader loop ended")
+            log.info("Reader loop ended")
+        finally:
+            self._clear_pending("ACP process terminated")
