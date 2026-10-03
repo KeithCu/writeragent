@@ -14,6 +14,8 @@ protocol is added here.
 - ``""`` — ``=PY()`` recalc: tool RPC is disabled (formula evaluation must
   stay side-effect free).
 - a domain name — allow only that domain's proxies plus ``list_open_documents``.
+  If ``writeragent_api`` is absent (LibrePy), that string stays unrestricted
+  (``None``). An empty allowlist would disable every tool RPC.
 - several names separated by commas — union of those domains. The inner agent
   from ``delegate_tool_domains`` passes the delegated list plus ``core``
   (``inner_script_tool_domain``) so one script can call those domains and
@@ -118,6 +120,11 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
     ``delegate_tool_domains`` passes delegated names plus ``core``).
     Whitespace around commas is ignored. ``run_venv_python_script`` is always
     removed: allowing it would re-enter the warm worker.
+
+    ``None`` from ``domain_proxy_tool_names`` means this build has no
+    ``writeragent_api`` (LibrePy). That is unrestricted, same as
+    ``python_tool_domain is None``. A name that is not a ``DOMAIN_TOOLS`` key
+    is an empty set and stays limited to ``list_open_documents``.
     """
     if python_tool_domain is None:
         return None
@@ -132,8 +139,15 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
     for part in parts:
         names = domain_proxy_tool_names(part)
         if names is None:
-            # LibrePy omits the generated proxy; there is nothing to allowlist.
-            return frozenset()
+            # What was wrong: LibrePy returned an empty allowlist for any
+            # domain string, and execute_tool then refused every document tool
+            # with the =PY() disabled message.
+            # How: domain_proxy_tool_names returns None when writeragent_api
+            # is not installed; that None was treated as "allow nothing".
+            # Why this works: None is unrestricted, matching
+            # python_tool_domain is None. A real unknown domain name is an
+            # empty set, not None.
+            return None
         allowed |= names
     # Blocked even when a domain entry lists it (``DOMAIN_TOOLS['python']``).
     # ``execute_tool`` rejects it too; keeping it off the set matches the catalog.
