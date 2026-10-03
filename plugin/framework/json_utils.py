@@ -30,20 +30,14 @@ from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, deal, s
 log = logging.getLogger(__name__)
 
 
-def _pre_contract_error_types() -> tuple[type[BaseException], ...]:
-    """``deal.PreContractError`` when deal is installed, else empty.
+def _is_pre_contract_error(exc: BaseException) -> bool:
+    """True for ``deal.PreContractError``.
 
-    The class subclasses ``AssertionError``, not ``ValueError``, so a repair
-    ``except`` that lists only JSON errors does not catch it. LibreOffice
-    without deal leaves this empty; ``@deal.pre`` is a no-op there too.
+    That class subclasses ``AssertionError``, not ``ValueError``, so a repair
+    ``except`` that lists only JSON errors does not catch it. Match by name so
+    this stays valid when deal is not installed.
     """
-    pre = getattr(deal, "PreContractError", None)
-    if isinstance(pre, type) and issubclass(pre, BaseException):
-        return (pre,)
-    return ()
-
-
-_PRE_CONTRACT_ERRORS = _pre_contract_error_types()
+    return type(exc).__name__ == "PreContractError"
 
 _LATEX_CLASH_WORDS = [
     # \a (Bell)
@@ -292,9 +286,8 @@ def repair_json_object(text: str) -> Any:
     # crosshair: off
     try:
         return _repair_json_object_bounded(text)
-    except Exception as exc:
-        # Empty when deal is absent. isinstance(exc, ()) is False.
-        if isinstance(exc, _PRE_CONTRACT_ERRORS):
+    except AssertionError as exc:
+        if _is_pre_contract_error(exc):
             return text
         raise
 
@@ -393,8 +386,11 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
             parsed = json.loads(repaired, strict=False)
             _debug_json_stage("json_repair")
             return parsed
-    except (json.JSONDecodeError, TypeError, ValueError, RecursionError, ImportError, *_PRE_CONTRACT_ERRORS):
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError, ImportError):
         pass
+    except AssertionError as exc:
+        if not _is_pre_contract_error(exc):
+            raise
 
     return default
 

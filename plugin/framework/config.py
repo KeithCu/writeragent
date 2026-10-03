@@ -75,7 +75,7 @@ from typing import Any, Callable, Dict
 
 from plugin.framework.errors import ConfigError, ConfigValidationError, safe_call
 from plugin.framework.event_bus import global_event_bus
-from plugin.framework.json_utils import _PRE_CONTRACT_ERRORS, repair_json
+from plugin.framework.json_utils import _is_pre_contract_error, repair_json
 from plugin.framework.url_utils import normalize_endpoint_url
 
 from plugin.framework import config_schema as _config_schema
@@ -275,13 +275,16 @@ def _try_repair_config_dict(text: str) -> dict[str, Any] | None:
         data = json.loads(repaired, strict=False)
         if isinstance(data, dict):
             return data
-    except (json.JSONDecodeError, TypeError, ValueError, *_PRE_CONTRACT_ERRORS):
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    except AssertionError as exc:
         # What was wrong: repair_json's @deal.pre rejects a body longer than
         # DEAL_MAX_SOURCE. PreContractError subclasses AssertionError, not
         # ValueError, so it escaped config load. A contract failure falls
         # through the existing unrepairable path. A successful repair still
         # returns the dict above and is written the same way as before.
-        pass
+        if not _is_pre_contract_error(exc):
+            raise
 
     return None
 
