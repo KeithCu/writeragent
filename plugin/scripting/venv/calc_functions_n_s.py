@@ -171,7 +171,8 @@ def nominal(effect_rate: Any, npery: Any) -> float:
         np_y = int(float(npery))
     except (ValueError, TypeError):
         return float("nan")
-    if er <= 0 or np_y < 1:
+    # Excel NOMINAL(0, npery) is 0. Only a negative effective rate is #NUM!.
+    if er < 0 or np_y < 1:
         return float("nan")
     return np_y * ((er + 1) ** (1.0 / np_y) - 1)
 
@@ -200,19 +201,22 @@ def norminv(prob: Any, mean: Any, stdev: Any) -> float:
         s = float(stdev)
         if p <= 0 or p >= 1 or s <= 0:
             return float("nan")
+        # A missing scipy install raises ImportError. negbinomdist/normdist
+        # already return NaN for that; this used to crash the formula.
         import scipy.stats
 
         return float(scipy.stats.norm.ppf(p, loc=m, scale=s))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, ImportError):
         return float("nan")
 
 
 def normsdist(z: Any) -> float:
     try:
+        # Same missing-scipy ImportError as norminv.
         import scipy.stats
 
         return float(scipy.stats.norm.cdf(float(z)))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, ImportError):
         return float("nan")
 
 
@@ -221,10 +225,11 @@ def normsinv(prob: Any) -> float:
         p = float(prob)
         if p <= 0 or p >= 1:
             return float("nan")
+        # Same missing-scipy ImportError as norminv.
         import scipy.stats
 
         return float(scipy.stats.norm.ppf(p))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, ImportError):
         return float("nan")
 
 
@@ -236,8 +241,10 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
         fv_f = float(fv_val)
         # Only type 1 is beginning-of-period, same as PMT/FV/PV. The old
         # closed form plugged any integer into (1+rate*type).
+        # float() of an oversized int raises OverflowError. pmt/pv already
+        # catch it; this used to escape. Excel is #VALUE!.
         t = 1 if int(float(type_val)) == 1 else 0
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
     from plugin.scripting.venv.calc_functions_d_h import _npf_result
 
@@ -327,9 +334,15 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     if n <= 0:
         return float("nan")
 
+    # yld == -frequency makes (1 + y/f) zero. The coupon loop then divides by
+    # zero. Excel ODDFPRICE is #NUM!.
+    discount_base = 1.0 + y / f
+    if abs(discount_base) < 1e-12:
+        return float("nan")
+
     c = 100 * r / f
-    price = sum(c / ((1 + y / f) ** i) for i in range(1, int(n) + 1))
-    price += red / ((1 + y / f) ** n)
+    price = sum(c / (discount_base ** i) for i in range(1, int(n) + 1))
+    price += red / (discount_base ** n)
     return price
 
 
@@ -387,10 +400,16 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
     if last_period_frac <= 0 or settle_frac <= 0:
         return float("nan")
 
+    # yld == -frequency makes (1 + y/f) zero and the price power raises
+    # ZeroDivisionError. Excel ODDLPRICE is #NUM!.
+    discount_base = 1.0 + y / f
+    if abs(discount_base) < 1e-12:
+        return float("nan")
+
     c = 100 * r / f
     last_c = c * last_period_frac
 
-    price = (red + last_c) / ((1 + y / f) ** settle_frac)
+    price = (red + last_c) / (discount_base ** settle_frac)
 
     days_li_to_s = _days_between(li, s, b)
     accrued_frac = days_li_to_s / days_in_reg_period
@@ -544,7 +563,12 @@ def quartile(r: Any, q: Any) -> float:
         return float("nan")
     if qi < 0 or qi > 4:
         return float("nan")
-    arr = np.asarray(r, dtype=float).ravel()
+    # dtype=float raises ValueError on a text cell. The quart try above does
+    # not cover the range, so that used to crash. Excel QUARTILE is #VALUE!.
+    try:
+        arr = np.asarray(r, dtype=float).ravel()
+    except (ValueError, TypeError):
+        return float("nan")
     arr = arr[~np.isnan(arr)]
     pct = (0.0, 25.0, 50.0, 75.0, 100.0)[qi]
     return float(np.percentile(arr, pct)) if len(arr) else float("nan")
@@ -711,8 +735,9 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
     if arr.size == 0:
         return []
     # int(float()) on text or a blank sort_index/order used to raise ValueError.
+    # max(1, ...) used to clamp a non-positive index onto the first row/column.
     try:
-        si = max(1, int(float(sort_index))) - 1
+        si = int(float(sort_index))
         asc = int(float(sort_order)) >= 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
@@ -721,14 +746,20 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
         return out.tolist()
     if bool(by_col):
         # Excel SORT(..., by_col=TRUE) orders columns by the sort_index-th ROW
-        # (arr[si, :]). The old path keyed off a column (arr[:, si]) and then
+        # (1-based; arr[si - 1, :]). The old path keyed off a column and then
         # transposed, so both the permutation and the result shape were wrong.
-        key = arr[si, :] if si < arr.shape[0] else arr[0, :]
+        # An index outside 1..nrows fell back to row 0. Excel is #VALUE!.
+        if si < 1 or si > arr.shape[0]:
+            return float("nan")
+        key = arr[si - 1, :]
         order = np.argsort(key)
         if not asc:
             order = order[::-1]
         return arr[:, order].tolist()
-    order = np.argsort(arr[:, si] if si < arr.shape[1] else arr[:, 0])
+    # A column index outside 1..ncols fell back to column 0. Excel is #VALUE!.
+    if si < 1 or si > arr.shape[1]:
+        return float("nan")
+    order = np.argsort(arr[:, si - 1])
     if not asc:
         order = order[::-1]
     return arr[order].tolist()
@@ -889,6 +920,10 @@ def subtotal(fn_num: Any, r: Any) -> float:
         flat = np.asarray(r).ravel()
     except (ValueError, TypeError, OverflowError):
         return float("nan")
+    # 101–111 collapse via % 100. 0 and anything else outside 1–11 used to
+    # fall through to SUM. Excel SUBTOTAL is #VALUE!.
+    if fn < 1 or fn > 11:
+        return float("nan")
     nums = []
     for x in flat:
         if x is None or x == "":
@@ -901,7 +936,8 @@ def subtotal(fn_num: Any, r: Any) -> float:
             pass
     arr = np.asarray(nums, dtype=float)
     if fn == 1:
-        return float(np.mean(arr)) if len(arr) else 0.0
+        # Empty AVERAGE is #DIV/0!.
+        return float(np.mean(arr)) if len(arr) else float("nan")
     if fn == 2:
         return float(len(arr))
     if fn == 3:
@@ -911,18 +947,21 @@ def subtotal(fn_num: Any, r: Any) -> float:
     if fn == 5:
         return float(np.min(arr)) if len(arr) else 0.0
     if fn == 6:
+        # np.prod([]) is 1.0; the length guard keeps an empty PRODUCT at 0.
         return float(np.prod(arr)) if len(arr) else 0.0
     if fn == 7:
-        return float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+        # STDEV.S needs two samples. One point or none is #DIV/0!.
+        return float(np.std(arr, ddof=1)) if len(arr) > 1 else float("nan")
     if fn == 8:
         return float(np.std(arr, ddof=0)) if len(arr) else 0.0
     if fn == 9:
         return float(np.sum(arr))
     if fn == 10:
-        return float(np.var(arr, ddof=1)) if len(arr) > 1 else 0.0
+        # VAR.S needs two samples. One point or none is #DIV/0!.
+        return float(np.var(arr, ddof=1)) if len(arr) > 1 else float("nan")
     if fn == 11:
         return float(np.var(arr, ddof=0)) if len(arr) else 0.0
-    return float(np.sum(arr))
+    return float("nan")
 
 
 def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
