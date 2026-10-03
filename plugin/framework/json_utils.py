@@ -145,14 +145,26 @@ _LATEX_CLASH_WORDS = [
     "Vert",
 ]
 
-# JSON strings already allow \" \\ \/ \b \f \n \r \t \uXXXX. A clash word
-# that starts with b/f/n/r/t is that escape plus leftover letters: `\ne` is
-# a newline and then "e", not the LaTeX command. Step 1 used to double the
-# backslash, so json.loads kept a literal `\ne`. Commands that are not JSON
-# escapes (`\alpha`, `\vec`) are still doubled. Already-decoded control
-# characters stay on the step-2 path below.
+# JSON strings allow \" \\ \/ \b \f \n \r \t \uXXXX. A single backslash before
+# a clash word is LaTeX the model forgot to escape (`\nabla`, `\times`,
+# `\frac`, `\beta`). What was wrong after #1046: dropping every word that
+# starts with b/f/n/r/t left those commands as a valid escape plus leftover
+# letters. json.loads then turned `\n` into a newline and returned, so step 2
+# never saw a control character (the source still had backslash + letter).
+# A two-letter escape word followed by "." + a letter is not the command:
+# `\ne.g.` / `\ni.e.` / `\nu.s.` are a newline plus an abbreviation.
 _JSON_ESCAPE_STARTS = frozenset("bfnrt")
-_LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(word for word in _LATEX_CLASH_WORDS if word[:1] not in _JSON_ESCAPE_STARTS) + r")\b")
+_LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")\b")
+
+
+def _double_latex_clash(match: re.Match[str]) -> str:
+    """Double one backslash before a clash word, except dotted abbreviations."""
+    word = match.group(1)
+    tail = match.string[match.end() : match.end() + 2]
+    if len(word) == 2 and word[:1] in _JSON_ESCAPE_STARTS and tail[:1] == "." and tail[1:2].isalpha():
+        return match.group(0)
+    return "\\\\" + word
+
 
 _SILENT_CORRUPTIONS = {}
 _escape_map = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f"}
@@ -169,9 +181,9 @@ def _repair_latex_clashes(text: str) -> str:
     # CrossHair: regex + large clash tables explode the SMT heap; identity is enough for contracts.
     if UNDER_CROSSHAIR:
         return text
-    # 1. Double a single backslash on LaTeX commands that are not JSON escapes
-    # (e.g. \alpha -> \\alpha). Valid escapes (\n, \t, \r, \b, \f) stay put.
-    text = _LATEX_CLASH_RE.sub(r"\\\\\1", text)
+    # 1. Double a single backslash on a LaTeX clash word (`\nabla` -> `\\nabla`)
+    # so json.loads keeps the command. `\ne.g.` stays a newline.
+    text = _LATEX_CLASH_RE.sub(_double_latex_clash, text)
 
     # 2. Handle cases where the LLM sent a single backslash in the network JSON,
     # which the outer json.loads already silently evaluated as a control character
@@ -197,6 +209,13 @@ def _replace_control_token(text: str, corrupted: str, repaired: str) -> str:
         end = found + len(corrupted)
         nxt = text[end : end + 1]
         if nxt.isalnum() or nxt == "_":
+            pieces.append(text[start:end])
+            start = end
+            continue
+        # A two-letter command plus "." + a letter is an abbreviation
+        # (newline + "e.g."), not LaTeX. A longer command (`\nabla.`) still
+        # matches: its corrupted form is longer than the control char + one letter.
+        if len(corrupted) == 2 and nxt == "." and text[end + 1 : end + 2].isalpha():
             pieces.append(text[start:end])
             start = end
             continue

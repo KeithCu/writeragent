@@ -202,6 +202,62 @@ def test_sync_request_307_keeps_method_and_body():
     assert seen[1] == ("POST", "/upload", b"audio")
 
 
+def test_sync_request_ipv6_literal_keeps_brackets():
+    """``[::1]`` must stay bracketed when the origin is rebuilt.
+
+    What was wrong: ``hostname`` strips brackets, so ``http://[::1]:11434/v1``
+    became ``http://::1:11434`` and ``_explicit_port`` raised ``INVALID_URL``.
+    """
+    from plugin.framework.client.http_transport import origin_and_path
+
+    origin, path = origin_and_path("http://[::1]:11434/v1")
+    assert origin == "http://[::1]:11434"
+    assert path == "/v1"
+    origin, path = origin_and_path("https://[2001:db8::1]/v1/models")
+    assert origin == "https://[2001:db8::1]"
+    assert path == "/v1/models"
+    origin, path = origin_and_path("http://127.0.0.1:11434/v1")
+    assert origin == "http://127.0.0.1:11434"
+
+    seen = {}
+    ok = _response(200, b'{"data":[]}', "OK")
+
+    def _factory(host, port, *_args, **_kwargs):
+        seen["host"] = host
+        seen["port"] = port
+        conn = MagicMock()
+        conn.getresponse.return_value = ok
+        return conn
+
+    with patch("http.client.HTTPConnection", side_effect=_factory):
+        result = sync_request("http://[::1]:11434/v1/models", timeout=1)
+    assert result == {"data": []}
+    assert seen == {"host": "::1", "port": 11434}
+
+
+def test_sync_request_ipv6_redirect_stays_parseable():
+    """A relative redirect joins onto the rebuilt origin; IPv6 brackets must survive that."""
+    redir = _response(302, b"", "Found")
+    redir.getheader.side_effect = lambda name, default=None: "/v1/models" if str(name).lower() == "location" else default
+    ok = _response(200, b'{"data":[]}', "OK")
+    seen: list[tuple[str, int, str]] = []
+
+    def _factory(host, port, *_args, **_kwargs):
+        conn = MagicMock()
+        conn.getresponse.side_effect = [redir, ok]
+
+        def _request(method, path, body=None, headers=None):
+            seen.append((host, port, path))
+
+        conn.request.side_effect = _request
+        return conn
+
+    with patch("http.client.HTTPConnection", side_effect=_factory):
+        result = sync_request("http://[::1]:11434/old", timeout=1)
+    assert result == {"data": []}
+    assert seen == [("::1", 11434, "/old"), ("::1", 11434, "/v1/models")]
+
+
 def test_sync_request_bad_port_is_network_error():
     from plugin.framework.client.http_transport import origin_and_path, public_target
 
