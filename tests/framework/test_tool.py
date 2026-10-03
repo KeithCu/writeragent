@@ -943,6 +943,44 @@ class TestToolIsolation:
         assert result["code"] == "TOOL_TIMEOUT"
         assert result.get("details", {}).get("tool_name") == "test_slow"
 
+    def test_tool_timeout_does_not_cancel_the_send(self):
+        """A tool timeout must return TOOL_TIMEOUT without cancelling the send.
+
+        What was wrong: the timeout path called send_cancellation.cancel()
+        and also returned the error dict. How: the drain stop checker is
+        that flag, so it discarded the dict and the turn waited for
+        TOOL_DONE. Why: the worker is already abandoned; the caller delivers
+        the timeout.
+        """
+        from plugin.framework.queue_executor import SendCancellation
+
+        release = threading.Event()
+        scope = SendCancellation()
+
+        class SlowTool(ToolBase):
+            name = "test_slow_cancel"
+            description = "x"
+            timeout = 0.05
+            parameters = {"type": "object", "properties": {}}
+
+            def is_async(self):
+                return True
+
+            def execute(self, ctx, **kwargs):
+                release.wait(timeout=5)
+                return {"status": "ok"}
+
+        registry = ToolRegistry(services={})
+        registry.register(SlowTool())
+        ctx = ToolContext(doc=None, ctx=None, doc_type="writer", services={}, send_cancellation=scope)
+        try:
+            result = registry.execute("test_slow_cancel", ctx)
+        finally:
+            release.set()
+        assert result["status"] == "error"
+        assert result["code"] == "TOOL_TIMEOUT"
+        assert scope.is_cancelled() is False
+
     def test_queued_result_not_timeout_while_worker_unwinds(self):
         """A finished tool must not be TOOL_TIMEOUT while its thread unwinds."""
         applied: list[str] = []

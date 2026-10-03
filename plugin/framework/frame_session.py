@@ -235,8 +235,9 @@ class FrameSession:
         Returns True only when the close listener is attached. False means
         the caller must not leave this session in ``_OPEN``.
 
-        ``disposing`` runs while the broadcaster drops listeners. Do not
-        ``removeListener`` from that callback.
+        ``disposing`` runs while this broadcaster drops listeners. Do not
+        ``removeEventListener`` on the frame from that callback. Sidebar
+        listeners are on other controls; :meth:`dispose` releases those.
         """
         frame = self.frame
         if frame is None or not hasattr(frame, "addEventListener"):
@@ -294,8 +295,9 @@ class FrameSession:
         ``removeFocusListener`` / ``removeMouseClickHandler`` while UNO was
         already disposing the broadcaster. How: disposing walks the listener
         list and notifies each one. Why: only the Python lists change here.
-        ``remove*`` stays on :meth:`release_listeners`, which runs from our
-        own teardown before the broadcaster is disposing.
+        ``remove*`` stays on :meth:`release_listeners`. Panel teardown calls
+        it while the controls are alive. Frame :meth:`dispose` calls it too;
+        :meth:`_remove` ignores a control that is already dead.
         """
         if listener is None:
             return
@@ -354,19 +356,26 @@ class FrameSession:
         """Frame closed. Forget this session and no other.
 
         The only caller is the frame ``disposing`` callback. That walk is
-        already dropping listeners, so ``remove*`` must not run here. Sidebar
-        teardown uses :meth:`release_panel`, which does call ``remove*``
-        while the controls are still alive.
+        already dropping the frame listener, so this method does not call
+        ``removeEventListener`` on the frame. Sidebar listeners are a
+        different broadcaster.
+
+        What was wrong: this set ``_closed`` and cleared the Python lists
+        without :meth:`release_listeners`. How: frame ``disposing`` often
+        runs before sidebar teardown. :meth:`release_panel` then returned
+        immediately, so the query, leave, and click listeners stayed
+        registered. Those listeners close over this session and kept it
+        alive after the frame was gone. Why: release them here, the same
+        way :meth:`release_panel` does. :meth:`_remove` swallows a dead
+        control, so a control that is already disposing does not raise,
+        and a later :meth:`release_panel` does not remove them again.
+        ``_closed`` is set first so a ``remove*`` that re-enters
+        :meth:`release_panel` cannot start a second remove.
         """
         if self._closed:
             return
         self._closed = True
-        self._query_listener = None
-        self._query_control = None
-        self._leave.clear()
-        self._click_handler = None
-        self._click_controller = None
-        self._trackers.clear()
+        self.release_listeners()
         self._frame_listener = None
         self.focus_pin = None
         self.panel = None

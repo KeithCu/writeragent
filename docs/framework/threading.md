@@ -170,7 +170,7 @@ CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would bl
 
 Never `join()` a **pooled** job from another **pooled** job (pool-join deadlock). Anything joined with a timeout from a context that might itself be pooled must be dedicated.
 
-`tool-timeout-*` joins with the tool's timeout and then abandons the worker only when the queue is still empty. A result already queued is returned even while that thread is still unwinding. `SystemExit`, `KeyboardInterrupt`, and `GeneratorExit` are queued before the dedicated thread unwinds and come back as `TOOL_WORKER_EXIT`, so the caller does not block on an empty queue. The timeout length is unchanged.
+`tool-timeout-*` joins with the tool's timeout and then abandons the worker only when the queue is still empty. A result already queued is returned even while that thread is still unwinding. `SystemExit`, `KeyboardInterrupt`, and `GeneratorExit` are queued before the dedicated thread unwinds and come back as `TOOL_WORKER_EXIT`, so the caller does not block on an empty queue. The timeout length is unchanged. A timeout returns `TOOL_TIMEOUT` and does not cancel the send: the drain has to deliver that dict as `TOOL_DONE`. Cancelling `send_cancellation` from inside the tool made the stop checker discard the error and left the turn waiting for `TOOL_DONE`.
 
 #### Startup marshal
 
