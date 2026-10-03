@@ -112,7 +112,7 @@ Draw already registers a sidebar deck (`DrawingDocument` in `extension/registry/
 | Open-doc catalog | `get_open_documents` in [`plugin/doc/document_research.py`](../../plugin/doc/document_research.py) | Desktop components → `{name, url, uid, path, doc_type, is_active, modified}`. Main-thread only (`assert_main_thread`). |
 | Resolve open model | `resolve_document_by_url` in [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.py) | File URL **or** `RuntimeUID`. Open components only — does **not** `loadComponentFromURL`. Returns `(model, doc_type)` with Impress labeled `"draw"` (`impress_as_draw=True`). |
 | RuntimeUID | `get_runtime_uid` in [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.py) | Exists for untitled docs; `""` if unavailable. Two views of one model share one uid. |
-| Write guard | `ToolRegistry.execute` when `ctx.read_only_target` | Research mutations → `READ_ONLY_TARGET`. Do not relax this. |
+| Write guard | `ToolRegistry.execute` and `SmolToolAdapter.forward` when `ctx.read_only_target` | Research mutations → `READ_ONLY_TARGET`. The smol path does not call the registry. Do not relax this. |
 | MCP lister | `list_open_documents` (`tier = "mcp"`) | **Not** on the chat wire. Do not promote it to core for this feature. |
 
 Docs: [multi-document-dev-plan.md](multi-document-dev-plan.md). Phase 0 decision #4: write-back to siblings is **out of scope** for research. Peer messaging is a **different** feature: writes happen because the **peer sidebar** ran a normal user turn on **its** bound doc.

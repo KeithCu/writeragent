@@ -226,7 +226,7 @@ Schema omission alone is insufficient; Phase 0 enforces at execution time:
 
 1. **`ToolContext.read_only_target`** — set on the inner agent’s context in [`run_inner_read_agent`](../../plugin/doc/nearby_specialized.py).
 2. **Inner allowlist** — `READ_TOOLS_BY_DOC_TYPE` in [`nearby_specialized.py`](../../plugin/doc/nearby_specialized.py); inner uses `registry.get_tools(..., names=allowlist)` — not `active_domain="document_research"` on the opened model.
-3. **Defense in depth** — [`ToolRegistry.execute`](../../plugin/framework/tool.py) returns `READ_ONLY_TARGET` when `ctx.read_only_target` and `tool.detects_mutation()`.
+3. **Defense in depth** — [`ToolRegistry.execute`](../../plugin/framework/tool.py) returns `READ_ONLY_TARGET` when `ctx.read_only_target` and `tool.detects_mutation()`. The inner agent does not go through the registry: [`SmolToolAdapter.forward`](../../plugin/chatbot/smol_agent.py) applies the same check before `execute` / `execute_safe`.
 
 ---
 
