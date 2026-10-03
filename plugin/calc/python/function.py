@@ -289,6 +289,15 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     # Do not use getActiveSheet(): full recalc's active sheet is not the formula cell
     # (XAddIn has no calling cell). Unique locate fills sheet+origin; otherwise
     # callers must not share WorkerResultSession.
+    from plugin.framework.thread_guard import on_main_thread
+
+    # Bugfix: off-main finalize hands scalar_for_list_result the cached spill
+    # model (the object a deferred write posts to the UI thread). The guard
+    # below only ran when doc was None, so getURL and locate_formula_cell_in_doc
+    # ran on that model from a Yellow thread. Skip UNO off-main; the key stays
+    # ambiguous and WorkerResultSession is not shared until the UI thread locates.
+    if not on_main_thread():
+        return ("", "", "", code, "")
     doc_url = ""
     sheet_name = ""
     sid = ""
@@ -457,6 +466,12 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
                 return
 
             doc = _get_calc_doc(self.ctx)
+            # Bugfix: ``"PY" in formula`` is true for =PYMT and any text that
+            # merely contains those letters, so replacing =PY() with an
+            # unrelated formula left the spilled block. is_py_formula_text is
+            # the =PY( / =PYTHON( (and qualified add-in) check.
+            from plugin.calc.python.cell_discovery import is_py_formula_text
+
             with _undo_lock(doc):
                 to_remove = []
                 for key, value in list(SPILL_REGISTRY.items()):
@@ -465,7 +480,7 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
                         try:
                             cell = sheet.getCellByPosition(fcol, frow)
                             formula = cell.getFormula()
-                            if not formula or not ("PYTHON" in formula or "PY" in formula):
+                            if not formula or not is_py_formula_text(str(formula)):
                                 # Clear previously spilled cells
                                 for r, c in value:
                                     if (r, c) != (frow, fcol):
@@ -942,7 +957,7 @@ def _queue_deferred_spill_write(ctx: Any, code: str, grid_to_spill: list[list[An
     def _deferred_spill_on_main() -> None:
         post_to_main_thread(lambda: perform_deferred_spill(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill, doc=target_doc, code=code, lifecycle_key=spill_lifecycle))
 
-    t = threading.Timer(0.1, _deferred_spill_on_main)
+    t = _new_spill_timer(0.1, _deferred_spill_on_main)
     _register_spill_timer(spill_lifecycle, t)
     t.start()
 
@@ -984,8 +999,12 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     def _deferred() -> None:
         post_to_main_thread(_on_main)
 
-    t = threading.Timer(0.1, _deferred)
-    _register_spill_timer("", t)
+    # Bugfix: registering under "" meant unload's cancel (keyed by RuntimeUID
+    # or the workbook session id) never saw this timer, so the closure kept
+    # ctx, code, the grid, and the cached document after the book closed.
+    # The key was cached on the UI thread; do not call _lifecycle_key here.
+    t = _new_spill_timer(0.1, _deferred)
+    _register_spill_timer(_off_main_spill_lifecycle_key(doc), t)
     t.start()
 
 
@@ -1054,7 +1073,12 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                 return f"Error: index {idx} out of range (result length {len(flat)})"
             return to_calc_compatible(flat[idx])
 
-        return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=doc)
+        from plugin.framework.thread_guard import on_main_thread
+
+        # Cached spill model is for the deferred UI write only. Passing it
+        # into session_key off-main calls getURL / locate (see session_key).
+        scalar_doc = doc if on_main_thread() else None
+        return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=scalar_doc)
 
     return to_calc_compatible(result)
 
@@ -1182,8 +1206,68 @@ def clear_python_addin_cache() -> None:
         _MATRIX_SCALAR_SESSIONS.clear()
 
 
+def _spill_timer_finished(timer: Any) -> bool:
+    """True once a ``threading.Timer`` has fired or been cancelled.
+
+    Test doubles omit ``finished``; those stay until fire/cancel drops them
+    by identity.
+    """
+    finished = getattr(timer, "finished", None)
+    is_set = getattr(finished, "is_set", None)
+    if not callable(is_set):
+        return False
+    try:
+        return bool(is_set())
+    except Exception:
+        return False
+
+
+def _prune_finished_spill_timers_locked() -> None:
+    """Drop fired/cancelled timers. Caller holds ``_PENDING_SPILL_LOCK``."""
+    _PENDING_SPILL_TIMERS[:] = [(key, timer) for key, timer in _PENDING_SPILL_TIMERS if not _spill_timer_finished(timer)]
+
+
+def _forget_spill_timer(timer: threading.Timer) -> None:
+    """Remove *timer* when its callback starts so the closure can be collected."""
+    with _PENDING_SPILL_LOCK:
+        _PENDING_SPILL_TIMERS[:] = [(key, existing) for key, existing in _PENDING_SPILL_TIMERS if existing is not timer and not _spill_timer_finished(existing)]
+
+
+def _new_spill_timer(delay_sec: float, callback: Any) -> threading.Timer:
+    """Timer that leaves ``_PENDING_SPILL_TIMERS`` as soon as it fires.
+
+    Bugfix: the registry was append-only. After ``run()`` the Timer, its
+    callback, and everything that callback closed over (ctx, code, grid,
+    UNO document) stayed reachable until process exit.
+    """
+    pending: list[threading.Timer] = []
+
+    def _fire(*args: Any, **kwargs: Any) -> None:
+        _forget_spill_timer(pending[0])
+        callback(*args, **kwargs)
+
+    timer = threading.Timer(delay_sec, _fire)
+    pending.append(timer)
+    return timer
+
+
+def _off_main_spill_lifecycle_key(doc: Any | None) -> str:
+    """Workbook key for an off-main spill timer, without UNO off the UI thread."""
+    from plugin.framework.thread_guard import on_main_thread
+    from plugin.calc.python.workbook_lifecycle import _lifecycle_key, lifecycle_key_if_known
+
+    if doc is not None and on_main_thread():
+        try:
+            return _lifecycle_key(doc) or ""
+        except Exception:
+            log.debug("off-main spill lifecycle key failed", exc_info=True)
+    return lifecycle_key_if_known(doc)
+
+
 def _register_spill_timer(lifecycle_key: str, timer: threading.Timer) -> None:
     with _PENDING_SPILL_LOCK:
+        _prune_finished_spill_timers_locked()
+        _PENDING_SPILL_TIMERS[:] = [(key, existing) for key, existing in _PENDING_SPILL_TIMERS if existing is not timer]
         _PENDING_SPILL_TIMERS.append((lifecycle_key, timer))
 
 
@@ -1194,7 +1278,7 @@ def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key
     ``perform_deferred_spill``. The timer thread only ``post_to_main_thread``;
     UNO writes run on the UI thread.
     """
-    timer = threading.Timer(delay_sec, callback)
+    timer = _new_spill_timer(delay_sec, callback)
     if lifecycle_key:
         _register_spill_timer(lifecycle_key, timer)
     timer.start()
@@ -1202,17 +1286,23 @@ def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key
 
 
 def cancel_pending_spill_timers(lifecycle_key: str) -> None:
-    """Cancel deferred spill timers for a workbook that is unloading."""
+    """Cancel deferred spill timers for a workbook that is unloading.
+
+    Also drops timers that already fired or were cancelled under some other
+    key. Those entries kept their closures after the callback returned.
+    """
     with _PENDING_SPILL_LOCK:
         keep: list[tuple[str, threading.Timer]] = []
         for key, timer in _PENDING_SPILL_TIMERS:
-            if key == lifecycle_key:
-                try:
-                    timer.cancel()
-                except Exception:
-                    pass
-            else:
-                keep.append((key, timer))
+            finished = _spill_timer_finished(timer)
+            if key == lifecycle_key or finished:
+                if key == lifecycle_key and not finished:
+                    try:
+                        timer.cancel()
+                    except Exception:
+                        pass
+                continue
+            keep.append((key, timer))
         _PENDING_SPILL_TIMERS[:] = keep
 
 

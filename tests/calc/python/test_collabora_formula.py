@@ -75,3 +75,80 @@ def test_maybe_rewrite_skips_non_calc():
 
     assert maybe_rewrite_collabora_py_formulas(_Writer()) == 0
     assert maybe_rewrite_collabora_py_formulas(None) == 0
+
+
+def test_maybe_rewrite_restores_is_modified():
+    """setFormula dirties the book; restore the flag from before the scan."""
+    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
+
+    class _Addr:
+        StartRow = 0
+        StartColumn = 0
+        EndRow = 0
+        EndColumn = 0
+
+    class _Doc:
+        def __init__(self, formula: str, modified: bool) -> None:
+            self.formula = formula
+            self.modified = modified
+            self.sets: list[bool] = []
+
+        def supportsService(self, name: str) -> bool:
+            return name == "com.sun.star.sheet.SpreadsheetDocument"
+
+        def isModified(self) -> bool:
+            return self.modified
+
+        def setModified(self, value: bool) -> None:
+            self.sets.append(bool(value))
+            self.modified = bool(value)
+
+        def getSheets(self):
+            doc = self
+
+            class _Range:
+                def getRangeAddress(self):
+                    return _Addr()
+
+                def getFormulas(self):
+                    return ((doc.formula,),)
+
+            class _Cells:
+                def getCount(self):
+                    return 1
+
+                def getByIndex(self, _index):
+                    return _Range()
+
+            class _Sheet:
+                def queryContentCells(self, _flags):
+                    return _Cells()
+
+                def getCellByPosition(self, _col, _row):
+                    class _Cell:
+                        def setFormula(self, value: str) -> None:
+                            doc.formula = value
+
+                    return _Cell()
+
+            class _Sheets:
+                def getCount(self):
+                    return 1
+
+                def getByIndex(self, _index):
+                    return _Sheet()
+
+            return _Sheets()
+
+    dirty = _Doc(_GETPY, True)
+    assert maybe_rewrite_collabora_py_formulas(dirty) == 1
+    assert dirty.formula.startswith("=PY(")
+    assert dirty.sets == [True]
+
+    clean = _Doc(_GETPY, False)
+    assert maybe_rewrite_collabora_py_formulas(clean) == 1
+    assert clean.sets == [False]
+
+    untouched = _Doc("=SUM(A1:A2)", True)
+    assert maybe_rewrite_collabora_py_formulas(untouched) == 0
+    assert untouched.sets == []
