@@ -397,3 +397,86 @@ def test_shape_group_uses_service_manager_not_document_factory() -> None:
         )
         assert [c.args[0] for c in collection.add.call_args_list] == shapes
         page.group.assert_called_once_with(collection)
+
+
+def test_shape_upsert_line_allows_zero_width_or_height():
+    """Axis-aligned LineShape has one zero side. Rectangles still do not."""
+    from plugin.draw.shapes import DrawShapes
+
+    draw_shapes = DrawShapes()
+
+    class _Size:
+        def __init__(self, width, height):
+            self.Width = width
+            self.Height = height
+
+    class _Pos:
+        def __init__(self):
+            self.X = 100
+            self.Y = 200
+
+    def _make(shape_type, width, height):
+        shape = MagicMock()
+        doc = MagicMock()
+        doc.createInstance.return_value = shape
+        page = MagicMock()
+        return draw_shapes.safe_create_shape(doc, page, shape_type, _Pos(), _Size(width, height)), shape, page
+
+    (created, _geom, _err), shape, page = _make("LineShape", 4000, 0)
+    assert created is shape
+    page.add.assert_called_once_with(shape)
+    shape.setSize.assert_called_once()
+    assert shape.setSize.call_args[0][0].Height == 0
+
+    (created, _geom, _err), shape, page = _make("com.sun.star.drawing.LineShape", 0, 2500)
+    assert created is shape
+    page.add.assert_called_once_with(shape)
+
+    from plugin.draw.shapes import DrawError
+
+    for shape_type, width, height in (
+        ("LineShape", 0, 0),
+        ("LineShape", -1, 100),
+        ("RectangleShape", 4000, 0),
+        ("RectangleShape", 0, 2500),
+        ("com.sun.star.drawing.ConnectorShape", 0, 100),
+    ):
+        try:
+            _make(shape_type, width, height)
+        except DrawError as exc:
+            assert exc.code == "DRAW_INVALID_SIZE"
+        else:
+            raise AssertionError("%s %s x %s should be invalid" % (shape_type, width, height))
+
+
+def test_shape_upsert_execute_line_zero_height():
+    events: list = []
+    shape = _RecordingShape(events)
+    page = MagicMock()
+    page_shapes: list = []
+
+    def page_add(added):
+        page_shapes.append(added)
+
+    page.add.side_effect = page_add
+    page.getCount.side_effect = lambda: len(page_shapes)
+    page.getByIndex.side_effect = lambda i: page_shapes[i]
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    doc.createInstance.return_value = shape
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = pages
+        bridge.get_active_page_index.return_value = 0
+        ok = UpsertShape().execute(ctx, action="create", shape_type="line", x=100, y=200, width=4000, height=0)
+        rejected = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=100, y=200, width=4000, height=0)
+    assert ok["status"] == "ok", ok
+    assert rejected["status"] == "error", rejected
+    doc.createInstance.assert_called_once_with("com.sun.star.drawing.LineShape")
+    assert ("setSize", 4000, 0) in events

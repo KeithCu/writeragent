@@ -70,20 +70,22 @@ class AddSlide(ToolBase):
             if layout_id(layout_name) is None:
                 return self._tool_error("Unknown layout: %s" % layout_name, available=sorted(_LAYOUTS.keys()))
 
-        # create_slide uses this same index; do not trust get_active_page_index
-        # after insert — Impress DrawPage.getNumber() is missing/None, so the
-        # bridge helper falls back to 0 even when the controller switched.
-        insert_at = bridge.get_pages().getCount() if page_idx is None else page_idx
-        new_page = bridge.create_slide(page_idx, switch=switch_view)
-        active_idx = insert_at if switch_view else bridge.get_active_page_index()
+        # Do not trust get_active_page_index after insert — Impress
+        # DrawPage.getNumber() is missing/None, so the bridge helper falls
+        # back to 0 even when the controller switched. create_slide returns
+        # the slot the new page actually occupies.
+        new_page, landed = bridge.create_slide(page_idx, switch=switch_view)
+        active_idx = landed if switch_view else bridge.get_active_page_index()
 
         result = {"status": "ok", "message": "Slide added", "active_page_index": active_idx}
         # insertNewByIndex can attach factory Default even when the deck already
         # has a designed master (M1′). Copy the neighbor slide's MasterPage.
+        # Pass the landed index: page=0 used to claim insert_at=0 while the
+        # new page sat at 1, so the "neighbor" was the new page itself.
         if is_impress:
             from plugin.draw.designs import inherit_master_from_neighbor
 
-            inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, insert_at)
+            inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
             if inherited:
                 result["master"] = inherited
         if is_impress and layout_name is not None:

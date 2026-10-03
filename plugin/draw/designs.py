@@ -277,11 +277,21 @@ def _blank_master_signal(masters: list[dict[str, Any]]) -> bool:
 
 
 def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> str:
-    """Copy MasterPage from the slide that was adjacent at insert time.
+    """Copy MasterPage from a slide that is not the new page.
 
     ``insertNewByIndex`` can leave a factory Default master even when the deck
-    already has an assigned design master. Inherit from the previous slide
-    (or the slide now after the insert) so add_slide keeps the deck look.
+    already has an assigned design master. Prefer the previous slide, then the
+    following one, so add_slide keeps the deck look.
+
+    What was wrong: ``add_slide(page=0)`` passed ``insert_at=0`` while the new
+    page actually sat at index 1. The only candidate was then index 1, which
+    is the new page, so the copy assigned that page's own master.
+    How it happened: ``InsertSdPage`` cannot create a page at index 0, and
+    the neighbor formula did not check object identity.
+    Why this fixes it: skip the new page object (``uno_same``), not the
+    integer ``insert_at``. A stale ``insert_at`` of 0 is the neighbor when
+    the new page actually sits at 1. With placement fixed, index 0's
+    neighbor is the previous first slide.
     """
     try:
         count = int(pages.getCount())
@@ -289,17 +299,30 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
         return ""
     if count < 2:
         return ""
-    ref_idx = insert_at - 1 if insert_at > 0 else insert_at + 1
-    if ref_idx < 0 or ref_idx >= count or ref_idx == insert_at:
-        return ""
-    try:
-        ref = pages.getByIndex(ref_idx)
-        master = ref.MasterPage
-        new_page.MasterPage = master
-        return master.Name if hasattr(master, "Name") else ""
-    except Exception:
-        log.debug("inherit_master_from_neighbor failed insert_at=%s", insert_at, exc_info=True)
-        return ""
+    from plugin.framework.uno_context import uno_same
+
+    order: list[int] = []
+    if insert_at > 0:
+        order.append(insert_at - 1)
+    if insert_at + 1 < count:
+        order.append(insert_at + 1)
+    for i in range(count):
+        if i not in order:
+            order.append(i)
+    for ref_idx in order:
+        if ref_idx < 0 or ref_idx >= count:
+            continue
+        try:
+            ref = pages.getByIndex(ref_idx)
+            if uno_same(ref, new_page):
+                continue
+            master = ref.MasterPage
+            new_page.MasterPage = master
+            return master.Name if hasattr(master, "Name") else ""
+        except Exception:
+            log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
+            return ""
+    return ""
 
 
 def _close_hidden_doc(model: Any) -> None:
