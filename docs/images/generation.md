@@ -15,7 +15,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 - **Together**: integer `width` / `height` (Kontext: `aspect_ratio` only). The OpenAI `size` string is dropped — Together ignores it.
 - **Google native**: Imagen `parameters.aspectRatio` + `imageSize` (`1K` / `2K`); Gemini `imageConfig.aspectRatio` + `imageSize` (`512` / `1K` / `2K` / `4K`).
 - **`ImageService`**: merges config defaults (base size, steps) and delegates to `EndpointImageProvider`.
-- **HTTP timeout**: `LlmClient.image_completion` and `EndpointImageProvider._save_url` pass Settings `request_timeout` into [`sync_request`](../../plugin/framework/client/requests.py). That helper has **no default timeout** — every caller must pass `timeout=` (chat/STT already used `self._timeout()`; image generate/edit used to omit it and die at 10s while the Settings message said to raise Request Timeout). Catalog probes (`model_fetcher`) keep an explicit short timeout at the call site.
+- **HTTP**: image generation uses `LlmClient.image_completion` / `request_with_tools` on [`LlmHttpTransport`](../../plugin/framework/client/http_transport.py) — the same stop, connect-versus-read timeout, retry, and redaction as chat. Downloading a generated image URL uses [`sync_request`](../../plugin/framework/client/requests.py), which is that transport with an explicit read `timeout` (Settings `request_timeout`; no silent default). Connect uses `LLM_CONNECT_TIMEOUT_SEC`. Catalog probes pass their own short read timeout at the call site.
 
 ### Tools and document insertion
 
@@ -64,7 +64,7 @@ Default **Base Size** is **1024** (vendor `1K`). Models dislike 512 / `0.5K` —
 | `image_steps` | Steps passed to the endpoint when &gt; 0. |
 | `image_auto_gallery` | Add generated images to Media Gallery. |
 | `image_insert_frame` | Wrap inserted images in a frame. |
-| `request_timeout` | Connect+read budget for `image_completion` and generated-URL downloads (same Settings knob as chat). |
+| `request_timeout` | Read/stall budget for `image_completion` and generated-URL downloads (same Settings knob as chat). Connect uses the shorter shared connect timeout. |
 | `seed` | Reserved for future local generation backends. |
 
 After a successful endpoint generation, the model used is pushed into `image_model_lru`.

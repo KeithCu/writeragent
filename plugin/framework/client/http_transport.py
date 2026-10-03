@@ -3,25 +3,33 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Persistent ``http.client`` transport for chat-completion requests.
+"""One HTTP transport for stream, sync chat, image, speech, and catalog.
+
+Stop, connect-vs-read timeout, retry, secret redaction, and strict JSON live
+here. Callers do not keep a second copy.
 
 Concurrency: each ``LlmHttpTransport`` owns one keep-alive HTTP connection
 (the stdlib ``http.client`` object). That object is not safe for two threads
 to ``request`` / ``getresponse`` at once, so callers create a **new**
 ``LlmClient`` (and thus a new transport) per job — sidebar chat, grammar, a
-Calc ``=PROMPT()`` cell, and smolagents each have their own. When the user
-hits Stop, another thread calls ``close()`` and shuts the socket while the
-worker may still be blocked in ``getresponse``. That abort is intentional.
-Do not put a lock around ``send()`` to “make HTTP thread-safe”: Stop would
-then wait for the full network timeout. Details:
-docs/framework/threading.md.
+Calc ``=PROMPT()`` cell, and smolagents each have their own. Catalog, speech,
+and image-URL downloads use a short-lived transport around ``exchange``.
+When the user hits Stop, another thread calls ``close()`` and shuts the
+socket while the worker may still be blocked in ``getresponse``. That abort
+is intentional. Do not put a lock around ``send()`` to make HTTP thread-safe:
+Stop would then wait for the full network timeout. DNS is the exception:
+``connect()`` blocks before ``sock`` exists, so Stop runs connect on a
+dedicated worker and abandons it. Details: docs/framework/threading.md.
 """
 
 from __future__ import annotations
 
 import http.client
+import json
 import logging
 import socket
+import threading
+import time
 import urllib.parse
 from typing import Any, Callable, Literal
 
@@ -29,13 +37,172 @@ from plugin.framework.errors import NetworkError
 from plugin.framework.url_utils import get_url_hostname
 
 from plugin.framework.errors import format_error_message
-from .request_controls import LocalHttpsCertificateFallback, RequestPacer, backoff_delay_sec, emit_retry_status, ensure_free_model_pacing, mark_host_sent, pacing_key, remember_host_gap, request_model_from_body, wait_abortable, wait_host_gap
+from .errors import _format_http_error_response
+from .request_controls import RETRY_MAX_ATTEMPTS, RETRYABLE_HTTP_STATUS, LocalHttpsCertificateFallback, RequestPacer, backoff_delay_sec, clear_host_gap, emit_retry_status, ensure_free_model_pacing, mark_host_sent, pacing_key, parse_retry_after, remember_host_gap, request_model_from_body, wait_abortable, wait_host_gap
 from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context
 
 log = logging.getLogger(__name__)
 
 CONNECTION_ERRORS = (http.client.HTTPException, socket.error, OSError)
 RetryAction = Literal["retry", "stop"]
+# Header names whose values are credentials. Matched case-insensitively.
+_SECRET_HEADER_NAMES = frozenset({"authorization", "x-api-key", "api-key", "x-goog-api-key"})
+# Query keys that carry credentials. ``output_modalities`` is not one of these.
+_SECRET_QUERY_KEYS = frozenset({"api_key", "apikey", "api-key", "key", "token", "access_token"})
+# A one-character key would punch holes through ordinary error text ("k", "1").
+_MIN_SECRET_LEN = 4
+
+HttpObserve = Callable[[Any, str, str, Any], str]
+HttpSender = Callable[..., http.client.HTTPResponse]
+
+
+def redact_secrets(text: str, secrets: list[str] | None) -> str:
+    """Replace credential strings with ``<redacted>``. Longer values first."""
+    if not text or not secrets:
+        return text
+    ordered = sorted({secret for secret in secrets if secret and len(secret) >= _MIN_SECRET_LEN}, key=len, reverse=True)
+    for secret in ordered:
+        text = text.replace(secret, "<redacted>")
+    return text
+
+
+def secrets_from_headers(headers: dict[str, str] | None) -> list[str]:
+    """Bearer tokens and API-key header values that must not appear in errors."""
+    if not headers:
+        return []
+    secrets: list[str] = []
+    for key, value in headers.items():
+        if not value:
+            continue
+        low = str(key).lower()
+        if low in ("x-api-key", "api-key", "x-goog-api-key"):
+            token = str(value).strip()
+        elif low == "authorization":
+            parts = str(value).split(None, 1)
+            token = parts[1].strip() if len(parts) == 2 else str(value).strip()
+        elif low not in _SECRET_HEADER_NAMES:
+            continue
+        else:
+            token = str(value).strip()
+        if token and token not in secrets:
+            secrets.append(token)
+    return secrets
+
+
+def secrets_from_target(url_or_path: str) -> list[str]:
+    """Credential query values and URL userinfo passwords."""
+    raw = url_or_path or ""
+    if "://" not in raw:
+        raw = "http://placeholder.invalid" + (raw if raw.startswith("/") else "/" + raw)
+    try:
+        parsed = urllib.parse.urlparse(raw)
+        pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=False)
+    except (ValueError, TypeError):
+        return []
+    secrets: list[str] = []
+    for key, value in pairs:
+        if key.lower() in _SECRET_QUERY_KEYS and value and value not in secrets:
+            secrets.append(value)
+    password = parsed.password
+    if password:
+        revealed = urllib.parse.unquote(password)
+        if revealed and revealed not in secrets:
+            secrets.append(revealed)
+    return secrets
+
+
+def collect_secrets(*groups: list[str] | None) -> list[str]:
+    """Merge secret lists, dropping empties and duplicates."""
+    found: list[str] = []
+    for group in groups:
+        if not group:
+            continue
+        for secret in group:
+            if secret and secret not in found:
+                found.append(secret)
+    return found
+
+
+def public_target(url_or_path: str) -> str:
+    """Host and path for logs and error details. Query and userinfo are dropped."""
+    raw = url_or_path or ""
+    if "://" not in raw:
+        path = raw.split("?", 1)[0]
+        return path or "/"
+    parsed = urllib.parse.urlparse(raw)
+    host = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port else ""
+    path = parsed.path or "/"
+    scheme = parsed.scheme or "http"
+    return f"{scheme}://{host}{port}{path}"
+
+
+def parse_strict_json(raw: Any) -> Any:
+    """Parse provider bytes with ``json.loads`` only.
+
+    What was wrong: ``safe_json_loads`` repairs truncated model text, so a
+    cut-off envelope such as ``{"choices":[{"message":{"content":"hel`` or a
+    cut-off catalog ``{"data":[{"id":"gpt`` became a dict and looked finished.
+    Why: provider envelopes and catalogs are not model text. Do not call the
+    JSON peel walker here. A decode failure is ``BAD_RESPONSE``, not a reply.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE") from exc
+    elif isinstance(raw, str):
+        text = raw
+    else:
+        raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE")
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError, RecursionError) as exc:
+        raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE") from exc
+
+
+class HttpResult:
+    """Buffered HTTP result. ``parsed`` is set only for strict JSON."""
+
+    status: int
+    body: bytes
+    content_type: str
+    parsed: Any
+
+    def __init__(self, status: int, body: bytes, content_type: str, parsed: Any = None) -> None:
+        self.status = status
+        self.body = body
+        self.content_type = content_type
+        self.parsed = parsed
+
+
+def _response_content_type(response: Any) -> str:
+    getter = getattr(response, "getheader", None)
+    if not callable(getter):
+        return ""
+    value = getter("Content-Type")
+    return value if isinstance(value, str) else ""
+
+
+def _response_bytes(response: Any) -> bytes:
+    raw = response.read()
+    if isinstance(raw, bytes):
+        return raw
+    if isinstance(raw, str):
+        return raw.encode("utf-8")
+    return b""
+
+
+def origin_and_path(url: str) -> tuple[str, str]:
+    """Split an absolute URL into the transport origin and the request target."""
+    parsed = urllib.parse.urlparse(url)
+    scheme = (parsed.scheme or "https").lower()
+    host = parsed.hostname or ""
+    origin = f"{scheme}://{host}:{parsed.port}" if parsed.port else f"{scheme}://{host}"
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    return origin, path
 
 
 class LlmHttpTransport:
@@ -149,19 +316,20 @@ class LlmHttpTransport:
         read_timeout = self._timeout_getter()
         sock = getattr(conn, "sock", None)
         if sock is None:
-            # What was wrong: Stop during DNS/TCP called close() while sock
-            # was still None, so the close was a no-op, then request()
-            # connected and blocked in getresponse until request_timeout.
-            # How: http.client assigns sock only after connect() returns.
-            # Why: connect first, then refuse to send the body if Stop won.
             # A reused keep-alive socket is already set; request() must not
             # be asked to connect again or it replaces that socket.
-            conn.timeout = LLM_CONNECT_TIMEOUT_SEC
-            conn.connect()
+            # Stop already latched: do not start DNS.
+            if stop_checker is not None and stop_checker():
+                self._drop_stopped_connection(conn)
+                raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+            self._connect_abortable(conn, stop_checker, connect_timeout=LLM_CONNECT_TIMEOUT_SEC)
             sock = getattr(conn, "sock", None)
         conn.timeout = read_timeout
         if sock is not None:
             sock.settimeout(read_timeout)
+        if stop_checker is not None and stop_checker():
+            self._drop_stopped_connection(conn)
+            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
         self._pacer.wait_before_send()
         if stop_checker is not None and stop_checker():
             self._drop_stopped_connection(conn)
@@ -182,9 +350,198 @@ class LlmHttpTransport:
             self.close()
         return enabled
 
-    def handle_connection_error(self, err: Exception, *, path: str, retries_left: int, retry_log_message: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, attempt: int = 1, model: str | None = None) -> RetryAction:
+    def _connect_abortable(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection, stop_checker: Callable[[], bool] | None, *, connect_timeout: float) -> None:
+        """Connect without waiting out the read budget, and without ignoring Stop.
+
+        What was wrong: ``http.client.connect`` blocks inside ``getaddrinfo``
+        before it assigns ``sock``. ``close()`` saw ``sock is None`` and
+        returned, so Stop during DNS was a no-op and the caller stayed in
+        ``connect()`` until the resolver finished. A single urllib timeout
+        was the read budget, so that wait was the whole stall (often 120s).
+        How: the socket timeout does not bound ``getaddrinfo``. Why: run
+        connect on a dedicated worker (the caller joins it; a pool slot would
+        deadlock). Poll Stop and the connect deadline, then close whatever
+        socket has appeared. Do not wait for DNS to finish.
+        """
+        from plugin.framework.worker_pool import run_in_background
+
+        outcome: dict[str, Any] = {}
+        cancelled = threading.Event()
+        conn.timeout = connect_timeout
+
+        def _do_connect() -> None:
+            try:
+                conn.connect()
+            except Exception as exc:
+                outcome["error"] = exc
+            finally:
+                outcome["done"] = True
+                if cancelled.is_set():
+                    self._drop_stopped_connection(conn)
+
+        # dedicated: the caller joins this worker. A pooled job joined from
+        # a pool thread deadlocks the two-worker background pool.
+        handle = run_in_background(_do_connect, name="http-connect", dedicated=True)
+        deadline = time.monotonic() + float(connect_timeout)
+        while not outcome.get("done"):
+            if stop_checker is not None and stop_checker():
+                cancelled.set()
+                self._drop_stopped_connection(conn)
+                raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                cancelled.set()
+                self._drop_stopped_connection(conn)
+                # TimeoutError is an OSError, so the shared retry budget can
+                # try again. It must not be the Settings read/stall budget.
+                raise TimeoutError("timed out")
+            handle.join(min(0.05, remaining))
+        error = outcome.get("error")
+        if isinstance(error, Exception):
+            raise error
+
+    def handle_http_status(
+        self,
+        response: Any,
+        *,
+        request_body: Any,
+        path: str,
+        retries_left: int,
+        emitted_any: bool,
+        stop_checker: Callable[[], bool] | None = None,
+        status_callback: Callable[[str], None] | None = None,
+        attempt: int = 1,
+        secrets: list[str] | None = None,
+        observe_http_error: HttpObserve | None = None,
+    ) -> RetryAction:
+        """On non-200: retry 429/503/529 while attempts remain; else raise.
+
+        Reads the error body once. ``observe_http_error`` is the chat 500
+        diagnostic hook; catalog and speech omit it and still get redaction.
+        """
+        err_body = _response_bytes(response).decode("utf-8", errors="replace")
+        wire_secrets = collect_secrets(secrets, secrets_from_target(path))
+        if observe_http_error is not None:
+            message = observe_http_error(response, err_body, path, request_body)
+        else:
+            message = _format_http_error_response(int(response.status), str(getattr(response, "reason", "") or ""), err_body)
+        message = redact_secrets(message, wire_secrets)
+        safe_target = public_target(path)
+        if observe_http_error is None:
+            log.error("HTTP %s for %s: %s", response.status, safe_target, message)
+        self.close()
+        status = int(response.status)
+        if status in RETRYABLE_HTTP_STATUS and retries_left > 0 and not emitted_any:
+            retry_after = None
+            getter = getattr(response, "getheader", None)
+            if callable(getter):
+                header = getter("Retry-After")
+                retry_after = parse_retry_after(header if isinstance(header, str) else None)
+            delay = backoff_delay_sec(attempt=attempt, retry_after_sec=retry_after)
+            model = request_model_from_body(request_body)
+            remember_host_gap(pacing_key(self.current_host(), model), delay)
+            log.warning("Retrying HTTP %s after %.3fs (Retry-After=%s attempt=%s left=%s)", status, delay, retry_after, attempt, retries_left)
+            emit_retry_status(status_callback, delay)
+            if not wait_abortable(delay, stop_checker):
+                return "stop"
+            return "retry"
+        details: dict[str, Any] = {"url": safe_target, "status": status}
+        raise NetworkError(message, code="HTTP_ERROR", details=details)
+
+    def exchange(
+        self,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str] | None = None,
+        *,
+        stop_checker: Callable[[], bool] | None = None,
+        status_callback: Callable[[str], None] | None = None,
+        parse_json: bool = False,
+        sender: HttpSender | None = None,
+        secrets: list[str] | None = None,
+        on_retry: Callable[[], None] | None = None,
+        after_read: Callable[[Any], None] | None = None,
+        observe_http_error: HttpObserve | None = None,
+        retry_log_message: str = "Retrying HTTP request on a fresh connection",
+    ) -> HttpResult:
+        """Buffered request with the shared stop, timeout, retry, and redaction.
+
+        ``parse_json`` uses :func:`parse_strict_json`. Truncated JSON raises
+        ``BAD_RESPONSE`` instead of becoming a repaired object.
+        """
+        wire_headers = dict(headers or {})
+        wire_secrets = collect_secrets(secrets, secrets_from_headers(wire_headers), secrets_from_target(path))
+
+        def _send(send_method: str, send_path: str, send_body: Any, send_headers: dict[str, str], *, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None) -> http.client.HTTPResponse:
+            if sender is not None:
+                return sender(send_method, send_path, send_body, send_headers, stop_checker=stop_checker, status_callback=status_callback)
+            return self.send(send_method, send_path, send_body, send_headers, stop_checker=stop_checker, status_callback=status_callback)
+
+        sends_left = RETRY_MAX_ATTEMPTS
+        attempt = 0
+        model = request_model_from_body(body)
+        while True:
+            body_in_hand = False
+            try:
+                if stop_checker is not None and stop_checker():
+                    self.close()
+                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                response = _send(method, path, body, wire_headers, stop_checker=stop_checker, status_callback=status_callback)
+                status = int(getattr(response, "status", 0) or 0)
+                if status != 200:
+                    sends_left -= 1
+                    attempt += 1
+                    action = self.handle_http_status(
+                        response,
+                        request_body=body,
+                        path=path,
+                        retries_left=sends_left,
+                        emitted_any=False,
+                        stop_checker=stop_checker,
+                        status_callback=status_callback,
+                        attempt=attempt,
+                        secrets=wire_secrets,
+                        observe_http_error=observe_http_error,
+                    )
+                    if action == "stop":
+                        raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                    if on_retry is not None:
+                        on_retry()
+                    continue
+                if attempt == 0:
+                    clear_host_gap(pacing_key(self.current_host(), model))
+                raw = _response_bytes(response)
+                body_in_hand = True
+                if after_read is not None:
+                    after_read(response)
+                parsed = parse_strict_json(raw) if parse_json else None
+                return HttpResult(status=status, body=raw, content_type=_response_content_type(response), parsed=parsed)
+            except NetworkError:
+                raise
+            except CONNECTION_ERRORS as exc:
+                if body_in_hand:
+                    raise NetworkError(redact_secrets(format_error_message(exc), wire_secrets), code="CONNECTION_LOST", details={"url": public_target(path)}) from exc
+                sends_left -= 1
+                attempt += 1
+                action = self.handle_connection_error(
+                    exc,
+                    path=public_target(path),
+                    retries_left=sends_left,
+                    retry_log_message=retry_log_message,
+                    stop_checker=stop_checker,
+                    status_callback=status_callback,
+                    attempt=attempt,
+                    model=model,
+                    secrets=wire_secrets,
+                )
+                if action == "stop":
+                    raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                continue
+
+    def handle_connection_error(self, err: Exception, *, path: str, retries_left: int, retry_log_message: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, attempt: int = 1, model: str | None = None, secrets: list[str] | None = None) -> RetryAction:
         """Close failed connections and decide whether a request should retry."""
-        log.error("Connection error, closing: %s" % err)
+        log.error("Connection error, closing: %s" % redact_secrets(str(err), secrets))
         self.close()
         if stop_checker and stop_checker():
             log.error("Connection error during stop; exiting streaming loop")
@@ -193,7 +550,7 @@ class LlmHttpTransport:
             # Immediate reopen: TLS mode just changed; do not add backoff.
             return "retry"
 
-        err_msg = format_error_message(err)
+        err_msg = redact_secrets(format_error_message(err), secrets)
         if retries_left > 0:
             log.warning(retry_log_message)
             delay = backoff_delay_sec(attempt=attempt)

@@ -27,16 +27,17 @@
 
 ### Current Implementation
 
-WriterAgent chat requests use a small split client stack:
+Stream, sync chat, image generation, speech (`/audio/speech`), and the model catalog share one transport:
 
 ```python
-LlmClient.make_chat_request(...)  # provider payloads, headers, logging redaction
-LlmHttpTransport.send(...)        # persistent http.client connection + pacing
+LlmClient.make_chat_request(...)  # provider payloads and shims only
+LlmHttpTransport.send/exchange    # stop, connect vs read timeout, retry, redaction, strict JSON
+sync_request(...)                 # URL adapter onto that transport (catalog, speech, image URL, update check)
 RequestPacer                      # per-client 50 ms burst guard
 LocalHttpsCertificateFallback     # local HTTPS verified-to-unverified retry policy
 ```
 
-`plugin/framework/client/llm_client.py` still owns provider shims, message normalization, date/dev prefixes, OpenRouter extra merging, response parsing, and token cleanup. Hosted providers with an empty API key raise `AuthError` from `_resolve_auth` (do not catch it into `{}`). `plugin/framework/client/http_transport.py` owns the persistent connection, close/stop behavior, jittered retries on connection exceptions (3 total attempts), and local HTTPS certificate fallback. `plugin/framework/client/request_controls.py` owns pacing, backoff/Retry-After math (OpenClaw `packages/retry`), and the local-only TLS fallback rule.
+`plugin/framework/client/llm_client.py` still owns provider shims, message normalization, date/dev prefixes, OpenRouter extra merging, and token cleanup. Hosted providers with an empty API key raise `AuthError` from `_resolve_auth` (do not catch it into `{}`). `plugin/framework/client/http_transport.py` owns the connection, Stop during DNS (connect runs on a dedicated worker so `close()` is not a no-op while `sock` is still unset), the short connect budget versus Settings read timeout, jittered retries (3 total attempts), secret redaction, and strict `json.loads` (truncated provider JSON is `BAD_RESPONSE`, not a repaired reply). `plugin/framework/client/requests.py` is only the URL adapter. `plugin/framework/client/request_controls.py` owns pacing, backoff/Retry-After math (OpenClaw `packages/retry`), and the local-only TLS fallback rule.
 
 ### Current Strengths
 
