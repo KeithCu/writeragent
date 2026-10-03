@@ -16,7 +16,7 @@ from typing import Any, Callable, cast
 
 import numpy as np
 
-from .calc_functions_util import _extract_numeric_array, _npf_result, _to_float_a, match_criteria
+from .calc_functions_util import _collect_a_values, _extract_numeric_array, _npf_result, match_criteria
 
 
 
@@ -825,15 +825,15 @@ def standardize(x: Any, mean: Any, stdev: Any) -> float:
 
 
 def stdeva(*args: Any) -> float:
-    vals = [_to_float_a(v) for arg in args for v in np.asarray(arg).ravel()]
-    if len(vals) < 2:
+    vals = _collect_a_values(*args)
+    if vals.size < 2:
         return float("nan")
     return float(np.std(vals, ddof=1))
 
 
 def stdevpa(*args: Any) -> float:
-    vals = [_to_float_a(v) for arg in args for v in np.asarray(arg).ravel()]
-    if not vals:
+    vals = _collect_a_values(*args)
+    if not vals.size:
         return float("nan")
     return float(np.std(vals, ddof=0))
 

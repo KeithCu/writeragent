@@ -10,6 +10,7 @@ import math
 import numpy as np
 
 from plugin.scripting.venv.calc_functions_util import (
+    _collect_a_values,
     _extract_numeric_array,
     _find_match_index,
     _npf_result,
@@ -118,4 +119,13 @@ def test_to_float_a():
     assert _to_float_a("") == 0.0
     assert _to_float_a("invalid") == 0.0
     assert _to_float_a("#VALUE!") == 0.0
+
+
+def test_collect_a_values():
+    res = _collect_a_values([1.0, 2.0], True, False, "text", "", None, [3.0, np.bool_(True)])
+    assert isinstance(res, np.ndarray)
+    assert np.allclose(res, [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, 0.0, 3.0, 1.0])
+    empty_res = _collect_a_values()
+    assert len(empty_res) == 0
+
 
