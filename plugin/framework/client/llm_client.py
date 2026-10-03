@@ -126,11 +126,52 @@ def _stream_error_message(chunk: dict[str, Any]) -> str | None:
     return None
 
 
-def _stream_error_is_overload(message: str) -> bool:
-    """True when a mid-stream error is worth one retry before any UI text."""
+_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many", "unavailable")
+# 429/503 must be a whole token. "4290 tokens" is a context size, not HTTP 429.
+_OVERLOAD_STATUS_RE = re.compile(r"\b(?:429|503)\b")
+
+
+def _error_code_is_overload(value: Any) -> bool:
+    """True when a structured provider code is itself an overload signal."""
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, int):
+        return value in (429, 503)
+    if isinstance(value, float):
+        return value in (429.0, 503.0)
+    text = str(value).strip().lower()
+    if not text:
+        return False
+    if text in {"429", "503"}:
+        return True
+    return any(marker in text for marker in _OVERLOAD_TEXT_MARKERS)
+
+
+def _structured_error_is_overload(chunk: dict[str, Any]) -> bool:
+    """Prefer error.code / type / status over scanning the message text."""
+    err = chunk.get("error")
+    if not isinstance(err, dict):
+        return False
+    return any(_error_code_is_overload(err.get(key)) for key in ("code", "type", "status"))
+
+
+def _text_is_overload(message: str) -> bool:
     low = message.lower()
-    markers = ("overload", "rate_limit", "rate limit", "too many", "429", "503", "unavailable")
-    return any(marker in low for marker in markers)
+    if any(marker in low for marker in _OVERLOAD_TEXT_MARKERS):
+        return True
+    return _OVERLOAD_STATUS_RE.search(low) is not None
+
+
+def _stream_error_is_overload(chunk: dict[str, Any]) -> bool:
+    """True when a mid-stream error is worth one retry before any UI text.
+
+    A structured code (429, 503, rate_limit_exceeded, overloaded_error) wins.
+    Otherwise 429 and 503 match only on a word boundary.
+    """
+    if _structured_error_is_overload(chunk):
+        return True
+    message = _stream_error_message(chunk) or ""
+    return _text_is_overload(message)
 
 
 def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
@@ -504,7 +545,12 @@ class LlmClient:
 
         # Legacy fallback for simple/manual endpoints: if an api_key exists and no
         # auth header was added (e.g. style='none' or unknown provider), add Bearer.
-        api_key = self.config.get("api_key", "").strip()
+        # What was wrong: an explicit null api_key (key present, value None)
+        # called str.strip on None and raised AttributeError. Other call sites
+        # already use ``str(... or "")``.
+        # How: .get returns None when the key is set to null, so the "" default
+        # never applied. Why: treat null like a missing key and omit Bearer.
+        api_key = str(self.config.get("api_key") or "").strip()
         if api_key and "Authorization" not in h and "x-api-key" not in h:
             reject_control_chars_in_api_key(api_key)
             h["Authorization"] = f"Bearer {api_key}"
@@ -836,6 +882,9 @@ class LlmClient:
                 if action == "retry":
                     continue
 
+                # Set only when the SSE loop finishes without an error or Stop.
+                # The finally block drains solely in that case.
+                clean_finish = False
                 try:
                     # Use a flag to stop logical processing but keep reading to exhaust the stream
                     content_finished = False
@@ -910,7 +959,7 @@ class LlmClient:
                             # the sidebar and the debug log then showed.
                             api_key = str(self.config.get("api_key") or "").strip()
                             stream_err = _redact_secret_from_log_text(stream_err, api_key)
-                            if (not emitted_any) and _stream_error_is_overload(stream_err) and sends_left > 1:
+                            if (not emitted_any) and _stream_error_is_overload(chunk) and sends_left > 1:
                                 self._close_connection()
                                 sends_left -= 1
                                 wait_index += 1
@@ -1029,11 +1078,18 @@ class LlmClient:
                                 on_content(text_piece)
                                 if text_piece:
                                     emitted_any = True
+                    clean_finish = not self._stopped
                 finally:
-                    # Drain leftover body only when we still own a live connection.
-                    # After Stop we closed the sock — response.read() would block until
-                    # request_timeout and hold llm_request_lane (B13).
-                    if not self._stopped:
+                    # What was wrong: STREAM_ERROR, INFINITE_LOOP, finish_reason
+                    # error, and any other raised stream exception fell into
+                    # response.read() and waited out the rest of the generation
+                    # (up to request_timeout, holding llm_request_lane).
+                    # How: the finally drained whenever Stop had not latched,
+                    # including when the loop raised or retried.
+                    # Why: drain only after a clean finish so the keep-alive
+                    # socket can be reused. Every other exit closes. Stop still
+                    # skips the drain (B13).
+                    if clean_finish:
                         try:
                             remaining = response.read()
                             if remaining:

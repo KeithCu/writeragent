@@ -16,6 +16,26 @@ if TYPE_CHECKING:
 from plugin.framework.url_utils import get_url_path_and_query
 from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_image_data_url, coerce_raw_b64
 
+# api.openai.com o-series and gpt-5 reject max_tokens. Dated snapshots
+# (o3-mini-2025-01-31, gpt-5-2025-08-07) and ft:gpt-5-... share the family prefix.
+_OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5")
+# Chat Completions default. These models reject every other temperature.
+_OPENAI_DEFAULT_TEMPERATURE = 1
+
+
+def _openai_reasoning_model(model_name: str | None) -> bool:
+    """True for OpenAI model families that reject ``max_tokens``."""
+    name = str(model_name or "").strip().lower()
+    if not name:
+        return False
+    if "/" in name:
+        name = name.rsplit("/", 1)[-1]
+    if name.startswith("ft:"):
+        parts = name.split(":")
+        if len(parts) > 1 and parts[1]:
+            name = parts[1]
+    return name.startswith(_OPENAI_REASONING_PREFIXES)
+
 
 class OpenAIShim(BaseProviderShim):
     """Shim for standard OpenAI-compatible providers.
@@ -25,6 +45,25 @@ class OpenAIShim(BaseProviderShim):
     (https://developers.openai.com/api/reference/resources/images/methods/edit).
     Other hosts keep the generic OpenAI-compat body in ``BaseProviderShim``.
     """
+
+    def build_chat_request(
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+    ) -> tuple[str, str, bytes, dict[str, str]]:
+        method, path, body, headers = super().build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
+        # What was wrong: api.openai.com o1/o3/o4 and gpt-5 reject max_tokens
+        # and any temperature other than the default (1), so chat returned
+        # HTTP 400. How: only provider openai and those families. Groq,
+        # OpenRouter, and every other host keep max_tokens. Why: the
+        # documented replacement is max_completion_tokens.
+        if self.client._get_provider() != "openai" or not _openai_reasoning_model(model_name):
+            return method, path, body, headers
+        data = json.loads(body.decode("utf-8"))
+        if "max_tokens" in data:
+            data["max_completion_tokens"] = data.pop("max_tokens")
+        temp = data.get("temperature")
+        if temp is not None and temp != _OPENAI_DEFAULT_TEMPERATURE:
+            data.pop("temperature", None)
+        return method, path, json.dumps(data).encode("utf-8"), headers
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         if self.client._get_provider() != "openai":

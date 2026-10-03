@@ -456,7 +456,16 @@ class LlmHttpTransport:
             pass
 
     def send(
-        self, method: str, path: str, body: Any, headers: dict[str, str], *, connection_getter: Callable[[], http.client.HTTPConnection | http.client.HTTPSConnection] | None = None, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None
+        self,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str],
+        *,
+        connection_getter: Callable[[], http.client.HTTPConnection | http.client.HTTPSConnection] | None = None,
+        stop_checker: Callable[[], bool] | None = None,
+        status_callback: Callable[[str], None] | None = None,
+        _stale_resend: bool = True,
     ) -> http.client.HTTPResponse:
         """Send one request on the persistent connection and return its response."""
         host = self.current_host()
@@ -472,6 +481,10 @@ class LlmHttpTransport:
 
         read_timeout = self._timeout_getter()
         sock = getattr(conn, "sock", None)
+        # Captured before connect(). A socket http.client already holds is a
+        # reused keep-alive connection. A fresh connect leaves this false even
+        # after sock is assigned.
+        reused_socket = isinstance(sock, socket.socket)
         if sock is None:
             # A reused keep-alive socket is already set; request() must not
             # be asked to connect again or it replaces that socket.
@@ -496,10 +509,26 @@ class LlmHttpTransport:
             from plugin.framework.constants import USER_AGENT
 
             headers["User-Agent"] = USER_AGENT
-        conn.request(method, path, body=body, headers=headers)
-        self._pacer.mark_sent()
-        mark_host_sent(key)
-        return conn.getresponse()
+        try:
+            conn.request(method, path, body=body, headers=headers)
+            self._pacer.mark_sent()
+            mark_host_sent(key)
+            return conn.getresponse()
+        except (http.client.RemoteDisconnected, BrokenPipeError, ConnectionResetError):
+            # What was wrong: a keep-alive socket the peer had already closed
+            # raised RemoteDisconnected, BrokenPipeError, or ConnectionResetError
+            # inside request() or getresponse(), before any response bytes.
+            # That spent a retry, called remember_host_gap, and showed
+            # "Provider busy".
+            # How: only when this socket was already open. A failure while
+            # connecting a new socket is a real error and still uses the budget.
+            # Why: close and send this same request once. The retry budget,
+            # the host gap, and the status line stay unused.
+            if not reused_socket or not _stale_resend:
+                raise
+            log.debug("Keep-alive socket failed before a response; reconnecting once")
+            self._drop_stopped_connection(conn)
+            return self.send(method, path, body, headers, connection_getter=connection_getter, stop_checker=stop_checker, status_callback=status_callback, _stale_resend=False)
 
     def enable_local_ssl_fallback(self, err: Exception) -> bool:
         enabled = self._cert_fallback.enable_if_applicable(self.current_host(), err)

@@ -1,3 +1,4 @@
+import http.client
 import ssl
 from unittest.mock import MagicMock, patch
 
@@ -555,5 +556,186 @@ def test_exchange_connection_error_before_status_still_costs_one_retry():
     assert result.body == b"audio"
     assert calls["n"] == 3
     assert attempts == [1, 2]
+
+
+def _open_socket():
+    """A real socket so send() treats the connection as an already-open keep-alive."""
+    import socket
+
+    return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        http.client.RemoteDisconnected("closed"),
+        BrokenPipeError("pipe"),
+        ConnectionResetError("reset"),
+    ],
+)
+def test_reused_socket_failure_before_response_resends_once(exc):
+    """An already-open socket that dies before response bytes is resent once.
+
+    The resend must not remember a host gap or show Provider busy. A second
+    failure is not swallowed.
+    """
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    transport._pacer.min_interval_sec = 0
+    sockets = []
+    conns = []
+    ok = MagicMock()
+    ok.status = 200
+
+    def getter():
+        conn = MagicMock()
+        if len(conns) == 0:
+            sock = _open_socket()
+            sockets.append(sock)
+            conn.sock = sock
+            conn.request.side_effect = exc
+        else:
+            conn.sock = None
+            conn.getresponse.return_value = ok
+        conns.append(conn)
+        return conn
+
+    statuses: list[str] = []
+    try:
+        with patch("plugin.framework.client.http_transport.remember_host_gap") as remember:
+            response = transport.send(
+                "POST",
+                "/v1/chat/completions",
+                b'{"model":"gpt-4o"}',
+                {"Content-Type": "application/json"},
+                connection_getter=getter,
+                status_callback=statuses.append,
+            )
+        assert response is ok
+        assert len(conns) == 2
+        assert statuses == []
+        remember.assert_not_called()
+    finally:
+        for sock in sockets:
+            sock.close()
+
+
+def test_reused_socket_remote_disconnected_on_getresponse_resends_once():
+    """RemoteDisconnected from getresponse() is still before any response bytes."""
+    import http.client
+
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    transport._pacer.min_interval_sec = 0
+    sock = _open_socket()
+    stale = MagicMock()
+    stale.sock = sock
+    stale.getresponse.side_effect = http.client.RemoteDisconnected("closed")
+    ok = MagicMock()
+    ok.status = 200
+    fresh = MagicMock()
+    fresh.sock = None
+    fresh.getresponse.return_value = ok
+    conns = [stale, fresh]
+
+    def getter():
+        return conns.pop(0)
+
+    statuses: list[str] = []
+    try:
+        with patch("plugin.framework.client.http_transport.remember_host_gap") as remember:
+            response = transport.send(
+                "POST",
+                "/v1/chat/completions",
+                b'{"model":"gpt-4o"}',
+                {"User-Agent": "test"},
+                connection_getter=getter,
+                status_callback=statuses.append,
+            )
+        assert response is ok
+        assert statuses == []
+        remember.assert_not_called()
+        stale.getresponse.assert_called_once()
+        fresh.request.assert_called_once()
+    finally:
+        sock.close()
+
+
+def test_stale_resend_does_not_loop():
+    """The free resend happens once. The next same failure leaves send()."""
+    import http.client
+
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    transport._pacer.min_interval_sec = 0
+    sockets = []
+    conns = []
+
+    def getter():
+        if len(conns) >= 2:
+            raise AssertionError("resent more than once")
+        conn = MagicMock()
+        sock = _open_socket()
+        sockets.append(sock)
+        conn.sock = sock
+        conn.request.side_effect = http.client.RemoteDisconnected("closed")
+        conns.append(conn)
+        return conn
+
+    statuses: list[str] = []
+    try:
+        with patch("plugin.framework.client.http_transport.remember_host_gap") as remember:
+            with pytest.raises(http.client.RemoteDisconnected):
+                transport.send(
+                    "POST",
+                    "/v1/chat/completions",
+                    b'{"model":"gpt-4o"}',
+                    {"Content-Type": "application/json"},
+                    connection_getter=getter,
+                    status_callback=statuses.append,
+                )
+        assert len(conns) == 2
+        assert statuses == []
+        remember.assert_not_called()
+    finally:
+        for sock in sockets:
+            sock.close()
+
+
+def test_fresh_socket_reset_is_not_a_free_resend():
+    """A reset while opening a new socket still belongs to the retry budget."""
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    transport._pacer.min_interval_sec = 0
+    conn = MagicMock()
+    conn.sock = None
+    conn.request.side_effect = ConnectionResetError("reset")
+    with pytest.raises(ConnectionResetError):
+        transport.send(
+            "POST",
+            "/v1/chat/completions",
+            b"{}",
+            {"User-Agent": "test"},
+            connection_getter=lambda: conn,
+        )
+    assert conn.request.call_count == 1
+
+
+def test_reused_socket_timeout_is_not_a_free_resend():
+    """Only RemoteDisconnected, BrokenPipe, and ConnectionReset get the free resend."""
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    transport._pacer.min_interval_sec = 0
+    sock = _open_socket()
+    conn = MagicMock()
+    conn.sock = sock
+    conn.request.side_effect = TimeoutError("timed out")
+    try:
+        with pytest.raises(TimeoutError):
+            transport.send(
+                "POST",
+                "/v1/chat/completions",
+                b"{}",
+                {"User-Agent": "test"},
+                connection_getter=lambda: conn,
+            )
+        assert conn.request.call_count == 1
+    finally:
+        sock.close()
 
 

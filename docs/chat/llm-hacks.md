@@ -171,4 +171,14 @@ Tests: [`tests/framework/client/test_client_errors.py`](../../tests/framework/cl
 
 ---
 
+## 12. OpenAI reasoning models reject `max_tokens`
+
+**Problem**: `api.openai.com` o1, o3, o4, and gpt-5 (including dated snapshots and `ft:gpt-5-…`) return HTTP 400 for `max_tokens` and for any `temperature` other than the API default `1`.
+
+**Workaround** ([`OpenAIShim.build_chat_request`](../../plugin/framework/client/openai_shim.py)): when the provider is `openai` and the model is in those families, the chat body sends `max_completion_tokens` and drops a non-default temperature. Other providers, including OpenRouter and Groq using an OpenAI-compatible body, keep `max_tokens`. Image `response_format` is unchanged.
+
+Tests: [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py).
+
+---
+
 *This document should be updated as new hacks are discovered or as improvements in models allow us to remove them.*
