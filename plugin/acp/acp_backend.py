@@ -563,6 +563,17 @@ class ACPBackend(AgentBackend):
                 self._finish_stopped(queue)
                 return
 
+            def on_notification(method: str, params: Any, msg_id: Any = None) -> None:
+                self._dispatch_notification(method, params, msg_id, queue)
+
+            # What was wrong: this callback was installed after session/new.
+            # Agents emit session/update and session/request_permission while
+            # that request is in flight. _notify_callback was still None, so
+            # the reader dropped them. Why: register as soon as the process
+            # is up, before session/new, so those notifications reach the queue.
+            if self._conn:
+                self._conn.set_notification_callback(on_notification)
+
             try:
                 self._ensure_session(mcp_url=mcp_url, document_url=document_url)
             except Exception as e:
@@ -579,12 +590,6 @@ class ACPBackend(AgentBackend):
             queue.put((StreamQueueKind.STATUS, f"Sending to {self.get_display_name()}..."))
 
             prompt_blocks = self._build_prompt_blocks(user_message=user_message, document_context=document_context, system_prompt=system_prompt, selection_text=selection_text, document_url=document_url)
-
-            def on_notification(method: str, params: Any, msg_id: Any = None) -> None:
-                self._dispatch_notification(method, params, msg_id, queue)
-
-            if self._conn:
-                self._conn.set_notification_callback(on_notification)
 
             try:
                 if self._stop_requested or not self._conn:
