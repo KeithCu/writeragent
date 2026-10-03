@@ -800,6 +800,29 @@ def frequency(data: Any, bins: Any) -> Any:
         return []
 
 
+def _npf_result(kind: str, *args: Any) -> float:
+    """One numpy-financial scalar, or NaN where Calc/Excel are #NUM! / #DIV/0!.
+
+    The library returns ±inf for a zero period count and for an NPER that
+    never amortizes, and raises when ``when`` is not 0 or 1. Callers pass
+    0 or 1. A missing install is the same NaN as a missing scipy helper.
+    """
+    try:
+        import numpy_financial as npf  # type: ignore[import-untyped]
+    except ImportError:
+        return float("nan")
+    try:
+        # np.where in pmt/pv evaluates the zero-rate branch and warns on
+        # divide-by-zero even when the other branch is the result.
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            result = float(getattr(npf, kind)(*args))
+    except (OverflowError, ValueError, ZeroDivisionError, TypeError):
+        return float("nan")
+    if not math.isfinite(result):
+        return float("nan")
+    return result
+
+
 def fv(rate: Any, nper: Any, pmt_val: Any, pv_val: Any = 0, type_val: Any = 0) -> float:
     # Unguarded float() raised ValueError/TypeError on text arguments.
     try:
@@ -807,18 +830,12 @@ def fv(rate: Any, nper: Any, pmt_val: Any, pv_val: Any = 0, type_val: Any = 0) -
         n = float(nper)
         pm = float(pmt_val)
         p = float(pv_val)
-        t = int(float(type_val))
+        # Only type 1 is beginning-of-period. Any other type is end, matching
+        # the old branch (it did not plug the raw type into the annuity).
+        t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError):
         return float("nan")
-    try:
-        if r == 0:
-            return float(-(p + pm * n))
-        factor = (1 + r) ** n
-        if t == 1:
-            return float(-(p * factor + pm * (factor - 1) * (1 + r) / r))
-        return float(-(p * factor + pm * (factor - 1) / r))
-    except (OverflowError, ValueError, ZeroDivisionError):
-        return float("nan")
+    return _npf_result("fv", r, n, pm, p, t)
 
 
 def fvschedule(principal: Any, schedule: Any) -> float:

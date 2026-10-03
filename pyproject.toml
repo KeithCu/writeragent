@@ -85,6 +85,8 @@ dev = [
     "python-docx>=1.1.0",
     "xlrd>=2.0.0",
     "numpy",
+    # Annuity helpers (PMT, PV, FV, NPER, IPMT, MIRR) call this in the user venv.
+    "numpy-financial>=1.0.0",
     "pandas",
     "scipy",
     "scikit-learn",

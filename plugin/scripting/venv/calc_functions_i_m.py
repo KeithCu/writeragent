@@ -462,47 +462,29 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
 def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     try:
         r = float(rate)
+        # Excel/Calc truncate the period. A fractional per is a different
+        # numpy-financial payment, not the truncated one.
         p = int(float(per))
         n = float(nper)
         pv_f = float(pv_val)
         fv_f = float(fv_val)
-        t = int(float(type_val))
+        t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError):
         return float("nan")
+    # GetIpmt / Excel: per outside 1..nper is #NUM!. numpy-financial returns
+    # 0 once per > nper (and NaN only for per < 1).
     if p < 1 or p > n:
         return float("nan")
+    from plugin.scripting.venv.calc_functions_d_h import _npf_result
 
-    if r == 0:
-        return 0.0
-
-    # PMT — same closed form as pmt().
-    factor = (1 + r) ** n
-    if t == 1:
-        pmt_amt = -(pv_f * factor + fv_f) * r / ((factor - 1) * (1 + r))
-    else:
-        pmt_amt = -(pv_f * factor + fv_f) * r / (factor - 1)
-
-    # LibreOffice GetIpmt (sc/source/core/opencl/op_financial_helpers.hxx):
-    # end-of-period interest is rate * FV(per-1, pay-in-advance=false).
-    # Beginning-of-period (type=1) is 0 in period 1, otherwise
-    # rate * (FV(per-2, pay-in-advance=true) - pmt). The old type=1 branch
-    # computed a dead `interest` and then used an end-of-period FV at per-2,
-    # dropping the (1+rate) factor on the payment annuity. That matches
-    # GetIpmt for per<=2 and is wrong for per>=3.
-    if t == 1 and p == 1:
-        return 0.0
-    periods = (p - 2) if t == 1 else (p - 1)
-    term = (1 + r) ** periods
-    if t == 1:
-        accumulated = pv_f * term + pmt_amt * (1 + r) * (term - 1) / r
-        base = -accumulated - pmt_amt
-    else:
-        accumulated = pv_f * term + pmt_amt * (term - 1) / r
-        base = -accumulated
-    return base * r
+    return _npf_result("ipmt", r, p, n, pv_f, fv_f, t)
 
 
 def irr(values: Any, guess: Any = 0.1) -> float:
+    # numpy-financial 1.1 irr ignores guess and returns one polynomial root
+    # (smallest magnitude). Excel IRR(values, guess) is Newton's method from
+    # that guess: guess 0.1 and 0.5 on [-5, 10.5, 1, -8, 1] are different
+    # roots (~0.089 and ~0.71). Keep this solver.
     vals = np.asarray(values, dtype=float).ravel()
     # Simple Newton's method for IRR
     x = float(guess)
@@ -897,24 +879,12 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
         rr = float(reinvest_rate)
     except (ValueError, TypeError):
         return float("nan")
-    n = len(vals) - 1
-    if n < 1:
-        return float("nan")
+    from plugin.scripting.venv.calc_functions_d_h import _npf_result
 
-    # NPV of negative flows at finance rate
-    npv_neg = sum(v / ((1 + fr) ** i) for i, v in enumerate(vals) if v < 0)
-    # FV of positive flows at reinvest rate
-    fv_pos = sum(v * ((1 + rr) ** (n - i)) for i, v in enumerate(vals) if v > 0)
-
-    if npv_neg == 0 or fv_pos == 0:
-        return float("nan")
-
-    try:
-        # standard formula:
-        # MIRR = (-fv_pos / npv_neg) ** (1/n) - 1
-        return (-fv_pos / npv_neg) ** (1.0 / n) - 1.0
-    except (ValueError, TypeError):
-        return float("nan")
+    # rate == -1 used to divide by zero (later negative flows) or return a
+    # finite number (reinvest rate -1). numpy-financial's NPV is undefined
+    # there and returns NaN, which is Excel #NUM!.
+    return _npf_result("mirr", vals, fr, rr)
 
 
 def mmult(array1: Any, array2: Any) -> Any:

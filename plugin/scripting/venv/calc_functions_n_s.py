@@ -234,31 +234,23 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
         pmt_f = float(pmt_val)
         pv_f = float(pv_val)
         fv_f = float(fv_val)
-        t = int(float(type_val))
+        # Only type 1 is beginning-of-period, same as PMT/FV/PV. The old
+        # closed form plugged any integer into (1+rate*type).
+        t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError):
         return float("nan")
-    if r == 0:
-        if pmt_f == 0:
-            return float("nan")
-        return -(pv_f + fv_f) / pmt_f
+    from plugin.scripting.venv.calc_functions_d_h import _npf_result
 
-    # PV * (1+r)^n + PMT*(1+r*t)*(((1+r)^n - 1)/r) + FV = 0
-    # Let A = PMT*(1+r*t)/r
-    # PV*(1+r)^n + A*(1+r)^n - A + FV = 0
-    # (1+r)^n * (PV + A) = A - FV
-    # n * ln(1+r) = ln((A - FV)/(PV + A))
-    A = pmt_f * (1 + r * t) / r
-    num = A - fv_f
-    den = pv_f + A
-    if den == 0:
-        return float("nan")
-    val = num / den
-    if val <= 0:
-        return float("nan")
-    return math.log(val) / math.log(1 + r)
+    # numpy-financial returns ±inf when the payment does not amortize
+    # (pmt == 0, or the log argument is non-positive). log(1+rate) at
+    # rate == -1 used to raise ValueError. Both are Excel #NUM!.
+    return _npf_result("nper", r, pmt_f, pv_f, fv_f, t)
 
 
 def npv(rate: Any, *args: Any) -> float:
+    # numpy-financial.npv discounts from t=0, so values[0] is not discounted.
+    # Excel/Calc NPV discounts the first cash flow by one period. The test
+    # locks 100/1.1 + 200/1.21. Do not call npf.npv for this helper.
     # Text rate used to raise ValueError from the bare float() call. rate == -1
     # makes every denominator (1 + r) ** k zero and raised ZeroDivisionError.
     # Both are Excel #VALUE! / #NUM!, returned here as NaN.
@@ -485,15 +477,14 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
         n = float(nper)
         p = float(pv)
         f = float(fv_val)
-        t = int(float(type_val))
+        t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    if r == 0:
-        return float(-(p + f) / n)
-    factor = (1 + r) ** n
-    if t == 1:
-        return float(-(p * factor + f) * r / (factor - 1) / (1 + r))
-    return float(-(p * factor + f) * r / (factor - 1))
+    from plugin.scripting.venv.calc_functions_d_h import _npf_result
+
+    # nper == 0 used to raise ZeroDivisionError. numpy-financial returns
+    # ±inf; Calc/Excel are #DIV/0!, returned here as NaN.
+    return _npf_result("pmt", r, n, p, f, t)
 
 
 def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
@@ -535,15 +526,12 @@ def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -
         n = float(nper)
         pm = float(pmt_val)
         f = float(fv_val)
-        t = int(float(type_val))
+        t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    if r == 0:
-        return float(-(f + pm * n))
-    factor = (1 + r) ** n
-    if t == 1:
-        return float(-(f + pm * (factor - 1) * (1 + r) / r) / factor)
-    return float(-(f + pm * (factor - 1) / r) / factor)
+    from plugin.scripting.venv.calc_functions_d_h import _npf_result
+
+    return _npf_result("pv", r, n, pm, f, t)
 
 
 def quartile(r: Any, q: Any) -> float:
