@@ -633,11 +633,17 @@ def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
     tunnel._provider = "cloudflare"
     tunnel._public_url = ""
     tunnel.mcp_public_url.return_value = ""
-    started: list[str] = []
+    started: list[tuple[str, bool]] = []
 
-    def run_bg(fn, name=None):
+    def run_bg(fn, name=None, dedicated=False):
+        # What was wrong: ``_schedule_mcp_snippet_refresh`` calls
+        # ``run_in_background(_wait, name="mcp-snippet-refresh", dedicated=True)``
+        # so the 1.2s URL poll does not occupy a pool slot. This fake only
+        # accepted ``name``, so the extra keyword raised TypeError before
+        # the no-sleep check could run.
+        # Why: record the same arguments that call actually passes.
         del fn
-        started.append(name or "")
+        started.append((name or "", bool(dedicated)))
 
     try:
         with patch("plugin.mcp._shared_tunnel", tunnel), \
@@ -646,7 +652,7 @@ def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
             mcp_ui.sync_mcp_config_snippet(dlg)
             mcp_ui.sync_mcp_config_snippet(dlg)
         mock_sleep.assert_not_called()
-        assert started == ["mcp-snippet-refresh"]
+        assert started == [("mcp-snippet-refresh", True)]
         written = json.loads(snippet.setText.call_args[0][0])
         assert written["mcpServers"]["libreoffice"]["url"] == "https://<subdomain>.trycloudflare.com/mcp"
     finally:
