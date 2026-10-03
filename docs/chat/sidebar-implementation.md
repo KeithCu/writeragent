@@ -160,7 +160,7 @@ def _set_status_safe(self, text: str) -> None:
 - Catches and silences `DocumentDisposedError`, `com.sun.star.lang.DisposedException`, and related UNO disposal runtime exceptions at `DEBUG` log level.
 - Logs unexpected non-disposed exceptions with `log.exception(...)` while safely containing UI crashes when `suppress_all=True` (the default).
 
-Sidebar teardown (`set_default_focus_restore`, `removeWindowListener`), mode-selector refresh, and query-field `Consume` use this helper. Config I/O for Enter-to-send (`get_config_bool`) and `_uno_model_probe_for_log` stay as explicit `except Exception` (not UNO lifecycle).
+Sidebar teardown (frame-session release, `removeWindowListener`), mode-selector refresh, and query-field `Consume` use this helper. Config I/O for Enter-to-send (`get_config_bool`) and `_uno_model_probe_for_log` stay as explicit `except Exception` (not UNO lifecycle).
 
 ---
 

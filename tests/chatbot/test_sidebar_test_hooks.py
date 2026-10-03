@@ -548,6 +548,35 @@ def test_sidebar_panel_none_when_several_panels_miss(monkeypatch) -> None:
     assert hooks.send_listener() is None
 
 
+def test_sidebar_panel_named_frame_does_not_fall_through_to_only_panel(monkeypatch) -> None:
+    """A frame the caller already has must not resolve via panels[0]."""
+    from plugin.chatbot import sidebar_test_hooks as hooks
+
+    only = SimpleNamespace(xFrame=object(), send_listener="sl")
+    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [only])
+    other = object()
+    assert hooks.sidebar_panel(frame=other) is None
+    assert hooks.send_listener(frame=other) is None
+
+
+def test_sidebar_panel_off_thread_wrapper_does_not_call_uno_same(monkeypatch) -> None:
+    """uno_same is main-thread-only. A miss must not become panels[0]."""
+    from plugin.chatbot import sidebar_test_hooks as hooks
+
+    writer_frame = object()
+    only = SimpleNamespace(xFrame=writer_frame, send_listener="sl")
+    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [only])
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+
+    def uno_same(left: object, right: object) -> bool:
+        raise AssertionError("uno_same off the main thread")
+
+    monkeypatch.setattr("plugin.framework.uno_context.uno_same", uno_same)
+    assert hooks.sidebar_panel(frame=object()) is None
+    assert hooks.send_listener(frame=object()) is None
+    assert hooks.sidebar_panel(frame=writer_frame) is only
+
+
 def test_sidebar_panel_returns_the_only_live_panel(monkeypatch) -> None:
     from plugin.chatbot import sidebar_test_hooks as hooks
 

@@ -431,18 +431,23 @@ class TestSendDispose:
         assert not (listener._stop_requested_fallback)
 
     def test_stop_mouse_entered_stops_query_restore(self) -> None:
-        from plugin.framework import uno_context as uc
+        from plugin.framework.frame_session import FrameSession
 
+        listener = _make_send_listener()
+        session = FrameSession(listener.frame, "doc-a")
         query = MagicMock()
-        uc.set_default_focus_restore(query)
-        uc.note_user_wants_query()
-        try:
-            notify_stop_mouse_entered()
-            uc.restore_query_if_user_still_there()
-            query.setFocus.assert_not_called()
-        finally:
-            uc.set_default_focus_restore(None)
-            uc._restore_query_after_scroll = True
+        session.set_focus_pin(query)
+        session.note_user_wants_query()
+        listener.frame_session = session
+        other = FrameSession(MagicMock(), "doc-b")
+        other_query = MagicMock()
+        other.set_focus_pin(other_query)
+        other.note_user_wants_query()
+        notify_stop_mouse_entered(listener)
+        session.restore_focus()
+        other.restore_focus()
+        query.setFocus.assert_not_called()
+        other_query.setFocus.assert_called_once()
 
 
 class _MockDisposedException(Exception):

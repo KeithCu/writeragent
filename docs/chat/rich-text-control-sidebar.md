@@ -67,7 +67,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | Streaming plain append | `RichTextChatWidget.append_assistant_stream_chunk` via `panel.py` `_append_response` |
 | Post-stream HTML rerender | `SendButtonListener.rerender_rich_text_session` → `RichTextChatWidget.rerender_last_assistant_if_html` |
 | Truncate stream tail without flattening earlier formatting | `truncate_control_from` (cursor delete, not `model.Text = ""`) |
-| Reveal caret without stealing query focus | `reveal_rich_control_caret`; focus restored via `focus_preserved` in [`uno_context.py`](../../plugin/framework/uno_context.py) |
+| Reveal caret without stealing query focus | `reveal_rich_control_caret` passes that panel's Ask field to `focus_preserved`. Stream chunks call the frame session's `restore_focus`. |
 | History reload in ~16 KB batches | `HISTORY_RENDER_BATCH_CHARS`, `RichTextChatWidget.render_session_history` |
 | Resize / fill the column | [`panel_resize.py`](../../plugin/chatbot/panel_resize.py) stretches `response` / query / status / selectors to the panel margin; [`sync_rich_control_bounds`](../../plugin/chatbot/rich_text_control.py) insets `response_rich` inside that placeholder. Width negotiation is [`sidebar_column_width`](../../plugin/framework/sidebar_column.py) (fill the deck box; ignore frame-sized `getHeightForWidth` hints) |
 | LLM HTML format instructions gated on config | `get_chat_response_format_instructions` → `RICH_CHAT_SIDEBAR_INSTRUCTIONS` |
@@ -209,15 +209,15 @@ flowchart LR
 | `clear_control` | Clear transcript |
 | `sync_rich_control_bounds` | Apply inset bounds from `placeholder_rect` (panel listener) or live placeholder size |
 
-### Focus / idle (`uno_context.py`)
+### Focus / idle
 
 | Function | Role |
 |----------|------|
-| `focus_preserved(ctx)` | Context manager: capture focus window, yield, restore (query field stays focused during RichTextControl mutations) |
+| `focus_preserved(ctx, restore)` | Context manager in `uno_context`. Restores the control passed in (that panel's Ask field). No process-wide pin. |
 | `process_events_to_idle(ctx, rounds=1)` | Drain UI events between append / caret-reveal steps |
-| `restore_query_if_user_still_there()` | After stream SelectAll, `query.setFocus()` only while the user still wants Ask/instruct |
-| `note_user_left_query()` | Stop restoring (Stop/Clear/other sidebar pointer, Writer page click) so stream `setFocus` cannot abort Stop |
-| `install_stream_focus_tracker` | Query focusGained → restore; click handler on the current document controller (each open document, removed on dispose) + `leave_query_controls` mouse/focus → leave |
+| `FrameSession.restore_focus` | After stream SelectAll, `setFocus` on this frame's Ask field only while the user still wants it |
+| `FrameSession.note_user_left_query` | Stop restoring this frame (Stop/Clear/other sidebar pointer, page click on this frame's controller) |
+| `FrameSession.install` | Query focusGained, leave-query controls, and a click handler on `frame.getController()`. Dispose of one frame does not remove another's listeners |
 
 ### Key APIs (`rich_text_paste.py`)
 
@@ -234,7 +234,7 @@ Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`ins
 
 Python cannot scroll this control to “end of document.” UNO `insertString` / `gotoEnd` move the **model** cursor. `ShowCursor(AUTOSCROLL)` follows the **EditView caret**. `RichTextEditSource` has no view forwarder; `setSelection` never reaches EditView (`ORichTextPeer` is `VCLXWindow`, not `XTextComponent`). A ZWSP tail insert is the same UNO path and does not move a caret that sits at the start — that hack is **removed**.
 
-**Contract:** insert at the end, then `reveal_rich_control_caret` (brief ReadOnly lift + focus + idle). Do **not** insert dummy tail text — that is the same UNO path as the real append and does not move the EditView caret. Query focus is restored via `set_default_focus_restore`. Reliable pin-to-end still needs an LO peer API (`setSelection` / `ShowCursor`).
+**Contract:** insert at the end, then `reveal_rich_control_caret` (brief ReadOnly lift + focus + idle). Do **not** insert dummy tail text — that is the same UNO path as the real append and does not move the EditView caret. Query focus is restored from the frame session that owns the panel. Reliable pin-to-end still needs an LO peer API (`setSelection` / `ShowCursor`).
 
 Resize: stock `layoutWindow()` always `SetVisArea(Point())`, so every `setPosSize` jumps to the top. The C++ patch keeps and clamps the old top-left (like `ImpVclMEdit::Resize`). On stock, after a real bounds change we Hidden-SelectAll (same as stream). That resticks the bottom; a mid-transcript scroll position cannot be restored without the patch.
 

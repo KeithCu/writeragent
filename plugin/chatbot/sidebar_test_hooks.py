@@ -641,9 +641,10 @@ def sidebar_panel(frame: Any = None, *, uid: str = "") -> Any:
 
     What was wrong: a frame miss (including ``uno_same`` raising off the URP
     thread) fell through to ``panels[0]``, the same leftover-Calc pad as
-    Packet K. How: both the match branch and the multi-panel branch returned
-    the first panel. Why this change: a named uid uses ``_live_panel_uid``
-    from register, and more than one live panel with no match returns None.
+    Packet K. How: both the match branch and the single-panel branch returned
+    the first panel even when the caller had already named a frame. Why this
+    change: a named frame that does not match returns None. ``panels[0]`` is
+    only the no-frame, one-deck debug fallback.
     """
     _require_debug()
     panels = iter_live_chat_panels()
@@ -655,7 +656,12 @@ def sidebar_panel(frame: Any = None, *, uid: str = "") -> Any:
             if str(getattr(panel, "_live_panel_uid", "") or "") == token:
                 return panel
         return None
-    target = frame if frame is not None else _current_frame()
+    if frame is not None:
+        for panel in panels:
+            if _frames_match(_panel_frame(panel), frame):
+                return panel
+        return None
+    target = _current_frame()
     if target is not None:
         for panel in panels:
             if _frames_match(_panel_frame(panel), target):
@@ -973,10 +979,10 @@ def send_listener(frame: Any = None, *, uid: str = "") -> Any:
         # Do not steal a leftover slash-popup listener from another deck.
         # Packet K inflate + URP Send must share this panel's ChatSession.
         return sl
-    # Matched panel whose listener is already torn down, a named uid, or
-    # several live panels with no frame match: do not fall through to the
-    # last adopted listener (closed Calc stayed reachable).
-    if panel is not None or uid or len(panels) > 1:
+    # A named frame or uid already picked a deck. Do not substitute another
+    # window's listener when that deck missed (uno_same off the URP thread
+    # used to fall through to panels[0] / the last adopted listener).
+    if frame is not None or panel is not None or uid or len(panels) > 1:
         return None
     with_popup = [
         obj for obj in _LIVE_SEND_LISTENERS if getattr(obj, "slash_popup", None) is not None and not _listener_torn_down(obj)

@@ -96,19 +96,17 @@ def _thin_panel_element():
 
 
 def test_disposing_swallows_disposed_focus_restore():
-    from unittest.mock import patch
+    from unittest.mock import MagicMock
 
     el = _thin_panel_element()
-    with patch(
-        "plugin.framework.uno_context.clear_default_focus_restore_if",
-        side_effect=_MockDisposedException("bridge gone"),
-    ):
-        el.disposing(None)
+    el.frame_session = MagicMock()
+    el.frame_session.release_panel.side_effect = _MockDisposedException("bridge gone")
+    el.disposing(None)
     assert el.rich_text_widget is None
 
 
 def test_disposing_swallows_disposed_remove_window_listener():
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock
 
     el = _thin_panel_element()
     root = MagicMock()
@@ -117,8 +115,7 @@ def test_disposing_swallows_disposed_remove_window_listener():
     tp.resize_listener = MagicMock()
     el.toolpanel = tp
     el.m_panelRootWindow = root
-    with patch("plugin.framework.uno_context.clear_default_focus_restore_if"):
-        el.disposing(None)
+    el.disposing(None)
     root.removeWindowListener.assert_called_once()
 
 
@@ -230,9 +227,10 @@ def test_release_live_sidebar_keeps_the_newer_window():
 
     from plugin.chatbot.panel_factory import release_live_sidebar
     from plugin.doc.live_panels import get_live_panel, register_live_panel, reset_live_panels
-    from plugin.framework import uno_context as uc
+    from plugin.framework.frame_session import FrameSession, reset_frame_sessions
 
     reset_live_panels()
+    reset_frame_sessions()
     first = _thin_panel_element()
     second = _thin_panel_element()
     first._live_panel_uid = "shared"
@@ -240,19 +238,27 @@ def test_release_live_sidebar_keeps_the_newer_window():
     first_query = MagicMock(name="first-query")
     second_query = MagicMock(name="second-query")
     first.send_listener = MagicMock()
+    first_session = FrameSession(MagicMock(name="frame-a"), "shared")
+    second_session = FrameSession(MagicMock(name="frame-b"), "shared")
+    first.frame_session = first_session
+    second.frame_session = second_session
+    first_session.bind_panel(first)
+    second_session.bind_panel(second)
+    first_session.set_focus_pin(first_query)
+    second_session.set_focus_pin(second_query)
     register_live_panel("shared", second)
-    uc.set_default_focus_restore(second_query)
     try:
         release_live_sidebar(first, first_query)
         assert get_live_panel("shared") is second
-        assert uc._default_focus_restore is second_query
+        assert second_session.focus_pin is second_query
+        assert first_session.focus_pin is None
         first.send_listener.disposing.assert_called_once_with(None)
         release_live_sidebar(second, second_query)
         assert get_live_panel("shared") is None
-        assert uc._default_focus_restore is None
+        assert second_session.focus_pin is None
     finally:
         reset_live_panels()
-        uc.set_default_focus_restore(None)
+        reset_frame_sessions()
 
 
 def test_get_real_interface_create_goes_through_main_thread_hop():

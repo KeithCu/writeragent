@@ -368,6 +368,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     ctx: Any
     frame: Any
+    frame_session: Any
     send_control: Any
     stop_control: Any
     clear_control: Any
@@ -439,6 +440,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     ) -> None:
         self.ctx = ctx
         self.frame = frame
+        self.frame_session = None
         self.send_control = send_control
         self.stop_control = stop_control
         self.clear_control = clear_control
@@ -1509,9 +1511,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             # Send button click leaves focus on Send; keep the query field
             # ready for the next question (reveal/scroll must not win later).
             try:
-                from plugin.framework.uno_context import note_user_wants_query
-
-                note_user_wants_query()
+                session = getattr(self, "frame_session", None)
+                if session is not None:
+                    session.note_user_wants_query()
                 if hasattr(self.query_control, "setFocus"):
                     self.query_control.setFocus()
             except Exception as e:
@@ -1807,11 +1809,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 # ---------------------------------------------------------------------------
 
 
-def notify_stop_mouse_entered() -> None:
-    """Hovering Stop: do not restore Ask/instruct on the next stream chunk."""
-    from plugin.framework.uno_context import note_user_left_query
-
-    note_user_left_query()
+def notify_stop_mouse_entered(send_listener: Any = None) -> None:
+    """Hovering Stop: do not restore this frame's Ask field on the next stream chunk."""
+    session = getattr(send_listener, "frame_session", None)
+    if session is not None:
+        session.note_user_left_query()
 
 
 def notify_stop_mouse_pressed(send_listener: Any) -> None:
@@ -1823,9 +1825,9 @@ def notify_stop_mouse_pressed(send_listener: Any) -> None:
     belt-and-suspenders if ActionEvent still never fires. Change/Reject during
     web-search approval stays on ActionEvent — do not treat those as Stop.
     """
-    from plugin.framework.uno_context import note_user_left_query
-
-    note_user_left_query()
+    session = getattr(send_listener, "frame_session", None)
+    if session is not None:
+        session.note_user_left_query()
     if send_listener is None:
         return
     if getattr(send_listener, "_approval_event", None) is not None:
@@ -1869,7 +1871,7 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
             return
 
         def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
-            notify_stop_mouse_entered()
+            notify_stop_mouse_entered(send_listener)
 
         def mouseExited(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             return

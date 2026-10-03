@@ -48,9 +48,11 @@ Module: [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.p
 | `product_display_name` / `is_libreharper` | User-visible product name / LibreHarper probe. |
 | `get_active_document` | `desktop.getCurrentComponent()` (Start Center possible when nothing is open). |
 | `get_document_from_frame` | Model from a sidebar frame controller (preferred over Desktop for panels). |
-| `focus_preserved` / stream-focus helpers | Sidebar query-field focus restore after RichTextControl; **UI-specific, not generic UNO**. |
+| `focus_preserved` | Restore an explicit control after RichTextControl steals focus. No process-wide pin. |
 
 `get_toolkit` / `get_ctx` are also the drain chokepoint for [`plugin/framework/async_stream.py`](../../plugin/framework/async_stream.py). Thread-affinity wrappers live in [`plugin/framework/thread_guard.py`](../../plugin/framework/thread_guard.py) (`guard_uno`, `main_thread_only`) — see [uno-thread-safety.md](uno-thread-safety.md).
+
+Sidebar focus pins, page-click handlers, and the chat panel are per frame, not per process. [`plugin/framework/frame_session.py`](../../plugin/framework/frame_session.py) `FrameSession` is created when the sidebar factory is given a frame and destroyed when that frame closes. The panel is constructed with that session's document id. Clicks, stream restore, and focus restore close over the session. Do not use `getCurrentComponent()`, `get_active_document()`, or `panels[0]` to find the document when the caller already has the frame.
 
 ### 1.2 Document resolve-by-URL-or-uid
 
@@ -461,7 +463,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 **Desktop / GraphicProvider duplication (lower value)**
 
-- `uno_context._current_document_controller` uses `get_desktop` (no-VCL fail-soft, issue #768).
+- Document click handlers use the sidebar frame's controller. They do not call `get_desktop` / `getCurrentComponent()`.
 - `main.py._load_icon_graphic` vs `librepy/sidebar_menus.py` GraphicProvider-from-URL (LibrePy also tries filesystem).
 - `create_property_value` (`writer/format.py`) vs inline `PropertyValue()` / `createUnoStruct` at load sites. `open_document_for_read` already imports `create_property_value`.
 
@@ -471,9 +473,9 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 ### 3.5 `uno_context.py` scope creep
 
-The module mixes (1) true UNO globals (ctx, desktop, toolkit, package URL, resolve-by-url) with (2) sidebar stream-focus tracking (`install_stream_focus_tracker`, `note_user_left_query`, …). Focus helpers are real bugfixes; they are not generic utilities. Future work should **not** add more UI here. An optional later split is listed below; it is not required to fix overlap.
+`uno_context` keeps the UNO globals (ctx, desktop, toolkit, package URL, resolve-by-url) and `focus_preserved` (explicit control, no process pin). Sidebar listeners, the focus pin, and the panel live on [`FrameSession`](../../plugin/framework/frame_session.py). Do not put them back in process globals.
 
-Each open sidebar gets its own query `focusGained` listener. `install_stream_focus_tracker` does not replace the process-wide restore pin (`set_default_focus_restore` owns that). Stream scroll passes that panel's Ask field into `restore_query_if_user_still_there`, so a second window does not `setFocus` the first. Leave-query listeners (Stop/Clear/Send) drop their Python bindings on `disposing` and are not attached twice to the same control. They do not call `remove*` while the broadcaster is already disposing; that unregister stays on the add-failure rollback.
+Each open frame has one session. Its query `focusGained`, leave-query, and page-click listeners close over that session. `disposing` forgets the Python binding and does not call `remove*`. Explicit panel release removes only that session's listeners. A second frame's dispose or click does not touch the first.
 
 ---
 
@@ -505,11 +507,11 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 5. **Shared PathSettings locator** (`_path_settings_from_ctx`) used by research, config, gallery. Keep property names at call sites.
 6. **`DocumentService.detect_doc_type`** → `doc_type_label_for_enum(..., impress_as_draw=True)` **only if** tests accept unknown → `"unknown"` or an explicit `default="writer"` is added.
 7. **`get_active_document_for_scripts`** → `get_active_document` + type filter (drop the second Desktop create).
-8. **`_current_document_controller`** → `get_desktop` / `get_active_document` instead of a third Desktop create.
+8. **`_current_document_controller`** → frame controller, not another Desktop create. **Landed** as `FrameSession`: the click handler uses `frame.getController()` and does not call `getCurrentComponent()`.
 
 ### P3 — optional / low value
 
-9. Stop adding UI to `uno_context`; optional extract of stream-focus helpers.
+9. Stop adding UI to `uno_context`. **Landed:** stream-focus listeners and the pin are `FrameSession`, not process globals. `focus_preserved` stays, and takes the panel's Ask field explicitly.
 10. GraphicProvider icon load: `main.py` vs `librepy/sidebar_menus.py` (LibrePy’s filesystem fallback is the extra behavior).
 11. Point remaining `uno.systemPathToFileUrl` image/math sites at the P1 helper **after** a Windows smoke check.
 12. Notebook `file://` strip fallback → same URL→path helper.
