@@ -52,6 +52,8 @@ from plugin.framework.thread_guard import main_thread_only, on_main_thread
 log = logging.getLogger("writeragent.context")
 
 _fallback_ctx = None
+# id(target) -> (target, proxy). Holding the target keeps the id from being reused.
+_component_context_proxies: dict[int, tuple[Any, Any]] = {}
 _logged_component_context_fallback = False
 # Set by main.py / main_core.py bootstrap; auto-detected from installed packages when unset.
 _package_extension_id: str | None = None
@@ -60,6 +62,9 @@ _package_extension_id: str | None = None
 _KNOWN_EXTENSION_IDS = (EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT, EXTENSION_ID_LIBREHARPER)
 
 _is_libreharper_cache: bool | None = None
+
+# Process image does not change. None means not computed yet (False is a real answer).
+_desktop_create_unsafe: bool | None = None
 
 # uno.bin / unopkg register helpers have no VCL. Creating Desktop there SEGVs
 # (issue #768). pythonloader often rewrites sys.argv, so also read /proc.
@@ -97,16 +102,17 @@ def _linux_process_tokens() -> list[str]:
     return tokens
 
 
-def desktop_create_is_unsafe() -> bool:
-    """True in uno.bin / unopkg helpers that have no VCL.
+def reset_desktop_create_is_unsafe_for_tests() -> None:
+    """Drop the cached no-VCL answer.
 
-    ``createInstanceWithContext("com.sun.star.frame.Desktop")`` and
-    ``getValueByName(theDesktop)`` on that ctx take SolarMutexGuard →
-    GetYieldMutex and SEGV (issue #768). GUI soffice already has Desktop.
-
-    Do not trust ``sys.argv`` alone: pythonloader inside
-    ``uno.bin --singleaccept`` often leaves argv as ``['']`` or a .py path.
+    ``desktop_create_is_unsafe`` reads argv and ``/proc`` once. Tests patch
+    those inputs and must clear the cache or they see the previous process.
     """
+    global _desktop_create_unsafe
+    _desktop_create_unsafe = None
+
+
+def _desktop_create_is_unsafe_now() -> bool:
     argv = [str(arg) for arg in sys.argv]
     if argv and _basename_is_uno_helper(argv[0]):
         return True
@@ -119,6 +125,29 @@ def desktop_create_is_unsafe() -> bool:
     if any(_basename_is_uno_helper(token) for token in proc_tokens):
         return True
     return _tokens_have_singleaccept(proc_tokens)
+
+
+def desktop_create_is_unsafe() -> bool:
+    """True in uno.bin / unopkg helpers that have no VCL.
+
+    ``createInstanceWithContext("com.sun.star.frame.Desktop")`` and
+    ``getValueByName(theDesktop)`` on that ctx take SolarMutexGuard →
+    GetYieldMutex and SEGV (issue #768). GUI soffice already has Desktop.
+
+    Do not trust ``sys.argv`` alone: pythonloader inside
+    ``uno.bin --singleaccept`` often leaves argv as ``['']`` or a .py path.
+
+    What was wrong: ``get_desktop`` called this on every lookup, and each
+    call re-read ``/proc/self/exe``, ``comm``, and ``cmdline``. How: nothing
+    remembered the first answer. Why: the process image does not change, so
+    the first result is cached. Tests that patch argv or
+    ``_linux_process_tokens`` call ``reset_desktop_create_is_unsafe_for_tests``.
+    """
+    global _desktop_create_unsafe
+    if _desktop_create_unsafe is not None:
+        return _desktop_create_unsafe
+    _desktop_create_unsafe = _desktop_create_is_unsafe_now()
+    return _desktop_create_unsafe
 
 
 def is_libreharper() -> bool:
@@ -218,6 +247,32 @@ def _guard_returned_uno(obj: Any) -> Any:
     return guard_uno(obj)
 
 
+def _stable_component_context(ctx: Any) -> Any:
+    """Return one object for this component context.
+
+    What was wrong: every ``get_ctx()`` call ran ``_wrap_uno``, which builds
+    a new ``_UnoThreadGuardProxy``. Under GUARD_ON, ``get_ctx() is get_ctx()``
+    was False. The release stub returns the raw object, so identity holds.
+    How: the bootstrap context is one long-lived PyUNO object and the proxy
+    was not remembered.
+    Why: a context that is already a guard proxy is returned as that object.
+    Otherwise one proxy is cached per target. Mocks and guard-off returns
+    stay the raw object, which is already stable. QueueExecutor still
+    unwraps before it stores a context; that compare is on the raw target.
+    """
+    from plugin.framework.thread_guard import _UnoThreadGuardProxy
+
+    if ctx is None or isinstance(ctx, _UnoThreadGuardProxy):
+        return ctx
+    slot = _component_context_proxies.get(id(ctx))
+    if slot is not None and slot[0] is ctx:
+        return slot[1]
+    wrapped = _guard_returned_uno(ctx)
+    if isinstance(wrapped, _UnoThreadGuardProxy):
+        _component_context_proxies[id(ctx)] = (ctx, wrapped)
+    return wrapped
+
+
 @main_thread_only
 def get_ctx() -> Any:
     """Return the UNO component context.
@@ -232,7 +287,7 @@ def get_ctx() -> Any:
     # We prefer the explicitly set _fallback_ctx (which holds the remote connection context)
     # to prevent standalone runs from trying to use the local PyUNO context.
     if _fallback_ctx is not None:
-        return _guard_returned_uno(_fallback_ctx)
+        return _stable_component_context(_fallback_ctx)
     try:
         import uno
 
@@ -248,10 +303,10 @@ def get_ctx() -> Any:
                         "get_ctx: no extension fallback; using uno.getComponentContext() "
                         "(set_fallback_ctx was not called)"
                     )
-                return _guard_returned_uno(ctx)
+                return _stable_component_context(ctx)
     except ImportError:
         pass
-    return _guard_returned_uno(_fallback_ctx)
+    return _stable_component_context(_fallback_ctx)
 
 
 from plugin.framework.errors import DocumentDisposedError, check_disposed, safe_call, UnoObjectError
@@ -350,6 +405,13 @@ def _reraise_document_disposed(exc: BaseException, object_type: str) -> None:
     raise DocumentDisposedError(str(exc) or "UNO object was disposed", object_type=object_type) from exc
 
 
+# What was wrong: clear_writer_body is a public UNO entry and touched the
+# document with no thread check. A raw model reached PyUNO off the main
+# thread. How: sibling getters use @main_thread_only and this helper did not.
+# Why: the decorator raises before any attribute access when the guard is on.
+# In-tree callers already pass a guarded doc on the main thread; the
+# decorator does not unwrap that argument.
+@main_thread_only
 def clear_writer_body(doc: Any) -> bool:
     """Empty *doc* of everything a template can put in it. True when something was removed.
 
@@ -511,8 +573,6 @@ def get_toolkit(ctx: Any | None = None) -> Any:
     if ctx is None:
         return None
     try:
-        from typing import cast
-
         ctx_any = cast("Any", ctx)
         smgr = get_service_manager(ctx_any)
         if smgr is None:
@@ -813,7 +873,10 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
         # Real UNO hasMoreElements() is bool. A MagicMock is always truthy,
         # so ``while enum.hasMoreElements()`` spun the main thread in pytest.
         # Same guard as get_open_documents.
-        while enum is not None:
+        # What was wrong: ``while enum is not None`` never ended the loop.
+        # How: nothing in the body assigns ``enum = None``; the exits are
+        # ``break``. Why: ``while True`` matches those breaks.
+        while True:
             try:
                 more = enum.hasMoreElements()
             except Exception as e:
@@ -847,13 +910,13 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
             except Exception as e:
                 # One dead window must not hide the rest of the desktop.
                 # Disposal of the enumeration itself is the outer handler.
-                logging.getLogger(__name__).debug("resolve_document_by_url element error: %s", type(e).__name__)
+                log.debug("resolve_document_by_url element error: %s", type(e).__name__)
                 continue
     except DocumentDisposedError:
         raise
     except Exception as e:
         _reraise_document_disposed(e, "Desktop")
-        logging.getLogger(__name__).exception("resolve_document_by_url enumeration error")
+        log.exception("resolve_document_by_url enumeration error")
     return (None, None)
 
 
@@ -868,7 +931,7 @@ def get_document_from_frame(frame: Any) -> Any:
         return None
     from plugin.framework.errors import suppress_disposed
 
-    with suppress_disposed("resolve document from frame", logger=logging.getLogger(__name__)):
+    with suppress_disposed("resolve document from frame", logger=log):
         check_disposed(frame, "Frame")
         controller = frame.getController()
         if not controller:

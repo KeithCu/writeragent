@@ -33,9 +33,9 @@ Module: [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.p
 
 | Symbol | Purpose |
 |--------|---------|
-| `set_fallback_ctx` / `get_ctx` | Store / return the extension bootstrap component context (prefer this over `uno.getComponentContext()`). |
+| `set_fallback_ctx` / `get_ctx` | Store / return the extension bootstrap component context (prefer this over `uno.getComponentContext()`). Repeat calls return the same object: one guard proxy per target when the dev thread guard is on, the raw context in release. |
 | `get_service_manager` | `ctx.ServiceManager` or `ctx.getServiceManager()`. |
-| `get_desktop` | `com.sun.star.frame.Desktop` from the extension context. |
+| `get_desktop` | `com.sun.star.frame.Desktop` from the extension context. Skips create when `desktop_create_is_unsafe()` (no-VCL `uno.bin` / `unopkg`). That answer is cached; process identity does not change. Tests call `reset_desktop_create_is_unsafe_for_tests()`. |
 | `get_toolkit` | `com.sun.star.awt.Toolkit` (event pump / focus). |
 | `process_events_to_idle` | Drain VCL via the approved toolkit pump (skips when a chat/MCP drain owner is active). |
 | `wait_while_pumping` | Secondary wait loop: PE2I (`force=False`) on the VCL thread, else **post** PE2I to main (Writer linguistic `Dummy-*` waiters). Drain-owner waits stay on `pump_ui_idle` / `run_blocking_in_thread`. |

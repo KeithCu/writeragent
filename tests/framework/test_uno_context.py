@@ -491,16 +491,20 @@ def test_product_display_name_follows_extension_id():
 
 
 def test_get_desktop_returns_none_without_service_manager():
-    from plugin.framework.uno_context import get_desktop
+    from plugin.framework.uno_context import get_desktop, reset_desktop_create_is_unsafe_for_tests
 
     ctx = MagicMock()
     ctx.ServiceManager = None
     ctx.getServiceManager.return_value = None
-    with (
-        patch.object(sys, "argv", ["soffice"]),
-        patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
-    ):
-        assert get_desktop(ctx) is None
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with (
+            patch.object(sys, "argv", ["soffice"]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+        ):
+            assert get_desktop(ctx) is None
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_get_extension_path_rejects_non_file_url():
@@ -512,58 +516,74 @@ def test_get_extension_path_rejects_non_file_url():
 
 def test_get_desktop_skips_create_on_uno_bin_helper():
     """Register/enable uno.bin must not createInstance(Desktop) (#768)."""
-    from plugin.framework.uno_context import get_desktop
+    from plugin.framework.uno_context import get_desktop, reset_desktop_create_is_unsafe_for_tests
 
     smgr = MagicMock()
     ctx = MagicMock()
     ctx.ServiceManager = smgr
-    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
-        assert get_desktop(ctx) is None
-    smgr.createInstanceWithContext.assert_not_called()
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
+            assert get_desktop(ctx) is None
+        smgr.createInstanceWithContext.assert_not_called()
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_get_desktop_skips_create_when_proc_exe_is_uno_bin():
     """pythonloader may rewrite sys.argv; /proc/self/exe is the real process (#768)."""
-    from plugin.framework.uno_context import get_desktop
+    from plugin.framework.uno_context import get_desktop, reset_desktop_create_is_unsafe_for_tests
 
     smgr = MagicMock()
     ctx = MagicMock()
     ctx.ServiceManager = smgr
     proc = ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"]
-    with (
-        patch.object(sys, "argv", [""]),
-        patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
-    ):
-        assert get_desktop(ctx) is None
-    smgr.createInstanceWithContext.assert_not_called()
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with (
+            patch.object(sys, "argv", [""]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
+        ):
+            assert get_desktop(ctx) is None
+        smgr.createInstanceWithContext.assert_not_called()
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_get_desktop_creates_on_soffice():
-    from plugin.framework.uno_context import get_desktop
+    from plugin.framework.uno_context import get_desktop, reset_desktop_create_is_unsafe_for_tests
 
     desktop = MagicMock()
     smgr = MagicMock()
     smgr.createInstanceWithContext.return_value = desktop
     ctx = MagicMock()
     ctx.ServiceManager = smgr
-    with (
-        patch.object(sys, "argv", ["soffice"]),
-        patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
-        patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
-    ):
-        assert get_desktop(ctx) is desktop
-    smgr.createInstanceWithContext.assert_called_once_with("com.sun.star.frame.Desktop", ctx)
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with (
+            patch.object(sys, "argv", ["soffice"]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
+        ):
+            assert get_desktop(ctx) is desktop
+        smgr.createInstanceWithContext.assert_called_once_with("com.sun.star.frame.Desktop", ctx)
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_get_active_document_skips_desktop_create_on_no_vcl():
-    from plugin.framework.uno_context import get_active_document
+    from plugin.framework.uno_context import get_active_document, reset_desktop_create_is_unsafe_for_tests
 
     smgr = MagicMock()
     ctx = MagicMock()
     ctx.ServiceManager = smgr
-    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
-        assert get_active_document(ctx) is None
-    smgr.createInstanceWithContext.assert_not_called()
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
+            assert get_active_document(ctx) is None
+        smgr.createInstanceWithContext.assert_not_called()
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_get_active_document_reraises_disposed_desktop():
@@ -846,6 +866,7 @@ def test_uno_boundaries_import_guard_uno_at_the_return():
     frame.getController.return_value = controller
 
     saved = uc._fallback_ctx
+    uc.reset_desktop_create_is_unsafe_for_tests()
     try:
         uc.set_fallback_ctx(ctx)
         with (
@@ -865,6 +886,7 @@ def test_uno_boundaries_import_guard_uno_at_the_return():
             assert uc.get_document_from_frame(frame) is frame_model
     finally:
         uc.set_fallback_ctx(saved)
+        uc.reset_desktop_create_is_unsafe_for_tests()
     for obj in (ctx, desktop, doc, pip, toolkit, model, frame_model):
         assert obj in seen
 
