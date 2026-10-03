@@ -101,6 +101,8 @@ class ComputeSettings:
     def __post_init__(self) -> None:
         if self.workers is None:
             object.__setattr__(self, "workers", 2)
+        if self.ocr_workers is None:
+            object.__setattr__(self, "ocr_workers", 0)
         # One listener thread per subprocess that can run a job.
         # GET /health shares this pool with /v1/execute. An execute holds its
         # thread for the whole lease and eval (up to max_timeout_sec), and

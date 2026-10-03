@@ -363,6 +363,7 @@ class BaseProcessPool:
     _is_shutdown: bool
     _lock: threading.Lock
     _cond: threading.Condition
+    _reaper_stop_event: threading.Event
 
     def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False) -> None:
         self.script_path = script_path
@@ -378,6 +379,7 @@ class BaseProcessPool:
         self._idle: set[BaseProcessWorker] = set()
         self._worker_last_active: dict[BaseProcessWorker, float] = {}
         self._cond = threading.Condition(self._lock)
+        self._reaper_stop_event = threading.Event()
         self._idle_reaper_thread: threading.Thread | None = None
 
         if self.num_workers > 0:
@@ -395,9 +397,10 @@ class BaseProcessPool:
 
     def _start_reaper(self, name: str, interval: float, fn: Callable[[], None]) -> threading.Thread:
         def _loop() -> None:
-            while not self._is_shutdown:
-                time.sleep(interval)
-                fn()
+            # Wait on stop event instead of time.sleep so pool shutdown terminates immediately
+            while not self._reaper_stop_event.wait(interval):
+                if not self._is_shutdown:
+                    fn()
 
         t = threading.Thread(target=_loop, name=name, daemon=True)
         t.start()
@@ -521,14 +524,19 @@ class BaseProcessPool:
 
     def shutdown(self) -> None:
         """Terminate all worker processes."""
+        self._reaper_stop_event.set()
         with self._cond:
             if self._is_shutdown:
                 return
             self._is_shutdown = True
             log.info("Shutting down %s pool (%d workers)...", self.worker_name, len(self.workers))
-            for w in self.workers:
-                w.kill()
+            workers_to_kill = list(self.workers)
             self.workers.clear()
             self._idle.clear()
             self._worker_last_active.clear()
             self._cond.notify_all()
+        # Reaping/killing worker processes can take seconds (wait + drain join).
+        # Perform outside the pool lock so waiting threads or release callbacks
+        # do not block on child process termination.
+        for w in workers_to_kill:
+            w.kill()

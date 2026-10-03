@@ -78,17 +78,18 @@ def _inject_req_id(body: dict[str, Any], req_id: Any) -> dict[str, Any]:
 
 
 def _clear_request_read_deadline(environ: dict[str, Any]) -> None:
-    """Drop the header/body socket deadline once the body is buffered.
+    """Set a bounded socket write deadline once the body is buffered.
 
     The handler sets a read timeout so a client that accepts and then sends
-    nothing cannot pin a listener. That same timeout would abort the response
-    write after a long ``=PY()``. Direct WSGI tests have no connection.
+    nothing cannot pin a listener. Once read, maintain a bounded write deadline
+    so stalled clients cannot hold listener threads indefinitely during send.
+    Direct WSGI tests have no connection.
     """
     conn = environ.get("compute.connection")
     if conn is None:
         return
     try:
-        conn.settimeout(None)
+        conn.settimeout(_REQUEST_READ_TIMEOUT_SEC)
     except Exception:
         pass
 
@@ -153,6 +154,26 @@ def _start_raw_json(start_response: Any, status: str, body: bytes, *, extra_head
 
 def _start_json(start_response: Any, status: str, payload: dict[str, Any], *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
     return _start_raw_json(start_response, status, _json_bytes(payload), extra_headers=extra_headers)
+
+
+def _send_execution_result(start_response: Any, result_payload: Any, req_id: Any) -> list[bytes]:
+    """Send worker result (raw JSON bytes, pool error status, or serialized dict)."""
+    if isinstance(result_payload, dict):
+        raw_out = result_payload.get("result_json")
+        if isinstance(raw_out, (bytes, bytearray)) and raw_out:
+            return _start_raw_json(start_response, "200 OK", bytes(raw_out))
+        # Eval errors travel inside result_json and stay HTTP 200.
+        # Worker-death codes mean the pool never finished the cell.
+        infra = _infrastructure_status(result_payload)
+        _inject_req_id(result_payload, req_id)
+        if infra is not None:
+            return _start_json(start_response, infra, result_payload)
+
+    try:
+        return _start_json(start_response, "200 OK", result_payload)
+    except (TypeError, ValueError) as e:
+        err_body = {"status": "error", "error": f"JSON encode failed: {e}"}
+        return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
 
 
 def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[bytes | None, list[bytes] | None]:
@@ -340,23 +361,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 status = result_payload.get("status") if isinstance(result_payload, dict) else None
                 log.info("done /v1/execute id=%r status=%r duration=%.2fms", req_id, status, duration_ms)
 
-                if isinstance(result_payload, dict):
-                    raw_out = result_payload.get("result_json")
-                    if isinstance(raw_out, (bytes, bytearray)) and raw_out:
-                        return _start_raw_json(start_response, "200 OK", bytes(raw_out))
-                    # Eval errors travel inside result_json and stay HTTP 200.
-                    # Worker-death codes mean the pool never finished the cell.
-                    # They used to stay 200, so a proxy would not retry.
-                    infra = _infrastructure_status(result_payload)
-                    _inject_req_id(result_payload, req_id)
-                    if infra is not None:
-                        return _start_json(start_response, infra, result_payload)
-
-                try:
-                    return _start_json(start_response, "200 OK", result_payload)
-                except (TypeError, ValueError) as e:
-                    err_body = {"status": "error", "error": f"JSON encode failed: {e}"}
-                    return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
+                return _send_execution_result(start_response, result_payload, req_id)
             except Exception as e:
                 duration_ms = (time.perf_counter() - start_t) * 1000.0
                 log.exception("fail /v1/execute id=%r duration=%.2fms: %s", req_id, duration_ms, e)
@@ -458,16 +463,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             vision_pool = get_vision_pool(settings)
             try:
                 result_payload = vision_pool.execute(helper=helper, image_b64=b64_str, file_path=path_str, params=params if isinstance(params, dict) else {}, timeout_sec=timeout_sec_opt, req_id=req_id, allow_paths=settings.ocr_allow_paths)
-                if isinstance(result_payload, dict):
-                    _inject_req_id(result_payload, req_id)
-                    infra = _infrastructure_status(result_payload)
-                    if infra is not None:
-                        return _start_json(start_response, infra, result_payload)
-                try:
-                    return _start_json(start_response, "200 OK", result_payload)
-                except (TypeError, ValueError) as e:
-                    err_body = {"status": "error", "error": f"JSON encode failed: {e}"}
-                    return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
+                return _send_execution_result(start_response, result_payload, req_id)
             except Exception as e:
                 log.exception("fail /v1/vision id=%r: %s", req_id, e)
                 err_body = {"status": "error", "error": f"Server execution failure: {e}"}
@@ -529,6 +525,8 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                     except OSError:
                         pass
                 sock.bind((ip, port))
+                if port == 0:
+                    port = sock.getsockname()[1]
                 self.sockets.append(sock)
             except OSError as e:
                 print(f"Warning: Failed to bind to {ip}:{port} ({family}): {e}", file=sys.stderr)
@@ -726,11 +724,18 @@ def run_server(settings: ComputeSettings) -> None:
     server = WSGIDualStackServer(settings.host, settings.port, max_threads=settings.threads)
     server.set_app(create_wsgi_app(settings))
 
+    shutdown_signals_received = 0
+
     def _handle_shutdown(signum: int, _frame: Any) -> None:
+        nonlocal shutdown_signals_received
+        shutdown_signals_received += 1
         try:
             sig_name = signal.Signals(signum).name
         except Exception:
             sig_name = str(signum)
+        if shutdown_signals_received > 1:
+            log.warning("Received repeated signal %s, aborting immediately...", sig_name)
+            os._exit(1)
         log.info("Received signal %s, initiating graceful shutdown...", sig_name)
         threading.Thread(target=server.shutdown, daemon=True).start()
 

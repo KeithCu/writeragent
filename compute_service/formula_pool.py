@@ -244,8 +244,11 @@ class FormulaProcessPool(BaseProcessPool):
             workers_snapshot = list(self.workers)
         busy_code = "WORKER_POOL_BUSY"
         if mode == "shared" and session_id and workers_snapshot:
-            worker_idx = abs(hash(session_id)) % len(workers_snapshot)
-            target_worker = workers_snapshot[worker_idx]
+            with self._cond:
+                target_worker = self._active_sessions.get(session_id)
+            if target_worker is None:
+                worker_idx = abs(hash(session_id)) % len(workers_snapshot)
+                target_worker = workers_snapshot[worker_idx]
             leased = self.lease_specific(target_worker, timeout_sec=_remaining_sec(deadline))
             busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
         else:
@@ -274,15 +277,12 @@ class FormulaProcessPool(BaseProcessPool):
             # pinned every workbook to a wrapper whose process had already
             # died while idle. execute respawned a blank kernel, recycle saw
             # a live pid, and later cells refreshed the TTL on empty state.
-            if leased.did_respawn:
-                with self._cond:
+            with self._cond:
+                if leased.did_respawn:
                     self._clear_worker_sessions_unlocked(leased)
-            if mode == "shared" and session_id and leased.is_alive():
-                with self._cond:
+                if mode == "shared" and session_id and leased.is_alive():
                     self._active_sessions[session_id] = leased
-                    if leased not in self._worker_sessions:
-                        self._worker_sessions[leased] = set()
-                    self._worker_sessions[leased].add(session_id)
+                    self._worker_sessions.setdefault(leased, set()).add(session_id)
                     self._session_last_activity[session_id] = time.monotonic()
             self.release_worker(leased)
 

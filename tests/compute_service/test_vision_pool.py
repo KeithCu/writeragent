@@ -430,3 +430,11 @@ def test_vision_timeout_kills_when_late_frame_never_arrives(tmp_path) -> None:
         pool.shutdown()
 
 
+def test_vision_worker_empty_bytes_not_missing_source() -> None:
+    """An empty byte string must not be misclassified as a missing image source."""
+    from compute_service.vision_worker import _handle_request
+
+    res = _handle_request({"id": "empty-bytes", "image_bytes": b""})
+    assert res.get("code") != "MISSING_IMAGE_SOURCE"
+
+

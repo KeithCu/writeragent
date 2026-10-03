@@ -604,37 +604,60 @@ class TestComputeSettings:
         s = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == "mykey"
 
+    def test_compute_settings_none_worker_counts(self) -> None:
+        """Verify ComputeSettings handles None for workers and ocr_workers gracefully."""
+        s = ComputeSettings(workers=None, ocr_workers=None)
+        assert s.workers == 2
+        assert s.ocr_workers == 0
+        assert s.threads == 2
 
-class TestBearerAuthHttp:
-    @pytest.fixture(scope="class")
-    def auth_server(self):
-        """One HTTP server for the class; clear `executed` between tests via autouse below."""
-        port = get_free_port()
+    def test_dual_stack_port_zero_bind(self) -> None:
+        """Verify WSGIDualStackServer binds cleanly when port=0 and assigns matching port."""
         from compute_service.server import WSGIDualStackServer
 
-        executed: list[str] = []
+        server = WSGIDualStackServer("127.0.0.1", 0)
+        try:
+            assert len(server.srv.sockets) >= 1
+            port = server.srv.server_address[1]
+            assert port > 0
+            for sock in server.srv.sockets:
+                assert sock.getsockname()[1] == port
+        finally:
+            server.server_close()
 
-        def fake_execute(**kwargs):
-            executed.append(kwargs["code"])
-            return {"status": "ok", "result": 1, "stdout": ""}
 
-        reset_calls: list[str] = []
+@pytest.fixture(scope="class")
+def auth_server():
+    """One HTTP server for the class; clear `executed` between tests via autouse below."""
+    port = get_free_port()
+    from compute_service.server import WSGIDualStackServer
 
-        def fake_reset(session_id: str, **_kw):
-            reset_calls.append(session_id)
-            return {"status": "ok"}
+    executed: list[str] = []
 
-        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="correct-secret")
-        app = create_wsgi_app(settings, execute_fn=fake_execute, reset_fn=fake_reset)
-        server = WSGIDualStackServer("127.0.0.1", port)
-        server.set_app(app)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        time.sleep(0.15)
-        yield f"http://127.0.0.1:{port}", executed, reset_calls
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+    def fake_execute(**kwargs):
+        executed.append(kwargs["code"])
+        return {"status": "ok", "result": 1, "stdout": ""}
+
+    reset_calls: list[str] = []
+
+    def fake_reset(session_id: str, **_kw):
+        reset_calls.append(session_id)
+        return {"status": "ok"}
+
+    settings = ComputeSettings(host="127.0.0.1", port=port, api_key="correct-secret")
+    app = create_wsgi_app(settings, execute_fn=fake_execute, reset_fn=fake_reset)
+    server = WSGIDualStackServer("127.0.0.1", port)
+    server.set_app(app)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    time.sleep(0.15)
+    yield f"http://127.0.0.1:{port}", executed, reset_calls
+    server.shutdown()
+    server.server_close()
+    thread.join(timeout=5)
+
+
+class TestBearerAuthHttp:
 
     @pytest.fixture(autouse=True)
     def _clear_executed(self, auth_server):

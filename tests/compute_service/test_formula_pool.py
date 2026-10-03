@@ -880,6 +880,33 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_active_session_routes_to_mapped_worker(self) -> None:
+        """Shared session execution routes to _active_sessions[sid] if already mapped."""
+        pool = FormulaProcessPool(num_workers=3, default_timeout_sec=15)
+        try:
+            sid = "affinity-direct"
+            # Map session to worker #2 explicitly
+            target_worker = pool.workers[2]
+            with pool._cond:
+                pool._active_sessions[sid] = target_worker
+                pool._worker_sessions.setdefault(target_worker, set()).add(sid)
+                pool._session_last_activity[sid] = time.monotonic()
+
+            res = pool.execute(code="state = 42\nresult = state", session_id=sid, mode="shared")
+            assert res.get("status") == "ok"
+            assert res.get("result") == 42
+            with pool._cond:
+                assert pool._active_sessions.get(sid) is target_worker
+        finally:
+            pool.shutdown()
+
+    def test_pool_shutdown_signals_reaper_event(self) -> None:
+        """Pool shutdown sets _reaper_stop_event so reaper threads terminate promptly."""
+        pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=3600.0)
+        assert not pool._reaper_stop_event.is_set()
+        pool.shutdown()
+        assert pool._reaper_stop_event.is_set()
+
 
 class TestFormulaHttpEndpoint:
     @pytest.fixture

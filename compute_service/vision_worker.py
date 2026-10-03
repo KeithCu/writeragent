@@ -71,7 +71,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         if err_body is not None:
             return err_body
         image_bytes = cast(bytes, image_bytes_opt)
-    elif req.get("image_bytes") and isinstance(req["image_bytes"], (bytes, bytearray)):
+    elif isinstance(req.get("image_bytes"), (bytes, bytearray)):
         image_bytes = bytes(req["image_bytes"])
     elif image_b64:
         try:
