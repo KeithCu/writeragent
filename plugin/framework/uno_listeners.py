@@ -228,15 +228,17 @@ def _catch_and_log(func: Any) -> Any:
             log.exception(f"{self.__class__.__name__} ValueError in {func.__name__}")
             return failure
         except Exception as exc:
-            # CloseVetoException must reach the bridge or the close cannot be vetoed.
+            # CloseVetoException / TerminationVetoException must reach the
+            # bridge or close / app quit cannot be vetoed.
             # What was wrong: DisposedException was re-raised, and a bool
             # method then fell off the end as None. How: disposing() throwing
             # stops the broadcaster from notifying the remaining listeners,
             # and XMouseClickHandler.mousePressed is sal_Bool. Why: only the
             # veto propagates. Disposal and other errors return False for
-            # bool methods and None otherwise.
+            # bool methods and None otherwise. TerminationVetoException was
+            # swallowed the same way CloseVetoException once was.
             name = type(exc).__name__
-            if "CloseVetoException" in name:
+            if "CloseVetoException" in name or "TerminationVetoException" in name:
                 raise
             log.exception(f"{self.__class__.__name__} unhandled exception in {func.__name__}")
             return failure

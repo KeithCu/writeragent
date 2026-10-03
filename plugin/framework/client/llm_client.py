@@ -528,6 +528,7 @@ class LlmClient:
         return auth_info.get("provider", "custom")
 
     def _timeout(self) -> Any:
+        """Settings read/stall budget. Connect uses ``LLM_CONNECT_TIMEOUT_SEC``."""
         return self.config.get("request_timeout", 120)
 
     def _current_host(self) -> str:

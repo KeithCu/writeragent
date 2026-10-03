@@ -88,13 +88,19 @@ class LlmHttpTransport:
 
         log.debug("Opening new connection to %s://%s:%s" % (scheme, host, port))
         self._conn_key = new_key
-        timeout = self._timeout_getter()
+        # What was wrong: constructor timeout was request_timeout (default 120),
+        # so a dead host blocked DNS/TCP for the full stream stall budget.
+        # Connect uses LLM_CONNECT_TIMEOUT_SEC; send() raises the socket to the
+        # Settings read timeout after connect returns.
+        from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
+
+        connect_timeout = LLM_CONNECT_TIMEOUT_SEC
 
         if scheme == "https":
             ssl_context = get_verified_ssl_context() if ssl_mode == "verified" else get_unverified_ssl_context()
-            self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=timeout)
+            self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=connect_timeout)
         else:
-            self._persistent_conn = http.client.HTTPConnection(host, port, timeout=timeout)
+            self._persistent_conn = http.client.HTTPConnection(host, port, timeout=connect_timeout)
 
         return self._persistent_conn
 
@@ -136,9 +142,11 @@ class LlmHttpTransport:
         conn = connection_getter() if connection_getter is not None else self.get_connection()
         # What was wrong: timeout was stored only when the socket was opened.
         # ``LlmClient._timeout`` reads ``request_timeout`` on every call, so a
-        # later change never reached a keep-alive connection.
-        timeout = self._timeout_getter()
-        conn.timeout = timeout
+        # later change never reached a keep-alive connection. Connect still
+        # uses the short connect budget; read uses Settings request_timeout.
+        from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
+
+        read_timeout = self._timeout_getter()
         sock = getattr(conn, "sock", None)
         if sock is None:
             # What was wrong: Stop during DNS/TCP called close() while sock
@@ -148,10 +156,12 @@ class LlmHttpTransport:
             # Why: connect first, then refuse to send the body if Stop won.
             # A reused keep-alive socket is already set; request() must not
             # be asked to connect again or it replaces that socket.
+            conn.timeout = LLM_CONNECT_TIMEOUT_SEC
             conn.connect()
             sock = getattr(conn, "sock", None)
+        conn.timeout = read_timeout
         if sock is not None:
-            sock.settimeout(timeout)
+            sock.settimeout(read_timeout)
         self._pacer.wait_before_send()
         if stop_checker is not None and stop_checker():
             self._drop_stopped_connection(conn)

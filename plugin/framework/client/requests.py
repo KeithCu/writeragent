@@ -5,13 +5,15 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import urllib.error
+import urllib.request
 from typing import Any
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
-from plugin.framework.constants import USER_AGENT
+from urllib.request import Request
+from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC, USER_AGENT
 from plugin.framework.errors import NetworkError
 from .request_controls import RETRY_MAX_ATTEMPTS, RETRYABLE_HTTP_STATUS, LocalHttpsCertificateFallback, backoff_delay_sec, parse_retry_after, remember_host_gap, wait_abortable
 from .ssl_helpers import _is_certificate_verify_error, get_verified_ssl_context, get_unverified_ssl_context
@@ -19,6 +21,59 @@ from plugin.framework.errors import format_error_message
 from .errors import _format_http_error_response
 
 log = logging.getLogger(__name__)
+
+
+def _split_timeout_opener(ssl_context: Any, *, connect_timeout: float, read_timeout: float) -> urllib.request.OpenerDirector:
+    """urlopen-compatible opener: short connect, Settings-sized read.
+
+    urllib passes one timeout into ``HTTPConnection``. A dead host then waited
+    the full ``request_timeout`` before failing. Mirror ``LlmHttpTransport``:
+    construct/connect with *connect_timeout*, then raise the socket to *read_timeout*.
+    """
+
+    class _HTTPConnection(http.client.HTTPConnection):
+        timeout: float | None
+
+        def __init__(self, host: str, port: int | None = None, **kwargs: Any) -> None:
+            kwargs["timeout"] = connect_timeout
+            super().__init__(host, port=port, **kwargs)
+
+        def connect(self) -> None:
+            super().connect()
+            self.timeout = read_timeout
+            sock = getattr(self, "sock", None)
+            if sock is not None:
+                sock.settimeout(read_timeout)
+
+    class _HTTPSConnection(http.client.HTTPSConnection):
+        timeout: float | None
+
+        def __init__(self, host: str, port: int | None = None, **kwargs: Any) -> None:
+            kwargs["timeout"] = connect_timeout
+            if ssl_context is not None:
+                kwargs["context"] = ssl_context
+            super().__init__(host, port=port, **kwargs)
+
+        def connect(self) -> None:
+            super().connect()
+            self.timeout = read_timeout
+            sock = getattr(self, "sock", None)
+            if sock is not None:
+                sock.settimeout(read_timeout)
+
+    class _HTTPHandler(urllib.request.HTTPHandler):
+        def http_open(self, req: Request) -> Any:
+            return self.do_open(_HTTPConnection, req)
+
+    class _HTTPSHandler(urllib.request.HTTPSHandler):
+        def __init__(self) -> None:
+            # Parent stores context for https_request; connections use _HTTPSConnection.
+            super().__init__(context=ssl_context)
+
+        def https_open(self, req: Request) -> Any:
+            return self.do_open(_HTTPSConnection, req)
+
+    return urllib.request.build_opener(_HTTPHandler, _HTTPSHandler)
 
 
 def _log_request_target(url: Any) -> str:
@@ -70,9 +125,10 @@ def sync_request(url: str | Request, data: bytes | None = None, headers: dict[st
     Blocking HTTP GET or POST. Shared by LLM client and other code.
     url: str or urllib.request.Request. If Request, headers/data come from it.
     data: optional bytes for POST. headers: optional dict (used only if url is str).
-    timeout: required seconds for connect+read (no silent default — callers must
-    pass Settings ``request_timeout`` / ``LlmClient._timeout()`` for LLM and
-    image work, or an explicit short probe value at the call site).
+    timeout: required seconds for the **read** budget (no silent default — callers
+    must pass Settings ``request_timeout`` / ``LlmClient._timeout()`` for LLM and
+    image work, or an explicit short probe value at the call site). Connect uses
+    ``LLM_CONNECT_TIMEOUT_SEC`` so a dead host does not wait the full read stall.
     Returns response data: decoded JSON if parse_json else raw bytes. Raises on error.
     """
     if headers is None:
@@ -109,7 +165,12 @@ def sync_request(url: str | Request, data: bytes | None = None, headers: dict[st
 
     def _read_with_context(context: Any) -> Any:
         log.debug("About to open URL: %s", logged_target)
-        with urlopen(req, timeout=timeout, context=context) as resp:
+        opener = _split_timeout_opener(
+            context if is_https else None,
+            connect_timeout=float(LLM_CONNECT_TIMEOUT_SEC),
+            read_timeout=float(timeout),
+        )
+        with opener.open(req, timeout=float(timeout)) as resp:
             log.debug(f"URL opened, status={resp.getcode()}. Heading to read...")
             raw = resp.read()
             log.debug(f"Read {len(raw)} bytes")

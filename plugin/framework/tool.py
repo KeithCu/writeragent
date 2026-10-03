@@ -303,11 +303,16 @@ class ToolBase(ABC):
                 return False, f"Missing required parameter: {key}"
         props = schema.get("properties", {})
         extra_ok = getattr(self, "scripting_only_parameters", None) or frozenset()
+        # What was wrong: ``if props`` treated empty ``properties: {}`` as
+        # "no schema", so Gemini/Groq hallucinated kwargs reached execute on
+        # no-arg tools (list_sheets, etc.). A present properties dict —
+        # including {} — is authoritative.
+        props_dict = props if isinstance(props, dict) else None
         for key in kwargs:
-            if props and key not in props and key not in extra_ok:
+            if props_dict is not None and key not in props_dict and key not in extra_ok:
                 return False, f"Unknown parameter: {key}"
         for key, value in kwargs.items():
-            prop = props.get(key) if isinstance(props, dict) else None
+            prop = props_dict.get(key) if props_dict is not None else None
             if not isinstance(prop, dict) or key in extra_ok:
                 continue
             enum = prop.get("enum")
@@ -811,7 +816,9 @@ class ToolRegistry:
             schema = tool.get_parameters(ctx.doc_type) or {}
             props = (schema or {}).get("properties", {})
             extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if ctx.caller == "script" else frozenset()
-            if props:
+            # Same empty-dict hole as validate(): strip unknown keys whenever
+            # properties is a dict, including {}.
+            if isinstance(props, dict):
                 kwargs = {k: v for k, v in kwargs.items() if k in props or k in extra_ok}
 
             required = schema.get("required") or []

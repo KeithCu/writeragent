@@ -273,6 +273,21 @@ def test_close_veto_still_reaches_the_bridge():
     raise AssertionError("CloseVetoException was swallowed")
 
 
+def test_termination_veto_still_reaches_the_bridge():
+    class TerminationVetoException(Exception):
+        pass
+
+    class Veto(BaseListener):
+        def on_disposing(self, source):
+            raise TerminationVetoException("veto quit")
+
+    try:
+        Veto().disposing(MagicMock())
+    except TerminationVetoException:
+        return
+    raise AssertionError("TerminationVetoException was swallowed")
+
+
 def test_subclass_disposing_override_is_wrapped():
     class Raw(BaseListener):
         def disposing(self, Source):

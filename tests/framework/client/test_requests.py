@@ -9,7 +9,15 @@ from urllib.error import HTTPError
 import pytest
 
 from plugin.framework.client.requests import sync_request
+from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
 from plugin.framework.errors import NetworkError
+
+
+def _opener_patch(side_effect: object):
+    """Patch the split-timeout opener; sync_request no longer uses urlopen."""
+    opener = MagicMock()
+    opener.open.side_effect = side_effect
+    return patch("plugin.framework.client.requests._split_timeout_opener", return_value=opener), opener
 
 
 def test_sync_request_timeout_is_required_keyword():
@@ -28,7 +36,8 @@ def test_sync_request_log_omits_query_and_body(caplog):
     secret = "sk-live-secret"
     url = f"https://api.example/v1/models?api_key={secret}"
     err = HTTPError(url, 401, "Unauthorized", hdrs=None, fp=BytesIO(f"token {secret}".encode()))
-    with caplog.at_level(logging.DEBUG), patch("plugin.framework.client.requests.urlopen", side_effect=err):
+    opener_patch, _unused = _opener_patch(err)
+    with caplog.at_level(logging.DEBUG), opener_patch:
         with pytest.raises(NetworkError) as raised:
             sync_request(url, timeout=1)
     assert secret not in caplog.text
@@ -50,7 +59,8 @@ def test_sync_request_http_error_redacts_authorization_key():
         hdrs=None,
         fp=BytesIO(f"rejected {secret}".encode()),
     )
-    with patch("plugin.framework.client.requests.urlopen", side_effect=err):
+    opener_patch, _unused = _opener_patch(err)
+    with opener_patch:
         with pytest.raises(NetworkError) as raised:
             sync_request(
                 "https://api.example/v1/models",
@@ -69,10 +79,11 @@ def test_sync_request_retries_429_then_succeeds():
     ok.read.return_value = b'{"data":[]}'
     ok.__enter__.return_value = ok
     ok.__exit__.return_value = False
+    opener_patch, _unused = _opener_patch([busy, ok])
     with (
         patch("plugin.framework.client.requests.wait_abortable", return_value=True),
         patch("plugin.framework.client.requests.remember_host_gap") as remember,
-        patch("plugin.framework.client.requests.urlopen", side_effect=[busy, ok]),
+        opener_patch,
     ):
         result = sync_request("https://api.example/v1/models", timeout=1)
     assert result == {"data": []}
@@ -87,13 +98,11 @@ def test_sync_request_connection_retry_remembers_host_gap():
     ok.read.return_value = b'{"data":[]}'
     ok.__enter__.return_value = ok
     ok.__exit__.return_value = False
+    opener_patch, _unused = _opener_patch([TimeoutError("timed out"), ok])
     with (
         patch("plugin.framework.client.requests.wait_abortable", return_value=True),
         patch("plugin.framework.client.requests.remember_host_gap") as remember,
-        patch(
-            "plugin.framework.client.requests.urlopen",
-            side_effect=[TimeoutError("timed out"), ok],
-        ),
+        opener_patch,
     ):
         result = sync_request("https://api.example/v1/models", timeout=1)
     assert result == {"data": []}
@@ -105,7 +114,8 @@ def test_sync_request_redacts_x_goog_api_key():
     secret = "goog-secret-key-xyz"
     body = BytesIO(f'{{"error":{{"message":"bad {secret}"}}}}'.encode())
     err = HTTPError("https://generativelanguage.googleapis.com/v1", 401, "Unauthorized", hdrs=None, fp=body)
-    with patch("plugin.framework.client.requests.urlopen", side_effect=err):
+    opener_patch, _unused = _opener_patch(err)
+    with opener_patch:
         with pytest.raises(NetworkError) as raised:
             sync_request(
                 "https://generativelanguage.googleapis.com/v1",
@@ -114,3 +124,17 @@ def test_sync_request_redacts_x_goog_api_key():
             )
     assert secret not in str(raised.value)
     assert "<redacted>" in str(raised.value)
+
+
+def test_sync_request_uses_split_connect_and_read_timeouts():
+    ok = MagicMock()
+    ok.getcode.return_value = 200
+    ok.read.return_value = b'{"ok":true}'
+    ok.__enter__.return_value = ok
+    ok.__exit__.return_value = False
+    opener = MagicMock()
+    opener.open.return_value = ok
+    with patch("plugin.framework.client.requests._split_timeout_opener", return_value=opener) as split:
+        sync_request("https://api.example/v1/models", timeout=90)
+    assert split.call_args.kwargs["connect_timeout"] == float(LLM_CONNECT_TIMEOUT_SEC)
+    assert split.call_args.kwargs["read_timeout"] == 90.0

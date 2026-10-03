@@ -153,6 +153,34 @@ def test_validate():
     assert ok is False
     assert "Unknown parameter: extra" in err
 
+
+def test_validate_empty_properties_rejects_unknown_kwargs():
+    """Gemini/Groq can invent kwargs; empty properties must still reject them."""
+    tool = AllDocTool()
+    ok, err = tool.validate(hallucinated="yes")
+    assert ok is False
+    assert err is not None
+    assert "Unknown parameter: hallucinated" in err
+
+
+def test_execute_strips_unknown_kwargs_when_properties_empty():
+    """Registry strip must treat properties {} as authoritative (same as validate)."""
+
+    class CaptureTool(ToolBase):
+        name = "capture_no_arg"
+        description = "capture kwargs"
+        parameters = {"type": "object", "properties": {}}
+        uno_services = None
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok", "kwargs": dict(kwargs)}
+
+    reg = _make_registry(CaptureTool())
+    ctx = _make_ctx("writer")
+    result = reg.execute("capture_no_arg", ctx, hallucinated="yes")
+    assert result["status"] == "ok"
+    assert result["kwargs"] == {}
+
 def test_get_collection():
     tool = ValidTool()
 

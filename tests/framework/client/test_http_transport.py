@@ -18,6 +18,8 @@ def _reset_host_pacing():
 
 
 def test_transport_reuses_connection_and_reopens_on_endpoint_change():
+    from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
+
     endpoint = {"url": "https://api.openai.com"}
     transport = LlmHttpTransport(lambda: endpoint["url"], lambda: 60)
 
@@ -30,14 +32,16 @@ def test_transport_reuses_connection_and_reopens_on_endpoint_change():
         conn2 = transport.get_connection()
 
         assert conn1 is conn2
-        mock_https.assert_called_once_with("api.openai.com", 443, context=mock_ssl.return_value, timeout=60)
+        mock_https.assert_called_once_with(
+            "api.openai.com", 443, context=mock_ssl.return_value, timeout=LLM_CONNECT_TIMEOUT_SEC
+        )
 
         endpoint["url"] = "http://localhost:11434"
         conn3 = transport.get_connection()
 
         assert conn3 is not conn1
         conn1.close.assert_called_once()
-        mock_http.assert_called_once_with("localhost", 11434, timeout=60)
+        mock_http.assert_called_once_with("localhost", 11434, timeout=LLM_CONNECT_TIMEOUT_SEC)
 
 
 def test_transport_local_cert_fallback_reopens_with_unverified_context():
@@ -207,11 +211,39 @@ def test_transport_send_applies_later_timeout_on_reused_socket():
     _send()
     assert mock_conn.timeout == 30
     mock_conn.sock.settimeout.assert_called_with(30)
+    # Keep-alive socket: connect() must not run again (would replace the socket).
+    mock_conn.connect.assert_not_called()
 
     timeouts["n"] = 5
     _send()
     assert mock_conn.timeout == 5
     mock_conn.sock.settimeout.assert_called_with(5)
+
+
+def test_transport_send_connects_with_short_timeout_then_raises_read_timeout():
+    from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
+
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 120)
+    mock_conn = MagicMock()
+    mock_conn.sock = None
+    sock_after = MagicMock()
+    timeouts_seen: list[object] = []
+
+    def _connect() -> None:
+        timeouts_seen.append(mock_conn.timeout)
+        mock_conn.sock = sock_after
+
+    mock_conn.connect.side_effect = _connect
+    transport.send(
+        "POST",
+        "/v1/chat/completions",
+        b"{}",
+        headers={"User-Agent": "test"},
+        connection_getter=lambda: mock_conn,
+    )
+    assert timeouts_seen == [LLM_CONNECT_TIMEOUT_SEC]
+    assert mock_conn.timeout == 120
+    sock_after.settimeout.assert_called_with(120)
 
 
 def test_transport_send_injects_user_agent():
