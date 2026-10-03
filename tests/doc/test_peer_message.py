@@ -533,28 +533,27 @@ def test_execute_queue_full():
         enqueue_peer_turn(listener, PeerPendingTurn(f"t{i}", False))
     queued = listener_queue_len(listener)
 
-    def _send(message: str) -> dict:
-        with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-            with patch("plugin.framework.uno_context.get_runtime_uid", return_value="peer-uid"):
-                with patch("plugin.doc.live_panels.get_live_panel", return_value=panel):
-                    with drain_owner_scope("stream"):
-                        return tool.execute(ctx, document_url="peer-uid", message=message)
+    # Stay inside the drain scope. Leaving it kicks already-queued turns
+    # (t0...), which is separate from the rejected send.
+    with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
+        with patch("plugin.framework.uno_context.get_runtime_uid", return_value="peer-uid"):
+            with patch("plugin.doc.live_panels.get_live_panel", return_value=panel):
+                with drain_owner_scope("stream"):
+                    result = tool.execute(ctx, document_url="peer-uid", message="one more")
+                    assert result["status"] == "error"
+                    assert result["code"] == "PEER_QUEUE_FULL"
+                    listener.session.add_user_message.assert_not_called()
+                    assert listener.appended == []
+                    assert listener.started == []
+                    assert listener_queue_len(listener) == queued
 
-    result = _send("one more")
-    assert result["status"] == "error"
-    assert result["code"] == "PEER_QUEUE_FULL"
-    listener.session.add_user_message.assert_not_called()
-    assert listener.appended == []
-    assert listener.started == []
-    assert listener_queue_len(listener) == queued
-
-    retry = _send("retry after full")
-    assert retry["status"] == "error"
-    assert retry["code"] == "PEER_QUEUE_FULL"
-    listener.session.add_user_message.assert_not_called()
-    assert listener.appended == []
-    assert listener.started == []
-    assert listener_queue_len(listener) == queued
+                    retry = tool.execute(ctx, document_url="peer-uid", message="retry after full")
+                    assert retry["status"] == "error"
+                    assert retry["code"] == "PEER_QUEUE_FULL"
+                    listener.session.add_user_message.assert_not_called()
+                    assert listener.appended == []
+                    assert listener.started == []
+                    assert listener_queue_len(listener) == queued
 
 
 def test_registry_chat_tier_on_default_list():
