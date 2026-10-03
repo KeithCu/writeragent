@@ -16,7 +16,7 @@ from typing import Any, Callable, cast
 
 import numpy as np
 
-from .calc_functions_util import _npf_result, match_criteria
+from .calc_functions_util import _extract_numeric_array, _npf_result, match_criteria
 
 
 
@@ -669,26 +669,18 @@ def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
 
 
 def skew(*args: Any) -> float:
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            try:
-                vals.append(float(v))
-            except (ValueError, TypeError):
-                pass
-    n = len(vals)
-    if n < 3:
+    try:
+        import scipy.stats
+    except ImportError:
         return float("nan")
-    arr = np.asarray(vals)
-    m = np.mean(arr)
-    s = np.std(arr, ddof=1)
-    if s == 0:
+    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True)
+    if len(arr) < 3 or np.std(arr, ddof=1) == 0:
         return float("nan")
-    # Excel/Calc skewness formula
-    z = (arr - m) / s
-    term1 = n / ((n - 1) * (n - 2))
-    term2 = np.sum(z**3)
-    return float(term1 * term2)
+    try:
+        res = float(scipy.stats.skew(arr, bias=False))
+        return res if math.isfinite(res) else float("nan")
+    except Exception:
+        return float("nan")
 
 
 def slope(data_y: Any, data_x: Any) -> float:

@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from .calc_functions_util import _npf_result, match_criteria
+from .calc_functions_util import _extract_numeric_array, _npf_result, match_criteria
 from .coerce import header_label, is_missing_value
 
 
@@ -496,26 +496,11 @@ def asc(text: Any) -> str:
         return "#VALUE!"
 
 
-def avedev(r: Any) -> float:
-    # dtype=float on the whole array raised ValueError for text (and "") and
-    # aborted the call. Excel/Calc AVEDEV ignores text and logicals, so each
-    # value is coerced on its own and those cells are skipped.
-    vals: list[float] = []
-    for x in np.asarray(r, dtype=object).ravel():
-        if isinstance(x, (bool, np.bool_)):
-            continue
-        if isinstance(x, str):
-            continue
-        try:
-            val = float(x)
-        except (ValueError, TypeError, OverflowError):
-            continue
-        if math.isnan(val):
-            continue
-        vals.append(val)
-    if not vals:
+def avedev(*args: Any) -> float:
+    # Excel/Calc AVEDEV ignores text and logicals.
+    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
+    if not arr.size:
         return float("nan")
-    arr = np.asarray(vals, dtype=float)
     return float(np.mean(np.abs(arr - np.mean(arr))))
 
 
