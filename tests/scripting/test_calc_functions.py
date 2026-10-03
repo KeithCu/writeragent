@@ -520,3 +520,75 @@ def test_base_returns_num_error_token():
     assert calc.base(float("inf"), 10) == "#NUM!"
     assert calc.base(15, 16, 4) == "000F"
 
+
+def _excel_serial(year: int, month: int, day: int) -> float:
+    import datetime as dt
+
+    return float(dt.date(year, month, day).toordinal() - 693594)
+
+
+def test_datedif_units_match_libreoffice_and_do_not_raise():
+    # YD used to call datetime.date(end.year, start.month, start.day) outside
+    # the try. Feb 29 into a non-leap end year raised ValueError.
+    start = _excel_serial(2020, 2, 29)
+    end = _excel_serial(2021, 3, 1)
+    assert calc.datedif(start, end, "YD") == 0.0
+    # Anniversary after the end date in that year counts across the boundary.
+    assert calc.datedif(_excel_serial(2020, 12, 31), _excel_serial(2021, 1, 15), "YD") == 15.0
+
+    # M drops the incomplete month (day-of-month not yet reached).
+    assert calc.datedif(_excel_serial(2020, 1, 31), _excel_serial(2020, 2, 28), "M") == 0.0
+    assert calc.datedif(_excel_serial(2020, 1, 15), _excel_serial(2020, 2, 15), "M") == 1.0
+
+    # YM wraps across the year instead of going negative.
+    assert calc.datedif(_excel_serial(2020, 3, 15), _excel_serial(2021, 2, 10), "YM") == 10.0
+    assert calc.datedif(_excel_serial(2020, 12, 31), _excel_serial(2021, 1, 15), "YM") == 0.0
+
+    # MD borrows the previous month (ScGetDateDif). Naive day subtraction
+    # was negative whenever the end day was smaller.
+    assert calc.datedif(_excel_serial(2012, 1, 28), _excel_serial(2012, 3, 1), "MD") == 2.0
+    assert calc.datedif(_excel_serial(2011, 1, 29), _excel_serial(2011, 3, 1), "MD") == 0.0
+    assert calc.datedif(_excel_serial(2023, 1, 15), _excel_serial(2023, 3, 10), "MD") == 23.0
+    assert calc.datedif(_excel_serial(2021, 1, 31), _excel_serial(2021, 2, 28), "MD") == 28.0
+    # Day 31 rolled through a short February still matches LO (can be negative).
+    assert calc.datedif(_excel_serial(2021, 1, 31), _excel_serial(2021, 3, 1), "MD") == -2.0
+
+    assert calc.datedif(start, end, "D") == (_excel_serial(2021, 3, 1) - start)
+    assert math.isnan(calc.datedif("bad", end, "D"))
+    assert math.isnan(calc.datedif(end, start, "D"))
+
+
+def test_even_rounds_away_from_zero_and_rejects_text():
+    assert calc.even(2.5) == 4.0
+    assert calc.even(-2.5) == -4.0
+    assert calc.even(2) == 2.0
+    assert calc.even(-2) == -2.0
+    assert calc.even(3.0) == 4.0
+    assert calc.even(-3) == -4.0
+    assert calc.even(0.1) == 2.0
+    assert calc.even(-0.1) == -2.0
+    assert math.isnan(calc.even("x"))
+    assert math.isnan(calc.even(float("nan")))
+
+
+def test_filter_shape_mismatch_is_value_error():
+    assert calc.filter([1.0, 2.0, 3.0, 4.0, 5.0], [True, False, True, False, True]) == [1.0, 3.0, 5.0]
+    # Shorter include used to IndexError on the boolean index.
+    assert calc.filter([1.0, 2.0, 3.0], [True, False]) == "#VALUE!"
+    # Column-shaped include against a wider range is the same IndexError.
+    assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False], [True]]) == "#VALUE!"
+
+
+def test_numeric_coercions_return_nan_not_raise():
+    assert math.isnan(calc.forecast("x", [1.0, 2.0], [1.0, 2.0]))
+    assert math.isnan(calc.forecast(6, ["a", "b"], [1.0, 2.0]))
+    assert calc.forecast(6, [1.0, 2.0, 3.0, 4.0, 5.0], [1.0, 2.0, 3.0, 4.0, 5.0]) == 6.0
+
+    assert math.isnan(calc.fv("bad", 12, -100))
+    assert abs(calc.fv(0.05 / 12, 60, -200, -10000) - 26434.80) < 1.0
+
+    assert math.isnan(calc.geomean(["a", "b"]))
+    assert abs(calc.geomean([4.0, 9.0]) - 6.0) < 1e-9
+    assert math.isnan(calc.harmean(["a", "b"]))
+    assert abs(calc.harmean([1.0, 4.0]) - 1.6) < 1e-9
+
