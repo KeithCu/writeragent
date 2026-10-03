@@ -549,6 +549,16 @@ _DISPATCH: dict[StreamQueueKind, Callable[[_DrainState, Any, Any], None]] = {
 }
 
 
+def _stream_item_kind_data(item: Any) -> tuple[Any, Any]:
+    """Kind and payload. A bare kind or a length-1 tuple has no payload."""
+    # crosshair: off
+    if isinstance(item, (tuple, list)):
+        kind = item[0]
+        data = item[1] if len(item) > 1 else None
+        return kind, data
+    return item, None
+
+
 def _apply_queued_display(state: _DrainState) -> None:
     """Apply CHUNK/THINKING already on the queue. Drop other kinds.
 
@@ -562,8 +572,7 @@ def _apply_queued_display(state: _DrainState) -> None:
             item = state.q.get_nowait()
         except queue.Empty:
             return
-        raw_kind = item[0] if isinstance(item, (tuple, list)) else item
-        data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
+        raw_kind, data = _stream_item_kind_data(item)
         if raw_kind == StreamQueueKind.CHUNK:
             _handle_chunk(state, data, item)
         elif raw_kind == StreamQueueKind.THINKING:
@@ -609,8 +618,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
             skip_trailing_flush = True
             break
 
-        raw_kind = item[0] if isinstance(item, (tuple, list)) else item
-        data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
+        raw_kind, data = _stream_item_kind_data(item)
 
         try:
             if not isinstance(raw_kind, StreamQueueKind):
@@ -667,7 +675,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
         state.flush_buffers()
 
 
-def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: Any, on_stream_done: Any, on_stopped: Any, on_error: Any, on_status_fn: Any = None, ctx: Any = None, show_search_thinking: bool = False, on_approval_required: Any = None, stop_checker: Any = None, flush_pending: Any = None) -> None:
+def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: Any, on_stream_done: Any, on_stopped: Any, on_error: Any, on_status_fn: Any = None, show_search_thinking: bool = False, on_approval_required: Any = None, stop_checker: Any = None, flush_pending: Any = None) -> None:
     """
     Main-thread drain loop: batches items from queue, manages thinking/chunk buffers,
     and dispatches to callbacks. Keeps UI responsive via pump_ui_idle (QueueExecutor + VCL).
@@ -874,7 +882,7 @@ def run_async_worker_with_drain(
 
     ``worker_fn`` is a callable that accepts the queue and produces
     :class:`StreamQueueKind` tuples. It does not need to post a terminal
-    ``STREAM_DONE`` — the wrapper does so in ``finally`` so the drain loop
+    ``STREAM_DONE`` — the wrapper does so after the worker returns so the drain loop
     always unblocks. Any exception raised by ``worker_fn`` is converted
     into an ``ERROR`` payload, and that path does not also post
     ``STREAM_DONE``: ``on_error`` returning ``True`` keeps the drain alive
@@ -902,32 +910,42 @@ def run_async_worker_with_drain(
     saw_terminal = [False]
     real_any: Any = _real_q
 
+    def _flush_producer_batch() -> None:
+        if _batched is not None:
+            _batched.flush()
+
     def worker_wrapper() -> None:
         # What was wrong: ``finally`` always queued STREAM_DONE after ERROR.
         # A handler that returns True (keep draining, e.g. STT fallback) then
         # saw that sentinel and ended the job before the replacement worker's
         # chunks. Skip the sentinel when this wrapper or the worker already
         # queued a terminal item.
-        failed = False
+        #
+        # What was wrong: the error path flushed the batcher before putting
+        # ERROR, and flushed again before unwatch, with no try. A raising
+        # flush skipped that put, left the failure flag set so the
+        # STREAM_DONE fallback was suppressed, and left the put wrapper
+        # installed. Why: log the flush error, still queue ERROR, and
+        # unwatch from finally.
+        error_item: tuple[Any, Any] | None = None
         _watch_queue_terminal(real_any, saw_terminal)
         try:
-            # Pass the real queue (or batcher). Puts go through the patched put.
-            worker_fn(cast("queue.Queue[Any]", q))
-        except BaseException as e:
-            from plugin.framework.errors import format_error_payload
+            try:
+                # Pass the real queue (or batcher). Puts go through the patched put.
+                worker_fn(cast("queue.Queue[Any]", q))
+            except BaseException as e:
+                from plugin.framework.errors import format_error_payload
 
-            failed = True
-            payload = (StreamQueueKind.ERROR, format_error_payload(e))
-            if _batched is not None:
-                _batched.flush()
-            real_any.put(payload)
-        finally:
-            # Terminal sentinel — flush pending display text first when using
-            # the batcher, then emit the sentinel on the real queue.
-            if _batched is not None:
-                _batched.flush()
-            if not failed and not saw_terminal[0]:
+                error_item = (StreamQueueKind.ERROR, format_error_payload(e))
+            try:
+                _flush_producer_batch()
+            except Exception:
+                log.exception("BatchingStreamQueue flush before terminal failed")
+            if error_item is not None:
+                real_any.put(error_item)
+            elif not saw_terminal[0]:
                 real_any.put((StreamQueueKind.STREAM_DONE, None))
+        finally:
             _unwatch_queue_terminal(real_any, saw_terminal)
 
     from plugin.framework.uno_context import get_toolkit
@@ -991,7 +1009,11 @@ def run_async_worker_with_drain(
 
     resolved_on_stopped = on_stopped_fn or (_call_done_on_stopped if on_done_fn else _noop_stopped)
 
-    run_stream_drain_loop(_real_q, toolkit, job_done, resolved_apply_chunk, on_stream_done=on_stream_done_wrapper, on_stopped=resolved_on_stopped, on_error=resolved_on_error, on_status_fn=on_status_fn, ctx=ctx, on_approval_required=on_approval_required, stop_checker=stop_checker)
+    # Chat's tool loop passes flush_pending so Stop emits text still inside
+    # the 250ms batcher. This helper accepted a batcher and only flushed it
+    # in the worker finally, so Stop could return with up to one interval
+    # of already-produced text still buffered.
+    run_stream_drain_loop(_real_q, toolkit, job_done, resolved_apply_chunk, on_stream_done=on_stream_done_wrapper, on_stopped=resolved_on_stopped, on_error=resolved_on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, stop_checker=stop_checker, flush_pending=_flush_producer_batch if _batched is not None else None)
 
 
 def _run_client_stream(
