@@ -333,13 +333,19 @@ class _UnoThreadGuardProxy:
     # --- Protocols. Implicit dunders skip __getattr__, so they are declared here. ---
     def __iter__(self) -> Iterator[Any]:  # type: ignore[override]
         # What was wrong: the assert ran once here, then next() walked the
-        # raw UNO iterator with no check. Why: assert on every yield.
+        # raw UNO iterator with no check. A later edit asserted inside
+        # ``for item in it``, and that loop calls next() before the body.
+        # Why: assert on every pull, before the raw iterator advances.
         assert_main_thread("UNO iter")
         it = iter(self._target)
 
         def _guarded() -> Iterator[Any]:
-            for item in it:
+            while True:
                 assert_main_thread("UNO iter")
+                try:
+                    item = next(it)
+                except StopIteration:
+                    return
                 yield _wrap_uno(item)
 
         return _guarded()

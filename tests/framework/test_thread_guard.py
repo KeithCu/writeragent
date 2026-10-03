@@ -151,6 +151,29 @@ def test_proxy_iter_asserts_on_each_next():
     assert after_next > after_iter
 
 
+def test_proxy_iter_asserts_before_raw_next():
+    """The wrapper must not advance the raw iterator before the thread check."""
+    order: list[str] = []
+
+    class Raw:
+        def __iter__(self):
+            order.append("iter")
+            return self
+
+        def __next__(self):
+            order.append("next")
+            return object()
+
+    def _mark(msg: str = "") -> None:
+        order.append("assert")
+
+    prox = tg._UnoThreadGuardProxy(Raw())
+    with patch.object(tg, "assert_main_thread", side_effect=_mark):
+        iterator = iter(prox)
+        next(iterator)
+    assert order == ["assert", "iter", "assert", "next"]
+
+
 def test_proxy_wraps_pyuno_and_asserts_on_access(monkeypatch):
     # Directly exercise the proxy class (its behaviors); _wrap decision is tested below.
     real = _make_pyuno_like()

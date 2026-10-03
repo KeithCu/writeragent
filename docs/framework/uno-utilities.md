@@ -63,7 +63,7 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 | `normalize_doc_url` | `uno_context` | Strip + drop a trailing `/` so URL identity compares. |
 | `get_runtime_uid` | `uno_context` | Per-session id (`getRuntimeUID` / attribute / property); works for untitled docs. |
 | `uno_same` | `uno_context` | UNO object identity: `is` → `==` → `uno.isSame` (unwrap viral proxy first). PyUNO wrappers, not a thread-proxy requirement. Calc shapes canvas uses it to match the active sheet to `getByIndex` (distinct wrappers). |
-| `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)`. |
+| `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)`. A failed `nextElement` ends the walk (the enumeration may not advance). A fetched element that then raises is skipped. The walk also stops at 200000 elements. |
 | `get_open_documents` | `document_research` | List open OfficeDocuments with name/url/uid/path/type/active/modified (untitled kept). |
 | `_office_model_from_desktop_element` | `document_research` | Frame-or-model → `guard_uno(model)` for desktop walks. |
 | `open_document_for_read` | `document_research` | Hidden+read-only `loadComponentFromURL`, or reuse an already-open component. A load that is not returned (unsupported type, or an exception after load) is closed. |
@@ -403,7 +403,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 | `uno_context.normalize_doc_url` vs `document_scripts._normalize_doc_url` | Trailing-slash strip | **Landed.** Script identity imports `normalize_doc_url`; the document_scripts copy is gone. |
 | `document_research._path_to_file_url` vs `embeddings_fs.path_to_file_url` vs `format._file_url` | `Path(abspath).as_uri()` | **Landed.** Shared `url_utils.path_to_file_url` (filesystem section). Old copies deleted; no aliases. |
 | `text_helpers.normalize_file_url` vs sandbox vs session_manager `file:/` repair | `file:/` → `file://` + rest | **Landed for UNO callers** (`get_document_path` + research). Sandbox / session_manager stay stdlib. |
-| Desktop component walks | `resolve_document_by_url`, `get_open_documents`, `_collect_open_file_urls` | All enumerate `desktop.getComponents()`. Research already has `_office_model_from_desktop_element`; resolve has a slightly different frame-vs-model walk. GHA 34593327841: leftover HTML-paste Writers must be skipped per-component (`getController` / `getURL` can raise PyUNO traceback-conversion); do not abort the whole nearby listing. |
+| Desktop component walks | `resolve_document_by_url`, `get_open_documents`, `_collect_open_file_urls` | All enumerate `desktop.getComponents()`. Research already has `_office_model_from_desktop_element`; resolve has a slightly different frame-vs-model walk. GHA 34593327841: leftover HTML-paste Writers must be skipped per-component (`getController` / `getURL` can raise PyUNO traceback-conversion); do not abort the whole nearby listing. `resolve_document_by_url` still skips that fetched element, and stops when `nextElement` itself fails. |
 
 ### 3.2 Intentional splits (do not collapse)
 
