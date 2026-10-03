@@ -468,6 +468,8 @@ def build_scripts_list_message(
         # Same keys as build_xdl_script_picker_state. Raw names collided with
         # My Scripts and did not match selected_script_name ([Doc] …), so
         # reopen loaded the wrong row and Save wrote a different script.
+        # scripts_manager.js documentScriptListKey must probe these keys for
+        # the New / Save As overwrite check. The typed name is not a key.
         doc_scripts = {
             document_script_display_name(name): code
             for name, code in picker_document_scripts(get_document_scripts(doc)).items()
