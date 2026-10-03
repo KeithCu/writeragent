@@ -42,7 +42,6 @@ __all__ = [
     "permut",
     "pmt",
     "poisson",
-    "ppmt",
     "prob",
     "pv",
     "py_str",
@@ -484,21 +483,6 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
     # nper == 0 used to raise ZeroDivisionError. numpy-financial returns
     # ±inf; Calc/Excel are #DIV/0!, returned here as NaN.
     return _npf_result("pmt", r, n, p, f, t)
-
-
-def ppmt(rate: Any, per: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
-    try:
-        r = float(rate)
-        p = float(per)
-        n = float(nper)
-        pv_f = float(pv)
-        fv_f = float(fv_val)
-        t = 1 if int(float(type_val)) == 1 else 0
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
-    if p < 1 or p > n:
-        return float("nan")
-    return _npf_result("ppmt", r, p, n, pv_f, fv_f, t)
 
 
 def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
