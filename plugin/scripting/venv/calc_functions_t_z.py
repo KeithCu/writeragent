@@ -274,6 +274,10 @@ def trend(*args: Any) -> Any:
         import numpy as np
 
         data_y = np.asarray(args[0]).ravel()
+        # Excel TREND returns #VALUE! for an empty known_y. lstsq on a (0, k)
+        # design matrix succeeds and used to return [].
+        if data_y.size == 0:
+            return "#VALUE!"
         if len(args) > 1:
             data_x = np.asarray(args[1])
             if data_x.ndim == 1:

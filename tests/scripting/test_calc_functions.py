@@ -894,6 +894,13 @@ def test_xnpv_rate_at_or_below_minus_one_is_nan():
     assert math.isclose(calc.xnpv(-0.5, [-100, 60], [44927, 45292]), 20.0)
 
 
+def test_trend_empty_known_y_is_value_error():
+    assert calc.trend([]) == "#VALUE!"
+    assert calc.trend([[]]) == "#VALUE!"
+    fitted = calc.trend([1.0, 2.0, 3.0])
+    assert [round(v, 6) for v in fitted] == [1.0, 2.0, 3.0]
+
+
 def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
     import numpy as np
 
