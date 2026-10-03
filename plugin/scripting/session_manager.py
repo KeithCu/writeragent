@@ -619,7 +619,15 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
                 # Read-only: _workbook_session_key would mint a UDProp on docs
                 # that have never run Python.
                 if _existing_workbook_session_key(model) == key:
-                    return model
+                    from plugin.framework.thread_guard import guard_uno
+
+                    # What was wrong: the open model was returned raw. A worker
+                    # that resolved wa.doc / tool RPC could then call UNO off
+                    # the main thread.
+                    # How: desktop enumeration hands back the component itself.
+                    # Why this works: guard_uno asserts on later access unless
+                    # the caller is already on the main thread.
+                    return guard_uno(model)
             except Exception:
                 log.debug("document_for_script_session: key read failed", exc_info=True)
     except Exception:

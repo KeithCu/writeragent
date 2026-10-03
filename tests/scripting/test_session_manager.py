@@ -197,6 +197,28 @@ def test_document_for_script_session_matches_url_not_focused() -> None:
     assert found is other
 
 
+def test_document_for_script_session_wraps_model() -> None:
+    from unittest.mock import MagicMock, patch
+
+    deck = MagicMock()
+    deck.getURL.return_value = "file:///deck.odp"
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = deck
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
+    wrapped = MagicMock(name="wrapped")
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.framework.thread_guard.guard_uno", return_value=wrapped) as mock_guard,
+    ):
+        found = session_manager.document_for_script_session(MagicMock(), "ppt_master:file:///deck.odp")
+    mock_guard.assert_called_once_with(deck)
+    assert found is wrapped
+
+
 def test_reset_reports_init_reseed_failure() -> None:
     from unittest.mock import MagicMock, patch
 
