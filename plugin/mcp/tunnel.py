@@ -297,12 +297,24 @@ class TunnelManager:
     """Owns a single tunnel subprocess for the selected provider with pure FSM state."""
 
     _lock: threading.RLock
+    # Bumped by start() and stop(). A binary probe captured the value it
+    # began with; if it differs when the probe finishes, that result is stale.
+    _start_epoch: int
+    # Epoch of a start() currently inside binary_available(), or None.
+    # Retry callbacks must not spawn a process during that window.
+    _binary_probe_epoch: int | None
+    # Identity of the start _sync_tunnel armed. stop() clears it so a
+    # start that was only queued cannot run after a disable.
+    _pending_start: object | None
 
     def __init__(self) -> None:
         self._state: TunnelState = TunnelState()
         self._process: Optional[AsyncProcess] = None
         self._reconnect_timer: Optional[threading.Timer] = None
         self._lock = threading.RLock()
+        self._start_epoch = 0
+        self._binary_probe_epoch = None
+        self._pending_start = None
 
     @property
     def public_url(self) -> Optional[str]:
@@ -591,21 +603,30 @@ class TunnelManager:
     def _on_retry_timer_expired(self, timer: Optional[threading.Timer]) -> None:
         with self._lock:
             # What was wrong: Timer.cancel() does not stop a callback that
-            # has already started. start() holds this lock across
-            # binary_available() (a subprocess, up to ~10s), so a pending
-            # retry blocks there, survives CancelRetryTimerEffect, then
-            # dispatches RETRY_TIMER_EXPIRED after StartProcessEffect.
-            # desired_running is already True, so that starts a second
-            # tunnel and leaves the one just spawned running.
+            # has already started. It used to block on this lock while
+            # start() ran binary_available() (up to ~10s), survive
+            # CancelRetryTimerEffect, then dispatch RETRY_TIMER_EXPIRED
+            # after StartProcessEffect and leave a second tunnel running.
             # Why: ignore the callback unless this timer is still the one
-            # TunnelManager tracks — the same identity guard as process exit.
+            # TunnelManager tracks. Also skip it while start() is outside
+            # the lock probing the provider binary — that start() owns the
+            # next process, or marks the tunnel FAILED.
             if timer is None or self._reconnect_timer is not timer:
                 log.info("Ignoring stale MCP tunnel retry timer")
+                return
+            if self._binary_probe_epoch is not None:
+                log.info("Ignoring MCP tunnel retry during provider binary check")
+                self._reconnect_timer = None
                 return
             self._reconnect_timer = None
             self._dispatch_unlocked(TunnelEvent(TunnelEventKind.RETRY_TIMER_EXPIRED))
 
-    def start(self, port: int, provider: str = DEFAULT_PROVIDER, provider_token: str = "", max_retries: int = DEFAULT_MAX_RETRIES) -> bool:
+    def note_pending_start(self, token: object) -> None:
+        """Arm *token* as the only start that may proceed until stop() or a newer arm."""
+        with self._lock:
+            self._pending_start = token
+
+    def start(self, port: int, provider: str = DEFAULT_PROVIDER, provider_token: str = "", max_retries: int = DEFAULT_MAX_RETRIES, start_token: object | None = None) -> bool:
         """Start (or keep) a tunnel to *port*. Returns False if start failed."""
         import os
 
@@ -618,18 +639,53 @@ class TunnelManager:
         if info is None:
             log.error("Unknown tunnel provider: %s", provider)
             with self._lock:
+                if start_token is not None and self._pending_start is not start_token:
+                    log.info("Ignoring superseded MCP tunnel start (%s)", provider)
+                    return False
+                self._start_epoch += 1
+                self._binary_probe_epoch = None
+                self._pending_start = None
                 self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="unknown tunnel provider: %s" % provider, desired_running=False)
             self._retire_snippet_provider(provider)
             return False
 
         with self._lock:
+            if start_token is not None and self._pending_start is not start_token:
+                log.info("Ignoring superseded MCP tunnel start (%s)", provider)
+                return False
+            self._start_epoch += 1
+            epoch = self._start_epoch
             if self.is_running and self._state.port == int(port) and self._state.provider == provider and self._state.provider_token == token:
                 log.info("Tunnel already running (%s) at %s", provider, self.public_url)
                 if self.public_url:
                     self._state = dataclasses.replace(self._state, last_error=None)
                 return True
+            self._binary_probe_epoch = epoch
 
-            if not binary_available(provider):
+        # What was wrong: binary_available() (subprocess, timeout 10s) ran
+        # while _lock was held. _sync_tunnel() is invoked from the UI
+        # thread on config:changed, so a hung `provider --version` froze
+        # LibreOffice and stop()/retry could not take the lock either.
+        # Why: probe with the lock released. _start_epoch drops the result
+        # when stop() or a newer start() landed during the probe.
+        try:
+            available = binary_available(provider)
+        except BaseException:
+            with self._lock:
+                if self._binary_probe_epoch == epoch:
+                    self._binary_probe_epoch = None
+            raise
+
+        with self._lock:
+            if self._binary_probe_epoch == epoch:
+                self._binary_probe_epoch = None
+            if start_token is not None and self._pending_start is not start_token:
+                log.info("Ignoring superseded MCP tunnel start (%s)", provider)
+                return False
+            if epoch != self._start_epoch:
+                log.info("Ignoring stale MCP tunnel start (%s)", provider)
+                return False
+            if not available:
                 binary = info["version_args"][0]
                 self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="%s binary not found on PATH" % binary, desired_running=False)
                 self._retire_snippet_provider(provider)
@@ -642,6 +698,11 @@ class TunnelManager:
 
     def stop(self) -> None:
         with self._lock:
+            # Invalidate an in-flight or merely queued binary probe so it
+            # cannot start afterwards.
+            self._start_epoch += 1
+            self._binary_probe_epoch = None
+            self._pending_start = None
             self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
 
 

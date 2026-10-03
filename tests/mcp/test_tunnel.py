@@ -546,9 +546,9 @@ def _fire_current_retry_timer(mgr: TunnelManager) -> None:
 def test_stale_retry_timer_does_not_spawn_second_process(monkeypatch):
     """A retry callback that already started must not outlive start()'s cancel.
 
-    Timer.cancel() does not stop a callback blocked on the lock start() holds
-    across binary_available(). After that start() has spawned the replacement,
-    the callback must not start another process.
+    Timer.cancel() does not stop a callback that is already in flight.
+    After start() has spawned the replacement, the callback must not
+    start another process.
     """
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
@@ -960,5 +960,123 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
     assert data["mcpServers"]["libreoffice"]["url"] == "http://localhost:20000/mcp"
 
 
+def test_start_does_not_hold_lock_during_binary_probe(monkeypatch):
+    """A hung provider --version must not block stop() or the tunnel lock."""
+    import threading
+
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    probed = threading.Event()
+    release = threading.Event()
+    result: dict[str, bool] = {}
+
+    def _slow(provider: str) -> bool:
+        del provider
+        probed.set()
+        assert release.wait(2)
+        return True
+
+    def _run() -> None:
+        result["ok"] = mgr.start(18765, "cloudflare")
+
+    stopped = threading.Event()
+
+    def _do_stop() -> None:
+        mgr.stop()
+        stopped.set()
+
+    stopper: threading.Thread | None = None
+    with (
+        patch("plugin.mcp.tunnel.binary_available", side_effect=_slow),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=AssertionError("should not spawn")),
+    ):
+        worker = threading.Thread(target=_run)
+        worker.start()
+        try:
+            assert probed.wait(2)
+            acquired = mgr._lock.acquire(timeout=0.3)
+            assert acquired, "start() held _lock across binary_available"
+            mgr._lock.release()
+            stopper = threading.Thread(target=_do_stop)
+            stopper.start()
+            assert stopped.wait(1), "stop() blocked behind the binary probe"
+        finally:
+            release.set()
+        worker.join(2)
+        if stopper is not None:
+            stopper.join(2)
+    assert not worker.is_alive()
+    assert result["ok"] is False
+    assert mgr.is_running is False
+
+
+def test_stop_cancels_a_start_that_was_only_armed(monkeypatch):
+    """stop() after note_pending_start must win even if start() has not entered the probe."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    mgr = TunnelManager()
+    token = object()
+    mgr.note_pending_start(token)
+    mgr.stop()
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=AssertionError("should not spawn")),
+    ):
+        assert mgr.start(18765, "cloudflare", start_token=token) is False
+    assert mgr.is_running is False
+
+
+def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
+    """config:changed must return while provider --version is still running."""
+    import threading
+    import time
+
+    import plugin.mcp as mcp_mod
+    from plugin.mcp.tunnel_state import TunnelStatus
+
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    monkeypatch.setattr(mcp_mod, "_shared_tunnel", None)
+    monkeypatch.setattr(mcp_mod, "_shared_http_server", None)
+    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
+    mod.name = "mcp"
+    services = MagicMock()
+    services.config.proxy_for.return_value = {
+        "mcp_enabled": True,
+        "tunnel_enabled": True,
+        "mcp_port": 18765,
+        "tunnel_provider": "cloudflare",
+        "tunnel_provider_token": "",
+    }
+    mod._services = services
+    bound = MagicMock()
+    bound.is_running.return_value = True
+    bound.port = 18765
+    mod._server = bound
+    tunnel = TunnelManager()
+    mod._tunnel = tunnel
+
+    caller = threading.current_thread()
+    probed = threading.Event()
+    release = threading.Event()
+    probe_thread: dict[str, threading.Thread] = {}
+
+    def _slow(provider: str) -> bool:
+        del provider
+        probe_thread["t"] = threading.current_thread()
+        probed.set()
+        assert release.wait(2)
+        return False
+
+    monkeypatch.setattr("plugin.mcp.tunnel.binary_available", _slow)
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    try:
+        mod._sync_tunnel()
+        assert probed.wait(2)
+        assert probe_thread["t"] is not caller
+    finally:
+        release.set()
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and tunnel.status != TunnelStatus.FAILED:
+        time.sleep(0.02)
+    assert tunnel.status == TunnelStatus.FAILED
 
 

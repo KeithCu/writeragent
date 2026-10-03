@@ -204,3 +204,48 @@ def test_idle_stop_keeps_a_fresh_test_url(monkeypatch) -> None:
         _reset_tunnel_url_cache()
 
 
+def test_refresh_rechecks_dialog_before_applying_snippet() -> None:
+    """A dialog closed before the posted lambda runs must not be updated."""
+    from plugin.mcp import mcp_ui
+
+    dlg, snippet = _snippet_dialog(tunnel_on=False)
+    posted: list = []
+
+    def _capture(fn, *args, **kwargs):
+        del args, kwargs
+        posted.append(fn)
+
+    mcp_ui.set_active_settings_dialog(dlg)
+    try:
+        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_capture):
+            mcp_ui._refresh_active_snippet()
+        assert len(posted) == 1
+        mcp_ui.clear_active_settings_dialog(dlg)
+        posted[0]()
+        snippet.setText.assert_not_called()
+
+        mcp_ui.set_active_settings_dialog(dlg)
+        posted.clear()
+        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_capture):
+            mcp_ui._refresh_active_snippet()
+        posted[0]()
+        snippet.setText.assert_called()
+    finally:
+        mcp_ui.clear_active_settings_dialog(dlg)
+
+
+def test_snippet_refresh_uses_a_dedicated_thread() -> None:
+    """The URL poll must not occupy a shared background-pool worker."""
+    from plugin.mcp import mcp_ui
+
+    mcp_ui._mcp_snippet_refresh_scheduled = False
+    dlg, _snippet = _snippet_dialog()
+    try:
+        with patch("plugin.framework.worker_pool.run_in_background") as background:
+            mcp_ui._schedule_mcp_snippet_refresh(dlg)
+        assert background.call_args.kwargs.get("dedicated") is True
+        assert background.call_args.kwargs.get("name") == "mcp-snippet-refresh"
+    finally:
+        mcp_ui._mcp_snippet_refresh_scheduled = False
+
+

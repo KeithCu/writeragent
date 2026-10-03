@@ -42,7 +42,7 @@ from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error, safe_json_loads
 from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
-from plugin.mcp.server import write_http_empty, write_http_json
+from plugin.mcp.server import forget_sse_keepalive, note_sse_keepalive, write_http_empty, write_http_json
 from plugin.mcp.mcp_state import MCPState, MCPStateStr, EventKind, MCPEvent, ParseRequestEffect, ExecuteToolEffect, StreamResponseEffect, SendErrorEffect, next_state
 from plugin.mcp import wire_types
 
@@ -470,38 +470,53 @@ class MCPProtocolHandler:
             log.info("[SSE] GET stream disconnected")
 
     def _run_sse_keepalive_loop(self, handler: Any, interval: float = 15) -> None:
-        """Run a keepalive loop for an SSE stream without blocking the worker thread
-        longer than necessary on disconnect.
+        """Keep an SSE stream alive until the client drops or the HTTP server stops.
+
+        What was wrong: this loop ran on the ThreadingMixIn request thread
+        until the socket errored. HttpServer.stop() only ends
+        serve_forever(), so each toggle left another daemon thread in
+        select() for up to ``interval`` seconds, including across restart.
+        Why: register the socket, watch this generation's stop event, and
+        leave when stop() shuts the socket down (that wakes select).
         """
         sock = handler.connection
+        tcp_server = getattr(handler, "server", None)
+        stop_event = note_sse_keepalive(tcp_server, sock)
+        if stop_event is None:
+            log.info("[SSE] GET stream closed")
+            return
         try:
-            while True:
+            while not stop_event.is_set():
                 try:
                     handler.wfile.write(b": keepalive\n\n")
                     handler.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     break
 
-                # Wait for either activity on the socket (client disconnect or data)
-                # or the timeout to send the next keepalive.
-                # select.select on the socket returns if it's readable, which
-                # for a client that only receives means EOF (disconnect).
-                r, _unused, _unused2 = select.select([sock], [], [], interval)
-                if r:
-                    try:
-                        # Peek at the data to see if it's EOF (empty byte)
-                        peek = sock.recv(1, socket.MSG_PEEK)
-                        if not peek:
-                            # Client closed connection
-                            break
-                        # If there was actual data (unexpected for SSE GET),
-                        # we consume it to avoid immediate re-triggering of select.
-                        sock.recv(4096)
-                    except (ConnectionResetError, OSError):
+                # Wait for client disconnect, the keepalive interval, or
+                # stop() shutting this socket down (readable / error).
+                try:
+                    readable, _unused, _unused2 = select.select([sock], [], [], interval)
+                except (OSError, ValueError):
+                    break
+                if stop_event.is_set():
+                    break
+                if not readable:
+                    continue
+                try:
+                    # Peek at the data to see if it's EOF (empty byte).
+                    peek = sock.recv(1, socket.MSG_PEEK)
+                    if not peek:
                         break
+                    # Unexpected request bytes on an SSE GET. Consume them
+                    # so select does not spin.
+                    sock.recv(4096)
+                except (ConnectionResetError, OSError):
+                    break
         except Exception as e:
             log.debug("SSE keepalive loop exception: %s", e)
         finally:
+            forget_sse_keepalive(tcp_server, sock)
             log.info("[SSE] GET stream closed")
 
     def handle_sse_post(self, handler: Any) -> None:
@@ -594,7 +609,11 @@ class MCPProtocolHandler:
             if responses:
                 self._send_json(handler, 200, responses)
             else:
-                write_http_empty(handler, 202, extra_headers=_send_mcp_response_headers)
+                # What was wrong: passing _send_mcp_response_headers directly
+                # calls it with session_id=None, so a notifications-only batch
+                # omitted Mcp-Session-Id. A single notification already passed
+                # the process id. Why: use that same lambda.
+                write_http_empty(handler, 202, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
             return
 
         # Single request

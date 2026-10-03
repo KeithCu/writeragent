@@ -327,10 +327,35 @@ class McpModule(ModuleBase):
             log.warning("tunnel_enabled but no MCP port available")
             return
         provider = cfg.get("tunnel_provider") or DEFAULT_PROVIDER
-        provider_token = cfg.get("tunnel_provider_token") or ""
-        ok = tunnel.start(int(port), provider, provider_token=str(provider_token))
-        if not ok:
-            log.error("Failed to start MCP public tunnel via %s (is the provider binary installed?)", provider)
+        provider_token = str(cfg.get("tunnel_provider_token") or "")
+        port_i = int(port)
+        # Armed before the thread is queued. stop() clears it, so a disable
+        # that lands while this start is still waiting to run cannot lose.
+        start_token = object()
+        tunnel.note_pending_start(start_token)
+
+        def _start(port: int = port_i, provider: str = str(provider), provider_token: str = provider_token, start_token: object = start_token) -> None:
+            before = tunnel.last_error
+            ok = tunnel.start(port, provider, provider_token=provider_token, start_token=start_token)
+            # A superseded start (stop, or a newer arm) returns False without
+            # a new last_error. Only a probe/spawn failure is worth logging.
+            if not ok and tunnel.last_error and tunnel.last_error != before:
+                log.error("Failed to start MCP public tunnel via %s (is the provider binary installed?)", provider)
+
+        # What was wrong: config:changed runs this on the UI thread, and
+        # start() calls binary_available() (subprocess, timeout 10s). A hung
+        # provider --version froze Settings for that whole wait.
+        # Why: leave the UI thread first. The probe also runs outside
+        # TunnelManager._lock so stop() is not stuck behind it. dedicated
+        # so the wait does not occupy the shared background pool.
+        from plugin.framework.thread_guard import on_main_thread
+
+        if on_main_thread():
+            from plugin.framework.worker_pool import run_in_background
+
+            run_in_background(_start, name="mcp-tunnel-sync", dedicated=True)
+            return
+        _start()
 
     def _stop_tunnel(self) -> None:
         tunnel = self._bound_tunnel()

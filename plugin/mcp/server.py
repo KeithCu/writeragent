@@ -35,7 +35,10 @@ from __future__ import annotations
 from plugin.framework.thread_guard import background
 import json
 import logging
+import socket
 import socketserver
+import threading
+import weakref
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import TYPE_CHECKING, Any, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
@@ -97,6 +100,94 @@ def write_http_empty(handler: Any, status: int, extra_headers: Any = None) -> No
         extra_headers(handler)
     handler.send_header("Content-Length", "0")
     handler.end_headers()
+
+
+def _sse_state(tcp_server: Any) -> tuple[threading.Event, Any, Any, threading.Lock]:
+    """Per-listener keepalive tracking.
+
+    serve_forever()/shutdown() does not join ThreadingMixIn request threads.
+    State lives on that listener: stopping one server must not mark a
+    different listener's streams as stopped. Weak refs so a handler that
+    already exited does not pin the connection.
+    """
+    lock = getattr(tcp_server, "_sse_lock", None)
+    if lock is None:
+        lock = threading.Lock()
+        tcp_server._sse_lock = lock
+        tcp_server._sse_stop = threading.Event()
+        tcp_server._sse_sockets = weakref.WeakSet()
+        tcp_server._sse_threads = weakref.WeakSet()
+    return tcp_server._sse_stop, tcp_server._sse_sockets, tcp_server._sse_threads, lock
+
+
+def note_sse_keepalive(tcp_server: Any, sock: Any) -> threading.Event | None:
+    """Register *sock* on *tcp_server*.
+
+    Returns the stop event the loop must watch, or None when this listener
+    is already stopped and the loop must not run.
+    """
+    if tcp_server is None or sock is None:
+        return None
+    stop, sockets, threads, lock = _sse_state(tcp_server)
+    with lock:
+        if stop.is_set():
+            return None
+        sockets.add(sock)
+        threads.add(threading.current_thread())
+        return stop
+
+
+def forget_sse_keepalive(tcp_server: Any, sock: Any) -> None:
+    """Drop a keepalive that has left its loop."""
+    if tcp_server is None:
+        return
+    _stop, sockets, threads, lock = _sse_state(tcp_server)
+    with lock:
+        if sock is not None:
+            sockets.discard(sock)
+        threads.discard(threading.current_thread())
+
+
+def _shutdown_sse_socket(sock: Any) -> None:
+    """Wake select on *sock*, then close it.
+
+    close() from another thread does not reliably interrupt select, and
+    the fd can be reused under that wait. shutdown(SHUT_RDWR) marks the
+    socket readable so the keepalive loop returns and checks the stop flag.
+    """
+    shutdown = getattr(sock, "shutdown", None)
+    if callable(shutdown):
+        try:
+            shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+    close = getattr(sock, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+
+
+def stop_sse_keepalives(tcp_server: Any) -> None:
+    """End SSE loops still running on *tcp_server* after the accept loop exits.
+
+    What was wrong: HttpServer.stop() only makes serve_forever() return.
+    Each GET /mcp and GET /sse keepalive stays on its request thread until
+    the client drops or the 15s select timeout, and a restart adds more.
+    Why: set this listener's flag and shut down its registered sockets so
+    those loops exit. The next HttpServer has its own flag.
+    """
+    if tcp_server is None:
+        return
+    stop, sockets, _threads, lock = _sse_state(tcp_server)
+    with lock:
+        stop.set()
+        socks = list(sockets)
+    if socks:
+        log.info("Closing %d SSE keepalive socket(s)", len(socks))
+    for sock in socks:
+        _shutdown_sse_socket(sock)
 
 
 def is_port_in_use_error(exc: BaseException) -> bool:
@@ -252,6 +343,8 @@ class HttpServer:
         # callers stash OSError and show _PORT_IN_USE_GUIDANCE in the UI.
         try:
             self._server = _ThreadedHTTPServer((self.host, self.port), GenericRequestHandler)
+            # Before the accept thread exists, so request handlers share this state.
+            _sse_state(self._server)
         except OSError:
             log.exception("Could not bind %s:%s — %s", self.host, self.port, _PORT_IN_USE_GUIDANCE)
             raise
@@ -283,10 +376,15 @@ class HttpServer:
         if not self._running:
             return
         self._running = False
-        if self._server:
-            self._server.shutdown()
-            self._server.server_close()
-            log.info("HTTP server stopped")
+        try:
+            if self._server:
+                self._server.shutdown()
+                self._server.server_close()
+                log.info("HTTP server stopped")
+        finally:
+            # shutdown() does not join request threads. SSE keepalives are
+            # still blocked in select until their sockets are closed.
+            stop_sse_keepalives(self._server)
 
     @background
     def _run(self) -> None:
@@ -297,7 +395,13 @@ class HttpServer:
             if self._running:
                 log.exception("HTTP server error")
         finally:
+            # stop() clears _running before shutdown(), so this only fires
+            # when the accept loop dies on its own and would otherwise leave
+            # keepalive threads running.
+            unexpected = self._running
             self._running = False
+            if unexpected:
+                stop_sse_keepalives(self._server)
 
     def is_running(self) -> bool:
         return self._running

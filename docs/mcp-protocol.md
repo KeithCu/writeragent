@@ -44,7 +44,7 @@ The chosen binary must be on `PATH`. There is **no auth** on the MCP HTTP API it
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/mcp` | JSON-RPC: `initialize`, `tools/list`, `tools/call`, … |
-| `GET` | `/mcp` | SSE keepalive only (not full legacy MCP) |
+| `GET` | `/mcp` | SSE keepalive only (not full legacy MCP). `HttpServer.stop` shuts those sockets down so the request threads leave `select` instead of surviving the accept-loop shutdown |
 | `POST` | `/sse`, `/messages` | Same JSON-RPC as `/mcp` |
 | `GET` | `/health` | Liveness |
 | `GET` | `/` | Server info; includes `mcp_endpoint` when MCP is enabled |
@@ -116,7 +116,7 @@ Homelab / LocalAI setups typically need **no** entries in `mcp.cors_allowed_orig
 
 **Origin ACL (shipped):** If `Origin` is present and **not** `is_safe_origin()`, every method and path (`/mcp`, `/health`, `/debug`, …) returns **HTTP 403**, empty body, **no** `Access-Control-*` headers. Requests with **no** `Origin` (Claude Code, curl, most MCP clients) are unchanged. Loopback and private/LAN defaults stay as above — this is not Nelson’s empty allow list. Implementation: `origin_is_forbidden` / `reject_forbidden_origin` in [`plugin/mcp/cors.py`](../plugin/mcp/cors.py). Tests: [`tests/mcp/test_cors.py`](../tests/mcp/test_cors.py).
 
-**Session (shipped):** One `Mcp-Session-Id` for the whole soffice process, minted on first successful `initialize` and never rotated. `DELETE /mcp` returns **405** (`Allow: GET, POST, OPTIONS`) and does **not** terminate that id — every client shares it. A later POST/GET whose `Mcp-Session-Id` does not match (LibreOffice restarted, or a second `initialize` used to rotate the id) returns **HTTP 404** JSON-RPC `INVALID_REQUEST` (“Session expired… Call initialize again.”). Spec clients recover on 404, not 409. Missing session header is still allowed (CLI / curl / first contact). `initialize` with a stale or missing id is always allowed.
+**Session (shipped):** One `Mcp-Session-Id` for the whole soffice process, minted on first successful `initialize` and never rotated. A notifications-only JSON-RPC batch (HTTP 202, empty body) sends that header the same way a single notification does. `DELETE /mcp` returns **405** (`Allow: GET, POST, OPTIONS`) and does **not** terminate that id — every client shares it. A later POST/GET whose `Mcp-Session-Id` does not match (LibreOffice restarted, or a second `initialize` used to rotate the id) returns **HTTP 404** JSON-RPC `INVALID_REQUEST` (“Session expired… Call initialize again.”). Spec clients recover on 404, not 409. Missing session header is still allowed (CLI / curl / first contact). `initialize` with a stale or missing id is always allowed.
 
 **Troubleshooting — OPTIONS succeeds but MCP never connects**
 

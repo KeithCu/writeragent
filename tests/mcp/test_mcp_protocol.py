@@ -263,3 +263,116 @@ def test_backpressure_and_debug_bypass_still_marshals_to_the_main_thread():
     assert tool.body_calls == []
     assert box["debug"]["marshalled"] is True
     assert box["direct"]["marshalled"] is True
+
+
+class _NoHeaders:
+    def get(self, name, default=None):
+        del name
+        return default
+
+
+def test_notification_batch_includes_session_id(monkeypatch):
+    """HTTP 202 for a notifications-only batch must refresh Mcp-Session-Id."""
+    import plugin.mcp.mcp_protocol as proto
+
+    monkeypatch.setattr(proto, "_mcp_session_id", "sess-batch")
+    handler = MagicMock()
+    handler.headers = _NoHeaders()
+    sent: list[tuple[str, str]] = []
+    handler.send_header.side_effect = lambda key, value: sent.append((key, value))
+    services = MagicMock()
+    services.tools = MagicMock()
+    mcp = MCPProtocolHandler(services)
+    batch = [
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {}},
+    ]
+    mcp._handle_mcp(batch, handler)
+    handler.send_response.assert_called_with(202)
+    assert ("Mcp-Session-Id", "sess-batch") in sent
+
+
+def test_http_server_stop_ends_sse_keepalive():
+    """stop() must wake the SSE request thread instead of leaving it in select."""
+    import socket
+    import time
+
+    from plugin.mcp.routes import HttpRouteRegistry
+    from plugin.mcp.server import HttpServer
+
+    def _free_port() -> int:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        return port
+
+    def _read_until(sock: socket.socket, needle: bytes, timeout: float = 2.0) -> bytes:
+        sock.settimeout(timeout)
+        data = b""
+        deadline = time.monotonic() + timeout
+        while needle not in data:
+            if time.monotonic() > deadline:
+                raise AssertionError("timed out waiting for %r in %r" % (needle, data[:300]))
+            chunk = sock.recv(4096)
+            if not chunk:
+                raise AssertionError("eof before %r in %r" % (needle, data[:300]))
+            data += chunk
+        return data
+
+    def _alive(tcp_server):
+        with tcp_server._sse_lock:
+            return [thread for thread in list(tcp_server._sse_threads) if thread.is_alive()]
+
+    def _wait_alive(tcp_server, want: bool, timeout: float = 2.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            alive = bool(_alive(tcp_server))
+            if alive == want:
+                return True
+            time.sleep(0.02)
+        return bool(_alive(tcp_server)) == want
+
+    services = MagicMock()
+    services.tools = MagicMock()
+    protocol = MCPProtocolHandler(services)
+    registry = HttpRouteRegistry()
+    registry.add("GET", "/mcp", protocol.handle_mcp_sse, raw=True)
+
+    srv = None
+    client = None
+    last_error = None
+    for _attempt in range(3):
+        candidate = HttpServer(route_registry=registry, port=_free_port(), host="127.0.0.1")
+        try:
+            candidate.start()
+            srv = candidate
+            break
+        except OSError as exc:
+            last_error = exc
+            candidate.stop()
+    if srv is None or srv._server is None:
+        pytest.fail("HTTP server did not bind: %s" % last_error)
+    try:
+        for _spin in range(40):
+            try:
+                client = socket.create_connection(("127.0.0.1", srv.port), timeout=2)
+                break
+            except ConnectionRefusedError:
+                time.sleep(0.05)
+        assert client is not None
+        client.sendall(b"GET /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n")
+        _read_until(client, b": keepalive")
+        assert _wait_alive(srv._server, True)
+        srv.stop()
+        assert _wait_alive(srv._server, False), "SSE keepalive thread still alive after HttpServer.stop"
+        client.settimeout(2)
+        try:
+            client.recv(4096)
+        except socket.timeout:
+            raise AssertionError("client socket still open after HttpServer.stop") from None
+    finally:
+        if client is not None:
+            client.close()
+        if srv is not None:
+            srv.stop()
