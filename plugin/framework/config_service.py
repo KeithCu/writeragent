@@ -231,7 +231,12 @@ class ConfigService(ServiceBase):
                 if field == "endpoint":
                     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
 
-                    resolved = endpoint_from_selector_text(str(value))
+                    # What was wrong: str(None) is the literal "None". The
+                    # selector kept that text and set_config stored it as the
+                    # endpoint. An empty string already fails below. None is
+                    # not an endpoint either.
+                    endpoint_text = "" if value is None else str(value)
+                    resolved = endpoint_from_selector_text(endpoint_text)
                     # What was wrong: an empty resolve returned without writing,
                     # and the caller treated set() as success.
                     if not resolved:

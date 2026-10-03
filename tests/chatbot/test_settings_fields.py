@@ -13,6 +13,33 @@ from plugin.chatbot.settings_fields import (
 )
 
 
+def test_default_settings_stay_unchanged_when_strict_coerce_sees_bounds() -> None:
+    """Untouched defaults must not become a Settings OK write.
+
+    A number equal to a stored out-of-range value is not unchanged: strict
+    coerce rejects it, so the key stays in the batch and set_configs raises.
+    """
+    from plugin.chatbot.settings_fields import changed_config_values
+
+    defaults = {
+        "temperature": -1.0,
+        "chat_max_tokens": 16384,
+        "request_timeout": 120,
+    }
+    pending = {
+        "temperature": "-1.0",
+        "chat_max_tokens": "16384",
+        "request_timeout": "120",
+    }
+    assert changed_config_values(pending, lambda key: defaults[key]) == {}
+    assert changed_config_values({"temperature": 1.0}, lambda key: 1.0) == {}
+    assert changed_config_values({"chat_max_tokens": 0}, lambda key: 0) == {}
+    assert changed_config_values({"request_timeout": 1}, lambda key: 1) == {}
+    assert changed_config_values({"temperature": 5.0}, lambda key: 5.0) == {"temperature": 5.0}
+    assert changed_config_values({"chat_max_tokens": -1}, lambda key: -1) == {"chat_max_tokens": -1}
+    assert changed_config_values({"request_timeout": 0}, lambda key: 0) == {"request_timeout": 0}
+
+
 def test_egret_layout_label_keeps_the_comma():
     """A flow-scalar comma used to end the label at 'slower'."""
     from plugin._manifest import MODULES

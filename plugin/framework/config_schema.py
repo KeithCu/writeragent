@@ -24,6 +24,13 @@ Manifest tables (``MODULES``, ``CONFIG_DEFAULTS``, ``CONFIG_SCHEMAS``,
 ``DOTTED_FALLBACKS``) live here because they are in-memory schema, not
 ``writeragent.json`` I/O. ``MODULES`` from ``plugin._manifest`` is the source
 of truth; ``set_manifest_modules`` rebuilds the derived tables at import.
+
+Dataclass fields may declare ``min``, ``max``, and ``min_exclusive`` in
+``field.metadata``. ``get_config_schema`` copies those onto the schema so
+``coerce_config_value(..., strict=True)`` rejects the same out-of-range
+numbers ``WriterAgentConfig.validate`` rejects. Validate still runs that
+check itself, before coercion: a load repair uses the field fallback
+(``chat_max_tokens`` -1 becomes 16384, not the inclusive minimum 0).
 """
 
 # crosshair: off
@@ -414,32 +421,14 @@ class WriterAgentConfig:
                 else:
                     setattr(self, f.name, "")
 
-        # Cast standard fields through the central schema validator so dialog
-        # controllers do not need to duplicate config type rules.
-        for f in dataclasses.fields(self):
-            if f.name == "_extra_config":
-                continue
-            val = getattr(self, f.name)
-            setattr(self, f.name, coerce_config_value(f.name, val))
-
-        # Clean up and cast extra keys from module schemas robustly.
-        for k, v in list(self._extra_config.items()):
-            if isinstance(v, str) and "Project-Id-Version:" in v:
-                log.debug("config validate: stripped PO/header from extra key %r (len=%s)", k, len(v))
-                self._extra_config[k] = ""
-                v = ""
-            self._extra_config[k] = coerce_config_value(k, v)
-
-        endpoint_str = str(self.endpoint or "").strip()
-        if endpoint_str:
-            # WriterAgent overlays selector-label parsing in config.py; LibrePy
-            # keeps this url_utils fallback (no chatbot import in this module).
-            self.endpoint = _normalize_configured_endpoint(endpoint_str, self.is_openwebui)
-        else:
-            self.endpoint = ""
-
-        # Bounds live on the field metadata. calc_prompt_max_tokens < 100 is a
-        # one-time migration, not a generic minimum.
+        # Bounds live on the field metadata. Check them before coercion.
+        # What was wrong: those bounds were missing from the schema, so
+        # strict coerce accepted temperature 5.0 and chat_max_tokens -1.
+        # The schema now includes them, and non-strict coerce clamps to
+        # inclusive min/max. Running that clamp first would turn
+        # chat_max_tokens -1 into 0, and this check would neither raise
+        # nor apply the fallback 16384. calc_prompt_max_tokens < 100 is a
+        # separate one-time migration below, not a generic minimum.
         for f in dataclasses.fields(self):
             meta = f.metadata
             if "kind" not in meta:
@@ -470,6 +459,30 @@ class WriterAgentConfig:
                 else:
                     raise ConfigValidationError(_(meta["message"]), code=meta["code"])
             setattr(self, f.name, value)
+
+        # Cast standard fields through the central schema validator so dialog
+        # controllers do not need to duplicate config type rules.
+        for f in dataclasses.fields(self):
+            if f.name == "_extra_config":
+                continue
+            val = getattr(self, f.name)
+            setattr(self, f.name, coerce_config_value(f.name, val))
+
+        # Clean up and cast extra keys from module schemas robustly.
+        for k, v in list(self._extra_config.items()):
+            if isinstance(v, str) and "Project-Id-Version:" in v:
+                log.debug("config validate: stripped PO/header from extra key %r (len=%s)", k, len(v))
+                self._extra_config[k] = ""
+                v = ""
+            self._extra_config[k] = coerce_config_value(k, v)
+
+        endpoint_str = str(self.endpoint or "").strip()
+        if endpoint_str:
+            # WriterAgent overlays selector-label parsing in config.py; LibrePy
+            # keeps this url_utils fallback (no chatbot import in this module).
+            self.endpoint = _normalize_configured_endpoint(endpoint_str, self.is_openwebui)
+        else:
+            self.endpoint = ""
 
         # Old shipped default was 70; values below 100 are treated as stale and upgraded.
         if not isinstance(self.calc_prompt_max_tokens, int):
@@ -635,6 +648,12 @@ def _dataclass_schema_for_key(key: str) -> dict[str, Any] | None:
         field_type = _dataclass_field_type(field)
         if field_type:
             schema["type"] = field_type
+        # validate() reads these from field metadata. Callers of
+        # get_config_schema / strict coerce (settings compare, set_config)
+        # never saw them, so temperature 5.0 and chat_max_tokens -1 passed.
+        for bound in ("min", "max", "min_exclusive"):
+            if bound in field.metadata:
+                schema[bound] = field.metadata[bound]
         return schema
     return None
 
@@ -684,6 +703,27 @@ def _canonicalize_schema_option_value(schema: dict[str, Any] | None, value: Any)
         elif opt is not None and value_str in {str(opt), str(_(str(opt)))}:
             return opt
     return value
+
+
+def _numeric_outside_schema_bounds(schema: dict[str, Any], value: Any) -> bool:
+    """True when a number violates schema min, max, or min_exclusive.
+
+    ``clamp_schema_value`` only rewrites inclusive min/max. ``min_exclusive``
+    has no clamp target (request_timeout 0 must not become 1); strict coerce
+    still has to reject it.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        if "min" in schema and value < parse_float_robust(schema["min"]):
+            return True
+        if "min_exclusive" in schema and value <= parse_float_robust(schema["min_exclusive"]):
+            return True
+        if "max" in schema and value > parse_float_robust(schema["max"]):
+            return True
+    except ValueError:
+        return False
+    return False
 
 
 def clamp_schema_value(key: str, value: Any) -> Any:
@@ -773,8 +813,10 @@ def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_
     clamped = clamp_schema_value(key, value)
     # set_config uses strict=True so a bad type raises. Out-of-range numbers
     # were still saved as min/max with no error (module.yaml keys never hit
-    # WriterAgentConfig.validate).
-    if strict and schema_type in {"int", "float"} and clamped != value:
+    # WriterAgentConfig.validate). Dataclass min/max/min_exclusive are on the
+    # schema too. min_exclusive does not change `clamped`, so compare bounds
+    # as well as the clamped number.
+    if strict and schema_type in {"int", "float"} and (clamped != value or _numeric_outside_schema_bounds(schema, value)):
         raise ConfigValidationError(
             f"Invalid configuration value for {key}: out of range",
             code="CONFIG_INVALID_VALUE",
