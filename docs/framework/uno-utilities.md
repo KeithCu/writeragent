@@ -309,7 +309,7 @@ Untitled documents have `getURL() == ""`. Identity then **must** use RuntimeUID.
 
 `plugin/framework/tool.py` documents `document_url` as “URL or RuntimeUID from `list_open_documents`”.
 
-Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, Calc workbook lifecycle, formula locator cache. New code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`.
+Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, Calc workbook lifecycle, formula locator cache. New code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`. Notebook `_doc_key` is the exception: File Open `XFilter.filter` runs on Dummy-2 (detect reload on Dummy-3), so it calls `_read_runtime_uid` (same ladder, no `@main_thread_only`). Calling the guarded getter there makes `filter()` return false and `loadComponentFromURL` return None.
 
 ### 2.4 PathSettings / work-directory vs config user-profile paths
 

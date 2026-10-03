@@ -396,10 +396,19 @@ def _doc_key(doc: Any) -> str:
     different PyUNO wrappers of the same document — one ▶ click then ran
     the cell multiple times (``[In [4]]`` jumped to ``[In [7]]``).
     ``RuntimeUID`` is the same object for every wrapper of that document.
-    """
-    from plugin.framework.uno_context import get_runtime_uid
 
-    uid = get_runtime_uid(doc)
+    What was wrong: this called ``get_runtime_uid``. With the dev UNO thread
+    guard on, that raises off the main thread. How: File Open
+    ``XFilter.filter`` runs on Dummy-2 and the extensionless detect reload
+    on Dummy-3 (see the wire_all comment above). ``filter()`` caught the
+    ``RuntimeError`` and returned False, so ``loadComponentFromURL`` returned
+    None. Why: ``_read_runtime_uid`` is the same ladder without
+    ``@main_thread_only``. Decorating this path or hopping to the main thread
+    deadlocks the waiting host (#402).
+    """
+    from plugin.framework.uno_context import _read_runtime_uid
+
+    uid = _read_runtime_uid(doc)
     if uid:
         return f"uid:{uid}"
     try:

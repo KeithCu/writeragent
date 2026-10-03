@@ -678,6 +678,28 @@ def normalize_doc_url(url: Any) -> str:
     return s
 
 
+def _read_runtime_uid(model: Any) -> str:
+    """RuntimeUID ladder with no thread check.
+
+    File Open ``XFilter.filter`` runs on Dummy-2 (detect reload on Dummy-3),
+    not ``threading.main_thread()``. Notebook ``_doc_key`` must use this so
+    the guard on ``get_runtime_uid`` does not make ``filter()`` return False.
+    Same acceptance rules as ``get_runtime_uid``: plain ``str`` / ``int`` only.
+    """
+    for accessor in (lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None, lambda m: getattr(m, "RuntimeUID", None), lambda m: m.getPropertyValue("RuntimeUID")):
+        try:
+            raw = accessor(model)
+            if isinstance(raw, bool):
+                continue
+            if isinstance(raw, int):
+                return str(raw)
+            if isinstance(raw, str) and raw:
+                return raw
+        except Exception:
+            continue
+    return ""
+
+
 @main_thread_only
 def get_runtime_uid(model: Any) -> str:
     """Stable per-session id for an open component.
@@ -696,20 +718,10 @@ def get_runtime_uid(model: Any) -> str:
     returned ``""`` (an untitled document with no id). How: the same ladder
     ``uno_same`` used before it was decorated. Why: ``@main_thread_only``
     raises before the loop when the guard is on. On-thread disposal still
-    returns ``""``.
+    returns ``""``. Callers that LibreOffice invokes on Dummy-N (notebook
+    File Open) use ``_read_runtime_uid`` instead of this guard.
     """
-    for accessor in (lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None, lambda m: getattr(m, "RuntimeUID", None), lambda m: m.getPropertyValue("RuntimeUID")):
-        try:
-            raw = accessor(model)
-            if isinstance(raw, bool):
-                continue
-            if isinstance(raw, int):
-                return str(raw)
-            if isinstance(raw, str) and raw:
-                return raw
-        except Exception:
-            continue
-    return ""
+    return _read_runtime_uid(model)
 
 
 # What was wrong: off-thread, proxy __eq__ raises RuntimeError from
