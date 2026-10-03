@@ -22,53 +22,102 @@ _MIN_W_HMM, _MIN_H_HMM = 500, 400
 _MAX_W_HMM, _MAX_H_HMM = 120_000, 80_000
 
 
+# com.sun.star.embed.EmbedMapUnits (offapi/.../embed/EmbedMapUnits.idl).
+# StarMath stores its vis-area in twips (SmMapUnit). Shape units are 1/100 mm.
+_MAP_ONE_100TH_MM = 0
+_MAP_ONE_10TH_MM = 1
+_MAP_ONE_MM = 2
+_MAP_ONE_CM = 3
+_MAP_ONE_100TH_INCH = 5
+_MAP_POINT = 8
+_MAP_TWIP = 9
+# com.sun.star.embed.Aspects.MSOLE_CONTENT
+_ASPECT_CONTENT = 1
+
+
 def _visual_size_to_hundredth_mm(sz: Any, map_unit: int) -> tuple[int, int] | None:
     """Convert embed visual Size + EmbedMapUnits to shape units (1/100 mm)."""
     try:
-        from com.sun.star.embed import EmbedMapUnits
-
         w, h = int(sz.Width), int(sz.Height)
         if w <= 0 or h <= 0:
             return None
 
         mu = int(map_unit)
-        if mu == int(EmbedMapUnits.ONE_100TH_MM):
+        if mu == _MAP_ONE_100TH_MM:
             return w, h
-        if mu == int(EmbedMapUnits.TWIP):
+        if mu == _MAP_TWIP:
             return round(w * 2540 / 1440), round(h * 2540 / 1440)
-        if mu == int(EmbedMapUnits.POINT):
+        if mu == _MAP_POINT:
             return round(w * 2540 / 72), round(h * 2540 / 72)
-        if mu == int(EmbedMapUnits.ONE_MM):
+        if mu == _MAP_ONE_MM:
             return w * 100, h * 100
-        if mu == int(EmbedMapUnits.ONE_100TH_INCH):
+        if mu == _MAP_ONE_100TH_INCH:
             return round(w * 254 / 10), round(h * 254 / 10)
-        if mu == int(EmbedMapUnits.ONE_10TH_MM):
+        if mu == _MAP_ONE_10TH_MM:
             return w * 10, h * 10
-        if mu == int(EmbedMapUnits.ONE_CM):
+        if mu == _MAP_ONE_CM:
             return w * 1000, h * 1000
     except Exception:
         log.debug("math_insert: map unit conversion failed", exc_info=True)
     return None
 
 
-def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
-    """Best-effort size from embedded object's XVisualObject.getVisualAreaSize."""
+def _positive_awt_size(sz: Any) -> tuple[int, int] | None:
     try:
-        from com.sun.star.embed import Aspects
-        import uno
+        w, h = int(sz.Width), int(sz.Height)
+    except Exception:
+        return None
+    if w <= 0 or h <= 0:
+        return None
+    return w, h
 
-        emb = None
-        if hasattr(shape, "getEmbeddedObject"):
-            try:
-                emb = shape.getEmbeddedObject()
-            except Exception:
-                emb = None
+
+def _read_shape_property(shape: Any, name: str) -> Any:
+    try:
+        return getattr(shape, name)
+    except Exception:
+        pass
+    getter = getattr(shape, "getPropertyValue", None)
+    if callable(getter):
+        try:
+            return getter(name)
+        except Exception:
+            return None
+    return None
+
+
+def _visible_area_hmm(shape: Any) -> tuple[int, int] | None:
+    """``OLE2Shape.VisibleArea`` is already 1/100 mm.
+
+    ``SvxOle2Shape`` ``OWN_ATTR_OLE_VISAREA`` (``svx/source/unodraw/unoshap4.cxx``)
+    converts ``GetOrigObjSize`` with ``Map100thMM``.
+    """
+    return _positive_awt_size(_read_shape_property(shape, "VisibleArea"))
+
+
+def _embedded_object_visual_hmm(shape: Any) -> tuple[int, int] | None:
+    """``XVisualObject`` size from the ``EmbeddedObject`` property.
+
+    What was wrong: ``getEmbeddedObject()`` is Writer ``TextEmbeddedObject``.
+    Draw ``OLE2Shape`` does not implement it, so the call returned None and
+    ``insert_math`` always used the length heuristic (clipped or oversized).
+    How it happened: the embed is the readonly ``EmbeddedObject`` property
+    (``svx/source/unodraw/unoprov.cxx``, ``OWN_ATTR_OLE_EMBEDDED_OBJECT``).
+    Setting ``Formula`` stores ``SmDocShell::GetSize()`` as the vis-area
+    (``SmModel::_setPropertyValues``).
+    """
+    try:
+        emb = _read_shape_property(shape, "EmbeddedObject")
         if emb is None:
             return None
-        vo = emb.queryInterface(uno.getTypeByName("com.sun.star.embed.XVisualObject"))
-        if vo is None:
+        vo = emb
+        if not hasattr(vo, "getVisualAreaSize"):
+            import uno
+
+            vo = emb.queryInterface(uno.getTypeByName("com.sun.star.embed.XVisualObject"))
+        if vo is None or not hasattr(vo, "getVisualAreaSize"):
             return None
-        aspect = int(getattr(Aspects, "MSOLE_CONTENT", 1))
+        aspect = _ASPECT_CONTENT
         sz = vo.getVisualAreaSize(aspect)
         map_unit = vo.getMapUnit(aspect)
         out = _visual_size_to_hundredth_mm(sz, map_unit)
@@ -77,6 +126,15 @@ def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
         return out
     except Exception:
         log.debug("math_insert: getVisualAreaSize path failed", exc_info=True)
+    return None
+
+
+def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
+    """Best-effort formula box in 1/100 mm, or None when UNO has no size."""
+    for reader in (_visible_area_hmm, _embedded_object_visual_hmm):
+        wh = reader(shape)
+        if wh is not None:
+            return wh
     return None
 
 
@@ -170,7 +228,11 @@ class InsertMathDraw(ToolDrawSpecialBase):
             model.Formula = res.starmath
 
             wh = _try_ole_shape_content_size_hmm(shape)
-            if wh is None or wh[0] < _MIN_W_HMM or wh[1] < _MIN_H_HMM:
+            # A real formula can be narrower than the minimum box (a stacked
+            # fraction is ~499 x 2069 hmm). Discarding that pair because one
+            # side is under the floor replaced it with the length heuristic,
+            # which clips the height and overshoots the width. Clamp below.
+            if wh is None:
                 wh = _heuristic_size_hmm(res.starmath or formula)
             w, h = wh
             w = max(_MIN_W_HMM, min(_MAX_W_HMM, w))

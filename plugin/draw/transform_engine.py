@@ -60,6 +60,175 @@ def _parse_slide_index(val: Any, current: int, page_count: int) -> int | None:
         return None
 
 
+def _current_after_move(current: int, from_idx: int, to_idx: int) -> int:
+    """Index of the same logical slide after MoveSlide.
+
+    What was wrong: every successful move set ``current_slide`` to the
+    destination, so ``{"MoveSlide.0": 3}`` while sitting on slide 2 left
+    the cursor on the slide that was moved.
+    How it happened: LibreOffice moves page *objects* and the view follows
+    the page that was current. ``DrawViewShell::FuTemporary``
+    (``sd/source/ui/view/drviews2.cxx``, MoveSlide) only jumps to ``nMoveTo``
+    when that page *is* the current one; a page that crosses the current
+    index shifts the current index by one.
+    """
+    if current == from_idx:
+        return to_idx
+    if from_idx < current and to_idx >= current:
+        return current - 1
+    if from_idx > current and to_idx <= current:
+        return current + 1
+    return current
+
+
+def _current_after_delete(current: int, deleted: int, page_count_after: int) -> int:
+    """Index LibreOffice keeps selected after DeleteSlide.
+
+    What was wrong: deleting a slide at or before the current index left
+    ``current_slide`` unchanged, so it named the next physical slot.
+    How it happened: the engine only clamped when the index was past the
+    new end. ``DrawViewShell::FuTemporary`` (``sd/source/ui/view/drviews2.cxx``,
+    DeleteSlide) decrements whenever ``nPageIdToDel <= nActPageId``, then
+    the next command clamps onto a page that still exists.
+    """
+    if deleted <= current:
+        current -= 1
+    if page_count_after <= 0:
+        return 0
+    if current < 0:
+        return 0
+    if current >= page_count_after:
+        return page_count_after - 1
+    return current
+
+
+def _cursor_string(obj: Any) -> str | None:
+    if obj is None:
+        return None
+    getter = getattr(obj, "getString", None)
+    if callable(getter):
+        try:
+            val = getter()
+        except Exception:
+            return None
+        if isinstance(val, str):
+            return val
+    val = getattr(obj, "String", None)
+    if isinstance(val, str):
+        return val
+    return None
+
+
+def _shape_text_string(shape: Any) -> str | None:
+    if shape is None:
+        return None
+    getter = getattr(shape, "getText", None)
+    if callable(getter):
+        try:
+            text = getter()
+        except Exception:
+            text = None
+        found = _cursor_string(text)
+        if found is not None:
+            return found
+    return _cursor_string(shape)
+
+
+def _text_cursor_is_partial_selection(cursor: Any, shape: Any) -> bool:
+    """True when *cursor* covers a range shorter than the whole shape.
+
+    An empty ``createTextCursor()`` is not a range: ``.uno:Bold`` still
+    formats the shape. ``SelectText: []`` covers the whole string, which
+    is the same as selecting the shape.
+    """
+    selected = _cursor_string(cursor)
+    if not selected:
+        return False
+    full = _shape_text_string(shape)
+    if full is not None and selected == full:
+        return False
+    return True
+
+
+# Numeric UNO literals so range formatting does not need a live office.
+# awt.FontWeight.BOLD = 150; awt.FontSlant.ITALIC = 2; FontUnderline.SINGLE = 1;
+# FontStrikeout.SINGLE = 1; style.ParagraphAdjust LEFT/RIGHT/BLOCK/CENTER = 0/1/2/3.
+# Superscript defaults match editeng (33% escapement, 58% height).
+_CURSOR_UNO_PROPS: dict[str, tuple[tuple[str, Any], ...]] = {
+    ".uno:Bold": (("CharWeight", 150.0),),
+    ".uno:Italic": (("CharPosture", 2),),
+    ".uno:Underline": (("CharUnderline", 1),),
+    ".uno:Strikeout": (("CharStrikeout", 1),),
+    ".uno:Shadowed": (("CharShadowed", True),),
+    ".uno:SuperScript": (("CharEscapement", 33), ("CharEscapementHeight", 58)),
+    ".uno:SubScript": (("CharEscapement", -33), ("CharEscapementHeight", 58)),
+    ".uno:LeftPara": (("ParaAdjust", 0),),
+    ".uno:RightPara": (("ParaAdjust", 1),),
+    ".uno:JustifyPara": (("ParaAdjust", 2),),
+    ".uno:CenterPara": (("ParaAdjust", 3),),
+}
+
+
+def _uno_scalar(spec: Any) -> Any:
+    if isinstance(spec, dict) and "value" in spec:
+        return spec["value"]
+    return spec
+
+
+def _cursor_format_pairs(uno_name: str, arguments: dict[str, Any]) -> tuple[tuple[str, Any], ...] | None:
+    mapped = _CURSOR_UNO_PROPS.get(uno_name)
+    if mapped is not None:
+        return mapped
+    if uno_name == ".uno:Color":
+        val = _uno_scalar(arguments.get("Color.Color"))
+        if isinstance(val, int) and not isinstance(val, bool):
+            return (("CharColor", val),)
+    if uno_name == ".uno:CharBackColor":
+        val = _uno_scalar(arguments.get("CharBackColor.Color"))
+        if isinstance(val, int) and not isinstance(val, bool):
+            return (("CharBackColor", val),)
+    return None
+
+
+def _set_text_prop(cursor: Any, name: str, value: Any) -> bool:
+    setter = getattr(cursor, "setPropertyValue", None)
+    if callable(setter):
+        try:
+            setter(name, value)
+            return True
+        except Exception:
+            log.debug("cursor setPropertyValue %s failed", name, exc_info=True)
+    try:
+        setattr(cursor, name, value)
+    except Exception:
+        log.debug("cursor attribute %s failed", name, exc_info=True)
+        return False
+    return True
+
+
+def _apply_cursor_uno_format(cursor: Any, uno_name: str, arguments: dict[str, Any]) -> bool:
+    """Write a formatting ``.uno`` command onto *cursor*'s selection.
+
+    What was wrong: ``_select_text`` moved an independent ``XTextCursor``,
+    then ``_dispatch_uno_string`` only ``select``ed the shape. Dispatch
+    therefore saw the whole object and Bold/Italic painted every character.
+    How it happened: Draw applies those commands to the text-edit selection
+    (``SdrBeginTextEdit`` + ``EditView::SetSelection`` in ``drviews2.cxx``).
+    The model cursor is not that view selection. Writing the same properties
+    on the cursor formats the range the sub-command selected.
+    """
+    pairs = _cursor_format_pairs(uno_name, arguments)
+    if not pairs:
+        return False
+    applied = False
+    for name, value in pairs:
+        if _set_text_prop(cursor, name, value):
+            applied = True
+        else:
+            return False
+    return applied
+
+
 class SlideCommandEngine:
     """Execute SlideCommands array against a Draw/Impress document."""
 
@@ -182,8 +351,7 @@ class SlideCommandEngine:
             return
         self.bridge.delete_slide(idx)
         self.pages = self.bridge.get_pages()
-        if self.current_slide >= self._page_count():
-            self.current_slide = self._page_count() - 1
+        self.current_slide = _current_after_delete(self.current_slide, idx, self._page_count())
         self.applied.append("DeleteSlide:%d" % idx)
 
     def _duplicate_slide(self, val: Any) -> None:
@@ -199,7 +367,7 @@ class SlideCommandEngine:
     def _move_slide(self, from_idx: int, to_idx: int) -> None:
         if self.bridge.move_slide(from_idx, to_idx):
             self.pages = self.bridge.get_pages()
-            self.current_slide = to_idx
+            self.current_slide = _current_after_move(self.current_slide, from_idx, to_idx)
             self.applied.append("MoveSlide:%d->%d" % (from_idx, to_idx))
         else:
             self.warnings.append("MoveSlide failed %d -> %d" % (from_idx, to_idx))
@@ -311,13 +479,21 @@ class SlideCommandEngine:
         parts = cmd.split(None, 1)
         uno_name = parts[0]
         arg_json = parts[1] if len(parts) > 1 else None
-        props = ()
+        parsed: dict[str, Any] = {}
         if arg_json:
             from plugin.framework.json_utils import safe_json_loads
 
-            parsed = safe_json_loads(arg_json, default={})
-            if isinstance(parsed, dict):
-                props = self._uno_props_from_dict(parsed)
+            loaded = safe_json_loads(arg_json, default={})
+            if isinstance(loaded, dict):
+                parsed = loaded
+        # Range-scoped Bold/Italic must hit the cursor from SelectText.
+        # Selecting the shape and dispatching formats every character.
+        if _text_cursor_is_partial_selection(cursor, shape):
+            if _apply_cursor_uno_format(cursor, uno_name, parsed):
+                return
+            self.warnings.append("UnoCommand %s was not applied to the text selection" % uno_name)
+            return
+        props = self._uno_props_from_dict(parsed) if parsed else ()
         try:
             controller = self.doc.getCurrentController()
             if controller is None:

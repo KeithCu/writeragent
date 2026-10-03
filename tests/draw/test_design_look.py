@@ -60,6 +60,24 @@ def test_decode_png_rgb_roundtrip():
     assert decoded == pix
 
 
+def test_decode_png_rgb_rejects_deflate_bomb_before_expanding():
+    # IHDR is 1x1, so the declared-size cap does not trip. The IDAT inflates
+    # far past that. zlib.decompress would materialize the whole bomb first.
+    bomb = b"\x00" * 200_000
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    png = b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", zlib.compress(bomb, 9)) + _chunk(b"IEND", b"")
+    import tracemalloc
+
+    tracemalloc.start()
+    try:
+        decoded = decode_png_rgb(png)
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert decoded is None
+    assert peak < len(bomb) // 2
+
+
 def test_dark_blue_thumb_and_single_svg_is_graphic_chrome(tmp_path):
     # Solid navy — Metropolis-like: dark + blue + one decorative graphic.
     pix = [(20, 40, 120)] * (8 * 8)
