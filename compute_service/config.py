@@ -190,11 +190,11 @@ class ComputeSettings:
             object.__setattr__(self, "workers", 2)
         if self.ocr_workers is None:
             object.__setattr__(self, "ocr_workers", 0)
-        # One listener thread per subprocess that can run a job.
-        # A cell holds that thread for the whole lease, and further cells
-        # waiting on a lease fill whatever is left. GET /health does not use
-        # one of these threads; the accept loop answers it. Adding a thread
-        # here would not give liveness its own path.
+        # Base worker capacity across formula and vision subprocesses.
+        # The HTTP server sizes its thread pool above this count (at least W + 2)
+        # and gates worker endpoints via a non-blocking semaphore, ensuring requests
+        # waiting on workers do not hold listener threads and leaving spare threads
+        # free for GET /health.
         object.__setattr__(self, "threads", self.workers + self.ocr_workers)
         object.__setattr__(self, "ocr_allow_paths", _as_path_tuple(self.ocr_allow_paths))
         object.__setattr__(self, "shared_kernel_ttl_sec", float(self.shared_kernel_ttl_sec))

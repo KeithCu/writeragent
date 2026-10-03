@@ -781,8 +781,8 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     def process_request(self, request: Any, client_address: Any) -> None:
         """Submit incoming request to the thread pool executor.
 
-        The pool queue is unbounded. A busy listener waits here instead of
-        answering 503; add workers when requests pile up.
+        Worker-bound endpoints gate concurrency via a non-blocking semaphore,
+        shedding excess load with fast 503 instead of blocking listener threads.
         """
         self.executor.submit(self.process_request_thread, request, client_address)
 

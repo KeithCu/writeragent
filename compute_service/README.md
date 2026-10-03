@@ -282,7 +282,7 @@ The Python Compute Service is structured as a resilient master HTTP server front
 
 ### 1. Master HTTP Router (~20MB RAM)
 - Ultra-thin network process that accepts HTTP connections, verifies Bearer authentication tokens, and forwards each job as a **length-prefixed Pickle 5 envelope** on the worker's stdin pipe. Large formula `data` / results are **raw JSON bytes** inside that envelope (not a second codec stage).
-- **HTTP listener**: One thread per formula worker and vision worker (2 with the stock defaults). Not a setting. A cell holds its thread for the lease, so `GET /health` is answered on the accept loop and does not take a listener thread. See the comment on `ComputeSettings.threads`.
+- **HTTP listener**: Thread pool sized above worker count ($W + 2$, stock default $\ge 4$). Worker endpoints gate admission with a non-blocking semaphore before reading request bodies (returning fast 503 on saturation), guaranteeing that at least two listener threads remain strictly free for immediate `GET /health` responses at all times.
 - **Unbreakable Design**: The master process never executes user code directly, ensuring that user errors, native crashes, or memory spikes cannot destabilize the HTTP service.
 
 ### Internal wire: JSON-forward
