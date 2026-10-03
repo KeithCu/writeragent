@@ -592,9 +592,11 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
 
     False: not a native-audio rejection, or STT cannot run. The caller
     continues with overflow and generic API handling.
-    True: the worker was respawned, or empty speech ended the turn.
-    None: transcription threw. Stop the drain without a second API error;
-    ``_transcribe_audio`` already reported it and deleted the WAV.
+    True: a replacement worker was spawned on this drain. The caller must
+    keep draining. The drain treats only True that way.
+    None: stop the drain without a second API error. Transcription threw
+    (``_transcribe_audio`` already reported it and deleted the WAV), or
+    empty speech already ended the turn (banner shown, no worker).
     """
     from plugin.audio.stt_service import uses_local_stt
     from plugin.framework.client.errors import is_audio_unsupported_error
@@ -627,9 +629,15 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                     log.debug("Failed to remove audio_wav_path after STT fallback: %s", rem_err)
             if not (transcript or "").strip():
                 # G27: empty STT must not spawn a blank chat POST.
+                # What was wrong: this returned True. The drain keeps running
+                # only when on_error returns True, which means a replacement
+                # worker was spawned. Empty speech spawns nothing and posts
+                # no STREAM_DONE, so the sidebar stayed on Stop.
+                # Why: None already means "this turn is finished; do not
+                # show a second API error."
                 host._append_response("\n" + _("[No speech detected.]") + "\n")
                 host._terminal_status = ""
-                return True
+                return None
             combined = (host._active_query_text + "\n" + transcript).strip() if host._active_query_text else transcript
             if host.session.messages and host.session.messages[-1].get("role") == "user":
                 host.session.messages.pop()

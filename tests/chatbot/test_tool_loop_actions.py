@@ -364,3 +364,232 @@ def test_stop_keeps_emitted_bytes_instead_of_no_response():
     assert any(message.get("content") == "Hello" for message in host.session.messages)
     assert chunk_applies(host, turn, " more", record=True) is False
     assert turn.emitted == "Hello"
+    # The banner is appended after the bump. It still applies. A later chunk does not.
+    assert chunk_applies(host, turn, "\n[Stopped by user]\n", record=True) is True
+    assert turn.emitted == "Hello"
+    assert chunk_applies(host, turn, "see [Stopped by user] later", record=True) is False
+    saved_messages = host.session.messages
+    host.session.messages = []
+    assert chunk_applies(host, turn, "\n[Stopped by user]\n", record=True) is False
+    host.session.messages = saved_messages
+    turn2 = begin_send_turn(host, "chat")
+    assert chunk_applies(host, turn, "\n[Stopped by user]\n", record=True) is False
+    # The new send's own generation is current, so its stop line applies.
+    assert chunk_applies(host, turn2, "\n[Stopped by user]\n", record=True) is True
+
+
+def _capture_background(started: list):
+    def capture(func, *args, **kwargs):
+        started.append(func)
+        return Mock()
+
+    return capture
+
+
+def test_async_tool_uses_fn_and_model_captured_at_spawn():
+    """A later send must not retarget a tool that already started."""
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    host = FakeHost()
+    turn = begin_send_turn(host, "chat")
+    first_q: queue.Queue = queue.Queue()
+    turn.queue = first_q
+    host._active_q = first_q
+    old_model = Mock(name="old-model")
+    old_fn = Mock(return_value='{"status": "ok"}')
+    host._active_model = old_model
+    host._active_execute_tool_fn = old_fn
+
+    def spawn_checker() -> bool:
+        return False
+
+    def resolve_spawn() -> object:
+        return spawn_checker
+
+    host.resolve_stop_checker = resolve_spawn
+    started: list = []
+    interpreter = ToolLoopEffectInterpreter(host)
+    with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+        interpreter.execute(
+            SpawnToolWorkerEffect(
+                call_id="call_old",
+                func_name="web_research",
+                func_args_str="{}",
+                func_args={"query": "x"},
+                is_async=True,
+            )
+        )
+    host._active_model = Mock(name="new-model")
+    host._active_execute_tool_fn = Mock(return_value='{"status": "new"}')
+
+    def later_checker() -> bool:
+        return True
+
+    def resolve_later() -> object:
+        return later_checker
+
+    host.resolve_stop_checker = resolve_later
+    second = begin_send_turn(host, "chat")
+    second_q: queue.Queue = queue.Queue()
+    second.queue = second_q
+    host._active_q = second_q
+    started[0]()
+    old_fn.assert_called_once()
+    assert old_fn.call_args.args[2] is old_model
+    assert old_fn.call_args.kwargs["stop_checker"] is spawn_checker
+    assert old_fn.call_args.kwargs["captured_turn"] is turn
+    assert old_fn.call_args.kwargs["captured_q"] is first_q
+    assert old_fn.call_args.kwargs["captured_call_id"] == "call_old"
+    host._active_execute_tool_fn.assert_not_called()
+    assert second_q.empty()
+
+
+def test_subagent_append_and_approval_use_the_captured_queue():
+    """Web and document-research events stay on the spawn queue after a new send."""
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    host = FakeHost()
+    turn = begin_send_turn(host, "chat")
+    first_q: queue.Queue = queue.Queue()
+    turn.queue = first_q
+    host._active_q = first_q
+    old_model = Mock(name="old-doc")
+    host._active_model = old_model
+
+    def spawn_checker() -> bool:
+        return False
+
+    def resolve_spawn() -> object:
+        return spawn_checker
+
+    host.resolve_stop_checker = resolve_spawn
+    host._active_execute_tool_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    started: list = []
+    registry, old_main = _install_fake_main_registry()
+    seen: dict = {}
+
+    def registry_execute(name, ctx, **kwargs):
+        seen["doc"] = ctx.doc
+        seen["stop"] = ctx.stop_checker
+        if ctx.chat_append_callback:
+            ctx.chat_append_callback("research line" if name == "web_research" else "opened doc")
+        if ctx.approval_callback:
+            seen["approval"] = ctx.approval_callback("paris", "web_search", {"query": "paris"})
+        return {"status": "ok"}
+
+    registry.execute.side_effect = registry_execute
+
+    def fake_wait(event, checker):
+        seen["wait_checker"] = checker
+        setattr(event, "approved", True)
+        return True
+
+    interpreter = ToolLoopEffectInterpreter(host)
+    try:
+        with (
+            patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)),
+            patch("plugin.chatbot.tool_loop_actions.get_config_bool", return_value=True),
+            patch("plugin.framework.queue_executor.wait_for_approval", side_effect=fake_wait),
+        ):
+            interpreter.execute(
+                SpawnToolWorkerEffect(
+                    call_id="call_web",
+                    func_name="web_research",
+                    func_args_str="{}",
+                    func_args={"query": "paris"},
+                    is_async=True,
+                )
+            )
+            interpreter.execute(
+                SpawnToolWorkerEffect(
+                    call_id="call_doc",
+                    func_name="delegate_to_specialized_writer_toolset",
+                    func_args_str="{}",
+                    func_args={"domain": "document_research", "task": "read"},
+                    is_async=True,
+                )
+            )
+            host._active_model = Mock(name="new-doc")
+            host._active_q = queue.Queue()
+            new_turn = begin_send_turn(host, "chat")
+            new_q: queue.Queue = queue.Queue()
+            new_turn.queue = new_q
+            host._active_q = new_q
+
+            def later_checker() -> bool:
+                return True
+
+            def resolve_later() -> object:
+                return later_checker
+
+            host.resolve_stop_checker = resolve_later
+            for fn in started:
+                fn()
+    finally:
+        _restore_main(old_main)
+
+    assert seen["doc"] is old_model
+    assert seen["stop"] is spawn_checker
+    assert seen["wait_checker"] is spawn_checker
+    assert seen["approval"] == (True, None)
+    assert new_q.empty()
+    kinds = []
+    texts = []
+    while not first_q.empty():
+        item = first_q.get_nowait()
+        kinds.append(item[0])
+        if item[0] == StreamQueueKind.CHUNK:
+            texts.append(item[1])
+    assert StreamQueueKind.APPROVAL_REQUIRED in kinds
+    assert "research line" not in texts
+    assert "opened doc" not in texts
+    assert host.session.tool_streamed_texts.get("call_web") == ["research line"]
+    assert host.session.tool_streamed_texts.get("call_doc") == ["opened doc"]
+
+
+def test_stop_banner_reaches_the_sidebar_after_the_generation_bump():
+    """panel._append_response drops chunks after Stop, except the stop line."""
+    import threading
+
+    from plugin.chatbot.audio_recorder_state import AudioRecorderState
+    from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.send_state import SendButtonState
+    from plugin.chatbot.sidebar_state import SidebarCompositeState
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, bump_send_generation
+
+    with patch.object(SendButtonListener, "__init__", lambda self, *a, **k: None):
+        send = SendButtonListener.__new__(SendButtonListener)
+    send.ctx = MagicMock()
+    send.rich_text_widget = None
+    send.response_control = MagicMock()
+    send.response_control.getModel.return_value = MagicMock()
+    send._plain_text_stripper = None
+    send._should_auto_scroll = MagicMock(return_value=False)
+    send._scroll_response_to_bottom = MagicMock()
+    send.queue_executor = MagicMock()
+    send.sidebar_state = SidebarCompositeState(
+        send=SendButtonState(True, False, False, False, False),
+        tool_loop=None,
+        audio=AudioRecorderState(status="idle"),
+    )
+
+    class Session:
+        def __init__(self) -> None:
+            self.messages: list[dict[str, str]] = [{"role": "system", "content": "s"}]
+
+    send.session = Session()
+    turn = begin_send_turn(send, "chat")
+    send._apply_turn = turn
+    bump_send_generation(send)
+
+    with (
+        patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()),
+        patch("plugin.chatbot.dialogs.get_control_text", return_value="Hello"),
+        patch("plugin.chatbot.dialogs.set_control_text") as mock_set,
+    ):
+        send._append_response("\n[Stopped by user]\n")
+        written = mock_set.call_args[0][1]
+        mock_set.reset_mock()
+        send._append_response(" late")
+    assert "[Stopped by user]" in written
+    mock_set.assert_not_called()
