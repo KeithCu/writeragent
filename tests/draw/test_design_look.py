@@ -60,6 +60,24 @@ def test_decode_png_rgb_roundtrip():
     assert decoded == pix
 
 
+def _deflate_bomb_png() -> bytes:
+    """1x1 IHDR (4 inflated bytes) with an IDAT that expands far past that."""
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    payload = zlib.compress(b"\x00" * 200_000)
+    return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", payload) + _chunk(b"IEND", b"")
+
+
+def test_decode_png_rgb_rejects_deflate_bomb():
+    # The old zlib.decompress path materialized the bomb, then treated the
+    # first scanline as a real pixel because only a too-short buffer was rejected.
+    assert decode_png_rgb(_deflate_bomb_png()) is None
+
+
+def test_hostile_thumbnail_does_not_become_a_look(tmp_path):
+    path = _write_otp(tmp_path, thumb=_deflate_bomb_png())
+    assert derive_otp_look(path) == ""
+
+
 def test_dark_blue_thumb_and_single_svg_is_graphic_chrome(tmp_path):
     # Solid navy — Metropolis-like: dark + blue + one decorative graphic.
     pix = [(20, 40, 120)] * (8 * 8)

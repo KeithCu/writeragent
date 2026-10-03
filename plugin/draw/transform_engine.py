@@ -60,6 +60,273 @@ def _parse_slide_index(val: Any, current: int, page_count: int) -> int | None:
         return None
 
 
+def current_slide_after_move(current: int, move_from: int, move_to: int) -> int:
+    """Active page after MoveSlide, matching DrawViewShell.
+
+    ``sd/source/ui/view/drviews2.cxx`` ``FuTransformDocumentStructure`` updates
+    ``nNextPageId`` from ``nMoveFrom`` / ``nMoveTo`` / ``nActPageId``:
+
+    - the active page is the one that moved → follow it to ``nMoveTo``
+    - a page before the active one is dropped at or after it → ``nActPageId - 1``
+    - a page after the active one is dropped at or before it → ``nActPageId + 1``
+
+    Pointing ``current_slide`` at ``nMoveTo`` whenever the move succeeds leaves
+    later ``SetText`` / ``EditTextObject`` / ``ChangeLayout`` commands on the
+    moved slide. With current 2, ``{"MoveSlide.0": 3}`` must land on 1.
+    """
+    if current == move_from:
+        return move_to
+    if move_from < current and move_to >= current:
+        return current - 1
+    if move_from > current and move_to <= current:
+        return current + 1
+    return current
+
+
+def current_slide_after_delete(current: int, deleted: int, page_count: int) -> int:
+    """Active page after DeleteSlide.
+
+    LO decrements when ``nPageIdToDel <= nActPageId`` (same function). The
+    following command then clamps ``nNextPageId`` into ``[0, page_count)``.
+    Clamping only when ``current >= page_count`` leaves a delete of an earlier
+    slide (current 2, delete 0 in a 4-slide deck) sitting on the former
+    index-3 slide.
+    """
+    if deleted <= current:
+        current -= 1
+    if page_count <= 0:
+        return 0
+    if current < 0:
+        return 0
+    if current >= page_count:
+        return page_count - 1
+    return current
+
+
+def _paragraph_spans(text: str) -> list[tuple[int, int]]:
+    """``[start, end)`` of each paragraph. The ``\\n`` separator is in neither."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for index, ch in enumerate(text):
+        if ch == "\n":
+            spans.append((start, index))
+            start = index + 1
+    spans.append((start, len(text)))
+    return spans
+
+
+def _paragraph_point(text: str, para: int, char: int) -> int:
+    """Absolute character index of an EditView ``ESelection`` point.
+
+    Draw/Impress shape text does not implement ``XParagraphCursor``
+    (``gotoNextParagraph`` / ``gotoEndOfParagraph`` are absent; a query
+    returns None). ``getString()`` joins paragraphs with ``\\n``, and
+    ``goRight`` counts that newline. ``ESelection`` indices are per
+    paragraph and do not include the break (``drviews2.cxx`` SelectText).
+    """
+    spans = _paragraph_spans(text)
+    if para < 0:
+        para = 0
+    if para >= len(spans):
+        para = len(spans) - 1
+    begin, end = spans[para]
+    length = end - begin
+    if char < 0:
+        char = 0
+    if char > length:
+        char = length
+    return begin + char
+
+
+def text_selection_bounds(text: str, spec: Any) -> tuple[int, int] | None:
+    """``[start, end)`` for a ``SelectText`` spec. None selects the whole string.
+
+    Spec shapes follow ``drviews2.cxx``: ``[]`` all text, ``[para]`` that
+    paragraph, ``[para, char]`` a collapsed cursor, three ints (end char is
+    the paragraph end), four ints ``[startPara, startChar, endPara, endChar]``.
+    """
+    if spec == [] or spec is None:
+        return None
+    if not isinstance(spec, list):
+        raise ValueError("SelectText spec must be a list")
+    values = [int(item) for item in spec]
+    if len(values) == 1:
+        return _paragraph_point(text, values[0], 0), _paragraph_point(text, values[0], 10**9)
+    if len(values) == 2:
+        point = _paragraph_point(text, values[0], values[1])
+        return point, point
+    if len(values) == 3:
+        values.append(10**9)
+    if len(values) >= 4:
+        start = _paragraph_point(text, values[0], values[1])
+        end = _paragraph_point(text, values[2], values[3])
+        if end < start:
+            start, end = end, start
+        return start, end
+    raise ValueError("SelectText spec has no coordinates")
+
+
+def insert_text_leave_selected(cursor: Any, text: str) -> Any:
+    """Replace the cursor and leave *text* selected.
+
+    LO's ``EditView::InsertText(aText, true)`` (``drviews2.cxx``) selects the
+    insertion so the next ``.uno:Bold`` / ``.uno:Italic`` hits that span.
+    ``XTextCursor.setString`` on some builds collapses the cursor at the end,
+    and a collapsed cursor has no range for the following format command.
+    """
+    cursor.setString(text)
+    if not text:
+        return cursor
+    collapsed = True
+    try:
+        collapsed = bool(cursor.isCollapsed())
+    except Exception:
+        collapsed = True
+    try:
+        selected = cursor.getString()
+    except Exception:
+        selected = None
+    if collapsed or selected != text:
+        try:
+            cursor.goLeft(len(text), True)
+        except Exception:
+            return cursor
+    return cursor
+
+
+# ParagraphAdjust (com.sun.star.style): LEFT, RIGHT, BLOCK, CENTER.
+_PARA_ADJUST_BY_COMMAND = {
+    ".uno:LeftPara": 0,
+    ".uno:RightPara": 1,
+    ".uno:JustifyPara": 2,
+    ".uno:CenterPara": 3,
+}
+
+
+def _cursor_prop(cursor: Any, name: str, default: Any = None) -> Any:
+    try:
+        return getattr(cursor, name)
+    except Exception:
+        return default
+
+
+def _set_cursor_prop(cursor: Any, name: str, value: Any) -> None:
+    setattr(cursor, name, value)
+
+
+def _is_italic(value: Any) -> bool:
+    label = getattr(value, "value", None)
+    if isinstance(label, str) and label.upper() in ("ITALIC", "OBLIQUE"):
+        return True
+    text = str(value).upper()
+    return "ITALIC" in text or "OBLIQUE" in text
+
+
+def _font_slant(name: str) -> Any:
+    import uno
+
+    return uno.Enum("com.sun.star.awt.FontSlant", name)
+
+
+def _toggle_numbering(cursor: Any) -> None:
+    """``.uno:DefaultBullet`` / ``.uno:DefaultNumbering`` flip ``NumberingLevel``.
+
+    Dispatching either command with the shape selected sets ``NumberingLevel``
+    on every paragraph (probed: None → 0). ``-1`` clears it (read-back is
+    None). The placeholder's own numbering rules decide bullet versus digit.
+    """
+    level = _cursor_prop(cursor, "NumberingLevel", None)
+    try:
+        enabled = level is not None and int(level) >= 0
+    except (TypeError, ValueError):
+        enabled = False
+    _set_cursor_prop(cursor, "NumberingLevel", -1 if enabled else 0)
+
+
+def _color_from_arguments(arguments: dict[str, Any] | None) -> int | None:
+    if not arguments:
+        return None
+    for key in ("Color.Color", "Color"):
+        if key not in arguments:
+            continue
+        val = arguments[key]
+        if isinstance(val, dict) and "value" in val:
+            val = val["value"]
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def apply_text_cursor_command(cursor: Any, uno_name: str, arguments: dict[str, Any] | None = None) -> bool:
+    """Apply a text ``.uno:`` command to *cursor*'s selection. False if unknown.
+
+    ``controller.select(shape)`` then ``executeDispatch(".uno:Bold")`` bolds
+    the entire text object. Selecting the ``XTextCursor`` does not change
+    that: the dispatcher reads the EditView selection, which headless Draw
+    never enters. Setting ``CharWeight`` / ``CharPosture`` / paragraph
+    properties on the cursor changes only the selected range.
+    """
+    name = uno_name.strip()
+    if name == ".uno:Bold":
+        weight = _cursor_prop(cursor, "CharWeight", 0)
+        try:
+            bold = float(weight) >= 150.0
+        except (TypeError, ValueError):
+            bold = False
+        _set_cursor_prop(cursor, "CharWeight", 100.0 if bold else 150.0)
+        return True
+    if name == ".uno:Italic":
+        italic = _is_italic(_cursor_prop(cursor, "CharPosture", None))
+        _set_cursor_prop(cursor, "CharPosture", _font_slant("NONE" if italic else "ITALIC"))
+        return True
+    if name == ".uno:Underline":
+        try:
+            on = int(_cursor_prop(cursor, "CharUnderline", 0) or 0) != 0
+        except (TypeError, ValueError):
+            on = False
+        _set_cursor_prop(cursor, "CharUnderline", 0 if on else 1)
+        return True
+    if name == ".uno:Strikeout":
+        try:
+            on = int(_cursor_prop(cursor, "CharStrikeout", 0) or 0) != 0
+        except (TypeError, ValueError):
+            on = False
+        _set_cursor_prop(cursor, "CharStrikeout", 0 if on else 1)
+        return True
+    if name == ".uno:Shadowed":
+        on = bool(_cursor_prop(cursor, "CharShadowed", False))
+        _set_cursor_prop(cursor, "CharShadowed", not on)
+        return True
+    if name in (".uno:SuperScript", ".uno:SubScript"):
+        try:
+            escapement = int(_cursor_prop(cursor, "CharEscapement", 0) or 0)
+        except (TypeError, ValueError):
+            escapement = 0
+        want = 14000 if name == ".uno:SuperScript" else -14000
+        if (want > 0 and escapement > 0) or (want < 0 and escapement < 0):
+            _set_cursor_prop(cursor, "CharEscapement", 0)
+            _set_cursor_prop(cursor, "CharEscapementHeight", 100)
+        else:
+            _set_cursor_prop(cursor, "CharEscapement", want)
+            _set_cursor_prop(cursor, "CharEscapementHeight", 58)
+        return True
+    if name in _PARA_ADJUST_BY_COMMAND:
+        _set_cursor_prop(cursor, "ParaAdjust", _PARA_ADJUST_BY_COMMAND[name])
+        return True
+    if name in (".uno:DefaultBullet", ".uno:DefaultNumbering"):
+        _toggle_numbering(cursor)
+        return True
+    if name == ".uno:Color":
+        color = _color_from_arguments(arguments)
+        if color is None:
+            return False
+        _set_cursor_prop(cursor, "CharColor", color)
+        return True
+    return False
+
+
 class SlideCommandEngine:
     """Execute SlideCommands array against a Draw/Impress document."""
 
@@ -182,8 +449,7 @@ class SlideCommandEngine:
             return
         self.bridge.delete_slide(idx)
         self.pages = self.bridge.get_pages()
-        if self.current_slide >= self._page_count():
-            self.current_slide = self._page_count() - 1
+        self.current_slide = current_slide_after_delete(self.current_slide, idx, self._page_count())
         self.applied.append("DeleteSlide:%d" % idx)
 
     def _duplicate_slide(self, val: Any) -> None:
@@ -199,7 +465,7 @@ class SlideCommandEngine:
     def _move_slide(self, from_idx: int, to_idx: int) -> None:
         if self.bridge.move_slide(from_idx, to_idx):
             self.pages = self.bridge.get_pages()
-            self.current_slide = to_idx
+            self.current_slide = current_slide_after_move(self.current_slide, from_idx, to_idx)
             self.applied.append("MoveSlide:%d->%d" % (from_idx, to_idx))
         else:
             self.warnings.append("MoveSlide failed %d -> %d" % (from_idx, to_idx))
@@ -245,7 +511,7 @@ class SlideCommandEngine:
                     cursor = self._select_paragraph(xtext, cursor, int(sv))
                 elif sk == "InsertText":
                     if cursor is not None and xtext is not None:
-                        cursor.setString(str(sv))
+                        cursor = insert_text_leave_selected(cursor, str(sv))
                     elif hasattr(shape, "setString"):
                         shape.setString(str(sv))
                 elif sk == "UnoCommand":
@@ -255,37 +521,30 @@ class SlideCommandEngine:
     def _select_text(self, xtext: Any, cursor: Any, spec: Any) -> Any:
         if cursor is None or xtext is None:
             return cursor
-        cursor.gotoStart(False)
-        if spec == [] or spec is None:
-            cursor.gotoEnd(True)
+        try:
+            text = xtext.getString()
+        except Exception as exc:
+            self.warnings.append("SelectText failed: %s" % exc)
             return cursor
-        if isinstance(spec, list) and len(spec) == 1:
-            cursor.gotoStartOfParagraph(False)
-            for _unused in range(int(spec[0])):
-                if not cursor.gotoNextParagraph(False):
-                    break
-            cursor.gotoEndOfParagraph(True)
+        if not isinstance(text, str):
+            text = str(text)
+        try:
+            bounds = text_selection_bounds(text, spec)
+        except (TypeError, ValueError) as exc:
+            self.warnings.append("SelectText failed: %s" % exc)
             return cursor
-        if isinstance(spec, list) and len(spec) >= 4:
-            para, start, end_para, end_char = int(spec[0]), int(spec[1]), int(spec[2]), int(spec[3])
+        try:
             cursor.gotoStart(False)
-            for _unused in range(para):
-                if not cursor.gotoNextParagraph(False):
-                    break
-            cursor.goRight(start, False)
-            for _unused in range(end_para - para):
-                if not cursor.gotoNextParagraph(False):
-                    break
-            cursor.goRight(end_char, True)
-            return cursor
-        if isinstance(spec, list) and len(spec) == 2:
-            para, char = int(spec[0]), int(spec[1])
-            cursor.gotoStart(False)
-            for _unused in range(para):
-                if not cursor.gotoNextParagraph(False):
-                    break
-            cursor.goRight(char, False)
-            return cursor
+            if bounds is None:
+                cursor.gotoEnd(True)
+                return cursor
+            start, end = bounds
+            if start:
+                cursor.goRight(start, False)
+            if end > start:
+                cursor.goRight(end - start, True)
+        except Exception as exc:
+            self.warnings.append("SelectText failed: %s" % exc)
         return cursor
 
     def _select_paragraph(self, xtext: Any, cursor: Any, para_index: int) -> Any:
@@ -311,13 +570,27 @@ class SlideCommandEngine:
         parts = cmd.split(None, 1)
         uno_name = parts[0]
         arg_json = parts[1] if len(parts) > 1 else None
-        props = ()
+        arguments: dict[str, Any] | None = None
         if arg_json:
             from plugin.framework.json_utils import safe_json_loads
 
             parsed = safe_json_loads(arg_json, default={})
             if isinstance(parsed, dict):
-                props = self._uno_props_from_dict(parsed)
+                arguments = parsed
+        # A text cursor from EditTextObject is not the view selection.
+        # controller.select(shape) makes .uno:Bold format every character
+        # in the object (probed on an Impress title shape). Apply the
+        # command to the cursor range instead of dispatching.
+        if cursor is not None:
+            try:
+                handled = apply_text_cursor_command(cursor, uno_name, arguments)
+            except Exception as exc:
+                self.warnings.append("UnoCommand %s failed: %s" % (uno_name, exc))
+                return
+            if not handled:
+                self.warnings.append("UnoCommand %s does not apply to the text selection" % uno_name)
+            return
+        props = self._uno_props_from_dict(arguments) if arguments else ()
         try:
             controller = self.doc.getCurrentController()
             if controller is None:
@@ -325,7 +598,7 @@ class SlideCommandEngine:
             frame = controller.getFrame()
             smgr = self.tctx.ctx.ServiceManager
             dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", self.tctx.ctx)
-            if cursor is not None and shape is not None:
+            if shape is not None:
                 try:
                     controller.select(shape)
                 except Exception:

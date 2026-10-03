@@ -51,21 +51,40 @@ def _visual_size_to_hundredth_mm(sz: Any, map_unit: int) -> tuple[int, int] | No
     return None
 
 
-def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
-    """Best-effort size from embedded object's XVisualObject.getVisualAreaSize."""
+def _ole_visual_object(shape: Any) -> Any | None:
+    """Return the Draw OLE model's ``XVisualObject``, or None.
+
+    ``com.sun.star.drawing.OLE2Shape`` does not implement
+    ``XEmbeddedObjectSupplier``. ``hasattr(shape, "getEmbeddedObject")`` is
+    always false, so the old lookup returned None and every formula used the
+    length heuristic. The embed's document is the ``Model`` property; a Math
+    formula document implements ``XVisualObject`` directly (probed:
+    ``com.sun.star.comp.Math.FormulaDocument``). Writer's
+    ``TextEmbeddedObject`` is the type that exposes ``getEmbeddedObject``.
+    """
+    model = getattr(shape, "Model", None)
+    if model is None:
+        return None
+    if hasattr(model, "getVisualAreaSize") and hasattr(model, "getMapUnit"):
+        return model
     try:
-        from com.sun.star.embed import Aspects
         import uno
 
-        emb = None
-        if hasattr(shape, "getEmbeddedObject"):
-            try:
-                emb = shape.getEmbeddedObject()
-            except Exception:
-                emb = None
-        if emb is None:
-            return None
-        vo = emb.queryInterface(uno.getTypeByName("com.sun.star.embed.XVisualObject"))
+        queried = model.queryInterface(uno.getTypeByName("com.sun.star.embed.XVisualObject"))
+    except Exception:
+        log.debug("math_insert: Model has no XVisualObject", exc_info=True)
+        return None
+    if queried is None or not hasattr(queried, "getVisualAreaSize"):
+        return None
+    return queried
+
+
+def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
+    """Best-effort size from the OLE model's ``XVisualObject.getVisualAreaSize``."""
+    try:
+        from com.sun.star.embed import Aspects
+
+        vo = _ole_visual_object(shape)
         if vo is None:
             return None
         aspect = int(getattr(Aspects, "MSOLE_CONTENT", 1))

@@ -259,11 +259,8 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
     expected = height * row_bytes
     if expected > _MAX_RAW_PNG:
         return None
-    try:
-        raw = zlib.decompress(bytes(idat))
-    except zlib.error:
-        return None
-    if len(raw) < expected:
+    raw = _inflate_idat(bytes(idat), expected)
+    if raw is None:
         return None
     bpp = max(1, (bit_depth * spp + 7) // 8)
     pixels: list[tuple[int, int, int]] = []
@@ -286,6 +283,28 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
             return None
         pixels.extend(unpacked)
     return pixels
+
+
+def _inflate_idat(idat: bytes, expected: int) -> bytes | None:
+    """Inflate concatenated IDAT, refusing output past *expected* bytes.
+
+    ``zlib.decompress`` allocates the whole inflated stream before the caller
+    can compare its length to the IHDR. ``_read_member`` only caps the
+    compressed PNG. A thumbnail with a tiny IHDR (so *expected* is a few
+    bytes) and a deflate bomb in IDAT passes that cap, then OOMs inside
+    ``list_designs`` / ``apply_design``. ``decompress(max_length=expected)``
+    stops at the IHDR size. A longer stream leaves ``eof`` false.
+    """
+    if expected < 1 or expected > _MAX_RAW_PNG:
+        return None
+    dec = zlib.decompressobj()
+    try:
+        raw = dec.decompress(idat, expected)
+    except zlib.error:
+        return None
+    if len(raw) != expected or not dec.eof or dec.unconsumed_tail:
+        return None
+    return raw
 
 
 def _recon_scanline(filt: int, row: bytearray, prior: bytes, bpp: int) -> bool:
