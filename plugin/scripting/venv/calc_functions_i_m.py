@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from .calc_functions_util import _npf_result, match_criteria
+from .calc_functions_util import _extract_numeric_array, _npf_result, match_criteria
 from .coerce import is_blank_value, is_na_value
 
 
@@ -612,27 +612,18 @@ def jis(text: Any) -> str | float:
 
 
 def kurt(*args: Any) -> float:
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            try:
-                vals.append(float(v))
-            except (ValueError, TypeError):
-                pass
-    n = len(vals)
-    if n < 4:
+    try:
+        import scipy.stats
+    except ImportError:
         return float("nan")
-    arr = np.asarray(vals)
-    m = np.mean(arr)
-    s = np.std(arr, ddof=1)
-    if s == 0:
+    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True)
+    if len(arr) < 4 or np.std(arr, ddof=1) == 0:
         return float("nan")
-    # Excel/Calc kurtosis formula
-    z = (arr - m) / s
-    term1 = (n * (n + 1)) / ((n - 1) * (n - 2) * (n - 3))
-    term2 = np.sum(z**4)
-    term3 = (3 * (n - 1) ** 2) / ((n - 2) * (n - 3))
-    return float(term1 * term2 - term3)
+    try:
+        res = float(scipy.stats.kurtosis(arr, bias=False))
+        return res if math.isfinite(res) else float("nan")
+    except Exception:
+        return float("nan")
 
 
 def large(r: Any, k: Any) -> float:
