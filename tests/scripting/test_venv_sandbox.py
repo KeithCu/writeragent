@@ -18,6 +18,21 @@ from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
 
 
+def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
+    """Stop during a wa.* call must not be a RuntimeError the script can swallow."""
+    from plugin.scripting.ipc import UserStopped
+
+    def boom() -> None:
+        raise UserStopped("Stopped by user.")
+
+    code = "try:\n    boom()\n    result = 'kept going'\nexcept Exception:\n    result = 'caught'\n"
+    out = run_sandboxed_code(code, bindings={"boom": boom}, timeout_sec=5)
+    assert out["status"] == "error"
+    assert out["code"] == "USER_STOPPED"
+    assert "Stopped by user" in out["message"]
+    assert out.get("result") != "caught"
+
+
 def test_run_sandboxed_code_injects_bindings():
     code = "result = image"
     out = run_sandboxed_code(code, bindings={"image": b"png-bytes"})

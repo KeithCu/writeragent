@@ -505,6 +505,55 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     assert mgr._terminate_worker.call_count == 1
 
 
+def test_stdout_close_before_terminal_frame_does_not_replay():
+    """Child death with no frame must not resend the same request id."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    seen_ids: list[object] = []
+
+    def _write_frame(stdin, request, **kwargs):
+        seen_ids.append(request.get("id"))
+
+    mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
+    mgr._read_response_bytes = MagicMock(return_value=b"")  # type: ignore[method-assign]
+    mgr._drain_stderr = MagicMock(return_value="")  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "without a response" in result["message"]
+    assert seen_ids and len(seen_ids) == 1
+    assert mgr._terminate_worker.call_count == 1
+
+
+def test_read_oserror_before_terminal_frame_does_not_replay():
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
+    mgr._read_response_bytes = MagicMock(side_effect=OSError("pipe closed"))  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "pipe closed" in result["message"]
+    assert mgr._write_frame_with_timeout.call_count == 1
+    assert mgr._terminate_worker.call_count == 1
+
+
 def test_host_read_timeout_does_not_retry():
     """Hung user code must not be replayed; that would double the configured timeout."""
     mgr = PythonWorkerManager(sys.executable, {})

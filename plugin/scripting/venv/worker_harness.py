@@ -29,6 +29,7 @@ register_alias_importer()
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
+    UserStopped,
     read_pickle_frame,
     write_pickle_frame,
 )
@@ -219,6 +220,15 @@ def main() -> None:
             log.debug("Received request id=%s action=%s", req_id, request.get("action") or "execute")
             response = _handle_request(request, stdout=stdout)
             log.debug("Finished request id=%s, response status=%s", req_id, response.get("status") if response else "none")
+        except UserStopped as e:
+            # Sandbox returns this as a dict. This is the backstop when Stop
+            # is raised outside that path, so the process still writes a
+            # terminal frame instead of dying without one.
+            response = {
+                "status": "error",
+                "code": "USER_STOPPED",
+                "message": str(e) or "Stopped by user.",
+            }
         except IpcFrameError as e:
             # A bad length prefix leaves unread bytes on the pipe. Writing an
             # error frame here desynchronizes the next request, and the host
