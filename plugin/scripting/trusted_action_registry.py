@@ -28,7 +28,16 @@ class TrustedActionWiring:
     supports_heartbeat: bool = False
 
     def dispatch(self, data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
-        mod_name, attr_name = self.handler.rsplit(":", 1)
+        parts = self.handler.rsplit(":", 1)
+        # What was wrong: a handler string with no colon made rsplit return
+        # one element, and the unpack raised ValueError with no context.
+        # Why this works: the wiring contract is module:attr; anything else
+        # fails here with that shape instead of a bare unpack error.
+        if len(parts) != 2:
+            raise ValueError(
+                f"Trusted action handler must be 'module:attr', got {self.handler!r}"
+            )
+        mod_name, attr_name = parts
         mod = importlib.import_module(mod_name)
         fn = getattr(mod, attr_name)
         # supports_heartbeat is the contract that the handler accepts

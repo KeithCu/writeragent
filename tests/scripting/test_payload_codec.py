@@ -775,6 +775,21 @@ def test_child_pack_below_threshold_returns_list() -> None:
     assert wire[0][0] == pytest.approx(0.0)
 
 
+def test_split_grid_unpack_rejects_non_dict_strings() -> None:
+    """strings must be a dict before .items(); a list used to raise AttributeError."""
+    pytest.importorskip("numpy")
+    envelope = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [1],
+        "buffer": array.array("d", [1.0]).tobytes(),
+        "strings": ["not", "a", "dict"],
+    }
+    with pytest.raises(ValueError, match="strings must be a dict"):
+        host_unpack_split_grid(envelope)
+    with pytest.raises(ValueError, match="strings must be a dict"):
+        child_unpack_split_grid(envelope)
+
+
 def test_host_unpack_split_grid_rejects_short_buffer() -> None:
     """Declared shape must match the float buffer. A short buffer is not a short grid."""
     buf = array.array("d", [1.0])
