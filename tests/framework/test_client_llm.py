@@ -182,6 +182,67 @@ def test_custom_empty_api_key_omits_auth_headers():
     assert "x-api-key" not in client._headers()
 
 
+def test_headers_none_api_key_matches_empty_string():
+    """A null api_key must not crash _headers. It matches an empty string."""
+    none_key = LlmClient({"endpoint": "http://127.0.0.1:8080/v1", "api_key": None}, MockContext())
+    empty_key = LlmClient({"endpoint": "http://127.0.0.1:8080/v1", "api_key": ""}, MockContext())
+    assert none_key._headers() == empty_key._headers()
+    assert "Authorization" not in none_key._headers()
+
+    hosted = LlmClient({"endpoint": "https://api.openai.com", "api_key": None, "model": "gpt-4o"}, MockContext())
+    with pytest.raises(AuthError) as err:
+        hosted._headers()
+    assert err.value.code == "missing_api_key"
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["o3", "o1-preview", "o4-mini-2025-04-16", "gpt-5-mini", "gpt-5.1", "openai/o3", "ft:gpt-5-mini:org:name:id"],
+)
+def test_openai_reasoning_models_send_max_completion_tokens(model):
+    """o-series and gpt-5 on api.openai.com reject max_tokens and non-default temperature."""
+    client = LlmClient(
+        {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": model, "temperature": 0.7},
+        MockContext(),
+    )
+    _method, _path, body, _headers = client.make_chat_request([{"role": "user", "content": "hi"}], max_tokens=50)
+    data = json.loads(body.decode("utf-8"))
+    assert data["max_completion_tokens"] == 50
+    assert "max_tokens" not in data
+    assert "temperature" not in data
+
+
+def test_openai_reasoning_model_keeps_default_temperature():
+    client = LlmClient(
+        {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "o3", "temperature": 1.0},
+        MockContext(),
+    )
+    _method, _path, body, _headers = client.make_chat_request([{"role": "user", "content": "hi"}], max_tokens=50)
+    data = json.loads(body.decode("utf-8"))
+    assert data["max_completion_tokens"] == 50
+    assert data["temperature"] == 1
+    assert "max_tokens" not in data
+
+
+def test_non_openai_providers_keep_max_tokens_for_reasoning_names():
+    """Groq, OpenRouter, and Anthropic stay on max_tokens even for an o3/gpt-5 name."""
+    cases = (
+        ("https://api.groq.com/openai/v1", "o3"),
+        ("https://openrouter.ai/api", "openai/o3"),
+        ("https://api.anthropic.com", "claude-3-5-sonnet-20241022"),
+    )
+    for endpoint, model in cases:
+        client = LlmClient(
+            {"endpoint": endpoint, "api_key": "sk-test", "model": model, "temperature": 0.4},
+            MockContext(),
+        )
+        _method, _path, body, _headers = client.make_chat_request([{"role": "user", "content": "hi"}], max_tokens=40)
+        data = json.loads(body.decode("utf-8"))
+        assert data["max_tokens"] == 40
+        assert "max_completion_tokens" not in data
+        assert data["temperature"] == pytest.approx(0.4)
+
+
 def test_persistent_connections(client):
     # What was wrong: this still expected the Settings read timeout (60).
     # Connect uses LLM_CONNECT_TIMEOUT_SEC so a dead host does not wait the
@@ -2914,6 +2975,229 @@ def test_request_json_200_resets_free_gap_to_floor(client):
         client._request_json("POST", "/v1/audio/transcriptions", body, {})
     assert _host_gap_sec.get("openrouter.ai:free") == OPENROUTER_FREE_MIN_GAP_SEC
     assert "openrouter.ai" not in _host_gap_sec
+
+
+def test_overload_detection_prefers_code_and_word_boundary():
+    """429/503 inside a larger number is not overload. A structured code is."""
+    from plugin.framework.client.llm_client import _stream_error_is_overload
+
+    assert _stream_error_is_overload({"error": {"message": "Requested 4290 tokens"}}) is False
+    assert _stream_error_is_overload({"error": {"message": "code 5031"}}) is False
+    assert _stream_error_is_overload({"error": {"code": "context_length_exceeded", "message": "Requested 4290 tokens"}}) is False
+    assert _stream_error_is_overload({"error": {"message": "HTTP 429"}}) is True
+    assert _stream_error_is_overload({"error": {"message": "status 503"}}) is True
+    assert _stream_error_is_overload({"error": {"code": 429, "message": "slow down"}}) is True
+    assert _stream_error_is_overload({"error": {"code": "503", "message": "down"}}) is True
+    assert _stream_error_is_overload({"error": {"type": "overloaded_error", "message": "Overloaded"}}) is True
+    assert _stream_error_is_overload({"error": {"code": "rate_limit_exceeded", "message": "slow down"}}) is True
+
+
+def test_stream_4290_tokens_is_not_an_overload_retry(client, _fast_retry_waits):
+    payload = json.dumps({"error": {"message": "Requested 4290 tokens", "code": "context_length_exceeded"}}).encode()
+    bad = create_mock_http_response(sse_lines=[b"data: " + payload])
+    ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, bad, ok)
+        with pytest.raises(NetworkError) as err:
+            client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert err.value.code == "STREAM_ERROR"
+    assert "4290" in str(err.value)
+    assert mock_https.call_count == 1
+    _fast_retry_waits["transport"].assert_not_called()
+    bad.read.assert_not_called()
+
+
+def test_stream_structured_429_code_retries_before_tokens(client, _fast_retry_waits):
+    """error.code 429 is overload even when the message text has no 429 marker."""
+    payload = json.dumps({"error": {"code": 429, "message": "slow down"}}).encode()
+    bad = create_mock_http_response(sse_lines=[b"data: " + payload])
+    ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, bad, ok)
+        result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert result["content"] == "Recovered"
+    assert mock_https.call_count == 2
+    _fast_retry_waits["llm"].assert_called_once()
+
+
+def test_stream_error_closes_without_draining(client):
+    """STREAM_ERROR, finish_reason=error, INFINITE_LOOP, and a raised callback skip response.read()."""
+    from plugin.framework.client.llm_client import REPEATED_STREAMING_CHUNK_LIMIT
+
+    cases = [
+        (
+            "STREAM_ERROR",
+            [b'data: {"error": {"message": "model exploded", "type": "server_error"}}'],
+            None,
+        ),
+        (
+            "STREAM_ERROR",
+            [f'data: {json.dumps({"choices": [{"delta": {}, "finish_reason": "error"}]})}'.encode()],
+            None,
+        ),
+        (
+            "INFINITE_LOOP",
+            [f'data: {json.dumps({"choices": [{"delta": {"content": "aaa"}}]})}'.encode()] * REPEATED_STREAMING_CHUNK_LIMIT,
+            None,
+        ),
+    ]
+    for code, lines, _unused in cases:
+        resp = create_mock_http_response(sse_lines=lines)
+        with patch("http.client.HTTPSConnection") as mock_https:
+            conns = _https_steps(mock_https, resp)
+            with pytest.raises(NetworkError) as err:
+                client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+        assert err.value.code == code
+        resp.read.assert_not_called()
+        conns[0].close.assert_called()
+
+    boom_resp = create_mock_http_response(sse_lines=_sse_content_lines("Hello"))
+
+    def _boom(_text: str) -> None:
+        raise RuntimeError("boom")
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        conns = _https_steps(mock_https, boom_resp)
+        with pytest.raises(NetworkError) as err:
+            client.stream_chat_response(
+                [{"role": "user", "content": "Hi"}],
+                max_tokens=10,
+                append_callback=_boom,
+            )
+    assert err.value.code == "NETWORK_ERROR"
+    boom_resp.read.assert_not_called()
+    conns[0].close.assert_called()
+
+
+def test_clean_stream_still_drains(client):
+    resp = create_mock_http_response(sse_lines=_sse_content_lines("Hello"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        conns = _https_steps(mock_https, resp)
+        result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
+    assert result["content"] == "Hello"
+    resp.read.assert_called()
+    conns[0].close.assert_not_called()
+
+
+def test_stop_still_skips_stream_drain(client):
+    seen: list[str] = []
+
+    def on_content(text: str) -> None:
+        seen.append(text)
+        client.stop()
+
+    resp = create_mock_http_response(sse_lines=_sse_content_lines("one", "two"))
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+            append_callback=on_content,
+        )
+    assert seen == ["one"]
+    assert result["finish_reason"] == "stop"
+    resp.read.assert_not_called()
+
+
+def test_reused_keepalive_resends_without_provider_busy(client):
+    """RemoteDisconnected on an already-open socket resends once and does not retry-budget."""
+    import http.client
+
+    stale_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        ok = create_mock_http_response(sse_lines=_sse_content_lines("Hello"))
+        statuses: list[str] = []
+        with (
+            patch("http.client.HTTPSConnection") as mock_https,
+            patch("plugin.framework.client.http_transport.remember_host_gap") as remember,
+        ):
+            stale = MagicMock()
+            stale.sock = stale_sock
+            stale.getresponse.side_effect = http.client.RemoteDisconnected("closed")
+            fresh = MagicMock()
+            fresh.sock = None
+            fresh.getresponse.return_value = ok
+            mock_https.side_effect = [stale, fresh]
+            result = client.stream_request_with_tools(
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=10,
+                status_callback=statuses.append,
+            )
+        assert result["content"] == "Hello"
+        assert statuses == []
+        assert all("Provider busy" not in line for line in statuses)
+        remember.assert_not_called()
+        assert mock_https.call_count == 2
+        ok.read.assert_called()
+    finally:
+        stale_sock.close()
+
+
+def test_second_keepalive_failure_still_uses_retry_budget(client):
+    """The free resend is once. The next disconnect shows Provider busy and spends one attempt."""
+    import http.client
+
+    sock_a = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock_b = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        ok = create_mock_http_response(sse_lines=_sse_content_lines("Hello"))
+        statuses: list[str] = []
+        with (
+            patch("http.client.HTTPSConnection") as mock_https,
+            patch("plugin.framework.client.http_transport.remember_host_gap") as remember,
+        ):
+            first = MagicMock()
+            first.sock = sock_a
+            first.getresponse.side_effect = http.client.RemoteDisconnected("closed")
+            second = MagicMock()
+            second.sock = sock_b
+            second.getresponse.side_effect = http.client.RemoteDisconnected("closed again")
+            third = MagicMock()
+            third.sock = None
+            third.getresponse.return_value = ok
+            mock_https.side_effect = [first, second, third]
+            result = client.stream_request_with_tools(
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=10,
+                status_callback=statuses.append,
+            )
+        assert result["content"] == "Hello"
+        assert len(statuses) == 1
+        assert "Provider busy" in statuses[0]
+        assert remember.call_count == 1
+        assert mock_https.call_count == 3
+    finally:
+        sock_a.close()
+        sock_b.close()
+
+
+def test_fresh_remote_disconnected_still_shows_provider_busy(client):
+    """A disconnect on a socket that was not already open still spends a retry."""
+    import http.client
+
+    ok = create_mock_http_response(sse_lines=_sse_content_lines("Hello"))
+    statuses: list[str] = []
+    with (
+        patch("http.client.HTTPSConnection") as mock_https,
+        patch("plugin.framework.client.http_transport.remember_host_gap") as remember,
+    ):
+        first = MagicMock()
+        first.sock = None
+        first.request.side_effect = http.client.RemoteDisconnected("closed")
+        second = MagicMock()
+        second.sock = None
+        second.getresponse.return_value = ok
+        mock_https.side_effect = [first, second]
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+            status_callback=statuses.append,
+        )
+    assert result["content"] == "Hello"
+    assert len(statuses) == 1
+    assert "Provider busy" in statuses[0]
+    remember.assert_called_once()
+    assert mock_https.call_count == 2
 
 
 
