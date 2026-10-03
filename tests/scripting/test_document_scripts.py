@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
@@ -36,6 +38,7 @@ from plugin.scripting.document_scripts import (
 )
 from plugin.scripting.domain_registry import (
     ANALYSIS_SCRIPT_DISPLAY_PREFIX,
+    DOC_SCRIPT_DISPLAY_PREFIX,
     SCRIPT_ORIGIN_ANALYSIS,
     SCRIPT_ORIGIN_VISION,
     VISION_SCRIPT_DISPLAY_PREFIX,
@@ -724,9 +727,78 @@ def test_set_calc_init_script_logs_when_session_cache_fails(caplog) -> None:
 
 def test_document_scripts_uno_skips_windows_leftover_hidden_reopen() -> None:
     """GHA 34679494812: leftover_open=3 create_native_doc uid=41 then 30s hang."""
-    from pathlib import Path
-
     src = Path(__file__).with_name("test_document_scripts_uno.py").read_text(encoding="utf-8")
     assert "skip_windows_leftover_hidden_load" in src
     assert "document scripts Hidden _blank reopen" in src
     assert "34679494812" in src
+
+
+def test_monaco_overwrite_check_uses_document_display_key():
+    """New/Save As types a storage name; This Document list keys are [Doc] labels.
+
+    Probing the raw name missed the row, so the overwrite confirm never ran
+    and save_document_script replaced the existing script.
+    """
+    js_path = (
+        Path(__file__).resolve().parents[2]
+        / "plugin/contrib/scripting/assets/editor/scripts_manager.js"
+    )
+    js = js_path.read_text(encoding="utf-8")
+    key_fn = re.search(
+        r"function documentScriptListKey\(name\) \{\n"
+        r"    var prefix = \"([^\"]*)\";\n"
+        r"    return name\.indexOf\(prefix\) === 0 \? name : prefix \+ name;\n"
+        r"  \}",
+        js,
+    )
+    exists_fn = re.search(
+        r"function scriptExistsInSection\(sectionId, name\) \{\n"
+        r"    var lookup = sectionId === \"document\" \? documentScriptListKey\(name\) : name;\n"
+        r"    for \(var s = 0; s < scriptSections\.length; s\+\+\) \{\n"
+        r"      if \(scriptSections\[s\]\.id === sectionId\) \{\n"
+        r"        var scripts = scriptSections\[s\]\.scripts \|\| \{\};\n"
+        r"        return scripts\[lookup\] !== undefined;\n"
+        r"      \}\n"
+        r"    \}\n"
+        r"    return false;\n"
+        r"  \}",
+        js,
+    )
+    assert key_fn is not None
+    assert exists_fn is not None
+    prefix = key_fn.group(1)
+    assert prefix == DOC_SCRIPT_DISPLAY_PREFIX
+
+    def list_key(name: str) -> str:
+        return name if name.startswith(prefix) else prefix + name
+
+    def exists_in_section(sections: list[dict], section_id: str, name: str) -> bool:
+        lookup = list_key(name) if section_id == "document" else name
+        for section in sections:
+            if section["id"] == section_id:
+                return lookup in (section.get("scripts") or {})
+        return False
+
+    ctx = MagicMock()
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
+    attach_document_script(doc, "Regional", "result = 3")
+    with patch("plugin.framework.config.get_config", return_value={"Regional": "user-code"}), patch(
+        "plugin.framework.config.get_config_str", return_value=""
+    ), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ):
+        msg = build_scripts_list_message(ctx, session_doc=doc, session_doc_url="file:///tmp/test.odt")
+    sections = msg["sections"]
+    by_id = {section["id"]: section["scripts"] for section in sections}
+    # The raw storage name is not a list key. The picker must still find it.
+    assert "Regional" not in by_id["document"]
+    assert by_id["document"][document_script_display_name("Regional")] == "result = 3"
+    assert exists_in_section(sections, "document", "Regional")
+    assert exists_in_section(sections, "document", document_script_display_name("Regional"))
+    assert not exists_in_section(sections, "document", "Other")
+    # My Scripts keeps the raw name, including when it matches a document script.
+    assert exists_in_section(sections, "user", "Regional")
+    assert not exists_in_section(sections, "user", document_script_display_name("Regional"))
