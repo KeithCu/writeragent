@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import os
 import pickle
+import signal
 import struct
 import subprocess
 import sys
@@ -416,8 +417,7 @@ def test_large_stdin_write_completes_intact():
     payload = b"large-payload-" * (256 * 1024)
     mgr._write_bytes_with_timeout(stream, payload, timeout_sec=2, label="test request")
     assert stream.getvalue() == payload
-    assert mgr._stdin_writer_thread is not None
-    assert not mgr._stdin_writer_thread.is_alive()
+    assert mgr._stdin_writer_thread is None
 
 
 def test_initial_write_timeout_retries_once():
@@ -468,7 +468,7 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
 
     monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_ppt_master_response", dispatch)
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1, caller="ppt_master_venv")
 
     assert result["status"] == "error"
     assert "host RPC response timed out" in result["message"]
@@ -502,7 +502,7 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
 
     monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_ppt_master_response", dispatch)
 
-    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1, caller="ppt_master_venv")
 
     assert result["status"] == "error"
     assert mgr._write_frame_with_timeout.call_count == 1
@@ -1590,5 +1590,291 @@ def test_clear_host_state_after_worker_death_keeps_recorded_session() -> None:
         assert off_main_calc_session_is_unambiguous() is True
     finally:
         clear_active_calc_session()
+
+
+def test_acquire_io_ui_thread_returns_busy_when_lock_held(monkeypatch):
+    """The UI thread must not block on the pipe lock."""
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._io_lock.acquire(timeout=1)
+    try:
+        started = time.monotonic()
+        result = mgr._acquire_io()
+        assert time.monotonic() - started < 1.0
+        assert result is not None
+        assert result["status"] == "error"
+        assert result["code"] == "WORKER_REENTRY"
+        assert "busy" in result["message"]
+        assert mgr._io_owner is None
+    finally:
+        mgr._io_lock.release()
+
+
+def test_acquire_io_refuses_other_thread_during_tool_rpc():
+    """A tool RPC may be waiting on this thread; do not block in acquire()."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    mgr._serving_tool_call = True
+    mgr._io_owner = threading.get_ident() + 1
+    started = time.monotonic()
+    result = mgr._acquire_io()
+    assert time.monotonic() - started < 1.0
+    assert result is not None
+    assert result["code"] == "WORKER_REENTRY"
+    assert not mgr._io_lock.locked()
+
+
+def test_acquire_io_stops_waiting_when_holder_enters_tool_rpc(monkeypatch):
+    """A waiter parked on the lock must leave once a tool RPC starts."""
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr(venv_worker_module, "_IO_LOCK_ACQUIRE_TIMEOUT_SEC", 30.0)
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._io_lock.acquire(timeout=1)
+    mgr._io_owner = threading.get_ident()
+    outcome: dict[str, dict] = {}
+
+    def _other() -> None:
+        got = mgr._acquire_io()
+        assert got is not None
+        outcome["result"] = got
+
+    waiter = threading.Thread(target=_other)
+    waiter.start()
+    time.sleep(0.1)
+    mgr._serving_tool_call = True
+    waiter.join(timeout=2)
+    try:
+        assert not waiter.is_alive()
+        assert outcome["result"]["code"] == "WORKER_REENTRY"
+    finally:
+        mgr._serving_tool_call = False
+        mgr._io_owner = None
+        mgr._io_lock.release()
+
+
+def test_acquire_io_times_out_instead_of_blocking(monkeypatch):
+    """A holder that never releases must not pin the waiter forever."""
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr(venv_worker_module, "_IO_LOCK_ACQUIRE_TIMEOUT_SEC", 0.15)
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._io_lock.acquire(timeout=1)
+    outcome: dict[str, dict] = {}
+
+    def _other() -> None:
+        got = mgr._acquire_io()
+        assert got is not None
+        outcome["result"] = got
+
+    try:
+        started = time.monotonic()
+        waiter = threading.Thread(target=_other)
+        waiter.start()
+        waiter.join(timeout=2)
+        assert not waiter.is_alive()
+        assert time.monotonic() - started < 2.0
+        assert outcome["result"]["code"] == "WORKER_REENTRY"
+        assert "busy" in outcome["result"]["message"]
+    finally:
+        mgr._io_lock.release()
+
+
+def test_acquire_io_takes_lock_after_holder_releases(monkeypatch):
+    """A bounded wait still serializes a second caller once the pipe is free."""
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._io_lock.acquire(timeout=1)
+    mgr._io_owner = threading.get_ident()
+    outcome: list = []
+
+    def _other() -> None:
+        outcome.append(mgr._acquire_io())
+
+    waiter = threading.Thread(target=_other)
+    waiter.start()
+    time.sleep(0.1)
+    mgr._io_owner = None
+    mgr._io_lock.release()
+    waiter.join(timeout=2)
+    assert not waiter.is_alive()
+    assert outcome == [None]
+    assert mgr._io_owner == waiter.ident
+    mgr._release_io()
+
+
+def test_kill_process_tree_signals_group_after_leader_exits(monkeypatch):
+    """Descendants must still be signaled when the direct child has already exited."""
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.poll.return_value = 0
+    if sys.platform == "win32":
+        run = MagicMock()
+        monkeypatch.setattr(venv_worker_module.subprocess, "run", run)
+        venv_worker_module._kill_process_tree(proc)
+        run.assert_called_once()
+        assert run.call_args[0][0] == ["taskkill", "/F", "/T", "/PID", "4242"]
+        proc.kill.assert_not_called()
+        return
+
+    killed: dict[str, int] = {}
+
+    def _getpgid(pid: int) -> int:
+        raise ProcessLookupError(pid)
+
+    def _killpg(pgid: int, sig: int) -> None:
+        killed["pgid"] = pgid
+        killed["sig"] = sig
+
+    monkeypatch.setattr(os, "getpgid", _getpgid)
+    monkeypatch.setattr(os, "killpg", _killpg)
+    venv_worker_module._kill_process_tree(proc)
+    assert killed == {"pgid": 4242, "sig": signal.SIGKILL}
+    proc.kill.assert_not_called()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
+def test_kill_process_tree_reaps_grandchild_after_leader_exits():
+    """Real session: leader exit must not leave the grandchild running."""
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    code = (
+        "import os, sys, time\n"
+        "pid = os.fork()\n"
+        "if pid == 0:\n"
+        "    time.sleep(120)\n"
+        "    os._exit(0)\n"
+        "sys.stderr.write('GRANDCHILD %s\\n' % pid)\n"
+        "sys.stderr.flush()\n"
+        "os._exit(0)\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", code],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    gpid = None
+    try:
+        assert proc.stderr is not None
+        line = proc.stderr.readline()
+        text = line.decode()
+        assert text.startswith("GRANDCHILD "), text
+        gpid = int(text.split()[1])
+        proc.wait(timeout=5)
+        assert proc.poll() is not None
+        assert pid_is_alive(gpid)
+        venv_worker_module._kill_process_tree(proc)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and pid_is_alive(gpid):
+            time.sleep(0.05)
+        assert not pid_is_alive(gpid), f"grandchild pid {gpid} survived group kill"
+    finally:
+        if gpid is not None and pid_is_alive(gpid):
+            try:
+                os.kill(gpid, signal.SIGKILL)
+            except OSError:
+                pass
+        if proc.poll() is None:
+            proc.kill()
+        try:
+            proc.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        if proc.stderr is not None:
+            proc.stderr.close()
+
+
+def test_ensure_running_starts_new_session_without_preexec(monkeypatch):
+    """setsid belongs on the C spawn path, not a Python preexec_fn."""
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    popen = MagicMock()
+    proc = MagicMock()
+    proc.pid = 7
+    proc.stdin = None
+    proc.stdout = None
+    proc.stderr = None
+    popen.return_value = proc
+    monkeypatch.setattr(venv_worker_module.subprocess, "Popen", popen)
+    monkeypatch.setattr(venv_worker_module, "wrap_command_for_sandbox", lambda cmd: cmd)
+    monkeypatch.setattr(venv_worker_module, "optimize_popen_pipes", lambda _proc: None)
+    monkeypatch.setattr(venv_worker_module, "start_stderr_drain", lambda *_args, **_kwargs: None)
+    mgr = PythonWorkerManager(sys.executable, {})
+    mgr._ensure_running()
+    kwargs = popen.call_args.kwargs
+    assert "preexec_fn" not in kwargs
+    if sys.platform == "win32":
+        assert kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
+    else:
+        assert kwargs.get("start_new_session") is True
+
+
+def test_script_llm_request_does_not_dispatch_host_llm(monkeypatch):
+    """caller='script' (including =PY()) must not run llm_request on host credentials."""
+    from plugin.scripting.venv_worker import _maybe_dispatch_intermediate_response
+
+    def _boom(_payload):
+        raise AssertionError("host LLM must not run for a non-ppt worker")
+
+    monkeypatch.setattr("plugin.ppt_master.venv.host_rpc.handle_llm_request", _boom)
+    frame = {"type": "llm_request", "id": "1", "messages": [{"role": "user", "content": "x"}]}
+    written: list[bytes] = []
+    handled = _maybe_dispatch_intermediate_response(
+        frame,
+        stdin_write=written.append,
+        caller="script",
+    )
+    assert handled is False
+    assert written == []
+    handled_default = _maybe_dispatch_intermediate_response(frame, stdin_write=written.append)
+    assert handled_default is False
+    assert written == []
+
+
+def test_ppt_master_llm_request_still_dispatches(monkeypatch):
+    from plugin.scripting.venv_worker import _maybe_dispatch_intermediate_response
+
+    monkeypatch.setattr(
+        "plugin.ppt_master.venv.host_rpc.handle_llm_request",
+        lambda _payload: {"status": "ok", "result": {"content": "hi"}},
+    )
+    written: list[bytes] = []
+    handled = _maybe_dispatch_intermediate_response(
+        {"type": "llm_request", "id": "9", "messages": []},
+        stdin_write=written.append,
+        caller="ppt_master_venv",
+    )
+    assert handled is True
+    assert len(written) == 1
+
+
+def test_drain_stderr_fallback_does_not_wait_for_eof():
+    """An open stderr pipe must not hang the fallback reader."""
+    read_fd, write_fd = os.pipe()
+    mgr = PythonWorkerManager(sys.executable, {})
+    mgr._stderr_drain = None
+    proc = MagicMock()
+    proc.stderr = os.fdopen(read_fd, "rb", buffering=0)
+    proc.wait.return_value = 0
+    mgr._proc = proc
+    try:
+        os.write(write_fd, b"boom\n")
+        started = time.monotonic()
+        text = mgr._drain_stderr()
+        assert time.monotonic() - started < 2.0
+        assert "boom" in text
+
+        started = time.monotonic()
+        empty = mgr._drain_stderr()
+        assert time.monotonic() - started < 2.0
+        assert empty == ""
+    finally:
+        os.close(write_fd)
+        proc.stderr.close()
 
 

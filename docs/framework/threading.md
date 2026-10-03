@@ -258,7 +258,7 @@ flowchart TD
    - One-time retry is permitted **only** for the initial request frame on crash/EOF (`BrokenPipeError`, empty stdout, `OSError`).
    - Host **read** timeouts (hung user code or C extensions) terminate without replay so Calc/Writer does not double-wait.
    - PPT-Master intermediate turns are non-replayable; write timeouts terminate the worker without replaying the turn because host-side UNO mutations may already have occurred.
-6. **One serialized writer per child:** All stdin writes to a subprocess share a serialization lock (`_io_lock`).
+6. **One serialized writer per child:** All stdin writes to a subprocess share a serialization lock (`_io_lock`). The UI thread does not block on that lock: if it is held, the caller gets `WORKER_REENTRY`. Other threads wait a bounded time and leave if the holder enters a tool RPC, so a host callback that needs the waiting thread cannot sit in `acquire()` forever.
 
 ---
 

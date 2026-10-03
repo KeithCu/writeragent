@@ -52,6 +52,21 @@ log = logging.getLogger(__name__)
 
 _TIMEOUT_AFTER = " timed out after "
 
+# Non-UI callers wait this long for the pipe, then get WORKER_REENTRY.
+# Matches the scripting timeout ceiling so a second background script can
+# still run after a long one. The UI thread never waits. A waiter also
+# leaves within _IO_LOCK_POLL_SEC if the holder enters a tool RPC.
+_IO_LOCK_ACQUIRE_TIMEOUT_SEC = 600.0
+_IO_LOCK_POLL_SEC = 0.05
+_STDERR_FALLBACK_READ_SEC = 0.2
+
+_WORKER_REENTRY_MESSAGE = (
+    "This Python tool called back into the same worker and would deadlock the script pipe."
+)
+_WORKER_BUSY_MESSAGE = (
+    "Python worker is busy; waiting on its pipe would block this thread."
+)
+
 
 def _worker_error(code: str, message: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
     """Host-constructed error dict. Child payloads still go through ``_normalize_response``."""
@@ -137,7 +152,7 @@ def _maybe_dispatch_intermediate_response(
     cancellation_scope: Any | None = None,
     script_session_id: str | None = None,
 ) -> bool:
-    """Handle tool_call (any build) then ppt-master llm_request / worker_event frames."""
+    """Handle tool_call (any build). ppt-master llm_request / worker_event only for that caller."""
     from plugin.scripting.host_rpc import handle_tool_call_frame
 
     # Tool RPC is the shared venv→LO path (Run Python Script, chat python, ppt-master).
@@ -151,6 +166,13 @@ def _maybe_dispatch_intermediate_response(
         stop_checker=stop_checker,
     ):
         return True
+    # Bugfix: every caller used to fall through into the ppt-master dispatcher,
+    # and that dispatcher runs llm_request with the host's API credentials.
+    # A non-PPT worker (caller "script", including =PY()) could emit
+    # llm_request and make the host perform that call. Only the ppt-master
+    # worker is allowed to ask for it. tool_call above stays open to every caller.
+    if caller != "ppt_master_venv":
+        return False
     return _maybe_dispatch_ppt_master_response(
         response,
         stdin_write=stdin_write,
@@ -203,15 +225,30 @@ def _pid_is_alive_win32(pid: int) -> bool:
 
 def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
     """Kill *proc* and its descendants (POSIX process group, Windows ``taskkill /T``)."""
-    if proc.poll() is not None:
-        return
     if sys.platform == "win32":
+        # Bugfix: returning when poll() is not None skipped taskkill /T, so
+        # grandchildren of an already-exited worker were left running.
         _kill_process_tree_win32(proc)
         return
+    # Bugfix: the same early return skipped the process group on POSIX.
+    # The worker is a session leader (start_new_session, so pgid == pid).
+    # If it has already exited, poll() has reaped it and getpgid(pid) raises
+    # ProcessLookupError, but grandchildren can still be in that group.
+    # killpg(pid) reaches them. ProcessLookupError means the group is gone.
+    pid = proc.pid
+    if not pid:
+        if proc.poll() is None:
+            proc.kill()
+        return
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        pgid = os.getpgid(pid)
     except ProcessLookupError:
-        proc.kill()
+        pgid = pid
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        if proc.poll() is None:
+            proc.kill()
 
 
 def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
@@ -252,8 +289,10 @@ class PythonWorkerManager:
         self._proc: subprocess.Popen[Any] | None = None
         self._io_lock = threading.Lock()
         # Owner of _io_lock. A script tool that calls this pool again on the
-        # same thread (or on the UI thread while we are inside tool_call)
-        # deadlocks the pipe. RLock would interleave frames, so we refuse.
+        # same thread, or any thread while a tool RPC is in progress, deadlocks
+        # the pipe: the holder is waiting for that thread. RLock would
+        # interleave frames, so we refuse. The UI thread also refuses when the
+        # lock is already held, instead of blocking the UI.
         self._io_owner: int | None = None
         self._serving_tool_call: bool = False
         self._primed = False
@@ -339,20 +378,43 @@ class PythonWorkerManager:
         from plugin.framework.thread_guard import on_main_thread
 
         me = threading.get_ident()
-        if self._io_owner == me or (self._serving_tool_call and on_main_thread()):
-            return _worker_error(
-                "WORKER_REENTRY",
-                "This Python tool called back into the same worker and would deadlock the script pipe.",
-            )
+        # Bugfix: this used to refuse only the owner, or the UI thread while
+        # _serving_tool_call was already set. Every other thread then called
+        # Lock.acquire() with no timeout. The holder can be inside a tool RPC
+        # that is waiting on the thread stuck in acquire (the UI pump, or
+        # whichever worker must run the host callback), so the wait never
+        # ends and the UI stays frozen.
+        if self._io_owner == me or self._serving_tool_call:
+            return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
+        if on_main_thread() and self._io_lock.locked():
+            return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         return None
 
     def _acquire_io(self) -> dict[str, Any] | None:
         err = self._reentry_error()
         if err is not None:
             return err
-        self._io_lock.acquire()
-        self._io_owner = threading.get_ident()
-        return None
+        from plugin.framework.thread_guard import on_main_thread
+
+        # The locked() check above can pass, then another thread takes the
+        # pipe and blocks on the UI thread. A non-blocking acquire closes
+        # that race. Other threads wait, but leave if a tool RPC starts.
+        if on_main_thread():
+            if not self._io_lock.acquire(timeout=0):
+                return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
+            self._io_owner = threading.get_ident()
+            return None
+
+        deadline = time.monotonic() + _IO_LOCK_ACQUIRE_TIMEOUT_SEC
+        while True:
+            if self._serving_tool_call:
+                return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
+            if self._io_lock.acquire(timeout=min(_IO_LOCK_POLL_SEC, remaining)):
+                self._io_owner = threading.get_ident()
+                return None
 
     def _release_io(self) -> None:
         self._serving_tool_call = False
@@ -829,6 +891,10 @@ class PythonWorkerManager:
         self._stdin_writer_thread = writer
         writer.start()
         writer.join(timeout=max(0.01, timeout_sec))
+        if not writer.is_alive():
+            # Join finished. A completed writer thread keeps its stack until
+            # the next write replaces this reference.
+            self._stdin_writer_thread = None
         if writer.is_alive():
             # Previously a child that stopped reading stdin left this thread and the
             # caller blocked in write()/flush() while _io_lock serialized the whole
@@ -887,7 +953,13 @@ class PythonWorkerManager:
         if sys.platform == "win32":
             popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
         else:
-            popen_kw["preexec_fn"] = os.setsid
+            # Bugfix: preexec_fn=os.setsid runs in the child between fork and
+            # exec. In a threaded host only the forking thread is cloned, so
+            # a lock held by another thread (malloc, logging) deadlocks the
+            # child before exec. start_new_session asks the C spawn path to
+            # call setsid, which is the same new process group without that
+            # Python callback. pgid stays equal to pid for _kill_process_tree.
+            popen_kw["start_new_session"] = True
         # The top-of-function check can pass, then shutdown_all (or get())
         # sets _retired, and this call would still Popen. Re-check immediately
         # before spawn so that retry cannot start an untracked child.
@@ -1074,20 +1146,63 @@ class PythonWorkerManager:
             text = drain.finish_text().strip()
             return f"\nWorker stderr:\n{text}" if text else ""
         # Fallback if spawn raced before the drain was attached.
-        if self._proc is None or self._proc.stderr is None:
+        proc = self._proc
+        if proc is None or proc.stderr is None:
             return ""
         try:
-            self._proc.wait(timeout=2)
+            proc.wait(timeout=2)
         except Exception:
             pass
-        try:
-            stderr_bytes = self._proc.stderr.read()
-        except Exception:
-            return ""
+        stderr_bytes = self._read_stderr_fallback(proc.stderr)
         if not stderr_bytes:
             return ""
         text = stderr_bytes.decode("utf-8", errors="replace").strip()
         return f"\nWorker stderr:\n{text}"
+
+    def _read_stderr_fallback(self, stderr: IO[bytes]) -> bytes:
+        """Stderr bytes already queued. Does not wait for EOF.
+
+        What was wrong: ``stderr.read()`` blocks until EOF. This path runs
+        when the drain thread was not attached. A grandchild still holding
+        the write end means EOF never comes, so the host hung before it
+        could kill the tree. POSIX ``select`` plus one short read, and a
+        Windows peek of the queued count, return only what is already there.
+        No reader thread: a join-timeout ``ReadFile`` thread leaked on timeout.
+        """
+        if sys.platform == "win32":
+            return self._read_stderr_fallback_win32(stderr)
+        try:
+            ready, _unused, _unused2 = select.select([stderr], [], [], _STDERR_FALLBACK_READ_SEC)
+        except (OSError, TypeError, ValueError):
+            return b""
+        if not ready:
+            return b""
+        try:
+            chunk = stderr.read(65536)
+        except OSError:
+            return b""
+        return chunk or b""
+
+    def _read_stderr_fallback_win32(self, stderr: IO[bytes]) -> bytes:
+        try:
+            fd = stderr.fileno()
+        except (AttributeError, OSError, ValueError):
+            return b""
+        if not isinstance(fd, int) or fd < 0:
+            return b""
+        from plugin.scripting.ipc import _peek_pipe_bytes_available
+
+        try:
+            avail = _peek_pipe_bytes_available(fd)
+        except OSError:
+            return b""
+        if not avail:
+            return b""
+        try:
+            chunk = stderr.read(min(int(avail), 65536))
+        except OSError:
+            return b""
+        return chunk or b""
 
     def _terminate_worker(self) -> None:
         proc = self._proc
