@@ -113,6 +113,8 @@ flowchart TD
 
 **Data handoff:** Reuse [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) and [`payload_codec`](../../plugin/scripting/payload_codec.py) split-grid. For LLM/sub-agent paths, pass **`data_range`** (late binding) rather than full grids in chat context — see [Analysis Sub-Agent — Data Handoff](../calc/analysis-sub-agent.md#data-handoff--context-limits-out-of-band-data).
 
+**Sheet layout flags:** `headers` and `header_row` sit on the spec next to `helper`, not inside `params`. The host client copies them onto the trusted-action packet, and the worker puts them back on the spec before `parse_trusted_spec`. Dropping them defaulted `headers` to true, so `headers=false` from `forecast_data` / `optimize_data` read the first data row as column names.
+
 **Visualization note:** Phase A uses the venv worker and `__wa_payload__: "image"` envelope for raw matplotlib (no trusted module required). **Phases B–C shipped:** Run Python Script image egress and trusted Viz helpers (`viz.py`, `[Viz]` templates, `plot_data`, analysis auto-plot).
 
 ### New Domain Proposals
@@ -245,6 +247,8 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 **Seasonality:** The period is inferred from the date frequency (daily 7, business-day 5, weekly 52, monthly 12, quarterly 4), and only when the series covers at least two full cycles. Otherwise `model="auto"` stays trend-only and adds a flag. An explicit `seasonal_periods` (or `period` on decompose / anomaly) still wins. Row count alone used to pick 12 whenever there were 24 or more rows, so a daily sheet was fit as a 12-day season. Duplicate timestamps are averaged before the fit. Weekday-only series forecast on business days.
 
+**Holt-Winters intervals:** 95% bands are the 2.5 and 97.5 percentiles of `HoltWintersResults.simulate` paths. That results object has `forecast` / `predict` / `simulate` and no `get_prediction` (`get_prediction` is on ETS and statespace results). Calling `get_prediction` used to raise, get swallowed, and the sheet said intervals were unavailable with no `lower`/`upper`. If simulation cannot build a band, the result keeps the point forecast and sets `metrics.interval_note` (`available: false`) instead of inventing bounds.
+
 **Phase 2 (deferred):**
 
 | Helper | Purpose |
@@ -365,7 +369,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 - Plot historical `date`/`value_col` as solid line.
 - Plot forecast segment as dashed line.
 - `ax.fill_between(dates, lower, upper, alpha=0.2)` when intervals exist.
-- Do not invent bands when model omitted intervals (Phase 0 Holt-Winters path may lack CIs).
+- Do not invent bands when the model omitted intervals. Holt-Winters bands are simulation percentiles; if `simulate` fails, the table has no `lower`/`upper` and `metrics.interval_note` says why.
 
 **Files:**
 
@@ -624,6 +628,10 @@ Results are inserted as compact tables and usable from scripts.
 **Sub-agent:** Extend `domain="analysis"`.
 
 **Packages:** `scipy` (required).
+
+**`linear_programming` layout:** Each row is a variable (`c` is that variable's objective coefficient). Each `a*` column is one `<=` constraint. `b` is one bound per constraint column. The template default `a_cols: ["a1"]` is a single constraint; repeat that same bound on every variable row. If `b` cannot be aligned to the constraint columns, the helper returns `SHAPE_MISMATCH` and does not replace `b` with zeros.
+
+**Quant returns:** `efficient_frontier` reads the sheet as a returns grid, the same contract as `portfolio_tearsheet` and `optimize_portfolio`. PyPortfolioOpt's `mean_historical_return` and `CovarianceShrinkage` default `returns_data=False` (prices, then percent-change). The helper passes `returns_data=True` so a returns sheet does not come back `status: ok` with a corner portfolio.
 
 ---
 
