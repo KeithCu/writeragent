@@ -1140,3 +1140,44 @@ def test_subtotal_rejects_unknown_fn_and_empty_samples():
     assert math.isnan(calc.subtotal(10, []))
     assert calc.subtotal(10, [1.0, 3.0]) == 2.0
 
+def test_kurt_and_skew():
+    data = [1.0, 2.0, 4.0, 7.0, 11.0, 16.0]
+    k = calc.kurt(data)
+    s = calc.skew(data)
+    assert not math.isnan(k)
+    assert not math.isnan(s)
+    # Check text and booleans are ignored
+    data_with_noise = [1.0, "ignore", True, 2.0, 4.0, 7.0, 11.0, 16.0]
+    assert abs(calc.kurt(data_with_noise) - k) < 1e-12
+    assert abs(calc.skew(data_with_noise) - s) < 1e-12
+
+    # Insufficient elements or zero variance
+    assert math.isnan(calc.kurt([1.0, 2.0, 3.0]))
+    assert math.isnan(calc.kurt([5.0, 5.0, 5.0, 5.0]))
+    assert math.isnan(calc.skew([1.0, 2.0]))
+    assert math.isnan(calc.skew([5.0, 5.0, 5.0]))
+
+
+def test_devsq_geomean_harmean():
+    data = [2.0, 4.0, 8.0]
+    # mean=4.6666667, devsq = (2-14/3)^2 + (4-14/3)^2 + (8-14/3)^2 = 64/9 + 4/9 + 100/9 = 168/9 = 18.6666667
+    assert abs(calc.devsq(data) - 18.666666666666668) < 1e-12
+    assert abs(calc.devsq(2.0, 4.0, "text", 8.0) - 18.666666666666668) < 1e-12
+    assert math.isnan(calc.devsq([]))
+
+    # geomean: (2*4*8)^(1/3) = 64^(1/3) = 4.0
+    assert abs(calc.geomean(data) - 4.0) < 1e-12
+    assert abs(calc.geomean(2.0, 4.0, 8.0) - 4.0) < 1e-12
+    # Non-positive or empty returns nan
+    assert math.isnan(calc.geomean([2.0, 0.0, 8.0]))
+    assert math.isnan(calc.geomean([2.0, -4.0, 8.0]))
+    assert math.isnan(calc.geomean([]))
+
+    # harmean: 3 / (1/2 + 1/4 + 1/8) = 3 / (7/8) = 24/7 = 3.4285714...
+    assert abs(calc.harmean(data) - (24.0 / 7.0)) < 1e-12
+    assert abs(calc.harmean(2.0, 4.0, 8.0) - (24.0 / 7.0)) < 1e-12
+    assert math.isnan(calc.harmean([2.0, 0.0, 8.0]))
+    assert math.isnan(calc.harmean([2.0, -4.0, 8.0]))
+    assert math.isnan(calc.harmean([]))
+
+
