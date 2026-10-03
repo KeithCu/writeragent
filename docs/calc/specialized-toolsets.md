@@ -89,7 +89,7 @@ Charts are a single specialized-domain tool: **`manage_charts`** ([`plugin/calc/
 
 - **Tiers and Visibility**: **`tier = specialized`**, `domain = charts` on Calc (`ToolCalcChartBase`), Writer (`ToolWriterChartBase`), and Draw (`ToolDrawChartBase`) — same pattern as shapes (`shape_upsert`). One registry slot per name (last module load wins); union `uno_services` on Writer/Draw wrappers. **All apps** use `delegate_to_specialized_{calc|writer|draw}_toolset(domain="charts")`, not the main chat list. Per-app core tier (Calc-only) needs registry multi-bind — see `ManageCharts` docstring in [`charts.py`](../../plugin/calc/charts.py).
 - **Style and Color Support**: Supports arbitrary background color (`bg_color`) and data series color styling (`colors` array or single `color` / `series_color` string). Colors are parsed dynamically and can be CSS/X11 names (e.g., `green`, `darkgreen`, `yellow`), hex values with or without the `#` prefix (e.g., `#0f0`, `#00FF00`, `00ff00`), or functional RGB/RGBA syntax (e.g., `rgba(255, 0, 0, 0.5)`).
-- **Mechanism**: Mandatory `action` (`"list"`, `"get_info"`, `"create"`, `"edit"`, `"delete"`) routes to the Dummy backend classes.
+- **Mechanism**: Mandatory `action` (`"list"`, `"get_info"`, `"create"`, `"edit"`, `"delete"`) routes to the Dummy backend classes. Chart CLSID checks unwrap a UNO `ByteSequence` (`.Value` or `.value`) before comparing the GUID. Page scans skip a disposed shape instead of aborting list/resolve. Writer embed creation waits for the chart model with a hard timeout and stops when the idle pump does not finish.
 
 ### Formulas & Range Writing API Comparison (`write_formula_range` vs. `set_cell_formula`)
 
