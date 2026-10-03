@@ -618,13 +618,19 @@ class BaseProcessPool:
             # Affinity hashing uses this wrapper list, not process liveness.
             # The new child is idle only because this respawn's handshake succeeded.
             worker.respawn()
+        # kill() reaps the child and runs on_process_exit, which takes this
+        # same non-reentrant lock (formula sessions drop the pid here).
+        # Shutdown can flip _is_shutdown after the check above and before
+        # this block. Killing while the lock is held deadlocks the release
+        # thread. Record the kill, then do it after the lock is released.
+        kill_after_release = False
         with self._cond:
             self._leased.discard(worker)
             if self._is_shutdown:
-                # If shutdown() ran concurrently and cleared self.workers / killed children
-                # while respawn() above started a new child process, killing it here ensures no
-                # orphaned subprocess survives, and the worker is discarded (not re-added to _idle).
-                worker.kill()
+                # shutdown() may already have killed this child. kill() again
+                # is safe and drops a process respawn() started above.
+                # The worker stays out of idle.
+                kill_after_release = True
             elif worker.is_alive():
                 # The response frame was consumed, or the recycle handshake
                 # just succeeded. A timeout that SIGKILLed the child is not
@@ -632,6 +638,8 @@ class BaseProcessPool:
                 self._idle.add(worker)
                 self._worker_last_active[worker] = time.monotonic()
             self._cond.notify_all()
+        if kill_after_release:
+            worker.kill()
 
     def shutdown(self) -> None:
         """Terminate all worker processes."""

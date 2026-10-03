@@ -31,6 +31,7 @@ python compute_service/server.py --host 127.0.0.1 --port 8000
 
 Unauthenticated health probe suitable for Kubernetes/Docker liveness and readiness checks.
 Always unauthenticated even when Bearer authentication is configured for execution.
+`version` is `plugin.version.EXTENSION_VERSION`, the extension version this process was built with.
 
 - **Request**: `GET /health`
 - **Response**: `200 OK`
@@ -38,7 +39,7 @@ Always unauthenticated even when Bearer authentication is configured for executi
   {
     "status": "healthy",
     "service": "python-compute",
-    "version": "0.8.76"
+    "version": "<EXTENSION_VERSION>"
   }
   ```
 
@@ -167,11 +168,11 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | HTTP Status | Condition | Response Payload Shape |
 | :--- | :--- | :--- |
 | **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone) | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
-| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, or vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
+| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, a non-finite `id` (`NaN`, `Infinity`, `1e9999`) on execute, vision, or reset, or vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes` | `{"status": "error", "error": "Request body too large"}` |
-| **`503 Service Unavailable`** | `/v1/execute` or `/v1/session/reset` when the pool never finished the cell (`WORKER_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_CRASHED`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `EMPTY_RESPONSE`). Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
+| **`503 Service Unavailable`** | `/v1/execute` or `/v1/session/reset` when the pool never finished the cell (`WORKER_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_CRASHED`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `EMPTY_RESPONSE`, `QUEUE_TIMEOUT`). Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception or JSON encoding failure | `{"id"?: "...", "status": "error", "error": "..."}` |
 
 ---
@@ -228,9 +229,9 @@ Example JSON: [`python-compute.example.json`](python-compute.example.json).
 | `PYTHON_COMPUTE_MAX_BODY_BYTES` | Request body cap | `33554432` (32 MiB) |
 | `PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC` | Default execution timeout in seconds | `30` |
 | `PYTHON_COMPUTE_MAX_TIMEOUT_SEC` | Upper bound clamp for `timeout_ms` | `600` |
-| `PYTHON_COMPUTE_WORKERS` / `PYTHON_COMPUTE_MAX_WORKERS` | Number of formula worker subprocesses | `2` |
+| `PYTHON_COMPUTE_WORKERS` | Number of formula worker subprocesses. `PYTHON_COMPUTE_MAX_WORKERS` is an accepted alias. | `2` |
 | `PYTHON_COMPUTE_WORKER_MAX_TASKS` | Tasks before recycling formula worker | `500` |
-| `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` | Session idle timeout in seconds before eviction | `3600` (1 hour) |
+| `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` | Session idle timeout in seconds before eviction. `PYTHON_COMPUTE_SESSION_TTL_SEC` is an accepted alias. | `3600` (1 hour) |
 | `PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC` | Worker process idle timeout in seconds before termination | `3600` (1 hour) |
 | `PYTHON_COMPUTE_OCR_WORKERS` | Dedicated OCR/Vision worker subprocesses | `0` (disabled by default) |
 | `PYTHON_COMPUTE_OCR_TIMEOUT_SEC` | OCR/Vision execution timeout in seconds | `60` |

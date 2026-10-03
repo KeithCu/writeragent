@@ -29,6 +29,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from compute_service.config import read_allowlisted_file
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
 from compute_service.worker_base import run_worker_stdio_loop
 
 # Default HTTP body cap. file_path does not pass through that check, and an
@@ -95,7 +96,11 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    return run_worker_stdio_loop(_handle_request)
+    # The parent pool reads and writes COMPUTE_MAX_PAYLOAD_BYTES (33 MiB).
+    # The stdio default is 16 MiB, so a request the parent had accepted
+    # failed in the child, and a result over 16 MiB broke this loop
+    # (host saw EMPTY_RESPONSE). formula_worker already passes the cap.
+    return run_worker_stdio_loop(_handle_request, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
 
 
 if __name__ == "__main__":

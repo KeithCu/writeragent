@@ -1027,6 +1027,28 @@ class TestSessionResetHttp:
         assert status.startswith("200")
         assert body.get("code") == "EXECUTION_TIMEOUT"
 
+    def test_execute_queue_timeout_from_pool_is_503(self) -> None:
+        """The pool's own deadline check must not answer 200.
+
+        The handler returns 503 when the accept deadline is already gone.
+        If it expires in the gap before the pool checks, the pool returns
+        QUEUE_TIMEOUT with no result_json. That used to fall through to 200.
+        """
+
+        def late(**_kwargs):
+            return {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=late)
+        status, _headers, body = _wsgi_post(
+            app,
+            json.dumps({"id": "q-late", "code": "result = 1"}).encode("utf-8"),
+            path="/v1/execute",
+        )
+        assert status.startswith("503")
+        assert body.get("id") == "q-late"
+        assert body.get("code") == "QUEUE_TIMEOUT"
+        assert body.get("status") == "error"
+
     def test_overflow_id_is_400(self) -> None:
         def execute_fn(**_kwargs):
             raise AssertionError("non-finite id must not run")
@@ -1035,6 +1057,24 @@ class TestSessionResetHttp:
         status, _headers, body = _wsgi_post(app, b'{"id":1e9999,"code":"result = 1"}', path="/v1/execute")
         assert status.startswith("400")
         assert body.get("error") == "Invalid JSON"
+
+    @pytest.mark.parametrize("raw_id", [b"1e9999", b"NaN", b"Infinity"])
+    def test_vision_nonfinite_id_is_400(self, raw_id: bytes) -> None:
+        """A non-finite vision id used to crash the response, then the 500 fallback."""
+        from compute_service.vision_pool import shutdown_vision_pool
+
+        app = create_wsgi_app(ComputeSettings())
+        try:
+            status, _headers, body = _wsgi_post(
+                app,
+                b'{"id":' + raw_id + b',"image_b64":"abcd"}',
+                path="/v1/vision",
+            )
+            assert status.startswith("400")
+            assert body.get("error") == "Invalid JSON"
+            assert "id" not in body
+        finally:
+            shutdown_vision_pool()
 
     def test_vision_overflow_timeout_is_json(self) -> None:
         from compute_service.vision_pool import shutdown_vision_pool
@@ -1127,6 +1167,19 @@ class TestSessionResetHttp:
         assert status.startswith("400")
         assert body.get("code") == "CODE_TOO_LARGE"
         assert body.get("id") == "init-big"
+
+    @pytest.mark.parametrize("raw_id", [b"1e9999", b"NaN", b"Infinity", b"-Infinity"])
+    def test_nonfinite_id_is_400_and_does_not_reset(self, raw_id: bytes) -> None:
+        """json.loads accepts these. Echoing them crashed allow_nan=False after reset ran."""
+
+        def reset_fn(_session_id: str, **_kwargs):
+            raise AssertionError("non-finite id must not reset")
+
+        app = create_wsgi_app(ComputeSettings(), reset_fn=reset_fn)
+        status, _headers, body = _wsgi_post(app, b'{"id":' + raw_id + b"}", query="session_id=sid")
+        assert status.startswith("400")
+        assert body.get("error") == "Invalid JSON"
+        assert "id" not in body
 
     def test_auth_required_matches_execute(self) -> None:
         app = create_wsgi_app(
@@ -1326,6 +1379,105 @@ def test_flatten_config_json_rejects_api_key() -> None:
 
     with pytest.raises(ConfigError, match="Do not put api_key in the JSON config"):
         _flatten_config_json({"auth": {"api_key": "secret"}})
+
+
+def test_send_execution_result_drops_unencodable_id() -> None:
+    """The 500 fallback must still write when req_id itself is not strict JSON."""
+    from compute_service.server import _send_execution_result
+
+    status_holder: list[str] = []
+
+    def start_response(status: str, resp_headers: list) -> None:
+        status_holder.append(status)
+        del resp_headers
+
+    out = _send_execution_result(start_response, {"status": "ok", "result": float("nan")}, float("inf"))
+    parsed = json.loads(b"".join(out))
+    assert status_holder[0].startswith("500")
+    assert "id" not in parsed
+    assert "JSON encode failed" in parsed.get("error", "")
+
+
+def test_dual_stack_closes_tcpserver_throwaway_socket(monkeypatch) -> None:
+    """TCPServer.__init__ opens a socket even when bind_and_activate is False."""
+    from compute_service.server import DualStackThreadPoolHTTPServer
+
+    created: list[socket.socket] = []
+    real_socket = socket.socket
+
+    def tracking(*args, **kwargs):
+        sock = real_socket(*args, **kwargs)
+        created.append(sock)
+        return sock
+
+    monkeypatch.setattr(socket, "socket", tracking)
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), MagicMock, max_threads=1)
+    try:
+        leaked = [sock for sock in created if sock not in server.sockets and sock.fileno() != -1]
+        assert leaked == []
+        assert created
+        assert any(sock.fileno() == -1 for sock in created)
+    finally:
+        server.server_close()
+
+
+def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
+    """A failed listen prints the address and returns 1, without a traceback."""
+    from compute_service.server import main, run_server
+
+    monkeypatch.setattr("compute_service.server.check_dependencies", lambda pool: None)
+    monkeypatch.setattr("compute_service.formula_pool.get_formula_pool", lambda settings: MagicMock())
+    import plugin.scripting.payload_codec as payload_codec
+
+    monkeypatch.setattr(payload_codec, "load_cython_accelerator", lambda: None)
+    monkeypatch.setattr(payload_codec, "get_cython_status_info", lambda: (False, None, "off"))
+
+    def boom(*_args, **_kwargs):
+        raise OSError(98, "Address already in use")
+
+    monkeypatch.setattr("compute_service.server.WSGIDualStackServer", boom)
+    settings = ComputeSettings(host="127.0.0.1", port=1, workers=1, ocr_workers=0)
+    with pytest.raises(OSError):
+        run_server(settings)
+    err = capsys.readouterr().err
+    assert "Failed to bind 127.0.0.1:1" in err
+    assert "Address already in use" in err
+    assert "Traceback" not in err
+
+    monkeypatch.setattr("compute_service.server.load_settings", lambda **_kwargs: settings)
+    assert main([]) == 1
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert "Failed to bind 127.0.0.1:1" in err
+
+
+def test_start_docker_keeps_api_key_as_one_argument(tmp_path) -> None:
+    """Spaces and glob characters in the key must stay one docker argument."""
+    import subprocess
+    from pathlib import Path
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    marker = tmp_path / "args"
+    fake = bindir / "docker"
+    fake.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$DOCKER_ARGS\"\nexit 0\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    script = Path(__file__).resolve().parents[2] / "compute_service" / "start-docker.sh"
+    key = "sec ret *"
+    env = {
+        "PATH": f"{bindir}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "DOCKER_ARGS": str(marker),
+        "PYTHON_COMPUTE_API_KEY": key,
+        "PYTHON_COMPUTE_IMAGE": "python-compute",
+    }
+    proc = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+    lines = marker.read_text(encoding="utf-8").splitlines()
+    assert f"PYTHON_COMPUTE_API_KEY={key}" in lines
 
 
 def test_run_worker_stdio_loop_handles_non_dict_return(monkeypatch) -> None:
