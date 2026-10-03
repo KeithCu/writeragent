@@ -207,6 +207,42 @@ def _accent_hue_name(r: int, g: int, b: int) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _inflate_capped(data: bytes, limit: int) -> bytes | None:
+    """Inflate *data* or return None if output would pass *limit* bytes.
+
+    What was wrong: ``zlib.decompress`` builds the whole output, then the
+    caller compared it to the IHDR size. A thumbnail whose declared size
+    is small can still be a deflate bomb, and ``list_designs`` /
+    ``apply_design`` allocated that bomb before rejecting it.
+    Why this stops it: ``decompressobj.decompress(..., max_length)`` returns
+    at most ``limit + 1`` bytes, so the oversize stream is dropped before
+    a multi-megabyte buffer exists.
+    """
+    if limit < 0:
+        return None
+    dec = zlib.decompressobj()
+    out = bytearray()
+    pending: bytes | None = data
+    try:
+        while True:
+            room = limit - len(out)
+            if room < 0:
+                return None
+            chunk = dec.decompress(b"" if pending is None else pending, room + 1)
+            pending = dec.unconsumed_tail or None
+            if len(chunk) > room:
+                return None
+            out.extend(chunk)
+            if dec.eof:
+                return bytes(out)
+            if pending is None and not chunk:
+                return None
+            if pending is None:
+                pending = b""
+    except zlib.error:
+        return None
+
+
 def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
     """Return RGB pixels or ``None`` if the PNG is unsupported/corrupt."""
     if len(data) < 33 or data[:8] != _PNG_SIG:
@@ -259,9 +295,8 @@ def decode_png_rgb(data: bytes) -> list[tuple[int, int, int]] | None:
     expected = height * row_bytes
     if expected > _MAX_RAW_PNG:
         return None
-    try:
-        raw = zlib.decompress(bytes(idat))
-    except zlib.error:
+    raw = _inflate_capped(bytes(idat), expected)
+    if raw is None:
         return None
     if len(raw) < expected:
         return None
