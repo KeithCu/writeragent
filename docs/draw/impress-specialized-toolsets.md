@@ -60,7 +60,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | Tool | Domain | Module | Purpose | Services |
 |------|--------|--------|---------|---------|
 | `shape_summary` | `shapes` | `draw/shapes.py` | Summary of shapes on page | Drawing+Presentation |
-| `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index | Drawing+Presentation |
+| `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index. `line` may have a zero width or height | Drawing+Presentation |
 | `fill_draw_fields` | `shapes` | `draw/field_fill.py` | Batch-fill paper-form blanks / ControlShape values by name, index, or `label_hint` | Drawing+Presentation |
 | `shape_delete` | `shapes` | `draw/shapes.py` | Delete a shape by index | Drawing+Presentation |
 | `shape_connect` | `shapes` | `draw/shapes.py` | Connect two shapes with a connector line | Drawing+Presentation |
@@ -389,7 +389,9 @@ class InsertTable(ToolDrawSpecialBase):
 - `move_slide(from_page: int, to_page: int)`
 - `rename_slide(page: int, name: str)`
 
-`move_slide` duplicates the source with `XDrawPageDuplicator.duplicate` (the same full-page clone as `duplicate_slide`), removes the source only after that clone exists, then swaps the clone with neighboring pages until it sits at `to_page`. Shapes are moved, not reconstructed, so groups, graphics, connectors, and charts stay intact. The page name, layout, master, speaker notes, and transition move with the clone. A failed swap is reversed, so a move to index 0 does not leave the deck half-reordered. `InsertSdPage` still inserts **after** `insertNewByIndex`'s index and cannot create a page at index 0; the reorder exchanges with page 0 instead of inserting there. Placeholder roles come from `ShapeType` (`TitleTextShape`, `OutlinerShape`) when `ClassName` is not a property; untagged text boxes are still not guessed by position.
+`move_slide` duplicates the source with `XDrawPageDuplicator.duplicate` (the same full-page clone as `duplicate_slide`), removes the source only after that clone exists, then swaps the clone with neighboring pages until it sits at `to_page`. Shapes are moved, not reconstructed, so groups, graphics, connectors, and charts stay intact. The page name, layout, master, speaker notes, and transition move with the clone. A failed swap is reversed, so a move to index 0 does not leave the deck half-reordered. `InsertSdPage` (`sd/source/ui/unoidl/unomodel.cxx`) still inserts **after** `min(count-1, n)`, so a raw `insertNewByIndex(n)` lands at `min(count-1, n)+1` and cannot create a page at index 0. `DrawBridge.create_slide` and `insert_slide_from_master` compensate: they pass the preceding index so a middle insert lands on the requested slot, and a request for index 0 inserts then exchanges with page 0 (the same reorder as `move_slide`). Both return that real index. `add_slide` reports it as `active_page_index` and passes it to master inheritance, so `page=0` copies the neighbor's master instead of the new page's own. Transform `InsertMasterSlide` stores the same returned index as the current slide. Placeholder roles come from `ShapeType` (`TitleTextShape`, `OutlinerShape`) when `ClassName` is not a property; untagged text boxes are still not guessed by position.
+
+`get_draw_context_for_chat` resolves Active Slide/Page Index with `uno_same` (`is`, then `==`, then `uno.isSame`). `getCurrentPage()` and `getByIndex()` can be different Python wrappers for one page; bare `==` reported `-1` and the model edited the wrong slide.
 
 ---
 

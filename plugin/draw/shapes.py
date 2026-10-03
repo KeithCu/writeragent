@@ -343,18 +343,44 @@ class GetDrawSummary(ToolDrawShapeBase):
         return {"status": "ok", "page": actual_idx, "shapes": shapes}
 
 
+def _is_line_shape_type(shape_type: str | None) -> bool:
+    """True for UNO ``LineShape`` (tool alias ``line``), not connectors or polylines."""
+    if not shape_type:
+        return False
+    name = str(shape_type).rsplit(".", 1)[-1]
+    return name == "LineShape" or name == "line"
+
+
 class DrawShapes:
     def _is_valid_position(self, position: Any) -> bool:
         if not hasattr(position, "X") or not hasattr(position, "Y"):
             return False
         return True
 
-    def _is_valid_size(self, size: Any) -> bool:
+    def _is_valid_size(self, size: Any, shape_type: str | None = None) -> bool:
+        """Reject a size LibreOffice will not use as a shape box.
+
+        What was wrong: ``Width <= 0`` or ``Height <= 0`` raised
+        ``DRAW_INVALID_SIZE``, so ``shape_upsert`` with ``shape_type``
+        ``line`` could not create a horizontal or vertical line.
+        How it happened: the check treated every shape like a rectangle.
+        A ``LineShape`` uses its bounding box; an axis-aligned line has a
+        zero width (vertical) or a zero height (horizontal).
+        Why this fixes it: ``LineShape`` may have one zero side. Other
+        shapes still need both sides positive. A negative side, or both
+        sides zero, is still invalid.
+        """
         if not hasattr(size, "Width") or not hasattr(size, "Height"):
             return False
-        if size.Width <= 0 or size.Height <= 0:
+        width = size.Width
+        height = size.Height
+        if width < 0 or height < 0:
             return False
-        return True
+        if width > 0 and height > 0:
+            return True
+        if width == 0 and height == 0:
+            return False
+        return _is_line_shape_type(shape_type)
 
     def safe_create_shape(self, doc: Any, page: Any, shape_type: str, position: Any, size: Any, custom_shape_type: str | None = None) -> tuple[Any, bool | None, str | None]:
         """Safely create shape with error handling.
@@ -377,7 +403,7 @@ class DrawShapes:
             if not self._is_valid_position(position):
                 raise DrawError(f"Invalid position: {position}", code="DRAW_INVALID_POSITION", details={"position": position})
 
-            if not self._is_valid_size(size):
+            if not self._is_valid_size(size, shape_type):
                 raise DrawError(f"Invalid size: {size}", code="DRAW_INVALID_SIZE", details={"size": size})
 
             # Create shape (document MSF — same as DrawBridge.create_shape)
