@@ -185,13 +185,20 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
     d1, m1, y1 = sd.day, sd.month, sd.year
     d2, m2, y2 = ed.day, ed.month, ed.year
 
-    if bool(method):  # European
+    if bool(method):  # European: both the 31st start and the 31st end become the 30th.
         if d1 == 31:
             d1 = 30
         if d2 == 31:
             d2 = 30
-    else:  # US
-        if d1 == 31:
+    else:
+        # US (NASD). A start on the 31st, or on the last day of February,
+        # is day 30. The old branch only rewrote day 31, so
+        # DAYS360(2023-02-28, 2023-03-01) was 3. Excel and Calc both return
+        # 1 (Apache POI Days360.getStartingDate; Calc agrees, including
+        # that 2024-02-28 is not month-end in a leap year and stays 3).
+        # An end date in February is not rewritten; only a 31st end date
+        # becomes the 30th when the adjusted start day is already 30.
+        if d1 == 31 or (m1 == 2 and d1 == calendar.monthrange(y1, m1)[1]):
             d1 = 30
         if d2 == 31 and d1 == 30:
             d2 = 30
@@ -208,6 +215,13 @@ def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> floa
         m = int(float(month))
         if c == 0 or life_val == 0:
             return 0.0
+        # Period life+1 is the partial final year (month < 12) or a zero
+        # stub (month == 12). Calc returns Err:502 (#NUM!) only past that
+        # stub — DB(1000000, 100000, 6, 8, 7) and DB(10000, 1000, 5, 7, 12)
+        # — and still returns the stub itself (DB(..., 6, 7, 7) is the
+        # partial year). Looping further kept depreciating a spent asset.
+        if life_val > 0 and p > life_val + 1:
+            return float("nan")
         rate = round(1.0 - math.pow(s / c, 1.0 / life_val), 3)
         val = c
         dep = 0.0
@@ -305,7 +319,10 @@ def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 
         p = float(pr)
         red = float(redemption)
         yf = yearfrac(settlement, maturity, basis)
-        if math.isnan(yf) or yf == 0:
+        # A zero redemption is #NUM! in Calc (Err:502). Dividing by red
+        # raises ZeroDivisionError today and the blanket except turns that
+        # into nan, but the #NUM! result must not depend on that accident.
+        if math.isnan(yf) or yf == 0 or red == 0:
             return float("nan")
         return float((red - p) / red / yf)
     except Exception:
@@ -326,15 +343,49 @@ def dmin(db: Any, field: Any, criteria: Any) -> float:
     return float(np.min(vals)) if vals else float("nan")
 
 
+def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
+    """Format ``val`` after rounding to ``decimals`` places.
+
+    Negative ``decimals`` round left of the decimal point. Clamping the
+    format width with ``max(0, decimals)`` *before* rounding dropped that
+    step, so DOLLAR(12345, -2) stayed ``$12,345`` instead of ``$12,300``.
+    """
+    places = max(0, decimals)
+    rounded = round(val, decimals)
+    if commas:
+        return f"{rounded:,.{places}f}"
+    return f"{rounded:.{places}f}"
+
+
 def dollar(number: Any, decimals: Any = 2) -> str | float:
     try:
         val = float(number)
         dec = int(float(decimals))
         if math.isnan(val):
             return float("nan")
-        return f"${val:,.{max(0, dec)}f}"
+        return f"${_format_rounded(val, dec, commas=True)}"
     except (ValueError, TypeError):
         return float("nan")
+
+
+def _fractional_dollar_digits(fraction: int) -> int:
+    """Digits Excel/Calc use when reading a fractional dollar price.
+
+    LibreOffice ``AnalysisAddIn::getDollarde`` / ``getDollarfr``
+    (``scaddins/source/analysis/financial.cxx``) scale by
+    ``10**ceil(log10(fraction))``. That count comes from the denominator,
+    not from how many decimals the price was typed with: ``DOLLARDE(1.02, 4)``
+    is 1.05 and ``DOLLARDE(1.1, 32)`` is 1.3125 (Excel's documented
+    "1 and 10/32"). ``fraction == 1`` has ``ceil(log10(1)) == 0``; forcing
+    one digit made ``DOLLARDE(1.02, 1)`` return 1.2 instead of 1.02.
+    """
+    if fraction <= 1:
+        return 0
+    digits = math.ceil(math.log10(fraction))
+    # log10(10**k) can land just above k, so ceil is one too high.
+    if 10 ** (digits - 1) == fraction:
+        digits -= 1
+    return digits
 
 
 # Group B - Financial 2
@@ -353,17 +404,8 @@ def dollarde(fractional_dollar: Any, fraction: Any) -> float:
     fd = abs(fd)
     i_part = math.floor(fd)
     f_part = fd - i_part
-    # The fraction part is interpreted as numerator / fraction
-    # In Excel, 1.02 with fraction 16 means 1 + 2/16 = 1.125
-    # Wait, 1.02 has f_part 0.02. 0.02 * 10^ceil(log10(fraction))?
-    # No, it's (fd - trunc(fd)) * (10 ** ceil(log10(f))) / f
-    power = math.ceil(math.log10(f)) if f > 1 else 1
-    if f == 1:
-        power = 1
-    # Handle exact powers of 10
-    if f > 1 and 10 ** (power - 1) == f:
-        power -= 1
-    return sign * (i_part + (f_part * (10**power)) / f)
+    scale = 10 ** _fractional_dollar_digits(f)
+    return sign * (i_part + (f_part * scale) / f)
 
 
 def dollarfr(decimal_dollar: Any, fraction: Any) -> float:
@@ -380,10 +422,8 @@ def dollarfr(decimal_dollar: Any, fraction: Any) -> float:
     dd = abs(dd)
     i_part = math.floor(dd)
     f_part = dd - i_part
-    power = math.ceil(math.log10(f)) if f > 1 else 1
-    if f > 1 and 10 ** (power - 1) == f:
-        power -= 1
-    return sign * (i_part + (f_part * f) / (10**power))
+    scale = 10 ** _fractional_dollar_digits(f)
+    return sign * (i_part + (f_part * f) / scale)
 
 
 def dproduct(db: Any, field: Any, criteria: Any) -> float:
@@ -447,7 +487,15 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
     yf = y / f
     cf = c / f
     if yf == 0:
-        return float("nan")
+        # The closed form divides by y/f. At a zero yield Calc's cash-flow
+        # sum (analysishelper.cxx GetDuration) discounts by (1+y/f)**t = 1,
+        # so the limit is finite: n/f for a zero coupon, and
+        # n*(cf*(n+1)+2)/(2*f*(cf*n+1)) when the bond pays a coupon.
+        # Returning nan here dropped both, including the zero-coupon n/f.
+        denom = cf * n + 1.0
+        if denom == 0:
+            return float("nan")
+        return n * (cf * (n + 1.0) + 2.0) / (2.0 * f * denom)
     if cf == 0:
         macd = n / f
     else:
@@ -491,6 +539,9 @@ def effect(nominal_rate: Any, npery: Any) -> float:
         np = int(float(npery))
     except (ValueError, TypeError):
         return float("nan")
+    # Excel EFFECT remarks and LibreOffice AnalysisAddIn::getEffect both
+    # reject nominal_rate <= 0 with #NUM!. The algebra at rate 0 is 0, but
+    # that is not the spreadsheet result.
     if nr <= 0 or np < 1:
         return float("nan")
     return (1 + nr / np) ** np - 1
@@ -758,9 +809,7 @@ def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float
         nc = bool(float(no_commas))
         if math.isnan(val):
             return float("nan")
-        if nc:
-            return f"{val:.{max(0, dec)}f}"
-        return f"{val:,.{max(0, dec)}f}"
+        return _format_rounded(val, dec, commas=not nc)
     except (ValueError, TypeError):
         return float("nan")
 
@@ -940,10 +989,13 @@ def gestep(number: Any, step: Any = 0) -> float:
 
 
 def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = True) -> Any:
-    from plugin.scripting.venv.calc_functions_n_s import slope
-
     try:
         y = np.asarray(known_y, dtype=float).ravel()
+        # Excel/Calc GROWTH returns #NUM! when any known y is <= 0.
+        # np.log of those values is -inf/nan and used to flow through
+        # polyfit/exp into the result list.
+        if np.any(y <= 0):
+            return []
         if known_x is None:
             x = np.arange(1, len(y) + 1, dtype=float)
         else:
