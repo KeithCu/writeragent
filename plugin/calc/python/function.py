@@ -381,6 +381,8 @@ from com.sun.star.util import XModifyListener
 
 # One listener per sheet — SheetModifyDispatcher (Phase 3) or the legacy
 # CalcSpillModifyListener when a test constructs it directly.
+# First element is the workbook lifecycle id (RuntimeUID). Legacy spill
+# listeners still pop a file-URL key from ``disposing``.
 SHEET_MODIFY_LISTENERS: dict[tuple[str, str], Any] = {}
 
 
@@ -1306,6 +1308,10 @@ def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -
     """Drop instance-scoped spill maps. UD property is left for a later open of the same file."""
     if lifecycle_key:
         cancel_pending_spill_timers(lifecycle_key)
+        # Sheet listeners are keyed by lifecycle id, not the file URL, so an
+        # unload that only matched doc_url left the dispatcher registered.
+        for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == lifecycle_key]:
+            SHEET_MODIFY_LISTENERS.pop(skey, None)
     if doc_url:
         LOADED_DOCUMENTS.discard(doc_url)
         for key in [k for k in SPILL_REGISTRY if k[0] == doc_url]:

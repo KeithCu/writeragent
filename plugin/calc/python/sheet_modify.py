@@ -13,6 +13,12 @@ and geometric repair run as separate jobs — geometric then does its own
 ``list_python_cells_on_sheet``.
 
 See ``docs/calc/geometric-recalc-order.md`` §3.6 / Phase 3.
+
+Listeners and debounce timers are keyed by the workbook lifecycle id
+(RuntimeUID), not the file URL. Every unsaved workbook has an empty URL, and
+Save-As changes the URL; either one shared or duplicated the single
+``addModifyListener``. ``modified`` reconciles the document that owns the
+sheet, not whichever component is currently active.
 """
 
 from __future__ import annotations
@@ -27,7 +33,8 @@ from com.sun.star.util import XModifyListener
 
 log = logging.getLogger(__name__)
 
-# Debounce one pass per sheet. Keyed by (doc_url, sheet_name).
+# Debounce one pass per sheet. Keyed by (lifecycle id, sheet_name).
+# The file URL is empty for every unsaved workbook and changes on Save-As.
 _PENDING_TIMERS: dict[tuple[str, str], threading.Timer] = {}
 _PENDING_LOCK = threading.Lock()
 # setFormula / clearContents during a pass re-enters modified(); skip.
@@ -53,8 +60,53 @@ def is_sheet_modify_dispatching() -> bool:
     return _DISPATCHING
 
 
-def _sheet_key(doc_url: str, sheet_name: str) -> tuple[str, str]:
-    return (doc_url, sheet_name)
+def _sheet_key(doc_identity: str, sheet_name: str) -> tuple[str, str]:
+    return (doc_identity, sheet_name)
+
+
+def _doc_identity(doc: Any) -> str:
+    """Stable per-document id. URL collides for unsaved books and moves on Save-As."""
+    if doc is None:
+        return ""
+    try:
+        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+
+        key = _lifecycle_key(doc)
+        if key:
+            return str(key)
+    except Exception:
+        log.debug("sheet_modify: lifecycle key failed", exc_info=True)
+    return _doc_url_of(doc)
+
+
+def _owning_calc_doc(sheet: Any) -> Any | None:
+    """Spreadsheet that contains *sheet*, walked from the modify event source.
+
+    ``desktop.getCurrentComponent()`` is whichever window is focused. A change
+    in a background workbook must not reconcile that other file. MagicMock
+    fabricates ``getParent``; ignore it so tests that stub only ``_get_calc_doc``
+    keep their fallback.
+    """
+    current = sheet
+    for _hop in range(4):
+        if current is None or type(current).__name__ == "MagicMock":
+            return None
+        supports = getattr(current, "supportsService", None)
+        if callable(supports):
+            try:
+                result = supports("com.sun.star.sheet.SpreadsheetDocument")
+            except Exception:
+                result = False
+            if type(result).__name__ != "MagicMock" and bool(result):
+                return current
+        parent = getattr(current, "getParent", None)
+        if not callable(parent):
+            return None
+        try:
+            current = parent()
+        except Exception:
+            return None
+    return None
 
 
 def _doc_url_of(doc: Any) -> str:
@@ -88,6 +140,9 @@ def _cancel_pending(key: tuple[str, str]) -> None:
             timer.cancel()
         except Exception:
             pass
+        # Timer.cancel() sets finished. _register_spill_timer prunes finished
+        # timers on the next register (#1098), so a reschedule drops this one
+        # from _PENDING_SPILL_TIMERS.
 
 
 def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
@@ -100,7 +155,8 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
         return
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
-    key = _sheet_key(url, name)
+    identity = _doc_identity(doc) or url
+    key = _sheet_key(identity, name)
     _cancel_pending(key)
 
     def _fire() -> None:
@@ -128,7 +184,8 @@ def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url
     """Cancel debounce and run the pass on this thread. Tests only."""
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
-    _cancel_pending(_sheet_key(url, name))
+    identity = _doc_identity(doc) or url
+    _cancel_pending(_sheet_key(identity, name))
     run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name)
 
 
@@ -174,7 +231,7 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
         _DISPATCHING = False
 
 
-def dispatch_sheet_modified(ctx: Any, doc_url: str, sheet_name: str, event: Any) -> None:
+def dispatch_sheet_modified(ctx: Any, doc_url: str, sheet_name: str, event: Any, doc: Any = None) -> None:
     """Shared ``modified`` entry. Debounces; does not walk ``SPILL_REGISTRY``."""
     from plugin.calc.python.geometric_recalc import is_geometric_repairing
     from plugin.framework.thread_guard import on_main_thread
@@ -186,10 +243,34 @@ def dispatch_sheet_modified(ctx: Any, doc_url: str, sheet_name: str, event: Any)
     sheet = getattr(event, "Source", None)
     if sheet is None:
         return
-    from plugin.calc.python.function import _get_calc_doc
+    # Bugfix: ``_get_calc_doc`` is the active window. A modify in a background
+    # workbook was scheduled against that other document. Prefer the sheet's
+    # owner, then the document stored when the listener was attached.
+    owner = _owning_calc_doc(sheet)
+    if owner is None:
+        owner = doc
+    if owner is None:
+        from plugin.calc.python.function import _get_calc_doc
 
-    doc = _get_calc_doc(ctx)
-    schedule_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=sheet_name)
+        owner = _get_calc_doc(ctx)
+    live_url = _doc_url_of(owner) if owner is not None else ""
+    schedule_sheet_modify_pass(ctx, owner, sheet, doc_url=live_url or doc_url, sheet_name=sheet_name)
+
+
+def _dispatcher_on_sheet(sheet: Any) -> "SheetModifyDispatcher | None":
+    """Listener already attached, when the sheet exposes its listener list.
+
+    Real UNO does not enumerate modify listeners. The lifecycle-id map is the
+    dedupe for a live document; this covers stubs and a URL-keyed entry that
+    Save-As would otherwise miss.
+    """
+    listeners = getattr(sheet, "_modify_listeners", None)
+    if not isinstance(listeners, list):
+        return None
+    for listener in listeners:
+        if isinstance(listener, SheetModifyDispatcher):
+            return listener
+    return None
 
 
 def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
@@ -198,13 +279,40 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
         return None
     url = _doc_url_of(doc)
     name = _sheet_name_of(sheet)
-    key = _sheet_key(url, name)
+    identity = _doc_identity(doc) or url
+    key = _sheet_key(identity, name)
     from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
 
     existing = SHEET_MODIFY_LISTENERS.get(key)
+    if existing is None and url and url != identity:
+        # A listener stored under the file URL (pre-identity key, or the URL
+        # before Save-As) is the same sheet. Reusing it avoids a second
+        # addModifyListener and drops the stale key.
+        candidate = SHEET_MODIFY_LISTENERS.get((url, name))
+        if isinstance(candidate, SheetModifyDispatcher):
+            existing = SHEET_MODIFY_LISTENERS.pop((url, name), None)
+    if existing is None:
+        # Save-As changes a URL key. Match the same document object or the
+        # same lifecycle id so the sheet keeps the listener it already has.
+        for skey, listener in list(SHEET_MODIFY_LISTENERS.items()):
+            if not isinstance(listener, SheetModifyDispatcher):
+                continue
+            same_sheet = getattr(listener, "sheet_name", None) == name
+            same_doc = listener.doc is doc or getattr(listener, "doc_identity", None) == identity
+            if same_sheet and same_doc:
+                SHEET_MODIFY_LISTENERS.pop(skey, None)
+                existing = listener
+                break
+    if existing is None:
+        existing = _dispatcher_on_sheet(sheet)
     if existing is not None:
+        existing.doc = doc
+        existing.doc_identity = identity
+        if url:
+            existing.doc_url = url
+        SHEET_MODIFY_LISTENERS[key] = existing
         return existing
-    listener = SheetModifyDispatcher(ctx, url, name)
+    listener = SheetModifyDispatcher(ctx, doc, url, name, identity)
     try:
         sheet.addModifyListener(listener)
     except Exception:
@@ -218,22 +326,30 @@ class SheetModifyDispatcher(unohelper.Base, XModifyListener):
     """One ``XModifyListener`` per sheet. Schedules; does not own either job."""
 
     ctx: Any
+    doc: Any
     doc_url: str
     sheet_name: str
+    doc_identity: str
 
-    def __init__(self, ctx: Any, doc_url: str, sheet_name: str) -> None:
+    def __init__(self, ctx: Any, doc: Any, doc_url: str, sheet_name: str, doc_identity: str) -> None:
         self.ctx = ctx
+        self.doc = doc
         self.doc_url = doc_url
         self.sheet_name = sheet_name
+        self.doc_identity = doc_identity
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
         try:
-            dispatch_sheet_modified(self.ctx, self.doc_url, self.sheet_name, aEvent)
+            dispatch_sheet_modified(self.ctx, self.doc_url, self.sheet_name, aEvent, doc=self.doc)
         except Exception:
             log.exception("Error in SheetModifyDispatcher.modified")
 
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
         from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
 
-        SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
-        _cancel_pending((self.doc_url, self.sheet_name))
+        SHEET_MODIFY_LISTENERS.pop((self.doc_identity, self.sheet_name), None)
+        if self.doc_url and self.doc_url != self.doc_identity:
+            SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
+        _cancel_pending((self.doc_identity, self.sheet_name))
+        if self.doc_url and self.doc_url != self.doc_identity:
+            _cancel_pending((self.doc_url, self.sheet_name))

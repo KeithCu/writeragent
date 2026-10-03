@@ -37,7 +37,10 @@ try:
 except ImportError:
     pass
 
-_LOCK = threading.Lock()
+# Re-entrant: ensure_* holds this lock while calling note_*, and note_* /
+# _teardown take it too. A plain Lock deadlocks that same-thread re-entry.
+# note_calc_identity can also run off the main thread during unload.
+_LOCK = threading.RLock()
 _LISTENERS: dict[str, "_CalcPythonUnloadListener"] = {}
 # Filled only when ``_lifecycle_key`` runs (UI thread). Off-main spill timers
 # look this up and must not call getPropertyValue / getURL on the cached model.
@@ -171,8 +174,20 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
 
     def note_session(self, session_id: str) -> None:
         """Remember another worker session on this same document (rps + notebook)."""
-        if session_id and session_id != self._workbook_session_id:
-            self._extra_session_ids.add(session_id)
+        late = ""
+        with _LOCK:
+            if not session_id or session_id == self._workbook_session_id:
+                return
+            if self._teardown_done:
+                # Unload already snapshotted the set. Reset this id now or the
+                # kernel stays warm.
+                if session_id not in self._extra_session_ids:
+                    self._extra_session_ids.add(session_id)
+                    late = session_id
+            else:
+                self._extra_session_ids.add(session_id)
+        if late:
+            self._reset_sessions((late,))
 
     def note_calc_identity(self, session_id: str, doc_url: str = "") -> None:
         """Remember a session id this workbook grew after Save.
@@ -180,14 +195,31 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         Bugfix: an unsaved file's worker id is ``calc:{uuid}``. After Save it
         becomes ``calc:{file URL}``. The listener kept only the first id, so
         close reset the uuid session and left the file-URL kernel warm.
+
+        The session id and URL sets are also read from ``_teardown``, which
+        can run on the main thread while this runs off-main. Both sides take
+        ``_LOCK`` so a Save cannot mutate the set while unload iterates it.
         """
-        if session_id and session_id != self._workbook_session_id:
-            self._extra_session_ids.add(self._workbook_session_id)
-            self._workbook_session_id = session_id
-        if doc_url and doc_url != self._doc_url:
-            if self._doc_url:
-                self._extra_doc_urls.add(self._doc_url)
-            self._doc_url = doc_url
+        late_session = ""
+        late_url = ""
+        with _LOCK:
+            if self._teardown_done:
+                if session_id and session_id != self._workbook_session_id and session_id not in self._extra_session_ids:
+                    self._extra_session_ids.add(session_id)
+                    late_session = session_id
+                if doc_url and doc_url != self._doc_url and doc_url not in self._extra_doc_urls:
+                    self._extra_doc_urls.add(doc_url)
+                    late_url = doc_url
+            else:
+                if session_id and session_id != self._workbook_session_id:
+                    self._extra_session_ids.add(self._workbook_session_id)
+                    self._workbook_session_id = session_id
+                if doc_url and doc_url != self._doc_url:
+                    if self._doc_url:
+                        self._extra_doc_urls.add(self._doc_url)
+                    self._doc_url = doc_url
+        if late_session or late_url:
+            self._release_calc_state((late_session,) if late_session else (), (late_url,) if late_url else (), self._lifecycle_key, reset_sessions=bool(late_session))
 
     def on_document_event(self, Event: Any) -> None:
         try:
@@ -200,27 +232,31 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
     def on_disposing(self, Source: Any) -> None:
         self._teardown()
 
-    def _teardown(self) -> None:
-        if self._teardown_done:
-            return
-        self._teardown_done = True
-        with _LOCK:
-            _LISTENERS.pop(self._lifecycle_key, None)
-        # Drop the id cache in the same unload that cancels spill timers.
-        _forget_doc_lifecycle_key(self._lifecycle_key)
+    def _reset_sessions(self, session_ids: tuple[str, ...]) -> None:
+        for sid in session_ids:
+            if not sid:
+                continue
+            try:
+                res = reset_python_session(self._ctx, sid)
+                if res.get("status") != "ok":
+                    log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
+            except Exception:
+                log.debug("python_workbook_lifecycle: reset on unload raised", exc_info=True)
+
+    def _release_calc_state(self, session_ids: tuple[str, ...], doc_urls: tuple[str, ...], lifecycle_key: str, *, reset_sessions: bool) -> None:
+        """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
         if self._calc_cleanup:
             try:
                 from plugin.calc.python.formula_locator_cache import FORMULA_LOCATION_CACHE
 
-                FORMULA_LOCATION_CACHE.clear_document(self._lifecycle_key)
+                FORMULA_LOCATION_CACHE.clear_document(lifecycle_key)
             except Exception:
                 log.debug("python_workbook_lifecycle: formula cache clear failed", exc_info=True)
-            session_ids = (self._workbook_session_id, *tuple(self._extra_session_ids))
             try:
                 from plugin.calc.python.function import clear_in_memory_spill_state
 
-                for url in (self._doc_url, *tuple(self._extra_doc_urls)):
-                    clear_in_memory_spill_state(doc_url=url, lifecycle_key=self._lifecycle_key)
+                for url in doc_urls:
+                    clear_in_memory_spill_state(doc_url=url, lifecycle_key=lifecycle_key)
             except Exception:
                 log.debug("python_workbook_lifecycle: spill state clear failed", exc_info=True)
             try:
@@ -238,13 +274,26 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                         clear_active_calc_session(sid)
             except Exception:
                 log.debug("python_workbook_lifecycle: active session clear failed", exc_info=True)
-        for sid in (self._workbook_session_id, *tuple(self._extra_session_ids)):
-            try:
-                res = reset_python_session(self._ctx, sid)
-                if res.get("status") != "ok":
-                    log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
-            except Exception:
-                log.debug("python_workbook_lifecycle: reset on unload raised", exc_info=True)
+        if reset_sessions:
+            self._reset_sessions(session_ids)
+
+    def _teardown(self) -> None:
+        # Bugfix: ``_teardown_done``, the session id, and the extra URL/session
+        # sets were read here while ``note_calc_identity`` wrote them off-main
+        # with no lock. ``tuple(set)`` can raise, and a Save during unload
+        # could leave the new kernel out of the reset list.
+        with _LOCK:
+            if self._teardown_done:
+                return
+            self._teardown_done = True
+            _LISTENERS.pop(self._lifecycle_key, None)
+            session_ids = (self._workbook_session_id, *tuple(self._extra_session_ids))
+            doc_urls = (self._doc_url, *tuple(self._extra_doc_urls))
+            lifecycle_key = self._lifecycle_key
+        # Drop the id cache in the same unload that cancels spill timers.
+        # ``_forget_doc_lifecycle_key`` takes ``_LOCK``; do that after the snapshot.
+        _forget_doc_lifecycle_key(lifecycle_key)
+        self._release_calc_state(session_ids, doc_urls, lifecycle_key, reset_sessions=True)
 
 
 def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any) -> None:
