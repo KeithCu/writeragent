@@ -93,7 +93,7 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). |
 | `_writer_char_count` / `_read_writer_text_slice` | O(1) `CharacterCount` when possible; slice reads for chat excerpts. |
 
-Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented.
+Paragraph index helpers used by `DocumentService` live in [`plugin/doc/paragraph_search.py`](../../plugin/doc/paragraph_search.py) (`get_paragraph_ranges`, `find_paragraph_for_range`, `search_paragraph_texts`) — shared, but Writer-oriented. `get_paragraph_ranges` keeps tables in the list so indices match the text enumeration (heading trees, bookmarks, and grep count every element). `find_paragraph_for_range` compares only `com.sun.star.text.Paragraph` elements — `SwXTextTable` is not an `XTextRange` — and a point in the gap between paragraphs (a table anchor) maps to that table's slot.
 
 ### 1.4 Chat `DocumentService` and full-text dispatch
 
@@ -102,7 +102,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 | Symbol | Purpose |
 |--------|---------|
 | `get_full_document_text` | Dispatch: Writer → `text_helpers`; Calc → lazy `plugin.calc.analyzer`; Draw/Impress → `plugin.draw.bridge`. |
-| `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler (Writer start/end + selection markers; Calc/Draw delegated). |
+| `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler. Writer sends one slice when the document fits in `max_context`; head and tail, with the middle omitted, only when it is longer (those windows do not overlap). Calc/Draw delegated. Selection markers. |
 | `resolve_locator` | `paragraph:` / `heading:` / `chapter_number:` / `bookmark:` → paragraph index. `heading:` is sibling-ordinal; `chapter_number:` matches the paint label. |
 | `DocumentService` | Chat/MCP facade: active doc, resolve-by-url, type flags, full text, length, chat context, page helpers, paragraph ranges. |
 
@@ -202,7 +202,7 @@ Shared across Writer / Calc / Draw / Impress image and shape tools. **Not** inse
 | `has_uno_property` / `safe_set_property` / `safe_get_property` | PropertySetInfo probes (never `hasattr` on UNO attrs). |
 | `safe_try_method` | Call a method if present; log and continue. |
 | `parse_color_to_uno_int` | Hex / name / `rgb()` / int / tuple → 24-bit UNO RGB. |
-| `apply_character_properties` | Batch Char* on a shape/cell/style. |
+| `apply_character_properties` | Batch Char* on a shape/cell/style. Italic sets `CharPosture` to `FontSlant.ITALIC` (IDL value 2). Integer 1 is `OBLIQUE`. |
 | `mm_to_units` / `px_to_units` / `units_to_px` / `mm_to_px` | 1/100 mm ↔ 96-DPI px. |
 | `px_to_display_units` / `GENERATED_IMAGE_MAX_DISPLAY_MM` | Px → 1/100 mm, then cap longer edge at 135mm (generate resolution ≠ page size). |
 | `is_graphic_object` / `selected_graphic_object` / `graphic_objects_in_selection` | Graphic detection and selection. |
