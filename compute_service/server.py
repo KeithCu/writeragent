@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import hmac
-import io
 import json
 import logging
 import math
@@ -22,7 +21,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer
-from typing import Any, Callable, cast, final
+from typing import Any, Callable
 
 # Ensure repo root is on sys.path to resolve plugin.* / compute_service imports
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -90,12 +89,6 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, allow_nan=False).encode("utf-8")
 
 
-def _http_response(code: int, reason: str, body: bytes) -> bytes:
-    """One HTTP/1.1 response. Used for ``GET /health`` on the accept loop."""
-    head = (
-        f"HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode("ascii", "replace")
-    )
-    return head + body
 
 
 def _inject_req_id(body: dict[str, Any], req_id: Any) -> dict[str, Any]:
@@ -587,101 +580,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
 
 
 # Request-line cap while the accept loop is deciding whether this is
-# GET /health. A probe is a few hundred bytes. Anything larger is handed to
-# a listener thread with the bytes already read replayed.
-_INGRESS_BUF_MAX = 8192
 
-
-@final
-class _ReplaySocket(socket.socket):
-    """Socket that returns bytes the accept loop already consumed.
-
-    ``SocketIO.readinto`` calls ``recv_into``, not ``recv``. Both have to
-    drain the prefix or the WSGI handler never sees the request line.
-    """
-
-    _prefix: bytes
-    _off: int
-
-    def __init__(self, family: int, sock_type: int, proto: int, fileno: int) -> None:
-        super().__init__(family, sock_type, proto, fileno=fileno)
-        self._prefix = b""
-        self._off = 0
-
-    def recv(self, bufsize: int, flags: int = 0) -> bytes:
-        if self._off < len(self._prefix):
-            end = min(len(self._prefix), self._off + bufsize)
-            chunk = self._prefix[self._off : end]
-            self._off = end
-            return chunk
-        return super().recv(bufsize, flags)
-
-    def recv_into(self, buffer: Any, nbytes: int = 0, flags: int = 0) -> int:
-        if self._off < len(self._prefix):
-            view = memoryview(buffer)
-            want = nbytes or len(view)
-            end = min(len(self._prefix), self._off + want)
-            chunk = self._prefix[self._off : end]
-            n = len(chunk)
-            view[:n] = chunk
-            self._off += n
-            return n
-        return super().recv_into(buffer, nbytes, flags)
-
-
-def _replay_socket(sock: socket.socket, prefix: bytes) -> socket.socket:
-    """Hand *sock* to a listener thread, replaying *prefix* first."""
-    accept_time = getattr(sock, "_accept_time", None)
-    if not prefix:
-        try:
-            sock.setblocking(True)
-        except OSError:
-            pass
-        return sock
-    family, sock_type, proto = sock.family, sock.type, sock.proto
-    fd = sock.detach()
-    replay = _ReplaySocket(family, sock_type, proto, fileno=fd)
-    replay._prefix = prefix
-    replay.setblocking(True)
-    if accept_time is not None:
-        # Same attribute the WSGI handler reads. It is not part of socket.
-        setattr(replay, "_accept_time", accept_time)
-    return replay
-
-
-def _request_line(buf: bytes | bytearray) -> bytes | None:
-    nl = buf.find(b"\n")
-    if nl < 0:
-        return None
-    return bytes(buf[: nl + 1])
-
-
-def _is_get_health(line: bytes) -> bool:
-    """True for ``GET /health`` with an optional query. Not ``/healthz``."""
-    text = line.rstrip(b"\r\n")
-    parts = text.split(b" ")
-    if len(parts) != 3 or parts[0] != b"GET":
-        return False
-    target = parts[1]
-    path = target.split(b"?", 1)[0]
-    return path == b"/health"
-
-
-def _headers_complete(buf: bytes | bytearray) -> bool:
-    return b"\r\n\r\n" in buf or b"\n\n" in buf
-
-
-@final
-class _PendingIngress:
-    """One accepted connection whose request line is not classified yet."""
-
-    __slots__ = ("sock", "address", "buf", "accepted_at")
-
-    def __init__(self, sock: socket.socket, address: Any, accepted_at: float) -> None:
-        self.sock = sock
-        self.address = address
-        self.buf = bytearray()
-        self.accepted_at = accepted_at
 
 
 class DualStackThreadPoolHTTPServer(HTTPServer):
@@ -709,7 +608,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._dual_is_shut_down = threading.Event()
         self._dual_shutdown_request = False
         self.executor = ThreadPoolExecutor(max_workers=max_threads, thread_name_prefix="compute-worker")
-        self._pending: dict[socket.socket, _PendingIngress] = {}
+
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
         # TCPServer.__init__ always opens self.socket, even when
         # bind_and_activate is False. This class binds its own sockets
@@ -785,8 +684,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         # Do not cancel_futures: those futures already own accepted sockets.
         # Drain waits for them; cancelling dropped the sockets until process exit.
         self.executor.shutdown(wait=False, cancel_futures=False)
-        for pending in list(self._pending.values()):
-            self._drop_pending_socket(pending.sock)
 
     def drain_executor(self, timeout: float) -> None:
         """Wait until accepted requests finish, then return.
@@ -814,26 +711,31 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         listen = set(self.sockets)
         try:
             with selectors.DefaultSelector() as selector:
-                try:
-                    for sock in self.sockets:
-                        selector.register(sock, selectors.EVENT_READ)
+                for sock in self.sockets:
+                    selector.register(sock, selectors.EVENT_READ)
 
-                    while not self._dual_shutdown_request:
-                        ready = selector.select(poll_interval)
-                        if self._dual_shutdown_request:
-                            break
-                        for key, _unused in ready:
-                            ready_sock = key.fileobj
-                            if not isinstance(ready_sock, socket.socket):
+                while not self._dual_shutdown_request:
+                    ready = selector.select(poll_interval)
+                    if self._dual_shutdown_request:
+                        break
+                    for key, _unused in ready:
+                        ready_sock = key.fileobj
+                        if not isinstance(ready_sock, socket.socket):
+                            continue
+                        if ready_sock in listen:
+                            try:
+                                conn, client_address = ready_sock.accept()
+                            except OSError:
                                 continue
-                            if ready_sock in listen:
-                                self._accept_for_ingress(selector, ready_sock)
-                            else:
-                                self._read_ingress(selector, ready_sock)
-                        self._expire_ingress(selector)
-                        self.service_actions()
-                finally:
-                    self._close_ingress(selector)
+                            if not self.verify_request(conn, client_address):
+                                self.shutdown_request(conn)
+                                continue
+                            try:
+                                setattr(conn, "_accept_time", time.monotonic())
+                            except Exception:
+                                pass
+                            self.process_request(conn, client_address)
+                    self.service_actions()
         finally:
             self._dual_shutdown_request = False
             self._dual_is_shut_down.set()
@@ -860,183 +762,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         finally:
             self.shutdown_request(request)
 
-    def _accept_for_ingress(self, selector: selectors.BaseSelector, listen_sock: socket.socket) -> None:
-        """Accept one connection and wait for its request line on this thread.
 
-        The listener pool is not touched until the line is known not to be
-        ``GET /health``. Health is written here, including while every
-        listener thread is inside a cell.
-        """
-        try:
-            conn, client_address = listen_sock.accept()
-        except OSError:
-            return
-        if not self.verify_request(conn, client_address):
-            self.shutdown_request(conn)
-            return
-        try:
-            setattr(conn, "_accept_time", time.monotonic())
-        except Exception:
-            pass
-        try:
-            conn.setblocking(False)
-        except OSError:
-            self.shutdown_request(conn)
-            return
-        pending = _PendingIngress(conn, client_address, time.monotonic())
-        self._pending[conn] = pending
-        try:
-            selector.register(conn, selectors.EVENT_READ)
-        except Exception:
-            self._drop_pending(selector, pending)
-
-    def _read_ingress(self, selector: selectors.BaseSelector, sock: socket.socket) -> None:
-        pending = self._pending.get(sock)
-        if pending is None:
-            return
-        try:
-            chunk = sock.recv(4096)
-        except BlockingIOError:
-            return
-        except OSError:
-            self._drop_pending(selector, pending)
-            return
-        if not chunk:
-            self._drop_pending(selector, pending)
-            return
-        pending.buf.extend(chunk)
-        line = _request_line(pending.buf)
-        if line is None:
-            if len(pending.buf) > _INGRESS_BUF_MAX:
-                self._handoff_ingress(selector, pending)
-            return
-        if _is_get_health(line):
-            # Read the header block on this thread so the client is not reset
-            # mid-write. The body of a GET is empty.
-            if not _headers_complete(pending.buf) and len(pending.buf) <= _INGRESS_BUF_MAX:
-                return
-            self._reply_health(pending)
-            self._drop_pending(selector, pending)
-            return
-        self._handoff_ingress(selector, pending)
-
-    def _expire_ingress(self, selector: selectors.BaseSelector) -> None:
-        """Drop connections that never sent a request line.
-
-        Parking them on a listener thread is how a slow client used to occupy
-        the pool a health probe also needed. The read budget matches the
-        handler's body-read timeout.
-        """
-        now = time.monotonic()
-        stale = [pending for pending in self._pending.values() if now - pending.accepted_at > _REQUEST_READ_TIMEOUT_SEC]
-        for pending in stale:
-            self._drop_pending(selector, pending)
-
-    def _reply_health(self, pending: _PendingIngress) -> None:
-        """Write ``GET /health`` without taking a listener thread."""
-        body = self._health_body(pending)
-        try:
-            pending.sock.settimeout(0.5)
-            pending.sock.sendall(body)
-        except OSError:
-            pass
-
-    def _health_body(self, pending: _PendingIngress) -> bytes:
-        getter = getattr(self, "get_app", None)
-        app: Callable[..., Any] | None
-        if callable(getter):
-            app = cast("Callable[[], Any]", getter)()
-        else:
-            app = None
-        if app is None:
-            payload = _json_bytes({"status": "healthy", "service": "python-compute", "version": __version__})
-            return _http_response(200, "OK", payload)
-        line = _request_line(pending.buf) or b""
-        target = b"/health"
-        parts = line.rstrip(b"\r\n").split(b" ")
-        if len(parts) == 3:
-            target = parts[1]
-        path, _qmark, query = target.partition(b"?")
-        environ: dict[str, Any] = {
-            "PATH_INFO": path.decode("latin-1") or "/health",
-            "QUERY_STRING": query.decode("latin-1"),
-            "REQUEST_METHOD": "GET",
-            "SERVER_PROTOCOL": "HTTP/1.1",
-            "SERVER_NAME": "localhost",
-            "SERVER_PORT": str(self.server_address[1]),
-            "wsgi.version": (1, 0),
-            "wsgi.url_scheme": "http",
-            "wsgi.input": io.BytesIO(b""),
-            "wsgi.errors": sys.stderr,
-            "wsgi.multithread": True,
-            "wsgi.multiprocess": False,
-            "wsgi.run_once": False,
-            "CONTENT_LENGTH": "",
-        }
-        captured: list[tuple[str, list[tuple[str, str]]]] = []
-
-        def start_response(status: str, headers: list[tuple[str, str]], exc_info: Any = None) -> None:
-            del exc_info
-            captured.append((status, headers))
-
-        try:
-            chunks = app(environ, start_response)
-            raw = b"".join(chunks)
-            if hasattr(chunks, "close"):
-                chunks.close()
-        except Exception:
-            log.exception("health response failed")
-            raw = _json_bytes({"status": "healthy", "service": "python-compute", "version": __version__})
-            return _http_response(200, "OK", raw)
-        if not captured:
-            return _http_response(200, "OK", raw)
-        status_line = captured[0][0]
-        code_text, _sp, reason = status_line.partition(" ")
-        try:
-            code = int(code_text)
-        except ValueError:
-            code = 200
-            reason = "OK"
-        return _http_response(code, reason or "OK", raw)
-
-    def _handoff_ingress(self, selector: selectors.BaseSelector, pending: _PendingIngress) -> None:
-        """Give a non-health request to the listener pool, including bytes already read."""
-        self._pending.pop(pending.sock, None)
-        try:
-            selector.unregister(pending.sock)
-        except Exception:
-            pass
-        try:
-            request = _replay_socket(pending.sock, bytes(pending.buf))
-        except Exception:
-            self.shutdown_request(pending.sock)
-            return
-        try:
-            self.process_request(request, pending.address)
-        except Exception:
-            self.handle_error(request, pending.address)
-            self.shutdown_request(request)
-        except BaseException:
-            self.shutdown_request(request)
-            raise
-
-    def _drop_pending(self, selector: selectors.BaseSelector, pending: _PendingIngress) -> None:
-        self._pending.pop(pending.sock, None)
-        try:
-            selector.unregister(pending.sock)
-        except Exception:
-            pass
-        self._drop_pending_socket(pending.sock)
-
-    def _drop_pending_socket(self, sock: socket.socket) -> None:
-        try:
-            sock.close()
-        except OSError:
-            pass
-
-    def _close_ingress(self, selector: selectors.BaseSelector) -> None:
-        for pending in list(self._pending.values()):
-            self._drop_pending(selector, pending)
 
 
 # Backwards-compatibility alias
@@ -1084,7 +810,8 @@ class WSGIDualStackServer:
             server_port: int
 
             def __init__(self, server_address: tuple[str, int], RequestHandlerClass: Any, bind_and_activate: bool = True) -> None:
-                DualStackThreadPoolHTTPServer.__init__(self, server_address, RequestHandlerClass, bind_and_activate, max_threads=max_threads)
+                effective_threads = max(4, (max_threads or 2) + 2) if max_threads is not None else 16
+                DualStackThreadPoolHTTPServer.__init__(self, server_address, RequestHandlerClass, bind_and_activate, max_threads=effective_threads)
                 raw_host = str(self.server_address[0])
                 self.server_name = raw_host if raw_host and raw_host not in ("", "0.0.0.0", "::") else "localhost"
                 self.server_port = self.server_address[1]
