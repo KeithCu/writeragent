@@ -84,7 +84,10 @@ def tdist(x: Any, df: Any, tails: Any) -> float:
         # and 2 * (1 - cdf(val)) for 2 tails
         p = scipy.stats.t.sf(val, d)
         return float(p if t == 1 else 2 * p)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float("inf")) on tails raises OverflowError. The handler only
+        # caught ValueError and TypeError, so TDIST(x, df, inf) raised instead
+        # of the NaN already returned for every other tail count outside 1 or 2.
         return float("nan")
 
 
@@ -151,7 +154,10 @@ def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any
         if match_end and match_end_miss:
             return s
         return if_not_found
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # _find_text_cut does int(float(instance_num)). An infinite instance
+        # raises OverflowError, which this handler did not catch, so TEXTBEFORE
+        # raised instead of the NaN used for any other invalid instance.
         return float("nan")
 
 
@@ -349,7 +355,10 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
             p /= 2.0
 
         return float(p)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(tails)) and int(float(type_)) raise OverflowError on inf.
+        # That escaped the ValueError/TypeError handler, so TTEST raised
+        # instead of the NaN used for any other tail or type outside 1..2 / 1..3.
         return float("nan")
 
 
@@ -618,26 +627,33 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     if best_idx is None:
         return if_not_found
     r_flat = np.asarray(return_arr)
-    if r_flat.ndim == 1:
-        return r_flat[best_idx]
-    if r_flat.ndim == 2:
-        l_shape = np.asarray(lookup_arr).shape
-        if len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1:
-            return _scalar_if_singleton(r_flat[best_idx].tolist())
-        # A flat (N,) lookup used the column slice whenever best_idx < width.
-        # xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
-        # returned ["y","w","q"] instead of the "b" row ["z","w"]. When the
-        # return has one row per lookup value, index that row. A wide return
-        # whose columns match the lookup length still uses the column slice
-        # below; (N, 1) and (1, N) lookups are handled by their own branches.
-        if len(l_shape) == 1 and r_flat.shape[0] == l_shape[0]:
-            return _scalar_if_singleton(r_flat[best_idx].tolist())
-        if best_idx < r_flat.shape[1]:
-            # A horizontal 1×N lookup into a one-row return sliced out a
-            # one-element column and .tolist() wrapped it. A 1×1 result is a scalar.
-            return _scalar_if_singleton(r_flat[:, best_idx].tolist())
+    # A return array shorter than the matched index used to raise IndexError
+    # (xlookup("b", ["a", "b"], [1])). The match succeeded, so this is not
+    # if_not_found; it is a bad range. Report #VALUE!, same as other shape
+    # mismatches, instead of letting the exception escape.
+    try:
+        if r_flat.ndim == 1:
+            return r_flat[best_idx]
+        if r_flat.ndim == 2:
+            l_shape = np.asarray(lookup_arr).shape
+            if len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1:
+                return _scalar_if_singleton(r_flat[best_idx].tolist())
+            # A flat (N,) lookup used the column slice whenever best_idx < width.
+            # xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
+            # returned ["y","w","q"] instead of the "b" row ["z","w"]. When the
+            # return has one row per lookup value, index that row. A wide return
+            # whose columns match the lookup length still uses the column slice
+            # below; (N, 1) and (1, N) lookups are handled by their own branches.
+            if len(l_shape) == 1 and r_flat.shape[0] == l_shape[0]:
+                return _scalar_if_singleton(r_flat[best_idx].tolist())
+            if best_idx < r_flat.shape[1]:
+                # A horizontal 1×N lookup into a one-row return sliced out a
+                # one-element column and .tolist() wrapped it. A 1×1 result is a scalar.
+                return _scalar_if_singleton(r_flat[:, best_idx].tolist())
+            return r_flat.ravel()[best_idx]
         return r_flat.ravel()[best_idx]
-    return r_flat.ravel()[best_idx]
+    except IndexError:
+        return "#VALUE!"
 
 
 def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search_mode: int | float = 1) -> float:

@@ -1005,6 +1005,9 @@ def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any 
         if match_end and match_end_miss:
             return ""
         return if_not_found
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # _find_text_cut does int(float(instance_num)). An infinite instance
+        # raises OverflowError, which this handler did not catch, so TEXTAFTER
+        # raised instead of the NaN used for any other invalid instance.
         return float("nan")
 
