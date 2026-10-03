@@ -653,23 +653,30 @@ def test_list_toc_entries_rejects_a_missing_or_non_toc_index():
     ctx = MagicMock()
     indexes = MagicMock()
     indexes.getCount.return_value = 2
+    toc_a = MagicMock()
+    toc_a.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    toc_b = MagicMock()
+    toc_b.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    indexes.getByIndex.side_effect = lambda i: (toc_a, toc_b)[i]
+    ctx.doc.getDocumentIndexes.return_value = indexes
+
+    needs_index = tool.execute(ctx)
+    assert needs_index["status"] == "error"
+    assert "exactly one table of contents" in needs_index["message"]
+    toc_a.update.assert_not_called()
+    toc_b.update.assert_not_called()
+
     alphabetical = MagicMock()
     alphabetical.getServiceName.return_value = "com.sun.star.text.DocumentIndex"
     toc = MagicMock()
     toc.getServiceName.return_value = "com.sun.star.text.ContentIndex"
     toc.getAnchor.side_effect = RuntimeError("disposed anchor")
     indexes.getByIndex.side_effect = lambda i: (alphabetical, toc)[i]
-    ctx.doc.getDocumentIndexes.return_value = indexes
-
-    needs_index = tool.execute(ctx)
-    assert needs_index["status"] == "error"
-    assert "exactly one table of contents" in needs_index["message"]
 
     not_toc = tool.execute(ctx, index=0)
     assert not_toc["status"] == "error"
     assert "not a table of contents" in not_toc["message"]
     alphabetical.update.assert_not_called()
-    toc.update.assert_not_called()
 
     unreadable = tool.execute(ctx, index=1)
     assert unreadable["status"] == "error"
