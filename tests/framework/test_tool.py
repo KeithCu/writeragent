@@ -943,6 +943,131 @@ class TestToolIsolation:
         assert result["code"] == "TOOL_TIMEOUT"
         assert result.get("details", {}).get("tool_name") == "test_slow"
 
+    def test_queued_result_not_timeout_while_worker_unwinds(self):
+        """A finished tool must not be TOOL_TIMEOUT while its thread unwinds."""
+        applied: list[str] = []
+
+        class Mutate(ToolBase):
+            name = "mutate_then_unwind"
+            description = "x"
+            timeout = 0.4
+            parameters = {"type": "object", "properties": {}}
+
+            def is_async(self):
+                return True
+
+            def execute(self, ctx, **kwargs):
+                applied.append("applied")
+                return {"status": "ok", "applied": True}
+
+        import plugin.framework.worker_pool as worker_pool
+
+        original = worker_pool.thread_guard.set_background_task
+        entered = threading.Event()
+        release = threading.Event()
+
+        def block_unwind(name):
+            # Block the dedicated thread after the result is queued, which is
+            # the run_in_background finally that clears the task tag.
+            if name is None and threading.current_thread().name.startswith("tool-timeout-"):
+                entered.set()
+                release.wait(timeout=5)
+            original(name)
+
+        registry = ToolRegistry(services={})
+        registry.register(Mutate())
+
+        class DummyContext:
+            doc = None
+            doc_type = None
+            caller = None
+
+        try:
+            with patch.object(worker_pool.thread_guard, "set_background_task", block_unwind):
+                result = registry.execute("mutate_then_unwind", DummyContext())
+            assert entered.is_set()
+            assert result["status"] == "ok"
+            assert result["applied"] is True
+            assert applied == ["applied"]
+        finally:
+            release.set()
+
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+    @pytest.mark.parametrize("exc_type", [SystemExit, KeyboardInterrupt, GeneratorExit])
+    def test_timeout_worker_baseexception_unblocks(self, exc_type):
+        class Boom(ToolBase):
+            name = "boom_base"
+            description = "x"
+            timeout = 2
+            parameters = {"type": "object", "properties": {}}
+
+            def is_async(self):
+                return True
+
+            def execute(self, ctx, **kwargs):
+                raise exc_type("stopped")
+
+        registry = ToolRegistry(services={})
+        registry.register(Boom())
+
+        class DummyContext:
+            doc = None
+            doc_type = None
+            caller = None
+
+        box: dict = {}
+
+        def run():
+            try:
+                box["result"] = registry.execute("boom_base", DummyContext())
+            except BaseException as exc:
+                box["raised"] = type(exc).__name__
+
+        # Daemon so a regression that blocks on result_queue.get() cannot
+        # hang the suite; join is the assertion that the caller returned.
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        worker.join(2)
+        assert not worker.is_alive()
+        assert "raised" not in box
+        result = box["result"]
+        assert result["status"] == "error"
+        assert result["code"] == "TOOL_WORKER_EXIT"
+        assert exc_type.__name__ in result["message"]
+        assert result["details"]["error_type"] == exc_type.__name__
+
+    def test_dead_timeout_worker_without_result_does_not_block(self):
+        class _Dead:
+            def join(self, timeout=None):
+                return None
+
+            def is_alive(self):
+                return False
+
+        registry = ToolRegistry(services={})
+        box: dict = {}
+
+        def run():
+            box["result"] = registry._execute_with_timeout(lambda **kwargs: {"status": "ok"}, timeout=1, tool_name="dead_worker")
+
+        with patch("plugin.framework.tool.run_in_background", return_value=_Dead()):
+            worker = threading.Thread(target=run, daemon=True)
+            worker.start()
+            worker.join(2)
+        assert not worker.is_alive()
+        result = box["result"]
+        assert result["status"] == "error"
+        assert result["code"] == "TOOL_WORKER_EXIT"
+
+    def test_timeout_worker_reraises_exception(self):
+        registry = ToolRegistry(services={})
+
+        def boom(**kwargs):
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            registry._execute_with_timeout(boom, timeout=2, tool_name="raises")
+
 
 class TestToolRegistryMainThreadMarshal:
     """Sync tools invoked via ToolRegistry.execute run on the logical main thread."""
