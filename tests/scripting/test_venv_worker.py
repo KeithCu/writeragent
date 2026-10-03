@@ -531,6 +531,63 @@ def test_stdout_close_before_start_retries_once():
     assert mgr._terminate_worker.call_count == 2
 
 
+def test_runtime_error_before_exec_started_retries_once():
+    """A RuntimeError before the child has started the script is still a failed start."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
+    mgr._read_response_bytes = MagicMock(side_effect=RuntimeError("pipe died"))  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert "pipe died" in result["message"]
+    assert mgr._write_frame_with_timeout.call_count == 2
+    assert mgr._terminate_worker.call_count == 2
+
+
+def test_runtime_error_after_exec_started_does_not_replay():
+    """A RuntimeError after exec_started must not resend the script on a new child."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    captured: dict[str, dict] = {}
+
+    def _write_frame(stdin, request, **kwargs):
+        captured["request"] = request
+
+    mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
+    reads = {"n": 0}
+
+    def _read(stdout, timeout_sec):
+        reads["n"] += 1
+        request = captured["request"]
+        if reads["n"] == 1:
+            return pickle.dumps({"type": "exec_started", "id": request["id"]}, protocol=5)
+        raise RuntimeError("worker frame was not a dict")
+
+    mgr._read_response_bytes = _read  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "not a dict" in result["message"]
+    assert reads["n"] == 2
+    assert mgr._terminate_worker.call_count == 1
+
+
 def test_stdout_close_after_exec_started_does_not_replay():
     """In-process side effects after exec_started must not run under the same id again."""
     mgr = PythonWorkerManager(sys.executable, {})
