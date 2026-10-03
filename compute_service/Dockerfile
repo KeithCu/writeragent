@@ -56,11 +56,13 @@ ENV PYTHON_COMPUTE_PORT=8000
 # or:
 #   -e PYTHON_COMPUTE_API_KEY=...
 # Match coolwsd security.python_compute.api_key when set.
-# Empty key = no auth (dev/test only).
+# The entrypoint refuses this wildcard bind when both are empty.
 
-RUN useradd -m appuser && chown -R appuser:appuser /app
+RUN useradd -m appuser \
+    && chmod 755 /app/compute_service/docker-entrypoint.sh \
+    && chown -R appuser:appuser /app
 USER appuser
 
 EXPOSE 8000
 
-CMD ["python", "compute_service/server.py"]
+CMD ["compute_service/docker-entrypoint.sh"]

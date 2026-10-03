@@ -1139,6 +1139,48 @@ print("ok")
         assert "Error: fake_pkg is not installed" in captured.err
 
 
+def _run_docker_entrypoint(tmp_path, extra: dict[str, str]):
+    import subprocess
+    from pathlib import Path
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    marker = tmp_path / "ran"
+    fake = bindir / "python"
+    fake.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$FAKE_OUT"\n', encoding="utf-8")
+    fake.chmod(0o755)
+    # /bin stays on PATH so /bin/sh can run; the fake python is first.
+    env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": str(tmp_path), "FAKE_OUT": str(marker)}
+    env.update(extra)
+    script = Path(__file__).resolve().parents[2] / "compute_service" / "docker-entrypoint.sh"
+    proc = subprocess.run(["/bin/sh", str(script)], env=env, capture_output=True, text=True, check=False)
+    ran = marker.read_text(encoding="utf-8") if marker.exists() else ""
+    return proc, ran
+
+
+class TestDockerEntrypoint:
+    def test_wildcard_without_key_exits(self, tmp_path) -> None:
+        proc, ran = _run_docker_entrypoint(tmp_path, {"PYTHON_COMPUTE_HOST": "0.0.0.0"})
+        assert proc.returncode == 1
+        assert ran == ""
+        assert "PYTHON_COMPUTE_API_KEY" in proc.stderr
+
+    def test_ipv6_wildcard_without_key_exits(self, tmp_path) -> None:
+        proc, ran = _run_docker_entrypoint(tmp_path, {"PYTHON_COMPUTE_HOST": "::"})
+        assert proc.returncode == 1
+        assert ran == ""
+
+    def test_wildcard_with_key_starts_server(self, tmp_path) -> None:
+        proc, ran = _run_docker_entrypoint(tmp_path, {"PYTHON_COMPUTE_HOST": "0.0.0.0", "PYTHON_COMPUTE_API_KEY": "secret"})
+        assert proc.returncode == 0
+        assert "compute_service/server.py" in ran
+
+    def test_loopback_without_key_starts_server(self, tmp_path) -> None:
+        proc, ran = _run_docker_entrypoint(tmp_path, {"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert proc.returncode == 0
+        assert "compute_service/server.py" in ran
+
+
 class TestListenerQueue:
     def test_busy_listener_pool_queues_instead_of_503(self) -> None:
         """A full listener queue used to answer 503 and close the socket.

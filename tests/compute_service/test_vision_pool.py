@@ -78,6 +78,7 @@ class TestVisionPoolSupervisor:
         try:
             assert pool.is_enabled()
             assert len(pool.workers) == 1
+            assert pool.workers[0].recover_on_timeout
             # Execute simple text extraction helper on tiny PNG
             res = pool.execute(helper="extract_text", image_b64=_TINY_PNG_B64, req_id="v-1")
             assert res.get("id") == "v-1"
@@ -327,5 +328,87 @@ class TestVisionHttpEndpoint:
             server.shutdown()
             server.server_close()
             thread.join(timeout=3)
+
+
+def _delay_worker(tmp_path):
+    """Stdio worker that sleeps for ``delay`` seconds, then answers with its pid."""
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    script = tmp_path / "delay_worker.py"
+    script.write_text(
+        "\n".join(
+            [
+                "import os, sys, time",
+                f"sys.path.insert(0, {str(repo)!r})",
+                "from compute_service.worker_base import run_worker_stdio_loop",
+                "def handle(req):",
+                "    time.sleep(float(req.get('delay') or 0))",
+                "    return {'status': 'ok', 'pid': os.getpid()}",
+                "if __name__ == '__main__':",
+                "    raise SystemExit(run_worker_stdio_loop(handle))",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return script
+
+
+def test_vision_timeout_reuses_same_process(tmp_path) -> None:
+    """A late frame is discarded and the same process serves the next call.
+
+    Formula timeouts SIGKILL. Vision keeps the process because the model is
+    already loaded; the pipe stays leased until that one frame arrives.
+    """
+    from compute_service.worker_base import BaseProcessPool
+
+    pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Vision worker", recover_on_timeout=True)
+    try:
+        worker = pool.lease_any(2)
+        assert worker is not None
+        assert worker.process is not None
+        pid = worker.process.pid
+        res = worker.execute({"delay": 0.45}, timeout_sec=0.3)
+        assert res.get("code") == "EXECUTION_TIMEOUT"
+        assert worker.is_alive()
+        assert worker.process is not None
+        assert worker.process.pid == pid
+        pool.release_worker(worker)
+
+        again = pool.lease_any(2)
+        assert again is worker
+        nxt = again.execute({"delay": 0}, timeout_sec=2)
+        assert nxt.get("status") == "ok"
+        assert nxt.get("pid") == pid
+        assert again.did_respawn is False
+        pool.release_worker(again)
+    finally:
+        pool.shutdown()
+
+
+def test_vision_timeout_kills_when_late_frame_never_arrives(tmp_path) -> None:
+    """A second timeout still kills a call that never writes its frame."""
+    from compute_service.worker_base import BaseProcessPool
+
+    pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Vision worker", recover_on_timeout=True)
+    try:
+        worker = pool.lease_any(2)
+        assert worker is not None
+        assert worker.process is not None
+        pid = worker.process.pid
+        res = worker.execute({"delay": 30}, timeout_sec=0.2)
+        assert res.get("code") == "EXECUTION_TIMEOUT"
+        pool.release_worker(worker)
+
+        again = pool.lease_any(2)
+        assert again is worker
+        nxt = again.execute({"delay": 0}, timeout_sec=2)
+        assert nxt.get("status") == "ok"
+        assert nxt.get("pid") != pid
+        assert again.did_respawn is True
+        pool.release_worker(again)
+    finally:
+        pool.shutdown()
 
 

@@ -8,7 +8,7 @@ Provides:
 - High-speed length-prefixed Pickle 5 binary framing over stdio pipes
 - Deadline-bounded pickle reads (header + payload)
 - Live stderr drain (start_stderr_drain) so piped stderr cannot deadlock
-- Hard SIGKILL watchdog timers on hangs/timeouts
+- Hard SIGKILL watchdog timers on hangs/timeouts (vision drains one late frame first)
 - Exclusive worker occupancy (idle set + Condition) so sticky and isolated jobs
   never share a process concurrently
 - Automatic crash recovery and worker recycling after max_tasks
@@ -22,10 +22,8 @@ import subprocess
 import sys
 import threading
 import time
-from typing import TYPE_CHECKING, Any, cast
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from collections.abc import Callable
+from typing import Any, cast
 
 from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame
@@ -76,12 +74,16 @@ class BaseProcessWorker:
     _lifecycle_lock: threading.Lock
     tasks_executed: int
     did_respawn: bool
+    recover_on_timeout: bool
+    _drain_state: str
+    _drain_lock: threading.Lock
 
-    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> None:
+    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False) -> None:
         self.worker_id = worker_id
         self.script_path = script_path
         self.worker_name = worker_name
         self.max_payload_bytes = max_payload_bytes
+        self.recover_on_timeout = recover_on_timeout
         self.process: subprocess.Popen[bytes] | None = None
         self.lock = threading.Lock()
         # Serializes kill/reap. Distinct from ``lock``, which execute holds
@@ -90,6 +92,12 @@ class BaseProcessWorker:
         self.tasks_executed = 0
         self.did_respawn = False
         self._stderr_drain: StderrTail | None = None
+        # idle: no timeout drain. draining: late frame still on the pipe.
+        # release_wait: release_worker already ran and must re-idle after the
+        # frame. drained: frame consumed before release_worker ran.
+        self._drain_state = "idle"
+        self._drain_lock = threading.Lock()
+        self._release_cb: Callable[[], None] | None = None
         self._spawn()
 
     def _stderr_snippet(self) -> str:
@@ -230,12 +238,21 @@ class BaseProcessWorker:
             try:
                 resp = read_pickle_frame_with_timeout(self.process.stdout, timeout_sec, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes)
             except subprocess.TimeoutExpired:
-                log.warning("%s execution timed out after %.1fs on worker #%d; terminating pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid)
                 snippet = self._stderr_snippet()
-                self.kill()
                 msg = f"Execution exceeded maximum timeout of {int(timeout_sec)} seconds."
                 if snippet:
                     msg = f"{msg}\n{snippet}"
+                if self.recover_on_timeout:
+                    # The child is still going to write one frame. Killing it
+                    # drops a loaded OCR model, and releasing the pipe now would
+                    # make the next request read that frame. Drain it aside.
+                    log.warning("%s execution timed out after %.1fs on worker #%d; draining late frame from pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid)
+                    self._start_late_drain(timeout_sec)
+                else:
+                    # A formula kernel that missed its in-process budget can be
+                    # stuck in C. The process is not safe to reuse.
+                    log.warning("%s execution timed out after %.1fs on worker #%d; terminating pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid)
+                    self.kill()
                 return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
             except Exception as exc:
                 snippet = self._stderr_snippet()
@@ -254,6 +271,70 @@ class BaseProcessWorker:
             self.tasks_executed += 1
             return resp
 
+    def _start_late_drain(self, timeout_sec: float) -> None:
+        """Read the one frame a timed-out vision call will still write.
+
+        The same budget applies again. A call that finishes shortly after the
+        client gave up keeps the process. A call that never returns is killed
+        so the slot can respawn.
+        """
+        with self._drain_lock:
+            self._drain_state = "draining"
+            self._release_cb = None
+        threading.Thread(
+            target=self._drain_late_response,
+            args=(timeout_sec,),
+            name=f"{self.worker_name}-drain-{self.worker_id}",
+            daemon=True,
+        ).start()
+
+    def _drain_late_response(self, timeout_sec: float) -> None:
+        proc = self.process
+        stdout = proc.stdout if proc is not None else None
+        try:
+            resp: Any = None
+            if stdout is not None and self.is_alive():
+                resp = read_pickle_frame_with_timeout(stdout, timeout_sec, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes)
+            if not isinstance(resp, dict):
+                # EOF or a non-frame: the pipe cannot take another request.
+                self.kill()
+        except subprocess.TimeoutExpired:
+            log.warning("%s late frame exceeded %.1fs on worker #%d; terminating pid=%s", self.worker_name, timeout_sec, self.worker_id, proc.pid if proc is not None else None)
+            self.kill()
+        except Exception:
+            log.exception("%s late-frame drain failed on worker #%d", self.worker_name, self.worker_id)
+            self.kill()
+        self._complete_drain()
+
+    def _complete_drain(self) -> None:
+        with self._drain_lock:
+            if self._drain_state == "release_wait":
+                callback = self._release_cb
+                self._release_cb = None
+                self._drain_state = "idle"
+            else:
+                callback = None
+                self._drain_state = "drained"
+        if callback is not None:
+            callback()
+
+    def defer_release(self, callback: Callable[[], None]) -> bool:
+        """Run *callback* only after a late-frame drain, if one is in progress.
+
+        Returns True when the caller must not release yet. The stdio protocol
+        is one request then one response; idling the worker before the late
+        frame arrives hands that frame to the next caller.
+        """
+        with self._drain_lock:
+            if self._drain_state == "draining":
+                self._drain_state = "release_wait"
+                self._release_cb = callback
+                return True
+            if self._drain_state == "drained":
+                self._drain_state = "idle"
+                return False
+            return False
+
 
 class BaseProcessPool:
     """Base supervisor for a bounded pool of child worker subprocesses."""
@@ -269,7 +350,7 @@ class BaseProcessPool:
     _lock: threading.Lock
     _cond: threading.Condition
 
-    def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> None:
+    def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False) -> None:
         self.script_path = script_path
         self.num_workers = max(0, num_workers)
         self.default_timeout_sec = default_timeout_sec
@@ -287,7 +368,7 @@ class BaseProcessPool:
 
         if self.num_workers > 0:
             for i in range(self.num_workers):
-                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes)
+                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, recover_on_timeout=recover_on_timeout)
                 self.workers.append(w)
                 self._idle.add(w)
                 # Stamp after spawn. A timestamp taken before this loop made a
@@ -390,7 +471,20 @@ class BaseProcessPool:
         return worker.tasks_executed >= self.max_tasks
 
     def release_worker(self, worker: BaseProcessWorker) -> None:
-        """Return worker to idle set, recycling if max_tasks reached."""
+        """Return worker to idle set, recycling if max_tasks reached.
+
+        A vision timeout returns before the child writes its frame. Re-idling
+        immediately would desync the next request, so that release waits until
+        the drain thread has consumed the frame.
+        """
+        if worker.defer_release(lambda: self._finish_release(worker)):
+            return
+        self._finish_release(worker)
+
+    def _finish_release(self, worker: BaseProcessWorker) -> None:
+        if self._is_shutdown:
+            worker.kill()
+            return
         if self.should_recycle_worker(worker):
             log.info("Recycling %s #%d after %d tasks to refresh memory", self.worker_name, worker.worker_id, worker.tasks_executed)
             worker.kill()
