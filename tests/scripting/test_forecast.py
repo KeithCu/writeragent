@@ -200,6 +200,43 @@ def test_forecast_periods_are_capped():
     assert len(result["tables"][0]["rows"]) < 10_000
 
 
+def test_holt_winters_intervals_use_simulate_not_get_prediction():
+    _require_statsmodels_installed()
+    result = forecast_time_series(
+        _seasonal_series(),
+        periods=4,
+        model="holt_winters",
+        seasonal_periods=12,
+    )
+    assert result["status"] == "ok", result
+    table = result["tables"][0]
+    assert table["columns"] == ["date", "forecast", "lower", "upper"]
+    assert "confidence intervals unavailable" not in result["flags"]
+    assert "interval_note" not in result["metrics"]
+    for row in table["rows"]:
+        point, lower, upper = row[1], row[2], row[3]
+        assert lower <= point <= upper
+
+
+def test_holt_winters_interval_failure_is_a_structured_note(monkeypatch):
+    _require_statsmodels_installed()
+    monkeypatch.setattr(venv_forecast, "_holt_winters_intervals", lambda fit, periods: None)
+    result = forecast_time_series(
+        _seasonal_series(),
+        periods=3,
+        model="holt_winters",
+        seasonal_periods=12,
+    )
+    assert result["status"] == "ok", result
+    assert "lower" not in result["tables"][0]["columns"]
+    note = result["metrics"]["interval_note"]
+    assert note["available"] is False
+    assert note["method"] == "HoltWintersResults.simulate"
+    assert "get_prediction" in note["message"]
+    assert "confidence intervals unavailable" not in result["flags"]
+    assert note["message"] in result["flags"]
+
+
 def test_duplicate_dates_are_aggregated():
     rows = [{"Date": f"2024-01-{day:02d}", "Value": float(day)} for day in range(1, 10)]
     rows.append({"Date": "2024-01-01", "Value": 100.0})
