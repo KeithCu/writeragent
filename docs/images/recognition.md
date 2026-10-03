@@ -581,6 +581,8 @@ result = run_vision("extract_text", image)
 
 With an empty `image_name` (default when calling with a string helper), Run exports the currently selected Writer or Calc embedded graphic as PNG bytes into the sandbox variable `image` before execution. To override params or target a specific named graphic, pass a dictionary spec: `run_vision({"helper": "extract_text", "params": {"image_name": "Photo1"}}, image)`.
 
+In the user venv, AliasImporter maps `writeragent.vision` to [`plugin/vision/__init__.py`](../../plugin/vision/__init__.py), which re-exports `run_vision` from [`plugin/vision/venv/vision.py`](../../plugin/vision/venv/vision.py). Calc and Writer `image_name` Run paths execute that import. Writer selection OCR does not; it calls [`plugin.scripting.client.run_vision`](../../plugin/scripting/client.py).
+
 ---
 
 ## 10. `extract_text` result JSON (normative)
@@ -698,7 +700,7 @@ Same [`is_vision_result()`](../../plugin/vision/vision_egress.py) guard as [§10
 | `html` | **Yes** on success | **Document insert uses this** (structure + tables as HTML) |
 | `full_text` | Yes (may be `""`) | Plain reading-order text; not inserted into documents |
 | `blocks` | Yes (may be `[]`) | Layout regions from PP-Structure. A `table` block is not also written as a paragraph: PP-Structure’s `html` field is the table grid (`tables[]` / one `<table>`), not escaped `&lt;table&gt;` text beside it |
-| `tables` | Yes (may be `[]`) | Structured table dicts (also reflected in `html`). Each table may include `spans`: `{row, col, rowspan, colspan}` 0-based in the header+body grid (text only in the origin cell — do not repeat spanned labels) |
+| `tables` | Yes (may be `[]`) | Structured table dicts (also reflected in `html`). Each table may include `spans`: `{row, col, rowspan, colspan}` 0-based in the header+body grid (text only in the origin cell — do not repeat spanned labels). Docling cells and Paddle PP-Structure HTML colspan/rowspan both go through `_table_from_span_cells` |
 | `metrics.block_count` | Recommended | Length of `blocks` |
 | `metrics.table_count` | Recommended | Length of `tables` |
 | `warnings` | Yes (may be `[]`) | e.g. `"No structure detected."` |

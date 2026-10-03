@@ -254,6 +254,40 @@ def test_extract_structure_paddle_engine(mock_get_engine, mock_decode):
     assert "<table" not in str(table_blocks[0].get("text") or "").lower()
 
 
+def test_paddle_html_table_preserves_colspan_header():
+    html = (
+        "<table>"
+        '<tr><th colspan="3">ASSETS:</th></tr>'
+        "<tr><td>Cash</td><td>10</td><td>11</td></tr>"
+        "</table>"
+    )
+    table = paddle_mod._table_from_structure_res({"html": html}, name="table_1")
+    assert table is not None
+    assert table["columns"] == ["ASSETS:", "", ""]
+    assert table["rows"] == [["Cash", "10", "11"]]
+    assert table["spans"] == [{"row": 0, "col": 0, "rowspan": 1, "colspan": 3}]
+    assert table["columns"].count("ASSETS:") == 1
+    from plugin.vision.venv.vision_html_export import _html_table_from_columns_rows
+
+    assert 'colspan="3"' in _html_table_from_columns_rows(table["columns"], table["rows"], table["spans"])
+
+    shifted = (
+        "<table>"
+        '<tr><th colspan="2">Group</th><th>Note</th></tr>'
+        '<tr><td rowspan="2">A</td><td>B</td><td>C</td></tr>'
+        "<tr><td>D</td><td>E</td></tr>"
+        "</table>"
+    )
+    spanned = paddle_mod._table_from_structure_res({"html": shifted}, name="table_2")
+    assert spanned is not None
+    assert spanned["columns"] == ["Group", "", "Note"]
+    assert spanned["rows"] == [["A", "B", "C"], ["", "D", "E"]]
+    assert spanned["spans"] == [
+        {"row": 0, "col": 0, "rowspan": 1, "colspan": 2},
+        {"row": 1, "col": 0, "rowspan": 2, "colspan": 1},
+    ]
+
+
 def test_text_from_structure_res_drops_raw_table_html():
     html = "<table><tr><th>Item</th></tr><tr><td>Widget</td></tr></table>"
     assert paddle_mod._text_from_structure_res({"html": html}) == ""
