@@ -16,6 +16,8 @@ from typing import Any
 
 import numpy as np
 
+from .calc_functions_util import _npf_result
+
 
 __all__ = [
     "datedif",
@@ -851,29 +853,6 @@ def frequency(data: Any, bins: Any) -> Any:
         return counts.tolist()
     except Exception:
         return []
-
-
-def _npf_result(kind: str, *args: Any) -> float:
-    """One numpy-financial scalar, or NaN where Calc/Excel are #NUM! / #DIV/0!.
-
-    The library returns ±inf for a zero period count and for an NPER that
-    never amortizes, and raises when ``when`` is not 0 or 1. Callers pass
-    0 or 1. A missing install is the same NaN as a missing scipy helper.
-    """
-    try:
-        import numpy_financial as npf  # type: ignore[import-untyped]
-    except ImportError:
-        return float("nan")
-    try:
-        # np.where in pmt/pv evaluates the zero-rate branch and warns on
-        # divide-by-zero even when the other branch is the result.
-        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-            result = float(getattr(npf, kind)(*args))
-    except (OverflowError, ValueError, ZeroDivisionError, TypeError):
-        return float("nan")
-    if not math.isfinite(result):
-        return float("nan")
-    return result
 
 
 def fv(rate: Any, nper: Any, pmt_val: Any, pv_val: Any = 0, type_val: Any = 0) -> float:

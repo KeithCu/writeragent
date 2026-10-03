@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, cast
 
 import numpy as np
 
+from .calc_functions_util import _wildcard_fullmatch
 from .coerce import _LO_ERROR_TOKENS, is_missing_value
 
 
@@ -664,12 +664,6 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
         return float("nan")
     except Exception:
         return float("nan")
-
-
-def _wildcard_fullmatch(pattern: str, text: str) -> bool:
-    """Excel-style * and ? against the whole text. Same translation xlookup already used."""
-    escaped = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
-    return re.fullmatch(escaped, text) is not None
 
 
 def _scalar_if_singleton(values: list[Any]) -> Any:

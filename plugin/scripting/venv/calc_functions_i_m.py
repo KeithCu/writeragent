@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-import re
 from collections import Counter
 from typing import Any, Callable
 
 import numpy as np
 
-from .coerce import is_blank_value, is_missing_value, is_na_value
+from .calc_functions_util import _npf_result, match_criteria
+from .coerce import is_blank_value, is_na_value
 
 
 __all__ = [
@@ -479,8 +479,6 @@ def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val:
     # 0 once per > nper (and NaN only for per < 1).
     if p < 1 or p > n:
         return float("nan")
-    from plugin.scripting.venv.calc_functions_d_h import _npf_result
-
     return _npf_result("ipmt", r, p, n, pv_f, fv_f, t)
 
 
@@ -766,64 +764,7 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
     return result[best_idx]
 
 
-def match_criteria(val: Any, crit: Any) -> bool:
-    if is_missing_value(crit):
-        return is_missing_value(val)
-    if isinstance(crit, str):
-        m = re.match(r"^([<>=]+)(.*)$", crit)
-        if m:
-            op, val_str = m.groups()
-            try:
-                c_num = float(val_str)
-            except (ValueError, TypeError):
-                c_num = None
-            try:
-                v_num = float(val)
-            except (ValueError, TypeError):
-                v_num = None
-            # A numeric criterion used to fall through to lexicographic
-            # compare whenever the cell failed float(). "abc" > "5" is True,
-            # so COUNTIF(["abc"], ">5") counted the text. Excel/Calc compare
-            # numbers only; <> still matches because the text is not the number.
-            if c_num is not None and v_num is None:
-                if op == "<>":
-                    return True
-                if op in ("=", "==", "<", "<=", ">", ">="):
-                    return False
-            elif c_num is not None and v_num is not None:
-                if op in ("=", "=="):
-                    return v_num == c_num
-                if op == "<>":
-                    return v_num != c_num
-                if op == "<":
-                    return v_num < c_num
-                if op == "<=":
-                    return v_num <= c_num
-                if op == ">":
-                    return v_num > c_num
-                if op == ">=":
-                    return v_num >= c_num
-            else:
-                c_str = val_str
-                v_str = str(val)
-                if op in ("=", "=="):
-                    return v_str == c_str
-                if op == "<>":
-                    return v_str != c_str
-                if op == "<":
-                    return v_str < c_str
-                if op == "<=":
-                    return v_str <= c_str
-                if op == ">":
-                    return v_str > c_str
-                if op == ">=":
-                    return v_str >= c_str
-    try:
-        if float(val) == float(crit):
-            return True
-    except (ValueError, TypeError):
-        pass
-    return str(val) == str(crit)
+
 
 
 def maxa(*args: Any) -> float:
@@ -899,8 +840,6 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
         rr = float(reinvest_rate)
     except (ValueError, TypeError):
         return float("nan")
-    from plugin.scripting.venv.calc_functions_d_h import _npf_result
-
     # rate == -1 used to divide by zero (later negative flows) or return a
     # finite number (reinvest rate -1). numpy-financial's NPV is undefined
     # there and returns NaN, which is Excel #NUM!.
