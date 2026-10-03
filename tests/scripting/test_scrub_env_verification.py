@@ -114,6 +114,22 @@ def test_drops_secrets_and_lo_overrides() -> None:
     assert out["PYTHONDONTWRITEBYTECODE"] == "1"
 
 
+def test_scrub_overrides_inherited_python_flags() -> None:
+    """Parent PYTHONIOENCODING / PYTHONUTF8 / PYTHONDONTWRITEBYTECODE must not win."""
+    out = scrub_subprocess_env(
+        {
+            "PATH": "/usr/bin",
+            "PYTHONIOENCODING": "latin-1",
+            "PYTHONUTF8": "0",
+            "PYTHONDONTWRITEBYTECODE": "0",
+        }
+    )
+    assert out["PATH"] == "/usr/bin"
+    assert out["PYTHONIOENCODING"] == "utf-8"
+    assert out["PYTHONUTF8"] == "1"
+    assert out["PYTHONDONTWRITEBYTECODE"] == "1"
+
+
 def test_scrub_drops_loader_injection() -> None:
     from plugin.scripting.sandbox import scrub_subprocess_env
     out = scrub_subprocess_env({"LD_PRELOAD": "/tmp/x.so", "ld_audit": "/tmp/a.so", "DYLD_INSERT_LIBRARIES": "/tmp/y.dylib", "PATH": "/usr/bin"})

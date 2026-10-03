@@ -179,7 +179,7 @@ Ingress blanks can poison naive `np.sum` / `np.mean` — prefer `nan*` helpers w
 - Python `None` → `""` (empty cell).
 - `float('nan')` / `np.nan` → raw NaN → cascading error cell.
 - `±inf` passes through (may also error in formulas). **Not a missing-value sentinel.**
-- `decimal.Decimal` → `float` (precision loss is accepted; Calc only has doubles). Column kind must stay `"float"`, not `"int"` (truncation is not accepted).
+- `decimal.Decimal` and `fractions.Fraction` → `float` (precision loss is accepted; Calc only has doubles). Column kind must stay `"float"`, not `"int"` (truncation is not accepted). A text cell earlier in the same grid does not turn a later Decimal or Fraction into text.
 - **Int fidelity:** the `split_grid` buffer is float64. Integers outside ±2^53 round on pack and unpack. Account numbers and 64-bit IDs should travel as strings. There is no int64 wire lane (Calc cells are doubles anyway).
 - For a visible non-error marker, return a string:
 

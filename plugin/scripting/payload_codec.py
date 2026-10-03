@@ -711,7 +711,10 @@ def _uniform_column_kind(kinds: list[str]) -> str | None:
 @deal.pre(
     lambda envelope, *_unused, ncols=0, **__: _deal_wire_dict_ok(envelope)
     and isinstance(ncols, int)
-    and 0 <= ncols <= DEAL_MAX_SHAPE_DIM
+    # Same Calc column cap as ``_deal_product_grid_ok`` (pack). SHAPE_DIM (256)
+    # rejected a wide sheet after pack succeeded: PreContractError on unpack.
+    # Release strips deal, so the body already accepts this width; the pre must too.
+    and 0 <= ncols <= DEAL_MAX_COL_INDEX + 1
 )
 def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[str]:
     """Per-column unpack kinds from wire ``column_kinds``."""
@@ -1112,9 +1115,27 @@ def _flatten_append_cell_slow(
         elif tname.startswith("float"):
             buf_append(float(cast("Any", val)))
             column_states[c] = 3
+        elif t is not str:
+            # Bugfix: the fast path and Cython ``_flatten_cell`` float() a
+            # Decimal or Fraction. This branch runs only after an earlier cell
+            # set has_non_numeric, and it used to str() those values, so the
+            # same number became 1.25 or the text "1.25" / "1/4" depending on
+            # position. decimal and fractions are on the venv import whitelist,
+            # and a pandas object column reaches this flatten without the
+            # pickle-leaf coerce. Strings stay text (zip codes). Overflow
+            # still propagates, matching the fast path's except clause.
+            try:
+                fval = float(cast("Any", val))
+            except (TypeError, ValueError):
+                buf_append(nan)
+                strings[idx] = str(val)
+            else:
+                buf_append(fval)
+                if column_states[c] != 3:
+                    _flatten_update_column_state(column_states, c, val)
         else:
             buf_append(nan)
-            strings[idx] = cast("str", val) if t is str else str(val)
+            strings[idx] = cast("str", val)
 
 
 def _validate_rectangular_grid(grid_2d: list[list[Any]], ncols: int) -> None:
