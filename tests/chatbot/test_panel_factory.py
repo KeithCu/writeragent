@@ -95,6 +95,29 @@ def _thin_panel_element():
     return el
 
 
+def test_setup_sessions_passes_panel_ctx_into_seeded_prompt():
+    """The seed must match refresh: vision, peer, and profile injection need ctx."""
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = object()
+    model = MagicMock()
+    model.getURL.return_value = ""
+
+    with (
+        patch(
+            "plugin.chatbot.panel_factory.get_chat_system_prompt_for_document",
+            return_value="SEEDED",
+        ) as prompt,
+        patch("plugin.chatbot.panel_factory.get_document_property", return_value=None),
+        patch("plugin.chatbot.panel_factory.set_document_property"),
+        patch("plugin.chatbot.panel.ChatSession", return_value=MagicMock()),
+    ):
+        el._setup_sessions(model, "extra")
+
+    prompt.assert_called_once_with(model, "extra", ctx=el.ctx)
+
+
 def test_disposing_swallows_disposed_focus_restore():
     from unittest.mock import MagicMock
 
