@@ -99,6 +99,9 @@ def setup_mock_panel():
 
     session = MockSession()
     panel = FakePanel(ctx, session)
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    begin_send_turn(panel, "chat")
     return panel, session
 
 _MIRRORED_CONTROL_ATTRS = (
@@ -193,8 +196,10 @@ def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_drain_l
 
     mock_drain_loop.side_effect = mock_drain_impl
     panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    assert session.messages[-2]["role"] == "assistant"
+    assert session.messages[-2]["content"] == "kept tokens"
     assert session.messages[-1]["role"] == "assistant"
-    assert session.messages[-1]["content"] == "kept tokens"
+    assert "[Stopped by user]" in session.messages[-1]["content"]
 
 
 def test_handle_stream_error_persists_banner():
@@ -302,6 +307,9 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
         
         res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
+        # The drain is still inside this send, so the turn is alive and the
+        # worker can enqueue. After _start returns, abort drops a late put.
+        results.append(q.get(timeout=2))
 
     mock_drain_loop.side_effect = mock_drain_impl
 
@@ -316,8 +324,9 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
     panel._set_status.assert_called_with("Running: apply_document_content")
     panel._append_response.assert_called_with("[Running tool: apply_document_content...]\n")
 
-    # The tool runs on a worker so the drain can keep pumping. Wait for its result.
-    queued_item = captured_q.get(timeout=2)
+    # The tool runs on a worker so the drain can keep pumping. The result
+    # was taken while that drain was still inside the send.
+    queued_item = results[1]
     execute_tool_mock.assert_called_once()
 
     assert queued_item[0] == StreamQueueKind.TOOL_DONE
@@ -441,6 +450,9 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
         q.get()
         res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
+        # Malformed calls still run on a worker. Take TOOL_DONE before
+        # _start_tool_calling_async returns and abort drops later puts.
+        results.append(q.get(timeout=2))
 
     mock_drain_loop.side_effect = mock_drain_impl
 
@@ -457,8 +469,7 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
 
     assert results[0] is False
 
-    # The sync tool worker queues tool_done after the drain handler returns.
-    tool_done_item = captured_q.get(timeout=2)
+    tool_done_item = results[1]
     assert executed_args['name'] == 'unknown'
     assert executed_args['args'] == {}
     assert tool_done_item[0] == StreamQueueKind.TOOL_DONE
@@ -555,7 +566,6 @@ def test_refresh_active_tools_for_session():
     sys.modules["plugin.main"] = fake_main
     try:
         panel, session = setup_mock_panel()
-        panel._active_model = MagicMock()
         panel.cached_doc_type = "writer"
         panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
         session.active_specialized_domain = "tables"

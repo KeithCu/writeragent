@@ -24,9 +24,11 @@ def _make_send_listener():
         send.queue_executor = MagicMock()
         send._record_assistant_start = False
         send._assistant_stream_start_len = None
-        send._plain_text_stripper = None
         send.session = MagicMock()
         send.session.messages = []
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        begin_send_turn(send, "chat")
         return send
 
 
@@ -46,7 +48,7 @@ class TestRichAppendResponse:
 
     def test_second_chunk_grows_the_open_row(self):
         send = _make_send_listener()
-        send.session.messages = [{"role": "assistant", "content": "Hello", "_open_transcript": True}]
+        send.session.messages.append({"role": "assistant", "content": "Hello", "_open_transcript": True})
         with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
             send._append_response(" world", role="assistant")
 

@@ -248,9 +248,9 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
 
     match event:
         case StopRequestedEvent():
+            # The stop line is a message the turn writes. Painting it here
+            # by handler type made agent Stop a special case.
             effects.append(SendHandlerUIEffect("status", "Stopped"))
-            if state.handler_type == "agent":
-                effects.append(SendHandlerUIEffect("append", "\n[Stopped by user]\n"))
             effects.append(CompleteJobEffect("Stopped"))
             return FsmTransition(dataclasses.replace(state, status="stopped"), effects)
 

@@ -507,9 +507,11 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
         rerender = getattr(listener, "rerender_rich_text_session", None)
         if callable(rerender):
             replaced = rerender() is True
-    stripper = getattr(listener, "_plain_text_stripper", None)
-    if stripper is not None:
-        leftover = stripper.finalize()
-        listener._plain_text_stripper = None
+    from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+
+    turn = current_turn(listener)
+    stripper = turn.stripper if isinstance(turn, TurnController) else None
+    if stripper is not None and isinstance(turn, TurnController):
+        leftover = turn.take_stripper_tail()
         if leftover and not replaced:
             listener._append_response(leftover, role="assistant")

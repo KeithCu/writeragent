@@ -61,16 +61,13 @@ class TestSendHandlerStateMachine:
         # Verify termination state
         assert new_state.status == "stopped"
 
-        # Verify proper effects
-        assert len(effects) == 3
+        # The stop line is a session message, not a paint effect.
+        assert len(effects) == 2
         assert isinstance(effects[0], SendHandlerUIEffect)
         assert effects[0].kind == "status"
         assert effects[0].text == "Stopped"
-        assert isinstance(effects[1], SendHandlerUIEffect)
-        assert effects[1].kind == "append"
-        assert effects[1].text == "\n[Stopped by user]\n"
-        assert isinstance(effects[2], CompleteJobEffect)
-        assert effects[2].terminal_status == "Stopped"
+        assert isinstance(effects[1], CompleteJobEffect)
+        assert effects[1].terminal_status == "Stopped"
 
     def test_stop_event_other_terminates(self):
         state = SendHandlerState(handler_type="web", status="running")

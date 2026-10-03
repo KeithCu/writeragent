@@ -389,7 +389,7 @@ class TestSendDispose:
 
     def test_clear_while_busy_drops_the_in_flight_reply(self) -> None:
         from plugin.chatbot.panel import ChatSession
-        from plugin.chatbot.tool_loop_actions import bind_turn_session, persist_assistant_on_turn
+        from plugin.chatbot.tool_loop_actions import begin_send_turn, persist_assistant_on_turn
 
         listener = _make_send_listener()
         session = ChatSession("system prompt")
@@ -400,7 +400,7 @@ class TestSendDispose:
             tool_loop=None,
             audio=AudioRecorderState(status="idle"),
         )
-        bind_turn_session(listener)
+        begin_send_turn(listener, "chat")
         clear = ClearButtonListener(session, None, None, send_listener=listener)
         with patch("plugin.audio.tts_service.stop_speech"):
             clear.on_action_performed(MagicMock())
@@ -414,14 +414,14 @@ class TestSendDispose:
 
     def test_swapped_session_does_not_receive_the_in_flight_reply(self) -> None:
         from plugin.chatbot.panel import ChatSession
-        from plugin.chatbot.tool_loop_actions import bind_turn_session, persist_assistant_on_turn, session_for_turn
+        from plugin.chatbot.tool_loop_actions import begin_send_turn, persist_assistant_on_turn, session_for_turn
 
         listener = _make_send_listener()
         original = ChatSession("system prompt")
         original.add_user_message("question")
         other = ChatSession("other mode")
         listener.session = original
-        bind_turn_session(listener)
+        begin_send_turn(listener, "chat")
         listener.set_session(other)
         assert session_for_turn(listener) is original
         persist_assistant_on_turn(listener, content="answer")
