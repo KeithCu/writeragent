@@ -598,6 +598,39 @@ def test_decimal_split_grid_stays_float_not_truncated_int() -> None:
     assert out[0][1] == pytest.approx(2.25)
 
 
+def test_wide_sheet_above_shape_dim_unpacks() -> None:
+    """Pack accepts real sheet widths; unpack must not cap columns at SHAPE_DIM."""
+    import deal
+
+    from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX, DEAL_MAX_SHAPE_DIM
+    from plugin.scripting.payload_codec import envelope_column_kinds
+    from tests.harness.strip_bundle import deal_pre_present
+
+    ncols = DEAL_MAX_SHAPE_DIM + 1
+    grid = [[float(i) for i in range(ncols)]]
+    wire = host_pack_data(grid, force="auto")
+    assert is_split_grid(wire)
+    assert wire["shape"] == [1, ncols]
+    unpacked = host_unpack_data(wire)
+    assert len(unpacked) == 1
+    assert len(unpacked[0]) == ncols
+    assert unpacked[0][0] == pytest.approx(0.0)
+    assert unpacked[0][-1] == pytest.approx(float(ncols - 1))
+
+    np = pytest.importorskip("numpy")
+    arr = child_unpack_data(wire)
+    assert isinstance(arr, np.ndarray)
+    assert arr.shape == (1, ncols)
+    assert float(arr[0, -1]) == pytest.approx(float(ncols - 1))
+
+    cap = DEAL_MAX_COL_INDEX + 1
+    kinds = envelope_column_kinds({"column_kinds": ["float"] * cap}, ncols=cap)
+    assert kinds == ["float"] * cap
+    if deal_pre_present(envelope_column_kinds):
+        with pytest.raises(deal.PreContractError):
+            envelope_column_kinds({}, ncols=cap + 1)
+
+
 def test_bool_cells_round_trip_in_numeric_grid() -> None:
     """Calc booleans in an all-numeric grid become 0.0/1.0 in child ndarray (float64 lane)."""
     np = pytest.importorskip("numpy")

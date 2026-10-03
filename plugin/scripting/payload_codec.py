@@ -711,7 +711,10 @@ def _uniform_column_kind(kinds: list[str]) -> str | None:
 @deal.pre(
     lambda envelope, *_unused, ncols=0, **__: _deal_wire_dict_ok(envelope)
     and isinstance(ncols, int)
-    and 0 <= ncols <= DEAL_MAX_SHAPE_DIM
+    # Same Calc column cap as ``_deal_product_grid_ok`` (pack). SHAPE_DIM (256)
+    # rejected a wide sheet after pack succeeded: PreContractError on unpack.
+    # Release strips deal, so the body already accepts this width; the pre must too.
+    and 0 <= ncols <= DEAL_MAX_COL_INDEX + 1
 )
 def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[str]:
     """Per-column unpack kinds from wire ``column_kinds``."""
