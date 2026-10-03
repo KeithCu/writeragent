@@ -295,13 +295,25 @@ def trend(*args: Any) -> Any:
 
 
 def trimmean(r: Any, percent: Any) -> float:
-    # dtype=float on the whole array raises ValueError for text or an error
-    # token and used to escape the helper. Sibling stats return NaN instead.
+    # Excel TRIMMEAN returns #VALUE! when any cell is non-numeric. dtype=float
+    # coerced numeric text and bools, turned None into NaN, and ~isnan then
+    # dropped those NaNs so the rest were averaged. Reject anything that is
+    # not a real number. Sibling stats report that failure as NaN.
     try:
-        arr = np.asarray(r, dtype=float).ravel()
-        arr = arr[~np.isnan(arr)]
-        if not arr.size:
+        cells = np.asarray(r, dtype=object).ravel()
+        nums: list[float] = []
+        for cell in cells:
+            val = cell.item() if isinstance(cell, np.generic) else cell
+            # bool is a subclass of int; Excel treats it as non-numeric here.
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                return float("nan")
+            number = float(val)
+            if math.isnan(number):
+                return float("nan")
+            nums.append(number)
+        if not nums:
             return float("nan")
+        arr = np.asarray(nums, dtype=float)
         p = float(percent)
         if p < 0 or p >= 1:
             return float("nan")

@@ -789,6 +789,13 @@ def test_trimmean_text_or_bad_percent_is_nan():
     assert math.isnan(calc.trimmean([1.0, "#VALUE!", 3.0], 0.2))
     assert math.isnan(calc.trimmean([1.0, 2.0, 3.0], "bad"))
     assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.4) == 3.0
+    # dtype=float used to coerce these, then ~isnan dropped NaN/None and
+    # averaged the rest. Excel TRIMMEAN is #VALUE! for any non-numeric cell.
+    assert math.isnan(calc.trimmean([1.0, "2", 3.0, 4.0, 5.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, True, 3.0, 4.0, 5.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, None, 3.0, 4.0, 5.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, float("nan"), 3.0, 4.0, 5.0], 0.2))
+    assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.2) == 3.0
 
 
 def test_weekday_return_types_and_weeknum_modes():
