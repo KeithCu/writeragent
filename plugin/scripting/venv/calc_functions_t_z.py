@@ -656,7 +656,9 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
                 df -= t * v / ((1.0 + x) ** (t + 1.0))
             if abs(f) < 1e-7:
                 return float(x)
-            if df == 0:
+            # df == 0 missed a tiny slope. Newton then stepped by f/df
+            # (up to ~1e300) before the derivative underflowed to 0.
+            if abs(df) < 1e-15:
                 break
             x = x - f / df
         return float("nan")

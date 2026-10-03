@@ -901,6 +901,13 @@ def test_trend_empty_known_y_is_value_error():
     assert [round(v, 6) for v in fitted] == [1.0, 2.0, 3.0]
 
 
+def test_xirr_tiny_derivative_is_nan_and_classic_root_holds():
+    rate = calc.xirr([-10000, 2750, 4250, 3250, 2750], [44197, 44562, 44927, 45292, 45658])
+    assert math.isclose(rate, 0.1153874812592906, rel_tol=1e-6)
+    # |df| is ~1e-20, not exact 0. The old df == 0 check stepped to ~1e300.
+    assert math.isnan(calc.xirr([-1, 1e-20], [0, 365], 0.1))
+
+
 def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
     import numpy as np
 
