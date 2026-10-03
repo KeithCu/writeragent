@@ -267,3 +267,116 @@ def test_weakref_subscribe_callable():
     bus.emit("test:event", event_data="second")
     assert received == ["first"]
 
+
+def test_get_event_bus_reuses_bus_with_same_qualified_name():
+    """Two EventBus classes with the same qualified name must share one bus.
+
+    A second import defines a new class object. isinstance against the class
+    from this import used to miss the stored bus and overwrite it.
+    """
+    import sys
+
+    class FirstBus:
+        pass
+
+    class SecondBus:
+        pass
+
+    # Same qualified name as EventBus, different class objects. Assigning
+    # these is what a second import of this module produces.
+    FirstBus.__module__ = EventBus.__module__
+    FirstBus.__qualname__ = EventBus.__qualname__
+    SecondBus.__module__ = EventBus.__module__
+    SecondBus.__qualname__ = EventBus.__qualname__
+    saved = getattr(sys, "_writeragent_event_bus", None)
+    first_cls = FirstBus
+    second_cls = SecondBus
+    assert first_cls is not second_cls
+    assert (first_cls.__module__, first_cls.__qualname__) == (EventBus.__module__, EventBus.__qualname__)
+    assert (second_cls.__module__, second_cls.__qualname__) == (first_cls.__module__, first_cls.__qualname__)
+    stored = first_cls()
+    assert not isinstance(stored, EventBus)
+    try:
+        setattr(sys, "_writeragent_event_bus", stored)
+        assert get_event_bus() is stored
+        assert get_event_bus() is stored
+    finally:
+        if saved is None:
+            delattr(sys, "_writeragent_event_bus")
+        else:
+            setattr(sys, "_writeragent_event_bus", saved)
+
+
+def test_get_event_bus_replaces_object_with_other_qualified_name():
+    import sys
+
+    saved = getattr(sys, "_writeragent_event_bus", None)
+
+    class NotTheBus:
+        pass
+
+    foreign = NotTheBus()
+    try:
+        setattr(sys, "_writeragent_event_bus", foreign)
+        bus = get_event_bus()
+        assert isinstance(bus, EventBus)
+        assert bus is not foreign
+        assert get_event_bus() is bus
+    finally:
+        if saved is None:
+            delattr(sys, "_writeragent_event_bus")
+        else:
+            setattr(sys, "_writeragent_event_bus", saved)
+
+
+def test_subscribe_weak_builtin_bound_method_uses_weakref():
+    """Builtin bound methods have __self__ but WeakMethod rejects them.
+
+    weakref.ref still works, so subscribe must not crash and must not pin
+    the method the way a strong fallback would.
+    """
+    import weakref
+
+    bus = EventBus()
+    items: list[int] = []
+    method = items.append
+    bus.subscribe("test:event", method, weak=True)
+    stored, is_weak = bus._subscribers["test:event"][0]
+    assert is_weak is True
+    assert isinstance(stored, weakref.ref)
+    assert not isinstance(stored, weakref.WeakMethod)
+    assert stored() is method
+    stored()(1)
+    assert items == [1]
+
+    del method
+    gc.collect()
+    assert bus._subscribers["test:event"] == []
+
+
+def test_subscribe_weak_method_wrapper_falls_back_to_strong_ref():
+    """method-wrapper has __self__, and neither WeakMethod nor weakref.ref accepts it."""
+    bus = EventBus()
+    number = 5
+    method = number.__add__
+    bus.subscribe("test:event", method, weak=True)
+    stored, is_weak = bus._subscribers["test:event"][0]
+    assert is_weak is False
+    assert stored is method
+
+
+def test_subscribe_weak_python_method_stays_weakmethod():
+    import weakref
+
+    bus = EventBus()
+
+    class Target:
+        def handler(self, event_data=None):
+            return event_data
+
+    target = Target()
+    bus.subscribe("test:event", target.handler, weak=True)
+    stored, is_weak = bus._subscribers["test:event"][0]
+    assert is_weak is True
+    assert isinstance(stored, weakref.WeakMethod)
+

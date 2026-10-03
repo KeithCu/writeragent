@@ -45,6 +45,17 @@ class TestDeepResearchParsers:
         assert out["citations"]["Alpha found"] == "https://example.com"
         assert out["followUpQuestions"] == ["What about beta?"]
 
+    def test_parse_research_results_string_follow_up_is_not_character_split(self):
+        for key in ("followUpQuestions", "questions"):
+            raw = (
+                '{"learnings": [{"insight": "Alpha found", "sourceUrl": "https://example.com"}], "'
+                + key
+                + '": "What about beta?"}'
+            )
+            out = parse_research_results_response(raw, 3)
+            assert out["learnings"] == ["Alpha found"]
+            assert out["followUpQuestions"] == []
+
     def test_parse_assessment_response(self):
         raw = '{"score": 8, "knowledge_gaps": ["gap1"], "suggested_queries": ["q1"], "stop": false, "reasoning": "ok"}'
         out = parse_assessment_response(raw)
@@ -52,6 +63,17 @@ class TestDeepResearchParsers:
         assert out["knowledge_gaps"] == ["gap1"]
         assert out["suggested_queries"] == ["q1"]
         assert out["stop"] is False
+
+    def test_parse_assessment_string_false_stop_is_not_true(self):
+        # bool("false") is True; these tokens must not end the research loop.
+        for token in ("false", "0", "no"):
+            raw = (
+                '{"score": 3, "knowledge_gaps": ["gap1"], "suggested_queries": ["q1"], "stop": "%s"}'
+                % token
+            )
+            assert parse_assessment_response(raw)["stop"] is False
+        raw_true = '{"score": 9, "knowledge_gaps": [], "suggested_queries": [], "stop": "true"}'
+        assert parse_assessment_response(raw_true)["stop"] is True
 
     def test_trim_context_to_word_limit(self):
         chunks = ["one two three", "four five"]

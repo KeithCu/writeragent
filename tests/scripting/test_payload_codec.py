@@ -598,6 +598,81 @@ def test_decimal_split_grid_stays_float_not_truncated_int() -> None:
     assert out[0][1] == pytest.approx(2.25)
 
 
+def test_decimal_fraction_encoding_ignores_earlier_text() -> None:
+    """Decimal and Fraction stay floats after a text cell, same as before one."""
+    from fractions import Fraction
+
+    from plugin.scripting.payload_codec import host_pack_split_grid
+
+    def _check() -> None:
+        after_text = host_unpack_split_grid(
+            host_pack_split_grid([["02138", Decimal("1.25"), Fraction(1, 4)]])
+        )
+        assert after_text[0][0] == "02138"
+        assert after_text[0][1] == pytest.approx(1.25)
+        assert after_text[0][2] == pytest.approx(0.25)
+        assert type(after_text[0][1]) is float
+        assert type(after_text[0][2]) is float
+
+        before_text = host_unpack_split_grid(
+            host_pack_split_grid([[Decimal("1.25"), Fraction(1, 4), "02138"]])
+        )
+        assert before_text[0][0] == pytest.approx(1.25)
+        assert before_text[0][1] == pytest.approx(0.25)
+        assert before_text[0][2] == "02138"
+        assert type(before_text[0][0]) is type(after_text[0][1])
+        assert type(before_text[0][1]) is type(after_text[0][2])
+
+        wire = host_pack_split_grid(
+            [["label", "x"], [Decimal("1.50"), Fraction(1, 4)]]
+        )
+        assert "1.50" not in wire["strings"].values()
+        assert "1/4" not in wire["strings"].values()
+        same_col = host_unpack_split_grid(wire)
+        assert same_col[0] == ["label", "x"]
+        assert same_col[1][0] == pytest.approx(1.5)
+        assert same_col[1][1] == pytest.approx(0.25)
+        assert wire["column_kinds"] == ["float", "float"]
+
+    with cython_accelerator_context(enabled=False):
+        _check()
+    if payload_codec.fast_flatten_grid_2d is not None:
+        _check()
+
+
+def test_wide_sheet_above_shape_dim_unpacks() -> None:
+    """Pack accepts real sheet widths; unpack must not cap columns at SHAPE_DIM."""
+    import deal
+
+    from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX, DEAL_MAX_SHAPE_DIM
+    from plugin.scripting.payload_codec import envelope_column_kinds
+    from tests.harness.strip_bundle import deal_pre_present
+
+    ncols = DEAL_MAX_SHAPE_DIM + 1
+    grid = [[float(i) for i in range(ncols)]]
+    wire = host_pack_data(grid, force="auto")
+    assert is_split_grid(wire)
+    assert wire["shape"] == [1, ncols]
+    unpacked = host_unpack_data(wire)
+    assert len(unpacked) == 1
+    assert len(unpacked[0]) == ncols
+    assert unpacked[0][0] == pytest.approx(0.0)
+    assert unpacked[0][-1] == pytest.approx(float(ncols - 1))
+
+    np = pytest.importorskip("numpy")
+    arr = child_unpack_data(wire)
+    assert isinstance(arr, np.ndarray)
+    assert arr.shape == (1, ncols)
+    assert float(arr[0, -1]) == pytest.approx(float(ncols - 1))
+
+    cap = DEAL_MAX_COL_INDEX + 1
+    kinds = envelope_column_kinds({"column_kinds": ["float"] * cap}, ncols=cap)
+    assert kinds == ["float"] * cap
+    if deal_pre_present(envelope_column_kinds):
+        with pytest.raises(deal.PreContractError):
+            envelope_column_kinds({}, ncols=cap + 1)
+
+
 def test_bool_cells_round_trip_in_numeric_grid() -> None:
     """Calc booleans in an all-numeric grid become 0.0/1.0 in child ndarray (float64 lane)."""
     np = pytest.importorskip("numpy")

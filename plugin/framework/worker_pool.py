@@ -124,6 +124,18 @@ class BackgroundHandle:
         fut = self._future
         return fut is not None and not fut.done()
 
+    def is_current_thread(self) -> bool:
+        """True when this handle is the dedicated thread now running.
+
+        What was wrong: callers read ``_thread`` to skip a self-join.
+        A pooled handle has no thread, so that check was false and
+        ``join`` ran. From a ``wa-bg-*`` worker that raises, which is
+        the deadlock guard and must stay. Why: one supported check.
+        Pool workers that join a different pooled future still hit it.
+        """
+        thread = self._thread
+        return thread is not None and thread is threading.current_thread()
+
 
 class _DaemonWorkPool:
     """Fixed daemon workers + unbounded queue. ThreadPoolExecutor is non-daemon on 3.9+.
@@ -403,6 +415,38 @@ def _iter_decoded_chunks(stream: IO[Any]) -> Iterator[str]:
         yield tail
 
 
+def _split_on_newlines(pending: str) -> tuple[list[str], str]:
+    """Split on ``\\n``, ``\\r\\n``, and a lone ``\\r``. Hold a trailing ``\\r``.
+
+    What was wrong: ``str.splitlines`` also breaks on vertical tab, form
+    feed, and the Unicode line separators. The callback then saw a new
+    line with that separator still in the text, because ``rstrip`` only
+    removes ``\\n`` and ``\\r``. A trailing ``\\r`` stays in the remainder
+    so the next chunk can finish a CRLF instead of emitting a line early.
+    """
+    lines: list[str] = []
+    start = 0
+    index = 0
+    limit = len(pending)
+    while index < limit:
+        char = pending[index]
+        if char == "\n":
+            lines.append(pending[start : index + 1])
+            index += 1
+            start = index
+            continue
+        if char == "\r":
+            if index + 1 == limit:
+                break
+            end = index + 2 if pending[index + 1] == "\n" else index + 1
+            lines.append(pending[start:end])
+            index = end
+            start = index
+            continue
+        index += 1
+    return lines, pending[start:]
+
+
 def start_stderr_drain(stream: IO[Any] | None, *, max_tail_chars: int = _DEFAULT_STDERR_TAIL_CHARS, name: str = "stderr-drain") -> StderrTail | None:
     """Continuously drain a child stderr pipe into a bounded :class:`StderrTail`.
 
@@ -446,7 +490,7 @@ class AsyncProcess:
         self.stdout_cb = stdout_cb
         self.stderr_cb = stderr_cb
         self.on_exit_cb = on_exit_cb
-        # Popen[Any]: default is binary (text=False); callers may still pass text=True.
+        # Pipes stay binary. text=True is ignored; see the popen kwargs below.
         self.process: Optional[subprocess.Popen[Any]] = None
 
         # Copy: setdefault must not mutate the caller's dict.
@@ -455,16 +499,19 @@ class AsyncProcess:
             self._popen_kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
         self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
         self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
-        # What was wrong: text=True plus _read_stderr_chunk reading .buffer
-        # left the text wrapper unused; a later readline on the same pipe
-        # would desync the two buffers. Why: binary pipes only; decode in
-        # _iter_decoded_chunks (callbacks still receive str).
-        self._popen_kwargs.setdefault("text", False)
+        # What was wrong: text=True was documented as keeping the caller's
+        # encoding, but _read_stream reads the binary buffer and decodes
+        # UTF-8. A TextIOWrapper plus that read desyncs the two buffers.
+        # No AsyncProcess caller passes text=True (the tunnel uses the
+        # binary default). Force binary pipes. encoding, errors, or
+        # universal_newlines would still open text mode after text=False.
+        if self._popen_kwargs.get("text") or self._popen_kwargs.get("universal_newlines") or self._popen_kwargs.get("encoding") or self._popen_kwargs.get("errors"):
+            log.debug("AsyncProcess forces binary pipes; text mode and encoding arguments are ignored")
+        self._popen_kwargs["text"] = False
+        self._popen_kwargs.pop("encoding", None)
+        self._popen_kwargs.pop("errors", None)
+        self._popen_kwargs.pop("universal_newlines", None)
         self._popen_kwargs.setdefault("bufsize", 0)
-        # Callers that pass text=True keep encoding/errors for their path.
-        if self._popen_kwargs.get("text"):
-            self._popen_kwargs.setdefault("encoding", "utf-8")
-            self._popen_kwargs.setdefault("errors", "replace")
 
         self._stdout_thread: BackgroundHandle | None = None
         self._stderr_thread: BackgroundHandle | None = None
@@ -495,18 +542,24 @@ class AsyncProcess:
             raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
 
         self.process = proc
+        stdout_thread: BackgroundHandle | None = None
+        stderr_thread: BackgroundHandle | None = None
         if proc.stdout and self.stdout_cb:
-            self._stdout_thread = run_in_background(self._read_stream, proc.stdout, self.stdout_cb, name=f"asyncproc-out-{proc.pid}", dedicated=True)
+            stdout_thread = run_in_background(self._read_stream, proc.stdout, self.stdout_cb, name=f"asyncproc-out-{proc.pid}", dedicated=True)
         elif proc.stdout:
             # Drain it silently to avoid deadlocks
-            self._stdout_thread = run_in_background(self._drain_stream, proc.stdout, name=f"asyncproc-outdrain-{proc.pid}", dedicated=True)
+            stdout_thread = run_in_background(self._drain_stream, proc.stdout, name=f"asyncproc-outdrain-{proc.pid}", dedicated=True)
 
         if proc.stderr and self.stderr_cb:
-            self._stderr_thread = run_in_background(self._read_stream, proc.stderr, self.stderr_cb, name=f"asyncproc-err-{proc.pid}", dedicated=True)
+            stderr_thread = run_in_background(self._read_stream, proc.stderr, self.stderr_cb, name=f"asyncproc-err-{proc.pid}", dedicated=True)
         elif proc.stderr:
-            self._stderr_thread = run_in_background(self._drain_stream, proc.stderr, name=f"asyncproc-errdrain-{proc.pid}", dedicated=True)
+            stderr_thread = run_in_background(self._drain_stream, proc.stderr, name=f"asyncproc-errdrain-{proc.pid}", dedicated=True)
 
-        self._wait_thread = run_in_background(self._wait_for_exit, name=f"asyncproc-wait-{proc.pid}", dedicated=True)
+        self._stdout_thread = stdout_thread
+        self._stderr_thread = stderr_thread
+        # Pass this child and these readers. _wait_for_exit must not read
+        # self.process later: a second start() replaces them.
+        self._wait_thread = run_in_background(self._wait_for_exit, proc, stdout_thread, stderr_thread, name=f"asyncproc-wait-{proc.pid}", dedicated=True)
 
     def _read_stream(self, stream: Any, callback: Any) -> None:
         # ``for line in stream`` blocks in readline. A child that writes a long
@@ -520,11 +573,7 @@ class AsyncProcess:
         try:
             for chunk in _iter_decoded_chunks(stream):
                 pending += chunk
-                lines = pending.splitlines(keepends=True)
-                if lines and not lines[-1].endswith(("\n", "\r")):
-                    pending = lines.pop()
-                else:
-                    pending = ""
+                lines, pending = _split_on_newlines(pending)
                 for line in lines:
                     try:
                         callback(line.rstrip("\n\r"))
@@ -558,12 +607,12 @@ class AsyncProcess:
         returns. ``_reap`` keeps the default so a stuck callback cannot block
         terminate forever. ``_wait_for_exit`` passes None.
         """
-        current = threading.current_thread()
         for handle in handles:
             if handle is None:
                 continue
-            thread = handle._thread
-            if thread is not None and thread is current:
+            # Future-backed handles are not this thread. join() still
+            # raises from a wa-bg-* worker so the pool cannot deadlock.
+            if handle.is_current_thread():
                 continue
             handle.join(timeout=timeout)
 
@@ -579,17 +628,20 @@ class AsyncProcess:
             except OSError:
                 pass
 
-    def _wait_for_exit(self) -> None:
-        if self.process is None:
-            return
-        rc = self.process.wait()
+    def _wait_for_exit(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None) -> None:
+        # What was wrong: this read self.process and the reader handles at
+        # wait time. start() can run again and point those at a new child,
+        # so the first wait thread blocked on that child and fired
+        # on_exit_cb for its exit as well. _reap already captures the
+        # handles it was given. Why: wait and join only this call's child.
+        rc = proc.wait()
         # What was wrong: process.wait() returns before the pipe threads
         # deliver a trailing line that had no newline, and the join used
         # timeout=1.0. A slow line callback returned from that join early, so
         # on_exit_cb (PROCESS_EXITED) ran before the line. The comment claimed
         # the order was guaranteed. Why: wait with no timeout so the trailing
         # line is delivered first. _reap still uses the 1s join.
-        self._join_handles((self._stdout_thread, self._stderr_thread), timeout=None)
+        self._join_handles((stdout_thread, stderr_thread), timeout=None)
         args = self.args
         if isinstance(args, str):
             preview = args

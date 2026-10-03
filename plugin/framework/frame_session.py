@@ -330,12 +330,24 @@ class FrameSession:
         The session stays until the frame closes so a reopened deck on the
         same frame is the same object. Another frame's session is not in
         this method.
+
+        What was wrong: a late dispose of the previous sidebar still called
+        ``release_listeners`` after ``bind_panel`` had pointed this session
+        at the new sidebar. How: ``open_frame_session`` returns the existing
+        session for the frame, so the old element's dispose and the new
+        element's listeners share one object. The ``self.panel is panel``
+        check kept the new panel, then ``release_listeners`` removed the new
+        query, leave, and click listeners anyway. Why: those listeners
+        belong to the panel currently bound. Only that panel's dispose
+        removes them. ``clear_focus_pin_if`` stays scoped to the control
+        that is still the pin.
         """
         if self._closed:
             return
-        if self.panel is panel:
-            self.panel = None
         self.clear_focus_pin_if(query_control)
+        if self.panel is not panel:
+            return
+        self.panel = None
         self.release_listeners()
 
     def dispose(self) -> None:

@@ -383,3 +383,109 @@ def test_exchange_truncated_json_is_not_a_finished_reply():
     assert "hel" not in str(err.value)
 
 
+def _exchange_sender(script: list):
+    """Return a sender that walks ``script`` and fails if the budget runs away.
+
+    Each item is an exception (raised instead of a response) or a response mock.
+    """
+    calls = {"n": 0}
+    steps = list(script)
+
+    def _sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+        calls["n"] += 1
+        if calls["n"] > len(steps):
+            raise AssertionError("exchange kept sending after the script ended")
+        step = steps[calls["n"] - 1]
+        if isinstance(step, BaseException):
+            raise step
+        return step
+
+    return _sender, calls
+
+
+def _status_response(status: int, *, read_error: BaseException | None = None, body: bytes = b"", content_type: str | None = None):
+    response = MagicMock()
+    response.status = status
+    response.reason = "error" if status != 200 else "OK"
+    if read_error is not None:
+        response.read.side_effect = read_error
+    else:
+        response.read.return_value = body
+    response.getheader.return_value = content_type
+    return response
+
+
+def test_exchange_error_body_read_failure_costs_one_retry():
+    """A reset while reading a non-200 body is one attempt, so the third try still runs."""
+    import http.client
+
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    read_error = http.client.IncompleteRead(b"partial", 40)
+    ok = _status_response(200, body=b'{"ok": true}', content_type="application/json")
+    sender, calls = _exchange_sender([
+        _status_response(500, read_error=read_error),
+        _status_response(500, read_error=read_error),
+        ok,
+    ])
+    attempts: list[int] = []
+
+    def _delay(*, attempt: int = 1, **_kwargs):
+        attempts.append(attempt)
+        return 0.0
+
+    with (
+        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
+        patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=_delay),
+    ):
+        result = transport.exchange("GET", "/v1/models", None, {}, sender=sender, parse_json=True)
+    assert result.parsed == {"ok": True}
+    assert calls["n"] == 3
+    assert attempts == [1, 2]
+
+
+def test_exchange_error_body_read_failures_stop_after_three_attempts():
+    """Three failed error-body reads exhaust the budget. They must not stop after two."""
+    import http.client
+
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    read_error = ConnectionResetError("reset while reading error body")
+    sender, calls = _exchange_sender([
+        _status_response(503, read_error=read_error),
+        _status_response(503, read_error=http.client.IncompleteRead(b"", 8)),
+        _status_response(503, read_error=read_error),
+    ])
+    with (
+        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
+        patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=0.0),
+    ):
+        with pytest.raises(NetworkError) as err:
+            transport.exchange("GET", "/v1/models", None, {}, sender=sender)
+    assert err.value.code == "CONNECTION_ERROR"
+    assert calls["n"] == 3
+
+
+def test_exchange_connection_error_before_status_still_costs_one_retry():
+    """A failure before any status is unchanged: each send still spends one attempt."""
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    ok = _status_response(200, body=b"audio", content_type="audio/mpeg")
+    sender, calls = _exchange_sender([
+        TimeoutError("timed out"),
+        ConnectionResetError("reset"),
+        ok,
+    ])
+    attempts: list[int] = []
+
+    def _delay(*, attempt: int = 1, **_kwargs):
+        attempts.append(attempt)
+        return 0.0
+
+    with (
+        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
+        patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=_delay),
+    ):
+        result = transport.exchange("POST", "/v1/audio/speech", b"{}", {}, sender=sender, parse_json=False)
+    assert result.body == b"audio"
+    assert calls["n"] == 3
+    assert attempts == [1, 2]
+
+

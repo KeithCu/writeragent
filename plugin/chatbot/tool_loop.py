@@ -899,7 +899,6 @@ class ToolCallingMixin:
                 on_stopped=self._handle_stream_stopped,
                 on_error=self._handle_stream_error,
                 on_status_fn=self._set_status,
-                ctx=self.ctx,
                 stop_checker=self.resolve_stop_checker(),
                 show_search_thinking=show_search_thinking,
                 on_approval_required=self._on_tool_loop_approval_required,

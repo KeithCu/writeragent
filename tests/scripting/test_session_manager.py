@@ -435,6 +435,25 @@ def test_workbook_session_id_non_calc_does_not_record() -> None:
         session_manager.clear_active_calc_session()
 
 
+def test_empty_init_kwargs_clears_cached_calc_init() -> None:
+    """{} is a cleared workbook init. Omitting kwargs must leave the cache alone."""
+    session_manager.clear_active_calc_session()
+    try:
+        session_manager.record_active_calc_session(
+            "calc:file:///a.ods", {"init_script": "A = 1"}
+        )
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
+        session_manager.record_active_calc_session(None, {})
+        assert session_manager.get_cached_calc_init_kwargs() == {}
+        session_manager.record_active_calc_session(
+            "calc:file:///a.ods", {"init_script": "A = 1"}
+        )
+        session_manager.record_active_calc_session("calc:file:///a.ods")
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 def test_closing_one_workbook_keeps_the_other_document() -> None:
     from plugin.tests.testing_utils import CalcDocStub
 

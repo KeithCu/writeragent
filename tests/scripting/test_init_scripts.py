@@ -27,6 +27,23 @@ def _clear_sessions():
     clear_all_sandbox_sessions()
 
 
+def test_clearing_calc_init_script_clears_cached_init():
+    """Removing the workbook init must drop it from the off-main cache."""
+    from plugin.scripting import session_manager
+
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    session_manager.clear_active_calc_session()
+    try:
+        assert set_calc_init_script(doc, "A = 1") is None
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
+        assert set_calc_init_script(doc, "") is None
+        assert get_calc_init_script(doc) == ""
+        assert session_manager.get_cached_calc_init_kwargs() == {}
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 def test_get_set_calc_init_script_roundtrip():
     from plugin.scripting.document_scripts import DOCUMENT_SCRIPTS_UDPROP, set_document_scripts
     import json

@@ -40,7 +40,7 @@ Exposed in [`plugin/chatbot/web_research.py`](../../plugin/chatbot/web_research.
 
 When **Prompt for Web Research** is enabled (`chatbot.prompt_for_web_research`), a shallow run blocks on each internal `web_search` until the user accepts, edits, or rejects the DuckDuckGo query. This applies in **main chat** (via `web_research` / delegate) and in dedicated **Web Research** sidebar mode. Deep research asks once. Reject returns `USER_STOPPED` and does not start the loop. Change uses the edited query for the preview, the research loop, and the cache write. Sub-queries do not ask again: the sidebar has one approval slot, and a second prompt is treated as Stop. If approval setup itself fails, the search does not run.
 
-`visit_webpage` records a URL when the fetch starts, inside the dedup wrapper. Marking it when the model requests the visit made that wrapper skip the first read. A failed deep-research synthesis is returned as notes and is not written to the research cache.
+`visit_webpage` records a URL only after the fetch returns non-empty page text. An error string (`Error…` / `Failed…`) or an empty extract does not count, so a later sub-query can retry that URL. Marking the URL when the model requests the visit made the dedup wrapper skip the first read. When Chrome or Firefox CDP is on, research runs in this process share one local browser. That browser is closed only after the last of those runs leaves, and only once that run's in-flight page reads have returned. A failed deep-research synthesis is returned as notes and is not written to the research cache.
 
 Before the Accept/Change/Reject wait, the sidebar response area shows a `Tool: web_search` line plus the search-engine preview sentence (`web_research_chat.web_search_engine_step_chat_text`). Reject leaves that line in the transcript; Change appends a second preview for the edited query.
 
@@ -99,6 +99,8 @@ This is the bridge between `smolagents` and WriterAgent's `LlmClient`. It provid
 ## 5. Web research report cache (fuzzy matching)
 
 Completed `web_research` / delegate `web_research` reports can be cached in the shared SQLite `web_cache` table (`kind="research"`). Keys are normalized query word lists (fluff stripped, min token length 3). Shallow entries are stored as `{snowball_lang}|{word key}` (e.g. `english|elevator physics space`); legacy unprefixed keys still work. Deep research uses the same table with a `deep|` segment before the language (`deep|english|elevator physics space`).
+
+`web_cache_max_mb` of 0 disables that database. Page fetches, search results, and completed research reports all skip the read and the write, so a report already on disk is not served.
 
 **Instruction fluff** ([`research_cache_fluff.py`](../../plugin/chatbot/research_cache_fluff.py)): web-research prompt filler words are listed as standard `_('…')` calls in `translated_research_cache_fluff()` — same gettext path as the rest of the extension (`make extract-strings`, `make auto-translate`). At runtime `get_research_fluff_words()` tokenizes those translated strings for the active LO UI locale and unions grammar stop words from [`stop_words.py`](../../plugin/writer/locale/stop_words.py) for the document/Snowball language (generated from [stopwords-iso](https://github.com/stopwords-iso/stopwords-iso) via `python scripts/generate_stop_words.py`).
 

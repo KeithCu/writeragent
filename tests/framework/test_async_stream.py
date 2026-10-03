@@ -688,7 +688,6 @@ def test_run_stream_drain_loop_connection_drop():
         on_stopped,
         on_error,
         on_status_fn,
-        ctx=None
     )
 
     t.join(timeout=1.0)
@@ -1192,6 +1191,83 @@ def test_idle_stop_closes_open_thinking():
     joined = "".join(applied)
     assert "hmm" in joined
     assert " /thinking\n" in joined
+
+
+def test_async_worker_stop_flushes_batcher_before_worker_returns():
+    """Stop must flush a BatchingStreamQueue before the worker's finally."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    toolkit = DummyToolkit()
+    batched = BatchingStreamQueue(queue.Queue(), batch_interval=30.0)
+    produced = threading.Event()
+    release = threading.Event()
+    applied: list[str] = []
+
+    def worker(worker_q):
+        worker_q.put((StreamQueueKind.CHUNK, "kept"))
+        produced.set()
+        release.wait(5)
+
+    try:
+        with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+            run_async_worker_with_drain(
+                ctx,
+                worker,
+                lambda text, _is_thinking: applied.append(text),
+                lambda _item: None,
+                lambda _e: None,
+                stop_checker=produced.is_set,
+                q=batched,
+            )
+        assert applied == ["kept"]
+        assert not release.is_set()
+    finally:
+        release.set()
+
+
+def test_batcher_flush_error_still_emits_error_and_unpatches():
+    """A raising flush must not swallow ERROR or leave the put wrapper installed."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    toolkit = DummyToolkit()
+    raw: queue.Queue = queue.Queue()
+    batched = BatchingStreamQueue(raw, batch_interval=30.0)
+    errors: list[object] = []
+    done = threading.Event()
+
+    def boom() -> None:
+        raise RuntimeError("flush boom")
+
+    batched.flush = boom  # type: ignore[method-assign]
+
+    def worker(worker_q):
+        worker_q.put((StreamQueueKind.CHUNK, "x"))
+        raise RuntimeError("worker boom")
+
+    def run() -> None:
+        try:
+            with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+                run_async_worker_with_drain(
+                    ctx,
+                    worker,
+                    lambda text, _is_thinking: None,
+                    lambda _item: None,
+                    errors.append,
+                    q=batched,
+                )
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    assert done.wait(3), "drain missed the error terminal after flush failed"
+    thread.join(1)
+    assert errors
+    assert any("worker boom" in str(err) for err in errors)
+    assert getattr(raw, "_wa_terminal_watch", None) is None
+    assert raw.put.__name__ == "put"
 
 
 def test_stop_applies_flushed_batcher_text():

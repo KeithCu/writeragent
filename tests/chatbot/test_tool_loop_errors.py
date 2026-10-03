@@ -228,6 +228,43 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
     assert test_instance._spawn_llm_worker.call_args.kwargs["query_text"] == "hello\nspoken words"
 
 
+def test_stream_error_empty_stt_ends_the_drain(test_instance):
+    """Empty speech shows the banner and returns None so the drain stops.
+
+    True would keep the drain waiting for a worker that was never spawned.
+    """
+    import dataclasses
+
+    test_instance.audio_wav_path = "/fake/path/audio.wav"
+    test_instance._active_query_text = ""
+    test_instance._active_q = MagicMock()
+    test_instance._active_batched_q = None
+    test_instance._active_client = MagicMock()
+    test_instance._active_max_tokens = 128
+    test_instance._active_tools = []
+    test_instance._spawn_llm_worker = MagicMock()
+    test_instance._transcribe_audio = MagicMock(return_value="   ")
+    test_instance.sidebar_state = dataclasses.replace(
+        test_instance.sidebar_state,
+        tool_loop=ToolLoopState(round_num=0, pending_tools=[], max_rounds=8, status="Thinking..."),
+    )
+
+    with (
+        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="chat-model"),
+        patch("plugin.framework.config.get_current_endpoint", return_value="https://example"),
+        patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
+        patch("plugin.framework.client.model_fetcher.set_native_audio_support"),
+        patch("plugin.scripting.audio_recorder_service.os.remove"),
+    ):
+        recovered = test_instance._handle_stream_error("unsupported modality: audio")
+
+    assert recovered is None
+    test_instance._spawn_llm_worker.assert_not_called()
+    assert test_instance.audio_wav_path is None
+    assert any("No speech detected" in text for text in test_instance.responses)
+    assert test_instance._terminal_status == ""
+
+
 def test_reused_llm_client_registers_on_current_send_scope(test_instance, mock_get_tools):
     """Packet B2: Stop on send 2+ must close HTTP on the reused LlmClient."""
     from plugin.framework.queue_executor import SendCancellation, agent_session

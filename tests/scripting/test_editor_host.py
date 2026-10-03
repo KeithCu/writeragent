@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import threading
 from unittest.mock import MagicMock, patch
 
@@ -125,6 +126,29 @@ def test_monaco_editor_available_false_without_venv():
         exe, ok = launch_mod.monaco_editor_available(ctx)
     assert exe is None
     assert ok is False
+
+
+def test_probe_webview_import_timeout_returns_diagnostic():
+    """A probe timeout must return the traceback Monaco shows, not raise under deal."""
+    exe = "/tmp/writeragent-probe-timeout-python"
+    launch_mod._PROBE_CACHE.pop(exe, None)
+    timeout = subprocess.TimeoutExpired(cmd=[exe, "-c", "import webview"], timeout=30)
+    with patch("plugin.scripting.editor_host.subprocess.run", side_effect=timeout):
+        ok, detail = launch_mod.probe_webview_import(exe)
+    assert ok is False
+    assert "TimeoutExpired" in detail
+    assert exe not in launch_mod._PROBE_CACHE
+
+
+def test_probe_webview_import_oserror_returns_diagnostic():
+    exe = "/tmp/writeragent-probe-oserror-python"
+    launch_mod._PROBE_CACHE.pop(exe, None)
+    with patch("plugin.scripting.editor_host.subprocess.run", side_effect=OSError("boom")):
+        ok, detail = launch_mod.probe_webview_import(exe)
+    assert ok is False
+    assert "OSError" in detail
+    assert "boom" in detail
+    assert exe not in launch_mod._PROBE_CACHE
 
 
 def test_monaco_editor_available_false_when_webview_missing():

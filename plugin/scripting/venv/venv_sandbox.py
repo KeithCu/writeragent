@@ -42,6 +42,7 @@ from plugin.scripting.payload_codec import (
     find_image_payloads,
 )
 from plugin.scripting.config_limits import python_exec_timeout_default
+from plugin.scripting.ipc import UserStopped
 from plugin.framework.constants import AUTO_IMPORTS
 from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
 
@@ -965,6 +966,20 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
             "status": "ok",
             "result": serialized,
             "stdout": stdout,
+        }
+    except UserStopped as e:
+        # What was wrong: exchange_tool_call turned host USER_STOPPED into
+        # RuntimeError. evaluate_try catches Exception, so the script kept
+        # running and issued more wa.* calls after Stop.
+        # Why this works: UserStopped is BaseException, so that handler does
+        # not run. End the turn with the code the host already sent.
+        _restore_prior_result(executor, prior_result)
+        _close_open_figures()
+        return {
+            "status": "error",
+            "code": "USER_STOPPED",
+            "message": str(e) or "Stopped by user.",
+            "stdout": "",
         }
     except InterpreterError as e:
         _restore_prior_result(executor, prior_result)

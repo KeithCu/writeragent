@@ -55,8 +55,12 @@ emits that key. A batch that changes more than one emits ``key=""`` —
 the bulk save Settings OK listeners already treat as "every module".
 
 Schema-backed coercion, option canonicalization, and min/max bounds live in
-``config_schema.py``. Import those names from there. This module is path,
-cache, and JSON I/O only. Do not import this file from ``config_schema.py``.
+``config_schema.py``. Import those names from there. Dataclass
+``min`` / ``max`` / ``min_exclusive`` are part of that schema: strict
+coerce rejects a value outside them, and ``WriterAgentConfig.validate``
+still enforces the same bounds (including load-time fallbacks). This
+module is path, cache, and JSON I/O only. Do not import this file from
+``config_schema.py``.
 """
 
 # crosshair: off

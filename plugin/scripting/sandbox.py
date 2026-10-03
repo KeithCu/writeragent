@@ -251,9 +251,15 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
         if _env_name_is_credential(k):
             continue
         out[k] = v
-    out.setdefault("PYTHONIOENCODING", "utf-8")
-    out.setdefault("PYTHONUTF8", "1")
-    out.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    # Bugfix: setdefault kept whatever the parent already had. Callers pass
+    # dict(os.environ) (venv worker, editor host, compute worker). A latin-1
+    # PYTHONIOENCODING, PYTHONUTF8=0, or PYTHONDONTWRITEBYTECODE=0 then failed
+    # the ensure in deal builds (the reported clause is the empty-base arm,
+    # not the value check) and spawned the child with that encoding once
+    # release builds strip deal. Force the values the postcondition requires.
+    out["PYTHONIOENCODING"] = "utf-8"
+    out["PYTHONUTF8"] = "1"
+    out["PYTHONDONTWRITEBYTECODE"] = "1"
     # Child processes should log to the same writeragent_debug.log. Read the
     # path at call time (logging may not be initialized at import). Use the
     # public getter; a private import plus bare ``except Exception`` hid

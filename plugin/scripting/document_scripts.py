@@ -160,8 +160,8 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> str | None:
         # and do not write My Scripts.
         return _("Document is read-only or properties cannot be written.")
     try:
-        set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, _envelope_to_json(scripts))
-        return None
+        payload = _envelope_to_json(scripts)
+        set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, payload)
     except (UnoObjectError, Exception) as exc:
         # A disposed document is not "read-only". Callers that swallow the
         # message used to keep writing as if the file were still open.
@@ -172,6 +172,14 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> str | None:
         log.exception("document_scripts: failed to persist on document")
         # Same false My Scripts claim as the read-only return above.
         return _("Document is read-only or properties cannot be written.")
+    # set_document_property returns None after a real write and also when the
+    # document has no UserDefinedProperties bag (that path does not raise).
+    # The missing bag used to look like success while the next read was empty.
+    stored = get_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, default=None)
+    if stored != payload:
+        log.error("document_scripts: persist did not store %s", DOCUMENT_SCRIPTS_UDPROP)
+        return _("Document is read-only or properties cannot be written.")
+    return None
 
 
 def get_calc_init_script(doc: Any, *, default: str = "") -> str:

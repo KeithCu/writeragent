@@ -125,3 +125,46 @@ class TestLifecycle():
                 raise RuntimeError('boom')
         reg.register('bad', BadShutdown())
         reg.shutdown_all()
+
+    def test_initialize_all_snapshot_survives_register(self):
+        reg = ServiceRegistry()
+        seen = []
+
+        class First(ServiceBase):
+            name = 'first'
+
+            def initialize(self, ctx):
+                seen.append('first')
+                reg.register('spawned', ServiceBase())
+
+        class Second(ServiceBase):
+            name = 'second'
+
+            def initialize(self, ctx):
+                seen.append(ctx)
+        reg.register('first', First())
+        reg.register('second', Second())
+        reg.initialize_all('ctx')
+        assert seen == ['first', 'ctx']
+        assert 'spawned' in reg
+
+    def test_shutdown_all_snapshot_survives_register(self):
+        reg = ServiceRegistry()
+        seen = []
+
+        class First(ServiceBase):
+            name = 'first'
+
+            def shutdown(self):
+                seen.append('first')
+                reg.register('extra', ServiceBase())
+
+        class Second(ServiceBase):
+            name = 'second'
+
+            def shutdown(self):
+                seen.append('second')
+        reg.register('first', First())
+        reg.register('second', Second())
+        reg.shutdown_all()
+        assert seen == ['first', 'second']
