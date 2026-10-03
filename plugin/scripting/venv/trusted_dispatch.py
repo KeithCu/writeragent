@@ -10,10 +10,21 @@ from collections.abc import Callable
 from typing import Any
 
 
-def _trusted_action_spec(helper: Any, params: Any) -> dict[str, Any]:
-    """Build a spec dict for spec-driven venv dispatchers."""
+def _trusted_action_spec(helper: Any, params: Any, packet: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build a spec dict for spec-driven venv dispatchers.
+
+    ``headers`` and ``header_row`` travel on the packet, next to ``helper``.
+    Rebuilding the spec from helper and params alone dropped them, so
+    ``parse_trusted_spec`` always fell back to ``headers=True``.
+    """
     coerced_params = params if isinstance(params, dict) else {}
-    return {"helper": str(helper or ""), "params": coerced_params}
+    spec: dict[str, Any] = {"helper": str(helper or ""), "params": coerced_params}
+    if isinstance(packet, dict):
+        if "headers" in packet:
+            spec["headers"] = bool(packet["headers"])
+        if "header_row" in packet:
+            spec["header_row"] = int(packet["header_row"])
+    return spec
 
 
 def _trusted_action_context(context: Any) -> dict[str, Any]:
@@ -37,7 +48,7 @@ def _packet_parts(data: dict[str, Any]) -> tuple[dict[str, Any], Any, dict[str, 
     params = data.get("params") or {}
     if not isinstance(params, dict):
         params = {}
-    spec = _trusted_action_spec(data.get("helper"), params)
+    spec = _trusted_action_spec(data.get("helper"), params, data)
     context = _trusted_action_context(data.get("context"))
     return spec, data.get("data_range"), context
 
