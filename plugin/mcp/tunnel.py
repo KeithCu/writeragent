@@ -401,14 +401,19 @@ class TunnelManager:
                         proc.terminate()
                     except Exception:
                         log.exception("Error terminating tunnel process")
-                    provider = self._state.provider
-                    info = PROVIDERS.get(provider)
-                    post_stop = info.get("post_stop") if info else None
-                    if post_stop:
-                        try:
-                            post_stop()
-                        except Exception:
-                            log.exception("Tunnel post_stop failed for %s", provider)
+                # What was wrong: next_state stores the new provider on
+                # TunnelState before effects run, and post_stop read that
+                # field. Tailscale → another provider looked up the new
+                # provider (no post_stop) and left the Funnel/serve rule up.
+                # Why: the effect carries the provider that owned this process.
+                provider = effect.provider or self._state.provider
+                info = PROVIDERS.get(provider)
+                post_stop = info.get("post_stop") if info else None
+                if proc is not None and post_stop:
+                    try:
+                        post_stop()
+                    except Exception:
+                        log.exception("Tunnel post_stop failed for %s", provider)
 
             elif isinstance(effect, StartProcessEffect):
                 provider = effect.provider
@@ -429,9 +434,21 @@ class TunnelManager:
                 parse_line: Callable[[str], Optional[str]] = info["parse_line"]
                 cmd = _build_provider_command(provider, effect.port, effect.provider_token)
                 log.info("Starting MCP tunnel (%s): %s", provider, _redact_cmd_for_log(cmd))
+                # Identity of the process this pair of callbacks belongs to.
+                # Filled in after construction, before start(), so a line or
+                # exit that arrives during start() still sees the owner.
+                spawned: dict[str, Any] = {}
+
+                def _is_current_process() -> bool:
+                    proc = spawned.get("proc")
+                    return proc is not None and self._process is proc
 
                 def _on_line(line: str) -> None:
                     with self._lock:
+                        # A replaced process can still emit a late line. Applying
+                        # it would publish the old URL or fail the new tunnel.
+                        if not _is_current_process():
+                            return
                         if self._state.public_url:
                             return
                         auth_err = detect_tunnel_auth_error(provider, line)
@@ -447,6 +464,16 @@ class TunnelManager:
                 def _on_exit(rc: int) -> None:
                     log.info("MCP tunnel process (%s) exited with code %s", provider, rc)
                     with self._lock:
+                        # What was wrong: provider/token restart does Terminate
+                        # then Start. The old wait thread's _on_exit then ran
+                        # unconditionally, set _process = None, and dispatched
+                        # PROCESS_EXITED. That forced RECONNECTING and orphaned
+                        # the replacement subprocess (and a retry could spawn a
+                        # third binary). Why: ignore the exit unless this
+                        # callback still owns the process TunnelManager tracks.
+                        if not _is_current_process():
+                            log.info("Ignoring stale MCP tunnel exit (%s, code %s)", provider, rc)
+                            return
                         self._process = None
                         self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": rc}))
 
@@ -454,8 +481,10 @@ class TunnelManager:
                     from plugin.framework.worker_pool import AsyncProcess
 
                     # Some CLIs (cloudflared) print the URL on stderr more often than stdout.
-                    self._process = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, creationflags=_CREATION_FLAGS)
-                    self._process.start()
+                    proc = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, creationflags=_CREATION_FLAGS)
+                    spawned["proc"] = proc
+                    self._process = proc
+                    proc.start()
                 except FileNotFoundError:
                     log.exception("%s binary not found", info["version_args"][0])
                     self._process = None
