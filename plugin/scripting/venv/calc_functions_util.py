@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 import re
 from typing import Any
@@ -15,14 +16,81 @@ import numpy as np
 from .coerce import is_missing_value
 
 __all__ = [
+    "_build_holiday_set",
     "_collect_a_values",
     "_extract_numeric_array",
     "_find_match_index",
     "_npf_result",
+    "_parse_holidays",
+    "_parse_weekend",
+    "_parse_weekend_code",
+    "_serial_to_date",
     "_to_float_a",
     "_wildcard_fullmatch",
     "match_criteria",
 ]
+
+_WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
+    1: (5, 6),
+    2: (6, 0),
+    3: (0, 1),
+    4: (1, 2),
+    5: (2, 3),
+    6: (3, 4),
+    7: (4, 5),
+    11: (6,),
+    12: (0,),
+    13: (1,),
+    14: (2,),
+    15: (3,),
+    16: (4,),
+    17: (5,),
+}
+
+
+def _serial_to_date(serial: Any) -> dt.date | None:
+    """Convert an Excel serial date number to datetime.date (+693594 offset), or None."""
+    try:
+        return dt.date.fromordinal(int(float(serial)) + 693594)
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def _build_holiday_set(holidays: Any | None = None) -> set[dt.date]:
+    """Build a set of datetime.date from a holiday argument (scalar or array)."""
+    h_dates: set[dt.date] = set()
+    if holidays is not None:
+        for h in np.asarray(holidays).ravel():
+            if h is not None and h != "":
+                d = _serial_to_date(h)
+                if d is not None:
+                    h_dates.add(d)
+    return h_dates
+
+
+_parse_holidays = _build_holiday_set
+
+
+def _parse_weekend(weekend: Any = 1) -> set[int] | float:
+    """Parse Excel weekend parameter into a set of weekday integers, or NaN if invalid."""
+    if isinstance(weekend, str):
+        wk_days: set[int] = set()
+        for i, char in enumerate(weekend[:7]):
+            if char == "1":
+                wk_days.add(i)
+        return wk_days
+    try:
+        w_idx = int(float(weekend))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    # Excel weekend codes. An unknown code returns NaN (Excel returns #NUM!).
+    if w_idx not in _WEEKEND_MAPPING:
+        return float("nan")
+    return set(_WEEKEND_MAPPING[w_idx])
+
+
+_parse_weekend_code = _parse_weekend
+
 
 
 def _to_float_a(val: Any) -> float:

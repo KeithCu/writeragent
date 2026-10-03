@@ -6,18 +6,25 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 import numpy as np
 
 from plugin.scripting.venv.calc_functions_util import (
+    _build_holiday_set,
     _collect_a_values,
     _extract_numeric_array,
     _find_match_index,
     _npf_result,
+    _parse_holidays,
+    _parse_weekend,
+    _parse_weekend_code,
+    _serial_to_date,
     _to_float_a,
     _wildcard_fullmatch,
     match_criteria,
 )
+
 
 
 def test_npf_result_valid_and_invalid():
@@ -127,5 +134,55 @@ def test_collect_a_values():
     assert np.allclose(res, [1.0, 2.0, 1.0, 0.0, 0.0, 0.0, 0.0, 3.0, 1.0])
     empty_res = _collect_a_values()
     assert len(empty_res) == 0
+
+
+def test_serial_to_date():
+    # 46181 corresponds to 2026-06-08 (46181 + 693594 = 739775)
+    assert _serial_to_date(46181) == dt.date(2026, 6, 8)
+    assert _serial_to_date("46181") == dt.date(2026, 6, 8)
+    assert _serial_to_date(46181.75) == dt.date(2026, 6, 8)
+
+    # Invalid values should return None without raising
+    assert _serial_to_date("invalid") is None
+    assert _serial_to_date(None) is None
+    assert _serial_to_date(float("nan")) is None
+    assert _serial_to_date(float("inf")) is None
+    assert _serial_to_date(100_000_000) is None  # Exceeds max ordinal
+
+
+def test_build_holiday_set():
+    assert _build_holiday_set(None) == set()
+    assert _build_holiday_set([]) == set()
+    assert _parse_holidays is _build_holiday_set
+
+    # Scalar and list of serials
+    h1 = _build_holiday_set(46181)
+    assert h1 == {dt.date(2026, 6, 8)}
+
+    h2 = _build_holiday_set([46181, "46182", "", None, "invalid", 46181])
+    assert h2 == {dt.date(2026, 6, 8), dt.date(2026, 6, 9)}
+
+
+def test_parse_weekend():
+    assert _parse_weekend_code is _parse_weekend
+
+    # Standard numeric weekend codes
+    assert _parse_weekend(1) == {5, 6}   # Sat, Sun
+    assert _parse_weekend(2) == {6, 0}   # Sun, Mon
+    assert _parse_weekend(11) == {6}     # Sun only
+    assert _parse_weekend(17) == {5}     # Sat only
+
+    # String masks (7 chars: 1 = non-working, 0 = working)
+    assert _parse_weekend("0000011") == {5, 6}
+    assert _parse_weekend("1000000") == {0}
+    assert _parse_weekend("0000000") == set()
+
+    # Invalid numeric codes must return NaN
+    assert math.isnan(_parse_weekend(0))
+    assert math.isnan(_parse_weekend(8))
+    assert math.isnan(_parse_weekend(18))
+
+    # Invalid non-numeric input returns NaN
+    assert math.isnan(_parse_weekend(None))
 
 
