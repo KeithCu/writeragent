@@ -486,6 +486,28 @@ class QueueExecutor:
 
         return _MainThreadCallback()
 
+    def _abandon_unstarted(self, item: _WorkItem) -> None:
+        """Mark an item that has not entered ``fn`` and wake a blocking waiter."""
+        item.cancelled = True
+        if item.blocking and item.event and not item.event.is_set():
+            item.exception = SendCancelled()
+            item.event.set()
+
+    def _offer_work_items(self, items: list[_WorkItem]) -> None:
+        """Enqueue or requeue. Callers do not use ``Queue.put``.
+
+        What was wrong: ``cancel_pending_work`` put survivors back with a raw
+        ``Queue.put``. ``process_queue`` decides whether to poke from
+        ``empty()`` outside the lock, so those items sat until some later
+        enqueue and a blocking execute hit its timeout.
+        """
+        if not items:
+            return
+        with self._claim_lock:
+            for item in items:
+                self._work_queue.put(item)
+        self._poke_main_thread()
+
     def process_queue(self) -> None:
         """Process one item from queue (called from main thread via AsyncCallback)."""
         # Dequeue and the cancel check share ``_claim_lock``. What was wrong:
@@ -501,14 +523,24 @@ class QueueExecutor:
                 return
             scope = item.scope
             if item.cancelled or (scope is not None and scope.is_cancelled()):
-                item.cancelled = True
-                if item.blocking and item.event and not item.event.is_set():
-                    item.exception = SendCancelled()
-                    item.event.set()
+                self._abandon_unstarted(item)
                 skipped = True
             else:
                 item._claimed = True  # caller's timeout can no longer cancel this execution
                 skipped = False
+
+        if not skipped:
+            # What was wrong: ``scope.cancel()`` sets an Event and does not
+            # need ``_claim_lock``. It can land after the claim above and
+            # before ``fn()``. The item is already off the queue, so
+            # ``cancel_pending_work`` never marks it, and the call still ran.
+            # Recheck before the call. A function that has already started is
+            # waited out by the caller; this window has not started it.
+            with self._claim_lock:
+                if item.cancelled or (scope is not None and scope.is_cancelled()):
+                    item._claimed = False
+                    self._abandon_unstarted(item)
+                    skipped = True
 
         fn_label = _fn_label(item.fn)
         if skipped:
@@ -564,6 +596,7 @@ class QueueExecutor:
         share ``default_executor``.         No scope still drains the whole queue.
         """
         kept_any = False
+        keep: list[_WorkItem] = []
         with self._claim_lock:
             pending: list[_WorkItem] = []
             while True:
@@ -571,7 +604,7 @@ class QueueExecutor:
                     pending.append(self._work_queue.get_nowait())
                 except queue.Empty:
                     break
-            keep: list[_WorkItem] = []
+            keep = []
             for item in pending:
                 if scope is not None and item.scope is not scope:
                     keep.append(item)
@@ -580,15 +613,12 @@ class QueueExecutor:
                 if item.blocking and item.event and not item.event.is_set():
                     item.exception = SendCancelled()
                     item.event.set()
-            for item in keep:
-                self._work_queue.put(item)
             kept_any = bool(keep)
-        # What was wrong: kept items were put back with a raw Queue.put, and
-        # process_queue decides whether to poke from empty() outside this lock.
-        # If that check ran while the items sat in ``keep``, nothing scheduled
-        # them until a later enqueue, and a blocking execute hit its timeout.
+        # Requeue through the same offer as enqueue, after this drain releases
+        # the lock. ``_offer_work_items`` pokes. Holding the lock across the
+        # poke would deadlock a test handler that re-enters ``process_queue``.
         if kept_any:
-            self._poke_main_thread()
+            self._offer_work_items(keep)
         # Pending posts are not on the work queue yet. A later flush used to
         # enqueue them under whatever send was current then, so Stop did not
         # drop the posts from the cancelled scope.
@@ -611,9 +641,7 @@ class QueueExecutor:
         # Same lock as ``cancel_pending_work``'s drain. Not held across poke:
         # ``process_queue`` may already hold it and re-enter through the test
         # poke handler (``threading.Lock`` is not reentrant).
-        with self._claim_lock:
-            self._work_queue.put(item)
-        self._poke_main_thread()
+        self._offer_work_items([item])
         return item
 
     def _wait_for_result(self, item: Any, timeout: float) -> Any:

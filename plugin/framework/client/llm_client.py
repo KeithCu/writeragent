@@ -932,9 +932,15 @@ class LlmClient:
 
                             raise NetworkError(_("Stream ended with finish_reason=error"), code="STREAM_ERROR")
 
-                        if thinking and on_thinking:
-                            on_thinking(thinking)
+                        if thinking:
+                            # What was wrong: emitted_any flipped only when
+                            # on_thinking was set. A reasoning delta still
+                            # reached on_delta, and a socket drop retried that
+                            # text. Count the bytes even if the UI callback is
+                            # missing.
                             emitted_any = True
+                            if on_thinking:
+                                on_thinking(thinking)
                         if content:
                             pieces = think_tag_splitter.feed(content)
                             for is_think, text_piece in pieces:
@@ -942,10 +948,10 @@ class LlmClient:
                                     # What was wrong: <think> text called on_thinking
                                     # without setting emitted_any. A drop during the
                                     # reasoning block retried and duplicated it.
-                                    # Dedicated thinking fields already set the flag.
-                                    if text_piece and on_thinking:
-                                        on_thinking(text_piece)
+                                    if text_piece:
                                         emitted_any = True
+                                        if on_thinking:
+                                            on_thinking(text_piece)
                                 else:
                                     if on_content:
                                         on_content(text_piece)
@@ -996,9 +1002,10 @@ class LlmClient:
                     # flush; Stop must not paint that prefix into the sidebar.
                     if not self._stopped:
                         for is_think, text_piece in think_tag_splitter.flush():
-                            if is_think and text_piece and on_thinking:
-                                on_thinking(text_piece)
+                            if is_think and text_piece:
                                 emitted_any = True
+                                if on_thinking:
+                                    on_thinking(text_piece)
                             elif not is_think and on_content:
                                 on_content(text_piece)
                                 if text_piece:

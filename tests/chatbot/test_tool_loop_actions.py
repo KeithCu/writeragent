@@ -269,3 +269,98 @@ def test_execute_fn_skips_draw_bridge_for_writer():
         assert tctx.active_page_index is None
     finally:
         _restore_main(old_main)
+
+
+def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
+    """Clear and a second send bump the generation. Late chunks stay off turn 1."""
+    import queue
+
+    from plugin.chatbot.tool_loop_actions import (
+        begin_send_turn,
+        bump_send_generation,
+        chunk_applies,
+        persist_assistant_on_turn,
+        put_for_turn,
+    )
+    from plugin.framework.async_stream import StreamQueueKind
+
+    class Session:
+        def __init__(self) -> None:
+            self.messages: list[dict[str, str]] = [{"role": "system", "content": "s"}]
+
+        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
+            self.messages.append({"role": "assistant", "content": content or ""})
+
+    class Host:
+        def __init__(self) -> None:
+            self.session = Session()
+
+    host = Host()
+    turn = begin_send_turn(host, "chat")
+    assert turn.mode == "chat"
+    first_q: queue.Queue = queue.Queue()
+    turn.queue = first_q
+    assert put_for_turn(host, turn, first_q, (StreamQueueKind.CHUNK, "Hello"))
+    chunk = first_q.get_nowait()
+    assert chunk_applies(host, turn, chunk[1], record=True)
+    assert turn.emitted == "Hello"
+
+    turn2 = begin_send_turn(host, "image")
+    assert turn2.generation != turn.generation
+    assert turn2.mode == "image"
+    assert turn.mode == "chat"
+    # The first worker still holds its queue. A display put must not land there
+    # or on the new turn, and must not extend the first turn's text.
+    assert put_for_turn(host, turn, first_q, (StreamQueueKind.CHUNK, " late")) is False
+    assert first_q.empty()
+    assert chunk_applies(host, turn, " late", record=True) is False
+    assert turn.emitted == "Hello"
+    host._apply_turn = turn
+    persist_assistant_on_turn(host, content="late reply")
+    host._apply_turn = None
+    assert all(message.get("content") != "late reply" for message in host.session.messages)
+    assert chunk_applies(host, turn2, "Second", record=True)
+    assert turn2.emitted == "Second"
+    assert "Second" not in turn.emitted
+
+    bump_send_generation(host)
+    host.session.messages = []
+    assert chunk_applies(host, turn, " after-clear", record=True) is False
+    assert chunk_applies(host, turn2, " after-clear", record=True) is False
+    assert turn.emitted == "Hello"
+    assert turn2.emitted == "Second"
+    assert host.session.messages == []
+
+
+def test_stop_keeps_emitted_bytes_instead_of_no_response():
+    """Stop bumps the generation and must not replace streamed text."""
+    from plugin.chatbot.tool_loop_actions import (
+        begin_send_turn,
+        bump_send_generation,
+        chunk_applies,
+        persist_assistant_on_turn,
+        stopped_assistant_text,
+    )
+
+    class Session:
+        def __init__(self) -> None:
+            self.messages: list[dict[str, str]] = [{"role": "system", "content": "s"}]
+
+        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
+            self.messages.append({"role": "assistant", "content": content or ""})
+
+    class Host:
+        def __init__(self) -> None:
+            self.session = Session()
+
+    host = Host()
+    turn = begin_send_turn(host, "chat")
+    assert chunk_applies(host, turn, "Hello", record=True)
+    bump_send_generation(host)
+    host._apply_turn = turn
+    assert stopped_assistant_text(host, None) == "Hello"
+    assert stopped_assistant_text(host, "No response.") == "Hello"
+    persist_assistant_on_turn(host, content=stopped_assistant_text(host, "No response."))
+    assert any(message.get("content") == "Hello" for message in host.session.messages)
+    assert chunk_applies(host, turn, " more", record=True) is False
+    assert turn.emitted == "Hello"

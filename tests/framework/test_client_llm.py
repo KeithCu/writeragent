@@ -2506,6 +2506,39 @@ def test_stream_reset_after_content_is_connection_lost(client):
     assert mock_https.call_count == 1
 
 
+def test_stream_reset_after_thinking_or_tool_delta_does_not_repeat_bytes(client):
+    """A retry after any thinking or tool-call byte would append that byte twice."""
+    first = create_mock_http_response(
+        sse_lines=[
+            b'data: {"choices": [{"delta": {"reasoning_content": "because "}}]}',
+            b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}',
+        ],
+        iter_side_effect=ConnectionResetError("reset after bytes"),
+    )
+    # A retry would concatenate these fragments onto the callbacks and snapshot.
+    second = create_mock_http_response(
+        sse_lines=[
+            b'data: {"choices": [{"delta": {"reasoning_content": "because "}}]}',
+            b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]}',
+            b'data: {"choices": [{"finish_reason": "tool_calls", "delta": {}}]}',
+            b"data: [DONE]",
+        ]
+    )
+    thinking: list[str] = []
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, first, second)
+        with pytest.raises(NetworkError) as err:
+            client.stream_request_with_tools(
+                messages=[{"role": "user", "content": "Weather?"}],
+                max_tokens=100,
+                tools=[{"type": "function", "function": {"name": "get_weather"}}],
+                append_thinking_callback=thinking.append,
+            )
+    assert err.value.code == "CONNECTION_LOST"
+    assert thinking == ["because "]
+    assert mock_https.call_count == 1
+
+
 def test_stream_reset_after_tool_call_delta_is_connection_lost(client):
     """Tool-call bytes already reached on_delta. A reset must not retry and merge the call."""
     first = create_mock_http_response(

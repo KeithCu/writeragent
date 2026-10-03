@@ -965,6 +965,39 @@ def test_cancel_drain_excludes_concurrent_enqueue():
     assert late.cancelled is False
 
 
+def test_cancel_after_claim_does_not_run():
+    """scope.cancel() after the item is claimed and before fn() must not run it."""
+    from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem
+
+    qe = QueueExecutor()
+    scope = SendCancellation()
+    ran: list[int] = []
+    item = _WorkItem("late", lambda: ran.append(1), (), {}, blocking=False, scope=scope)
+    qe._work_queue.put(item)
+
+    class _CancelOnFirstExit:
+        def __init__(self, inner: object, cancel_scope: SendCancellation) -> None:
+            self._inner = inner
+            self._scope = cancel_scope
+            self.exits = 0
+
+        def __enter__(self) -> object:
+            return self._inner.__enter__()
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> object:
+            result = self._inner.__exit__(exc_type, exc, tb)
+            self.exits += 1
+            if self.exits == 1:
+                self._scope.cancel()
+            return result
+
+    qe._claim_lock = _CancelOnFirstExit(qe._claim_lock, scope)  # type: ignore[assignment]
+    qe.process_queue()
+    assert ran == []
+    assert item.cancelled is True
+    assert item._claimed is False
+
+
 def test_cancel_reput_pokes_kept_work():
     """Items kept for another send must be poked, or they sit until a later enqueue."""
     from plugin.framework.queue_executor import QueueExecutor, SendCancellation, _WorkItem

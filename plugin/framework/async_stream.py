@@ -235,6 +235,20 @@ class BatchingStreamQueue:
         with self._lock:
             self._emit_pending_locked()
 
+    def discard(self) -> None:
+        """Drop pending display text without emitting it.
+
+        What was wrong: the tool-loop ``finally`` cleared the host's batcher
+        reference while the 250 ms timer could still flush those runs. After
+        Clear, Stop, or a new send that flush applied the first turn's tail
+        onto the next queue. Discard under the same lock as emit so the timer
+        and this call cannot both deliver the buffer.
+        """
+        # crosshair: off
+        with self._lock:
+            self._runs.clear()
+            self._cancel_timer()
+
     # Convenience factories so existing lambda sites become one-liners
     def content_cb(self) -> Callable[[str], None]:
         """Return a callback suitable for append_callback=... that feeds through the batcher."""

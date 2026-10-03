@@ -418,6 +418,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _sticky_restart_gen: int
     _sticky_restart_pending: bool
     _panel_teardown: bool
+    _send_generation: int
+    _active_turn: Any
+    _apply_turn: Any
 
     def __init__(
         self,
@@ -480,6 +483,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._fixed_send_width: int | None = None
         # Session I/O handles for the tool-loop interpreter (not FSM control state).
         self._active_q: Any = None
+        self._send_generation = 0
+        self._active_turn = None
+        self._apply_turn = None
         self._active_client: Any = None
         self._active_max_tokens: Any = None
         self._active_tools: Any = None
@@ -861,14 +867,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """Append text to the response area (RichTextControl or plain multiline field)."""
         send_state = getattr(getattr(self, "sidebar_state", None), "send", None)
         if send_state is not None and send_state.is_busy:
-            from plugin.chatbot.tool_loop_actions import _turn_accepts_write, session_for_turn
+            from plugin.chatbot.tool_loop_actions import _turn_for_apply, chunk_applies
 
-            turn = session_for_turn(self)
-            # Clear replaces messages while the drain can still flush queued
-            # chunks. Drop those. Do not gate when the send is idle: after
-            # Clear, _turn_messages stays stale until the next bind, and a
+            # Clear, Stop, and a second send bump the generation. Chunks from
+            # the first turn must not paint. Do not gate when the send is idle:
+            # after Clear, the pin stays stale until the next begin, and a
             # pre-bind error line must still show.
-            if turn is not None and not _turn_accepts_write(self, turn):
+            if not chunk_applies(self, _turn_for_apply(self), text, record=role != "user"):
                 return
         with suppress_disposed("_append_response", logger=log):
             widget = getattr(self, "rich_text_widget", None)
@@ -1286,6 +1291,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             case StopSendEffect():
                 log.info("Stop clicked (cancel in-flight send)")
+                from plugin.chatbot.tool_loop_actions import bump_send_generation
+
+                # Later chunks miss this generation. Text already painted stays;
+                # the stop handler stores that text instead of "No response."
+                bump_send_generation(self)
                 try:
                     from plugin.audio.tts_service import stop_speech
                     stop_speech()
@@ -1585,6 +1595,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         flags = getattr(self, "sidebar_mode_flags", None) or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
         sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        # Mode is an argument of this send. A later dropdown change bumps the
+        # generation; it does not retarget the turn already started.
+        begin_send_turn(self, sidebar_mode)
 
         if sidebar_mode == CHAT_MODE_LIBRARIAN:
             log.info("_do_send: using librarian onboarding agent")
@@ -1740,6 +1755,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             )
             self._terminal_status = "Error"
             return
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        begin_send_turn(self, CHAT_MODE_CHAT)
         if not already_appended:
             self.session.add_user_message(query_text)
             self._append_response(query_text, role="user")
@@ -2023,6 +2041,13 @@ class ClearButtonListener(BaseActionListener):
         send_state = getattr(getattr(self.send_listener, "sidebar_state", None), "send", None)
         if self.send_listener is not None and send_state is not None and send_state.is_busy:
             self.send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        if self.send_listener is not None:
+            from plugin.chatbot.tool_loop_actions import bump_send_generation
+
+            # Stop already bumped when the send was busy. Bump again when it
+            # was not, so a worker that outlived the button still cannot paint.
+            if send_state is None or not send_state.is_busy:
+                bump_send_generation(self.send_listener)
         self.session.clear()
 
         if self.send_listener and self.send_listener.rich_text_widget:
