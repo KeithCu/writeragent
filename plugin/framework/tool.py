@@ -23,9 +23,12 @@ the ``_tools`` dict — do not register from a worker. Synchronous tools
 that touch the document are marshaled onto the LibreOffice UI thread
 before they run. If a tool declares a timeout, ``execute`` starts a
 **dedicated** background thread and ``join``s it; when the timer fires
-that thread is **abandoned** (it may still finish, but the result is
-dropped). Python cannot kill a thread cleanly. Cooperative cancel is
-``SendCancellation`` (Stop sets a flag / closes HTTP), not
+that thread is **abandoned** if it has not queued a result (it may
+still finish, and that late result is dropped). A result already on
+the queue is returned — the thread can still be alive while it
+unwinds. A worker that dies without queuing a result returns an error
+instead of blocking. Python cannot kill a thread cleanly. Cooperative
+cancel is ``SendCancellation`` (Stop sets a flag / closes HTTP), not
 ``thread.kill``.
 """
 
@@ -745,9 +748,10 @@ class ToolRegistry:
         Sync tools are marshaled to the main thread by ``ToolRegistry.execute`` before this runs.
 
         Timeout **abandons** the worker; it does not kill the dedicated thread.
-        The thread may run to completion with its result dropped. If *kwargs*
-        include a ``ToolContext`` with ``send_cancellation``, that flag is set
-        so cooperative tools can stop at the next ``stop_checker`` poll.
+        The thread may run to completion with its result dropped when nothing
+        was queued yet. A result already queued is kept. If *kwargs* include
+        a ``ToolContext`` with ``send_cancellation``, that flag is set so
+        cooperative tools can stop at the next ``stop_checker`` poll.
         """
         # crosshair: off
         if timeout <= 0:
@@ -770,22 +774,67 @@ class ToolRegistry:
                 result_queue.put(("success", func(**kwargs)))
             except Exception as e:
                 result_queue.put(("error", e))
+            except BaseException as exc:
+                # What was wrong: ``except Exception`` left KeyboardInterrupt,
+                # SystemExit, and GeneratorExit off the queue.
+                # How: the dedicated thread died (``run_in_background`` lets
+                # BaseException unwind), ``join`` returned, ``is_alive()`` was
+                # false, and ``result_queue.get()`` blocked the send forever.
+                # Why: queue the error before unwinding so the joiner returns
+                # a tool error instead of waiting on an empty queue.
+                result_queue.put(("error", exc))
+                log.exception("Tool '%s' worker exited", tool_name)
+                raise
 
         worker_thread = run_in_background(worker, name=f"tool-timeout-{tool_name}", dedicated=True)
         worker_thread.join(timeout=timeout)
 
-        if worker_thread.is_alive():
-            ctx = kwargs.get("ctx")
-            cancel = getattr(ctx, "send_cancellation", None) if ctx is not None else None
-            if cancel is not None and hasattr(cancel, "cancel"):
-                try:
-                    cancel.cancel()
-                except Exception:
-                    log.debug("tool timeout: send_cancellation.cancel failed", exc_info=True)
-            return make_tool_error(f"Tool timed out after {timeout} seconds", code="TOOL_TIMEOUT", tool_name=tool_name)
+        def _queued() -> tuple[str, Any] | None:
+            try:
+                return result_queue.get_nowait()
+            except queue.Empty:
+                return None
 
-        result_type, result = result_queue.get()
+        # What was wrong: timeout was only ``is_alive()`` after ``join``.
+        # How: the worker can ``put`` a success and still be alive while
+        # ``run_in_background`` logs and clears the thread-guard tag, so a
+        # finished mutation was reported as TOOL_TIMEOUT and a retry could
+        # apply it again.
+        # Why: a queued result wins. A live thread with an empty queue is
+        # still a timeout — the wait is not extended.
+        if worker_thread.is_alive():
+            queued = _queued()
+            if queued is None:
+                ctx = kwargs.get("ctx")
+                cancel = getattr(ctx, "send_cancellation", None) if ctx is not None else None
+                if cancel is not None and hasattr(cancel, "cancel"):
+                    try:
+                        cancel.cancel()
+                    except Exception:
+                        log.debug("tool timeout: send_cancellation.cancel failed", exc_info=True)
+                return make_tool_error(f"Tool timed out after {timeout} seconds", code="TOOL_TIMEOUT", tool_name=tool_name)
+        else:
+            queued = _queued()
+            if queued is None:
+                # Dead with nothing queued (the put itself failed, or the
+                # thread exited before the handler ran). Do not block on get().
+                return make_tool_error(
+                    f"Tool '{tool_name}' worker exited without a result",
+                    code="TOOL_WORKER_EXIT",
+                    tool_name=tool_name,
+                )
+
+        result_type, result = queued
         if result_type == "error":
+            if not isinstance(result, Exception):
+                # Re-raising BaseException would skip the send worker's
+                # ``except Exception`` and leave the turn waiting for TOOL_DONE.
+                return make_tool_error(
+                    f"Tool '{tool_name}' worker exited: {type(result).__name__}: {result}",
+                    code="TOOL_WORKER_EXIT",
+                    tool_name=tool_name,
+                    error_type=type(result).__name__,
+                )
             raise result  # Will be caught by outer try/except
 
         return result
