@@ -202,59 +202,54 @@ class RichTextChatWidget:
         """Apply the standard chat sidebar margins, fonts, and colors to the control."""
         _apply_rich_control_style_defaults(self.control, style_window=self.style_window)
 
-    def rerender_last_assistant_if_html(self, session: Any, stream_start_len: int | None) -> bool:
-        """Replace the streamed assistant tail with formatted text (HTML or plain).
+    def paint_session(self, session: Any, greeting: str = "") -> None:
+        """Draw the control from ``session.messages``. The hidden doc is that paint."""
+        from plugin.chatbot.rich_text_paste import paint_message_items, session_history_items
 
-        True only when the session row replaced the tail. Callers that still
-        hold a stripper leftover append it when this returns False.
+        if session is None:
+            self.clear()
+            return
+        paint_message_items(
+            self.ctx,
+            self.control,
+            session_history_items(session, greeting),
+            style_window=self.style_window,
+            restore=self.query,
+            restore_focus=self.restore_focus,
+        )
+
+    def rerender_last_assistant_if_html(self, session: Any, stream_start_len: int | None) -> bool:
+        """Draw the control again from the message list.
+
+        True when the session has an assistant row and the control was painted
+        from it. Callers that still hold a stripper leftover append it when
+        this returns False.
+
+        What was wrong: this truncated the control at ``stream_start_len`` and
+        spliced the last assistant HTML onto that cut. A missing offset skipped
+        the cut and the HTML was appended on top of the stream. A failed insert
+        left a partial copy that was not the message list.
+        Why this change: the list is already updated. Paint the whole list.
+        ``stream_start_len`` is only logged; it is not a splice point.
         """
         final_msg = None
         for msg in reversed(session.messages):
             if msg.get("role") == "assistant" and msg.get("content"):
                 final_msg = msg
                 break
-        log.debug("rerender_last_assistant_if_html: final_msg=%s stream_start_len=%s", bool(final_msg), stream_start_len)
+        log.debug(
+            "rerender_last_assistant_if_html: final_msg=%s stream_start_len=%s",
+            bool(final_msg),
+            stream_start_len,
+        )
         if not final_msg:
             log.debug("rerender_last_assistant_if_html: no final assistant message — skip")
             return False
         content = final_msg.get("content", "")
-        if not content or not content.strip():
+        if not content or not str(content).strip():
             return False
-        # The streamed tail is already in the control. Truncating and then
-        # appending without a result check dropped it: a failed HTML copy, or
-        # a per-element exception reported as not a full insert, left the cut
-        # in place and nothing wrote the plain text back.
-        # What was wrong: stream_start_len is None when the worker never
-        # recorded the final-answer offset. truncate() treats None as a
-        # no-op, then the HTML copy was appended on top of the streamed tail.
-        # A failed tail read did the reverse: truncate still ran and the
-        # restore had an empty tail, so the streamed answer disappeared.
-        # Skip the cut when the offset is missing or the tail cannot be read.
-        if stream_start_len is None:
-            return False
-        try:
-            model = self.control.getModel() if self.control is not None else None
-            text = (model.Text or "") if model is not None else ""
-            plain_tail = text[stream_start_len:] if isinstance(text, str) else ""
-        except Exception:
-            log.exception("rerender_last_assistant_if_html: could not read plain tail")
-            return False
-        self.truncate(stream_start_len)
-        # Insert at the cut. Scroll is SelectAll in Hidden mode, not reveal_caret.
-        full_insert = False
-        try:
-            full_insert = bool(self.append_rich_message(content, role="assistant"))
-        except Exception:
-            log.exception("rerender_last_assistant_if_html: formatted insert failed")
-            full_insert = False
-        if full_insert:
-            return True
-        # Partial formatted text sits at the same cut. Drop it, then put the
-        # streamed tail back — the copy did not replace it cleanly.
-        self.truncate(stream_start_len)
-        if plain_tail:
-            self.append_chunk(plain_tail)
-        return False
+        self.paint_session(session)
+        return True
 
     def append_user_message(self, text: str, on_after_insert: Any = None) -> None:
         """Append a formatted user message and optionally record control length after insert."""
@@ -268,17 +263,24 @@ class RichTextChatWidget:
         return True
 
     def clear_and_greeting(self, greeting: str = "") -> None:
-        """Clear the transcript and optionally show a formatted greeting."""
-        self.clear()
-        if greeting:
-            self.append_rich_message(greeting, role="assistant")
+        """Replace the transcript with the greeting. The old HTML is not edited."""
+        from plugin.chatbot.rich_text_paste import paint_message_items
+
+        if not greeting:
+            self.clear()
+            return
+        paint_message_items(
+            self.ctx,
+            self.control,
+            [("assistant", greeting)],
+            style_window=self.style_window,
+            restore=self.query,
+            restore_focus=self.restore_focus,
+        )
 
     def render_session_history(self, session: Any, greeting: str = "") -> None:
-        """Reload session messages into the control (batched formatted paste)."""
-        from plugin.chatbot.rich_text_paste import session_history_items
-
-        self.clear()
-        self.append_rich_messages_batch(session_history_items(session, greeting))
+        """Replace the control with a paint of the session message list."""
+        self.paint_session(session, greeting)
 
 
 def _is_automatic_char_color(color: Any) -> bool:

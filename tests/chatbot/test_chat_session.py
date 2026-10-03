@@ -46,6 +46,15 @@ def test_set_system_context_clears_document_block():
     assert session.document_context == ""
 
 
+def test_add_assistant_message_replaces_open_transcript_row():
+    """The streamed paint row is not a second copy of the committed answer."""
+    session = ChatSession(system_prompt="Sys")
+    session.messages.append({"role": "assistant", "content": "stream", "_open_transcript": True})
+    session.add_assistant_message(content="<p>final</p>")
+    assistant = [message for message in session.messages if message["role"] == "assistant"]
+    assert assistant == [{"role": "assistant", "content": "<p>final</p>"}]
+
+
 def test_add_message_shapes():
     session = ChatSession(system_prompt="Sys")
     session.add_user_message("hello")

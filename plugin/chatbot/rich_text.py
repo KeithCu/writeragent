@@ -13,7 +13,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Shared rich-text formatting for the RichTextControl sidebar (hidden Writer HTML import)."""
+"""Shared rich-text formatting for the RichTextControl sidebar (hidden Writer HTML import).
+
+The hidden Writer document is a paint of the message list. ``render_messages_to_hidden_doc``
+fills a fresh document from that list. It does not splice a later message into a
+document that already failed partway.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +27,7 @@ import re
 from typing import Any, cast
 
 from plugin.framework.appearance import get_theme_colors
+from plugin.framework.html_stripper import strip_html_tags
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -46,6 +52,9 @@ _HTML_TAG_RE = re.compile(
 
 # Legacy plain-sidebar prefix; append_rich_text adds "Assistant:" instead.
 _LEGACY_AI_LABEL_RE = re.compile(r"^\s*AI:\s*", re.IGNORECASE)
+
+# A tag the HTML filter left as characters. "a < b" does not match.
+_HTML_TAG_LEFTOVER_RE = re.compile(r"</?[A-Za-z][^>]*>")
 
 # Tight list margins for the narrow sidebar transcript (injected via shared HTML import).
 _SIDEBAR_LIST_CSS = "ul, ol { margin-left: 0.2cm; padding-left: 0.3cm; }"
@@ -240,6 +249,113 @@ def _insert_html_at_cursor(doc: Any, cursor: Any, html_fragment: str) -> None:
     insert_html_fragment_at_cursor(cursor, html_fragment, extra_css=_SIDEBAR_LIST_CSS)
 
 
+def contains_html_tag(text: str) -> bool:
+    """True when *text* still contains an HTML tag, not a bare ``<`` comparison."""
+    return bool(_HTML_TAG_LEFTOVER_RE.search(text or ""))
+
+
+def restore_writer_text(text_obj: Any, previous: str) -> None:
+    """Put a hidden Writer body back to *previous*.
+
+    A failed insert must not stay in the document. ``setString`` replaces the
+    body in one write. The cursor fallback covers a text object that only
+    implements the cursor API (the unit-test double has ``setString``).
+    """
+    try:
+        setter = getattr(text_obj, "setString", None)
+        if callable(setter):
+            setter(previous)
+            if (text_obj.getString() or "") == previous:
+                return
+    except Exception:
+        log.debug("restore_writer_text setString failed", exc_info=True)
+    try:
+        cursor = text_obj.createTextCursor()
+        cursor.gotoStart(False)
+        cursor.gotoEnd(True)
+        cursor.setString(previous)
+    except Exception:
+        log.exception("restore_writer_text failed")
+
+
+def _writer_suffix(text_obj: Any, previous: str) -> str:
+    current = text_obj.getString() or ""
+    if current.startswith(previous):
+        return current[len(previous):]
+    return current
+
+
+def _role_prefix(role: str) -> str:
+    if role == "user":
+        return "You: "
+    return _("Assistant:") + " "
+
+
+def _span_matches_message(added: str, role: str, content: str) -> bool:
+    """True when *added* is the role label plus the message's visible words.
+
+    The HTML filter does not reproduce the source character for character
+    (paragraph breaks, list layout). A tag, or a word that is not in the
+    message, is a failed edit. The caller undoes that span.
+    """
+    if contains_html_tag(added):
+        return False
+    visible = strip_html_tags(content or "")
+    remainder = added or ""
+    labels = ("You:",) if role == "user" else (_("Assistant:"), "Assistant:")
+    for label in labels:
+        if label and label in remainder:
+            remainder = remainder.replace(label, " ", 1)
+            break
+    allowed_words = {word.lower() for word in re.findall(r"\w+", visible)}
+    for token in re.findall(r"\w+", remainder):
+        if token.lower() not in allowed_words:
+            return False
+    message_words = re.findall(r"\w+", visible)
+    if message_words and not any(word.lower() in remainder.lower() for word in message_words):
+        return False
+    return True
+
+
+def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> None:
+    """Write one stripped row. No HTML filter, so a tag cannot land in the doc."""
+    del style_window
+    text_obj = doc.getText()
+    cursor = text_obj.createTextCursor()
+    cursor.gotoEnd(False)
+    if text_obj.getString():
+        text_obj.insertString(cursor, "\n\n", False)
+    body = strip_html_tags(text or "")
+    text_obj.insertString(cursor, _role_prefix(role) + body, False)
+
+
+def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None) -> None:
+    """Fill *doc* from *items*. Each message is one edit against the previous body.
+
+    What was wrong: messages were spliced into the hidden Writer one after
+    another. A bad element inserted its tags, and a later edit that failed
+    halfway left that partial text in the document even though it is not in
+    the message list.
+    Why this change: snapshot the body, append, and if the new span is not
+    that message, put the body back and write the stripped message. The
+    document stays a paint of the list.
+    """
+    text_obj = doc.getText()
+    for role, content in items:
+        content = content or ""
+        before = text_obj.getString() or ""
+        ok = append_rich_text(doc, content, role=role, style_window=style_window)
+        added = _writer_suffix(text_obj, before)
+        if ok and _span_matches_message(added, role, content):
+            continue
+        restore_writer_text(text_obj, before)
+        append_plain_transcript_row(doc, content, role=role, style_window=style_window)
+        if not _span_matches_message(_writer_suffix(text_obj, before), role, content):
+            # The plain row is the message text. If it still does not match,
+            # drop the span rather than keep text the list does not have.
+            restore_writer_text(text_obj, before)
+
+
 def _sidebar_import_html(text: str) -> str:
     """Body fragment for the sidebar HTML filter.
 
@@ -263,17 +379,22 @@ def _sidebar_import_html(text: str) -> str:
 
 
 def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> bool:
-    """Append a complete message to a Writer document (hidden doc for RichTextControl copy).
+    """Append one message to a Writer document (hidden doc for RichTextControl copy).
 
     Inserts a bold, colored role prefix (``You:`` / ``Assistant:``) then
     imports *text* as HTML via Writer's StarWriter HTML filter so that
     ``<strong>``, ``<em>``, ``<code>``, ``<ul>`` etc. render natively.
 
-    Returns False when the HTML filter fails. The raw tags are not inserted;
-    the caller plain-appends the stripped text.
+    Returns False when the HTML filter fails. The body is restored to the
+    text from before this call, so a tag the filter wrote before raising
+    does not stay, and the role prefix is not left without its body.
+    The caller writes the stripped message.
     """
+    text_obj = None
+    previous = ""
     try:
         text_obj = doc.getText()
+        previous = text_obj.getString() or ""
         cursor = text_obj.createTextCursor()
         cursor.gotoEnd(False)
 
@@ -293,7 +414,7 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
         # What was wrong: "Assistant:" was a bare literal, so JA/ES catalogs
         # could not translate the sidebar role prefix (xgettext skips _(CONST)).
         start_pos = cursor.getStart()
-        prefix = "You: " if role == "user" else _("Assistant:") + " "
+        prefix = _role_prefix(role)
         text_obj.insertString(cursor, prefix, False)
 
         prefix_range = text_obj.createTextCursorByRange(start_pos)
@@ -308,7 +429,10 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
         pre_len = doc.CharacterCount
 
         if text and text.strip():
-            looks_html = bool(_HTML_TAG_RE.search(text))
+            # A tag _HTML_TAG_RE does not list (<script>, a full document the
+            # regex missed) used to take the insertString branch and land in
+            # the hidden doc as characters.
+            looks_html = bool(_HTML_TAG_RE.search(text)) or contains_html_tag(text)
             log.debug("append_rich_text: looks_html=%s len=%d snippet=%r", looks_html, len(text), text[:120])
 
             used_html_import = False
@@ -317,23 +441,32 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
                     importer.insert_html_at_cursor(cursor, _sidebar_import_html(text))
                     used_html_import = True
                 except Exception:
-                    # What was wrong: the raw tags were insertString'd, used_html_import
-                    # stayed false, and the copy reported success, so the sidebar showed
-                    # the tags. The log was debug, which release builds (WARN) never print.
-                    # Why this change: leave the body out and return False so the caller
-                    # plain-appends the stripped text.
-                    log.warning("HTML import failed; caller will plain-append stripped text role=%s", role)
+                    # What was wrong: the filter could insert the tags and then
+                    # raise. The prefix was already in the doc, return False
+                    # only skipped the copy, and a caller that kept the doc
+                    # still had the partial message.
+                    # Why this change: restore the body from before this call.
+                    # Nothing from the failed edit remains.
+                    log.warning("HTML import failed; restoring hidden doc role=%s", role)
+                    restore_writer_text(text_obj, previous)
                     return False
             else:
                 text_obj.insertString(cursor, text, False)
+
+            added = _writer_suffix(text_obj, previous)
+            if contains_html_tag(added):
+                # The filter returned without raising and left the tags as text.
+                log.warning("HTML import left tags in the hidden doc role=%s", role)
+                restore_writer_text(text_obj, previous)
+                return False
 
             # Build a range covering only the newly inserted content
             body_range = text_obj.createTextCursor()
             body_range.gotoStart(False)
             body_range.goRight(pre_len, False)
             body_range.gotoEnd(True)
-            # Plain text (and HTML-import fallback) get the role tint; successful HTML import
-            # keeps per-span CharColor from the filter (red/blue runs, etc.).
+            # Plain text gets the role tint; successful HTML import keeps
+            # per-span CharColor from the filter (red/blue runs, etc.).
             if not used_html_import:
                 body_range.CharColor = theme.user_color if role == "user" else theme.assistant_color
             importer.tighten_list_indent(body_range)
@@ -341,6 +474,8 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
 
     except Exception as e:
         log.exception("Error in append_rich_text: %s", e)
+        if text_obj is not None:
+            restore_writer_text(text_obj, previous)
         return False
 
 
@@ -352,11 +487,10 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     assistant message and ``truncate_control_from`` would delete that error line
     (Packet F HTTP 429/500 looked like a leftover hello).
 
-    Skip rerender after Stop. The widget already shows the streamed tokens
-    plus ``[Stopped by user]``. ``rerender_last_assistant_if_html`` truncates
-    that tail and pastes the session row over it (Packet B1: the ramble
-    vanished and the marker never stayed visible). The session row may now
-    be that partial text; rerender would still drop the marker.
+    Skip rerender after Stop. The Stop path already stored the partial answer
+    and the ``[Stopped by user]`` row, then painted that list. A second paint
+    is not required. The old splice truncated the tail and pasted the answer
+    without the marker (Packet B1).
 
     Empty / truncated STREAM_DONE must AddMessageEffect the banner (see
     ``tool_loop_state``) so this path does not paste the previous HTML assistant

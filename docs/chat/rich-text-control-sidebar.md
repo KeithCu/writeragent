@@ -68,7 +68,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | Post-stream HTML rerender | `SendButtonListener.rerender_rich_text_session` → `RichTextChatWidget.rerender_last_assistant_if_html` |
 | Truncate stream tail without flattening earlier formatting | `truncate_control_from` (cursor delete, not `model.Text = ""`) |
 | Reveal caret without stealing query focus | `reveal_rich_control_caret` passes that panel's Ask field to `focus_preserved`. Stream chunks call the frame session's `restore_focus`. |
-| History reload in ~16 KB batches | `HISTORY_RENDER_BATCH_CHARS`, `RichTextChatWidget.render_session_history` |
+| History reload paints `session.messages` | `RichTextChatWidget.render_session_history` → `paint_message_items` |
 | Resize / fill the column | [`panel_resize.py`](../../plugin/chatbot/panel_resize.py) stretches `response` / query / status / selectors to the panel margin; [`sync_rich_control_bounds`](../../plugin/chatbot/rich_text_control.py) insets `response_rich` inside that placeholder. Width negotiation is [`sidebar_column_width`](../../plugin/framework/sidebar_column.py) (fill the deck box; ignore frame-sized `getHeightForWidth` hints) |
 | LLM HTML format instructions gated on config | `get_chat_response_format_instructions` → `RICH_CHAT_SIDEBAR_INSTRUCTIONS` |
 | Web research / librarian share same format + finalize | `finalize_sidebar_assistant_response` in `rich_text.py` |
@@ -122,24 +122,20 @@ flowchart LR
     subgraph sidebar [Sidebar XDL dialog]
         RTC[RichTextControl]
     end
-    subgraph paste [rich_text_paste per formatted insert]
-        HW[Hidden Writer Hidden=true]
-        HTML[append_rich_text]
+    MSG[session.messages]
+    MSG --> paint[paint_message_items]
+    subgraph paste [fresh hidden Writer]
+        HW[Hidden Writer]
     end
-    LLM[LLM response] --> stream[append_text_chunk]
-    stream --> RTC
-    LLM --> done[Stream complete]
-    done --> rerender[RichTextChatWidget.rerender_last_assistant_if_html]
-    rerender --> HW
-    HTML --> HW
+    paint --> HW
     HW --> RTC
 ```
 
-**Streaming path:** `append_text_chunk` → `TextRange` insert at end with assistant color and optional `reveal_rich_control_caret`.
+`session.messages` is the transcript. Clear, Stop, and a new chunk change that list, then `paint_message_items` builds a **new** hidden Writer from the list and replaces the control. The hidden document stays: copy and paste read the formatted paint. It is not edited in place. A bad element does not leave tags, and a copy that fails halfway is wiped and written again as plain rows of the same list (`You:` / `Assistant:`, role color, blank line).
 
-**Formatted path:** `create_hidden_html_writer` → `append_rich_text` (HTML filter + list tightening) → direct portion copy into the control → close hidden doc. A failed copy, or an HTML filter error, rolls the control back and writes the same text as plain rows (`You:` / `Assistant:`, role color, blank line). User and history batches use `append_rich_messages_via_clipboard` with batching for large sessions.
+**Streaming:** each assistant chunk grows one open row (`_open_transcript`) and the control is painted from the list. The committed assistant message replaces that row, then the control is painted again. The open row is not a history write.
 
-**Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` when the turn was not stopped and was not an API error. If that call does not replace the tail, an unclosed tag still held by the stream stripper is appended. A successful rerender replaces the tail from the session row.
+**Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` when the turn was not stopped and was not an API error. That paints the list. If it does not, an unclosed tag still held by the stream stripper is appended, which records it on the list and paints. Stop already painted the partial answer plus `[Stopped by user]` and skips this second paint.
 
 ### RichTextControl vs HTML
 
@@ -202,9 +198,9 @@ flowchart LR
 |----------|------|
 | `create_sidebar_rich_text_control` | Create `TextField` model + peer, position over placeholder |
 | `RichTextControlListener` | Deferred create on `windowShown` / eager init; bounds via `_PanelResizeListener.last_response_rect` |
-| `RichTextChatWidget` | **Primary panel facade** — user/assistant append, stream chunks, rerender, clear, history |
-| `append_text_chunk` | Streaming plain append (widget delegates here) |
-| `truncate_control_from` | Remove stream tail before HTML rerender |
+| `RichTextChatWidget` | **Primary panel facade** — paint from `session.messages`, clear, history |
+| `append_text_chunk` | Plain-text fallback rows (role color). The transcript paint does not splice with this |
+| `truncate_control_from` | Drop a tail that a failed single-message copy left behind |
 | `reveal_rich_control_caret` | Focus the control so EditView `ShowCursor` follows the view caret |
 | `clear_control` | Clear transcript |
 | `sync_rich_control_bounds` | Apply inset bounds from `placeholder_rect` (panel listener) or live placeholder size |
@@ -223,9 +219,11 @@ flowchart LR
 
 | Function | Role |
 |----------|------|
-| `append_rich_text_via_clipboard` | Single message formatted copy |
-| `append_rich_messages_via_clipboard` | Batched history restore |
-| `create_hidden_html_writer` | Short-lived hidden Writer for HTML import |
+| `paint_message_items` | Replace the control with a paint of the message list |
+| `fold_transcript_chunk` | Record a chunk or the Stop line on `session.messages` before that paint |
+| `append_rich_text_via_clipboard` | Single message formatted copy (not the transcript source of truth) |
+| `append_rich_messages_via_clipboard` | Batched history restore used by older callers |
+| `create_hidden_html_writer` | Short-lived hidden Writer for one paint |
 | `session_history_items` | Build `(role, content)` pairs for history reload |
 
 Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`append_rich_text`, `get_theme_colors`, `_HTML_TAG_RE`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).

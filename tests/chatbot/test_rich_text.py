@@ -275,7 +275,9 @@ class TestAppendRichText:
 
         assert ok is False
         content = doc.getText().getString()
-        assert "Assistant:" in content
+        # The prefix was inserted before the filter raised. Restoring the body
+        # drops that partial row; the caller writes the stripped message.
+        assert content == ""
         assert "<p>" not in content
         assert "Hi" not in content
 
@@ -295,6 +297,62 @@ class TestAppendRichText:
 
         assert ok is True
         assert seen == ["<p>Hi</p>"]
+
+    def test_bad_element_does_not_leave_tags_or_a_partial_row(self):
+        """A filter that writes tags and then raises must not leave them."""
+        from plugin.chatbot.rich_text import append_rich_text, render_messages_to_hidden_doc
+
+        doc = MockDoc()
+
+        def _writes_tags_then_raises(_doc, _cursor, fragment):
+            doc.getText().insertString(None, fragment, False)
+            raise RuntimeError("bad element")
+
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_writes_tags_then_raises):
+            ok = append_rich_text(doc, "<p>Hi</p><script>alert(1)</script>", role="assistant")
+
+        assert ok is False
+        assert "<" not in doc.getText().getString()
+
+        doc = MockDoc()
+        calls = {"n": 0}
+
+        def _later_edit_inserts_foreign_text(_doc, _cursor, fragment):
+            del fragment
+            calls["n"] += 1
+            doc.getText().insertString(None, "NOT_IN_MESSAGES", False)
+            raise RuntimeError("later edit failed")
+
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor", side_effect=_later_edit_inserts_foreign_text):
+            render_messages_to_hidden_doc(
+                doc,
+                [("user", "keep me"), ("assistant", "<p>second</p>")],
+            )
+
+        content = doc.getText().getString()
+        assert "NOT_IN_MESSAGES" not in content
+        assert "keep me" in content
+        assert "second" in content
+        assert "<p>" not in content
+        assert calls["n"] == 1
+
+    def test_render_rejects_an_edit_that_is_not_the_message(self):
+        """A later edit that returns success but wrote other text must not stay."""
+        from plugin.chatbot.rich_text import render_messages_to_hidden_doc
+
+        doc = MockDoc()
+
+        def _lie(target, text, role="assistant", style_window=None):
+            del text, role, style_window
+            target.getText().insertString(None, "NOT_IN_MESSAGES", False)
+            return True
+
+        with patch("plugin.chatbot.rich_text.append_rich_text", side_effect=_lie):
+            render_messages_to_hidden_doc(doc, [("assistant", "hello")])
+
+        content = doc.getText().getString()
+        assert "NOT_IN_MESSAGES" not in content
+        assert "hello" in content
 
 
 class TestTightenListIndent:

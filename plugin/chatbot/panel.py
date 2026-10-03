@@ -181,6 +181,11 @@ class ChatSession:
             msg["tool_calls"] = tool_calls
         if reasoning_replay:
             msg.update(reasoning_replay)
+        # Streamed tokens sit in an open row so the sidebar can paint them.
+        # This committed message replaces that row. Leaving both showed the
+        # answer twice, and the open row is not a history write.
+        if self.messages and self.messages[-1].get("_open_transcript"):
+            self.messages.pop()
         self.messages.append(msg)
         # Tool calls stay out of history. content=None used to be written
         # anyway, and message_to_dict stored JSON null for a tool-only turn.
@@ -550,13 +555,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         log.info("[RICH-CONTROL] SendButtonListener.set_rich_text_widget called")
 
     def rerender_rich_text_session(self) -> bool:
-        """Re-render the final streamed assistant response with HTML formatting, leaving previous text untouched.
+        """Paint the control from the session message list.
 
-        Called after streaming completes to replace the last plain-text assistant response
-        with full HTML rendering instead of raw chunks.
+        Called after streaming completes so the hidden Writer shows the
+        committed messages, not the plain chunks that were painted while the
+        open row was growing.
 
-        True only when that replacement landed. False leaves the streamed tail
-        in place so a held stripper leftover can still be appended.
+        True only when that paint ran. False leaves the control as it is so a
+        held stripper leftover can still be appended.
         """
         widget = getattr(self, "rich_text_widget", None)
         if widget is None:
@@ -878,39 +884,52 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         with suppress_disposed("_append_response", logger=log):
             widget = getattr(self, "rich_text_widget", None)
             if widget:
-                auto_scroll = self._should_auto_scroll()
+                from plugin.chatbot.rich_text_control import skip_legacy_assistant_stream_chunk
+                from plugin.chatbot.rich_text_paste import fold_transcript_chunk
+                from plugin.chatbot.tool_loop_actions import session_for_turn
+
                 log.debug("_append_response: rich-control len=%d role=%s", len(text) if text else 0, role)
-                if role == "user":
-
-                    def _on_user_inserted(control_len: int | None) -> None:
-                        self._assistant_stream_start_len = control_len
-                        log.debug("_append_response: rich-control stream start len=%s", control_len)
-
-                    self._run_rich_ui(
-                        widget.append_user_message,
-                        text,
-                        on_after_insert=_on_user_inserted,
-                    )
+                # "AI:" / "Using chat model" are plain-sidebar labels. The paint
+                # writes Assistant: from the message list, so they are not rows.
+                if role != "user" and skip_legacy_assistant_stream_chunk(text):
+                    return
+                if role == "assistant":
+                    if self._plain_text_stripper is not None:
+                        clean_text = self._plain_text_stripper.feed(text)
+                    else:
+                        from plugin.framework.html_stripper import strip_html_tags
+                        clean_text = strip_html_tags(text)
                 else:
-                    if getattr(self, "_record_assistant_start", False):
+                    clean_text = text
+                # A held tag fragment is not a list change. Drawing now would
+                # rebuild the same paint.
+                if role == "assistant" and not clean_text:
+                    return
+
+                def _paint_from_list() -> None:
+                    session = session_for_turn(self)
+                    if session is None:
+                        session = getattr(self, "session", None)
+                    # Assistant tokens and the Stop line change the list here.
+                    # A user row the send path already stored is left as it is.
+                    # Then the control is drawn from that list.
+                    fold_transcript_chunk(session, clean_text, role)
+                    if role != "user" and getattr(self, "_record_assistant_start", False):
                         self._record_assistant_start = False
                         self._assistant_stream_start_len = widget.get_text_length()
                         log.debug(
                             "_append_response: rich-control stream start len=%s (final answer)",
                             self._assistant_stream_start_len,
                         )
-                    
-                    if self._plain_text_stripper is not None:
-                        clean_text = self._plain_text_stripper.feed(text)
-                    else:
-                        from plugin.framework.html_stripper import strip_html_tags
-                        clean_text = strip_html_tags(text)
+                    widget.paint_session(session)
+                    if role == "user":
+                        self._assistant_stream_start_len = widget.get_text_length()
+                        log.debug(
+                            "_append_response: rich-control stream start len=%s",
+                            self._assistant_stream_start_len,
+                        )
 
-                    self._run_rich_ui(
-                        widget.append_assistant_stream_chunk,
-                        clean_text,
-                        auto_scroll=auto_scroll,
-                    )
+                self._run_rich_ui(_paint_from_list)
                 return
 
             if not getattr(self, "_rich_plain_fallback_warned", False):
