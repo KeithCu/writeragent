@@ -25,8 +25,9 @@ Concurrency: the socket accept loop runs on its **own** daemon thread
 does not occupy the short-job pool. Incoming HTTP is **not** the
 LibreOffice UI thread. Anything that touches a document, a dialog, or
 most UNO services must be posted through ``QueueExecutor``
-(``execute_on_main_thread``). The route table is registered at server
-start and then only read — no lock.
+(``execute_on_main_thread``). Route reads and register/unregister share
+``HttpRouteRegistry``'s lock. MCP toggle mutates the table while ``GET /``
+iterates it; the lock is what keeps that from raising ``RuntimeError``.
 """
 
 from __future__ import annotations
