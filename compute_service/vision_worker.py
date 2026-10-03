@@ -14,7 +14,7 @@ from __future__ import annotations
 import base64
 import os
 import sys
-from typing import Any
+from typing import Any, cast
 
 # Ensure repo root is on sys.path
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -70,8 +70,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         image_bytes_opt, err_body = _read_allowed_image(file_path, req.get("allow_paths"), req_id)
         if err_body is not None:
             return err_body
-        assert image_bytes_opt is not None
-        image_bytes = image_bytes_opt
+        image_bytes = cast(bytes, image_bytes_opt)
     elif req.get("image_bytes") and isinstance(req["image_bytes"], (bytes, bytearray)):
         image_bytes = bytes(req["image_bytes"])
     elif image_b64:

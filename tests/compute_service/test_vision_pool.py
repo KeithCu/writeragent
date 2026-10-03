@@ -69,6 +69,28 @@ class TestVisionPoolSupervisor:
         assert not pool.is_enabled()
         assert len(pool.workers) == 0
 
+    def test_get_vision_pool_singleton_and_reset(self) -> None:
+        p1 = get_vision_pool()
+        p2 = get_vision_pool()
+        assert p1 is p2
+        shutdown_vision_pool()
+        p3 = get_vision_pool()
+        assert p3 is not p1
+        shutdown_vision_pool()
+
+    def test_pool_rejects_malformed_base64(self) -> None:
+        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            res = pool.execute(helper="extract_text", image_b64="!!!not_valid_b64!!!", req_id="bad-b64")
+            assert res.get("id") == "bad-b64"
+            assert res.get("status") == "error"
+            assert res.get("code") == "INVALID_BASE64"
+            assert "Base64 decode failed" in res.get("error", "")
+            # Worker was not leased, so tasks_executed remains 0
+            assert pool.workers[0].tasks_executed == 0
+        finally:
+            pool.shutdown()
+
     def test_pool_lifecycle(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
         try:

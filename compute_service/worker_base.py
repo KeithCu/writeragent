@@ -16,6 +16,7 @@ Provides:
 
 from __future__ import annotations
 
+import enum
 import logging
 import os
 import subprocess
@@ -63,6 +64,15 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
     return 0
 
 
+class _DrainState(enum.Enum):
+    """Lifecycle states for draining late IPC responses after timeout."""
+
+    IDLE = "idle"
+    DRAINING = "draining"
+    RELEASE_WAIT = "release_wait"
+    DRAINED = "drained"
+
+
 class BaseProcessWorker:
     """Wrapper around one persistent child subprocess communicating via Pickle 5 frames."""
 
@@ -75,7 +85,7 @@ class BaseProcessWorker:
     tasks_executed: int
     did_respawn: bool
     recover_on_timeout: bool
-    _drain_state: str
+    _drain_state: _DrainState
     _drain_lock: threading.Lock
 
     def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False) -> None:
@@ -95,10 +105,10 @@ class BaseProcessWorker:
         # idle: no timeout drain. draining: late frame still on the pipe.
         # release_wait: release_worker already ran and must re-idle after the
         # frame. drained: frame consumed before release_worker ran.
-        self._drain_state = "idle"
+        self._drain_state = _DrainState.IDLE
         self._drain_lock = threading.Lock()
         self._release_cb: Callable[[], None] | None = None
-        self._spawn()
+        self.respawn()
 
     def _stderr_snippet(self) -> str:
         drain = self._stderr_drain
@@ -110,10 +120,10 @@ class BaseProcessWorker:
         return text[-_STDERR_SNIPPET:]
 
     def _reap_previous_process(self) -> None:
-        """Wait on the Popen ``_spawn`` is about to replace.
+        """Wait on the Popen ``respawn`` is about to replace.
 
         A child that exited outside ``kill()`` used to stay a zombie: the next
-        ``_spawn`` assigned a new ``Popen`` and nothing called ``wait()``.
+        ``respawn`` assigned a new ``Popen`` and nothing called ``wait()``.
         ``poll()`` reaps an already-dead child. Kill first only when it is
         still running, so a reused pid is not signaled.
         """
@@ -138,7 +148,7 @@ class BaseProcessWorker:
         if drain is not None:
             drain.join(timeout=0.2)
 
-    def _spawn(self) -> None:
+    def respawn(self) -> None:
         """Spawn worker subprocess and await readiness handshake."""
         self._reap_previous_process()
         cmd = [sys.executable, self.script_path]
@@ -192,6 +202,10 @@ class BaseProcessWorker:
             log.error("Failed to spawn %s #%d: %s%s", self.worker_name, self.worker_id, exc, extra)
             self.kill()
 
+    def _spawn(self) -> None:
+        """Back-compat alias for :meth:`respawn`."""
+        self.respawn()
+
     def is_alive(self) -> bool:
         return self.process is not None and self.process.poll() is None
 
@@ -199,7 +213,7 @@ class BaseProcessWorker:
         """Terminate the child using the same rules as spawn's reap.
 
         ``kill()`` used to signal even after ``poll()`` had reaped the pid,
-        and it left ``_stderr_drain`` set so the next ``_spawn`` dropped that
+        and it left ``_stderr_drain`` set so the next ``respawn`` dropped that
         thread. ``_reap_previous_process`` already avoided both.
         """
         self._reap_previous_process()
@@ -212,7 +226,7 @@ class BaseProcessWorker:
             # kernel; session maps that still name this wrapper are stale.
             self.did_respawn = False
             if not self.is_alive():
-                self._spawn()
+                self.respawn()
                 self.did_respawn = True
                 if not self.is_alive():
                     return {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": f"{self.worker_name} #{self.worker_id} could not be started."}
@@ -279,7 +293,7 @@ class BaseProcessWorker:
         so the slot can respawn.
         """
         with self._drain_lock:
-            self._drain_state = "draining"
+            self._drain_state = _DrainState.DRAINING
             self._release_cb = None
         threading.Thread(
             target=self._drain_late_response,
@@ -308,13 +322,13 @@ class BaseProcessWorker:
 
     def _complete_drain(self) -> None:
         with self._drain_lock:
-            if self._drain_state == "release_wait":
+            if self._drain_state == _DrainState.RELEASE_WAIT:
                 callback = self._release_cb
                 self._release_cb = None
-                self._drain_state = "idle"
+                self._drain_state = _DrainState.IDLE
             else:
                 callback = None
-                self._drain_state = "drained"
+                self._drain_state = _DrainState.DRAINED
         if callback is not None:
             callback()
 
@@ -326,12 +340,12 @@ class BaseProcessWorker:
         frame arrives hands that frame to the next caller.
         """
         with self._drain_lock:
-            if self._drain_state == "draining":
-                self._drain_state = "release_wait"
+            if self._drain_state == _DrainState.DRAINING:
+                self._drain_state = _DrainState.RELEASE_WAIT
                 self._release_cb = callback
                 return True
-            if self._drain_state == "drained":
-                self._drain_state = "idle"
+            if self._drain_state == _DrainState.DRAINED:
+                self._drain_state = _DrainState.IDLE
                 return False
             return False
 
@@ -425,7 +439,6 @@ class BaseProcessPool:
                     if not self._is_shutdown:
                         self._idle.add(w)
                 self._cond.notify_all()
-        if stale:
             log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(stale), self.worker_name, self.idle_worker_ttl_sec)
 
     def _skip_idle_evict(self, worker: BaseProcessWorker) -> bool:
@@ -496,7 +509,7 @@ class BaseProcessPool:
             worker.kill()
             # Re-spawn so the next lease does not pay spawn latency inside execute().
             # Affinity hashing uses this wrapper list, not process liveness.
-            worker._spawn()
+            worker.respawn()
         with self._cond:
             if self._is_shutdown:
                 # Recycle may have started a child after shutdown()'s kill loop.

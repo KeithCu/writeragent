@@ -11,6 +11,7 @@ Docling / PaddleOCR tasks run safely in isolated worker processes.
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import threading
@@ -54,21 +55,20 @@ class VisionProcessPool(BaseProcessPool):
             return {"id": req_id, "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "Vision / OCR service is not enabled on this instance (ocr_workers=0)."}
 
         eff_timeout = float(timeout_sec or self.default_timeout_sec)
-        b64_val = None
         image_bytes = None
         if image_b64 is not None:
             if isinstance(image_b64, (bytes, bytearray)):
                 image_bytes = bytes(image_b64)
             elif isinstance(image_b64, str):
-                import base64
-
                 try:
-                    image_bytes = base64.b64decode(image_b64)
-                except Exception:
-                    b64_val = image_b64
+                    image_bytes = base64.b64decode(image_b64, validate=True)
+                except Exception as exc:
+                    return {"id": req_id, "status": "error", "code": "INVALID_BASE64", "error": f"Base64 decode failed: {exc}"}
+            else:
+                return {"id": req_id, "status": "error", "code": "INVALID_IMAGE", "error": "image_b64 must be base64 string or raw bytes"}
 
         prefixes = () if allow_paths is None else tuple(str(p) for p in allow_paths)
-        payload = {"id": req_id, "helper": helper, "image_bytes": image_bytes, "image_b64": b64_val, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
+        payload = {"id": req_id, "helper": helper, "image_bytes": image_bytes, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
 
         # Queue until a worker is free. The caller's timeout is the bound;
         # VISION_POOL_BUSY means that wait expired, not that the pool was busy

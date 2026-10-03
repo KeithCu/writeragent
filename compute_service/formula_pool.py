@@ -15,6 +15,7 @@ Maintains a bounded pool of warm subprocesses. Provides:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -80,9 +81,8 @@ class FormulaProcessPool(BaseProcessPool):
                         stale.append((sid, worker))
         evicted: list[str] = []
         for sid, worker in stale:
-            # Lease first, then re-check the stamp. Popping before the reset
-            # let a cell that finished during the wait get wiped anyway, and
-            # the "evicted" log ran even when the lease was skipped.
+            # Bound lease wait to 2.0s so the session reaper thread does not stall
+            # if the worker is busy running a cell; it will retry on the next tick.
             # Lease before pop — see reset_session docstring for the TOCTOU race.
             leased = self.lease_specific(worker, timeout_sec=2.0)
             if leased is None:
@@ -143,6 +143,9 @@ class FormulaProcessPool(BaseProcessPool):
 
         Workers holding active shared sessions skip normal max_tasks recycling to preserve state.
         Sessions are held indefinitely while active and released after shared_kernel_ttl_sec of inactivity.
+
+        NOTE: Must NOT be called with self._cond or self._lock held by the caller,
+        as this method acquires self._lock internally (prevents lock inversion/deadlock).
         """
         with self._lock:
             if not worker.is_alive():
@@ -161,6 +164,8 @@ class FormulaProcessPool(BaseProcessPool):
         HTTP ``POST /v1/session/reset`` calls this (do not add a second reset
         path). Unknown / already-gone ids are idempotent ``ok``. TTL eviction
         in ``_evict_stale_sessions`` stays the safety net if reset is missed.
+        Default timeout_sec=5.0 gives an in-progress calculation time to complete
+        before failing the control-plane reset request.
         """
         # Do not pop the map before the lease. The old order let a concurrent
         # execute re-register the session and run a cell, then this reset
@@ -289,8 +294,6 @@ class FormulaProcessPool(BaseProcessPool):
             if blob is None and data is not None:
                 # Convenience for pool tests / in-process callers. The HTTP
                 # path always supplies data_json so the host never dumps the grid.
-                import json
-
                 blob = json.dumps(data, allow_nan=False).encode("utf-8")
             if blob is not None:
                 payload["data_json"] = bytes(blob)

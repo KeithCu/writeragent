@@ -239,6 +239,16 @@ def authenticate_request(environ: dict[str, Any], settings: ComputeSettings) -> 
     return settings.default_principal, None
 
 
+def _parse_session_id(environ: dict[str, Any]) -> str | None:
+    """Extract and validate the session_id URL query parameter, if present."""
+    query_string = environ.get("QUERY_STRING", "")
+    query_params = urllib.parse.parse_qs(query_string, keep_blank_values=False)
+    session_ids = query_params.get("session_id")
+    if session_ids and session_ids[0].strip():
+        return session_ids[0].strip()
+    return None
+
+
 def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None = None, reset_fn: ResetFn | None = None) -> Callable[[dict[str, Any], Any], list[bytes]]:
     """Build a WSGI app bound to *settings* (and optional test hooks).
 
@@ -292,10 +302,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 err_body = {"status": "error", "error": "session_id must be provided as a URL query parameter (?session_id=...), not in the request body."}
                 return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
 
-            query_string = environ.get("QUERY_STRING", "")
-            query_params = urllib.parse.parse_qs(query_string, keep_blank_values=False)
-            session_ids = query_params.get("session_id")
-            session_id = session_ids[0].strip() if session_ids and session_ids[0].strip() else None
+            session_id = _parse_session_id(environ)
 
             mode = parts.mode or "isolated"
             # A typo such as "Shared" used to be rewritten to isolated and
@@ -376,10 +383,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 err_body = {"status": "error", "error": ("session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.")}
                 return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
 
-            query_string = environ.get("QUERY_STRING", "")
-            query_params = urllib.parse.parse_qs(query_string, keep_blank_values=False)
-            session_ids = query_params.get("session_id")
-            session_id = session_ids[0].strip() if session_ids and session_ids[0].strip() else None
+            session_id = _parse_session_id(environ)
 
             if not session_id:
                 err_body = {"status": "error", "error": "Missing 'session_id' URL query parameter (?session_id=...)."}

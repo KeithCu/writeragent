@@ -144,6 +144,8 @@ class ComputeSettings:
             raise ConfigError("default_timeout_sec cannot exceed max_timeout_sec")
         if self.threads < 1:
             raise ConfigError("threads must be >= 1")
+        # Formula execution is core to the compute service and requires at least
+        # one worker process. Vision/OCR is optional and can be disabled (ocr_workers=0).
         if self.workers < 1:
             raise ConfigError("workers must be >= 1")
         if self.worker_max_tasks < 1:

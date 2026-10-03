@@ -350,7 +350,7 @@ class TestFormulaPoolSupervisor:
         assert previous is not None
         os.kill(previous.pid, signal.SIGKILL)
         try:
-            worker._spawn()
+            worker.respawn()
             assert previous.returncode is not None
             assert worker.is_alive()
             assert worker.process is not previous
@@ -740,6 +740,27 @@ class TestFormulaPoolSupervisor:
             again = pool.execute(code="result = keep", session_id="idle-shared", mode="shared", req_id="idle-s2")
             assert again.get("status") == "ok"
             assert again.get("result") == 4
+        finally:
+            pool.shutdown()
+
+    def test_skip_idle_evict_tracks_worker_sessions(self) -> None:
+        """_skip_idle_evict returns True only while worker holds active shared sessions."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            worker = pool.workers[0]
+            # Initially no sessions attached
+            assert pool._skip_idle_evict(worker) is False
+
+            # Attach a shared session
+            sid = "skip-evict-sid"
+            res = pool.execute(code="val = 42\nresult = val", session_id=sid, mode="shared")
+            assert res.get("status") == "ok"
+            assert pool._skip_idle_evict(worker) is True
+
+            # Reset the session; _skip_idle_evict should return False again
+            reset_res = pool.reset_session(sid)
+            assert reset_res.get("status") == "ok"
+            assert pool._skip_idle_evict(worker) is False
         finally:
             pool.shutdown()
 
