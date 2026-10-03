@@ -185,6 +185,29 @@ def test_technical_analysis_missing_column_sets_helper(monkeypatch):
     assert is_quant_result(result) is True
 
 
+def test_efficient_frontier_treats_grid_as_returns():
+    pytest.importorskip("pypfopt")
+    grid = [
+        ["AAPL", "MSFT", "GOOG"],
+        [0.01, 0.008, 0.012],
+        [0.02, -0.01, 0.025],
+        [-0.005, 0.015, 0.01],
+        [0.012, 0.005, -0.008],
+        [0.008, 0.02, 0.015],
+        [0.015, -0.005, 0.02],
+        [-0.01, 0.012, 0.005],
+        [0.02, 0.008, 0.018],
+        [0.005, 0.015, -0.002],
+        [0.01, 0.01, 0.01],
+    ]
+    result = venv_run_quant({"helper": "efficient_frontier", "params": {}}, data=grid)
+    assert result["status"] == "ok", result
+    weights = result["weights"]
+    assert abs(sum(weights.values()) - 1.0) < 1e-3
+    # Reading the same returns as prices collapses onto MSFT with weight 1.
+    assert all(0.05 < float(weight) < 0.8 for weight in weights.values())
+
+
 def test_is_quant_result_uses_helper_names_not_fetch_prefix():
     from plugin.calc.quant_egress import is_quant_result
 
