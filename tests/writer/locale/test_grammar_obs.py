@@ -175,25 +175,39 @@ def test_emit_grammar_status_paints_progress_and_failure_when_libreharper() -> N
 def test_desktop_create_is_unsafe_for_uno_bin_helper() -> None:
     import sys
 
-    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
-        assert go.desktop_create_is_unsafe()
-    with (
-        patch.object(sys, "argv", ["soffice"]),
-        patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
-    ):
-        assert not go.desktop_create_is_unsafe()
+    from plugin.framework.uno_context import reset_desktop_create_is_unsafe_for_tests
+
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
+            assert go.desktop_create_is_unsafe()
+        # The first call cached uno.bin. The soffice patch is invisible until reset.
+        reset_desktop_create_is_unsafe_for_tests()
+        with (
+            patch.object(sys, "argv", ["soffice"]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+        ):
+            assert not go.desktop_create_is_unsafe()
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_desktop_create_is_unsafe_when_pythonloader_rewrites_argv() -> None:
     """pythonloader inside uno.bin often leaves argv as '' or a .py path (#768)."""
     import sys
 
+    from plugin.framework.uno_context import reset_desktop_create_is_unsafe_for_tests
+
     proc = ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"]
-    with (
-        patch.object(sys, "argv", [""]),
-        patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
-    ):
-        assert go.desktop_create_is_unsafe()
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with (
+            patch.object(sys, "argv", [""]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
+        ):
+            assert go.desktop_create_is_unsafe()
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 
 
 def test_emit_grammar_status_skips_post_on_no_vcl_helper() -> None:

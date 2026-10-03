@@ -112,7 +112,8 @@ def assert_main_thread(what: str) -> None:
         raise RuntimeError(msg)
     log.warning(msg, stack_info=True)
 ```
-- Decorates primary UNO entry points (`get_desktop`, `get_active_document`, `confirm_unsaved_cell_edit`, etc.).
+- Decorates primary UNO entry points (`get_desktop`, `get_active_document`, `clear_writer_body`, `confirm_unsaved_cell_edit`, etc.).
+- An in-flight violation dialog is keyed by OS thread ident and removed when the dialog returns, so a recycled ident cannot suppress a later popup.
 - **Dev Builds (`GUARD_ON=1`)**: Displays a deduplicated modal error box on the UI thread and raises `RuntimeError`.
 - **Dev Builds with Guard Disabled (`GUARD_ON=0`)**: Logs `log.warning(msg, stack_info=True)` so call sites are captured in logs without crashing user sessions.
 - **Production Release OXTs (`make release`)**: Code packaging via `scripts/strip_code.py` replaces `thread_guard.py` with a minimal zero-overhead stub (`GUARD_ON = False`, `assert_main_thread` no-op, proxy unwrapped), while keeping `sync_host_dispatch()` and `in_sync_host_dispatch()` active for deadlock prevention, and `on_main_thread()` checking `threading.current_thread() is threading.main_thread()` so secondary wait pumps off-main still marshal to the UI thread.
@@ -122,9 +123,10 @@ In `run_in_background`, a thread-local task name is stamped on the worker thread
 
 ### A3. Viral Guarding Proxy (`_UnoThreadGuardProxy` / `guard_uno`)
 Decorators only guard functions we remember to decorate. To protect arbitrary UNO object graphs (such as `doc.getCurrentController().getViewCursor().getText().getEnd()`), all UNO sources wrap returned objects in `_UnoThreadGuardProxy`:
-1. On every attribute lookup (`__getattr__`), method call (`__call__`), property setter (`__setattr__`), item lookup (`__getitem__`), and interface query (`queryInterface`), the proxy invokes `assert_main_thread(...)`.
+1. On every attribute lookup (`__getattr__`), method call (`__call__`), property setter (`__setattr__`), item lookup and assignment (`__getitem__` / `__setitem__` / `__delitem__`), containment, iteration (`__iter__` / `__next__`), context-manager entry, rich comparisons, and interface query (`queryInterface`), the proxy invokes `assert_main_thread(...)`. Implicit special methods do not go through `__getattr__`, so those dunders are declared on the proxy. Release `_wrap_uno` returns the raw object; the stub proxy class is never constructed.
 2. Any PyUNO object returned by an attribute access or method call is **recursively wrapped** in another `_UnoThreadGuardProxy`. Plain Python values (strings, integers, booleans, lists) pass through untouched.
 3. If a guarded proxy is passed back into a property setter on a UNO object, the proxy automatically unwraps itself (`_unwrap_uno`) to prevent wrapping overhead from leaking into LibreOffice C++.
+4. `get_ctx()` keeps one proxy per component-context target, so `get_ctx() is get_ctx()` in dev matches the release stub (the raw object, already stable). A context that is already a guard proxy is returned as that object. `QueueExecutor` still unwraps before it stores a context.
 
 ### A4. Yellow Context Refusal (`sync_host_dispatch`)
 When Calc evaluates an add-in formula like `=PY("1+1")` or `=PROMPT(...)` via a remote PyUNO bridge, execution occurs in a **Yellow Context**:
