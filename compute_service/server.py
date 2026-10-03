@@ -54,12 +54,9 @@ def setup_logging(level_name: str = "INFO") -> None:
     log.setLevel(level)
 
 
-def check_dependencies(pool: Any = None) -> None:
+def check_dependencies(pool: Any) -> None:
     """Verify required dependencies are importable in worker; exit if missing."""
-    if pool is None:
-        from compute_service.formula_pool import get_formula_pool
-
-        pool = get_formula_pool()
+    assert pool is not None, "check_dependencies requires an explicit pool"
     ok, err = pool.check_dependencies(["numpy", "sympy"])
     if not ok:
         print(err or "Error: Required dependencies are not installed in the worker Python environment.\nPlease start the server using './compute_service/start.sh' or activate the correct virtual environment.", file=sys.stderr)
@@ -71,6 +68,13 @@ def check_dependencies(pool: Any = None) -> None:
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, allow_nan=False).encode("utf-8")
+
+
+def _inject_req_id(body: dict[str, Any], req_id: Any) -> dict[str, Any]:
+    """Attach correlation id to response body dict if present."""
+    if req_id is not None:
+        body["id"] = req_id
+    return body
 
 
 def _clear_request_read_deadline(environ: dict[str, Any]) -> None:
@@ -121,8 +125,6 @@ def _source_text_from_part(raw: Any, *, limit: int, label: str, required: bool) 
             text = bytes(raw).decode("utf-8")
         except UnicodeDecodeError:
             return None, {"status": "error", "error": f"Invalid UTF-8 in {label} part."}
-        if required and text == "":
-            return None, {"status": "error", "error": "Missing 'code' string parameter."}
         return text, None
 
     if isinstance(raw, str):
@@ -200,16 +202,13 @@ def _read_optional_request_json(environ: dict[str, Any], settings: ComputeSettin
     ``/v1/execute`` still requires Content-Length > 0 via ``_read_request_body``.
     """
     raw_len = environ.get("CONTENT_LENGTH")
-    if raw_len is None or raw_len == "":
+    if not raw_len:
         return {}, None
     try:
-        content_length = int(raw_len)
+        if int(raw_len) == 0:
+            return {}, None
     except (TypeError, ValueError):
-        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid Content-Length"})
-    if content_length < 0:
-        return None, _start_json(start_response, "400 Bad Request", {"status": "error", "error": "Invalid Content-Length"})
-    if content_length == 0:
-        return {}, None
+        pass  # _read_request_json -> _read_request_body will report Invalid Content-Length
     return _read_request_json(environ, settings, start_response)
 
 
@@ -286,16 +285,12 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
 
             code, err_body = _source_text_from_part(parts.code, limit=settings.max_code_chars, label="code", required=True)
             if err_body is not None:
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "400 Bad Request", err_body)
+                return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
             assert code is not None
 
             if parts.has_session_id:
                 err_body = {"status": "error", "error": "session_id must be provided as a URL query parameter (?session_id=...), not in the request body."}
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "400 Bad Request", err_body)
+                return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
 
             query_string = environ.get("QUERY_STRING", "")
             query_params = urllib.parse.parse_qs(query_string, keep_blank_values=False)
@@ -307,21 +302,15 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             # return 200, so a shared kernel looked successful and kept no state.
             if not isinstance(mode, str) or mode not in ("isolated", "shared"):
                 err_body = {"status": "error", "error": "mode must be 'isolated' or 'shared'."}
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "400 Bad Request", err_body)
+                return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
 
             if mode == "shared" and not session_id:
                 err_body = {"status": "error", "error": "mode='shared' requires a 'session_id' URL query parameter (?session_id=...)."}
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "400 Bad Request", err_body)
+                return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
 
             init_script, err_body = _source_text_from_part(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False)
             if err_body is not None:
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "400 Bad Request", err_body)
+                return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
 
             # Lazy: auth/config layer stays free of plugin.framework.config.
             from compute_service.executor import timeout_ms_to_sec
@@ -352,27 +341,20 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                     # Worker-death codes mean the pool never finished the cell.
                     # They used to stay 200, so a proxy would not retry.
                     infra = _infrastructure_status(result_payload)
+                    _inject_req_id(result_payload, req_id)
                     if infra is not None:
-                        if req_id is not None:
-                            result_payload["id"] = req_id
                         return _start_json(start_response, infra, result_payload)
-                    if req_id is not None:
-                        result_payload["id"] = req_id
 
                 try:
                     return _start_json(start_response, "200 OK", result_payload)
                 except (TypeError, ValueError) as e:
                     err_body = {"status": "error", "error": f"JSON encode failed: {e}"}
-                    if req_id is not None:
-                        err_body["id"] = req_id
-                    return _start_json(start_response, "500 Internal Server Error", err_body)
+                    return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
             except Exception as e:
                 duration_ms = (time.perf_counter() - start_t) * 1000.0
                 log.exception("fail /v1/execute id=%r duration=%.2fms: %s", req_id, duration_ms, e)
                 err_body = {"status": "error", "error": f"Server execution failure: {e}"}
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "500 Internal Server Error", err_body)
+                return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
 
         if path == "/v1/session/reset" and method == "POST":
             # Query-only session_id so L7 can stick to the host that owns the
@@ -392,9 +374,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
 
             if "session_id" in req_data:
                 err_body = {"status": "error", "error": ("session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.")}
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "400 Bad Request", err_body)
+                return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
 
             query_string = environ.get("QUERY_STRING", "")
             query_params = urllib.parse.parse_qs(query_string, keep_blank_values=False)
@@ -403,9 +383,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
 
             if not session_id:
                 err_body = {"status": "error", "error": "Missing 'session_id' URL query parameter (?session_id=...)."}
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "400 Bad Request", err_body)
+                return _start_json(start_response, "400 Bad Request", _inject_req_id(err_body, req_id))
 
             log.info("reset /v1/session/reset id=%r session=%r", req_id, session_id)
             start_t = time.perf_counter()
@@ -423,21 +401,15 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 if isinstance(result_payload, dict) and result_payload.get("status") == "error":
                     # Lease failure. 503 because reset is control-plane, not an eval.
                     err_body = {"status": "error", "code": result_payload.get("code") or "WORKER_POOL_BUSY", "error": result_payload.get("error") or "Could not lease worker to reset session."}
-                    if req_id is not None:
-                        err_body["id"] = req_id
-                    return _start_json(start_response, "503 Service Unavailable", err_body)
+                    return _start_json(start_response, "503 Service Unavailable", _inject_req_id(err_body, req_id))
 
                 ok_body: dict[str, Any] = {"status": "ok"}
-                if req_id is not None:
-                    ok_body["id"] = req_id
-                return _start_json(start_response, "200 OK", ok_body)
+                return _start_json(start_response, "200 OK", _inject_req_id(ok_body, req_id))
             except Exception as e:
                 duration_ms = (time.perf_counter() - start_t) * 1000.0
                 log.exception("fail /v1/session/reset id=%r session=%r duration=%.2fms: %s", req_id, session_id, duration_ms, e)
                 err_body = {"status": "error", "error": f"Server execution failure: {e}"}
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "500 Internal Server Error", err_body)
+                return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
 
         if path == "/v1/vision" and method == "POST":
             _principal, auth_err = authenticate_request(environ, settings)
@@ -460,15 +432,11 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
 
             if not b64_str and not path_str:
                 vision_err_body: dict[str, Any] = {"status": "error", "error": "Missing image input: either 'image_b64' (base64 string buffer) or 'file_path' (server path) is required."}
-                if req_id is not None:
-                    vision_err_body["id"] = req_id
-                return _start_json(start_response, "400 Bad Request", vision_err_body)
+                return _start_json(start_response, "400 Bad Request", _inject_req_id(vision_err_body, req_id))
 
             if path_str and not ocr_path_is_allowed(path_str, settings.ocr_allow_paths):
                 denied: dict[str, Any] = {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
-                if req_id is not None:
-                    denied["id"] = req_id
-                return _start_json(start_response, "400 Bad Request", denied)
+                return _start_json(start_response, "400 Bad Request", _inject_req_id(denied, req_id))
 
             params = req_data.get("params") or {}
             timeout_ms = req_data.get("timeout_ms")
@@ -486,9 +454,8 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             vision_pool = get_vision_pool(settings)
             try:
                 result_payload = vision_pool.execute(helper=helper, image_b64=b64_str, file_path=path_str, params=params if isinstance(params, dict) else {}, timeout_sec=timeout_sec_opt, req_id=req_id, allow_paths=settings.ocr_allow_paths)
-                if req_id is not None and isinstance(result_payload, dict):
-                    result_payload["id"] = req_id
                 if isinstance(result_payload, dict):
+                    _inject_req_id(result_payload, req_id)
                     infra = _infrastructure_status(result_payload)
                     if infra is not None:
                         return _start_json(start_response, infra, result_payload)
@@ -496,25 +463,16 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                     return _start_json(start_response, "200 OK", result_payload)
                 except (TypeError, ValueError) as e:
                     err_body = {"status": "error", "error": f"JSON encode failed: {e}"}
-                    if req_id is not None:
-                        err_body["id"] = req_id
-                    return _start_json(start_response, "500 Internal Server Error", err_body)
+                    return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
             except Exception as e:
                 log.exception("fail /v1/vision id=%r: %s", req_id, e)
                 err_body = {"status": "error", "error": f"Server execution failure: {e}"}
-                if req_id is not None:
-                    err_body["id"] = req_id
-                return _start_json(start_response, "500 Internal Server Error", err_body)
+                return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
 
-        start_response("404 Not Found", [("Content-Type", "text/plain")])
+        start_response("404 Not Found", [("Content-Type", "text/plain"), ("Content-Length", "9")])
         return [b"Not Found"]
 
     return wsgi_app
-
-
-# TEST-ONLY back-compat alias — no auth configured, keyless loopback defaults.
-# Do NOT use this in production; call create_wsgi_app(settings) with real settings instead.
-wsgi_app = create_wsgi_app(ComputeSettings())
 
 
 class DualStackThreadPoolHTTPServer(HTTPServer):
@@ -675,7 +633,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             except Exception:
                 self.handle_error(request, client_address)
                 self.shutdown_request(request)
-            except:  # noqa: E722 — match stdlib BaseServer
+            except BaseException:
                 self.shutdown_request(request)
                 raise
         else:

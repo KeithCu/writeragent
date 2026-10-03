@@ -14,7 +14,6 @@ from __future__ import annotations
 import base64
 import os
 import sys
-import traceback
 from typing import Any
 
 # Ensure repo root is on sys.path
@@ -97,7 +96,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             res["id"] = req_id
         return res
     except Exception as exc:
-        return {"id": req_id, "status": "error", "code": "VISION_WORKER_ERROR", "error": str(exc), "traceback": traceback.format_exc()}
+        # Omit traceback — server paths on the kit wire; see formula_worker.py.
+        return {"id": req_id, "status": "error", "code": "VISION_WORKER_ERROR", "error": str(exc)}
 
 
 def main() -> int:

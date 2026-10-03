@@ -30,10 +30,7 @@ _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "vision_worker.py")
 class VisionProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for Vision/OCR."""
 
-    def __init__(self, settings: ComputeSettings | int | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, idle_worker_ttl_sec: float | None = None) -> None:
-        if isinstance(settings, int):
-            num_workers = settings
-            settings = None
+    def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, idle_worker_ttl_sec: float | None = None) -> None:
         cfg = settings if isinstance(settings, ComputeSettings) else ComputeSettings()
         eff_num_workers = cfg.ocr_workers if num_workers is None else num_workers
         eff_timeout = cfg.ocr_timeout_sec if default_timeout_sec is None else default_timeout_sec

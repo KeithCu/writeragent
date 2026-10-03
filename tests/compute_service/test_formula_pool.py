@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import socket
 import threading
 import time
 import urllib.error
@@ -22,12 +21,7 @@ from compute_service.formula_pool import (
     shutdown_formula_pool,
 )
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
-
-
-def get_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+from tests.compute_service.conftest import get_free_port
 
 
 @pytest.fixture(autouse=True)

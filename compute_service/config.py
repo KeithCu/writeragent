@@ -233,36 +233,30 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
             out["api_key_file"] = auth["api_key_file"]
     limits = raw.get("limits")
     if isinstance(limits, Mapping):
-        if "max_body_bytes" in limits:
-            out["max_body_bytes"] = limits["max_body_bytes"]
-        if "default_timeout_sec" in limits:
-            out["default_timeout_sec"] = limits["default_timeout_sec"]
-        if "max_timeout_sec" in limits:
-            out["max_timeout_sec"] = limits["max_timeout_sec"]
-        if "workers" in limits:
-            out["workers"] = limits["workers"]
-        elif "max_workers" in limits:
-            out["workers"] = limits["max_workers"]
-        if "worker_max_tasks" in limits:
-            out["worker_max_tasks"] = limits["worker_max_tasks"]
-        if "shared_kernel_ttl_sec" in limits:
-            out["shared_kernel_ttl_sec"] = limits["shared_kernel_ttl_sec"]
-        elif "session_ttl_sec" in limits:
-            out["shared_kernel_ttl_sec"] = limits["session_ttl_sec"]
-        if "idle_worker_ttl_sec" in limits:
-            out["idle_worker_ttl_sec"] = limits["idle_worker_ttl_sec"]
-        if "max_code_chars" in limits:
-            out["max_code_chars"] = limits["max_code_chars"]
+        for key in (
+            "max_body_bytes",
+            "default_timeout_sec",
+            "max_timeout_sec",
+            "workers",
+            "max_workers",
+            "worker_max_tasks",
+            "shared_kernel_ttl_sec",
+            "session_ttl_sec",
+            "idle_worker_ttl_sec",
+            "max_code_chars",
+        ):
+            if key in limits:
+                out[key] = limits[key]
     ocr_cfg = raw.get("ocr")
     if isinstance(ocr_cfg, Mapping):
-        if "workers" in ocr_cfg:
-            out["ocr_workers"] = ocr_cfg["workers"]
-        if "timeout_sec" in ocr_cfg:
-            out["ocr_timeout_sec"] = ocr_cfg["timeout_sec"]
-        if "max_tasks" in ocr_cfg:
-            out["ocr_max_tasks"] = ocr_cfg["max_tasks"]
-        if "allow_paths" in ocr_cfg:
-            out["ocr_allow_paths"] = ocr_cfg["allow_paths"]
+        for ocr_key, out_key in (
+            ("workers", "ocr_workers"),
+            ("timeout_sec", "ocr_timeout_sec"),
+            ("max_tasks", "ocr_max_tasks"),
+            ("allow_paths", "ocr_allow_paths"),
+        ):
+            if ocr_key in ocr_cfg:
+                out[out_key] = ocr_cfg[ocr_key]
     logging_cfg = raw.get("logging")
     if isinstance(logging_cfg, Mapping):
         if "log_level" in logging_cfg:
@@ -292,14 +286,12 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
     ):
         if key in raw and key not in out:
             out[key] = raw[key]
-    if "session_ttl_sec" in out and "shared_kernel_ttl_sec" not in out:
-        out["shared_kernel_ttl_sec"] = out.pop("session_ttl_sec")
-    else:
-        out.pop("session_ttl_sec", None)
-    if "max_workers" in out and "workers" not in out:
-        out["workers"] = out.pop("max_workers")
-    else:
-        out.pop("max_workers", None)
+
+    # Resolve aliases once after collecting all nested and flat keys
+    if "session_ttl_sec" in out:
+        out.setdefault("shared_kernel_ttl_sec", out.pop("session_ttl_sec"))
+    if "max_workers" in out:
+        out.setdefault("workers", out.pop("max_workers"))
     return out
 
 

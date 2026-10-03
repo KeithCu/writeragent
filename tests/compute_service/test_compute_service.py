@@ -62,18 +62,7 @@ def _wsgi_post(
     parsed = json.loads(out.decode("utf-8")) if out else {}
     return status_holder[0], header_holder, parsed
 from plugin.version import EXTENSION_VERSION
-
-
-def get_free_port() -> int:
-    # Use AF_INET6 to bind if possible, fallback to AF_INET
-    try:
-        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
-            s.bind(("", 0))
-            return s.getsockname()[1]
-    except OSError:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("", 0))
-            return s.getsockname()[1]
+from tests.compute_service.conftest import get_free_port
 
 
 @pytest.fixture(scope="module")

@@ -41,10 +41,7 @@ class FormulaProcessPool(BaseProcessPool):
 
     shared_kernel_ttl_sec: float
 
-    def __init__(self, settings: ComputeSettings | int | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, shared_kernel_ttl_sec: float | None = None, idle_worker_ttl_sec: float | None = None) -> None:
-        if isinstance(settings, int):
-            num_workers = settings
-            settings = None
+    def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, shared_kernel_ttl_sec: float | None = None, idle_worker_ttl_sec: float | None = None) -> None:
         cfg = settings if isinstance(settings, ComputeSettings) else ComputeSettings()
         eff_num_workers = cfg.workers if num_workers is None else num_workers
         eff_timeout = cfg.default_timeout_sec if default_timeout_sec is None else default_timeout_sec
@@ -64,15 +61,11 @@ class FormulaProcessPool(BaseProcessPool):
 
     def _start_session_ttl_reaper(self) -> None:
         interval = max(0.02, min(self.shared_kernel_ttl_sec / 6.0, 300.0))
-
-        def _reap_loop() -> None:
-            while not self._is_shutdown:
-                time.sleep(interval)
-                self._evict_stale_sessions()
-
-        t = threading.Thread(target=_reap_loop, name="formula-session-reaper", daemon=True)
-        t.start()
-        self._session_reaper_thread = t
+        self._session_reaper_thread = self._start_reaper(
+            name="formula-session-reaper",
+            interval=interval,
+            fn=self._evict_stale_sessions,
+        )
 
     def _evict_stale_sessions(self) -> None:
         if self._is_shutdown:
@@ -90,6 +83,7 @@ class FormulaProcessPool(BaseProcessPool):
             # Lease first, then re-check the stamp. Popping before the reset
             # let a cell that finished during the wait get wiped anyway, and
             # the "evicted" log ran even when the lease was skipped.
+            # Lease before pop — see reset_session docstring for the TOCTOU race.
             leased = self.lease_specific(worker, timeout_sec=2.0)
             if leased is None:
                 log.debug("TTL eviction skipped for %s: worker is currently leased", sid)
@@ -243,15 +237,14 @@ class FormulaProcessPool(BaseProcessPool):
         # is real even on CPython when shutdown races execute on another thread.
         with self._lock:
             workers_snapshot = list(self.workers)
+        busy_code = "WORKER_POOL_BUSY"
         if mode == "shared" and session_id and workers_snapshot:
             worker_idx = abs(hash(session_id)) % len(workers_snapshot)
             target_worker = workers_snapshot[worker_idx]
             leased = self.lease_specific(target_worker, timeout_sec=_remaining_sec(deadline))
-            busy_code = "WORKER_POOL_BUSY"
             busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
         else:
             leased = self.lease_any(timeout_sec=_remaining_sec(deadline))
-            busy_code = "WORKER_POOL_BUSY"
             busy_err = "All formula workers are currently busy and request timed out waiting for worker lease."
 
         if leased is None:

@@ -379,18 +379,24 @@ class BaseProcessPool:
         if self.idle_worker_ttl_sec is not None and self.idle_worker_ttl_sec > 0:
             self._start_idle_reaper()
 
+    def _start_reaper(self, name: str, interval: float, fn: Callable[[], None]) -> threading.Thread:
+        def _loop() -> None:
+            while not self._is_shutdown:
+                time.sleep(interval)
+                fn()
+
+        t = threading.Thread(target=_loop, name=name, daemon=True)
+        t.start()
+        return t
+
     def _start_idle_reaper(self) -> None:
         ttl = cast(float, self.idle_worker_ttl_sec)
         interval = max(0.02, min(ttl / 6.0, 300.0))
-
-        def _reap_loop() -> None:
-            while not self._is_shutdown:
-                time.sleep(interval)
-                self._evict_idle_workers()
-
-        t = threading.Thread(target=_reap_loop, name=f"{self.worker_name}-idle-reaper", daemon=True)
-        t.start()
-        self._idle_reaper_thread = t
+        self._idle_reaper_thread = self._start_reaper(
+            name=f"{self.worker_name}-idle-reaper",
+            interval=interval,
+            fn=self._evict_idle_workers,
+        )
 
     def _evict_idle_workers(self) -> None:
         if self._is_shutdown or self.idle_worker_ttl_sec is None:

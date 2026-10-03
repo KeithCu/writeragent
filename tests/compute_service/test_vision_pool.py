@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import base64
 import json
-import socket
 import threading
 import time
 import urllib.error
@@ -26,10 +25,7 @@ from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
 from compute_service.vision_worker import _FILE_READ_MAX_BYTES, _handle_request, _read_allowed_image
 
 
-def get_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+from tests.compute_service.conftest import get_free_port
 
 
 # Minimal 1x1 PNG base64 for testing
