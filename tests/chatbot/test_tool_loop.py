@@ -307,6 +307,9 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
         
         res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
+        # The drain is still inside this send, so the turn is alive and the
+        # worker can enqueue. After _start returns, abort drops a late put.
+        results.append(q.get(timeout=2))
 
     mock_drain_loop.side_effect = mock_drain_impl
 
@@ -321,8 +324,9 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
     panel._set_status.assert_called_with("Running: apply_document_content")
     panel._append_response.assert_called_with("[Running tool: apply_document_content...]\n")
 
-    # The tool runs on a worker so the drain can keep pumping. Wait for its result.
-    queued_item = captured_q.get(timeout=2)
+    # The tool runs on a worker so the drain can keep pumping. The result
+    # was taken while that drain was still inside the send.
+    queued_item = results[1]
     execute_tool_mock.assert_called_once()
 
     assert queued_item[0] == StreamQueueKind.TOOL_DONE
