@@ -32,7 +32,7 @@ import sys
 import logging
 import threading
 import weakref
-from typing import Any
+from typing import Any, cast
 
 log = logging.getLogger("writeragent.events")
 
@@ -100,21 +100,40 @@ class EventBus:
             callback: Callable to invoke when the event is emitted.
             weak:     If True, store a weakref to the callback's bound
                       object. The subscription auto-removes when the
-                      object is garbage-collected.
+                      object is garbage-collected. Builtin bound methods
+                      are not Python methods: ``WeakMethod`` raises
+                      ``TypeError``, and the plain ``weakref.ref`` fallback
+                      is used instead (or a strong ref if that also fails).
         """
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         entry: tuple[Any, bool]
         if weak and hasattr(callback, "__self__"):
-            entry = (weakref.WeakMethod(callback, lambda r: self._cleanup(event, r)), True)
-        elif weak:
             try:
-                entry = (weakref.ref(callback, lambda r: self._cleanup(event, r)), True)
+                entry = (weakref.WeakMethod(callback, lambda r: self._cleanup(event, r)), True)
             except TypeError:
-                entry = (callback, False)
+                # What was wrong: this branch called WeakMethod whenever the
+                # callable had ``__self__``. Builtin bound methods (and other
+                # non-Python methods) have ``__self__`` but are not methods,
+                # so WeakMethod raises TypeError and subscribe crashed.
+                # How: ``hasattr(__self__)`` is true for ``builtin_function_or_method``.
+                # Why: catch that TypeError and use the same weakref.ref
+                # fallback as the plain weak path. Python methods still
+                # take the WeakMethod path above.
+                entry = self._weakref_or_strong(event, callback)
+        elif weak:
+            entry = self._weakref_or_strong(event, callback)
         else:
             entry = (callback, False)
         with self._lock:
             self._subscribers.setdefault(event, []).append(entry)
+
+    def _weakref_or_strong(self, event: str, callback: Any) -> tuple[Any, bool]:
+        """Weak-ref *callback*, or keep it strongly if it cannot be weak."""
+        # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
+        try:
+            return (weakref.ref(callback, lambda r: self._cleanup(event, r)), True)
+        except TypeError:
+            return (callback, False)
 
     def unsubscribe(self, event: str, callback: Any) -> None:
         """Remove *callback* from *event*."""
@@ -209,18 +228,47 @@ class EventBus:
 _event_bus_lock = threading.Lock()
 
 
+def _event_bus_qualified_name(cls: type) -> tuple[str, str] | None:
+    """``(__module__, __qualname__)`` for *cls*, or None if either is missing."""
+    module_name = getattr(cls, "__module__", None)
+    qualname = getattr(cls, "__qualname__", None)
+    if isinstance(module_name, str) and isinstance(qualname, str):
+        return (module_name, qualname)
+    return None
+
+
+def _is_event_bus_instance(obj: Any) -> bool:
+    """True when *obj* is an EventBus, even from another import of this file.
+
+    What was wrong: ``isinstance(obj, EventBus)`` uses the class object from
+    this import. A second import defines a new ``EventBus`` class, the check
+    fails, and ``get_event_bus`` overwrites ``sys._writeragent_event_bus``.
+    Subscriptions on the first bus are orphaned.
+    How: LibreOffice can load this module twice (same qualified name, two
+    class objects), the same reason ``load_modules`` matches ``ModuleBase``
+    by name instead of class identity.
+    Why: compare ``__module__`` and ``__qualname__`` rather than ``isinstance``.
+    """
+    if obj is None:
+        return False
+    return _event_bus_qualified_name(type(obj)) == _event_bus_qualified_name(EventBus)
+
+
 def get_event_bus() -> EventBus:
     """Return the true singleton EventBus across all LO import contexts.
 
-    The lock covers create only, not ``emit``.
+    The lock covers create only, not ``emit``. A stored bus is reused when
+    its class has the same qualified name as ``EventBus``, so a second import
+    of this module does not replace it.
     """
     existing = getattr(sys, "_writeragent_event_bus", None)
-    if isinstance(existing, EventBus):
-        return existing
+    if _is_event_bus_instance(existing):
+        # Twin class from a second import: same qualified name, not this EventBus.
+        return cast("EventBus", existing)
     with _event_bus_lock:
         existing = getattr(sys, "_writeragent_event_bus", None)
-        if isinstance(existing, EventBus):
-            return existing
+        if _is_event_bus_instance(existing):
+            return cast("EventBus", existing)
         bus = EventBus()
         setattr(sys, "_writeragent_event_bus", bus)
         return bus

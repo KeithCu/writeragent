@@ -99,6 +99,114 @@ def test_load_modules_warns_when_two_subclasses(mock_load_manifest, caplog):
     assert any(('exposes 2 ModuleBase subclasses' in record.message) for record in caplog.records)
     assert any(('AlphaModule' in record.message and 'ZetaModule' in record.message) for record in caplog.records)
 
+
+def _module_package(class_obj):
+    import types
+
+    package = types.ModuleType("plugin." + class_obj.__name__)
+    setattr(package, class_obj.__name__, class_obj)
+    return package
+
+
+@patch('plugin.framework.module_base.ModuleLoader.load_manifest')
+def test_load_modules_shuts_down_when_initialize_fails(mock_load_manifest, caplog):
+    """A failed initialize must release what the module registered, then be omitted.
+
+    The failure stays in the log, and a later module still loads.
+    """
+    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'partial'}, {'name': 'later'}]
+    from plugin.framework.event_bus import EventBus
+
+    class ModuleBase:
+        pass
+
+    bus = EventBus()
+    registry = {'events': bus, 'services': {}}
+    pings = []
+
+    class PartialModule(ModuleBase):
+        def initialize(self, services):
+            services['services']['partial'] = self
+
+            def on_ping():
+                pings.append('ping')
+
+            self._on_ping = on_ping
+            services['events'].subscribe('ping', on_ping)
+            raise RuntimeError('init failed')
+
+        def shutdown(self):
+            pings.append('shutdown')
+            self_services = registry['services']
+            self_services.pop('partial', None)
+            registry['events'].unsubscribe('ping', self._on_ping)
+
+    class LaterModule(ModuleBase):
+        def initialize(self, services):
+            pings.append('later')
+
+    packages = {
+        'plugin.partial': _module_package(PartialModule),
+        'plugin.later': _module_package(LaterModule),
+    }
+    import os
+
+    def fake_import(path):
+        return packages[path]
+
+    with patch('importlib.import_module', side_effect=fake_import), patch.object(os.path, 'isdir', return_value=True):
+        with caplog.at_level(logging.ERROR, logger='writeragent.module_base'):
+            modules = ModuleLoader.load_modules(registry)
+    assert len(modules) == 1
+    assert type(modules[0]).__name__ == 'LaterModule'
+    assert pings == ['shutdown', 'later']
+    assert 'partial' not in registry['services']
+    registry['events'].emit('ping')
+    assert pings == ['shutdown', 'later']
+    failed = [record for record in caplog.records if record.message == 'Failed to load module partial']
+    assert len(failed) == 1
+    assert failed[0].exc_info is not None
+    assert failed[0].exc_info[1].args == ('init failed',)
+
+
+@patch('plugin.framework.module_base.ModuleLoader.load_manifest')
+def test_load_modules_logs_initialize_failure_when_shutdown_fails(mock_load_manifest, caplog):
+    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'partial'}, {'name': 'later'}]
+    started = []
+
+    class ModuleBase:
+        pass
+
+    class PartialModule(ModuleBase):
+        def initialize(self, services):
+            raise RuntimeError('init failed')
+
+        def shutdown(self):
+            raise RuntimeError('shutdown failed')
+
+    class LaterModule(ModuleBase):
+        def initialize(self, services):
+            started.append('later')
+
+    packages = {
+        'plugin.partial': _module_package(PartialModule),
+        'plugin.later': _module_package(LaterModule),
+    }
+    import os
+
+    def fake_import(path):
+        return packages[path]
+
+    with patch('importlib.import_module', side_effect=fake_import), patch.object(os.path, 'isdir', return_value=True):
+        with caplog.at_level(logging.ERROR, logger='writeragent.module_base'):
+            modules = ModuleLoader.load_modules({})
+    assert len(modules) == 1
+    assert started == ['later']
+    messages = [record.message for record in caplog.records]
+    assert 'Failed to load module partial' in messages
+    assert 'Module partial failed during shutdown after initialize failed' in messages
+
+
 class MyModule(ModuleBase):
     name = 'my_module'
 

@@ -181,6 +181,10 @@ class ModuleLoader:
         """
         Discovers, imports, and initializes modules based on the manifest.
         Returns a list of initialized module instances.
+
+        If ``initialize`` raises, ``shutdown`` runs first so services and
+        subscriptions that module already registered are released, then the
+        module is omitted. The initialize failure is still logged.
         """
         initialized_modules: list[ModuleBase] = []
         manifests = cls.topo_sort(cls.load_manifest())
@@ -236,7 +240,21 @@ class ModuleLoader:
                     # (dynamic import cannot prove subclass to static analysis).
                     mod = cast("ModuleBase", mod)
                     mod.name = name
-                    mod.initialize(services_registry)
+                    try:
+                        mod.initialize(services_registry)
+                    except Exception:
+                        # What was wrong: initialize can register services or
+                        # subscriptions and then raise. The except logged the
+                        # error and left the module out of the returned list,
+                        # so main never called shutdown on that work.
+                        # Why: shut the module down (its hook releases what it
+                        # registered) before omitting it, and keep this log.
+                        log.exception("Failed to load module %s", name)
+                        try:
+                            mod.shutdown()
+                        except Exception:
+                            log.exception("Module %s failed during shutdown after initialize failed", name)
+                        continue
                     initialized_modules.append(mod)
             except Exception:
                 log.exception("Failed to load module %s", name)
