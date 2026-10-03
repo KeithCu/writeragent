@@ -9,6 +9,7 @@ from plugin.writer.specialized.indexes import (
     IndexesInsertTocEntry,
     IndexesList,
     IndexesListCites,
+    IndexesListTocEntries,
     IndexesRefreshTocEntry,
     IndexesUpdateAll,
 )
@@ -612,3 +613,58 @@ def test_toc_entry_insert_delete_without_a_toc_uno(ctx, doc):
     assert "table of contents" in inserted.get("message", ""), inserted
     assert doc.getDocumentIndexes().getCount() == 0
     assert doc.getText().getString() == "Just a paragraph."
+
+
+@native_test
+@with_native_doc("writer")
+def test_list_toc_entries_reads_linked_rows_without_export_uno(ctx, doc):
+    """Visible text, level, and hyperlink come from the index, not XHTML export.
+
+    A linked TOC is a bad input for the XHTML Writer filter. Listing must not
+    call that export or ContentIndex.update().
+    """
+    from unittest.mock import patch
+
+    text = doc.getText()
+    text.setString("")
+    _add_heading(text, "Alpha title", True)
+    _add_heading(text, "Beta title", False)
+    tctx = _tool_ctx(ctx, doc)
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    assert created.get("status") == "ok", created
+    toc = doc.getDocumentIndexes().getByIndex(0)
+    entries = _tab_paragraphs(doc)
+    assert len(entries) >= 2, [para.getString() for para in entries]
+    protected = bool(toc.getPropertyValue("IsProtected"))
+    if protected:
+        toc.IsProtected = False
+    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
+    beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+    outline = "#1.Alpha title|outline"
+    bookmark = "#__RefHeading___Toc999"
+    _paint_entry(text, alpha, outline)
+    _paint_entry(text, beta, bookmark)
+    if protected:
+        toc.IsProtected = True
+    before = doc.getText().getString()
+
+    def _refuse_export(*_args, **_kwargs):
+        raise AssertionError("full document export")
+
+    with patch("plugin.writer.html_export._export_xhtml", side_effect=_refuse_export), \
+         patch("plugin.writer.html_export.document_to_content", side_effect=_refuse_export), \
+         patch("plugin.writer.format.document_to_content", side_effect=_refuse_export):
+        listed = IndexesListTocEntries().execute(tctx)
+
+    assert listed.get("status") == "ok", listed
+    assert doc.getText().getString() == before
+    assert bool(toc.getPropertyValue("IsProtected")) is protected
+    rows = listed["entries"]
+    alpha_row = next(row for row in rows if "Alpha title" in row["text"])
+    beta_row = next(row for row in rows if "Beta title" in row["text"])
+    assert alpha_row["level"] == 1, alpha_row
+    assert beta_row["level"] == 1, beta_row
+    assert "\t" in alpha_row["text"], alpha_row
+    assert alpha_row["hyperlink_url"] == outline, alpha_row
+    assert beta_row["hyperlink_url"] == bookmark, beta_row
+    assert all(row["text"].strip() != "Contents" for row in rows), rows

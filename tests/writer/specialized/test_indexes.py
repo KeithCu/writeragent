@@ -8,6 +8,7 @@ from plugin.writer.specialized.indexes import (
     IndexesDeleteTocEntry,
     IndexesInsertTocEntry,
     IndexesListCites,
+    IndexesListTocEntries,
     _compose_toc_line,
     canonicalize_bibliography_field_name,
     collect_bibliography_field_pairs,
@@ -475,3 +476,202 @@ def test_insert_toc_entry_param_errors_and_dry_run():
     assert leveled["para_style"] == "Contents 2"
     assert leveled["hyperlink_url"] == "#1.Gamma title|outline"
     idx.update.assert_not_called()
+
+
+class _Point:
+    def __init__(self, para):
+        self.para = para
+
+
+class _LinkPortion:
+    def __init__(self, url):
+        self.url = url
+
+    def getPropertyValue(self, name):
+        if name == "HyperLinkURL":
+            return self.url
+        return ""
+
+
+class _ElementEnum:
+    def __init__(self, items):
+        self._items = list(items)
+        self._at = 0
+
+    def hasMoreElements(self):
+        return self._at < len(self._items)
+
+    def nextElement(self):
+        item = self._items[self._at]
+        self._at += 1
+        return item
+
+
+class _IndexPara:
+    """One paragraph the TOC walk can contain or leave outside the anchor."""
+
+    def __init__(self, text, style, urls, inside):
+        self.text = text
+        self.style = style
+        self.urls = list(urls)
+        self.inside = inside
+        self._start = _Point(self)
+        self._end = _Point(self)
+
+    def getString(self):
+        return self.text
+
+    def getStart(self):
+        return self._start
+
+    def getEnd(self):
+        return self._end
+
+    def getPropertyValue(self, name):
+        if name == "ParaStyleName":
+            return self.style
+        raise KeyError(name)
+
+    def createEnumeration(self):
+        return _ElementEnum(_LinkPortion(url) for url in self.urls)
+
+
+class _IndexText:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def createEnumeration(self):
+        return _ElementEnum(self.rows)
+
+    def compareRegionStarts(self, _outer_start, inner_start):
+        return 0 if inner_start.para.inside else -1
+
+    def compareRegionEnds(self, inner_end, _outer_end):
+        return 0 if inner_end.para.inside else -1
+
+
+class _IndexAnchor:
+    def __init__(self, text):
+        self._text = text
+        self._start = _Point(None)
+        self._end = _Point(None)
+
+    def getText(self):
+        return self._text
+
+    def getStart(self):
+        return self._start
+
+    def getEnd(self):
+        return self._end
+
+
+def _attach_index_rows(ctx, idx, rows):
+    text = _IndexText(rows)
+    idx.getAnchor.return_value = _IndexAnchor(text)
+    ctx.doc.storeToURL.side_effect = AssertionError("XHTML storeToURL")
+    return ctx
+
+
+def test_list_toc_entries_reads_rows_not_the_full_export():
+    """A long linked TOC is listed from index paragraphs, not the XHTML export.
+
+    What was wrong: inspecting rows called get_document_content, which exports
+    the whole document through the XHTML Writer filter. A linked TOC is a bad
+    input for that filter. This listing must not call that export or update().
+    """
+    tool = IndexesListTocEntries()
+    ctx, _doc, idx, _mgr = _one_toc_context()
+    rows = [_IndexPara("Contents", "Contents Heading", [], True)]
+    count = 800
+    for i in range(count):
+        level = 3 if i % 5 == 0 else 1
+        rows.append(_IndexPara(
+            "Section %d\t%d" % (i, i + 1),
+            "Contents %d" % level,
+            ["#%d.Section %d|outline" % (level, i)],
+            True,
+        ))
+    rows.append(_IndexPara("Body only heading", "Heading 1", ["#body|outline"], False))
+    rows.append(_IndexPara(
+        "Bookmark row\t9", "Contents 2", ["#__RefHeading___Toc999"], True))
+    rows.append(_IndexPara(
+        "Linked both\t2",
+        "Contents 1",
+        ["https://example.invalid/toc", "#1.Linked both|outline"],
+        True,
+    ))
+    _attach_index_rows(ctx, idx, rows)
+    idx.update.side_effect = AssertionError("ContentIndex.update")
+
+    with patch("plugin.writer.html_export._export_xhtml", side_effect=AssertionError("xhtml export")) as export_xhtml, \
+         patch("plugin.writer.html_export.document_to_content", side_effect=AssertionError("full export")) as export_doc, \
+         patch("plugin.writer.format.document_to_content", side_effect=AssertionError("format export")) as export_format, \
+         patch("plugin.writer.content.GetDocumentContent.execute", side_effect=AssertionError("get_document_content")) as export_tool:
+        listed = tool.execute(ctx)
+
+    assert listed["status"] == "ok", listed
+    assert listed["index"] == 0
+    assert listed["count"] == count + 2
+    assert export_xhtml.call_count == 0
+    assert export_doc.call_count == 0
+    assert export_format.call_count == 0
+    assert export_tool.call_count == 0
+    ctx.doc.storeToURL.assert_not_called()
+    first = listed["entries"][0]
+    assert first == {
+        "text": "Section 0\t1",
+        "level": 3,
+        "hyperlink_url": "#3.Section 0|outline",
+    }
+    plain = listed["entries"][1]
+    assert plain["text"] == "Section 1\t2"
+    assert plain["level"] == 1
+    assert plain["hyperlink_url"] == "#1.Section 1|outline"
+    texts = [row["text"] for row in listed["entries"]]
+    assert "Contents" not in texts
+    assert "Body only heading" not in texts
+    bookmark = listed["entries"][-2]
+    assert bookmark["text"] == "Bookmark row\t9"
+    assert bookmark["level"] == 2
+    assert bookmark["hyperlink_url"] == "#__RefHeading___Toc999"
+    both = listed["entries"][-1]
+    assert both["text"] == "Linked both\t2"
+    assert both["hyperlink_url"] == "#1.Linked both|outline"
+    assert "https://example.invalid/toc" not in both["hyperlink_url"]
+
+
+def test_list_toc_entries_rejects_a_missing_or_non_toc_index():
+    tool = IndexesListTocEntries()
+    empty = MagicMock()
+    empty.doc.getDocumentIndexes.return_value.getCount.return_value = 0
+    missing = tool.execute(empty)
+    assert missing["status"] == "error"
+    assert missing["code"] == "INVALID_PARAM"
+    assert "table of contents" in missing["message"]
+
+    ctx = MagicMock()
+    indexes = MagicMock()
+    indexes.getCount.return_value = 2
+    alphabetical = MagicMock()
+    alphabetical.getServiceName.return_value = "com.sun.star.text.DocumentIndex"
+    toc = MagicMock()
+    toc.getServiceName.return_value = "com.sun.star.text.ContentIndex"
+    toc.getAnchor.side_effect = RuntimeError("disposed anchor")
+    indexes.getByIndex.side_effect = lambda i: (alphabetical, toc)[i]
+    ctx.doc.getDocumentIndexes.return_value = indexes
+
+    needs_index = tool.execute(ctx)
+    assert needs_index["status"] == "error"
+    assert "exactly one table of contents" in needs_index["message"]
+
+    not_toc = tool.execute(ctx, index=0)
+    assert not_toc["status"] == "error"
+    assert "not a table of contents" in not_toc["message"]
+    alphabetical.update.assert_not_called()
+    toc.update.assert_not_called()
+
+    unreadable = tool.execute(ctx, index=1)
+    assert unreadable["status"] == "error"
+    assert unreadable["code"] == "TOOL_EXECUTION_ERROR"
+    toc.update.assert_not_called()
