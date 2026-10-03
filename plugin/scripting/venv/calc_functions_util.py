@@ -15,6 +15,7 @@ import numpy as np
 from .coerce import is_missing_value
 
 __all__ = [
+    "_collect_a_values",
     "_extract_numeric_array",
     "_find_match_index",
     "_npf_result",
@@ -34,6 +35,13 @@ def _to_float_a(val: Any) -> float:
         return float(val)
     except (ValueError, TypeError):
         return 0.0
+
+
+def _collect_a_values(*args: Any) -> np.ndarray:
+    """Collect flat float array for *A functions (AVERAGEA, MAXA, etc.)."""
+    vals = [_to_float_a(v) for arg in args for v in np.asarray(arg).ravel()]
+    return np.asarray(vals, dtype=float)
+
 
 
 
