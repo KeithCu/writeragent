@@ -8,9 +8,10 @@ Provides:
 - High-speed length-prefixed Pickle 5 binary framing over stdio pipes
 - Deadline-bounded pickle reads (header + payload)
 - Live stderr drain (start_stderr_drain) so piped stderr cannot deadlock
-- Hard SIGKILL watchdog timers on hangs/timeouts (vision drains one late frame first)
-- Exclusive worker occupancy (idle set + Condition) so sticky and isolated jobs
-  never share a process concurrently
+- Hard SIGKILL only when a child never writes its response frame (vision drains
+  one late frame first; formula waits for the in-process error frame)
+- Exclusive worker occupancy. Idle means the process completed a handshake or
+  a response frame was consumed — a dead pid is not idle
 - Automatic crash recovery and worker recycling after max_tasks
 """
 
@@ -123,15 +124,20 @@ class BaseProcessWorker:
     tasks_executed: int
     did_respawn: bool
     recover_on_timeout: bool
+    on_process_exit: Callable[[int], None] | None
     _drain_state: _DrainState
     _drain_lock: threading.Lock
 
-    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False) -> None:
+    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False, on_process_exit: Callable[[int], None] | None = None) -> None:
         self.worker_id = worker_id
         self.script_path = script_path
         self.worker_name = worker_name
         self.max_payload_bytes = max_payload_bytes
         self.recover_on_timeout = recover_on_timeout
+        # Formula sessions key off this pid. The callback runs once the child
+        # is being reaped so the supervisor can drop every session on it
+        # before a replacement process is started.
+        self.on_process_exit = on_process_exit
         self.process: subprocess.Popen[bytes] | None = None
         self.lock = threading.Lock()
         # Serializes kill/reap. Distinct from ``lock``, which execute holds
@@ -168,6 +174,7 @@ class BaseProcessWorker:
         with self._lifecycle_lock:
             previous = self.process
             drain = self._stderr_drain
+            pid = previous.pid if previous is not None else None
             self.process = None
             self._stderr_drain = None
             # Signal only a child poll() still reports as running. After
@@ -183,6 +190,15 @@ class BaseProcessWorker:
                     previous.wait(timeout=1.0)
                 except Exception:
                     pass
+            # After wait(), the pid is reaped. Tell the pool before the next
+            # Popen can reuse it. A callback that runs while poll() still
+            # said "running" used to race a lookup that treated the session
+            # as live.
+            if pid is not None and self.on_process_exit is not None:
+                try:
+                    self.on_process_exit(pid)
+                except Exception:
+                    log.exception("%s #%d process-exit callback failed for pid=%s", self.worker_name, self.worker_id, pid)
         if drain is not None:
             drain.join(timeout=0.2)
 
@@ -298,8 +314,10 @@ class BaseProcessWorker:
                     log.warning("%s execution timed out after %.1fs on worker #%d; draining late frame from pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid)
                     self._start_late_drain(timeout_sec)
                 else:
-                    # A formula kernel that missed its in-process budget can be
-                    # stuck in C. The process is not safe to reuse.
+                    # The in-process alarm did not return a frame inside the
+                    # grace period (stuck in C, or the host clock was shorter
+                    # than the child). SIGKILL is the last resort. Reap drops
+                    # every shared session on this pid before the slot is reused.
                     log.warning("%s execution timed out after %.1fs on worker #%d; terminating pid=%s", self.worker_name, timeout_sec, self.worker_id, self.process.pid)
                     self.kill()
                 return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
@@ -402,7 +420,7 @@ class BaseProcessPool:
     _cond: threading.Condition
     _reaper_stop_event: threading.Event
 
-    def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False) -> None:
+    def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False, on_process_exit: Callable[[int], None] | None = None) -> None:
         self.script_path = script_path
         self.num_workers = max(0, num_workers)
         self.default_timeout_sec = default_timeout_sec
@@ -414,6 +432,9 @@ class BaseProcessPool:
         self._is_shutdown = False
         self._lock = threading.Lock()
         self._idle: set[BaseProcessWorker] = set()
+        # Leased or cold-claimed. A dead process is neither idle nor leased
+        # until the next lease respawns it.
+        self._leased: set[BaseProcessWorker] = set()
         self._worker_last_active: dict[BaseProcessWorker, float] = {}
         self._cond = threading.Condition(self._lock)
         self._reaper_stop_event = threading.Event()
@@ -421,13 +442,16 @@ class BaseProcessPool:
 
         if self.num_workers > 0:
             for i in range(self.num_workers):
-                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, recover_on_timeout=recover_on_timeout)
+                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, recover_on_timeout=recover_on_timeout, on_process_exit=on_process_exit)
                 self.workers.append(w)
-                self._idle.add(w)
-                # Stamp after spawn. A timestamp taken before this loop made a
-                # slow handshake look already idle, so a short idle TTL killed
-                # the child as soon as the reaper ran.
-                self._worker_last_active[w] = time.monotonic()
+                # Idle only after the ready handshake. A failed spawn stays
+                # out of the idle set; the next lease respawns that slot.
+                if w.is_alive():
+                    self._idle.add(w)
+                    # Stamp after spawn. A timestamp taken before this loop made a
+                    # slow handshake look already idle, so a short idle TTL killed
+                    # the child as soon as the reaper ran.
+                    self._worker_last_active[w] = time.monotonic()
 
         if self.idle_worker_ttl_sec is not None and self.idle_worker_ttl_sec > 0:
             self._start_idle_reaper()
@@ -468,16 +492,20 @@ class BaseProcessPool:
                     stale.append(w)
             # Remove from idle set while holding the lock so lease_any()
             # cannot pop a worker we are about to kill.
+            for w in list(self._idle):
+                if not w.is_alive():
+                    # Already exited. poll() inside is_alive reaped it. It is
+                    # not idle: the next lease performs the handshake.
+                    self._idle.discard(w)
             for w in stale:
                 self._idle.discard(w)
         for w in stale:
             w.kill()
-        # Re-add dead workers to idle so future lease_any() can lazy-respawn.
+        # Do not put the killed process back in idle. Idle is a successful
+        # handshake or a consumed response frame. lease_any claims the cold
+        # slot and respawns it.
         if stale:
             with self._cond:
-                for w in stale:
-                    if not self._is_shutdown:
-                        self._idle.add(w)
                 self._cond.notify_all()
             log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(stale), self.worker_name, self.idle_worker_ttl_sec)
 
@@ -493,35 +521,67 @@ class BaseProcessPool:
         return self.num_workers > 0 and not self._is_shutdown
 
     def _pick_idle_worker(self) -> BaseProcessWorker | None:
-        """Pop and return one idle worker from self._idle. Caller must hold self._cond."""
-        if not self._idle:
-            return None
-        return self._idle.pop()
+        """Pop one protocol-ready idle worker. Caller must hold self._cond.
+
+        A dead pid is removed from idle rather than returned. The caller
+        claims that slot as cold and respawns it (handshake, then leased).
+        """
+        while self._idle:
+            worker = self._idle.pop()
+            if worker.is_alive():
+                return worker
+        return None
+
+    def _claim_cold_unlocked(self) -> BaseProcessWorker | None:
+        """Return a pool slot whose process has exited and nobody holds.
+
+        Caller holds self._cond. The slot is not idle: idle is only a
+        successful handshake or a consumed response frame.
+        """
+        for worker in self.workers:
+            if worker in self._idle or worker in self._leased:
+                continue
+            if not worker.is_alive():
+                return worker
+        return None
 
     def lease_any(self, timeout_sec: float) -> BaseProcessWorker | None:
-        """Acquire any idle worker, or None on timeout / shutdown."""
+        """Acquire a protocol-ready worker, or a dead slot the caller will respawn.
+
+        The dead slot is not idle. ``execute`` performs the handshake and
+        sets ``did_respawn``; release idles the worker only after that
+        handshake or after a response frame is consumed.
+        """
         deadline = time.monotonic() + max(0.0, float(timeout_sec))
-        with self._cond:
-            while True:
+        while True:
+            with self._cond:
                 if self._is_shutdown:
                     return None
-                worker = self._pick_idle_worker()
-                if worker is not None:
-                    return worker
+                claimed = self._pick_idle_worker()
+                if claimed is None:
+                    claimed = self._claim_cold_unlocked()
+                if claimed is not None:
+                    self._leased.add(claimed)
+                    return claimed
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return None
                 self._cond.wait(remaining)
 
     def lease_specific(self, worker: BaseProcessWorker, timeout_sec: float) -> BaseProcessWorker | None:
-        """Acquire *worker* when it is idle, or None on timeout / shutdown."""
+        """Acquire *worker* when it is idle, or once its process has exited."""
         deadline = time.monotonic() + max(0.0, float(timeout_sec))
-        with self._cond:
-            while True:
+        while True:
+            with self._cond:
                 if self._is_shutdown:
                     return None
                 if worker in self._idle:
                     self._idle.discard(worker)
+                    self._leased.add(worker)
+                    return worker
+                # Process exit: not idle, but the slot can be respawned by execute.
+                if not worker.is_alive() and worker not in self._leased:
+                    self._leased.add(worker)
                     return worker
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -547,20 +607,28 @@ class BaseProcessPool:
     def _finish_release(self, worker: BaseProcessWorker) -> None:
         if self._is_shutdown:
             worker.kill()
+            with self._cond:
+                self._leased.discard(worker)
+                self._cond.notify_all()
             return
         if self.should_recycle_worker(worker):
             log.info("Recycling %s #%d after %d tasks to refresh memory", self.worker_name, worker.worker_id, worker.tasks_executed)
             worker.kill()
             # Re-spawn so the next lease does not pay spawn latency inside execute().
             # Affinity hashing uses this wrapper list, not process liveness.
+            # The new child is idle only because this respawn's handshake succeeded.
             worker.respawn()
         with self._cond:
+            self._leased.discard(worker)
             if self._is_shutdown:
                 # If shutdown() ran concurrently and cleared self.workers / killed children
                 # while respawn() above started a new child process, killing it here ensures no
                 # orphaned subprocess survives, and the worker is discarded (not re-added to _idle).
                 worker.kill()
-            else:
+            elif worker.is_alive():
+                # The response frame was consumed, or the recycle handshake
+                # just succeeded. A timeout that SIGKILLed the child is not
+                # this branch: the process is dead and stays out of idle.
                 self._idle.add(worker)
                 self._worker_last_active[worker] = time.monotonic()
             self._cond.notify_all()
@@ -576,6 +644,7 @@ class BaseProcessPool:
             workers_to_kill = list(self.workers)
             self.workers.clear()
             self._idle.clear()
+            self._leased.clear()
             self._worker_last_active.clear()
             self._cond.notify_all()
         # Reaping/killing worker processes can take seconds (wait + drain join).

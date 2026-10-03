@@ -191,9 +191,11 @@ There is **no** `--api-key` CLI flag (secrets in argv are visible in `ps`).
 
 Rules:
 
-- **No key configured** → `/v1/execute` and `/v1/session/reset` are open (insecure; fine for local/dev/test).
+- **Loopback and no key** → `/v1/execute` and `/v1/session/reset` are open (local dev/test only).
+- **Any other bind without a key** → `load_settings` refuses to start. This includes `0.0.0.0` and `::`. The image entrypoint checks the same case before exec.
 - **Key configured** → `/v1/execute` and `/v1/session/reset` require an exact `Bearer <token>` match
   (`hmac.compare_digest`). Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
+- **Unknown JSON keys** are a startup error. A raw `api_key` in the file is a startup error. Aliases `max_workers` and `session_ttl_sec` are accepted.
 
 Match coolwsd (`coolwsd.xml`):
 
@@ -246,7 +248,7 @@ coolwsd is the only hop that should reach this process. Bind loopback, set the s
 
 `--network=none` cannot be combined with `-p` (published ports need a network namespace). Publish to loopback on the host, or use an internal bridge **without a default route**. Tenant sockets still fail via the AST sandbox plus missing egress.
 
-`./compute_service/start-docker.sh` refuses to start unless `PYTHON_COMPUTE_API_KEY` or `PYTHON_COMPUTE_API_KEY_FILE` is set. The image entrypoint does the same when `PYTHON_COMPUTE_HOST` is `0.0.0.0` or `::`, so a plain `docker run` cannot publish an open port. Loopback with no key remains allowed outside that image.
+`load_settings` refuses a non-loopback bind that has no API key, so `python compute_service/server.py --host 0.0.0.0` fails the same way as the image. `./compute_service/start-docker.sh` still requires `PYTHON_COMPUTE_API_KEY` or `PYTHON_COMPUTE_API_KEY_FILE` before it publishes a port. Loopback with no key remains allowed.
 
 ```bash
 PYTHON_COMPUTE_API_KEY=same-secret-as-coolwsd ./compute_service/start-docker.sh
@@ -311,11 +313,11 @@ Kit-side dumb JSON contract: [`docs/scripting/numpy-jailsafe.md`](../docs/script
 - Manages persistent worker subprocesses (`workers`, default `2`).
 - **Single-Threaded Child Subprocesses**: Each worker is a dedicated, single-threaded OS process running a synchronous IPC loop with exclusive lease occupancy (0 worker threads inside the child), ensuring determinism and zero race conditions.
 - **GIL Elimination**: Each worker runs its own Python interpreter, achieving true parallel multi-core scaling for pure-Python and NumPy workloads.
-- **Sticky Session Affinity**: For stateful calculations (`mode="shared"`), requests with the same `session_id` are consistently routed to the specific worker holding that workbook's state in memory. Isolated and sticky jobs **exclusively occupy** a worker (idle set + condition); they never run concurrently on the same process.
+- **Sticky Session Affinity**: For stateful calculations (`mode="shared"`), requests with the same `session_id` are routed to the process that owns that workbook. The supervisor maps are a cache of that pid: when the process exits, every session on it is dropped, and a respawn is not the same workbook. Isolated work never runs on a process that owns a shared session. Shared sessions on one process still occupy it exclusively (one cell at a time).
 - **Stderr drain**: Each worker pipes stderr into `start_stderr_drain` (same helper as the desktop venv worker) so a noisy child cannot fill the OS pipe and deadlock the parent.
-- **Hard `SIGKILL` Watchdogs**: If a user formula triggers an uncatchable loop or timeout, the pool terminates the hanging process via `SIGKILL`, returns a clean timeout error, and automatically spawns a fresh worker.
+- **Timeouts**: The accept timestamp, the worker lease, and the child share one deadline. The child is given the time still left and returns an error frame when its alarm fires, so a normal timeout leaves the process up. `SIGKILL` is only when that frame never arrives. That kill drops every shared session on the pid.
 - **Task Recycling**: Recycles worker processes after `worker_max_tasks` (default: 500) to keep memory fragmentation low. Workers holding active stateful sessions (`mode="shared"`) bypass normal recycling to preserve state indefinitely while active. Idle sessions auto-evict after `shared_kernel_ttl_sec` (default: 1 hour) of inactivity.
-- **Idle Worker Reaper**: All worker pools terminate worker subprocesses that remain idle for > `idle_worker_ttl_sec` (default: 1 hour) to free system RAM; processes lazily re-spawn on the next incoming request.
+- **Idle Worker Reaper**: All worker pools terminate worker subprocesses that remain idle for > `idle_worker_ttl_sec` (default: 1 hour) to free system RAM. A dead pid is not idle. The next lease claims that slot and the following request respawns it after a ready handshake. A worker that still owns a shared session is not idle-evicted; session TTL clears those namespaces.
 
 ### 3. Tier 2: Isolated Vision & OCR Pool (`VisionProcessPool`)
 - Dedicated worker subprocesses (`ocr_workers`, default `0`, disabled until configured) for heavy Docling and PaddleOCR tasks.
@@ -349,7 +351,7 @@ Execution Architecture Benchmark: In-Process vs Subprocess Pickle IPC
 1. **Negligible IPC Overhead**:
    - The IPC roundtrip over local binary pipes adds only **sub-millisecond latency**. Compared to standard browser-to-server HTTP network latency (typically 10–50 ms), this overhead is imperceptible (<1% of network roundtrip).
 2. **Hard `SIGKILL` on Infinite Loops**:
-   - In-process threads cannot be forcefully killed without destabilizing or terminating the entire Python interpreter. Subprocess workers can be immediately destroyed via `SIGKILL` on timeout, guaranteeing that rogue formulas or uncatchable loops cannot stall the service.
+   - In-process threads cannot be forcefully killed without destabilizing or terminating the entire Python interpreter. A formula timeout returns an error frame and leaves the process up. `SIGKILL` is reserved for a child that never writes that frame, and it drops every shared session on that pid.
 3. **Total Fault & Crash Isolation**:
    - If user code or a third-party C/C++ extension triggers a segmentation fault (`SIGSEGV`) or abort, only that disposable child worker crashes. The master HTTP server and all other active sessions remain 100% unaffected and a replacement worker is automatically spawned.
 4. **Complete GIL Bypass**:

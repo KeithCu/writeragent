@@ -166,7 +166,13 @@ class ComputeSettings:
             raise ConfigError("idle_worker_ttl_sec must be >= 0")
         if self.log_level.upper() not in VALID_LOG_LEVELS:
             raise ConfigError(f"Invalid log_level: {self.log_level!r} (must be one of {sorted(VALID_LOG_LEVELS)})")
-        # No API key ⇒ no auth (dev/test). Verification runs only when a key is set.
+        # Loopback with no key stays open for local dev. Any other bind used to
+        # start with auth off; the shell entrypoints then reimplemented the
+        # check, so ``python compute_service/server.py --host 0.0.0.0`` did not.
+        # The refusal lives here so every load_settings / ComputeSettings path
+        # fails before the process listens.
+        if not self.is_loopback_bind and not self.api_key:
+            raise ConfigError("Refusing to listen on a non-loopback address without an API key. Set PYTHON_COMPUTE_API_KEY or an api_key_file.")
 
 
 DEFAULT_SETTINGS = ComputeSettings()
@@ -216,15 +222,71 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
     return raw
 
 
+# Keys load_settings understands. Anything else is a typo that used to be
+# dropped, so the process started on defaults and looked healthy.
+_TOP_LEVEL_KEYS = frozenset({
+    "host",
+    "port",
+    "api_key",
+    "api_key_file",
+    "max_body_bytes",
+    "default_timeout_sec",
+    "max_timeout_sec",
+    "workers",
+    "max_workers",
+    "worker_max_tasks",
+    "shared_kernel_ttl_sec",
+    "session_ttl_sec",
+    "idle_worker_ttl_sec",
+    "ocr_workers",
+    "ocr_timeout_sec",
+    "ocr_max_tasks",
+    "ocr_allow_paths",
+    "max_code_chars",
+    "log_level",
+    "listen",
+    "auth",
+    "limits",
+    "ocr",
+    "logging",
+})
+_LISTEN_KEYS = frozenset({"host", "port"})
+_AUTH_KEYS = frozenset({"api_key", "api_key_file"})
+_LIMIT_KEYS = frozenset({
+    "max_body_bytes",
+    "default_timeout_sec",
+    "max_timeout_sec",
+    "workers",
+    "max_workers",
+    "worker_max_tasks",
+    "shared_kernel_ttl_sec",
+    "session_ttl_sec",
+    "idle_worker_ttl_sec",
+    "max_code_chars",
+})
+_OCR_KEYS = frozenset({"workers", "timeout_sec", "max_tasks", "allow_paths"})
+_LOGGING_KEYS = frozenset({"log_level", "level"})
+
+
+def _reject_unknown_keys(section: Mapping[str, Any], allowed: frozenset[str], label: str) -> None:
+    unknown = sorted(str(key) for key in section if key not in allowed)
+    if unknown:
+        raise ConfigError(f"Unknown {label} key {unknown[0]!r}")
+
+
 def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Accept flat keys or nested ``listen`` / ``auth`` / ``limits`` / ``ocr`` sections."""
+    _reject_unknown_keys(raw, _TOP_LEVEL_KEYS, "config")
     out: dict[str, Any] = {}
     listen = raw.get("listen")
     if isinstance(listen, Mapping):
+        _reject_unknown_keys(listen, _LISTEN_KEYS, "listen")
         if "host" in listen:
             out["host"] = listen["host"]
         if "port" in listen:
             out["port"] = listen["port"]
+    elif listen is not None:
+        raise ConfigError("listen must be a JSON object")
     # A raw api_key in the file used to be dropped and the process started
     # with auth off (the log line "auth=no" is easy to miss). Refuse it so
     # the operator uses a key file or PYTHON_COMPUTE_API_KEY. Do not accept
@@ -233,26 +295,22 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
     if "api_key" in raw or (isinstance(auth, Mapping) and "api_key" in auth):
         raise ConfigError("Do not put api_key in the JSON config. Set PYTHON_COMPUTE_API_KEY or auth.api_key_file.")
     if isinstance(auth, Mapping):
+        _reject_unknown_keys(auth, _AUTH_KEYS, "auth")
         if "api_key_file" in auth:
             out["api_key_file"] = auth["api_key_file"]
+    elif auth is not None:
+        raise ConfigError("auth must be a JSON object")
     limits = raw.get("limits")
     if isinstance(limits, Mapping):
-        for key in (
-            "max_body_bytes",
-            "default_timeout_sec",
-            "max_timeout_sec",
-            "workers",
-            "max_workers",
-            "worker_max_tasks",
-            "shared_kernel_ttl_sec",
-            "session_ttl_sec",
-            "idle_worker_ttl_sec",
-            "max_code_chars",
-        ):
+        _reject_unknown_keys(limits, _LIMIT_KEYS, "limits")
+        for key in _LIMIT_KEYS:
             if key in limits:
                 out[key] = limits[key]
+    elif limits is not None:
+        raise ConfigError("limits must be a JSON object")
     ocr_cfg = raw.get("ocr")
     if isinstance(ocr_cfg, Mapping):
+        _reject_unknown_keys(ocr_cfg, _OCR_KEYS, "ocr")
         for ocr_key, out_key in (
             ("workers", "ocr_workers"),
             ("timeout_sec", "ocr_timeout_sec"),
@@ -261,12 +319,17 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
         ):
             if ocr_key in ocr_cfg:
                 out[out_key] = ocr_cfg[ocr_key]
+    elif ocr_cfg is not None:
+        raise ConfigError("ocr must be a JSON object")
     logging_cfg = raw.get("logging")
     if isinstance(logging_cfg, Mapping):
+        _reject_unknown_keys(logging_cfg, _LOGGING_KEYS, "logging")
         if "log_level" in logging_cfg:
             out["log_level"] = logging_cfg["log_level"]
         elif "level" in logging_cfg:
             out["log_level"] = logging_cfg["level"]
+    elif logging_cfg is not None:
+        raise ConfigError("logging must be a JSON object")
 
     # Top-level configuration fields (and supported aliases). Keep this tuple
     # in sync with ComputeSettings dataclass fields when new options are added.

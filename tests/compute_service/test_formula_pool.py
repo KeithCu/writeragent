@@ -439,7 +439,8 @@ class TestFormulaPoolSupervisor:
         assert proc.returncode == 0, proc.stderr
 
     def test_shared_and_isolated_exclusive_occupancy(self) -> None:
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        """Isolated work does not run on the process that owns a shared session."""
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
         try:
             sid = "occupancy-session"
             first = pool.execute(
@@ -449,22 +450,22 @@ class TestFormulaPoolSupervisor:
                 req_id="occ-1",
             )
             assert first.get("status") == "ok"
+            owner = pool.live_session_worker(sid)
+            assert owner is not None and owner.process is not None
+            shared_pid = owner.process.pid
 
-            isolated_holder: list[dict] = []
-
-            def _isolated() -> None:
-                isolated_holder.append(
-                    pool.execute(
-                        code="import time\ntime.sleep(0.2)\nresult = 99",
-                        mode="isolated",
-                        timeout_sec=10,
-                        req_id="occ-iso",
-                    )
-                )
-
-            thread = threading.Thread(target=_isolated)
-            thread.start()
-            time.sleep(0.05)
+            before = owner.tasks_executed
+            isolated = pool.execute(
+                code="result = 99",
+                mode="isolated",
+                timeout_sec=10,
+                req_id="occ-iso",
+            )
+            assert isolated.get("status") == "ok"
+            assert isolated.get("result") == 99
+            # The isolated cell did not run on the process that owns the session.
+            assert owner.tasks_executed == before
+            assert owner.process is not None and owner.process.pid == shared_pid
             shared = pool.execute(
                 code="result = x",
                 session_id=sid,
@@ -472,9 +473,6 @@ class TestFormulaPoolSupervisor:
                 timeout_sec=10,
                 req_id="occ-2",
             )
-            thread.join(timeout=10)
-            assert isolated_holder and isolated_holder[0].get("status") == "ok"
-            assert isolated_holder[0].get("result") == 99
             assert shared.get("status") == "ok"
             assert shared.get("result") == 5
         finally:
@@ -514,7 +512,7 @@ class TestFormulaPoolSupervisor:
             pool.shutdown()
 
     def test_shared_hang_does_not_wedge_pool(self) -> None:
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=1)
+        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=1)
         try:
             hung = pool.execute(
                 code="import time\ntime.sleep(5)\nresult = 1",
@@ -848,8 +846,7 @@ class TestFormulaPoolSupervisor:
         assert "Traceback" not in body.get("error", "")
 
     def test_evicted_idle_worker_removed_from_idle_during_kill(self) -> None:
-        """Evicted workers must be removed from _idle during kill (race prevention)
-        and re-added dead so lease_any() can lazy-respawn them."""
+        """Evicted workers leave the idle set. The next execute respawns the cold slot."""
         pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15, idle_worker_ttl_sec=3600.0)
         try:
             # Execute a task on each worker to populate _idle with both
@@ -868,12 +865,12 @@ class TestFormulaPoolSupervisor:
 
             pool._evict_idle_workers()
 
-            # Worker process must be dead
+            # Worker process must be dead, and a dead pid is not idle.
+            # The next lease claims the cold slot and execute respawns it.
             assert not w0.is_alive(), "Evicted worker process must be killed"
-            # Worker re-added to _idle (dead) so lease_any() can lazy-respawn
             with pool._cond:
-                assert w0 in pool._idle, "Dead worker must be back in _idle for lazy re-spawn"
-                assert len(pool._idle) == 2, "Both workers should be in _idle"
+                assert w0 not in pool._idle, "Dead worker must not sit in the idle set"
+                assert len(pool._idle) == 1, "Only the live worker stays idle"
 
             # Verify lazy re-spawn works
             res = pool.execute(code="result = 999", req_id="respawn-1")
@@ -887,12 +884,15 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(num_workers=3, default_timeout_sec=15)
         try:
             sid = "affinity-direct"
-            # Map session to worker #2 explicitly
+            # Map session to worker #2 explicitly, including the owning pid.
+            # A map entry without that pid is a stale cache and is dropped.
             target_worker = pool.workers[2]
+            assert target_worker.process is not None
             with pool._cond:
                 pool._active_sessions[sid] = target_worker
                 pool._worker_sessions.setdefault(target_worker, set()).add(sid)
                 pool._session_last_activity[sid] = time.monotonic()
+                pool._session_pid[sid] = target_worker.process.pid
 
             res = pool.execute(code="state = 42\nresult = state", session_id=sid, mode="shared")
             assert res.get("status") == "ok"
@@ -943,19 +943,20 @@ class TestFormulaPoolSupervisor:
             worker.kill()
             with pool._cond:
                 pool._idle.add(worker)
+                pool._leased.discard(worker)
                 pool._worker_last_active[worker] = time.monotonic() - 100.0
             pool._evict_idle_workers()
             with pool._cond:
-                assert worker in pool._idle
+                assert worker not in pool._idle
         finally:
             pool.shutdown()
 
-    def test_build_execute_payload_warns_on_unknown_wire(self, caplog) -> None:
-        """Unknown wire format logs a warning and defaults to WIRE_JSON_FORWARD."""
-        from compute_service.json_forward import WIRE_JSON_FORWARD
+    def test_build_execute_payload_rejects_unknown_wire(self) -> None:
+        """Unknown wire is an error. It used to be rewritten to json_forward."""
+        from compute_service.json_forward import ExecuteRequestError
 
-        with caplog.at_level(logging.WARNING):
-            payload = FormulaProcessPool._build_execute_payload(
+        with pytest.raises(ExecuteRequestError, match="wire"):
+            FormulaProcessPool._build_execute_payload(
                 code="result = 1",
                 data=None,
                 data_json=None,
@@ -966,8 +967,6 @@ class TestFormulaPoolSupervisor:
                 req_id="test-wire",
                 wire="bogus_wire",
             )
-        assert payload["wire"] == WIRE_JSON_FORWARD
-        assert "Unknown wire format 'bogus_wire'" in caplog.text
 
     def test_remaining_sec_helper(self) -> None:
         from compute_service.worker_base import remaining_sec
@@ -977,6 +976,103 @@ class TestFormulaPoolSupervisor:
         past = time.monotonic() - 10.0
         assert remaining_sec(past, floor=0.05) == 0.05
 
+    def test_shared_session_dies_with_its_process(self) -> None:
+        """Killing the pid drops the session. A respawn is not the same workbook."""
+        import signal
+
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "dies-with-pid"
+            created = pool.execute(code="keep = 5\nresult = keep", session_id=sid, mode="shared", req_id="die-1")
+            assert created.get("status") == "ok"
+            assert created.get("result") == 5
+            owner = pool.live_session_worker(sid)
+            assert owner is not None and owner.process is not None
+            pid = owner.process.pid
+            os.kill(pid, signal.SIGKILL)
+            owner.process.wait(timeout=2)
+            assert pool.live_session_worker(sid) is None
+            again = pool.execute(code="result = keep", session_id=sid, mode="shared", timeout_sec=15, req_id="die-2")
+            assert again.get("status") == "error"
+            assert again.get("result") != 5
+        finally:
+            pool.shutdown()
+
+    def test_sigkill_drops_every_session_on_the_pid(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            first = pool.execute(code="a = 1\nresult = a", session_id="sess-a", mode="shared")
+            second = pool.execute(code="b = 2\nresult = b", session_id="sess-b", mode="shared")
+            assert first.get("status") == "ok"
+            assert second.get("status") == "ok"
+            owner = pool.live_session_worker("sess-a")
+            assert owner is not None
+            assert owner is pool.live_session_worker("sess-b")
+            owner.kill()
+            assert pool.live_session_worker("sess-a") is None
+            assert pool.live_session_worker("sess-b") is None
+        finally:
+            pool.shutdown()
+
+    def test_timeout_does_not_sigkill_healthy_shared_kernel(self) -> None:
+        """A sleep past the cell budget returns an error frame. The pid stays.
+
+        The child used to be given the original timeout_sec while the host
+        read only the time left on the deadline, so this sleep was SIGKILL
+        and every other workbook on that process disappeared.
+        """
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
+        try:
+            kept = pool.execute(code="keep = 7\nresult = keep", session_id="doc-keep", mode="shared", req_id="budget-keep")
+            assert kept.get("status") == "ok"
+            owner = pool.live_session_worker("doc-keep")
+            assert owner is not None and owner.process is not None
+            pid = owner.process.pid
+            # timeout_sec is the original 30s budget. The deadline is only
+            # about a second from now, which is what the child must honor.
+            hung = pool.execute(
+                code="import time\ntime.sleep(8)\nresult = 1",
+                session_id="doc-hang",
+                mode="shared",
+                timeout_sec=30,
+                deadline=time.monotonic() + 1.2,
+                req_id="budget-hang",
+            )
+            assert hung.get("status") == "error"
+            assert hung.get("code") != "EXECUTION_TIMEOUT"
+            assert owner.process is not None and owner.process.pid == pid
+            assert owner.is_alive()
+            again = pool.execute(code="result = keep", session_id="doc-keep", mode="shared", timeout_sec=15, req_id="budget-again")
+            assert again.get("status") == "ok"
+            assert again.get("result") == 7
+        finally:
+            pool.shutdown()
+
+    def test_bad_mode_does_not_run(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            res = pool.execute(code="result = 1", mode="Shared", req_id="bad-mode")
+            assert res.get("status") == "error"
+            assert res.get("code") == "INVALID_REQUEST"
+            assert res.get("result") != 1
+        finally:
+            pool.shutdown()
+
+    def test_isolated_does_not_lease_session_process(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            created = pool.execute(code="keep = 1\nresult = keep", session_id="only-shared", mode="shared")
+            assert created.get("status") == "ok"
+            owner = pool.live_session_worker("only-shared")
+            assert owner is not None and owner.process is not None
+            pid = owner.process.pid
+            blocked = pool.execute(code="result = 1", mode="isolated", timeout_sec=1, req_id="iso-blocked")
+            assert blocked.get("status") == "error"
+            assert blocked.get("code") == "WORKER_POOL_BUSY"
+            assert owner.is_alive()
+            assert owner.process is not None and owner.process.pid == pid
+        finally:
+            pool.shutdown()
 
 
 class TestFormulaHttpEndpoint:

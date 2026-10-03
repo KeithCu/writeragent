@@ -71,8 +71,10 @@ def compute_server_info():
     port = get_free_port()
     from compute_service.server import WSGIDualStackServer
 
-    # Keyless loopback — matches local-dev default.
-    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port))
+    # Keyless loopback — matches local-dev default. Extra workers so the
+    # shared sessions this module keeps do not occupy every process;
+    # isolated calls are not allowed to run on those processes.
+    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=4))
     server = WSGIDualStackServer("", port)
     server.set_app(app)
 
@@ -454,10 +456,14 @@ class TestComputeSettings:
         assert s.host == "127.0.0.1"
         assert not s.auth_required
 
-    def test_wildcard_without_key_is_insecure_ok(self) -> None:
-        s = load_settings(environ={"PYTHON_COMPUTE_HOST": "0.0.0.0", "PYTHON_COMPUTE_PORT": "8000"})
-        assert s.host == "0.0.0.0"
-        assert not s.auth_required
+    def test_wildcard_without_key_is_rejected(self) -> None:
+        """A non-loopback bind without a key must fail inside load_settings."""
+        with pytest.raises(ConfigError, match="API key"):
+            load_settings(environ={"PYTHON_COMPUTE_HOST": "0.0.0.0", "PYTHON_COMPUTE_PORT": "8000"})
+        with pytest.raises(ConfigError, match="API key"):
+            load_settings(environ={"PYTHON_COMPUTE_HOST": "::"})
+        with pytest.raises(ConfigError, match="API key"):
+            ComputeSettings(host="0.0.0.0")
 
     def test_env_api_key_and_host(self) -> None:
         s = load_settings(
@@ -548,22 +554,22 @@ class TestComputeSettings:
         both = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "4", "PYTHON_COMPUTE_OCR_WORKERS": "2", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert both.threads == 6
 
-    def test_thread_count_keys_are_ignored(self, tmp_path) -> None:
+    def test_thread_count_keys_are_rejected(self, tmp_path) -> None:
+        # Environment variables we do not read cannot change the listener count.
         ignored = load_settings(environ={"PYTHON_COMPUTE_THREADS": "9", "PYTHON_COMPUTE_MAX_THREADS": "8", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert ignored.threads == 2
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({"limits": {"threads": 24, "max_threads": 12, "workers": 4}}), encoding="utf-8")
-        s = load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.workers == 4
-        assert s.threads == 4
+        with pytest.raises(ConfigError, match="threads"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
-    def test_inflight_keys_are_ignored(self, tmp_path) -> None:
+    def test_inflight_keys_are_rejected(self, tmp_path) -> None:
         ignored = load_settings(environ={"PYTHON_COMPUTE_MAX_INFLIGHT": "9", "PYTHON_COMPUTE_MAX_INFLIGHT_PER_SESSION": "3", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert ignored.workers == 2
         cfg = tmp_path / "cfg.json"
         cfg.write_text(json.dumps({"limits": {"max_inflight": 8, "max_inflight_per_session": 4, "workers": 3}}), encoding="utf-8")
-        s = load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s.workers == 3
+        with pytest.raises(ConfigError, match="max_inflight"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     def test_workers_invalid(self) -> None:
         from compute_service.config import ConfigError
@@ -1014,6 +1020,36 @@ class TestSessionResetHttp:
         status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
         assert status.startswith("200")
         assert body.get("error") == "boom"
+
+    def test_expired_accept_deadline_does_not_run(self) -> None:
+        """Queue time counts against the cell timeout. A late request does not run."""
+
+        def execute_fn(**_kwargs):
+            raise AssertionError("expired request must not run")
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        body = json.dumps({"id": "late", "code": "result = 1", "timeout_ms": 1000}).encode("utf-8")
+        status_holder: list[str] = []
+
+        def start_response(status: str, resp_headers: list) -> None:
+            status_holder.append(status)
+            del resp_headers
+
+        environ = {
+            "PATH_INFO": "/v1/execute",
+            "REQUEST_METHOD": "POST",
+            "QUERY_STRING": "",
+            "CONTENT_TYPE": "application/json",
+            "CONTENT_LENGTH": str(len(body)),
+            "wsgi.input": io.BytesIO(body),
+            "compute.accept_time": time.monotonic() - 5.0,
+        }
+        out = b"".join(app(environ, start_response))
+        parsed = json.loads(out.decode("utf-8"))
+        assert status_holder[0].startswith("503")
+        assert parsed.get("code") == "QUEUE_TIMEOUT"
+        assert parsed.get("id") == "late"
+        assert parsed.get("status") == "error"
 
     def test_unknown_mode_is_400(self) -> None:
         def execute_fn(**_kwargs):
