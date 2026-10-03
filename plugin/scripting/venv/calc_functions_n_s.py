@@ -16,6 +16,8 @@ from typing import Any, Callable, cast
 
 import numpy as np
 
+from .calc_functions_util import _npf_result, match_criteria
+
 
 
 __all__ = [
@@ -239,8 +241,6 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
         t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError):
         return float("nan")
-    from plugin.scripting.venv.calc_functions_d_h import _npf_result
-
     # numpy-financial returns ±inf when the payment does not amortize
     # (pmt == 0, or the log argument is non-positive). log(1+rate) at
     # rate == -1 used to raise ValueError. Both are Excel #NUM!.
@@ -480,8 +480,6 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
         t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    from plugin.scripting.venv.calc_functions_d_h import _npf_result
-
     # nper == 0 used to raise ZeroDivisionError. numpy-financial returns
     # ±inf; Calc/Excel are #DIV/0!, returned here as NaN.
     return _npf_result("pmt", r, n, p, f, t)
@@ -529,8 +527,6 @@ def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -
         t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    from plugin.scripting.venv.calc_functions_d_h import _npf_result
-
     return _npf_result("pv", r, n, pm, f, t)
 
 
@@ -926,8 +922,6 @@ def subtotal(fn_num: Any, r: Any) -> float:
 
 
 def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     r_flat = np.asarray(r).ravel()
     sr_flat = np.asarray(sr).ravel() if sr is not None else r_flat
     total = 0.0
@@ -943,8 +937,6 @@ def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
 
 
 def sumifs(sr: Any, *args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     # Arguments after the sum range are (criteria_range, criteria) pairs.
     # An odd tail used to IndexError on args[i + 1]. Excel returns #VALUE!.
     if len(args) % 2 != 0:
