@@ -13,7 +13,9 @@ module reads the template ZIP at list time:
 3. ``Pictures/`` count: several images → ``illustrated``; exactly one
    graphic → ``graphic chrome``.
 4. If the thumbnail is missing or undecodable, scrape ``#RRGGBB`` from
-   ``styles.xml`` + ``Pictures/*.svg``. Empty ``look`` rather than inventing.
+   ``styles.xml`` + ``Pictures/*.svg``, stopping once
+   ``_MAX_XML_SAMPLES`` hits are kept (and after ``_MAX_XML_SVG_MEMBERS``
+   SVGs). Empty ``look`` rather than inventing.
 
 Stdlib PNG decode (not Pillow): the extension runs in LibreOffice's Python,
 which typically has no PIL. A thumbnail whose width×height exceeds the pixel
@@ -22,9 +24,12 @@ cap is rejected before one RGB tuple is allocated per pixel (a few-KB
 tuples). ZIP member reads do not trust the declared uncompressed size:
 ``ZipFile.read`` with no length inflates up to ``ZipExtFile.MAX_N`` (~1 GiB)
 before slicing to that size. Thumbnail, ``styles.xml``, and ``Pictures/*.svg``
-are copied in small reads and dropped past ``_MAX_MEMBER_BYTES``. 1/2/4-bit
-grayscale samples are scaled to 0–255 so an all-white thumbnail stays a light
-background. We never load master pages or open the document via Desktop.
+are copied in small reads and dropped past ``_MAX_MEMBER_BYTES``. The
+XML/SVG fallback also refuses to open every ``Pictures/*.svg`` or keep
+every hex hit: a missing thumbnail must not turn listing into an
+unbounded scan. 1/2/4-bit grayscale samples are scaled to 0–255 so an
+all-white thumbnail stays a light background. We never load master pages
+or open the document via Desktop.
 """
 
 from __future__ import annotations
@@ -53,6 +58,12 @@ _MAX_SAMPLED_PIXELS = 1024
 # tuples. Shipped Impress thumbs are at most 512×384; 1024×1024 leaves
 # room for a larger preview without the tuple explosion.
 _MAX_DECODED_PIXELS = 1024 * 1024
+# No-thumbnail fallback. The per-member read cap still opens every
+# Pictures/*.svg and keeps every #RRGGBB. Shipped templates have at most
+# four such SVGs and under a thousand hex hits; past this budget, more
+# input does not improve mood or accent bins. Listing stops there.
+_MAX_XML_SVG_MEMBERS = 8
+_MAX_XML_SAMPLES = _MAX_SAMPLED_PIXELS
 
 _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 _HEX_RE = re.compile(rb"#([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?")
@@ -179,19 +190,48 @@ def _thumbnail_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int,
 
 
 def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
-    """Fallback when the thumbnail is missing: hex colors only, no invention."""
+    """Fallback when the thumbnail is missing: hex colors only, no invention.
+
+    What was wrong: every ``Pictures/*.svg`` was opened (each already
+    capped at ``_MAX_MEMBER_BYTES``) and every ``#RRGGBB`` was appended.
+    ``_mood_and_accents`` then walked that whole list. ``list_designs`` /
+    ``apply_design`` call this on the main thread, including user-writable
+    template dirs. Eight cap-sized SVG members were about 180MB and 12s;
+    more members scale into gigabytes.
+    How it happened: the forged-size read cap limits one member, not how
+    many members are opened or how many hex hits are kept.
+    Why this fixes it: read ``styles.xml`` once and at most
+    ``_MAX_XML_SVG_MEMBERS`` SVGs, and keep at most ``_MAX_XML_SAMPLES``
+    colors — the same budget as a downsampled thumbnail. Once that many
+    hits are in hand, remaining members are not opened.
+    """
     samples: list[tuple[int, int, int]] = []
+    styles_name = ""
+    svgs: list[str] = []
     for n in names:
         norm = _norm_zip_name(n)
-        if norm == "styles.xml" or (norm.startswith("pictures/") and norm.endswith(".svg")):
-            blob = _read_member(zf, n)
-            if blob:
-                samples.extend(_hex_colors(blob))
+        if norm == "styles.xml":
+            if not styles_name:
+                styles_name = n
+        elif norm.startswith("pictures/") and norm.endswith(".svg") and len(svgs) < _MAX_XML_SVG_MEMBERS:
+            svgs.append(n)
+    to_read: list[str] = []
+    if styles_name:
+        to_read.append(styles_name)
+    to_read.extend(svgs)
+    for name in to_read:
+        if len(samples) >= _MAX_XML_SAMPLES:
+            break
+        blob = _read_member(zf, name)
+        if blob:
+            samples.extend(_hex_colors(blob, _MAX_XML_SAMPLES - len(samples)))
     return samples
 
 
-def _hex_colors(blob: bytes) -> list[tuple[int, int, int]]:
+def _hex_colors(blob: bytes, limit: int) -> list[tuple[int, int, int]]:
     out: list[tuple[int, int, int]] = []
+    if limit <= 0:
+        return out
     for match in _HEX_RE.finditer(blob):
         hex6 = match.group(1)
         alpha = match.group(2)
@@ -201,6 +241,8 @@ def _hex_colors(blob: bytes) -> list[tuple[int, int, int]]:
         g = int(hex6[2:4], 16)
         b = int(hex6[4:6], 16)
         out.append((r, g, b))
+        if len(out) >= limit:
+            break
     return out
 
 
