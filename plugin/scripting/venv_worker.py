@@ -34,6 +34,7 @@ from plugin.scripting.config_limits import (
 )
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
+    EXEC_STARTED,
     pack_pickle_frame,
     read_frame_payload,
     unpack_pickle_frame,
@@ -64,6 +65,14 @@ def _worker_error(code: str, message: str, *, details: dict[str, Any] | None = N
 
 class _NonReplayableIpcWriteTimeout(RuntimeError):
     """A mid-turn host response timed out after side effects may have occurred."""
+
+
+class _NoTerminalFrame(Exception):
+    """The request was written and the child died before a terminal frame.
+
+    Not an OSError/RuntimeError: those still retry a failed initial write.
+    This one must not, or the same request id runs again.
+    """
 
 
 _SHARED_WORKER_RESTART_HINT = " Shared Python process restarted (all workbooks)."
@@ -486,8 +495,11 @@ class PythonWorkerManager:
 
                 # A tool_call frame can already have mutated the document. A later
                 # pipe error must not resend the original script (the write-timeout
-                # path below is the same rule).
+                # path below is the same rule). exec_started is the same rule for
+                # side effects that never sent a tool_call frame. A death before
+                # that marker has not run the request, so the outer loop may retry.
                 dispatched_intermediate = False
+                execution_started = False
                 try:
                     while True:
                         if allow_heartbeat:
@@ -504,10 +516,21 @@ class PythonWorkerManager:
                             response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec)
                         if not response_bytes:
                             stderr_out = self._drain_stderr()
-                            raise RuntimeError(f"Worker closed stdout without a response{stderr_out}")
+                            message = f"Worker closed stdout without a response{stderr_out}"
+                            if execution_started or dispatched_intermediate:
+                                # Work may already have run. Resending this id would
+                                # run it again. A close before exec_started is a
+                                # failed start and falls through to the retry below.
+                                raise _NoTerminalFrame(message)
+                            raise RuntimeError(message)
                         response = unpack_pickle_frame(response_bytes)
                         if not isinstance(response, dict):
                             raise RuntimeError("Worker response must be a dict")
+                        if response.get("type") == EXEC_STARTED:
+                            execution_started = True
+                            if response.get("id") != request.get("id"):
+                                break
+                            continue
 
                         def _stdin_write(blob: bytes) -> None:
                             try:
@@ -565,7 +588,18 @@ class PythonWorkerManager:
                         f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}",
                         details={"exe": self.exe},
                     )
-                except (BrokenPipeError, RuntimeError, OSError) as e:
+                except OSError as e:
+                    if not (dispatched_intermediate or execution_started):
+                        raise
+                    log.warning("Python worker failed after execution started (not replaying): %s", e)
+                    self._terminate_worker()
+                    _clear_host_state_after_worker_death()
+                    return _worker_error(
+                        "WORKER_IPC_ERROR",
+                        f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}",
+                        details={"exe": self.exe},
+                    )
+                except RuntimeError as e:
                     if not dispatched_intermediate:
                         raise
                     log.warning("Python worker failed after a tool call (not replaying): %s", e)
@@ -607,6 +641,15 @@ class PythonWorkerManager:
                         f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}",
                         details={"exe": self.exe},
                     )
+            except _NoTerminalFrame as e:
+                log.warning("Python worker produced no terminal frame (not replaying): %s", e)
+                self._terminate_worker()
+                _clear_host_state_after_worker_death()
+                return _worker_error(
+                    "WORKER_IPC_ERROR",
+                    f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}",
+                    details={"exe": self.exe},
+                )
             except _NonReplayableIpcWriteTimeout as e:
                 log.warning("Python worker failed without replay: %s", e)
                 self._terminate_worker()

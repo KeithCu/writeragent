@@ -24,11 +24,18 @@ import threading
 import time
 import uuid
 from typing import Any, Callable, IO
+from weakref import WeakKeyDictionary
 
 log = logging.getLogger("writeragent.scripting.ipc")
 
 PICKLE_PROTOCOL = 5
 FRAME_HEADER_SIZE = 4
+
+# Child writes this before user code, trusted actions, or a ppt turn. The host
+# must not replay the request after seeing it: in-process side effects may
+# already have run without a tool_call frame. A death before this frame is
+# still a failed start and may be retried.
+EXEC_STARTED = "exec_started"
 
 # Shared cap for editor IPC and the venv-worker host read path. A corrupt 4-byte
 # length prefix without this bound can OOM the LibreOffice process. Keep editor
@@ -80,6 +87,30 @@ class IpcFrameError(ValueError):
     """Raised when a framed IPC message has an invalid length or payload."""
 
 
+class UserStopped(BaseException):
+    """Host refused a tool call because the user pressed Stop.
+
+    ``BaseException`` so a script ``except Exception`` cannot treat Stop as an
+    ordinary tool failure and keep calling ``wa.*``. The sandbox and harness
+    turn this into a terminal frame with code ``USER_STOPPED``.
+    """
+
+
+# load() failures that are not already ValueError. A protocol header with no
+# body raises EOFError from the C unpickler; UnpicklingError is not a
+# ValueError. Callers (venv worker, editor) only treat ValueError as a bad frame.
+_PICKLE_LOAD_ERRORS = (
+    pickle.UnpicklingError,
+    EOFError,
+    AttributeError,
+    ImportError,
+    IndexError,
+    TypeError,
+    OverflowError,
+    RecursionError,
+)
+
+
 def _validate_frame_size(size: int, *, max_payload_bytes: int | None, frame_label: str) -> None:
     if size <= 0 or (max_payload_bytes is not None and size > max_payload_bytes):
         header = struct.pack("!I", size & 0xFFFFFFFF)
@@ -128,11 +159,27 @@ def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
         if sys.platform == "win32" or not hasattr(os, "set_blocking"):
             # Do not stream.read() here — that can block on a live pipe.
             return b""
+        # What was wrong: set_blocking(False) was left in place. A later read
+        # on this fd (compute/kokoro loops catch the frame error and read
+        # again) returned None or raised BlockingIOError, which the frame
+        # reader treats as EOF.
+        # Why this works: the peek is only for the error text. Put the fd
+        # back the way it was so the next read blocks for a real frame.
+        was_blocking = True
+        try:
+            was_blocking = os.get_blocking(fd)
+        except OSError:
+            was_blocking = True
         try:
             os.set_blocking(fd, False)
             return os.read(fd, n)
         except (BlockingIOError, OSError, AttributeError, ValueError):
             return b""
+        finally:
+            try:
+                os.set_blocking(fd, was_blocking)
+            except OSError:
+                pass
     try:
         data = stream.read(n)
     except Exception:
@@ -172,7 +219,12 @@ def unpack_pickle_frame(payload: bytes) -> Any:
     """Decode one Pickle5 payload; only builtin containers/scalars (defense in depth)."""
     try:
         return _SafeUnpickler(io.BytesIO(payload)).load()
-    except pickle.UnpicklingError as exc:
+    except _PICKLE_LOAD_ERRORS as exc:
+        # What was wrong: only UnpicklingError became ValueError. A length-valid
+        # truncated payload (protocol header, no body) raises EOFError, which
+        # escaped PythonWorkerManager.execute and left the child on the pipe.
+        # Why this works: the same ValueError contract the worker already maps
+        # to WORKER_IPC_ERROR, and it kills that child instead of replaying.
         raise ValueError(str(exc)) from exc
 
 
@@ -282,6 +334,13 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(
             f"tool_call response id {response.get('id')!r} does not match request {call_id!r}"
         )
+    # What was wrong: host_rpc sends code USER_STOPPED, and this dropped it
+    # into RuntimeError. A script ``except Exception`` kept running after Stop.
+    # Why this works: UserStopped is BaseException, so that handler does not
+    # run and the turn ends with the same code.
+    if response.get("code") == "USER_STOPPED":
+        message = response.get("message") or response.get("error") or "Stopped by user."
+        raise UserStopped(str(message))
     if response.get("status") == "error":
         raise RuntimeError(response.get("message", response.get("error", "Unknown error")))
     return response.get("result", {})
@@ -453,6 +512,98 @@ def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, *, cmd: st
     raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
 
 
+# Bytes read past a newline, or a partial line saved when the deadline fires.
+# Keyed by the text stream so the next read_json_line continues that line.
+# TextIOWrapper.readline() is not used: after select says the fd is readable it
+# still blocks until a newline, so a partial JSON line ignored the timeout.
+_json_line_pending: WeakKeyDictionary[Any, bytearray] = WeakKeyDictionary()
+
+
+def _pop_json_line_pending(stream: IO[str]) -> bytearray:
+    try:
+        return bytearray(_json_line_pending.pop(stream, b""))
+    except TypeError:
+        return bytearray()
+
+
+def _save_json_line_pending(stream: IO[str], pending: bytearray) -> None:
+    if not pending:
+        return
+    try:
+        _json_line_pending[stream] = pending
+    except TypeError:
+        return
+
+
+def _take_json_line(pending: bytearray) -> tuple[str, bytearray] | None:
+    nl = pending.find(b"\n")
+    if nl < 0:
+        return None
+    line = bytes(pending[: nl + 1]).decode("utf-8", errors="replace")
+    return line, bytearray(pending[nl + 1 :])
+
+
+def _read_available_line_bytes(fd: int) -> bytes | None:
+    """Queued pipe bytes, ``b""`` on EOF, or None when nothing is ready.
+
+    Read the fd, not ``TextIOWrapper.buffer.read1``. ``read1(4096)`` can leave
+    the rest of an 8KB fill in the userspace buffer, and a later ``select`` on
+    the fd then waits even though those bytes were already pulled. ``os.read``
+    returns ``b""`` for EOF and raises ``BlockingIOError`` when the non-blocking
+    fd has nothing, so a quiet pipe is not treated as EOF.
+
+    The caller must be the only reader of this fd. A wrapper ``readline`` would
+    desync its own buffer from this read.
+    """
+    was_blocking = True
+    try:
+        was_blocking = os.get_blocking(fd)
+    except OSError:
+        was_blocking = True
+    try:
+        os.set_blocking(fd, False)
+        try:
+            return os.read(fd, 4096)
+        except BlockingIOError:
+            return None
+    finally:
+        try:
+            os.set_blocking(fd, was_blocking)
+        except OSError:
+            pass
+
+
+def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float) -> str:
+    """Read one line, returning when the deadline passes even without a newline."""
+    deadline = time.monotonic() + max(0.0, float(timeout_sec))
+    pending = _pop_json_line_pending(stream)
+    while True:
+        taken = _take_json_line(pending)
+        if taken is not None:
+            line, rest = taken
+            _save_json_line_pending(stream, rest)
+            return line
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            # Keep the partial line. The caller timed out, but a later read
+            # of this stream should still see those bytes.
+            _save_json_line_pending(stream, pending)
+            raise subprocess.TimeoutExpired(cmd="IPC JSON line", timeout=timeout_sec)
+        ready, _unused, _unused2 = select.select([fd], [], [], min(1.0, remaining))
+        if not ready:
+            continue
+        piece = _read_available_line_bytes(fd)
+        if piece is None:
+            continue
+        if piece == b"":
+            try:
+                _json_line_pending.pop(stream, None)
+            except TypeError:
+                pass
+            return pending.decode("utf-8", errors="replace")
+        pending.extend(piece)
+
+
 def _readline_with_timeout(stream: IO[str], timeout_sec: float | None) -> str:
     if timeout_sec is None:
         return stream.readline()
@@ -466,10 +617,7 @@ def _readline_with_timeout(stream: IO[str], timeout_sec: float | None) -> str:
     except (AttributeError, OSError, ValueError):
         fd = None
     if isinstance(fd, int):
-        ready, _unused, _unused2 = select.select([stream], [], [], max(0.0, timeout_sec))
-        if not ready:
-            raise subprocess.TimeoutExpired(cmd="IPC JSON line", timeout=timeout_sec)
-        return stream.readline()
+        return _readline_with_timeout_posix(stream, fd, timeout_sec)
 
     return stream.readline()
 
