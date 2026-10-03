@@ -61,6 +61,15 @@ def test_untitled_save_is_not_a_stale_document_script_write():
     assert document_scripts_write_is_stale(doc, "file:///tmp/other.ods") is True
 
 
+def _calc_component_enum(*models):
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True] * len(models) + [False]
+    enum.nextElement.side_effect = list(models)
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    return comps
+
+
 def test_get_calc_document_from_ctx_does_not_fall_back_from_writer():
     writer = MagicMock()
     desktop = MagicMock()
@@ -73,6 +82,51 @@ def test_get_calc_document_from_ctx_does_not_fall_back_from_writer():
     ):
         assert get_calc_document_from_ctx(MagicMock()) is None
     desktop.getComponents.assert_not_called()
+
+
+def test_get_calc_document_from_ctx_returns_only_enumerated_workbook():
+    calc = MagicMock()
+    calc.getURL.return_value = "file:///only.ods"
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value = _calc_component_enum(calc)
+    with (
+        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
+        patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model is calc),
+    ):
+        assert get_calc_document_from_ctx(MagicMock()) is calc
+
+
+def test_get_calc_document_from_ctx_ambiguous_enumeration_returns_none():
+    first = MagicMock()
+    first.getURL.return_value = "file:///a.ods"
+    second = MagicMock()
+    second.getURL.return_value = "file:///b.ods"
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value = _calc_component_enum(first, second)
+    with (
+        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
+        patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model in (first, second)),
+        patch("plugin.scripting.session_manager.get_cached_calc_session_id", return_value=None),
+    ):
+        assert get_calc_document_from_ctx(MagicMock()) is None
+
+
+def test_get_calc_document_from_ctx_enumeration_uses_cached_session():
+    first = MagicMock()
+    first.getURL.return_value = "file:///a.ods"
+    second = MagicMock()
+    second.getURL.return_value = "file:///b.ods"
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value = _calc_component_enum(first, second)
+    with (
+        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
+        patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model in (first, second)),
+        patch("plugin.scripting.session_manager.get_cached_calc_session_id", return_value="calc:file:///b.ods"),
+    ):
+        assert get_calc_document_from_ctx(MagicMock()) is second
 
 
 def test_get_document_scripts_empty():

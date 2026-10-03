@@ -222,6 +222,77 @@ def set_calc_init_script(doc: Any, code: str) -> str | None:
 
 
 
+def _enumerate_calc_documents(desktop: Any) -> list[Any]:
+    """Calc models from desktop.getComponents(), in enumeration order."""
+    matches: list[Any] = []
+    try:
+        comps = desktop.getComponents()
+        if not comps:
+            return matches
+        enum = comps.createEnumeration()
+        while enum:
+            try:
+                has_more = enum.hasMoreElements()
+            except Exception:
+                break
+            # Local enumeration stop for MagicMock (always-truthy hasMoreElements).
+            if type(has_more).__name__ in ("Mock", "MagicMock") or not has_more:
+                break
+            elem = enum.nextElement()
+            model = None
+            if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
+                model = elem
+            elif hasattr(elem, "getController") and elem.getController():
+                model = elem.getController().getModel()
+            if model and is_calc(model):
+                matches.append(model)
+    except Exception:
+        log.debug("document_scripts: Calc component enumeration failed", exc_info=True)
+    return matches
+
+
+def _select_enumerated_calc_document(matches: list[Any]) -> Any | None:
+    """One Calc model, or the cached session when several workbooks are open.
+
+    What was wrong: the first enumerated Calc workbook was returned. UNO
+    component order is not the focused file, so the picker could attach,
+    save, or run against a different open workbook.
+    How: ``getComponents().createEnumeration()`` has no defined order.
+    Why this works: one match is unambiguous. Several matches use the same
+    session-id cache tiebreak as ``session_manager._find_document_by_predicate``.
+    If that cache does not name exactly one of them, return None. The
+    predicate helper's last-match fallback would still be an arbitrary workbook.
+    """
+    from plugin.framework.thread_guard import guard_uno
+
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return guard_uno(matches[0])
+
+    from plugin.scripting.session_manager import (
+        _cached_calc_session_matches,
+        get_cached_calc_session_id,
+    )
+
+    cached_sid = get_cached_calc_session_id()
+    if not cached_sid:
+        return None
+    chosen: Any | None = None
+    for model in matches:
+        try:
+            if not _cached_calc_session_matches(model, cached_sid):
+                continue
+        except Exception:
+            continue
+        if chosen is not None:
+            return None
+        chosen = model
+    if chosen is None:
+        return None
+    return guard_uno(chosen)
+
+
 def get_calc_document_from_ctx(ctx: Any) -> Any | None:
     try:
         desktop = get_desktop(ctx)
@@ -234,31 +305,7 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         # desktop bound that Calc. The Python deck already refuses this.
         return None
     if doc is None or not is_calc(doc):
-        try:
-            comps = desktop.getComponents()
-            if comps:
-                enum = comps.createEnumeration()
-                while enum:
-                    try:
-                        has_more = enum.hasMoreElements()
-                    except Exception:
-                        break
-                    # Local enumeration stop for MagicMock (always-truthy hasMoreElements).
-                    if type(has_more).__name__ in ("Mock", "MagicMock") or not has_more:
-                        break
-                    elem = enum.nextElement()
-                    model = None
-                    if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
-                        model = elem
-                    elif hasattr(elem, "getController") and elem.getController():
-                        model = elem.getController().getModel()
-                    if model and is_calc(model):
-                        from plugin.framework.thread_guard import guard_uno
-
-                        return guard_uno(model)
-        except Exception:
-            pass
-        return None
+        return _select_enumerated_calc_document(_enumerate_calc_documents(desktop))
     from plugin.framework.thread_guard import guard_uno
 
     return guard_uno(doc)

@@ -473,7 +473,13 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
                 with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 42"}):
                     with patch.object(ui, "save_user_script") as mock_save:
                         with patch.object(ui, "get_config_str", return_value=""):
-                            with patch("plugin.scripting.python_runner.execute_and_insert_result", return_value={"ok": True, "status_ok_text": "done"}) as mock_execute:
+                            scheduled = {}
+
+                            def _capture_background(func, *args, **kwargs):
+                                scheduled["func"] = func
+                                return MagicMock()
+
+                            with patch.object(ui, "run_in_background", side_effect=_capture_background):
                                 def fake_execute_dialog():
                                     for listener in listeners:
                                         if "RunListener" in type(listener).__name__:
@@ -487,7 +493,11 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
                                 dlg.setVisible.assert_not_called()
                                 mock_set.assert_any_call("last_python_script_name_writer", "Universal Sample")
                                 mock_save.assert_called_with("Universal Sample", "result = 42")
-                                mock_execute.assert_called_once_with(ctx, None, "result = 42")
+                                # Run returns before the venv wait. The dialog event
+                                # thread must not call execute_and_insert_result.
+                                assert "func" in scheduled
+                                btn_run.setEnable.assert_any_call(False)
+                                instruction_lbl.setText.assert_any_call("Running...")
 
 
 def test_show_python_input_dialog_save_button():

@@ -238,21 +238,27 @@ def resolve_run_script_name_config_key(doc: Any) -> str:
     return "last_python_script_name_writer"
 
 
-def execute_and_insert_result(
+def _prepare_rps_execution(
     ctx: Any,
     doc: Any,
     code: str,
     *,
     data_range: str | None = None,
 ) -> dict[str, Any]:
-    """Run *code* in the user venv and insert the result into *doc* when possible."""
+    """Main-thread document reads before the venv wait.
+
+    Returns ``early_outcome`` when the script should not start. Otherwise the
+    dict is the input for :func:`_run_prepared_rps` and :func:`_finish_rps_execution`.
+    The native dialog runs only :func:`_run_prepared_rps` off the UNO thread.
+    """
     from plugin.calc.analysis_runner import calc_selection_to_a1, calc_tool_context
     from plugin.calc.python.formula_edit import parse_data_binding_text
     from plugin.calc.calc_addin_data import _resolve_python_data
-    from plugin.scripting.domain_registry import get_post_venv_domains, try_rps_post_venv
-    from plugin.scripting.viz import try_insert_plot_result
 
     t0 = time.perf_counter()
+
+    def _early(outcome: dict[str, Any]) -> dict[str, Any]:
+        return {"early_outcome": outcome}
 
     def _resolve_data_ranges() -> list[str] | None:
         binding = str(data_range).strip() if data_range else ""
@@ -272,7 +278,7 @@ def execute_and_insert_result(
             # Pass the full address list so multi Data: bindings become data / ranges.
             py_data, err = _resolve_python_data(tool_ctx, data_range=drs, data=None)
             if err:
-                return {"ok": False, "message": err}
+                return _early({"ok": False, "message": err})
 
     exec_code = code
     bindings: dict[str, Any] | None = None
@@ -302,7 +308,7 @@ def execute_and_insert_result(
         from plugin.vision.vision_runner import resolve_vision_image_bytes, run_and_insert_vision_for_selection, supports_vision_manual
 
         if not supports_vision_manual(doc):
-            return {"ok": False, "message": _("Vision helpers require a Writer or Calc document.")}
+            return _early({"ok": False, "message": _("Vision helpers require a Writer or Calc document.")})
         call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
         raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
         params = merge_vision_params(ctx, raw_params)
@@ -325,9 +331,9 @@ def execute_and_insert_result(
                         insert_into_document=True,
                     )
                 except ToolExecutionError as exc:
-                    return rps_error_outcome(str(exc), t0=t0)
+                    return _early(rps_error_outcome(str(exc), t0=t0))
                 if result.get("status") == "error":
-                    return rps_error_outcome(str(result.get("message") or _("Vision helper failed.")), t0=t0)
+                    return _early(rps_error_outcome(str(result.get("message") or _("Vision helper failed.")), t0=t0))
                 formatted_time = format_elapsed_time(time.perf_counter() - t0)
                 count = int(result.get("images_processed") or len(discovered))
                 if count > 1:
@@ -339,12 +345,12 @@ def execute_and_insert_result(
                         helper=helper_name,
                         time=formatted_time,
                     )
-                return rps_ok_outcome(status_ok, result=result, stdout=None)
+                return _early(rps_ok_outcome(status_ok, result=result, stdout=None))
 
         try:
             bindings = {"image": resolve_vision_image_bytes(ctx, doc, image_name=image_name)}
         except ToolExecutionError as exc:
-            return rps_error_outcome(str(exc), t0=t0)
+            return _early(rps_error_outcome(str(exc), t0=t0))
 
     try:
         from plugin.scripting.session_manager import rps_session_id
@@ -353,18 +359,44 @@ def execute_and_insert_result(
         from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
 
         ensure_python_session_cleared_on_unload(ctx, doc, rps_sid)
-        response = run_code_in_user_venv(
-            ctx,
-            exec_code,
-            data=py_data,
-            bindings=bindings,
-            session_id=rps_sid,
-        )
-        elapsed = time.perf_counter() - t0
     except Exception as e:
         log.exception("execute_and_insert_result failed")
-        return rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e))
+        return _early(rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e)))
 
+    return {
+        "early_outcome": None,
+        "ctx": ctx,
+        "doc": doc,
+        "code": code,
+        "t0": t0,
+        "exec_code": exec_code,
+        "py_data": py_data,
+        "bindings": bindings,
+        "session_id": rps_sid,
+    }
+
+
+def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
+    """Blocking venv IPC. Callers must not touch the document model here."""
+    return run_code_in_user_venv(
+        prepared["ctx"],
+        prepared["exec_code"],
+        data=prepared["py_data"],
+        bindings=prepared["bindings"],
+        session_id=prepared["session_id"],
+    )
+
+
+def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+    """Main-thread result insert. *response* is the venv worker payload."""
+    from plugin.scripting.domain_registry import get_post_venv_domains, try_rps_post_venv
+    from plugin.scripting.viz import try_insert_plot_result
+
+    t0 = prepared["t0"]
+    ctx = prepared["ctx"]
+    doc = prepared["doc"]
+    code = prepared["code"]
+    elapsed = time.perf_counter() - t0
     formatted_time = format_elapsed_time(elapsed)
 
     if response.get("status") != "ok":
@@ -447,6 +479,30 @@ def execute_and_insert_result(
         "stdout": stdout,
         "result": result_data,
     }
+
+
+def execute_and_insert_result(
+    ctx: Any,
+    doc: Any,
+    code: str,
+    *,
+    data_range: str | None = None,
+) -> dict[str, Any]:
+    """Run *code* in the user venv and insert the result into *doc* when possible.
+
+    Synchronous. The native dialog must not call this on the UNO event thread;
+    use :func:`plugin.scripting.python_runner_ui.start_native_script_run`.
+    """
+    prepared = _prepare_rps_execution(ctx, doc, code, data_range=data_range)
+    early = prepared.get("early_outcome")
+    if early is not None:
+        return early
+    try:
+        response = _run_prepared_rps(prepared)
+    except Exception as e:
+        log.exception("execute_and_insert_result failed")
+        return rps_error_outcome(str(e), t0=prepared["t0"], traceback=exception_traceback(e))
+    return _finish_rps_execution(prepared, response)
 
 
 def _picker_template_name(name: str) -> bool:
