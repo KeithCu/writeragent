@@ -659,6 +659,25 @@ def test_execute_refuses_fallback_during_agent_session():
     assert res_holder == []
 
 
+def test_execute_refusal_log_has_no_synthetic_traceback(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    def run_on_worker() -> None:
+        with (
+            patch.object(default_executor, "_get_async_callback", return_value=None),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
+            pytest.raises(RuntimeError, match="AsyncCallback unavailable from background thread"),
+        ):
+            default_executor.execute(lambda: None)
+
+    with caplog.at_level(logging.ERROR, logger="writeragent.framework.queue_executor"):
+        t = threading.Thread(target=run_on_worker)
+        t.start()
+        t.join()
+    assert "AsyncCallback unavailable" in caplog.text
+    assert "Traceback" not in caplog.text
+
+
 def test_execute_refuses_fallback_when_background_task_tagged():
     res_holder: list[int] = []
 
