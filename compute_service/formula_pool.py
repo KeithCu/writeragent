@@ -24,17 +24,13 @@ from typing import Any
 
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, WIRE_PICKLE, decode_worker_result
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, remaining_sec
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, remaining_sec, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "formula_worker.py")
-
-
-# Retain alias for existing references within module
-_remaining_sec = remaining_sec
 
 
 class FormulaProcessPool(BaseProcessPool):
@@ -44,11 +40,11 @@ class FormulaProcessPool(BaseProcessPool):
 
     def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, shared_kernel_ttl_sec: float | None = None, idle_worker_ttl_sec: float | None = None) -> None:
         cfg = settings or ComputeSettings()
-        eff_num_workers = cfg.workers if num_workers is None else num_workers
-        eff_timeout = cfg.default_timeout_sec if default_timeout_sec is None else default_timeout_sec
-        eff_max_tasks = cfg.worker_max_tasks if max_tasks is None else max_tasks
-        eff_shared_ttl = cfg.shared_kernel_ttl_sec if shared_kernel_ttl_sec is None else shared_kernel_ttl_sec
-        eff_idle_ttl = cfg.idle_worker_ttl_sec if idle_worker_ttl_sec is None else idle_worker_ttl_sec
+        eff_num_workers = resolve_override(num_workers, cfg.workers)
+        eff_timeout = resolve_override(default_timeout_sec, cfg.default_timeout_sec)
+        eff_max_tasks = resolve_override(max_tasks, cfg.worker_max_tasks)
+        eff_shared_ttl = resolve_override(shared_kernel_ttl_sec, cfg.shared_kernel_ttl_sec)
+        eff_idle_ttl = resolve_override(idle_worker_ttl_sec, cfg.idle_worker_ttl_sec)
 
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
         self._active_sessions: dict[str, BaseProcessWorker] = {}
@@ -249,10 +245,10 @@ class FormulaProcessPool(BaseProcessPool):
             if target_worker is None:
                 worker_idx = abs(hash(session_id)) % len(workers_snapshot)
                 target_worker = workers_snapshot[worker_idx]
-            leased = self.lease_specific(target_worker, timeout_sec=_remaining_sec(deadline))
+            leased = self.lease_specific(target_worker, timeout_sec=remaining_sec(deadline))
             busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
         else:
-            leased = self.lease_any(timeout_sec=_remaining_sec(deadline))
+            leased = self.lease_any(timeout_sec=remaining_sec(deadline))
             busy_err = "All formula workers are currently busy and request timed out waiting for worker lease."
 
         if leased is None:
@@ -264,7 +260,7 @@ class FormulaProcessPool(BaseProcessPool):
             # sleep became SIGKILL and dropped every shared session on that
             # process. Give the child the remaining budget and wait the
             # LibrePy grace so the alarm returns an error and the process stays up.
-            child_budget = _remaining_sec(deadline)
+            child_budget = remaining_sec(deadline)
             payload["timeout_sec"] = max(1, int(child_budget))
             res = leased.execute(payload, timeout_sec=child_budget + HOST_IPC_READ_GRACE_SEC)
             if req_id is not None and isinstance(res, dict):
@@ -277,6 +273,8 @@ class FormulaProcessPool(BaseProcessPool):
             # pinned every workbook to a wrapper whose process had already
             # died while idle. execute respawned a blank kernel, recycle saw
             # a live pid, and later cells refreshed the TTL on empty state.
+            # Must register before release_worker(): once released, another
+            # concurrent request could inspect _active_sessions before we update it.
             with self._cond:
                 if leased.did_respawn:
                     self._clear_worker_sessions_unlocked(leased)
@@ -318,23 +316,14 @@ class FormulaProcessPool(BaseProcessPool):
 
 
 # Global singleton per server process
-_GLOBAL_FORMULA_POOL: FormulaProcessPool | None = None
-_GLOBAL_FORMULA_POOL_LOCK = threading.Lock()
+_POOL_SINGLETON: PoolSingleton[FormulaProcessPool] = PoolSingleton()
 
 
 def get_formula_pool(settings: ComputeSettings | None = None) -> FormulaProcessPool:
     """Retrieve or initialize the global formula process pool."""
-    global _GLOBAL_FORMULA_POOL
-    with _GLOBAL_FORMULA_POOL_LOCK:
-        if _GLOBAL_FORMULA_POOL is None:
-            _GLOBAL_FORMULA_POOL = FormulaProcessPool(settings=settings)
-        return _GLOBAL_FORMULA_POOL
+    return _POOL_SINGLETON.get(lambda: FormulaProcessPool(settings=settings))
 
 
 def shutdown_formula_pool() -> None:
     """Shut down the global formula process pool."""
-    global _GLOBAL_FORMULA_POOL
-    with _GLOBAL_FORMULA_POOL_LOCK:
-        if _GLOBAL_FORMULA_POOL is not None:
-            _GLOBAL_FORMULA_POOL.shutdown()
-            _GLOBAL_FORMULA_POOL = None
+    _POOL_SINGLETON.shutdown()

@@ -38,6 +38,8 @@ _HTTP_DRAIN_SEC = 30.0
 # Header and body read. Cleared before the worker lease so a long cell
 # does not trip it on the response write.
 _REQUEST_READ_TIMEOUT_SEC = 30.0
+# Socket write deadline for sending the response once computation completes.
+_REQUEST_WRITE_TIMEOUT_SEC = 30.0
 # The cell never ran. A proxy can retry. Eval errors and EXECUTION_TIMEOUT
 # stay HTTP 200 so the sheet shows the error instead of #N/A.
 _POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN", "WORKER_CRASHED", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN", "EMPTY_RESPONSE"})
@@ -76,7 +78,7 @@ def _inject_req_id(body: dict[str, Any], req_id: Any) -> dict[str, Any]:
     return body
 
 
-def _clear_request_read_deadline(environ: dict[str, Any]) -> None:
+def _set_write_deadline(environ: dict[str, Any]) -> None:
     """Set a bounded socket write deadline once the body is buffered.
 
     The handler sets a read timeout so a client that accepts and then sends
@@ -88,7 +90,7 @@ def _clear_request_read_deadline(environ: dict[str, Any]) -> None:
     if conn is None:
         return
     try:
-        conn.settimeout(_REQUEST_READ_TIMEOUT_SEC)
+        conn.settimeout(_REQUEST_WRITE_TIMEOUT_SEC)
     except Exception:
         pass
 
@@ -259,6 +261,24 @@ def authenticate_request(environ: dict[str, Any], settings: ComputeSettings) -> 
     return settings.default_principal, None
 
 
+def _authenticate_or_401(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> list[bytes] | None:
+    """Authenticate request; return 401 response on failure or None on success."""
+    _principal, auth_err = authenticate_request(environ, settings)
+    if auth_err is not None:
+        # Generic body — do not reveal whether the key was missing vs wrong.
+        return _start_json(
+            start_response,
+            "401 Unauthorized",
+            {"status": "error", "error": "Unauthorized"},
+            extra_headers=[("WWW-Authenticate", "Bearer")],
+        )
+    return None
+
+
 def _parse_session_id(environ: dict[str, Any]) -> str | None:
     """Extract and validate the session_id URL query parameter, if present."""
     query_string = environ.get("QUERY_STRING", "")
@@ -290,16 +310,15 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             return _start_json(start_response, "200 OK", {"status": "healthy", "service": "python-compute", "version": __version__})
 
         if path == "/v1/execute" and method == "POST":
-            _principal, auth_err = authenticate_request(environ, settings)
-            if auth_err is not None:
-                # Generic body — do not reveal whether the key was missing vs wrong.
-                return _start_json(start_response, "401 Unauthorized", {"status": "error", "error": "Unauthorized"}, extra_headers=[("WWW-Authenticate", "Bearer")])
+            auth_resp = _authenticate_or_401(environ, settings, start_response)
+            if auth_resp is not None:
+                return auth_resp
 
             raw_body, err_resp = _read_request_body(environ, settings, start_response)
             if err_resp is not None:
                 return err_resp
             assert raw_body is not None
-            _clear_request_read_deadline(environ)
+            _set_write_deadline(environ)
 
             from compute_service.json_forward import WIRE_JSON_FORWARD, ExecuteRequestError, is_multipart_content_type, parse_execute_request
 
@@ -348,7 +367,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 from compute_service.formula_pool import get_formula_pool
 
                 formula_pool = get_formula_pool(settings)
-                run_execute = lambda **kw: formula_pool.execute(**kw)
+                run_execute = formula_pool.execute
 
             timeout_sec = timeout_ms_to_sec(parts.timeout_ms, default_timeout_sec=settings.default_timeout_sec, max_timeout_sec=settings.max_timeout_sec)
             sid = session_id
@@ -373,15 +392,15 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             # Query-only session_id so L7 can stick to the host that owns the
             # kernel (same reason as /v1/execute). coolwsd will call this on
             # DocumentBroker destroy; unknown / already-gone is still ok.
-            _principal, auth_err = authenticate_request(environ, settings)
-            if auth_err is not None:
-                return _start_json(start_response, "401 Unauthorized", {"status": "error", "error": "Unauthorized"}, extra_headers=[("WWW-Authenticate", "Bearer")])
+            auth_resp = _authenticate_or_401(environ, settings, start_response)
+            if auth_resp is not None:
+                return auth_resp
 
             req_data, err_resp = _read_optional_request_json(environ, settings, start_response)
             if err_resp is not None:
                 return err_resp
             assert req_data is not None
-            _clear_request_read_deadline(environ)
+            _set_write_deadline(environ)
 
             req_id = req_data.get("id")
 
@@ -422,15 +441,15 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 return _start_json(start_response, "500 Internal Server Error", _inject_req_id(err_body, req_id))
 
         if path == "/v1/vision" and method == "POST":
-            _principal, auth_err = authenticate_request(environ, settings)
-            if auth_err is not None:
-                return _start_json(start_response, "401 Unauthorized", {"status": "error", "error": "Unauthorized"}, extra_headers=[("WWW-Authenticate", "Bearer")])
+            auth_resp = _authenticate_or_401(environ, settings, start_response)
+            if auth_resp is not None:
+                return auth_resp
 
             req_data, err_resp = _read_request_json(environ, settings, start_response)
             if err_resp is not None:
                 return err_resp
             assert req_data is not None
-            _clear_request_read_deadline(environ)
+            _set_write_deadline(environ)
 
             req_id = req_data.get("id")
             helper = str(req_data.get("helper") or "extract_text").strip()
@@ -637,6 +656,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                 self.handle_error(request, client_address)
                 self.shutdown_request(request)
             except BaseException:
+                # Catches KeyboardInterrupt / SystemExit; not reached by except Exception above.
                 self.shutdown_request(request)
                 raise
         else:

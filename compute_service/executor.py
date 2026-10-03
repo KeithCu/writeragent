@@ -24,6 +24,8 @@ from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 
 # Per-session locks so concurrent shared-kernel requests do not race LocalPythonExecutor.
+# If a worker process is killed mid-reset, release_session_lock may not be reached,
+# leaving at most one stale Lock per dead session; cleared on next worker respawn.
 _SESSION_RUN_LOCKS: dict[str, threading.Lock] = {}
 _SESSION_RUN_LOCKS_GUARD = threading.Lock()
 

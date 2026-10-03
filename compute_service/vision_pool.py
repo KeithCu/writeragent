@@ -14,13 +14,12 @@ from __future__ import annotations
 import base64
 import logging
 import os
-import threading
 import time
 from typing import Any
 
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, remaining_sec
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, remaining_sec, resolve_override
 
 log = logging.getLogger("compute_service.vision")
 
@@ -33,10 +32,10 @@ class VisionProcessPool(BaseProcessPool):
 
     def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, idle_worker_ttl_sec: float | None = None) -> None:
         cfg = settings or ComputeSettings()
-        eff_num_workers = cfg.ocr_workers if num_workers is None else num_workers
-        eff_timeout = cfg.ocr_timeout_sec if default_timeout_sec is None else default_timeout_sec
-        eff_max_tasks = cfg.ocr_max_tasks if max_tasks is None else max_tasks
-        eff_idle_ttl = cfg.idle_worker_ttl_sec if idle_worker_ttl_sec is None else idle_worker_ttl_sec
+        eff_num_workers = resolve_override(num_workers, cfg.ocr_workers)
+        eff_timeout = resolve_override(default_timeout_sec, cfg.ocr_timeout_sec)
+        eff_max_tasks = resolve_override(max_tasks, cfg.ocr_max_tasks)
+        eff_idle_ttl = resolve_override(idle_worker_ttl_sec, cfg.idle_worker_ttl_sec)
 
         # Formula workers already pass this. The 16 MiB IPC default rejected a
         # body the HTTP layer had accepted (32 MiB) as an uncaught ValueError.
@@ -44,7 +43,17 @@ class VisionProcessPool(BaseProcessPool):
         # that frame and reuses the process instead of SIGKILL.
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Vision worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES, recover_on_timeout=True)
 
-    def execute(self, helper: str, image_b64: str | bytes | None = None, file_path: str | None = None, params: dict[str, Any] | None = None, timeout_sec: int | None = None, req_id: str | None = None, allow_paths: tuple[str, ...] | list[str] | None = None) -> dict[str, Any]:
+    def execute(
+        self,
+        helper: str,
+        # bytes: for direct programmatic calls; HTTP always passes str
+        image_b64: str | bytes | None = None,
+        file_path: str | None = None,
+        params: dict[str, Any] | None = None,
+        timeout_sec: int | None = None,
+        req_id: str | None = None,
+        allow_paths: tuple[str, ...] | list[str] | None = None,
+    ) -> dict[str, Any]:
         """Execute a vision task on an available worker process.
 
         The HTTP handler returns 400 for a denied path. The worker checks
@@ -88,23 +97,14 @@ class VisionProcessPool(BaseProcessPool):
 
 
 # Global singleton per server process
-_GLOBAL_VISION_POOL: VisionProcessPool | None = None
-_GLOBAL_VISION_POOL_LOCK = threading.Lock()
+_POOL_SINGLETON: PoolSingleton[VisionProcessPool] = PoolSingleton()
 
 
 def get_vision_pool(settings: ComputeSettings | None = None) -> VisionProcessPool:
     """Retrieve or initialize the global vision process pool."""
-    global _GLOBAL_VISION_POOL
-    with _GLOBAL_VISION_POOL_LOCK:
-        if _GLOBAL_VISION_POOL is None:
-            _GLOBAL_VISION_POOL = VisionProcessPool(settings=settings)
-        return _GLOBAL_VISION_POOL
+    return _POOL_SINGLETON.get(lambda: VisionProcessPool(settings=settings))
 
 
 def shutdown_vision_pool() -> None:
     """Shut down the global vision process pool."""
-    global _GLOBAL_VISION_POOL
-    with _GLOBAL_VISION_POOL_LOCK:
-        if _GLOBAL_VISION_POOL is not None:
-            _GLOBAL_VISION_POOL.shutdown()
-            _GLOBAL_VISION_POOL = None
+    _POOL_SINGLETON.shutdown()

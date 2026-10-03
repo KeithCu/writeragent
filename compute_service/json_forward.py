@@ -612,6 +612,7 @@ def _coerce_data_json_field(value_slice: bytes) -> bytes:
 
 
 # --- peel walker (single-JSON only) ---
+# TODO(kit-multipart): delete peel_execute_request and all helpers below when kit ships multipart.
 # Transitional Collabora contract. Keep until kit ships multipart; then
 # delete this whole helper block. Multipart is the long-term ingress.
 

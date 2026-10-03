@@ -24,7 +24,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Generic, TypeVar, cast
 
 from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame
@@ -34,6 +34,37 @@ log = logging.getLogger("compute_service.worker")
 
 _SPAWN_READY_TIMEOUT_SEC = 15.0
 _STDERR_SNIPPET = 500
+
+_PoolT = TypeVar("_PoolT", bound="BaseProcessPool")
+_ValT = TypeVar("_ValT")
+
+
+def resolve_override(override: _ValT | None, default: _ValT) -> _ValT:
+    """Return *override* if not None, else *default*."""
+    return default if override is None else override
+
+
+class PoolSingleton(Generic[_PoolT]):
+    """Thread-safe global singleton holder for a BaseProcessPool subclass."""
+
+    _lock: threading.Lock
+    _pool: _PoolT | None
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pool = None
+
+    def get(self, factory: Callable[[], _PoolT]) -> _PoolT:
+        with self._lock:
+            if self._pool is None:
+                self._pool = factory()
+            return self._pool
+
+    def shutdown(self) -> None:
+        with self._lock:
+            if self._pool is not None:
+                self._pool.shutdown()
+                self._pool = None
 
 
 def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> int:
@@ -69,10 +100,6 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
 def remaining_sec(deadline: float, *, floor: float = 0.01) -> float:
     """Return remaining seconds until *deadline*, bounded below by *floor*."""
     return max(floor, deadline - time.monotonic())
-
-
-# Back-compat alias within compute_service
-_remaining_sec = remaining_sec
 
 
 class _DrainState(enum.Enum):
