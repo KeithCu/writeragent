@@ -81,6 +81,22 @@ class ACPConnection:
         self._running = True
         self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader", dedicated=True)
 
+    def _wake_pending(self, message: str) -> None:
+        """Fail in-flight ``send_request`` calls that have no response yet.
+
+        ``_running`` is cleared under the same lock that registers a waiter,
+        so a request that arrives after this sweep fails immediately instead
+        of waiting out its timeout. A response already stored is kept.
+        """
+        with self._lock:
+            self._running = False
+            for entry in self._pending.values():
+                if entry.get("response") is None:
+                    entry["response"] = {"error": {"message": message}}
+                event = entry.get("event")
+                if event is not None:
+                    event.set()
+
     def stop(self) -> None:
         """Terminate the subprocess and unblock in-flight ``send_request`` calls.
 
@@ -90,16 +106,11 @@ class ACPConnection:
         had already shown Stopped, and the reader stayed in ``readline``
         until that timeout too. Why: publish a cancellation error and set
         every pending event, then terminate. A second ``stop()`` sees no
-        process and only wakes waiters.
+        process and only wakes waiters. The reader loop uses the same sweep
+        when it exits for any other reason.
         """
+        self._wake_pending("ACP process stopped")
         with self._lock:
-            self._running = False
-            for entry in self._pending.values():
-                if entry.get("response") is None:
-                    entry["response"] = {"error": {"message": "ACP process stopped"}}
-                event = entry.get("event")
-                if event is not None:
-                    event.set()
             proc = self._proc
             # Claim it so a concurrent shutdown does not terminate twice.
             self._proc = None
@@ -213,61 +224,69 @@ class ACPConnection:
     def _reader_loop(self) -> None:
         """Read JSON-RPC messages from stdout and dispatch them."""
         log.info("Reader loop started")
-        while self._running and self._proc and self._proc.poll() is None:
-            try:
-                if self._proc.stdout is None:
-                    break
-                raw = self._proc.stdout.readline()
-                if not raw:
-                    break
-                # Popen is binary. Reusing `line` for the decoded str leaves
-                # mypy on bytes, so find("{") and the debug f-string still see bytes.
-                line = raw.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
+        try:
+            while self._running and self._proc and self._proc.poll() is None:
+                try:
+                    if self._proc.stdout is None:
+                        break
+                    raw = self._proc.stdout.readline()
+                    if not raw:
+                        break
+                    # Popen is binary. Reusing `line` for the decoded str leaves
+                    # mypy on bytes, so find("{") and the debug f-string still see bytes.
+                    line = raw.decode("utf-8", errors="replace").strip()
+                    if not line:
+                        continue
 
-                idx = line.find("{")
-                if idx >= 0:
-                    line = line[idx:]
+                    idx = line.find("{")
+                    if idx >= 0:
+                        line = line[idx:]
 
-                from plugin.framework.errors import safe_json_loads
+                    from plugin.framework.errors import safe_json_loads
 
-                msg = safe_json_loads(line)
-                if msg is None:
-                    log.debug(f"Non-JSON output: {line[:200]}")
-                    continue
+                    msg = safe_json_loads(line)
+                    if msg is None:
+                        log.debug(f"Non-JSON output: {line[:200]}")
+                        continue
 
-                if "id" in msg and msg["id"] is not None and "method" not in msg:
-                    # Response to our request
-                    req_id = msg["id"]
-                    with self._lock:
-                        entry = self._pending.get(req_id)
-                    if entry:
-                        entry["response"] = msg
-                        entry["event"].set()
+                    if "id" in msg and msg["id"] is not None and "method" not in msg:
+                        # Response to our request
+                        req_id = msg["id"]
+                        with self._lock:
+                            entry = self._pending.get(req_id)
+                        if entry:
+                            entry["response"] = msg
+                            entry["event"].set()
+                        else:
+                            log.warning(f"Response for unknown id={req_id}")
                     else:
-                        log.warning(f"Response for unknown id={req_id}")
-                else:
-                    # Notification or Request from the agent
-                    method = msg.get("method", "")
-                    params = msg.get("params", {})
-                    msg_id = msg.get("id")
-                    if self._notify_callback:
-                        try:
-                            self._notify_callback(method, params, msg_id)
-                        except Exception:
-                            log.exception("Notification callback error")
+                        # Notification or Request from the agent
+                        method = msg.get("method", "")
+                        params = msg.get("params", {})
+                        msg_id = msg.get("id")
+                        if self._notify_callback:
+                            try:
+                                self._notify_callback(method, params, msg_id)
+                            except Exception:
+                                log.exception("Notification callback error")
 
-            except Exception:
-                if self._running:
-                    log.exception("Reader error")
-                break
+                except Exception:
+                    if self._running:
+                        log.exception("Reader error")
+                    break
+        finally:
+            # What was wrong: this sweep lived only in stop(). A child exit,
+            # stdout EOF, or an exception here (malformed non-object JSON)
+            # ended the loop and left in-flight Events unset, so
+            # session/prompt sat on event.wait(600) and the sidebar stayed
+            # on Sending. Why: every reader exit wakes waiters the same way
+            # stop() does. A response stop() already stored is not replaced.
+            self._wake_pending("ACP process terminated")
+            # Live drain already collected stderr; log a bounded tail for debugging.
+            drain = self._stderr_drain
+            if drain is not None:
+                stderr_text = drain.finish_text().strip()
+                if stderr_text:
+                    log.warning("ACP stderr: %s", stderr_text[:500])
 
-        # Live drain already collected stderr; log a bounded tail for debugging.
-        drain = self._stderr_drain
-        if drain is not None:
-            stderr_text = drain.finish_text().strip()
-            if stderr_text:
-                log.warning("ACP stderr: %s", stderr_text[:500])
-
-        log.info("Reader loop ended")
+            log.info("Reader loop ended")

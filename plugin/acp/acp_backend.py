@@ -500,7 +500,29 @@ class ACPBackend(AgentBackend):
 
     def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any) -> None:
         """Send a message via ACP stdio. The subprocess is shut down before return."""
-        self._stop_requested = False
+        # What was wrong: entry always set ``_stop_requested = False`` and
+        # cleared ``_prompt_done``, and never read ``stop_checker``.
+        # ``register_on_cancel(adapter.stop)`` can run before this worker
+        # enters ``send()``, so that reset wiped a latched Stop. The UI
+        # showed Stopped while the CLI, session, and prompt still started.
+        # Why: under the same lock ``stop()`` sets, honor an already-latched
+        # stop or a true ``stop_checker`` and return without starting the
+        # process. The latch is cleared only when this turn is not already
+        # stopped.
+        checker_hit = callable(stop_checker) and bool(stop_checker())
+        with self._permission_lock:
+            if checker_hit or self._stop_requested:
+                self._stop_requested = True
+                already_stopped = True
+            else:
+                self._stop_requested = False
+                already_stopped = False
+        if already_stopped:
+            self._finish_stopped(queue)
+            self.shutdown()
+            self._prompt_done.set()
+            return
+
         self._prompt_done.clear()
 
         queue.put((StreamQueueKind.STATUS, f"Starting {self.get_display_name()}..."))
@@ -596,7 +618,10 @@ class ACPBackend(AgentBackend):
         notification, every outstanding permission must be ``cancelled``,
         and the subprocess has to be terminated.
         """
-        self._stop_requested = True
+        # Same lock send() holds while it decides whether to clear the latch,
+        # so a Stop that lands as send() begins cannot be wiped by that reset.
+        with self._permission_lock:
+            self._stop_requested = True
         conn = self._conn
         if conn is not None and conn.is_alive and self._session_id:
             try:

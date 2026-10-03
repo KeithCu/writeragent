@@ -5,8 +5,10 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""ACPConnection stop must terminate the child and unblock send_request."""
+"""ACPConnection stop and reader exit must unblock send_request."""
 
+import subprocess
+import sys
 import threading
 import time
 from unittest.mock import MagicMock
@@ -79,3 +81,118 @@ class TestACPConnectionStop:
         conn.stop()
         conn.stop()
         proc.terminate.assert_called_once()
+
+
+def _assert_prompt_unblocked(errors: list[BaseException], worker: threading.Thread) -> None:
+    assert worker.is_alive() is False
+    assert errors
+    assert isinstance(errors[0], ToolExecutionError)
+    text = str(errors[0]).lower()
+    assert "terminated" in text or "stopped" in text
+
+
+class TestACPConnectionReaderExit:
+    """Reader-loop exit must fail an in-flight send_request without stop()."""
+
+    def test_killing_child_unblocks_in_flight_send_request(self):
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        raw_stdin = proc.stdin
+        assert raw_stdin is not None
+        wrote = threading.Event()
+
+        class _Stdin:
+            def write(self, data: bytes) -> int:
+                return raw_stdin.write(data)
+
+            def flush(self) -> None:
+                raw_stdin.flush()
+                wrote.set()
+
+            def close(self) -> None:
+                raw_stdin.close()
+
+        proc.stdin = _Stdin()  # type: ignore[assignment]
+        conn = ACPConnection(cmd_line=["agent"])
+        conn._proc = proc
+        conn._running = True
+        reader = threading.Thread(target=conn._reader_loop, daemon=True)
+        reader.start()
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                conn.send_request("session/prompt", {"sessionId": "s"}, timeout=30)
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        try:
+            assert wrote.wait(timeout=2)
+            started = time.monotonic()
+            proc.kill()
+            worker.join(timeout=2)
+            _assert_prompt_unblocked(errors, worker)
+            assert time.monotonic() - started < 2
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            conn.stop()
+            worker.join(timeout=2)
+            reader.join(timeout=2)
+
+    def test_malformed_json_unblocks_in_flight_send_request(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        release = threading.Event()
+        entered = threading.Event()
+        proc = _live_proc()
+
+        calls = {"n": 0}
+
+        def readline() -> bytes:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                entered.set()
+                assert release.wait(timeout=2)
+                # Non-object JSON. The reader raises and leaves the loop.
+                # A later call is EOF so a handled non-object cannot spin.
+                return b"[1, 2]\n"
+            return b""
+
+        proc.stdout.readline.side_effect = readline
+        conn._proc = proc
+        conn._running = True
+        reader = threading.Thread(target=conn._reader_loop, daemon=True)
+        reader.start()
+        assert entered.wait(timeout=2)
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                conn.send_request("session/prompt", {"sessionId": "s"}, timeout=30)
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        try:
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and not conn._pending:
+                time.sleep(0.01)
+            assert conn._pending
+            started = time.monotonic()
+            release.set()
+            worker.join(timeout=2)
+            _assert_prompt_unblocked(errors, worker)
+            assert time.monotonic() - started < 2
+            assert "terminated" in str(errors[0]).lower()
+        finally:
+            release.set()
+            conn.stop()
+            worker.join(timeout=2)
+            reader.join(timeout=2)
