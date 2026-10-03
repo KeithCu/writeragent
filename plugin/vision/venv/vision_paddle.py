@@ -194,15 +194,20 @@ def _text_from_structure_res(res: Any) -> str:
     if isinstance(res, str):
         return res.strip()
     if isinstance(res, dict):
-        for key in ("text", "content", "html", "markdown"):
+        for key in ("text", "content", "markdown"):
             val = res.get(key)
             if isinstance(val, str) and val.strip():
                 return val.strip()
         html = res.get("html")
-        if isinstance(html, str) and "<table" in html.lower():
-            _cols, rows = _parse_html_table(html)
-            if rows:
-                return "\n".join("\t".join(row) for row in rows)
+        if isinstance(html, str) and html.strip():
+            # ``html`` used to be in the key loop above, so this branch never
+            # ran and the raw ``<table>`` string became block text.
+            # ``html_from_paddle_structure`` then escaped it into a ``<p>``
+            # and also appended the parsed table. Table HTML is not prose;
+            # the parsed grid is rendered separately.
+            if "<table" in html.lower():
+                return ""
+            return html.strip()
         return ""
     if isinstance(res, list):
         parts: list[str] = []

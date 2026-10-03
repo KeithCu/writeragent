@@ -128,6 +128,23 @@ def augment_lo_body_paragraph_styles(html: str) -> str:
     return _PLAIN_P_TAG_RE.sub(_repl, html)
 
 
+def _extension_root() -> str:
+    """Extension root that contains ``vendor/`` and ``plugin/lib/``.
+
+    ``__file__`` is ``plugin/vision/venv/vision_html_export.py``. ``dirname``
+    is already the ``venv`` directory; three parents from there are
+    ``vision → plugin → root``. Four parents is the parent of the repo, so
+    the lookup hit ``<parent>/vendor`` and ``<parent>/plugin/lib`` and missed
+    the vendored ``latex2mathml``. Formulas then stayed as literal ``$…$``.
+    ``ensure_plugin_on_path`` uses ``levels_up=3`` from a file directly under
+    ``plugin/<pkg>/``; this file is one directory deeper, so the equivalent
+    walk from ``dirname(__file__)`` is three ``..``, not four.
+    """
+    import os
+
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+
 def _import_latex2mathml_convert() -> Any | None:
     """latex2mathml is vendored; Docling also depends on it. Missing → leave TeX as-is."""
     try:
@@ -139,7 +156,7 @@ def _import_latex2mathml_convert() -> Any | None:
     import os
     import sys
 
-    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    root = _extension_root()
     for extra in (os.path.join(root, "vendor"), os.path.join(root, "plugin", "lib")):
         if os.path.isdir(os.path.join(extra, "latex2mathml")) and extra not in sys.path:
             sys.path.insert(0, extra)
@@ -416,6 +433,11 @@ def html_from_paddle_regions(regions: list[dict[str, Any]]) -> str:
     return prepare_html_for_lo_import(_wrap_paddle_fragment("\n".join(parts)))
 
 
+def _is_table_markup(text: str) -> bool:
+    """True when block text is a raw ``<table>`` fragment, not prose."""
+    return "<table" in text.lower()
+
+
 def _paddle_block_tag(block_type: str) -> str:
     label = block_type.strip().lower()
     if label in ("title", "section_header", "header", "heading"):
@@ -492,9 +514,15 @@ def html_from_paddle_structure(
     for block in blocks:
         if not isinstance(block, dict):
             continue
-        block_type = str(block.get("type") or "text")
+        block_type = str(block.get("type") or "text").strip().lower()
         text = str(block.get("text") or "").strip()
-        if block_type == "table" and not text:
+        # Tables are appended from ``tables`` below. The old guard only
+        # skipped an empty ``text``, but PP-Structure stores the raw
+        # ``<table>`` HTML on the block (``_text_from_structure_res`` read
+        # the ``html`` key). That markup was escaped into a second ``<p>``
+        # (``&lt;table&gt;``) beside the real table. Skip table markup even
+        # when ``text`` is non-empty so insert_mode=html shows one table.
+        if block_type == "table" and (not text or _is_table_markup(text)):
             continue
         tag = _paddle_block_tag(block_type)
         if not text:
