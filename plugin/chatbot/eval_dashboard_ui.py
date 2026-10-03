@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from plugin.framework.config import get_config_str
 from plugin.framework.client.model_fetcher import get_text_model
-from plugin.framework.uno_context import get_active_document, get_extension_url
+from plugin.framework.uno_context import get_active_document
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
-from plugin.chatbot.dialogs import set_control_text
+from plugin.chatbot.dialogs import load_writeragent_dialog, set_control_text
 
 log = logging.getLogger(__name__)
 
@@ -32,16 +32,15 @@ class EvalDashboard:
         self._closed = False
 
     def show(self) -> None:
-        smgr = self._ctx.getServiceManager()
-        base_url = get_extension_url()
-        dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", self._ctx)
-        self._dlg = dp.createDialog(base_url + "/Dialogs/EvalDialog.xdl")
+        # Translates at load. A missing dialog must not execute().
+        self._dlg = load_writeragent_dialog("EvalDialog", self._ctx)
         self._closed = False
 
         try:
+            if not self._dlg:
+                return
             self._populate()
-            if self._dlg:
-                self._dlg.execute()
+            self._dlg.execute()
         finally:
             # The catalog worker can still post after execute() returns.
             self._closed = True

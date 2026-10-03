@@ -128,15 +128,13 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "", x: Any
     """Shows input dialog (EditInputDialog.xdl). Returns (result_text, extra_prompt) if OK, else ("", "")."""
     init_logging(ctx)
     log.debug("input_box: opening Edit Input dialog")
-    try:
-        smgr = ctx.getServiceManager()
-        base_url = get_extension_url()
-        dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-        dlg_url = base_url + "/Dialogs/EditInputDialog.xdl"
-        dlg = dp.createDialog(dlg_url)
-    except Exception as e:
-        log.exception("input_box: failed to create dialog")
-        raise UnoObjectError(f"Failed to create dialog: {e}") from e
+    # Same loader as the other XDL dialogs: this ctx, then DialogProvider2
+    # when DialogProvider cannot create the window. None is a failed load;
+    # the loader already logged the provider errors.
+    dlg = load_writeragent_dialog("EditInputDialog", ctx)
+    if dlg is None:
+        log.error("input_box: failed to create dialog")
+        raise UnoObjectError("Failed to create dialog: EditInputDialog")
 
     need_dispose = True
     try:
@@ -270,11 +268,11 @@ class SettingsDialog:
             self._cleanup()
 
     def _create_dialog(self) -> None:
-        smgr = self._ctx.getServiceManager()
-        base_url = get_extension_url()
-        dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", self._ctx)
-        dialog_url = base_url + "/Dialogs/SettingsDialog.xdl"
-        self._dlg = dp.createDialog(dialog_url)
+        # Loader returns None after DialogProvider and DialogProvider2 both fail.
+        # show() only message-boxes exceptions, so a silent None would close with no dialog.
+        self._dlg = load_writeragent_dialog("SettingsDialog", self._ctx)
+        if self._dlg is None:
+            raise UnoObjectError("Failed to create dialog: SettingsDialog")
 
     def _setup_tabs(self) -> None:
         assert self._dlg is not None

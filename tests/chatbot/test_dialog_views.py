@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestInputBoxExtraTokens:
     def _mock_dialog(self, *, execute_ok=True):
@@ -36,21 +38,16 @@ class TestInputBoxExtraTokens:
 
     @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
-    @patch("plugin.chatbot.dialog_views.get_extension_url", return_value="vnd.sun.star.expand:/WriterAgent")
+    @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_loads_selection_token_fields_from_config(
-        self, _init_log, _ext_url, _populate, _translate,
+        self, _init_log, mock_load, _populate, _translate,
     ):
         from plugin.chatbot.dialog_views import input_box
 
         ctx = MagicMock()
-        smgr = MagicMock()
-        ctx.getServiceManager.return_value = smgr
         dlg, _edit_ctrl, extend_tokens_ctrl, extra_tokens_ctrl, optional_side_effect = self._mock_dialog(execute_ok=False)
-
-        dp = MagicMock()
-        dp.createDialog.return_value = dlg
-        smgr.createInstanceWithContext.return_value = dp
+        mock_load.return_value = dlg
 
         def config_int_side_effect(key):
             return {"extend_selection_max_tokens": 1200, "edit_selection_max_new_tokens": 750}[key]
@@ -60,28 +57,24 @@ class TestInputBoxExtraTokens:
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
             result = input_box(ctx, "msg", "title", "")
 
+        mock_load.assert_called_once_with("EditInputDialog", ctx)
         assert (result) == (("", ""))
         mock_set_text.assert_any_call(extend_tokens_ctrl, "1200")
         mock_set_text.assert_any_call(extra_tokens_ctrl, "750")
 
     @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
-    @patch("plugin.chatbot.dialog_views.get_extension_url", return_value="vnd.sun.star.expand:/WriterAgent")
+    @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_saves_selection_token_fields_on_ok(
-        self, _init_log, _ext_url, _populate, _translate,
+        self, _init_log, mock_load, _populate, _translate,
     ):
         from plugin.chatbot.dialog_views import input_box
 
         ctx = MagicMock()
-        smgr = MagicMock()
-        ctx.getServiceManager.return_value = smgr
         dlg, edit_ctrl, extend_tokens_ctrl, extra_tokens_ctrl, optional_side_effect = self._mock_dialog(execute_ok=True)
         edit_ctrl.getText.return_value = "rewrite this"
-
-        dp = MagicMock()
-        dp.createDialog.return_value = dlg
-        smgr.createInstanceWithContext.return_value = dp
+        mock_load.return_value = dlg
 
         def control_text_side_effect(c):
             if c is extend_tokens_ctrl:
@@ -101,22 +94,17 @@ class TestInputBoxExtraTokens:
 
     @patch("plugin.chatbot.dialog_views.translate_dialog")
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
-    @patch("plugin.chatbot.dialog_views.get_extension_url", return_value="vnd.sun.star.expand:/WriterAgent")
+    @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
     @patch("plugin.chatbot.dialog_views.init_logging")
     def test_input_box_delegates_selection_token_bounds_to_config(
-        self, _init_log, _ext_url, _populate, _translate,
+        self, _init_log, mock_load, _populate, _translate,
     ):
         from plugin.chatbot.dialog_views import input_box
 
         ctx = MagicMock()
-        smgr = MagicMock()
-        ctx.getServiceManager.return_value = smgr
         dlg, edit_ctrl, extend_tokens_ctrl, extra_tokens_ctrl, optional_side_effect = self._mock_dialog(execute_ok=True)
         edit_ctrl.getText.return_value = "go"
-
-        dp = MagicMock()
-        dp.createDialog.return_value = dlg
-        smgr.createInstanceWithContext.return_value = dp
+        mock_load.return_value = dlg
 
         def control_text_side_effect(c):
             if c is extend_tokens_ctrl:
@@ -132,6 +120,38 @@ class TestInputBoxExtraTokens:
 
         mock_set_config.assert_any_call("extend_selection_max_tokens", "1")
         mock_set_config.assert_any_call("edit_selection_max_new_tokens", "99999")
+
+    @patch("plugin.chatbot.dialog_views.init_logging")
+    def test_input_box_raises_when_dialog_missing(self, _init_log):
+        from plugin.chatbot.dialog_views import input_box
+        from plugin.framework.errors import UnoObjectError
+
+        with patch("plugin.chatbot.dialog_views.load_writeragent_dialog", return_value=None) as mock_load:
+            with pytest.raises(UnoObjectError):
+                input_box(MagicMock(), "msg")
+        mock_load.assert_called_once()
+
+
+class TestSettingsDialogLoad:
+    def test_create_dialog_uses_loader_with_ctx(self):
+        from plugin.chatbot.dialog_views import SettingsDialog
+
+        ctx = MagicMock()
+        view = SettingsDialog(ctx)
+        dlg = MagicMock()
+        with patch("plugin.chatbot.dialog_views.load_writeragent_dialog", return_value=dlg) as mock_load:
+            view._create_dialog()
+        mock_load.assert_called_once_with("SettingsDialog", ctx)
+        assert view._dlg is dlg
+
+    def test_create_dialog_raises_when_loader_returns_none(self):
+        from plugin.chatbot.dialog_views import SettingsDialog
+        from plugin.framework.errors import UnoObjectError
+
+        view = SettingsDialog(MagicMock())
+        with patch("plugin.chatbot.dialog_views.load_writeragent_dialog", return_value=None):
+            with pytest.raises(UnoObjectError):
+                view._create_dialog()
 
 
 class TestSettingsInitialModelsFetch:

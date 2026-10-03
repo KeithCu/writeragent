@@ -17,6 +17,35 @@ import pytest
 from plugin.chatbot.eval_dashboard_ui import EvalRunListener
 
 
+def test_show_loads_eval_dialog_with_ctx() -> None:
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+
+    ctx = MagicMock()
+    dash = EvalDashboard(ctx)
+    dlg = MagicMock()
+    with patch("plugin.chatbot.eval_dashboard_ui.load_writeragent_dialog", return_value=dlg) as mock_load, \
+         patch.object(dash, "_populate"):
+        dash.show()
+    mock_load.assert_called_once_with("EvalDialog", ctx)
+    dlg.execute.assert_called_once()
+    dlg.dispose.assert_called_once()
+    assert dash._closed is True
+    assert dash._dlg is None
+
+
+def test_show_skips_execute_when_dialog_missing() -> None:
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+
+    dash = EvalDashboard(MagicMock())
+    with patch("plugin.chatbot.eval_dashboard_ui.load_writeragent_dialog", return_value=None) as mock_load, \
+         patch.object(dash, "_populate") as mock_populate:
+        dash.show()
+    mock_load.assert_called_once()
+    mock_populate.assert_not_called()
+    assert dash._closed is True
+    assert dash._dlg is None
+
+
 def test_eval_populate_does_not_fetch_models_on_the_caller() -> None:
     from plugin.chatbot.eval_dashboard_ui import EvalDashboard
 
