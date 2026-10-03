@@ -986,25 +986,25 @@ def test_translate_complex_functions():
     # Better: IMLN("2.718281828459045")
     res = translate_formula('=IMLN("2.718281828459045")')
     assert res.ok
-    assert exec_result(res, []) == "1+0i"
+    assert exec_result(res, []) == "1"
 
     res = translate_formula('=IMLOG10("100")')
     assert res.ok
-    assert exec_result(res, []) == "2+0i"
+    assert exec_result(res, []) == "2"
 
     # 11-12. IMLOG2 / IMPOWER
     res = translate_formula('=IMLOG2("8")')
     assert res.ok
-    assert exec_result(res, []) == "3+0i"
+    assert exec_result(res, []) == "3"
 
     res = translate_formula('=IMPOWER("2"; 3)')
     assert res.ok
-    assert exec_result(res, []) == "8+0i"
+    assert exec_result(res, []) == "8"
 
     # 13-15. IMPRODUCT / IMREAL / IMSIN
     res = translate_formula('=IMPRODUCT("2+2i"; "2-2i")') # (2+2i)(2-2i) = 4 - 4i^2 = 8
     assert res.ok
-    assert exec_result(res, []) == "8+0i"
+    assert exec_result(res, []) == "8"
 
     res = translate_formula('=IMREAL("3+4i")')
     assert res.ok

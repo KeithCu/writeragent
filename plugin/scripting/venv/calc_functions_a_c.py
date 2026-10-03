@@ -219,8 +219,7 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
 def _complex_coeff(n: float) -> str:
     """Integer-valued floats must not stringify with a trailing '.0'.
 
-    str(5.0) is '5.0'. COMPLEX prints whole coefficients as integers
-    (COMPLEX(5, 0, 'i') is '5+0i').
+    str(5.0) is '5.0'. Calc COMPLEX(5, 2) is '5+2i', and COMPLEX(5, 0) is '5'.
     """
     if math.isfinite(n) and n.is_integer():
         return str(int(n))
@@ -233,10 +232,10 @@ def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
         return str(c)
     real = c.real
     imag = c.imag
-    # imag == 0 used to return str(real) and drop the imaginary term, so
-    # COMPLEX(5, 0, "i") was "5.0". Keep a zero imaginary part as "+0".
+    # imag == 0 used to return str(real), so COMPLEX(5, 0) was "5.0".
+    # Calc omits a zero imaginary part: COMPLEX(5, 0) is "5".
     if imag == 0:
-        return _complex_coeff(real) + "+0" + suffix
+        return _complex_coeff(real)
 
     res = ""
     if real != 0:
@@ -411,17 +410,17 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
         if fn == 5:
             return float(np.nanmin(arr))
         if fn == 6:
-            # np.prod([]) is 1.0. After an ignore-errors option strips every
-            # value, PRODUCT of nothing is not 1. Same empty guard as AVERAGE.
-            return float(np.prod(arr)) if arr.size else float("nan")
+            # np.prod([]) is 1. Calc AGGREGATE PRODUCT is 0 when ignore-errors
+            # or text leaves no numbers (AGGREGATE(6,6,NA(),NA()) is 0).
+            return float(np.prod(arr)) if arr.size else 0.0
         if fn == 7:
             return float(np.std(arr, ddof=1))
         if fn == 8:
             return float(np.std(arr, ddof=0))
         if fn == 9:
-            # np.sum([]) is 0.0. A strip that leaves no numbers must not look
-            # like a real sum of zero.
-            return float(np.sum(arr)) if arr.size else float("nan")
+            # np.sum([]) is already 0. That matches Calc AGGREGATE SUM after an
+            # ignore-errors option strips every value.
+            return float(np.sum(arr)) if arr.size else 0.0
         if fn == 10:
             return float(np.var(arr, ddof=1))
         if fn == 11:

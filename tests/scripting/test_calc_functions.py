@@ -567,9 +567,10 @@ def test_aggregate_error_options_and_text():
     assert calc.aggregate(3, 6, [1.0, "x", float("nan")]) == 2.0
     assert calc.aggregate(3, 4, [1.0, "x", float("nan")]) == 3.0
     assert calc.aggregate(9, 4, [1.0, 2.0, 3.0]) == 6.0
-    # Ignore-errors strips every value. np.prod([]) is 1 and np.sum([]) is 0.
-    assert math.isnan(calc.aggregate(6, 6, [float("nan"), float("nan")]))
-    assert math.isnan(calc.aggregate(9, 2, [float("nan")]))
+    # Ignore-errors that strips every value. Calc PRODUCT and SUM are 0.
+    # np.prod([]) is 1, so the empty product has to be replaced.
+    assert calc.aggregate(6, 6, [float("nan"), float("nan")]) == 0.0
+    assert calc.aggregate(9, 2, [float("nan")]) == 0.0
     assert calc.aggregate(6, 6, [2.0, float("nan"), 3.0]) == 6.0
     assert calc.aggregate(9, 2, [1.0, float("nan")]) == 1.0
 
@@ -677,8 +678,8 @@ def test_complex_overflow_returns_value_error():
     assert calc.imsec("1000i") == "#VALUE!"
     assert calc.imsech("1000") == "#VALUE!"
     assert calc.impower("2", 10000) == "#VALUE!"
-    assert calc.imexp("0") == "1+0i"
-    assert calc.imsin("0") == "0+0i"
+    assert calc.imexp("0") == "1"
+    assert calc.imsin("0") == "0"
     assert calc.imcsc("1") != "#VALUE!"
     assert calc.imsec("1") != "#VALUE!"
 
@@ -769,7 +770,7 @@ def test_imlog2_zero_is_value_error():
     assert calc.imlog2("0") == "#VALUE!"
     assert calc.imln("0") == "#VALUE!"
     assert calc.imlog10("0") == "#VALUE!"
-    assert calc.imlog2("8") == "3+0i"
+    assert calc.imlog2("8") == "3"
 
 
 def _calc_serial(year: int, month: int, day: int) -> int:
@@ -1133,12 +1134,12 @@ def test_averagea_counts_blank_as_zero():
 
 
 def test_complex_integer_coefficients_have_no_trailing_decimal():
-    assert calc.complex(5, 0, "i") == "5+0i"
+    assert calc.complex(5, 0, "i") == "5"
     assert calc.complex(5, 2) == "5+2i"
     assert calc.complex(5, -2, "j") == "5-2j"
     assert calc.complex(0, 1) == "i"
     assert calc.complex(5.5, 1.25) == "5.5+1.25i"
-    assert calc.complex(-5, 0) == "-5+0i"
+    assert calc.complex(-5, 0) == "-5"
 
 
 def test_coup_days_nonfinite_frequency_reaches_guard():
