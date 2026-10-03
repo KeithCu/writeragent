@@ -273,6 +273,78 @@ class TestACPConnectionReaderExit:
             worker.join(timeout=2)
             reader.join(timeout=2)
 
+    def test_unhashable_id_does_not_kill_reader(self):
+        """An object id that is an array, object, or JSON boolean must not kill the reader.
+
+        What was wrong: those lines parse as dicts, then ``pending.get(req_id)``
+        raised TypeError (unhashable) or, for JSON ``true``, hashed equal to
+        request id 1 and stole the in-flight response. The inner except left
+        the loop and the exit sweep failed the prompt with "ACP process
+        terminated" while the child was still alive. The response that follows
+        has to be returned, and the reader has to stay up.
+        """
+        conn = ACPConnection(cmd_line=["agent"])
+        release = threading.Event()
+        entered = threading.Event()
+        done = threading.Event()
+        proc = _live_proc()
+        lines = [
+            b'{"jsonrpc": "2.0", "id": true, "result": {"text": "stolen"}}\n',
+            b'{"jsonrpc": "2.0", "id": [1], "result": {}}\n',
+            b'{"jsonrpc": "2.0", "id": {"n": 1}, "result": {}}\n',
+            b'{"jsonrpc": "2.0", "id": 1, "result": {"text": "kept-answer"}}\n',
+        ]
+        calls = {"n": 0}
+
+        def readline() -> bytes:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                entered.set()
+                assert release.wait(timeout=2)
+            index = calls["n"] - 1
+            if index < len(lines):
+                return lines[index]
+            # Hold past the assertion so EOF cannot be what delivered the result.
+            assert done.wait(timeout=5)
+            return b""
+
+        proc.stdout.readline.side_effect = readline
+        conn._proc = proc
+        conn._running = True
+        reader = threading.Thread(target=conn._reader_loop, daemon=True)
+        reader.start()
+        assert entered.wait(timeout=2)
+        results: list[object] = []
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                results.append(conn.send_request("session/prompt", {"sessionId": "s"}, timeout=5))
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        try:
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and not conn._pending:
+                time.sleep(0.01)
+            assert conn._pending
+            started = time.monotonic()
+            release.set()
+            worker.join(timeout=2)
+            assert worker.is_alive() is False
+            assert errors == []
+            assert results == [{"text": "kept-answer"}]
+            assert reader.is_alive()
+            assert time.monotonic() - started < 2
+        finally:
+            done.set()
+            release.set()
+            conn.stop()
+            worker.join(timeout=2)
+            reader.join(timeout=2)
+
     def test_response_buffered_after_child_exit_is_returned(self):
         """In-flight send_request returns a line written as the child exits.
 

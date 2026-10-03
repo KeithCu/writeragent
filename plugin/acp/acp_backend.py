@@ -46,6 +46,28 @@ _REJECT_KINDS = ("reject_once", "reject_always")
 # tool_call_update statuses that carry a finished invocation. in_progress
 # is still tool activity, but it is not a result yet.
 _TERMINAL_TOOL_STATUSES = frozenset({"completed", "failed"})
+# shutil.which on Windows returns the PATHEXT hit (hermes.exe, hermes.cmd,
+# hermes.bat). Those stems are the same CLI as the POSIX basename.
+_WINDOWS_CLI_SUFFIXES = frozenset({".exe", ".cmd", ".bat"})
+
+
+def _cli_basename_matches(path: str, binary_name: str) -> bool:
+    """True when ``path`` is this CLI, including Windows launcher suffixes.
+
+    What was wrong: ``shutil.which`` on Windows returns ``hermes.exe``,
+    ``hermes.cmd``, or ``hermes.bat``. Comparing that basename to
+    ``get_binary_name()`` (``hermes``) failed, so ``default_extra_args``
+    (``("acp",)``) was never appended and the CLI started interactive
+    instead of ACP stdio. Why: match the stem when the suffix is one of
+    those three, case-insensitively. Any other suffix stays an exact
+    basename compare so a wrapper is not treated as the official binary.
+    """
+    name = os.path.basename(path).lower()
+    expected = binary_name.lower()
+    if name == expected:
+        return True
+    stem, ext = os.path.splitext(name)
+    return stem == expected and ext in _WINDOWS_CLI_SUFFIXES
 
 
 def _cancelled_permission() -> dict[str, Any]:
@@ -174,8 +196,8 @@ class ACPBackend(AgentBackend):
     ``--no-auto-update agent stdio``):
     - default_extra_args: immutable tuple; ``get_default_extra_args()``
       copies it onto ``_extra_args`` when the resolved basename equals
-      ``get_binary_name()``. Grok overrides ``_apply_default_extra_args``
-      for prefix matching.
+      ``get_binary_name()``, or that name plus ``.exe`` / ``.cmd`` / ``.bat``.
+      Grok overrides ``_apply_default_extra_args`` for prefix matching.
     """
 
     default_extra_args: Tuple[str, ...] = ()
@@ -227,7 +249,7 @@ class ACPBackend(AgentBackend):
         defaults = self.get_default_extra_args()
         if not defaults or not self._binary_path:
             return
-        if os.path.basename(self._binary_path).lower() == self.get_binary_name().lower():
+        if _cli_basename_matches(self._binary_path, self.get_binary_name()):
             self._extra_args = list(defaults)
 
     def _find_binary(self) -> str | None:

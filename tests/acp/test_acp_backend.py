@@ -12,6 +12,8 @@ import queue
 import threading
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.acp.acp_backend import ACPBackend
 from plugin.acp.claude_simple import ClaudeBackend
 from plugin.acp.grok_simple import GrokBackend
@@ -118,6 +120,60 @@ class TestDefaultExtraArgs:
             backend = ClaudeBackend()
         assert (backend._extra_args) == ([])
         assert (backend.get_default_extra_args()) == ([])
+
+    @pytest.mark.parametrize("backend_cls,binary", [(HermesBackend, "hermes"), (OpenCodeBackend, "opencode")])
+    @pytest.mark.parametrize("suffix", [".exe", ".cmd", ".bat", ".EXE"])
+    def test_windows_suffix_applies_default_extra_args(self, backend_cls, binary, suffix):
+        """shutil.which on Windows returns name.exe / .cmd / .bat, not the bare name."""
+        path = f"/usr/bin/{binary}{suffix}"
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path=path, args="")),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+        ):
+            backend = backend_cls()
+        assert (backend._binary_path) == (path)
+        assert (backend._extra_args) == (["acp"])
+
+    def test_non_windows_suffix_skips_defaults(self):
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/hermes.sh", args="")),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+        ):
+            backend = HermesBackend()
+        assert (backend._binary_path) == ("/usr/bin/hermes.sh")
+        assert (backend._extra_args) == ([])
+
+    def test_windows_wrapper_stem_skips_defaults(self):
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/opt/hermes-wrapper.exe", args="")),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+        ):
+            backend = HermesBackend()
+        assert (backend._extra_args) == ([])
+
+    @pytest.mark.parametrize("binary", ["grok.exe", "grok-cli.exe", "Grok.CMD"])
+    def test_grok_windows_suffix_still_uses_prefix_match(self, binary):
+        path = f"/usr/local/bin/{binary}"
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path=path, args="")),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+        ):
+            backend = GrokBackend()
+        assert (backend._binary_path) == (path)
+        assert (backend._extra_args) == (["--no-auto-update", "agent", "stdio"])
+
+    def test_claude_windows_suffix_still_has_no_defaults(self):
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/claude-code-acp-rs.exe", args="")),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+        ):
+            backend = ClaudeBackend()
+        assert (backend._extra_args) == ([])
 
     def test_default_extra_args_are_immutable_tuples(self):
         assert isinstance(HermesBackend.default_extra_args, tuple)
