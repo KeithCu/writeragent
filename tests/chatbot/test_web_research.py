@@ -1650,3 +1650,75 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
 
 
 
+
+def test_chromium_cdp_enabled():
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.stop_checker = None
+
+    def mock_get_config(key):
+        if key == "chatbot.web_research_browser":
+            return "chromium"
+        if key == "chatbot.prompt_for_web_research":
+            return False
+        return "off"
+
+    with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
+         patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
+         patch("plugin.chatbot.web_research._finish_cdp_browser") as mock_finish, \
+         patch("plugin.chatbot.web_research._run_web_agent", return_value={"status": "ok", "result": "done"}) as mock_run, \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config_int", return_value=1), \
+         patch("plugin.framework.client.llm_client.LlmClient"):
+
+         result = WebResearchTool().execute(ctx, query="test query")
+
+         mock_begin.assert_called_once_with(ctx.ctx, "chromium")
+         mock_finish.assert_called_once()
+
+         # The agent parameters should have cdp_enabled=True and cdp_url="ws://mock"
+         agent_params = mock_run.call_args.args[3]
+         assert agent_params.cdp_enabled is True
+         assert agent_params.cdp_url == "ws://mock"
+
+def test_cdp_connection_leak_early_exception():
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc = None
+    ctx.stop_checker = None
+
+    def mock_get_config(key):
+        if key == "chatbot.web_research_browser":
+            return "chrome"
+        if key == "chatbot.prompt_for_web_research":
+            return False
+        return "off"
+
+    class FakeException(Exception):
+        pass
+
+    with patch("plugin.framework.config.get_config", side_effect=mock_get_config), \
+         patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
+         patch("plugin.chatbot.web_research._finish_cdp_browser") as mock_finish, \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config_int", return_value=1), \
+         patch("plugin.chatbot.web_research._run_web_agent", side_effect=FakeException("Early crash")), \
+         patch("plugin.framework.client.llm_client.LlmClient"):
+
+         try:
+             WebResearchTool().execute(ctx, query="test query")
+         except FakeException:
+             pass
+
+         mock_begin.assert_called_once_with(ctx.ctx, "chrome")
+         # Important: Even though the exception was raised during LlmClient setup, _finish_cdp_browser must be called
+         mock_finish.assert_called_once()

@@ -76,10 +76,10 @@ class TestDeepResearchParsers:
         assert parse_assessment_response(raw_true)["stop"] is True
 
     def test_trim_context_to_word_limit(self):
+        learnings = ["l1 l2"]
         chunks = ["one two three", "four five"]
-        trimmed = trim_context_to_word_limit(chunks, max_words=4)
-        assert len(trimmed) == 1
-        assert trimmed[0] == "four five"
+        trimmed = trim_context_to_word_limit(learnings, chunks, max_words=4)
+        assert trimmed == ["l1 l2", "four five"]
 
     def test_sub_query_citations_contribute_urls_not_learnings(self):
         learning = "Elevators need a counterweight"
@@ -672,7 +672,7 @@ def test_deep_preview_approval_uses_edited_query():
             MagicMock(), "topic", None, params,
             cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
         )
-        run_sub, _chat = run_deep.call_args.kwargs["worker_factory"]()
+        run_sub, _chat, _cleanup = run_deep.call_args.kwargs["worker_factory"]()
         run_sub("q", "goal", None)
     answer, used_query = out
     assert answer == "report"
@@ -695,6 +695,9 @@ class _RecordingClient:
         self.kinds: list[str] = []
         self.saw_stop_checker = False
         _RecordingClient.instances.append(self)
+
+    def stop(self):
+        self._stopped = True
 
     def chat_completion_sync(self, messages, max_tokens=512, **kwargs):
         self.saw_stop_checker = "stop_checker" in kwargs
