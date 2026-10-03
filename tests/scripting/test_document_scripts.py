@@ -531,6 +531,36 @@ def test_handle_editor_script_message_save_document_script_updates_config():
         assert "Saved script 'DocReport' to this document" in sent[-1]["status_ok_text"]
 
 
+def test_doc_save_fallback_sends_success_with_migration_note_only():
+    """A document save error that lands in My Scripts is one success string."""
+    ctx = MagicMock()
+    doc = _DocWithUserDefinedProperties(_UserDefinedProperties())
+    sent: list = []
+    with patch("plugin.framework.config.get_config", return_value={}), patch(
+        "plugin.framework.config.set_config"
+    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+        "plugin.scripting.python_runner.resolve_run_script_name_config_key",
+        return_value="last_python_script_name_writer",
+    ), patch(
+        "plugin.scripting.document_scripts.save_document_script",
+        return_value="Document is read-only.",
+    ):
+        assert handle_editor_script_message(
+            "save_script",
+            {"name": "DocReport", "code": "y = 2", "origin": "document"},
+            ctx=ctx,
+            session_doc=doc,
+            session_doc_url=None,
+            send=sent.append,
+        )
+    mock_set.assert_any_call("saved_python_scripts", {"DocReport": "y = 2"})
+    msg = sent[-1]
+    assert msg["type"] == "scripts_list"
+    assert "status_error_text" not in msg
+    assert "Saved script 'DocReport' to My Scripts." in msg["status_ok_text"]
+    assert "Document is read-only." in msg["status_ok_text"]
+
+
 def test_handle_editor_script_message_copy_updates_config_when_allowed():
     ctx = MagicMock()
     sent: list = []
@@ -721,8 +751,26 @@ def test_set_calc_init_script_logs_when_session_cache_fails(caplog) -> None:
         ),
         caplog.at_level(logging.ERROR, logger="plugin.scripting.document_scripts"),
     ):
-        ds.set_calc_init_script(MagicMock(), "x = 1")
+        result = ds.set_calc_init_script(MagicMock(), "x = 1")
+    assert result is not None
+    assert "shared-kernel cache did not update" in result
     assert "failed to refresh the shared-kernel init cache" in caplog.text
+
+
+def test_set_calc_init_script_keeps_persist_error_when_cache_refresh_fails() -> None:
+    """A failed property write stays the error even if the cache refresh also raises."""
+    from plugin.scripting import document_scripts as ds
+
+    with (
+        patch.object(ds, "get_document_scripts", return_value={}),
+        patch.object(ds, "set_document_scripts", return_value="read-only"),
+        patch(
+            "plugin.scripting.session_manager.record_active_calc_session",
+            side_effect=RuntimeError("cache"),
+        ),
+    ):
+        result = ds.set_calc_init_script(MagicMock(), "x = 1")
+    assert result == "read-only"
 
 
 def test_document_scripts_uno_skips_windows_leftover_hidden_reopen() -> None:
