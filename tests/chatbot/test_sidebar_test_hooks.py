@@ -382,12 +382,34 @@ def test_handle_debug_sidebar_text_and_mode_commands(fake_listener: _FakeListene
     assert "chat" in applied_modes
 
 
-def test_press_record_and_stop_rec_dispatch(fake_listener: _FakeListener) -> None:
+def test_press_record_and_stop_rec_follow_the_button(fake_listener: _FakeListener) -> None:
+    """Short Record is the mouse gesture. Stop Rec is the button action."""
+    from plugin.chatbot.record_gesture import RecordGesture
+    from plugin.chatbot.send_state import SendEvent
+    from plugin.framework.i18n import _
+
+    fake_listener._record_gesture = RecordGesture()
+
+    def _apply(step) -> None:
+        fake_listener._record_gesture = step.gesture
+        if step.dispatch_record:
+            fake_listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
+
+    fake_listener._apply_record_gesture = _apply
+    fake_listener.send_control.getModel().Label = _("Send")
     press_record(listener=fake_listener)
     press_stop_rec(listener=fake_listener)
-    kinds = [e.kind for e in fake_listener.events if hasattr(e, "kind")]
-    assert SendEventKind.RECORD_CLICKED in kinds
-    assert SendEventKind.STOP_REC_CLICKED in kinds
+    assert fake_listener.events == []
+
+    fake_listener.send_control.getModel().Label = _("Record")
+    press_record(listener=fake_listener)
+    assert [e.kind for e in fake_listener.events] == [SendEventKind.RECORD_CLICKED]
+
+    fake_listener.events.clear()
+    fake_listener.send_control.getModel().Label = _("Stop Rec")
+    press_stop_rec(listener=fake_listener)
+    assert ("action", None, _("Stop Rec")) in fake_listener.events
+    assert not any(getattr(e, "kind", None) == SendEventKind.RECORD_CLICKED for e in fake_listener.events)
 
 
 def test_set_audio_supported_and_audio_status(fake_listener: _FakeListener) -> None:
@@ -510,6 +532,108 @@ def test_sidebar_panel_prefers_current_doc_not_weakset_first(monkeypatch) -> Non
     assert hooks.sidebar_panel(calc_frame) is calc
     assert hooks.send_listener() is writer_sl
     assert hooks.send_listener() is not calc_sl
+
+
+def test_sidebar_panel_none_when_several_panels_miss(monkeypatch) -> None:
+    """A frame miss with two live decks must not return panels[0]."""
+    from plugin.chatbot import sidebar_test_hooks as hooks
+
+    calc = SimpleNamespace(xFrame=object(), Frame=object(), _live_panel_uid="calc", send_listener=object())
+    writer = SimpleNamespace(xFrame=object(), Frame=object(), _live_panel_uid="writer", send_listener=object())
+    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [calc, writer])
+    monkeypatch.setattr(hooks, "_current_frame", lambda: object())
+    assert hooks.sidebar_panel() is None
+    assert hooks.sidebar_panel(uid="writer") is writer
+    assert hooks.sidebar_panel(uid="missing") is None
+    assert hooks.send_listener() is None
+
+
+def test_sidebar_panel_returns_the_only_live_panel(monkeypatch) -> None:
+    from plugin.chatbot import sidebar_test_hooks as hooks
+
+    only = SimpleNamespace(xFrame=object(), _live_panel_uid="only", send_listener="sl")
+    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [only])
+    monkeypatch.setattr(hooks, "_current_frame", lambda: object())
+    assert hooks.sidebar_panel() is only
+    assert hooks.send_listener() == "sl"
+
+
+def test_frames_match_does_not_call_uno_same_off_main_thread(monkeypatch) -> None:
+    from plugin.chatbot import sidebar_test_hooks as hooks
+
+    called: list[object] = []
+    writer_frame = object()
+    writer = SimpleNamespace(xFrame=writer_frame, _live_panel_uid="writer")
+    calc = SimpleNamespace(xFrame=object(), _live_panel_uid="calc")
+    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [calc, writer])
+    monkeypatch.setattr(hooks, "_current_frame", lambda: object())
+
+    def uno_same(left: object, right: object) -> bool:
+        called.append((left, right))
+        return left is writer_frame
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.uno_context.uno_same", uno_same)
+    assert hooks.sidebar_panel() is None
+    assert called == []
+
+
+def test_send_listener_for_uid_matches_registered_panel_uid(monkeypatch) -> None:
+    from plugin.chatbot import sidebar_test_hooks as hooks
+
+    writer_sl = SimpleNamespace(_panel_teardown=False)
+    writer = SimpleNamespace(_live_panel_uid="writer-uid", send_listener=writer_sl)
+    calc_sl = SimpleNamespace(_panel_teardown=False)
+    calc = SimpleNamespace(_live_panel_uid="calc-uid", send_listener=calc_sl)
+    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [calc, writer])
+    monkeypatch.setattr("plugin.doc.live_panels.get_live_panel", lambda uid: None)
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    assert hooks.send_listener_for_uid("writer-uid") is writer_sl
+    writer_sl._panel_teardown = True
+    assert hooks.send_listener_for_uid("writer-uid") is None
+
+
+def test_adopt_and_iter_skip_torn_down_listeners(monkeypatch) -> None:
+    import gc
+
+    from plugin.chatbot import sidebar_test_hooks as hooks
+
+    class SendButtonListener:
+        def __init__(self, teardown: bool) -> None:
+            self._panel_teardown = teardown
+            self.dispatch = lambda event: None
+            self.query_control = object()
+
+    live = SendButtonListener(False)
+    dead = SendButtonListener(True)
+    monkeypatch.setattr(gc, "get_objects", lambda: [live, dead])
+    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [])
+    saved = list(hooks._LIVE_SEND_LISTENERS)
+    hooks._LIVE_SEND_LISTENERS.clear()
+    try:
+        assert hooks.adopt_runtime_send_listeners() == 1
+        assert hooks._LIVE_SEND_LISTENERS == [live]
+        assert hooks.iter_send_listeners() == [live]
+        live._panel_teardown = True
+        assert hooks.iter_send_listeners() == []
+        assert live not in hooks._LIVE_SEND_LISTENERS
+    finally:
+        hooks._LIVE_SEND_LISTENERS[:] = saved
+
+
+def test_send_listener_fallback_skips_torn_down(monkeypatch) -> None:
+    from plugin.chatbot import sidebar_test_hooks as hooks
+
+    live = SimpleNamespace(_panel_teardown=False, slash_popup=None)
+    dead = SimpleNamespace(_panel_teardown=True, slash_popup="closed")
+    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [])
+    saved = list(hooks._LIVE_SEND_LISTENERS)
+    hooks._LIVE_SEND_LISTENERS[:] = [live, dead]
+    try:
+        assert hooks.send_listener() is live
+        assert dead not in hooks._LIVE_SEND_LISTENERS
+    finally:
+        hooks._LIVE_SEND_LISTENERS[:] = saved
 
 
 def test_inflate_history_pads_current_doc_not_leftover_calc(
@@ -642,6 +766,22 @@ def test_clear_sidebar_chat_resets_session_and_widget(fake_listener: _FakeListen
     fake_listener.response_control.setText("You: look up cats\nAssistant: leftover")
     clear_sidebar_chat(listener=fake_listener)
     assert cleared == ["session", "widget:"]
+
+
+def test_clear_sidebar_chat_uses_clear_listener(fake_listener: _FakeListener) -> None:
+    """In-process Clear is the button listener, which latches Stop when busy."""
+    cleared: list[str] = []
+    clicked: list[object] = []
+
+    class _Session:
+        def clear(self) -> None:
+            cleared.append("session")
+
+    fake_listener.session = _Session()
+    fake_listener.clear_listener = SimpleNamespace(on_action_performed=lambda event: clicked.append(event))
+    clear_sidebar_chat(listener=fake_listener)
+    assert clicked == [None]
+    assert cleared == []
 
 
 def test_clear_sidebar_chat_falls_back_to_response_control(fake_listener: _FakeListener) -> None:
