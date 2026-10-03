@@ -27,7 +27,7 @@ what to consider doing next.
 | Cloudflare | Quick tunnel (`--url http://localhost:<port>`) | `cloudflared tunnel run --token …` (configure dashboard ingress to the MCP port) |
 | Bore | `--to bore.pub` | `server`, `server secret`, or `server:secret` (bare value with no `.` = secret for `bore.pub`) |
 | Ngrok | CLI / env authtoken | `--authtoken` |
-| Tailscale | Funnel (must already be logged in) | Ignored |
+| Tailscale | Funnel (must already be logged in). The public URL is the `https://<host>.<tailnet>.ts.net` line printed on its own after `Available on the internet:` (`serve_v2.go` `messageForPort`). | Ignored |
 
 The chosen binary must be on `PATH`. There is **no auth** on the MCP HTTP API itself — anyone who has the public URL can call tools against open documents. Tunnel start/auth failures (missing binary, bad ngrok/Cloudflare token, early process exit) are stored on `TunnelManager.last_error` and shown in **MCP Server Status** (and the Start toast when known immediately). When a tunnel connection drops unexpectedly, the pure state machine in [`plugin/mcp/tunnel_state.py`](../plugin/mcp/tunnel_state.py) automatically transitions through **reconnecting** with exponential backoff (1s, 2s, 4s, 8s, up to max retries) before declaring a failure. Fatal auth errors fail immediately without retrying. Implementation: [`plugin/mcp/tunnel.py`](../plugin/mcp/tunnel.py), [`plugin/mcp/tunnel_state.py`](../plugin/mcp/tunnel_state.py), wired from [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py).
 

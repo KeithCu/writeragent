@@ -46,7 +46,18 @@ _CLOUDFLARE_QUICK_URL_RE = re.compile(r"(https://[\w.-]+\.trycloudflare\.com)")
 # Token / named tunnels may log a custom hostname (not trycloudflare.com).
 _CLOUDFLARE_ANY_URL_RE = re.compile(r"(https://[\w.-]+)")
 _BORE_URL_RE = re.compile(r"listening at ([\w.\-]+:\d+)")
-_TAILSCALE_URL_RE = re.compile(r"Available at (https://[\w.\-]+/)")
+# What was wrong: this required the literal "Available at " on the same line
+# as the URL. Real `tailscale funnel` (cmd/tailscale/cli/serve_v2.go
+# messageForPort, msgFunnelAvailable) prints the header and the URL apart:
+#   Available on the internet:
+#
+#   https://<host>.<tailnet>.ts.net/
+#   |-- proxy http://127.0.0.1:<port>
+# AsyncProcess._read_stream delivers one line at a time, so neither line
+# matched, parse_tailscale_url stayed None, and URL_ACQUIRED never fired.
+# Why: match the Funnel hostname wherever it appears (optional :port for
+# 8443/10000; 443 omits the port).
+_TAILSCALE_URL_RE = re.compile(r"(https://[\w.-]+\.ts\.net(?::\d+)?)")
 
 _TAILSCALE_RESET_COMMANDS = (["tailscale", "funnel", "reset"], ["tailscale", "serve", "reset"])
 

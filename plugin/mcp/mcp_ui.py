@@ -27,7 +27,7 @@ _tested_provider_tunnel_urls: dict[str, str] = {}
 _retired_provider_tunnel_urls: set[str] = set()
 _mcp_snippet_refresh_scheduled = False
 
-_PROVIDER_DEFAULT_URLS = {"cloudflare": "https://<subdomain>.trycloudflare.com/mcp", "bore": "http://bore.pub:<remote-port>/mcp", "ngrok": "https://<domain>.ngrok-free.app/mcp", "tailscale": "https://<machine-name>.tailscale.net/mcp"}
+_PROVIDER_DEFAULT_URLS = {"cloudflare": "https://<subdomain>.trycloudflare.com/mcp", "bore": "http://bore.pub:<remote-port>/mcp", "ngrok": "https://<domain>.ngrok-free.app/mcp", "tailscale": "https://<machine>.<tailnet>.ts.net/mcp"}
 
 
 def set_active_settings_dialog(dlg: Any) -> None:
