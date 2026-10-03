@@ -296,6 +296,8 @@ Hierarchical Calc tables, object cards, and “include index by default” are *
 - **2D data must be rectangular:** every row the same length. Calc range args always arrive that way; empty cells are `None` in a full-width row, not missing list elements.
 - **Jagged nested lists** (tool/LLM payloads) are **unsupported** at pack time: [`_flatten_grid_to_components`](../../plugin/scripting/payload_codec.py) raises `ValueError`. We do not pad short rows on the wire path.
 - Orientation is preserved via `ensure_rectangular_2d`: a single row stays `[[a, b, c]]`; a single column stays `[[a], [b], [c]]`; a scalar becomes `[[v]]`. User scripts see this as `CalcRange.shape`, not a flat 1D list.
+- A `str` or `bytes` row is one cell. `[['a', 'b'], 'cd']` becomes `[['a', 'b'], ['cd', None]]`, not a row of letters. A flat list of strings (`['ab', 'cd']`) is still one row of two cells.
+- `to_pandas()` column labels are unique. A generated `name_1` suffix skips a later header that is already `name_1` (`['a', 'a', 'a_1']` → `a`, `a_1`, `a_1_1`).
 
 ---
 

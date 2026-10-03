@@ -143,6 +143,25 @@ def test_delete_document_script():
     assert get_document_scripts(doc) == {}
 
 
+def test_missing_property_bag_is_not_a_successful_save():
+    """No UserDefinedProperties bag used to return None without storing anything."""
+
+    class _DocProps:
+        UserDefinedProperties = None
+
+    class _Doc:
+        def getDocumentProperties(self):
+            return _DocProps()
+
+        def isReadonly(self):
+            return False
+
+    doc = _Doc()
+    err = set_document_scripts(doc, {"A": "x"})
+    assert err is not None
+    assert get_document_scripts(doc) == {}
+
+
 def test_readonly_document_returns_error():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)

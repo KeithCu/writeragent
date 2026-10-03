@@ -315,7 +315,8 @@ def record_active_calc_session(
     with _ACTIVE_CALC_SESSION_LOCK:
         if session_id is not None:
             if is_opencl_probe_session_id(session_id):
-                if init_kwargs:
+                # Same rule as the assignment below: {} clears, None does not.
+                if init_kwargs is not None:
                     _LAST_ACTIVE_CALC_INIT_KWARGS = dict(init_kwargs)
                 return
             _LAST_ACTIVE_CALC_SESSION_ID = session_id
@@ -344,7 +345,11 @@ def record_active_calc_session(
                     _drop_session_snapshot_locked(stale)
             # File-URL sessions carry the document folder without getURL().
             _LAST_ACTIVE_CALC_SCOPED_DIR = scoped_dir_from_calc_session_id(session_id)
-        if init_kwargs:
+        # Bugfix: ``if init_kwargs`` treated {} like "not passed". Clearing the
+        # workbook init calls ``record_active_calc_session(None, {})`` (see
+        # ``set_calc_init_script``), and the previous script stayed in the
+        # off-main cache. None still means the caller did not supply kwargs.
+        if init_kwargs is not None:
             _LAST_ACTIVE_CALC_INIT_KWARGS = dict(init_kwargs)
 
 

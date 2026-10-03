@@ -155,6 +155,19 @@ def test_dedupe_column_names_uniqueness(names: list[str]) -> None:
     assert len(set(deduped)) == len(deduped)
 
 
+def test_dedupe_column_names_suffix_skips_later_raw_header() -> None:
+    """A generated suffix must not collide with a header that is already that suffix."""
+    assert _dedupe_column_names(["a", "a", "a_1"]) == ["a", "a_1", "a_1_1"]
+    assert _dedupe_column_names(["a", "a", "a"]) == ["a", "a_1", "a_2"]
+
+
+def test_ensure_rectangular_2d_string_row_is_one_cell() -> None:
+    """A string row is a cell, not a sequence of characters."""
+    assert ensure_rectangular_2d([["a", "b"], "cd"]) == [["a", "b"], ["cd", None]]
+    assert ensure_rectangular_2d([["a", "b"], b"cd"]) == [["a", "b"], [b"cd", None]]
+    assert ensure_rectangular_2d(["ab", "cd"]) == [["ab", "cd"]]
+
+
 @given(raw_val=st.one_of(st.lists(st.integers()), st.lists(st.lists(st.integers()))))
 def test_calc_range_packing_contracts(raw_val) -> None:
     envelope = pack_calc_range_envelope(raw_val, address="A1")
