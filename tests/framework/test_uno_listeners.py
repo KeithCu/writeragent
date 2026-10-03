@@ -14,6 +14,7 @@ from plugin.framework.uno_listeners import (
     BaseKeyListener,
     BaseWindowListener,
     BaseDocumentEventListener,
+    ListenerBoundary,
 )
 
 def test_catch_and_log_decorator(caplog):
@@ -305,3 +306,119 @@ def test_subclass_item_state_changed_override_is_wrapped():
             raise RuntimeError("before try")
 
     Raw().itemStateChanged(MagicMock())
+
+
+def _thread_violation() -> RuntimeError:
+    return RuntimeError("UNO thread violation: 'desktop' touched UNO from background task 'bg'")
+
+
+def test_listener_boundary_is_not_an_exception():
+    """A generic handler must not be able to name this type as Exception."""
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    assert issubclass(ListenerBoundary, BaseException)
+    assert not issubclass(ListenerBoundary, Exception)
+
+
+def test_generic_handler_cannot_swallow_thread_boundary():
+    """except Exception used to hide assert_main_thread inside a callback."""
+
+    class Boom(BaseActionListener):
+        def on_action_performed(self, ev):
+            raise _thread_violation()
+
+    try:
+        try:
+            Boom().actionPerformed(MagicMock())
+        except Exception as exc:
+            raise AssertionError("generic handler swallowed the boundary") from exc
+    except ListenerBoundary as boundary:
+        assert boundary.kind == "thread"
+        assert "UNO thread violation" in str(boundary.original)
+        return
+    raise AssertionError("thread violation left the listener as an empty callback")
+
+
+def test_runtime_error_is_not_disposal():
+    """A live-document RuntimeException must not become the disposed boundary."""
+
+    class RuntimeException(Exception):
+        pass
+
+    class Boom(BaseActionListener):
+        def on_action_performed(self, ev):
+            raise RuntimeException("bad cursor on a live document")
+
+    try:
+        result = Boom().actionPerformed(MagicMock())
+    except ListenerBoundary as boundary:
+        raise AssertionError(f"runtime error reported as {boundary.kind}") from boundary
+    assert result is None
+
+
+def test_disposed_desktop_is_not_an_empty_document():
+    """A dead desktop must not come back as the 'nothing is open' None."""
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    class DisposedException(Exception):
+        pass
+
+    class Read(BaseActionListener):
+        def on_action_performed(self, ev):
+            from plugin.framework.uno_context import get_active_document
+
+            return get_active_document(MagicMock())
+
+    result = None
+    with patch("plugin.framework.uno_context.get_desktop", side_effect=DisposedException("desktop gone")):
+        try:
+            try:
+                result = Read().actionPerformed(MagicMock())
+            except Exception as exc:
+                raise AssertionError("generic handler swallowed a disposed desktop") from exc
+        except ListenerBoundary as boundary:
+            assert boundary.kind == "disposed"
+            return
+    raise AssertionError(f"disposed desktop reported as an empty document: {result!r}")
+
+
+def test_empty_document_is_not_disposed():
+    """No current component is None, not a disposed desktop."""
+    from plugin.framework.uno_listeners import ListenerBoundary
+
+    class Read(BaseActionListener):
+        def on_action_performed(self, ev):
+            from plugin.framework.uno_context import get_active_document
+
+            return get_active_document(MagicMock())
+
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        try:
+            result = Read().actionPerformed(MagicMock())
+        except ListenerBoundary as boundary:
+            raise AssertionError(f"empty document reported as {boundary.kind}") from boundary
+    assert result is None
+
+
+def test_click_thread_violation_is_not_a_rejected_click():
+    from plugin.framework.uno_listeners import BaseMouseClickHandler, ListenerBoundary
+
+    class Boom(BaseMouseClickHandler):
+        def on_mouse_pressed(self, e):
+            raise _thread_violation()
+
+    with_failure = False
+    try:
+        try:
+            returned = Boom().mousePressed(MagicMock())
+            with_failure = returned is False
+        except Exception as exc:
+            raise AssertionError("generic handler swallowed the boundary") from exc
+    except ListenerBoundary as boundary:
+        assert boundary.kind == "thread"
+        return
+    if with_failure:
+        raise AssertionError("thread violation looked like mousePressed returning False")
+    raise AssertionError("thread violation did not leave the click handler")

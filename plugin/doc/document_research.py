@@ -700,29 +700,51 @@ def _is_modified(model: Any) -> bool:
 
 
 def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str, Any]]:
-    """Retrieve all open documents from the desktop context with metadata."""
+    """Retrieve all open documents from the desktop context with metadata.
+
+    An empty desktop is ``[]``. A disposed desktop is not that list: it
+    leaves as ``ListenerBoundary``. A runtime error is re-raised as itself,
+    not as disposal and not as ``[]``.
+    """
     from plugin.framework.thread_guard import assert_main_thread
     from plugin.framework.uno_context import get_desktop
     from plugin.doc.doc_type import get_document_type
     from plugin.framework.uno_context import get_runtime_uid
+    from plugin.framework.uno_listeners import reraise_listener_boundary
     import os
 
-    assert_main_thread("document_research.get_open_documents")
-    desktop = get_desktop(uno_ctx)
-    comps = desktop.getComponents()
+    try:
+        assert_main_thread("document_research.get_open_documents")
+        desktop = get_desktop(uno_ctx)
+        comps = desktop.getComponents()
+    except Exception as exc:
+        # What was wrong: a disposed desktop (and the main-thread guard, if
+        # it fired under a later except Exception) looked like no documents.
+        # How: DisposedException is an Exception, and the enumeration loop
+        # broke into ``return docs``. Why: the listener boundary is the one
+        # classifier. ``[]`` stays the answer only when the desktop has
+        # nothing to enumerate.
+        reraise_listener_boundary(exc)
     if not comps:
         return []
-    enum = comps.createEnumeration()
+    try:
+        enum = comps.createEnumeration()
+    except Exception as exc:
+        reraise_listener_boundary(exc)
     docs = []
     # Real UNO hasMoreElements() is bool. unittest MagicMock is always truthy
     # and never becomes False, so `while enum.hasMoreElements()` spun forever.
     # That wedged unit pytest at ~99% after peer send tools started calling
     # this from list_v1_peers / chat prompts with ctx=MagicMock().
     while enum is not None:
+        more = False
         try:
             more = enum.hasMoreElements()
-        except Exception:
-            break
+        except Exception as exc:
+            # Same hole as getComponents: breaking here reported a dead
+            # enumeration as the documents collected so far, often ``[]``.
+            # A runtime error took that path too. Empty is ``more`` false.
+            reraise_listener_boundary(exc)
         if more is not True and more != 1:
             break
         elem = enum.nextElement()

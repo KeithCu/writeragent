@@ -18,15 +18,25 @@
 These base classes provide empty default implementations for standard event callbacks
 and apply try/except logging blocks around execution to prevent Python exceptions from
 leaking into PyUNO and causing LibreOffice to crash or segfault.
+
+``ListenerBoundary`` is the one signal a generic ``except Exception`` must not
+swallow. The listener base classifies the main-thread guard and real disposal
+into that type, and re-raises a close or termination veto as the original UNO
+exception. An ordinary runtime error stays a logged failure.
 """
 
 from __future__ import annotations
 
 import functools
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import Any, NoReturn, TYPE_CHECKING
+
+from plugin.framework.errors import _is_real_disposal
 
 log = logging.getLogger(__name__)
+
+# Same prefix as ``assert_main_thread``. A bare RuntimeError is not this.
+_THREAD_VIOLATION_MARK = "UNO thread violation"
 
 # Safe imports for optional PyUNO environment (ensures unit test compatibility outside of LO)
 _unohelper: Any = None
@@ -199,6 +209,76 @@ _UNO_CALLBACK_NAMES = frozenset(
 )
 
 
+class ListenerBoundary(BaseException):
+    """Signal that must leave a UNO listener. ``except Exception`` cannot catch it.
+
+    The listener base is the only classifier. Call sites do not keep a second
+    list of CloseVeto / TerminationVeto / DisposedException / thread-guard
+    names. ``kind`` keeps those cases from being mistaken for each other:
+
+    - ``thread``: main-thread guard. Not an empty document and not disposal.
+    - ``disposed``: the desktop or document is gone. Not an empty document.
+    - ``veto``: close or app-quit veto. The original UNO exception is what
+      the bridge must see; this wrapper only carries it across the classifier.
+
+    A bare ``RuntimeException`` / ``RuntimeError`` is none of these. It stays
+    a logged callback failure, not disposal and not "nothing is open".
+    """
+
+    kind: str
+    original: BaseException
+
+    def __init__(self, kind: str, original: BaseException) -> None:
+        self.kind = kind
+        self.original = original
+        super().__init__(str(original))
+
+
+def _is_thread_violation(exc: BaseException) -> bool:
+    return isinstance(exc, RuntimeError) and _THREAD_VIOLATION_MARK in str(exc)
+
+
+def _is_bridge_veto(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    return "CloseVetoException" in name or "TerminationVetoException" in name
+
+
+def listener_boundary(exc: BaseException) -> ListenerBoundary | None:
+    """The one boundary for *exc*, or None when the callback may fail soft.
+
+    None is an ordinary Python or UNO runtime error. Real disposal uses
+    :func:`plugin.framework.errors._is_real_disposal`, so a ``RuntimeException``
+    name is not disposal.
+    """
+    if isinstance(exc, ListenerBoundary):
+        return exc
+    if _is_thread_violation(exc):
+        return ListenerBoundary("thread", exc)
+    if _is_bridge_veto(exc):
+        return ListenerBoundary("veto", exc)
+    if _is_real_disposal(exc):
+        return ListenerBoundary("disposed", exc)
+    return None
+
+
+def reraise_listener_boundary(exc: BaseException) -> NoReturn:
+    """Re-raise *exc* so a generic ``except Exception`` cannot hide the boundary.
+
+    A runtime error is re-raised as itself: not disposal, and not dropped as
+    an empty document. A close or termination veto is re-raised as the
+    original UNO exception so LibreOffice can still veto. The main-thread
+    guard and real disposal leave as :class:`ListenerBoundary`.
+    """
+    if isinstance(exc, ListenerBoundary):
+        if exc.kind == "veto":
+            raise exc.original
+        raise exc
+    boundary = listener_boundary(exc)
+    if boundary is None or boundary.kind == "veto":
+        raise exc
+    raise boundary from exc
+
+
 def _listener_failure_value(func: Any) -> Any:
     """``sal_Bool`` methods must not return None or the bridge type-errors.
 
@@ -219,6 +299,11 @@ def _catch_and_log(func: Any) -> Any:
     def wrapper(self: Any, ev: Any, *args: Any, **kwargs: Any) -> Any:
         try:
             return func(self, ev, *args, **kwargs)
+        except ListenerBoundary as boundary:
+            # Already classified. A veto still has to be the UNO type.
+            if boundary.kind == "veto":
+                raise boundary.original
+            raise
         except TypeError:
             # Named branches so the log shows TypeError vs ValueError; both
             # subclass Exception. The C++ bridge must not see Python exceptions.
@@ -228,18 +313,28 @@ def _catch_and_log(func: Any) -> Any:
             log.exception(f"{self.__class__.__name__} ValueError in {func.__name__}")
             return failure
         except Exception as exc:
-            # CloseVetoException / TerminationVetoException must reach the
-            # bridge or close / app quit cannot be vetoed.
-            # What was wrong: DisposedException was re-raised, and a bool
-            # method then fell off the end as None. How: disposing() throwing
-            # stops the broadcaster from notifying the remaining listeners,
-            # and XMouseClickHandler.mousePressed is sal_Bool. Why: only the
-            # veto propagates. Disposal and other errors return False for
-            # bool methods and None otherwise. TerminationVetoException was
-            # swallowed the same way CloseVetoException once was.
-            name = type(exc).__name__
-            if "CloseVetoException" in name or "TerminationVetoException" in name:
-                raise
+            # What was wrong: this handler grew a type-name allow-list
+            # (CloseVeto, then TerminationVeto, and DisposedException was
+            # added and removed). A bare except Exception also swallowed
+            # assert_main_thread's RuntimeError, and a disposed desktop
+            # became the failure return (None / False) — the same shape as
+            # "nothing is open". A RuntimeException name was easy to treat
+            # as that disposal, or the reverse. How: every one of those is
+            # an Exception, so each call site re-checked names. Why: one
+            # boundary. Vetoes are re-raised as the original UNO exception
+            # so the bridge can still veto. Thread violations and real
+            # disposal leave as ListenerBoundary, which except Exception
+            # cannot swallow. disposing() does not raise on disposal: a
+            # throw there stops the broadcaster from notifying the remaining
+            # listeners. Any other callback is a query, and a dead desktop
+            # must not look like an empty success. A runtime error is logged
+            # and returns the failure value; it is not disposal.
+            signal = listener_boundary(exc)
+            if signal is not None and signal.kind == "disposed" and func.__name__ == "disposing":
+                log.debug("%s disposing: source already disposed", self.__class__.__name__)
+                return failure
+            if signal is not None:
+                reraise_listener_boundary(exc)
             log.exception(f"{self.__class__.__name__} unhandled exception in {func.__name__}")
             return failure
 
