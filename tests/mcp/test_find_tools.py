@@ -483,6 +483,53 @@ def test_explicit_sidebar_domain_returns_no_tools():
     assert result["domain"] == "brainstorming"
 
 
+def test_find_tools_suppresses_ppt_master_when_draw_or_impress_doc_is_open():
+    """Open Draw/Impress must hide ppt-master, same as no document and direct_flat.
+
+    The registry still returns those schemas for the open document. Hiding is
+    the sidebar-only name filter, which needs doc_type and uno_services.
+    """
+    from plugin.doc.doc_type import uno_services_for_doc_type_label
+    from plugin.framework.tool import ToolContext
+    from plugin.ppt_master.tools import (
+        ApplyPptMasterNativeEnhance,
+        ApplyPptMasterTemplateFill,
+        ExportPresentationProject,
+        ValidatePptMasterProject,
+    )
+
+    reg = ToolRegistry(MagicMock())
+    for cls in (
+        ExportPresentationProject,
+        ValidatePptMasterProject,
+        ApplyPptMasterTemplateFill,
+        ApplyPptMasterNativeEnhance,
+    ):
+        reg.register(cls())
+
+    no_doc = ToolContext(doc=None, ctx=MagicMock(), doc_type="", services={"tools": reg}, caller="mcp")
+    hidden = FindTools().execute(no_doc, domain="ppt-master")
+    assert hidden["tools"] == []
+
+    for doc_type in ("draw", "impress"):
+        doc = MagicMock()
+        ctx = ToolContext(
+            doc=doc,
+            ctx=MagicMock(),
+            doc_type=doc_type,
+            services={"tools": reg},
+            caller="mcp",
+            uno_services_supported=uno_services_for_doc_type_label(doc_type),
+        )
+        raw_names = {s["name"] for s in reg.get_schemas("mcp", doc=doc, active_domain="ppt-master")}
+        assert "export_presentation_project" in raw_names
+        assert "validate_ppt_master_project" in raw_names
+        result = FindTools().execute(ctx, domain="ppt-master")
+        assert result["status"] == "ok"
+        assert result["domain"] == "ppt-master"
+        assert result["tools"] == []
+
+
 def test_get_domain_guidance_is_app_neutral_when_app_unknown():
     g = get_domain_guidance("charts", agent_label=None)
     assert "data_range" in g and "headers" in g
