@@ -999,18 +999,31 @@ def has_native_audio(model_id: Any, endpoint: Any) -> bool | None:
     return None  # Unknown, allow trying native audio
 
 
+def _update_support_map(config_key: str, map_key: str, supported: bool) -> None:
+    """Read-modify-write one support map under the config write lock.
+
+    Uses this module's ``get_config`` / ``set_config`` names so tests that
+    patch them still see the write. The lock is the same one ``set_config``
+    takes, so a second writer cannot replace the map with a stale copy.
+    """
+    from plugin.framework.config import _config_write_lock
+
+    with _config_write_lock:
+        cache = get_config(config_key)
+        if not isinstance(cache, dict):
+            cache = {}
+        else:
+            cache = dict(cache)
+        cache[map_key] = bool(supported)
+        set_config(config_key, cache)
+
+
 def set_native_audio_support(model_id: Any, endpoint: Any, supported: bool) -> None:
     """Save the audio support status for a model+endpoint pair."""
     model_id = str(model_id).lower()
     endpoint = normalize_endpoint_url(endpoint)
     key = f"{endpoint}@{model_id}"
-
-    cache = get_config("audio_support_map")
-    if not isinstance(cache, dict):
-        cache = {}
-
-    cache[key] = bool(supported)
-    set_config("audio_support_map", cache)
+    _update_support_map("audio_support_map", key, supported)
 
 
 # --- Resolved model getters (text / STT / grammar / image) ---
@@ -1149,7 +1162,7 @@ def _remember_vision_support(model_id: str, endpoint: str, supported: bool) -> N
         log.debug("has_native_vision persist failed: %s", e)
 
 
-def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True) -> bool:
+def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True, unknown_is_vision: bool = False) -> bool:
     """Check if the model supports native multimodal vision input.
 
     Priority order:
@@ -1164,6 +1177,9 @@ def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True)
 
     ``allow_fetch=False`` reads only those caches. Chat Send runs on the UI
     thread; a cold catalog GET (10s, up to 3 attempts) would freeze LibreOffice.
+    ``unknown_is_vision`` is only for that UI gate: a model with no static row
+    and no stored answer stays True so ``get_image`` is not hidden. Callers
+    that attach an image keep the default False (do not attach when unknown).
     """
     if not model_id:
         return False
@@ -1225,6 +1241,12 @@ def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True)
             except Exception as e:
                 log.debug("Ollama /api/show capability query failed: %s", e)
 
+    # A static row without VISION is a real "no" (caps != NONE). No row and
+    # no modalities/map answer above is "not looked up". The UI tool gate
+    # must not treat that as text-only or it hides get_image from uncatalogued
+    # vision models it refused to fetch.
+    if unknown_is_vision and caps == ModelCapability.NONE:
+        return True
     return False
 
 
@@ -1233,13 +1255,7 @@ def set_native_vision_support(model_id: Any, endpoint: Any, supported: bool) -> 
     model_id_str = str(model_id).strip().lower()
     endpoint_str = normalize_endpoint_url(endpoint or "")
     key = f"{endpoint_str}@{model_id_str}"
-
-    cache = get_config("vision_support_map")
-    if not isinstance(cache, dict):
-        cache = {}
-
-    cache[key] = bool(supported)
-    set_config("vision_support_map", cache)
+    _update_support_map("vision_support_map", key, supported)
 
 
 def parse_ollama_runtime_num_ctx(show_body: Any) -> int | None:

@@ -235,3 +235,47 @@ def test_base_window_listener_exceptions(mock_log):
     assert mock_log.exception.call_args[0][0] == "TestWindowListener unhandled exception in windowShown"
     listener.windowHidden(MagicMock())
     assert mock_log.exception.call_args[0][0] == "TestWindowListener unhandled exception in windowHidden"
+
+
+def test_mouse_click_failure_returns_false():
+    from plugin.framework.uno_listeners import BaseMouseClickHandler
+
+    class Boom(BaseMouseClickHandler):
+        def on_mouse_pressed(self, e):
+            raise RuntimeError("nope")
+
+    assert Boom().mousePressed(MagicMock()) is False
+
+
+def test_disposed_exception_does_not_escape_listener():
+    class DisposedException(Exception):
+        pass
+
+    class Gone(BaseListener):
+        def on_disposing(self, source):
+            raise DisposedException("gone")
+
+    Gone().disposing(MagicMock())
+
+
+def test_close_veto_still_reaches_the_bridge():
+    class CloseVetoException(Exception):
+        pass
+
+    class Veto(BaseListener):
+        def on_disposing(self, source):
+            raise CloseVetoException("veto")
+
+    try:
+        Veto().disposing(MagicMock())
+    except CloseVetoException:
+        return
+    raise AssertionError("CloseVetoException was swallowed")
+
+
+def test_subclass_disposing_override_is_wrapped():
+    class Raw(BaseListener):
+        def disposing(self, Source):
+            raise RuntimeError("before try")
+
+    Raw().disposing(MagicMock())

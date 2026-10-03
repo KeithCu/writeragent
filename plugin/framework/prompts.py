@@ -812,7 +812,7 @@ WORKFLOW:
 
 IMPRESS TEXT FILLS:
 1. Prefer list_placeholders(page=N) before set_placeholder_text.
-2. If count=0 or set_placeholder_text returns available=[], call set_slide_layout or delegate_to_specialized_draw_toolset(domain="slide_layouts", task="set layout 'text' on page N") then list_placeholders again.
+2. If count=0 or set_placeholder_text returns available=[], delegate_to_specialized_draw_toolset(domain="slide_layouts", task="set layout 'text' on page N") then list_placeholders again.
 3. If roles are missing but indices exist, set_placeholder_text(index=i, text=…).
 4. page on these tools is 0-based.
 
@@ -1151,9 +1151,24 @@ _PROFILE_DATA_OPEN = "<<<profile>>>"
 _PROFILE_DATA_CLOSE = "<<<</profile>>>"
 
 
+def _neutralize_profile_fence(body: str) -> str:
+    """Break a fence marker that appears inside profile text.
+
+    What was wrong: USER.md or additional instructions could contain
+    ``<<</profile>>>`` and end the data block early. How: the body was
+    wrapped without scanning. The rest was then ordinary system-prompt
+    text, and ``upsert_memory`` can persist that string. Why: insert a
+    space after ``<<<`` so the markers no longer match the wrapper.
+    """
+    # The closer is four left brackets (``<<<`` + ``</profile>>>``). A space
+    # after ``<<<`` stops it matching the wrapper.
+    return body.replace(_PROFILE_DATA_CLOSE, "<<< </profile>>>").replace(_PROFILE_DATA_OPEN, "<<< profile>>>")
+
+
 def _profile_data_block(heading: str, body: str) -> str:
     """Wrap profile text so the model does not treat it as tool instructions."""
-    return f"\n\n{heading}\n{_PROFILE_DATA_OPEN}\n{body}\n{_PROFILE_DATA_CLOSE}\n"
+    safe = _neutralize_profile_fence(body)
+    return f"\n\n{heading}\n{_PROFILE_DATA_OPEN}\n{safe}\n{_PROFILE_DATA_CLOSE}\n"
 
 
 def _append_additional_instructions(base: str, additional_instructions: str) -> str:

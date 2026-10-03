@@ -166,8 +166,26 @@ else:
     _XMouseClickHandlerParent = _XMouseClickHandler if _HAVE_UNO else _DummyMouseClickHandler
 
 
+# Ids of wrappers produced by ``_catch_and_log``. A subclass ``disposing``
+# that is already one of these must not be wrapped again.
+_CATCH_LOGGED_IDS: set[int] = set()
+
+
+def _listener_failure_value(func: Any) -> Any:
+    """``sal_Bool`` methods must not return None or the bridge type-errors.
+
+    ``from __future__ import annotations`` stores the return annotation as
+    the string ``bool`` rather than the bool type.
+    """
+    ret = func.__annotations__.get("return")
+    if ret is bool or ret == "bool":
+        return False
+    return None
+
+
 def _catch_and_log(func: Any) -> Any:
     """Decorator to catch and log exceptions in UNO listener callbacks."""
+    failure = _listener_failure_value(func)
 
     @functools.wraps(func)
     def wrapper(self: Any, ev: Any, *args: Any, **kwargs: Any) -> Any:
@@ -177,17 +195,25 @@ def _catch_and_log(func: Any) -> Any:
             # Named branches so the log shows TypeError vs ValueError; both
             # subclass Exception. The C++ bridge must not see Python exceptions.
             log.exception(f"{self.__class__.__name__} TypeError in {func.__name__}")
+            return failure
         except ValueError:
             log.exception(f"{self.__class__.__name__} ValueError in {func.__name__}")
+            return failure
         except Exception as exc:
             # CloseVetoException must reach the bridge or the close cannot be vetoed.
-            # DisposedException is a UNO signal, not a Python bug to swallow.
+            # What was wrong: DisposedException was re-raised, and a bool
+            # method then fell off the end as None. How: disposing() throwing
+            # stops the broadcaster from notifying the remaining listeners,
+            # and XMouseClickHandler.mousePressed is sal_Bool. Why: only the
+            # veto propagates. Disposal and other errors return False for
+            # bool methods and None otherwise.
             name = type(exc).__name__
-            if "CloseVetoException" in name or "DisposedException" in name:
+            if "CloseVetoException" in name:
                 raise
-            # Base UNO listeners must not leak arbitrary Python exceptions into the C++ bridge.
             log.exception(f"{self.__class__.__name__} unhandled exception in {func.__name__}")
+            return failure
 
+    _CATCH_LOGGED_IDS.add(id(wrapper))
     return wrapper
 
 
@@ -197,6 +223,17 @@ def _catch_and_log(func: Any) -> Any:
 
 
 class BaseListener(_BaseParent, _XEventListenerParent):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # What was wrong: subclasses that override disposing() skip
+        # @_catch_and_log, so an exception before their own try enters the
+        # C++ bridge. How: UNO calls disposing, not on_disposing. Why: wrap
+        # that override once. The base method is already wrapped.
+        disposing = cls.__dict__.get("disposing")
+        if disposing is None or id(disposing) in _CATCH_LOGGED_IDS:
+            return
+        setattr(cls, "disposing", _catch_and_log(disposing))
+
     @_catch_and_log
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
         self.on_disposing(Source)

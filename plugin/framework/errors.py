@@ -406,12 +406,29 @@ def format_error_message(e: Exception) -> str:
     # FileNotFoundError and PermissionError. How: the branch matched the
     # OSError base. Why: filesystem errors are not a down local server.
     if isinstance(e, (urllib.error.URLError, OSError)) and not isinstance(e, (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError)):
+        # What was wrong: urllib.error.URLError was labeled "Connection Error"
+        # before the "timed out" sentence, so a wrapped socket.timeout told the
+        # user the server was down. How: URLError is not itself a socket.timeout;
+        # the timeout is e.reason, and that branch returned first. Why: same
+        # request-timeout sentence as a bare socket.timeout.
+        reason_obj: BaseException | None
+        if isinstance(e, urllib.error.URLError):
+            raw_reason = getattr(e, "reason", None)
+            reason_obj = raw_reason if isinstance(raw_reason, BaseException) else None
+        else:
+            reason_obj = e
+        if reason_obj is not None and isinstance(reason_obj, (socket.timeout, TimeoutError)):
+            return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
         if UNDER_CROSSHAIR:
             reason = "mock"
+        elif reason_obj is not None:
+            reason = str(reason_obj)
         elif isinstance(e, urllib.error.URLError):
             reason = str(getattr(e, "reason", None) or e)
         else:
             reason = str(e)
+        if "timed out" in reason.lower() and "formula" not in reason.lower():
+            return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
         # Errno text and unrelated messages both contain "111" (port 1111).
         # Match the errno or the words, not that substring.
         if _is_connection_refused(e, reason):

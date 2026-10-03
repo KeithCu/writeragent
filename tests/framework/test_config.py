@@ -524,6 +524,40 @@ class TestConfigSyncFileIO:
         assert (data.get('endpoint')) == ('http://localhost:11434')
         assert (data.get('text_model')) == ('custom-model')
 
+    def test_set_config_event_value_is_normalized_endpoint(self):
+        reset_config_for_tests()
+        with patch.object(global_event_bus, "emit") as mock_emit:
+            set_config("endpoint", "https://api.example.com/v1")
+        assert mock_emit.call_args.kwargs["value"] == "https://api.example.com"
+        assert self._load_written().get("endpoint") == "https://api.example.com"
+
+    def test_api_key_updates_do_not_drop_a_concurrent_endpoint(self):
+        """Two writers must keep both keys. The lock covers the read and the write."""
+        reset_config_for_tests()
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def _write(endpoint: str, key: str) -> None:
+            try:
+                barrier.wait(timeout=5)
+                set_api_key_for_endpoint(endpoint, key)
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=_write, args=("https://api.openai.com", "sk-a")),
+            threading.Thread(target=_write, args=("http://localhost:11434", "sk-b")),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+        assert errors == []
+        reset_config_for_tests()
+        keys = get_config("api_keys_by_endpoint")
+        assert keys.get("https://api.openai.com") == "sk-a"
+        assert keys.get("http://localhost:11434") == "sk-b"
+
     def test_set_config_skips_identical_value(self):
         reset_config_for_tests()
         with open(self.config_path, 'w', encoding='utf-8') as f:

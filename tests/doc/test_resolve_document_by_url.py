@@ -130,6 +130,35 @@ def test_empty_inputs_never_match():
     assert _resolve([blank], "anything") == (None, None)
 
 
+def test_resolve_reraises_when_enumeration_is_disposed():
+    class DisposedException(Exception):
+        pass
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = DisposedException("enum dead")
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        with pytest.raises(DocumentDisposedError):
+            resolve_document_by_url(MagicMock(), "file:///tmp/note.odt")
+
+
+def test_get_runtime_uid_off_main_thread_raises_when_guard_on():
+    import threading
+
+    import plugin.framework.thread_guard as tg
+
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    tg.set_designated_main_thread(threading.Thread())
+    try:
+        with pytest.raises(RuntimeError):
+            get_runtime_uid(object())
+    finally:
+        tg.GUARD_ON = was
+        tg.set_designated_main_thread(None)
+
+
 def test_get_runtime_uid_present_missing_and_error():
     present = type("M", (), {"RuntimeUID": "abc"})()
     assert get_runtime_uid(present) == "abc"

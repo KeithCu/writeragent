@@ -143,6 +143,44 @@ def test_transport_send_uses_free_pacing_key_for_openrouter_free():
     assert wait.call_args[0][0] == "openrouter.ai:free"
 
 
+def test_transport_send_stop_after_connect_does_not_send_body():
+    """Stop that lands while sock is still None must not send the prompt."""
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
+    mock_conn = MagicMock()
+    mock_conn.sock = None
+    with pytest.raises(NetworkError) as err:
+        transport.send(
+            "POST",
+            "/v1/chat/completions",
+            b"{}",
+            headers={"Content-Type": "application/json"},
+            connection_getter=lambda: mock_conn,
+            stop_checker=lambda: True,
+        )
+    assert err.value.code == "STOPPED"
+    mock_conn.connect.assert_called_once()
+    mock_conn.request.assert_not_called()
+    mock_conn.close.assert_called_once()
+
+
+def test_transport_send_stop_on_open_socket_does_not_reconnect():
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
+    mock_conn = MagicMock()
+    mock_conn.sock = MagicMock()
+    with pytest.raises(NetworkError) as err:
+        transport.send(
+            "POST",
+            "/v1/chat/completions",
+            b"{}",
+            headers={"User-Agent": "test"},
+            connection_getter=lambda: mock_conn,
+            stop_checker=lambda: True,
+        )
+    assert err.value.code == "STOPPED"
+    mock_conn.connect.assert_not_called()
+    mock_conn.request.assert_not_called()
+
+
 def test_transport_send_stop_during_host_gap_raises_stopped():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     with patch("plugin.framework.client.http_transport.wait_host_gap", return_value=False):

@@ -160,7 +160,7 @@ def _redact_secret_from_log_text(text: str, secret: str) -> str:
     return text.replace(secret, "<redacted>")
 
 
-def _parse_provider_envelope(raw: Any, path: str) -> dict[str, Any]:
+def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:
     """Parse an HTTP 200 provider body as a JSON object.
 
     What was wrong: callers used ``safe_json_loads`` without ``strict=True``.
@@ -182,6 +182,11 @@ def _parse_provider_envelope(raw: Any, path: str) -> dict[str, Any]:
     # finish_reason=length with empty content is a different, documented case.
     stream_err = _stream_error_message(parsed)
     if stream_err is not None:
+        # What was wrong: the stream loop redacted an echoed API key, but sync
+        # chat, images, and STT raised the raw provider string from HTTP 200.
+        # How: this helper had no credential. Why: the caller passes the key
+        # the same way the stream loop does. Do not retry a finished body.
+        stream_err = _redact_secret_from_log_text(stream_err, api_key)
         raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
     return parsed
 
@@ -625,7 +630,8 @@ class LlmClient:
                 raw = response.read()
                 body_in_hand = True
                 self._close_if_connection_close(response)
-                return "ok", _parse_provider_envelope(raw, path)
+                api_key = str(self.config.get("api_key") or "").strip()
+                return "ok", _parse_provider_envelope(raw, path, api_key=api_key)
             except CONNECTION_ERRORS as e:
                 if body_in_hand:
                     raise NetworkError(format_error_message(e), code="CONNECTION_LOST", details={"url": path}) from e
@@ -964,15 +970,22 @@ class LlmClient:
                     log.info("LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s", self._get_provider(), requested_model, used_model or requested_model, last_finish_reason)
 
                     # Flush any trailing buffered text from the think tag splitter
-                    # (trailing buffer contains small tag prefix remnants like '<' at EOF)
-                    for is_think, text_piece in think_tag_splitter.flush():
-                        if is_think and text_piece and on_thinking:
-                            on_thinking(text_piece)
-                            emitted_any = True
-                        elif not is_think and on_content:
-                            on_content(text_piece)
-                            if text_piece:
+                    # (trailing buffer contains small tag prefix remnants like '<' at EOF).
+                    # What was wrong: Stop broke out of the read and then this
+                    # flush still called on_content for a partial "<think" prefix.
+                    # How: the splitter holds at most the tag prefix, and the
+                    # flush runs after the loop whether the stream ended or Stop
+                    # closed the socket. Why: a completed stream still needs the
+                    # flush; Stop must not paint that prefix into the sidebar.
+                    if not self._stopped:
+                        for is_think, text_piece in think_tag_splitter.flush():
+                            if is_think and text_piece and on_thinking:
+                                on_thinking(text_piece)
                                 emitted_any = True
+                            elif not is_think and on_content:
+                                on_content(text_piece)
+                                if text_piece:
+                                    emitted_any = True
                 finally:
                     # Drain leftover body only when we still own a live connection.
                     # After Stop we closed the sock — response.read() would block until

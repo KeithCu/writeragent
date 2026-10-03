@@ -2411,6 +2411,36 @@ def test_stream_stop_after_content_returns_stop(client):
     assert mock_https.call_count == 1
 
 
+def test_stream_stop_does_not_flush_partial_think_prefix(client):
+    """A buffered '<thi' prefix must not reach the sidebar after Stop."""
+    calls = {"n": 0}
+
+    def stop_checker() -> bool:
+        calls["n"] += 1
+        return calls["n"] >= 2
+
+    lines = [
+        f'data: {json.dumps({"choices": [{"delta": {"content": "<thi"}}]})}'.encode(),
+        f'data: {json.dumps({"choices": [{"delta": {"content": "nk>"}}]})}'.encode(),
+        b"data: [DONE]",
+    ]
+    resp = create_mock_http_response(sse_lines=lines)
+    chunks: list[str] = []
+    thinking: list[str] = []
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+            append_callback=chunks.append,
+            append_thinking_callback=thinking.append,
+            stop_checker=stop_checker,
+        )
+    assert result["finish_reason"] == "stop"
+    assert chunks == []
+    assert thinking == []
+
+
 def test_stream_http_error_redacts_echoed_api_key(client):
     secret = client.config["api_key"]
     body = json.dumps({"error": {"message": f"bad key {secret}"}}).encode()
@@ -2578,6 +2608,19 @@ def test_request_with_tools_sync_raises_on_error_object(client):
             client.request_with_tools([{"role": "user", "content": "hi"}], max_tokens=10)
     assert exc.value.code == "STREAM_ERROR"
     assert "overloaded" in str(exc.value)
+
+
+def test_request_with_tools_sync_redacts_echoed_api_key(client):
+    secret = client.config["api_key"]
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = json.dumps({"error": {"message": f"bad key {secret}"}}).encode()
+    with patch.object(client, "_send_request", return_value=response), patch.object(client, "_close_if_connection_close"):
+        with pytest.raises(NetworkError) as exc:
+            client.request_with_tools([{"role": "user", "content": "hi"}], max_tokens=10)
+    assert exc.value.code == "STREAM_ERROR"
+    assert secret not in str(exc.value)
+    assert "<redacted>" in str(exc.value)
 
 
 def test_request_with_tools_sync_rejects_truncated_envelope(client):

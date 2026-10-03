@@ -44,7 +44,8 @@ a helper already holding it can persist). Without that lock a
 background ``get_config`` could rewrite an older file over a key the UI
 just saved. One ``config:changed`` event is emitted **after** the lock
 is released, with ``key``, ``value``, and ``old_value``, so listeners may
-call ``get_config`` / ``set_config`` without deadlocking. Callers that map
+call ``get_config`` / ``set_config`` without deadlocking. ``update_config_mapping`` holds that same lock across the read and the
+write so two dict updates cannot drop each other's keys. Callers that map
 a settings key onto a stored key (for example ``ai.endpoint`` → ``endpoint``)
 pass ``event_key`` so listeners still see the key that was set. A batch
 that changes one key emits that key. A batch that changes more than one
@@ -68,7 +69,7 @@ import shutil
 import tempfile
 import threading
 import time
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 from plugin.framework.errors import ConfigError, ConfigValidationError, safe_call
 from plugin.framework.event_bus import global_event_bus
@@ -655,6 +656,9 @@ def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
             return
 
         config_data = _validate_config_data(config_data, key)
+        # validate() can strip /v1 (and similar) after staging. Listeners
+        # should see the value that was written, not the pre-normalize one.
+        value = config_data.get(key, value)
 
         try:
             _write_config_file(config_file_path, config_data)
@@ -726,6 +730,7 @@ def set_configs(values: dict[str, Any]) -> None:
             emit_keys = tuple(key for key, _coerced, _prev in changed_keys)
             if len(changed_keys) == 1:
                 emit_key, emit_value, emit_previous = changed_keys[0]
+                emit_value = config_data.get(emit_key, emit_value)
         except OSError as e:
             log.exception("Error writing to %s", config_file_path)
             raise ConfigError(f"Failed to save config: {e}", "CONFIG_SAVE_ERROR") from e
@@ -894,6 +899,25 @@ def _get_validated_config_dict() -> dict[str, Any]:
 # --- Per-endpoint API keys ---
 
 
+def update_config_mapping(key: str, mutate: Callable[[dict[str, Any]], None], *, event_key: str | None = None) -> None:
+    """Read-modify-write one dict config value under ``_config_write_lock``.
+
+    What was wrong: callers copied a map, edited the copy, then ``set_config``
+    replaced the whole value. A second writer that had read the map first
+    wrote its copy back and dropped the other key. How: the lock covered only
+    the write inside ``set_config``. Why: hold it from the read through
+    ``set_config`` (the lock is an ``RLock``). Not a new backing store.
+    """
+    with _config_write_lock:
+        data = get_config(key)
+        if not isinstance(data, dict):
+            data = {}
+        else:
+            data = dict(data)
+        mutate(data)
+        set_config(key, data, event_key=event_key)
+
+
 def get_api_key_for_endpoint(endpoint: Any) -> str:
     """Return API key for the given endpoint."""
     data = get_config("api_keys_by_endpoint")
@@ -905,16 +929,12 @@ def get_api_key_for_endpoint(endpoint: Any) -> str:
 
 def set_api_key_for_endpoint(endpoint: Any, key: Any, *, event_key: str | None = None) -> None:
     """Store API key for the given endpoint in api_keys_by_endpoint."""
-    data = get_config("api_keys_by_endpoint")
-    if not isinstance(data, dict):
-        data = {}
-    else:
-        # Mutate a copy. get_config also copies on the way out so a caller
-        # cannot alias the cache; this copy is the dict set_config persists.
-        data = dict(data)
-    normalized = normalize_endpoint_url(endpoint or "")
-    data[normalized] = str(key)
-    set_config("api_keys_by_endpoint", data, event_key=event_key)
+
+    def _put(data: dict[str, Any]) -> None:
+        normalized = normalize_endpoint_url(endpoint or "")
+        data[normalized] = str(key)
+
+    update_config_mapping("api_keys_by_endpoint", _put, event_key=event_key)
 
 
 # --- Bundled API config ---

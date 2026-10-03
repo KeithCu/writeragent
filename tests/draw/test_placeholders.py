@@ -185,7 +185,8 @@ def test_set_placeholder_text_empty_role_miss_payload():
     assert details["available"] == []
     assert details["suggest_layout"] == "text"
     assert details["shape_text_count"] == 0
-    assert "set_slide_layout" in details["hint"]
+    assert "slide_layouts" in details["hint"]
+    assert "set_slide_layout" not in details["hint"]
     assert "Placeholder 'title' not found on this slide." == err["message"]
 
 

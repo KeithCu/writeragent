@@ -122,11 +122,18 @@ def chat_text_model_has_native_vision() -> bool:
 
     Fail-open True when capability cannot be determined — same contract as
     filter_get_image_for_text_only_model (keep get_image rather than hide it).
+
+    What was wrong: schema and Draw prompt setup called ``has_native_vision``
+    with the default ``allow_fetch=True``. How: Chat Send builds tool schemas
+    on the UI thread, and a cold OpenRouter/Together catalog GET is 10s with
+    up to 3 attempts. Image attach already passed ``allow_fetch=False``.
+    Why: this gate does too. An id with no static row, no stored answer, and
+    no process cache stays fail-open so ``get_image`` is not hidden.
     """
     try:
         from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
 
-        return bool(has_native_vision(get_text_model(), get_current_endpoint()))
+        return bool(has_native_vision(get_text_model(), get_current_endpoint(), allow_fetch=False, unknown_is_vision=True))
     except Exception:
         return True
 

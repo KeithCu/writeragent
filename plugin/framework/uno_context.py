@@ -306,7 +306,21 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
 
     hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
     doc = desktop.loadComponentFromURL("private:factory/swriter", target, flags, (hidden,) + tuple(extra_props))
-    clear_writer_body(doc)
+    # What was wrong: a failed clear still returned the scratch Writer, so the
+    # default-template text this function exists to drop was handed to the
+    # caller. How: clear_writer_body logs and returns False on a non-disposal
+    # error, and this ignored that. Why: an already-empty body is False too,
+    # so only a leftover non-empty string is a failure. Disposal still raises.
+    if not clear_writer_body(doc):
+        try:
+            leftover = doc.getText().getString()
+        except Exception as e:
+            _reraise_document_disposed(e, "Writer")
+            log.debug("new_blank_writer: body unreadable after clear", exc_info=True)
+            return None
+        if (leftover or "").strip():
+            log.debug("new_blank_writer: default template text survived clear_writer_body")
+            return None
     # Other document lookups wrap the model so a later off-thread use is
     # caught by the dev thread guard. This factory used to return it raw.
     return _guard_returned_uno(doc)
@@ -605,18 +619,15 @@ def _current_document_controller(ctx: Any) -> Any:
         return None
 
 
-def _release_leave_query_binding(control: Any, mouse: Any, focus: Any) -> None:
-    """Drop Stop/Clear/Send listeners so a disposed control is not pinned."""
-    try:
-        if mouse is not None and control is not None and hasattr(control, "removeMouseListener"):
-            control.removeMouseListener(mouse)
-    except Exception as e:
-        log.debug("removeMouseListener: %s", e)
-    try:
-        if focus is not None and control is not None and hasattr(control, "removeFocusListener"):
-            control.removeFocusListener(focus)
-    except Exception as e:
-        log.debug("removeFocusListener: %s", e)
+def _release_leave_query_binding(_control: Any, mouse: Any, focus: Any) -> None:
+    """Drop Stop/Clear/Send bindings so a disposed control is not pinned.
+
+    What was wrong: this ran from ``on_disposing`` and called
+    ``removeMouseListener`` / ``removeFocusListener`` while the broadcaster
+    was already disposing. How: UNO calls ``disposing`` as it drops listeners.
+    Why: only edit the Python lists here. ``remove*`` stays on
+    ``_rollback_leave_query_attach``, where ``add*`` failed before dispose.
+    """
     _leave_query_bindings[:] = [row for row in _leave_query_bindings if row[1] is not mouse and row[2] is not focus]
     for listener in (mouse, focus):
         if listener is None:
@@ -715,13 +726,12 @@ def _rollback_leave_query_attach(control: Any, mouse_track: Any, focus_track: An
             pass
 
 
-def _release_doc_click_binding(controller: Any, handler: Any) -> None:
-    """Drop a document click handler so a closed controller is not pinned."""
-    try:
-        if controller is not None and hasattr(controller, "removeMouseClickHandler"):
-            controller.removeMouseClickHandler(handler)
-    except Exception as e:
-        log.debug("removeMouseClickHandler: %s", e)
+def _release_doc_click_binding(_controller: Any, handler: Any) -> None:
+    """Drop a document click handler so a closed controller is not pinned.
+
+    Same as leave-query: ``on_disposing`` must not ``removeMouseClickHandler``
+    while the controller is already disposing. The Python lists are the pin.
+    """
     _doc_click_bindings[:] = [pair for pair in _doc_click_bindings if pair[1] is not handler]
     try:
         _stream_focus_trackers.remove(handler)
@@ -799,20 +809,10 @@ def _ensure_document_click_handler(ctx: Any, frame: Any = None) -> None:
 def _drop_query_focus_listener(listener: Any) -> None:
     """Forget the query listener once its control is disposed."""
     global _query_focus_listener
-    control = None
-    kept: list[tuple[Any, Any]] = []
-    for ctrl, bound in _query_focus_bindings:
-        if bound is listener:
-            control = ctrl
-            continue
-        kept.append((ctrl, bound))
+    # Do not removeFocusListener here. This runs from on_disposing, and the
+    # broadcaster is already walking its listener list.
+    kept: list[tuple[Any, Any]] = [(ctrl, bound) for ctrl, bound in _query_focus_bindings if bound is not listener]
     _query_focus_bindings[:] = kept
-    if control is not None:
-        try:
-            if hasattr(control, "removeFocusListener"):
-                control.removeFocusListener(listener)
-        except Exception as e:
-            log.debug("removeFocusListener: %s", e)
     if listener is not None and _query_focus_listener is listener:
         _query_focus_listener = kept[-1][1] if kept else None
     try:
@@ -1040,6 +1040,7 @@ def normalize_doc_url(url: Any) -> str:
     return s
 
 
+@main_thread_only
 def get_runtime_uid(model: Any) -> str:
     """Stable per-session id for an open component.
 
@@ -1051,6 +1052,13 @@ def get_runtime_uid(model: Any) -> str:
     because LibreOffice builds expose the id through different UNO surfaces. Only plain ``str`` /
     ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
     cannot masquerade as a real uid.
+
+    What was wrong: every accessor sat in ``except Exception``, so an
+    off-thread call swallowed ``assert_main_thread``'s ``RuntimeError`` and
+    returned ``""`` (an untitled document with no id). How: the same ladder
+    ``uno_same`` used before it was decorated. Why: ``@main_thread_only``
+    raises before the loop when the guard is on. On-thread disposal still
+    returns ``""``.
     """
     for accessor in (lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None, lambda m: getattr(m, "RuntimeUID", None), lambda m: m.getPropertyValue("RuntimeUID")):
         try:
@@ -1158,7 +1166,13 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
         while enum is not None:
             try:
                 more = enum.hasMoreElements()
-            except Exception:
+            except Exception as e:
+                # What was wrong: a disposed desktop enumeration broke the
+                # loop and the caller was told the document was not open.
+                # How: this except swallowed DisposedException before the
+                # outer handler could re-raise it. Why: one dead window
+                # still continues below; disposal of the enumeration does not.
+                _reraise_document_disposed(e, "Desktop")
                 break
             if more is not True and more != 1:
                 break

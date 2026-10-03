@@ -115,6 +115,16 @@ class LlmHttpTransport:
         self._persistent_conn = None
         self._conn_key = None
 
+    def _drop_stopped_connection(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection) -> None:
+        """Close a socket Stop won after connect and before the body is sent."""
+        if conn is self._persistent_conn:
+            self.close()
+            return
+        try:
+            conn.close()
+        except Exception:
+            pass
+
     def send(
         self, method: str, path: str, body: Any, headers: dict[str, str], *, connection_getter: Callable[[], http.client.HTTPConnection | http.client.HTTPSConnection] | None = None, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None
     ) -> http.client.HTTPResponse:
@@ -130,9 +140,22 @@ class LlmHttpTransport:
         timeout = self._timeout_getter()
         conn.timeout = timeout
         sock = getattr(conn, "sock", None)
+        if sock is None:
+            # What was wrong: Stop during DNS/TCP called close() while sock
+            # was still None, so the close was a no-op, then request()
+            # connected and blocked in getresponse until request_timeout.
+            # How: http.client assigns sock only after connect() returns.
+            # Why: connect first, then refuse to send the body if Stop won.
+            # A reused keep-alive socket is already set; request() must not
+            # be asked to connect again or it replaces that socket.
+            conn.connect()
+            sock = getattr(conn, "sock", None)
         if sock is not None:
             sock.settimeout(timeout)
         self._pacer.wait_before_send()
+        if stop_checker is not None and stop_checker():
+            self._drop_stopped_connection(conn)
+            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
         if not any(k.lower() == "user-agent" for k in headers):
             headers = dict(headers)
             from plugin.framework.constants import USER_AGENT

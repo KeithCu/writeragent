@@ -674,6 +674,36 @@ def test_new_blank_writer_returns_guarded_document():
     guard.assert_called_once_with(doc)
 
 
+def test_new_blank_writer_returns_none_when_template_text_survives():
+    from plugin.framework.uno_context import new_blank_writer
+
+    doc = MagicMock()
+    doc.getText.return_value.getString.return_value = "AO DOUTO JUIZO"
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = doc
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.clear_writer_body", return_value=False),
+    ):
+        assert new_blank_writer(MagicMock()) is None
+
+
+def test_new_blank_writer_keeps_an_already_empty_body():
+    from plugin.framework.uno_context import new_blank_writer
+
+    doc = MagicMock()
+    doc.getText.return_value.getString.return_value = ""
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = doc
+    sentinel = object()
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("plugin.framework.uno_context.clear_writer_body", return_value=False),
+        patch("plugin.framework.thread_guard.guard_uno", return_value=sentinel),
+    ):
+        assert new_blank_writer(MagicMock()) is sentinel
+
+
 def test_install_does_not_replace_focus_pin():
     import types
 

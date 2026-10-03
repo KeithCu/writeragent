@@ -519,6 +519,8 @@ def test_run_venv_python_description_neutral_when_doc_unknown():
     desc = RunVenvPythonScript().get_description(None)
     assert "data_range" in desc
     assert "document tools" in desc.lower()
+    # The import-policy note is filled at description time, not at import.
+    assert "Pre-imported" in desc
 
 
 def test_execute_drops_schemas_with_unusable_names():

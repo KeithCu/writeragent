@@ -165,6 +165,18 @@ class TestErrorHandling:
         refused = OSError(errno.ECONNREFUSED, "connect")
         assert "Connection Refused" in format_error_message(refused)
 
+    def test_format_error_message_urlerror_timeout_is_request_timeout(self):
+        import socket
+        import urllib.error
+
+        from plugin.framework.errors import format_error_message
+
+        wrapped = urllib.error.URLError(socket.timeout("timed out"))
+        assert "Request Timed Out" in format_error_message(wrapped)
+        assert "Connection Error" not in format_error_message(wrapped)
+        text = urllib.error.URLError("The read operation timed out")
+        assert "Request Timed Out" in format_error_message(text)
+
     def test_format_error_message_filesystem_and_python_timeout_are_not_http(self):
         from plugin.framework.errors import format_error_message
 
