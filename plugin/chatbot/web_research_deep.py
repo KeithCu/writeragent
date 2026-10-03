@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
+from plugin.framework.config_schema import as_bool
 from plugin.framework.constants import now_aware
 
 from plugin.framework.errors import ToolExecutionError, format_error_payload
@@ -163,7 +164,14 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
                     learnings.append(learning)
                     if citation:
                         citations[learning] = citation
-        questions = [str(item).strip() for item in follow_up_payload if str(item).strip()]
+        # A bare string used to be iterated here. ``"What about beta?"`` became
+        # one fake question per character (a dict became its keys). Sibling
+        # parsers already require a list before they walk the payload.
+        questions = (
+            [str(item).strip() for item in follow_up_payload if str(item).strip()]
+            if isinstance(follow_up_payload, list)
+            else []
+        )
         if learnings or questions:
             return {
                 "learnings": learnings[:num_learnings],
@@ -290,11 +298,16 @@ def parse_assessment_response(response: str) -> dict[str, Any]:
         gaps = [str(g).strip() for g in gaps_raw if str(g).strip()] if isinstance(gaps_raw, list) else []
         queries = [str(q).strip() for q in queries_raw if str(q).strip()] if isinstance(queries_raw, list) else []
         stop_flag = parsed.get("stop")
+        # ``bool("false")``, ``bool("0")``, and ``bool("no")`` are True, so a
+        # stringified flag ended the research loop early. Parse tokens the way
+        # score is coerced above: only a real boolean counts, and bad input
+        # falls back to "do not stop".
+        stop = as_bool(stop_flag) if stop_flag is not None else False
         return {
             "score": score,
             "knowledge_gaps": gaps,
             "suggested_queries": queries,
-            "stop": bool(stop_flag) if stop_flag is not None else False,
+            "stop": stop,
             "reasoning": str(parsed.get("reasoning") or ""),
         }
     return {"score": 0.0, "knowledge_gaps": [], "suggested_queries": [], "stop": False, "reasoning": ""}
