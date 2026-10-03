@@ -113,6 +113,10 @@ def test_refresh_controls_does_not_recurse_when_combo_fires_listeners():
         set_config_keys.append(key)
         bus.emit("config:changed", ctx=None)
 
+    def set_configs(values):
+        set_config_keys.extend(values)
+        bus.emit("config:changed", ctx=None)
+
     refresh = _capped_refresh(panel)
     bus.subscribe("config:changed", lambda **kwargs: refresh())
 
@@ -130,6 +134,7 @@ def test_refresh_controls_does_not_recurse_when_combo_fires_listeners():
         patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=_ENDPOINT),
         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]),
         patch("plugin.chatbot.config_ui_helpers.set_config", side_effect=set_config),
+        patch("plugin.chatbot.config_ui_helpers.set_configs", side_effect=set_configs),
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value=_MODEL),
         patch("plugin.framework.client.model_fetcher.set_text_model"),
     ):
@@ -207,6 +212,10 @@ def test_unguarded_listener_does_not_infinite_loop_because_event_bus_drops():
         set_config_keys.append(key)
         bus.emit("config:changed", ctx=None)
 
+    def set_configs(values):
+        set_config_keys.extend(values)
+        bus.emit("config:changed", ctx=None)
+
     refresh = _capped_refresh(panel)
     bus.subscribe("config:changed", lambda **kwargs: refresh())
 
@@ -232,6 +241,7 @@ def test_unguarded_listener_does_not_infinite_loop_because_event_bus_drops():
         patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=_ENDPOINT),
         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]),
         patch("plugin.chatbot.config_ui_helpers.set_config", side_effect=set_config),
+        patch("plugin.chatbot.config_ui_helpers.set_configs", side_effect=set_configs),
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value=_MODEL),
         patch("plugin.framework.client.model_fetcher.set_text_model"),
     ):

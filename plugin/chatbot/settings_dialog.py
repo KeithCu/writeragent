@@ -160,11 +160,12 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
 
     Endpoint, text model, API key, voice family, and the other fields go
     through one ``set_configs``, and only when the value differs from disk
-    or from the schema default of a missing key. LRU helpers run only for
-    keys that batch actually changed. A batch that changes nothing does not
-    write and does not emit.
+    or from the schema default of a missing key. LRU lists for those keys
+    are entries in that same dict. A list that already starts with the new
+    value is omitted. A batch that changes nothing does not write and does
+    not emit.
     """
-    from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text, update_lru_history
+    from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
     from plugin.chatbot.settings_fields import stored_select_value
     from plugin.framework.client.model_fetcher import _sanitize_stored_model_value
     from plugin.framework.url_utils import normalize_endpoint_url
@@ -295,44 +296,84 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     # One set_configs, and only keys that differ from disk or from the
     # schema default of a missing key. Passing the whole dialog made a
     # one-field edit a rewrite of every settings key.
+    #
+    # What was wrong: after that batch, each changed combobox called
+    # update_lru_history, and each of those called set_config. A Settings OK
+    # that changed the endpoint and two models rewrote writeragent.json once
+    # for the fields and again for every LRU list, and emitted config:changed
+    # once per write.
+    # How: the list updates ran after set_configs returned.
+    # Why: the new lists are computed here and stored in the same dict, so
+    # one set_configs writes the file once and emits once. A list that
+    # already has this value at the head is left out.
     changed = changed_config_values(pending, get_config)
+    _stage_settings_lru(changed, current_endpoint, text_model_lru, image_model_lru, ordinary_lru)
     if changed:
         set_configs(changed)
 
+
+def _stage_settings_lru(
+    changed: dict[str, Any],
+    current_endpoint: str,
+    text_model_lru: str | None,
+    image_model_lru: str | None,
+    ordinary_lru: list[tuple[str, Any, str]],
+) -> None:
+    """Add LRU list updates for keys already in *changed*. Does not write."""
     if "endpoint" in changed and current_endpoint:
-        update_lru_history(current_endpoint, "endpoint_lru", "")
+        _stage_lru(changed, current_endpoint, "endpoint_lru", "")
     if text_model_lru and "text_model" in changed:
-        update_lru_history(text_model_lru, "model_lru", current_endpoint)
+        _stage_lru(changed, text_model_lru, "model_lru", current_endpoint)
     if image_model_lru and "image_model" in changed:
-        update_lru_history(image_model_lru, "image_model_lru", current_endpoint)
+        _stage_lru(changed, image_model_lru, "image_model_lru", current_endpoint)
     for key, val, save_key in ordinary_lru:
         if save_key not in changed:
             continue
-        _update_lru_for_key(ctx, key, val, current_endpoint)
+        for item, lru_key, endpoint in _lru_rows_for_key(key, val, current_endpoint):
+            _stage_lru(changed, item, lru_key, endpoint)
 
 
-def _update_lru_for_key(ctx: Any, key: str, val: Any, current_endpoint: str) -> None:
-    from plugin.chatbot.config_ui_helpers import update_lru_history
+def _stage_lru(dest: dict[str, Any], val: Any, lru_key: str, endpoint: str) -> None:
+    """Put the prepended LRU list into *dest* when it differs from disk.
 
+    Reads through this module's ``get_config`` so a test patch of that name
+    is the list this compare sees. A key already staged in *dest* is the
+    current list, so two fields that share a list compose in one dict.
+    """
+    from plugin.chatbot.config_ui_helpers import lru_config_key, next_lru_list
+    from plugin.framework.config import LRU_MAX_ITEMS
+
+    scoped = lru_config_key(lru_key, endpoint)
+    current = dest[scoped] if scoped in dest else get_config(scoped)
+    updated = next_lru_list(current, val, LRU_MAX_ITEMS)
+    if updated is not None:
+        dest[scoped] = updated
+
+
+def _lru_rows_for_key(key: str, val: Any, current_endpoint: str) -> list[tuple[Any, str, str]]:
+    """``(value, lru list name, endpoint)`` for one settings field.
+
+    Empty when this field has no list. Image models are sanitized the same
+    way ``set_image_model`` sanitizes them: the settings batch already stored
+    the id, so this only names the list, it does not write ``image_model`` again.
+    """
     if not val:
-        return
-
+        return []
     if key in ("audio__stt_model", "stt_model", "audio.stt_model"):
-        update_lru_history(val, "audio_model_lru", current_endpoint)
-    elif key in ("audio__tts_model", "tts_model", "audio.tts_model"):
-        update_lru_history(val, "tts_model_lru", current_endpoint)
-    elif key == "image_model":
-        # set_image_model writes image_model again. The settings batch already
-        # stored it; calling the setter after that saw a match and skipped LRU,
-        # or wrote a second time when sanitize differed. Update the list only.
+        return [(val, "audio_model_lru", current_endpoint)]
+    if key in ("audio__tts_model", "tts_model", "audio.tts_model"):
+        return [(val, "tts_model_lru", current_endpoint)]
+    if key == "image_model":
         from plugin.framework.client.model_fetcher import _sanitize_stored_model_value
 
         sanitized = _sanitize_stored_model_value(val)
-        if sanitized:
-            update_lru_history(sanitized, "image_model_lru", current_endpoint)
-    elif key == "additional_instructions":
-        update_lru_history(val, "prompt_lru", "")
-    elif key == "image_base_size":
-        update_lru_history(str(val), "image_base_size_lru", "")
+        if not sanitized:
+            return []
+        return [(sanitized, "image_model_lru", current_endpoint)]
+    if key == "additional_instructions":
+        return [(val, "prompt_lru", "")]
+    if key == "image_base_size":
+        return [(str(val), "image_base_size_lru", "")]
+    return []
 
 
