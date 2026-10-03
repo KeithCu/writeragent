@@ -389,7 +389,7 @@ class InsertTable(ToolDrawSpecialBase):
 - `move_slide(from_page: int, to_page: int)`
 - `rename_slide(page: int, name: str)`
 
-`move_slide` copies onto a new page and removes the source only after that copy succeeds. LibreOffice `InsertSdPage` inserts **after** `insertNewByIndex`'s index, so a move to index 0 lands the copy at 1 and then exchanges it with the first page. The page name moves with that copy. Placeholder roles come from `ShapeType` (`TitleTextShape`, `OutlinerShape`) when `ClassName` is not a property; untagged text boxes are still not guessed by position.
+`move_slide` duplicates the source with `XDrawPageDuplicator.duplicate` (the same full-page clone as `duplicate_slide`), removes the source only after that clone exists, then swaps the clone with neighboring pages until it sits at `to_page`. Shapes are moved, not reconstructed, so groups, graphics, connectors, and charts stay intact. The page name, layout, master, speaker notes, and transition move with the clone. A failed swap is reversed, so a move to index 0 does not leave the deck half-reordered. `InsertSdPage` still inserts **after** `insertNewByIndex`'s index and cannot create a page at index 0; the reorder exchanges with page 0 instead of inserting there. Placeholder roles come from `ShapeType` (`TitleTextShape`, `OutlinerShape`) when `ClassName` is not a property; untagged text boxes are still not guessed by position.
 
 ---
 

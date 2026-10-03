@@ -229,17 +229,25 @@ class DrawBridge:
     def move_slide(self, from_index: int, to_index: int) -> bool:
         """Move the page at from_index so it occupies to_index.
 
-        What was wrong: the method called ``pages.remove`` and then
-        ``insertByIndex``. ``XDrawPages.remove`` disposes the page
-        (``XDrawPages.idl``), and the published interface only has
-        ``insertNewByIndex`` (a new blank page). The fallback therefore
-        inserted an empty page and returned True. The original slide was gone.
-        How it happened: there is no UNO call that puts an existing draw page
-        back into the container.
-        Why this fixes it: insert a new page, copy the source onto it, and
-        remove the source only after that copy succeeds. A failed copy
-        deletes the new page and leaves the source. insertNewByIndex inserts
-        after its index, so a move to the front exchanges the copy with page 0.
+        What was wrong: after ``XDrawPages.remove`` disposed the source
+        (``XDrawPages.idl`` has no way to put that page back), the replacement
+        blank page only received a shallow shape clone — position, size, a
+        few properties, and text. ``GroupShape``, graphics, connectors, and
+        charts were empty or skipped (no ``ShapeType`` returned without
+        copying). A move to index 0 then called ``_exchange_page_contents``
+        after the source was already gone, so a failed exchange returned
+        False with the deck already reordered.
+        How it happened: ``insertNewByIndex`` only creates a blank page, and
+        ``InsertSdPage`` (``sd/source/ui/unoidl/unomodel.cxx``) inserts after
+        ``min(count-1, nIndex)``, so it cannot create a page at index 0.
+        Why this fixes it: ``XDrawPageDuplicator.duplicate``
+        (``SdXImpressDocument::duplicate``) clones the whole page, including
+        shapes and notes, and inserts that clone after the source. Removing
+        the source leaves the clone in the source slot. Neighboring slots
+        then swap by moving those cloned shapes (not by constructing new
+        ones) plus page name, layout, master, notes, and transition. A failed
+        swap puts the shapes back, so the clone is still in the original
+        slot and the other slides are unchanged.
         """
         pages = self.get_pages()
         count = pages.getCount()
@@ -248,32 +256,22 @@ class DrawBridge:
         if from_index == to_index:
             return True
         source = pages.getByIndex(from_index)
-        # InsertSdPage (sd/source/ui/unoidl/unomodel.cxx) inserts the new
-        # page after GetSdPage(min(count-1, nIndex)). insertNewByIndex(0)
-        # therefore lands at index 1 and cannot create a page at index 0.
-        # Moving forward, source removal shifts the copy down one slot, so
-        # the copy must land one past to_index. Moving backward, land on
-        # to_index. A move to 0 lands at 1, then the two pages exchange.
-        if to_index == 0:
-            land_at = 1
-        elif from_index < to_index:
-            land_at = to_index + 1
-        else:
-            land_at = to_index
         try:
-            dest = pages.insertNewByIndex(land_at - 1)
+            copy = self.doc.duplicate(source)
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
-            log.debug("move_slide insertNewByIndex failed: %s", exc)
+            log.debug("move_slide duplicate failed: %s", exc)
+            return False
+        if copy is None:
             return False
         try:
-            self._copy_page_for_move(source, dest)
+            self._take_page_name(source, copy)
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
-            log.debug("move_slide copy failed: %s", exc)
-            self._remove_page_quietly(pages, dest)
+            log.debug("move_slide name transfer failed: %s", exc)
+            self._remove_page_quietly(pages, copy)
             return False
         try:
             pages.remove(source)
@@ -281,57 +279,331 @@ class DrawBridge:
             if is_disposed_exception(exc):
                 raise
             log.debug("move_slide remove source failed: %s", exc)
-            self._remove_page_quietly(pages, dest)
-            return False
-        if to_index == 0:
             try:
-                self._exchange_page_contents(pages.getByIndex(0), pages.getByIndex(1))
-            except Exception as exc:
-                if is_disposed_exception(exc):
+                self._take_page_name(copy, source)
+            except Exception as restore_exc:
+                if is_disposed_exception(restore_exc):
                     raise
-                log.debug("move_slide exchange with first page failed: %s", exc)
-                return False
+                log.debug("move_slide restore source name failed: %s", restore_exc)
+            self._remove_page_quietly(pages, copy)
+            return False
+        # The clone now occupies from_index. Bubble it to to_index.
+        try:
+            self._bubble_page(pages, from_index, to_index)
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            log.debug("move_slide reorder failed: %s", exc)
+            return False
         return True
 
-    def _clear_page_shapes(self, page: Any) -> None:
+    def _bubble_page(self, pages: Any, start: int, dest: int) -> None:
+        """Swap *start* with its neighbor until that slot's content is at *dest*.
+
+        A failed step reverses the swaps already finished, so the clone stays
+        where the source page was.
+        """
+        step = 1 if dest > start else -1
+        index = start
+        swapped: list[int] = []
+        try:
+            while index != dest:
+                neighbor = index + step
+                self._exchange_page_contents(pages.getByIndex(index), pages.getByIndex(neighbor))
+                swapped.append(index)
+                index = neighbor
+        except Exception:
+            for prev in reversed(swapped):
+                try:
+                    self._exchange_page_contents(pages.getByIndex(prev), pages.getByIndex(prev + step))
+                except Exception:
+                    log.exception("move_slide undo reorder failed")
+            raise
+
+    def _exchange_page_contents(self, first: Any, second: Any) -> None:
+        """Swap two pages by moving their shapes and page metadata.
+
+        The temporary page is only a holding area. On Impress,
+        ``insertNewByIndex`` gives that page its own placeholders
+        (``apply_slide_layout``); those must stay on it and die with it.
+        Moving every shape off the temp page would drag them into the deck.
+        """
+        pages = self.get_pages()
+        first_shapes = self._snapshot_shapes(first)
+        second_shapes = self._snapshot_shapes(second)
+        temp = None
+        moved_first = False
+        moved_second = False
+        moved_onto_second = False
+        try:
+            temp = pages.insertNewByIndex(pages.getCount() - 1)
+            if temp is None:
+                raise RuntimeError("move_slide could not hold shapes during reorder")
+            self._move_shapes(first_shapes, first, temp)
+            moved_first = True
+            self._move_shapes(second_shapes, second, first)
+            moved_second = True
+            self._move_shapes(first_shapes, temp, second)
+            moved_onto_second = True
+            self._swap_page_meta(first, second)
+        except Exception:
+            self._rollback_exchange(first, second, temp, first_shapes, second_shapes, moved_first, moved_second, moved_onto_second)
+            raise
+        finally:
+            if temp is not None:
+                self._remove_page_quietly(pages, temp)
+
+    def _rollback_exchange(self, first: Any, second: Any, temp: Any, first_shapes: list[Any], second_shapes: list[Any], moved_first: bool, moved_second: bool, moved_onto_second: bool) -> None:
+        """Put shapes back on *first* and *second*. Metadata undo is inside the swap."""
+        if temp is None:
+            return
+        try:
+            if moved_onto_second:
+                self._move_shapes(first_shapes, second, temp)
+                self._move_shapes(second_shapes, first, second)
+                self._move_shapes(first_shapes, temp, first)
+            elif moved_second:
+                self._move_shapes(second_shapes, first, second)
+                self._move_shapes(first_shapes, temp, first)
+            elif moved_first:
+                self._move_shapes(first_shapes, temp, first)
+        except Exception:
+            log.exception("move_slide restore exchanged pages failed")
+
+    def _snapshot_shapes(self, page: Any) -> list[Any]:
+        try:
+            count = int(page.getCount())
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return []
+        return [page.getByIndex(i) for i in range(count)]
+
+    def _move_shapes(self, shapes: list[Any], src: Any, dest: Any) -> None:
+        """Move *shapes* from *src* to *dest* in order. ``add`` of an inserted shape does not move it."""
+        moved: list[Any] = []
+        try:
+            for shape in shapes:
+                src.remove(shape)
+                try:
+                    dest.add(shape)
+                except Exception as exc:
+                    if is_disposed_exception(exc):
+                        raise
+                    try:
+                        src.add(shape)
+                    except Exception as restore_exc:
+                        if is_disposed_exception(restore_exc):
+                            raise
+                        log.debug("move_slide return shape to source failed", exc_info=True)
+                    raise
+                moved.append(shape)
+        except Exception:
+            for shape in moved:
+                try:
+                    dest.remove(shape)
+                    src.add(shape)
+                except Exception as restore_exc:
+                    if is_disposed_exception(restore_exc):
+                        raise
+                    log.debug("move_slide undo shape move failed", exc_info=True)
+            raise
+
+    def _swap_page_meta(self, first: Any, second: Any) -> None:
+        """Swap name, layout, master, notes, and transition. Skip props the page does not have."""
+        self._swap_page_names(first, second)
+        try:
+            self._swap_page_props(first, second)
+        except Exception:
+            self._restore_swapped_names(first, second)
+            raise
+        try:
+            self._swap_notes(first, second)
+        except Exception:
+            try:
+                self._swap_page_props(first, second)
+            except Exception:
+                log.exception("move_slide undo page props failed")
+            self._restore_swapped_names(first, second)
+            raise
+
+    def _restore_swapped_names(self, first: Any, second: Any) -> None:
+        try:
+            self._swap_page_names(first, second)
+        except Exception:
+            log.exception("move_slide restore page names failed")
+
+    def _swap_page_names(self, first: Any, second: Any) -> None:
+        try:
+            name_first = str(first.Name or "")
+            name_second = str(second.Name or "")
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return
+        if name_first == name_second:
+            return
+        # Two pages cannot share a name. Park both, then assign.
+        parked_first = name_first + "\u200b"
+        parked_second = name_second + "\u200b\u200b"
+        try:
+            first.Name = parked_first
+            second.Name = parked_second
+            first.Name = name_second
+            second.Name = name_first
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            try:
+                first.Name = name_first
+                second.Name = name_second
+            except Exception as restore_exc:
+                if is_disposed_exception(restore_exc):
+                    raise
+                log.debug("move_slide restore names failed", exc_info=True)
+            raise
+
+    def _swap_page_props(self, first: Any, second: Any) -> None:
+        # Background is an SfxItem from the source pool; copying it aborts
+        # soffice. Layout and MasterPage are references this document owns.
+        # Effect/Speed/Duration/Change/TransitionDuration are the transition
+        # fields SetSlideTransition writes; the duplicate already has them.
+        props = ("Layout", "MasterPage", "Effect", "Speed", "Duration", "Change", "TransitionDuration")
+        applied: list[str] = []
+        try:
+            for prop in props:
+                if self._swap_one_prop(first, second, prop):
+                    applied.append(prop)
+        except Exception:
+            for prop in reversed(applied):
+                try:
+                    self._swap_one_prop(first, second, prop)
+                except Exception:
+                    log.exception("move_slide undo page prop %s failed", prop)
+            raise
+
+    def _swap_one_prop(self, first: Any, second: Any, prop: str) -> bool:
+        """Swap *prop*. Return False when either page does not have it."""
+        ok_first, value_first = self._read_page_prop(first, prop)
+        ok_second, value_second = self._read_page_prop(second, prop)
+        if not ok_first or not ok_second:
+            return False
+        try:
+            unchanged = value_first == value_second
+        except Exception:
+            unchanged = False
+        if unchanged:
+            return False
+        self._write_page_prop(first, prop, value_second)
+        try:
+            self._write_page_prop(second, prop, value_first)
+        except Exception:
+            try:
+                self._write_page_prop(first, prop, value_first)
+            except Exception as restore_exc:
+                if is_disposed_exception(restore_exc):
+                    raise
+                log.debug("move_slide restore page prop %s failed", prop, exc_info=True)
+            raise
+        return True
+
+    def _read_page_prop(self, page: Any, prop: str) -> tuple[bool, Any]:
+        try:
+            if hasattr(page, "getPropertyValue"):
+                return True, page.getPropertyValue(prop)
+            if hasattr(page, prop):
+                return True, getattr(page, prop)
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return False, None
+        return False, None
+
+    def _write_page_prop(self, page: Any, prop: str, value: Any) -> None:
+        # Assigning Layout instantiates placeholders (apply_slide_layout).
+        # The slide's real placeholders already moved with the shapes; drop
+        # only the ones this write just inserted.
+        before = self._snapshot_shapes(page) if prop == "Layout" else None
+        if hasattr(page, "setPropertyValue"):
+            page.setPropertyValue(prop, value)
+        else:
+            setattr(page, prop, value)
+        if before is not None:
+            self._drop_shapes_added_by_prop(page, before)
+
+    def _drop_shapes_added_by_prop(self, page: Any, before: list[Any]) -> None:
+        from plugin.framework.uno_context import uno_same
+
+        guard = 0
         try:
             count = int(page.getCount())
         except Exception as exc:
             if is_disposed_exception(exc):
                 raise
             return
-        for index in range(count - 1, -1, -1):
-            shape = page.getByIndex(index)
-            page.remove(shape)
-
-    def _replace_page_contents(self, dest: Any, source: Any) -> None:
-        """Replace *dest* shapes and page props with a copy of *source*."""
-        self._clear_page_shapes(dest)
-        self._copy_page_for_move(source, dest)
-
-    def _exchange_page_contents(self, first: Any, second: Any) -> None:
-        """Swap two pages' copied contents.
-
-        insertNewByIndex cannot place a page at index 0, so a move to the
-        front copies onto index 1 and exchanges that page with page 0.
-        """
-        pages = self.get_pages()
-        temp = pages.insertNewByIndex(pages.getCount() - 1)
-        try:
-            self._copy_page_for_move(first, temp)
-            self._replace_page_contents(first, second)
-            self._replace_page_contents(second, temp)
-        except Exception:
-            # first may already have been cleared. Put its copy back before
-            # dropping the temporary page.
+        while count > len(before) and guard < count + 5:
+            guard += 1
+            removed = False
+            for index in range(count - 1, -1, -1):
+                shape = page.getByIndex(index)
+                if any(uno_same(shape, old) for old in before):
+                    continue
+                try:
+                    page.remove(shape)
+                except Exception as exc:
+                    if is_disposed_exception(exc):
+                        raise
+                    return
+                removed = True
+                break
+            if not removed:
+                return
             try:
-                if int(first.getCount()) == 0 and int(temp.getCount()) > 0:
-                    self._copy_page_for_move(temp, first)
-            except Exception:
-                log.debug("move_slide restore first page failed", exc_info=True)
+                count = int(page.getCount())
+            except Exception as exc:
+                if is_disposed_exception(exc):
+                    raise
+                return
+
+    def _swap_notes(self, first: Any, second: Any) -> None:
+        text_first = self._notes_text(first)
+        text_second = self._notes_text(second)
+        if text_first is None or text_second is None or text_first == text_second:
+            return
+        self._set_notes_text(first, text_second)
+        try:
+            self._set_notes_text(second, text_first)
+        except Exception:
+            try:
+                self._set_notes_text(first, text_first)
+            except Exception as restore_exc:
+                if is_disposed_exception(restore_exc):
+                    raise
+                log.debug("move_slide restore notes failed", exc_info=True)
             raise
-        finally:
-            self._remove_page_quietly(pages, temp)
+
+    def _notes_text(self, page: Any) -> str | None:
+        try:
+            notes = page.getNotesPage()
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return None
+        shape = find_notes_shape(notes)
+        if shape is None:
+            return None
+        try:
+            return str(shape.getString() or "")
+        except Exception as exc:
+            if is_disposed_exception(exc):
+                raise
+            return None
+
+    def _set_notes_text(self, page: Any, text: str) -> None:
+        shape = find_notes_shape(page.getNotesPage())
+        if shape is None:
+            raise RuntimeError("move_slide notes shape missing")
+        shape.setString(text)
 
     def _remove_page_quietly(self, pages: Any, page: Any) -> None:
         try:
@@ -340,91 +612,6 @@ class DrawBridge:
             if is_disposed_exception(exc):
                 raise
             log.debug("move_slide rollback remove failed: %s", exc)
-
-    def _copy_page_for_move(self, source: Any, dest: Any) -> None:
-        """Copy name, layout, master, shapes, and speaker notes onto *dest*."""
-        self._copy_page_props_for_move(source, dest)
-        count = 0
-        try:
-            count = int(source.getCount())
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            count = 0
-        for i in range(count):
-            src_shape = source.getByIndex(i)
-            self._copy_shape_for_move(dest, src_shape)
-        self._copy_notes_for_move(source, dest)
-        self._take_page_name(source, dest)
-
-    def _copy_page_props_for_move(self, source: Any, dest: Any) -> None:
-        # Background is an SfxItem from the source pool; copying it aborts
-        # soffice the same way a blind master-style copy does. Layout and
-        # MasterPage are references the destination document already owns.
-        for prop in ("Layout", "MasterPage"):
-            try:
-                if hasattr(source, "getPropertyValue"):
-                    value = source.getPropertyValue(prop)
-                    dest.setPropertyValue(prop, value)
-                else:
-                    setattr(dest, prop, getattr(source, prop))
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    raise
-                log.debug("move_slide skip page prop %s", prop)
-
-    def _copy_shape_for_move(self, dest_page: Any, src_shape: Any) -> None:
-        try:
-            shape_type = src_shape.getShapeType()
-        except Exception:
-            shape_type = getattr(src_shape, "ShapeType", "")
-        if not shape_type:
-            return
-        clone = self.doc.createInstance(shape_type)
-        if clone is None:
-            raise RuntimeError("Could not copy shape %s" % shape_type)
-        dest_page.add(clone)
-        try:
-            clone.setPosition(src_shape.getPosition())
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-        try:
-            clone.setSize(src_shape.getSize())
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-        for prop in ("Name", "FillStyle", "FillColor", "LineStyle", "LineColor", "LineWidth", "String"):
-            try:
-                if hasattr(src_shape, "getPropertyValue"):
-                    clone.setPropertyValue(prop, src_shape.getPropertyValue(prop))
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    raise
-        try:
-            if hasattr(src_shape, "getString") and hasattr(clone, "setString"):
-                clone.setString(src_shape.getString())
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-
-    def _copy_notes_for_move(self, source: Any, dest: Any) -> None:
-        try:
-            src_notes = source.getNotesPage()
-            dest_notes = dest.getNotesPage()
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            return
-        src_shape = find_notes_shape(src_notes)
-        dest_shape = find_notes_shape(dest_notes)
-        if src_shape is None or dest_shape is None:
-            return
-        try:
-            dest_shape.setString(src_shape.getString())
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
 
     def _take_page_name(self, source: Any, dest: Any) -> None:
         try:
