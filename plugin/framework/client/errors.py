@@ -137,7 +137,15 @@ def format_error_for_display(e: Any) -> str:
         msg = e.get("message") or e.get("code") or str(e)
         return _("Error: {0}").format(msg)
     payload = format_error_payload(e)
-    return _("Error: {0}").format(payload.get("message", format_error_message(e)))
+    # What was wrong: payload.get("message", format_error_message(e)) evaluates
+    # the default before .get runs. format_error_message's deal.pre requires
+    # an Exception, so a string raised PreContractError even when the payload
+    # already had a message. Why: call the mapper only when the key is absent.
+    if "message" in payload:
+        message = payload["message"]
+    else:
+        message = format_error_message(e)
+    return _("Error: {0}").format(message)
 
 
 def is_audio_unsupported_error(e: Any) -> bool:

@@ -779,7 +779,7 @@ class ToolRegistry:
             **kwargs:  Tool arguments.
 
         Returns:
-            dict: Result from the tool execution (typically a ToolResult).
+            dict: Result from the tool execution (status ``ok`` or ``error``).
         """
         # crosshair: off
         try:
