@@ -112,36 +112,50 @@ def run_trusted_viz(
     if name not in HELPER_NAMES:
         raise ToolExecutionError(f"Unknown helper {name!r}", code="VIZ_ERROR")
 
-    if not is_calc(doc) and not is_writer(doc):
-        raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code="VIZ_ERROR")
-
     dr = str(data_range).strip() if data_range else None
-    if not dr and data is None:
-        raise ToolExecutionError("Provide data_range or data", code="VIZ_ERROR")
 
-    tool_ctx = calc_tool_context(uno_ctx, doc)
-    py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
-    if err:
-        raise ToolExecutionError(err, code="VIZ_ERROR")
-    if py_data is None:
-        raise ToolExecutionError("No data to plot", code="VIZ_ERROR")
+    def _read_sheet() -> tuple[Any, dict[str, Any]]:
+        # UNO only. forecast auto-plot calls this off the UI thread.
+        if not is_calc(doc) and not is_writer(doc):
+            raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code="VIZ_ERROR")
+        if not dr and data is None:
+            raise ToolExecutionError("Provide data_range or data", code="VIZ_ERROR")
+        tool_ctx = calc_tool_context(uno_ctx, doc)
+        py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
+        if err:
+            raise ToolExecutionError(err, code="VIZ_ERROR")
+        if py_data is None:
+            raise ToolExecutionError("No data to plot", code="VIZ_ERROR")
+        context: dict[str, Any] = {}
+        if is_calc(doc):
+            try:
+                from plugin.calc.bridge import CalcBridge
+
+                context["sheet_name"] = CalcBridge(doc).get_active_sheet().getName()
+            except Exception:
+                pass
+        if task_hint:
+            context["task_hint"] = str(task_hint)
+        if dr:
+            context["range_a1"] = dr
+        return py_data, context
+
+    # What was wrong: forecast auto-plot ran this whole helper on the UI thread,
+    # so matplotlib IPC froze Calc.
+    # How: ForecastDataTool wrapped run_auto_plot_after_forecast in
+    # execute_on_main_thread, and this function did the sheet read and client_run_viz together.
+    # Why: hop only the UNO read; client_run_viz stays on the caller (the worker).
+    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.thread_guard import on_main_thread
+
+    if on_main_thread():
+        py_data, context = _read_sheet()
+    else:
+        py_data, context = execute_on_main_thread(_read_sheet)
 
     spec: dict[str, Any] = {"helper": name, "headers": bool(headers)}
     if isinstance(params, dict) and params:
         spec["params"] = params
-
-    context: dict[str, Any] = {}
-    if is_calc(doc):
-        try:
-            from plugin.calc.bridge import CalcBridge
-
-            context["sheet_name"] = CalcBridge(doc).get_active_sheet().getName()
-        except Exception:
-            pass
-    if task_hint:
-        context["task_hint"] = str(task_hint)
-    if dr:
-        context["range_a1"] = dr
 
     return client_run_viz(uno_ctx, spec, py_data, context=context or None)
 
