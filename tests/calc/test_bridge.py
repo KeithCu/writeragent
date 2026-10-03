@@ -86,6 +86,33 @@ def test_get_sheet_error_lists_available_sheets():
         assert "Available: Summary, Sources, Data" in str(e)
 
 
+def test_resolve_range_or_address_unqualified_name_prefers_sheet_local():
+    """A bare name defined in both scopes returns the active sheet's cells.
+
+    Calc shadows a workbook name with the same sheet-local name. Checking
+    doc.NamedRanges first returned the global referred cells.
+    """
+    doc = MagicMock()
+    global_cells = object()
+    local_cells = object()
+
+    global_named = MagicMock()
+    global_named.getReferredCells.return_value = global_cells
+    doc.NamedRanges.hasByName.side_effect = lambda name: name == "Total"
+    doc.NamedRanges.getByName.return_value = global_named
+
+    active = _sheet("Sheet1")
+    local_named = MagicMock()
+    local_named.getReferredCells.return_value = local_cells
+    active.NamedRanges.hasByName.side_effect = lambda name: name == "Total"
+    active.NamedRanges.getByName.return_value = local_named
+    doc.getCurrentController.return_value.getActiveSheet.return_value = active
+
+    bridge = CalcBridge(doc)
+    assert bridge.resolve_range_or_address("Total") is local_cells
+    doc.NamedRanges.getByName.assert_not_called()
+
+
 def test_get_sheet_error_omits_leading_underscore_sheets():
     from plugin.calc.bridge import is_agent_visible_sheet
 
