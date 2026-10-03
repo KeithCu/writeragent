@@ -337,12 +337,11 @@ def test_thread_violation_from_add_mouse_listener_is_not_a_silent_install():
 
 
 def test_thread_violation_from_add_mouse_click_handler_is_not_a_silent_install():
-    controller = _Controller()
+    class _Boom(_Controller):
+        def addMouseClickHandler(self, handler: object) -> None:
+            raise _thread_violation("addMouseClickHandler")
 
-    def _boom(handler: object) -> None:
-        raise _thread_violation("addMouseClickHandler")
-
-    controller.addMouseClickHandler = _boom  # type: ignore[method-assign]
+    controller = _Boom()
     session = FrameSession(_frame(controller), "doc-a")
     query = MagicMock()
     with pytest.raises(RuntimeError, match="UNO thread violation"):
@@ -389,6 +388,7 @@ def test_close_listener_import_failure_is_not_tracked():
     with patch.dict(sys.modules, {"unohelper": None}):
         session = open_frame_session(frame, "doc-a")
     frame.addEventListener.assert_not_called()
+    assert session.frame is frame
     assert session_for_frame(frame) is None
 
 
