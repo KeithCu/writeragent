@@ -922,8 +922,9 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                 # What was wrong: a disposed desktop enumeration broke the
                 # loop and the caller was told the document was not open.
                 # How: this except swallowed DisposedException before the
-                # outer handler could re-raise it. Why: one dead window
-                # still continues below; disposal of the enumeration does not.
+                # outer handler could re-raise it. Why: disposal of the
+                # enumeration is re-raised. A fetched element that then
+                # raises is skipped below; a failed nextElement stops.
                 _reraise_document_disposed(e, "Desktop")
                 break
             if more is not True and more != 1:
