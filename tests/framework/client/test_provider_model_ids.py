@@ -105,10 +105,17 @@ def test_is_openwebui_endpoint_matches_host_not_path():
 
 
 def test_malformed_port_is_config_error_not_value_error():
-    """``:1a34`` and an out-of-range port must not escape as ValueError."""
+    """``:1a34``, an out-of-range port, and an unmatched bracket must not escape as ValueError."""
     from plugin.framework.errors import ConfigError
 
-    for url in ("http://localhost:1a34", "http://localhost:99999/v1", "http://[::1]:70000"):
+    for url in (
+        "http://localhost:1a34",
+        "http://localhost:99999/v1",
+        "http://[::1]:70000",
+        "http://[::1",
+        "http://[::1]extra",
+        "http://[]/v1",
+    ):
         with pytest.raises(ConfigError) as raised:
             get_provider_from_endpoint(url)
         assert raised.value.code == "CONFIG_INVALID_URL"

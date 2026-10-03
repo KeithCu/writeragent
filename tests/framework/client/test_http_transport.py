@@ -26,6 +26,46 @@ def test_endpoint_parts_bad_port_is_network_error():
         assert not isinstance(raised.value, ValueError)
 
 
+def test_endpoint_parts_malformed_bracket_url_is_network_error():
+    """``current_host`` / ``_endpoint_parts`` must not leak ``ValueError``.
+
+    What was wrong: ``urlparse`` raises before ``_explicit_port`` for an
+    unmatched bracket, so ``LlmHttpTransport.current_host`` escaped.
+    """
+    for url in ("http://[::1", "http://[::1]extra", "http://[]/v1"):
+        transport = LlmHttpTransport(lambda url=url: url, lambda: 5)
+        with pytest.raises(NetworkError) as raised:
+            transport._endpoint_parts()
+        assert raised.value.code == "INVALID_URL"
+        assert not isinstance(raised.value, ValueError)
+        with pytest.raises(NetworkError) as raised_host:
+            transport.current_host()
+        assert raised_host.value.code == "INVALID_URL"
+        assert not isinstance(raised_host.value, ValueError)
+
+
+def test_exchange_malformed_bracket_redirect_is_network_error():
+    """``Location: http://[::1`` is ``NetworkError``, not a raw ``ValueError``.
+
+    What was wrong: ``urljoin`` raises ``ValueError`` for that Location
+    before ``_explicit_port``, so it skipped ``exchange``'s NetworkError catch.
+    """
+    transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
+
+    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+        response = MagicMock()
+        response.status = 302
+        response.reason = "Found"
+        response.read.return_value = b""
+        response.getheader.side_effect = lambda name, default=None: "http://[::1" if str(name).lower() == "location" else default
+        return response
+
+    with pytest.raises(NetworkError) as raised:
+        transport.exchange("GET", "/start", None, {}, sender=sender, parse_json=False)
+    assert raised.value.code == "INVALID_URL"
+    assert not isinstance(raised.value, ValueError)
+
+
 def test_exchange_stops_after_bounded_redirects():
     transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
     calls = {"n": 0}

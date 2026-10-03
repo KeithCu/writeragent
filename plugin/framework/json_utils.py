@@ -153,8 +153,12 @@ _LATEX_CLASH_WORDS = [
 # never saw a control character (the source still had backslash + letter).
 # A two-letter escape word followed by "." + a letter is not the command:
 # `\ne.g.` / `\ni.e.` / `\nu.s.` are a newline plus an abbreviation.
+# What was wrong with `\b`: `_` and digits are word characters, so
+# `\alpha_1` and `\times2` never matched. json.loads (or literal_eval for
+# `\a`) then kept the control character and dropped the backslash.
+# A letter lookahead still rejects `\alphax`.
 _JSON_ESCAPE_STARTS = frozenset("bfnrt")
-_LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")\b")
+_LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")(?![A-Za-z])")
 
 
 def _double_latex_clash(match: re.Match[str]) -> str:
