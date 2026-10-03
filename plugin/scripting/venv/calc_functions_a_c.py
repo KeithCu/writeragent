@@ -100,10 +100,23 @@ __all__ = [
 
 
 def _coup_days_in_period(frequency: Any, basis: Any) -> float:
-    f = int(float(frequency))
-    b = int(float(basis))
+    # int(float(inf)) and int(float(1e309)) raise OverflowError. That used to
+    # run before the f<=0 guard, so a non-finite frequency never reached it.
+    # Callers catch Exception, but the guard has to stay reachable.
+    try:
+        freq = float(frequency)
+    except (TypeError, ValueError, OverflowError):
+        return float("nan")
+    if not math.isfinite(freq) or freq <= 0:
+        return float("nan")
+    try:
+        f = int(freq)
+        b = int(float(basis))
+    except (TypeError, ValueError, OverflowError):
+        return float("nan")
     # Zero used to divide by zero. A negative frequency made days_in_period
     # negative, so _get_coupon_dates walked prev_ord upward and never returned.
+    # Truncation (frequency 0.4) is still non-positive after int().
     if f <= 0:
         return float("nan")
     if b in (0, 2, 4):
@@ -203,18 +216,31 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
     return matching_vals
 
 
+def _complex_coeff(n: float) -> str:
+    """Integer-valued floats must not stringify with a trailing '.0'.
+
+    str(5.0) is '5.0'. COMPLEX prints whole coefficients as integers
+    (COMPLEX(5, 0, 'i') is '5+0i').
+    """
+    if math.isfinite(n) and n.is_integer():
+        return str(int(n))
+    return str(n)
+
+
 def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
     """Convert Python complex to Calc string."""
     if not isinstance(c, builtins.complex):
         return str(c)
     real = c.real
     imag = c.imag
+    # imag == 0 used to return str(real) and drop the imaginary term, so
+    # COMPLEX(5, 0, "i") was "5.0". Keep a zero imaginary part as "+0".
     if imag == 0:
-        return str(real)
+        return _complex_coeff(real) + "+0" + suffix
 
     res = ""
     if real != 0:
-        res += str(real)
+        res += _complex_coeff(real)
         if imag > 0:
             res += "+"
 
@@ -223,7 +249,7 @@ def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
     elif imag == -1:
         res += "-" + suffix
     else:
-        res += str(imag) + suffix
+        res += _complex_coeff(imag) + suffix
     return res
 
 
@@ -309,6 +335,10 @@ def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = N
         abs_n = int(float(abs_num))
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
+    # Excel ADDRESS rejects a row or column below 1 with #VALUE!. int() of 0
+    # or a negative used to build "$A$0" or an empty column letter.
+    if r < 1 or c < 1:
+        return "#VALUE!"
     is_a1 = bool(a1)
 
     if is_a1:
@@ -381,13 +411,17 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
         if fn == 5:
             return float(np.nanmin(arr))
         if fn == 6:
-            return float(np.prod(arr))
+            # np.prod([]) is 1.0. After an ignore-errors option strips every
+            # value, PRODUCT of nothing is not 1. Same empty guard as AVERAGE.
+            return float(np.prod(arr)) if arr.size else float("nan")
         if fn == 7:
             return float(np.std(arr, ddof=1))
         if fn == 8:
             return float(np.std(arr, ddof=0))
         if fn == 9:
-            return float(np.sum(arr))
+            # np.sum([]) is 0.0. A strip that leaves no numbers must not look
+            # like a real sum of zero.
+            return float(np.sum(arr)) if arr.size else float("nan")
         if fn == 10:
             return float(np.var(arr, ddof=1))
         if fn == 11:
@@ -486,6 +520,10 @@ def avedev(*args: Any) -> float:
 
 
 def averagea(*args: Any) -> float:
+    # Blank, None, and whitespace stay in the denominator as 0, same as text.
+    # Calc AVERAGEA(10,"",20) is 10. Skipping those values made this 15 and
+    # failed the spreadsheet-import translate test. _collect_a_values maps
+    # missing cells through _to_float_a, which returns 0 for them.
     vals = _collect_a_values(*args)
     if not vals.size:
         return float("nan")
@@ -725,7 +763,9 @@ def clean(text: Any) -> str | float:
         if isinstance(text, float) and math.isnan(text):
             return float("nan")
         s = str(text)
-        return "".join(c for c in s if ord(c) >= 32)
+        # Excel CLEAN removes C0 controls (ord < 32) and DEL (U+007F). The
+        # ord < 32 filter left chr(127) in the result.
+        return "".join(c for c in s if ord(c) >= 32 and ord(c) != 127)
     except (ValueError, TypeError):
         return float("nan")
 
