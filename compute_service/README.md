@@ -115,6 +115,7 @@ Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This
   { "id": "corr-1", "status": "ok" }
   ```
 - **Errors:** `400` missing/empty query `session_id` or `session_id` in the JSON body; `401` auth (same Bearer as execute); worker lease failure → `{ "id?", "status": "error", "code": "WORKER_POOL_BUSY", "error": "..." }` with HTTP `503`.
+- The supervisor drops its session map only when the worker reset returns `status: ok`. A failed reset is logged and the map stays: that process may still hold the namespace. Forgetting the id would make the next sticky cell look new on a kernel that is not empty.
 - Idle TTL (`shared_kernel_ttl_sec`) remains the safety net if reset is missed. Do not remove it.
 
 ### 4. Vision & OCR Endpoint (`POST /v1/vision`)
@@ -249,7 +250,7 @@ coolwsd is the only hop that should reach this process. Bind loopback, set the s
 
 `--network=none` cannot be combined with `-p` (published ports need a network namespace). Publish to loopback on the host, or use an internal bridge **without a default route**. Tenant sockets still fail via the AST sandbox plus missing egress.
 
-`load_settings` refuses a non-loopback bind that has no API key, so `python compute_service/server.py --host 0.0.0.0` fails the same way as the image. `./compute_service/start-docker.sh` still requires `PYTHON_COMPUTE_API_KEY` or `PYTHON_COMPUTE_API_KEY_FILE` before it publishes a port. Loopback with no key remains allowed.
+`load_settings` refuses a non-loopback bind that has no API key, so `python compute_service/server.py --host 0.0.0.0` fails the same way as the image. `./compute_service/start-docker.sh` still requires `PYTHON_COMPUTE_API_KEY` or `PYTHON_COMPUTE_API_KEY_FILE` before it publishes a port. When the file variable is set, the script mounts that host file read-only at `/run/secrets/python_compute_api_key` and sets the container's `PYTHON_COMPUTE_API_KEY_FILE` to that path. Loopback with no key remains allowed.
 
 ```bash
 PYTHON_COMPUTE_API_KEY=same-secret-as-coolwsd ./compute_service/start-docker.sh

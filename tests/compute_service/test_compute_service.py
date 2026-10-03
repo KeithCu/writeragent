@@ -1480,6 +1480,115 @@ def test_start_docker_keeps_api_key_as_one_argument(tmp_path) -> None:
     assert f"PYTHON_COMPUTE_API_KEY={key}" in lines
 
 
+def test_start_docker_mounts_api_key_file_read_only(tmp_path) -> None:
+    """The host key file is mounted; the container env points at the mount.
+
+    Forwarding PYTHON_COMPUTE_API_KEY_FILE without -v made the process look
+    for the host path inside the image and exit 2. Spaces and glob characters
+    in the key and the path must stay one docker argument each.
+    """
+    import subprocess
+    from pathlib import Path
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    marker = tmp_path / "args"
+    fake = bindir / "docker"
+    fake.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$DOCKER_ARGS\"\nexit 0\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    key_file = tmp_path / "sec ret *" / "api key"
+    key_file.parent.mkdir()
+    key_file.write_text("from-file\n", encoding="utf-8")
+    script = Path(__file__).resolve().parents[2] / "compute_service" / "start-docker.sh"
+    key = "sec ret *"
+    env = {
+        "PATH": f"{bindir}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "DOCKER_ARGS": str(marker),
+        "PYTHON_COMPUTE_API_KEY": key,
+        "PYTHON_COMPUTE_API_KEY_FILE": str(key_file),
+        "PYTHON_COMPUTE_IMAGE": "python-compute",
+    }
+    proc = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+    lines = marker.read_text(encoding="utf-8").splitlines()
+    mount = f"{key_file}:/run/secrets/python_compute_api_key:ro"
+    assert mount in lines
+    assert "PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key" in lines
+    assert f"PYTHON_COMPUTE_API_KEY_FILE={key_file}" not in lines
+    assert f"PYTHON_COMPUTE_API_KEY={key}" in lines
+
+
+def _runner_stage_copies(dockerfile_text: str) -> list[tuple[str, str]]:
+    """``COPY src dest`` pairs from the runner stage, skipping ``--from``."""
+    stage = ""
+    pairs: list[tuple[str, str]] = []
+    for raw in dockerfile_text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.upper().startswith("FROM "):
+            parts = line.split()
+            stage = parts[-1] if len(parts) >= 4 and parts[-2].upper() == "AS" else ""
+            continue
+        if stage != "runner" or not line.startswith("COPY ") or "--from=" in line:
+            continue
+        parts = line.split()
+        if len(parts) != 3:
+            raise AssertionError(f"unexpected COPY form: {line}")
+        pairs.append((parts[1], parts[2]))
+    return pairs
+
+
+def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
+    """The runner COPY set must import worker_base without the rest of plugin/.
+
+    The image copied only framework __init__, constants, and deal_shim.
+    worker_base imports worker_pool at load, and that import failed, so the
+    container never started. This materializes the Dockerfile COPY lines; it
+    does not need a Docker daemon. queue_executor, uno_context, and logging
+    are not part of that load-time closure.
+    """
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    dockerfile = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
+    pairs = _runner_stage_copies(dockerfile)
+    app = tmp_path / "app"
+    for src, dest in pairs:
+        assert dest.startswith("/app/"), dest
+        source = repo / src
+        target = app / dest[len("/app/") :]
+        assert source.exists(), src
+        if source.is_dir():
+            shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+
+    framework = app / "plugin" / "framework"
+    for name in ("worker_pool.py", "errors.py", "i18n.py", "json_utils.py", "thread_guard.py", "constants.py", "deal_shim.py"):
+        assert (framework / name).is_file(), name
+    for name in ("queue_executor.py", "uno_context.py", "logging.py"):
+        assert not (framework / name).exists(), name
+
+    proc = subprocess.run(
+        [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base"],
+        cwd=app,
+        env={"PYTHONPATH": str(app), "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
 def test_run_worker_stdio_loop_handles_non_dict_return(monkeypatch) -> None:
     """When a worker handler returns non-dict, run_worker_stdio_loop formats an error dict."""
     from compute_service.worker_base import read_pickle_frame, run_worker_stdio_loop, write_pickle_frame

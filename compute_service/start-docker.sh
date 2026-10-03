@@ -42,7 +42,15 @@ if [[ -n "${PYTHON_COMPUTE_API_KEY:-}" ]]; then
   docker_args+=(-e "PYTHON_COMPUTE_API_KEY=${PYTHON_COMPUTE_API_KEY}")
 fi
 if [[ -n "${PYTHON_COMPUTE_API_KEY_FILE:-}" ]]; then
-  docker_args+=(-e "PYTHON_COMPUTE_API_KEY_FILE=${PYTHON_COMPUTE_API_KEY_FILE}")
+  # The file is on the host. Passing only the path made the container look
+  # for that host path inside the image and exit 2. Mount it read-only and
+  # point the in-container variable at the mount.
+  docker_args+=(
+    -v
+    "${PYTHON_COMPUTE_API_KEY_FILE}:/run/secrets/python_compute_api_key:ro"
+    -e
+    PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key
+  )
 fi
 docker_args+=("$IMAGE")
 exec "${docker_args[@]}"
