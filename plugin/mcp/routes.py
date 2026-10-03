@@ -61,7 +61,7 @@ class HttpRouteRegistry:
         # /health and /mcp only dict.get / len, so they did not hit it.
         # Why: one lock covers mutation and the snapshot. Handlers run outside
         # the lock; shutdown() does not wait for ThreadingMixIn request threads.
-        self._lock = threading.Lock()
+        self._lock: threading.Lock = threading.Lock()
 
     def add(self, method: str, path: str, handler: Callable[..., Any], raw: bool = False, main_thread: bool = False) -> None:
         """Register a route handler.

@@ -541,7 +541,13 @@ def test_build_mcp_config_snippet_with_custom_and_local_url():
     assert tunnel_data["mcpServers"]["libreoffice"]["url"] == "https://abc.trycloudflare.com/mcp"
 
 
+@patch("plugin.mcp._shared_tunnel", None)
 def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
+    """Per-provider cache applies when no shared tunnel is tracking that provider.
+
+    A stopped cloudflare TunnelManager (left up by the live MCP fixture) must
+    not satisfy this. That manager drops the cached URL.
+    """
     import json
     from unittest.mock import MagicMock
     from plugin.mcp.mcp_ui import (

@@ -48,6 +48,7 @@ def mcp_server():
             http_mod._primary_http_module = None
             http_mod._shared_registry = None
             http_mod._shared_http_server = None
+            http_mod._shared_tunnel = None
 
     _reset_globals()
 
