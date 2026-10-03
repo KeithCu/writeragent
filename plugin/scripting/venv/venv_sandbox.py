@@ -17,6 +17,7 @@ harness / ``trusted_action_registry`` — not string stubs through this sandbox.
 from __future__ import annotations
 
 import ast
+import copy
 import datetime
 import decimal
 import fractions
@@ -609,10 +610,16 @@ def _get_or_create_session_executor(session_id: str, timeout_sec: int) -> LocalP
 
 
 def _related_init_session_id(session_id: str) -> str | None:
-    """Return ``calc:…:init`` companion for a ``calc:…`` workbook session, if applicable."""
-    if session_id.startswith("calc:") and not session_id.endswith(":init"):
-        return f"{session_id}:init"
-    return None
+    """Return the ``{id}:init`` companion for a cell session.
+
+    Desktop workbooks use ``calc:…``. The compute service uses the raw Online
+    session id. Both store the init executor at ``{id}:init``. Reset used to
+    drop that companion only for ``calc:`` ids, so an Online reset left the
+    pre-reset snapshot and the next cell seeded from it.
+    """
+    if session_id.endswith(":init"):
+        return None
+    return f"{session_id}:init"
 
 
 def _cell_session_for_init(init_session_id: str) -> str | None:
@@ -635,7 +642,7 @@ def _clear_init_session_unlocked(init_session_id: str) -> None:
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
     """Drop the persistent executor for *session_id* (idempotent).
 
-    Also clears the workbook's ``:init`` session when resetting a ``calc:…`` cell session.
+    Also clears the ``{id}:init`` companion when *session_id* is a cell id.
     """
     if not (session_id or "").strip():
         return {"status": "error", "message": "No session_id provided."}
@@ -683,8 +690,26 @@ def _snapshot_init_custom_tools(init_session_id: str) -> dict[str, Any]:
     return dict(executor.custom_tools)
 
 
-def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str) -> None:
+def _copy_isolated_seed_value(value: Any) -> Any:
+    """Copy one init binding so an isolated cell cannot edit the snapshot.
+
+    Seeding used to pass the init executor's objects through. ``items.append``
+    in one isolated cell changed what every later isolated cell on that worker
+    saw. Functions and modules stay shared; deepcopy rejects them. Shared-kernel
+    seeding does not use this — that workbook is one namespace.
+    """
+    if callable(value) or isinstance(value, types.ModuleType):
+        return value
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        return value
+
+
+def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str, *, copy_values: bool = False) -> None:
     bindings = _snapshot_init_bindings(init_session_id)
+    if copy_values and bindings:
+        bindings = {key: _copy_isolated_seed_value(value) for key, value in bindings.items()}
     if bindings:
         executor.send_variables(bindings)
     custom_tools = _snapshot_init_custom_tools(init_session_id)
@@ -987,8 +1012,8 @@ def run_sandboxed_code(
     executor per id (shared kernel / workbook session).
 
     When *init_script* is set, it runs once in *init_session_id* (typically ``calc:…:init``).
-    Isolated cell runs seed a fresh executor from that snapshot; shared kernel seeds the
-    workbook session executor once, then reuses it for cell code.
+    Isolated cell runs seed a fresh executor from a copy of that snapshot; shared kernel
+    seeds the workbook session executor once, then reuses it for cell code.
     """
     if timeout_sec is None:
         timeout_sec = python_exec_timeout_default()
@@ -1020,7 +1045,7 @@ def run_sandboxed_code(
         else:
             executor = _new_executor(timeout_sec)
             if init_sid:
-                _seed_executor_from_init(executor, init_sid)
+                _seed_executor_from_init(executor, init_sid, copy_values=True)
 
         left = _seconds_left(deadline)
         if left is None:

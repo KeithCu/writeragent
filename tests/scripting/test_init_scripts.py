@@ -181,6 +181,37 @@ def test_init_visible_in_shared_kernel():
     assert r["result"] == 15
 
 
+def test_isolated_init_mutation_does_not_leak():
+    """A cell that mutates an init list must not change the next isolated cell."""
+    init_sid = "calc:wb-iso-mut:init"
+    init_code = "items = []"
+    h = init_script_hash(init_code)
+    kwargs = {"session_id": None, "init_script": init_code, "init_session_id": init_sid, "init_script_hash": h}
+    first = run_sandboxed_code("items.append(1)\nresult = len(items)", **kwargs)
+    assert first["status"] == "ok", first.get("message")
+    assert first["result"] == 1
+    second = run_sandboxed_code("items.append(1)\nresult = len(items)", **kwargs)
+    assert second["status"] == "ok", second.get("message")
+    assert second["result"] == 1
+
+
+def test_reset_non_calc_session_drops_init_companion():
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    init_sid = "online-wb:init"
+    run_sandboxed_code(
+        "result = MAGIC",
+        session_id="online-wb",
+        init_script="MAGIC = 1",
+        init_session_id=init_sid,
+        init_script_hash="h",
+    )
+    assert init_sid in vs._SESSION_EXECUTORS
+    assert reset_sandbox_session("online-wb")["status"] == "ok"
+    assert init_sid not in vs._SESSION_EXECUTORS
+    assert "online-wb" not in vs._SESSION_EXECUTORS
+
+
 def test_isolated_cells_do_not_share_cell_assignments():
     init_sid = "calc:wb-iso-vars:init"
     init_code = "BASE = 0"

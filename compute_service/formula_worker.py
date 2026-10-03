@@ -17,6 +17,13 @@ import os
 import sys
 from typing import Any
 
+# Before any plugin import. writeragent_api treats a missing
+# WRITERAGENT_IS_WORKER as the LibreOffice host and calls execute_tool
+# → get_ctx(). This process has no office and no tool-call pipe.
+# WRITERAGENT_COMPUTE_WORKER makes that call fail before either path.
+os.environ["WRITERAGENT_IS_WORKER"] = "1"
+os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
+
 # Ensure repo root is on sys.path
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
@@ -60,11 +67,6 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
 
             res = reset_sandbox_session(session_id)
-            # reset_sandbox_session only drops the init companion for calc: ids.
-            # Online session ids are not calc:…, so {session}:init stayed and
-            # the next cell re-seeded from the pre-reset snapshot. Do not
-            # change the calc: helper; clear the companion from this worker.
-            reset_sandbox_session(f"{session_id}:init")
             # Sandbox reset does not touch the executor lock map in this process.
             release_session_lock(session_id)
             if req_id is not None and isinstance(res, dict):

@@ -941,6 +941,48 @@ class TestSessionResetHttp:
         assert status.startswith("503")
         assert body.get("code") == "WORKER_POOL_BUSY"
 
+    def test_execute_worker_death_is_503(self) -> None:
+        def dead(**_kwargs):
+            return {"status": "error", "code": "WORKER_CRASHED", "error": "died"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=dead)
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-dead", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("503")
+        assert body.get("code") == "WORKER_CRASHED"
+
+    def test_execute_timeout_stays_200(self) -> None:
+        def timed_out(**_kwargs):
+            return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": "too slow"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=timed_out)
+        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("200")
+        assert body.get("code") == "EXECUTION_TIMEOUT"
+
+    def test_overflow_id_is_400(self) -> None:
+        def execute_fn(**_kwargs):
+            raise AssertionError("non-finite id must not run")
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        status, _headers, body = _wsgi_post(app, b'{"id":1e9999,"code":"result = 1"}', path="/v1/execute")
+        assert status.startswith("400")
+        assert body.get("error") == "Invalid JSON"
+
+    def test_vision_overflow_timeout_is_json(self) -> None:
+        from compute_service.vision_pool import shutdown_vision_pool
+
+        app = create_wsgi_app(ComputeSettings())
+        try:
+            status, _headers, body = _wsgi_post(
+                app,
+                b'{"image_b64":"abcd","timeout_ms":1e9999}',
+                path="/v1/vision",
+            )
+            assert status.startswith("200")
+            assert body.get("code") == "VISION_SERVICE_DISABLED"
+        finally:
+            shutdown_vision_pool()
+
     def test_execute_shutdown_is_503(self) -> None:
         def down(**_kwargs):
             return {"status": "error", "code": "SERVICE_SHUTDOWN", "error": "stopping"}
@@ -1095,4 +1137,42 @@ print("ok")
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "Error: fake_pkg is not installed" in captured.err
+
+
+class TestListenerQueue:
+    def test_busy_listener_pool_queues_instead_of_503(self) -> None:
+        """A full listener queue used to answer 503 and close the socket.
+
+        Extra accepted connections wait for a thread. Operators add workers
+        when the server is slow.
+        """
+        from compute_service.server import DualStackThreadPoolHTTPServer
+
+        server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), MagicMock, max_threads=1)
+        hold = threading.Event()
+        running = threading.Event()
+
+        def _occupy() -> None:
+            running.set()
+            hold.wait(timeout=5)
+
+        try:
+            server.executor.submit(_occupy)
+            assert running.wait(timeout=2)
+            # One waiting item is the old cap (one queued request per listener).
+            server.executor.submit(_occupy)
+            deadline = time.monotonic() + 2
+            while server.executor._work_queue.qsize() < 1 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert server.executor._work_queue.qsize() >= 1
+
+            sock = MagicMock()
+            before = server.executor._work_queue.qsize()
+            server.process_request(sock, ("127.0.0.1", 9))
+            sock.sendall.assert_not_called()
+            sock.close.assert_not_called()
+            assert server.executor._work_queue.qsize() == before + 1
+        finally:
+            hold.set()
+            server.server_close()
 

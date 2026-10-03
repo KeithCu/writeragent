@@ -150,6 +150,10 @@ class TestPeelExecuteRequest:
         with pytest.raises(ExecuteRequestError):
             peel_execute_request(b'{"code":"result=1"}{"x":1}')
 
+    def test_overflow_id_is_rejected(self) -> None:
+        with pytest.raises(ExecuteRequestError, match="non-finite"):
+            peel_execute_request(b'{"id":1e9999,"code":"result = 1"}')
+
 
 GRID_BYTES = b"[[1,2,3],[4,5,6]]"
 # Compact JSON a default json.dumps (spaces after separators) would not emit.
@@ -562,7 +566,7 @@ class TestHttpBlobForward:
             raise AssertionError("NaN/Infinity meta must not run")
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
-        for meta in (b'{"timeout_ms": Infinity}', b'{"id": NaN}'):
+        for meta in (b'{"timeout_ms": Infinity}', b'{"id": NaN}', b'{"id":1e9999}', b'{"timeout_ms":1e9999}'):
             content_type, body = _manual_multipart([("meta", meta), ("code", b"result = 1")])
             status, out = _wsgi_post(app, body, content_type=content_type)
             assert status.startswith("400"), out

@@ -106,6 +106,10 @@ def extract_library_source(code: str) -> str:
 
 def _rpc_named(tool_name: str, **kwargs: Any) -> Any:
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    # Same fail-closed path as writeragent_api._rpc_call. The ImportError
+    # branch below would otherwise call exchange_tool_call with no host.
+    if os.environ.get("WRITERAGENT_COMPUTE_WORKER") == "1":
+        raise RuntimeError("WriterAgent document tools are not available in the Python compute service.")
     if os.environ.get("WRITERAGENT_IS_WORKER") == "1":
         try:
             from plugin.scripting.writeragent_api import _rpc_call

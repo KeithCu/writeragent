@@ -22,7 +22,8 @@ from compute_service.vision_pool import (
     get_vision_pool,
     shutdown_vision_pool,
 )
-from compute_service.vision_worker import _handle_request
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+from compute_service.vision_worker import _FILE_READ_MAX_BYTES, _handle_request, _read_allowed_image
 
 
 def get_free_port() -> int:
@@ -41,6 +42,21 @@ _TINY_PNG_B64 = (
 def cleanup_vision_pool():
     yield
     shutdown_vision_pool()
+
+
+def test_vision_pool_uses_compute_frame_cap() -> None:
+    pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=0))
+    assert pool.max_payload_bytes == COMPUTE_MAX_PAYLOAD_BYTES
+    pool.shutdown()
+
+
+def test_vision_file_read_is_capped(tmp_path) -> None:
+    path = tmp_path / "big.bin"
+    path.write_bytes(b"x" * (_FILE_READ_MAX_BYTES + 1))
+    data, err = _read_allowed_image(str(path), (str(tmp_path),), "ocr-big")
+    assert data is None
+    assert err is not None
+    assert err["code"] == "FILE_TOO_LARGE"
 
 
 class TestVisionPoolSupervisor:

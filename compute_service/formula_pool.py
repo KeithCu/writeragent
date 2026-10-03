@@ -257,14 +257,6 @@ class FormulaProcessPool(BaseProcessPool):
         if leased is None:
             return {"id": req_id, "status": "error", "code": busy_code, "error": busy_err}
 
-        if mode == "shared" and session_id:
-            with self._cond:
-                self._active_sessions[session_id] = leased
-                if leased not in self._worker_sessions:
-                    self._worker_sessions[leased] = set()
-                self._worker_sessions[leased].add(session_id)
-                self._session_last_activity[session_id] = time.monotonic()
-
         try:
             # The child used to get the original full timeout while this read
             # used only the time left. signal.alarm never won, so a normal
@@ -280,8 +272,19 @@ class FormulaProcessPool(BaseProcessPool):
                 return decode_worker_result(res)
             return res
         finally:
-            if mode == "shared" and session_id:
+            # Register only after the child is alive. Doing it before execute
+            # pinned every workbook to a wrapper whose process had already
+            # died while idle. execute respawned a blank kernel, recycle saw
+            # a live pid, and later cells refreshed the TTL on empty state.
+            if leased.did_respawn:
                 with self._cond:
+                    self._clear_worker_sessions_unlocked(leased)
+            if mode == "shared" and session_id and leased.is_alive():
+                with self._cond:
+                    self._active_sessions[session_id] = leased
+                    if leased not in self._worker_sessions:
+                        self._worker_sessions[leased] = set()
+                    self._worker_sessions[leased].add(session_id)
                     self._session_last_activity[session_id] = time.monotonic()
             self.release_worker(leased)
 

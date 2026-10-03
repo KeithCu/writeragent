@@ -134,7 +134,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
   }
   ```
 
-- **Request Schema (Option B: Server Filesystem Path)** — the worker reads this path as the service user; any authenticated client can open any readable file:
+- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker checks the realpath again before `open`. An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return `FILE_TOO_LARGE`:
   ```json
   {
     "id": "ocr-124",
@@ -171,7 +171,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes` | `{"status": "error", "error": "Request body too large"}` |
-| **`503 Service Unavailable`** | `/v1/execute` or `/v1/session/reset` when the pool never ran the cell (`WORKER_POOL_BUSY`, `SERVICE_SHUTDOWN`). Eval errors inside `result_json` stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
+| **`503 Service Unavailable`** | `/v1/execute` or `/v1/session/reset` when the pool never finished the cell (`WORKER_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_CRASHED`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `EMPTY_RESPONSE`). Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception or JSON encoding failure | `{"id"?: "...", "status": "error", "error": "..."}` |
 
 ---
@@ -246,12 +246,14 @@ coolwsd is the only hop that should reach this process. Bind loopback, set the s
 
 `--network=none` cannot be combined with `-p` (published ports need a network namespace). Publish to loopback on the host, or use an internal bridge **without a default route**. Tenant sockets still fail via the AST sandbox plus missing egress.
 
+`./compute_service/start-docker.sh` refuses to start unless `PYTHON_COMPUTE_API_KEY` or `PYTHON_COMPUTE_API_KEY_FILE` is set.
+
 ```bash
-./compute_service/start-docker.sh
+PYTHON_COMPUTE_API_KEY=same-secret-as-coolwsd ./compute_service/start-docker.sh
 # or:
 docker build -f compute_service/Dockerfile -t python-compute .
 docker run --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
-  --memory=512m --cpus=1 --pids-limit=256 \
+  --memory=512m --memory-swap=512m --cpus=1 --pids-limit=256 \
   --security-opt no-new-privileges --cap-drop ALL \
   -p 127.0.0.1:8000:8000 \
   -e PYTHON_COMPUTE_API_KEY=same-secret-as-coolwsd \

@@ -21,6 +21,7 @@ re-encode the JSON tree.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -492,7 +493,13 @@ def _parse_meta_object(meta_bytes: bytes) -> tuple[Any, Any, Any, bool]:
     for key in _FORBIDDEN_META_KEYS:
         if key in obj:
             raise ExecuteRequestError(f"meta part must not include a {key!r} field")
-    return obj.get("id"), obj.get("mode"), obj.get("timeout_ms"), "session_id" in obj
+    req_id = obj.get("id")
+    timeout_ms = obj.get("timeout_ms")
+    # 1e9999 survives parse_constant (that hook only sees NaN / Infinity
+    # tokens) and becomes inf. Echoing it as id crashed allow_nan=False.
+    _reject_nonfinite_number(req_id)
+    _reject_nonfinite_number(timeout_ms)
+    return req_id, obj.get("mode"), timeout_ms, "session_id" in obj
 
 
 def parse_execute_request(body: bytes, content_type: str | None) -> ExecuteRequestParts:
@@ -609,11 +616,26 @@ def _coerce_data_json_field(value_slice: bytes) -> bytes:
 # delete this whole helper block. Multipart is the long-term ingress.
 
 
+def _reject_nonfinite_number(value: Any) -> None:
+    """Reject ``inf`` from numeric overflow, not only NaN/Infinity tokens.
+
+    ``json.loads`` turns ``1e9999`` into ``inf`` without calling
+    ``parse_constant``. The HTTP 400 path then echoed that ``id`` through
+    ``allow_nan=False`` and the WSGI callable crashed.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ExecuteRequestError("non-finite JSON number")
+
+
 def _loads_small(value_slice: bytes) -> Any:
     try:
-        return json.loads(value_slice.decode("utf-8"))
+        value = json.loads(value_slice.decode("utf-8"), parse_constant=_reject_json_constant)
+    except ExecuteRequestError:
+        raise
     except Exception as exc:
         raise ExecuteRequestError("Invalid JSON value") from exc
+    _reject_nonfinite_number(value)
+    return value
 
 
 def _skip_ws(buf: bytes, i: int) -> int:

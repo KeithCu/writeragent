@@ -18,6 +18,7 @@ import time
 from typing import Any
 
 from compute_service.config import ComputeSettings
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
 from compute_service.worker_base import BaseProcessPool
 
 log = logging.getLogger("compute_service.vision")
@@ -39,7 +40,9 @@ class VisionProcessPool(BaseProcessPool):
         eff_max_tasks = cfg.ocr_max_tasks if max_tasks is None else max_tasks
         eff_idle_ttl = cfg.idle_worker_ttl_sec if idle_worker_ttl_sec is None else idle_worker_ttl_sec
 
-        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Vision worker", idle_worker_ttl_sec=eff_idle_ttl)
+        # Formula workers already pass this. The 16 MiB IPC default rejected a
+        # body the HTTP layer had accepted (32 MiB) as an uncaught ValueError.
+        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Vision worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
 
     def execute(self, helper: str, image_b64: str | bytes | None = None, file_path: str | None = None, params: dict[str, Any] | None = None, timeout_sec: int | None = None, req_id: str | None = None, allow_paths: tuple[str, ...] | list[str] | None = None) -> dict[str, Any]:
         """Execute a vision task on an available worker process.

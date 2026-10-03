@@ -2,7 +2,9 @@
 
 **Status:** Leftover-stdout cause fixed in #546 (`smolagents` `__init__` no longer imports `huggingface_hub` on worker spawn). Hunt-only IPC breadcrumbs stripped after that. Do not reopen Hub/smolagents.
 
-**Also landed:** compute spawn requires a dict with `status == "ready"` (H6); `formula_worker` writes that frame before importing the sandbox (H3); `_worker_last_active` is stamped after each spawn (H7); compute `Popen` passes `scrub_subprocess_env`. `worker_harness` still imports before its first stdin read and does not send `ready`.  
+**Also landed:** compute spawn requires a dict with `status == "ready"` (H6); `formula_worker` writes that frame before importing the sandbox (H3); `_worker_last_active` is stamped after each spawn (H7); compute `Popen` passes `scrub_subprocess_env`; handshake timeout logs a stderr snippet; a non-ready frame is spawn failure. `worker_harness` still imports before its first stdin read and does not send `ready`.
+
+The call-path section below used to describe the pre-fix child (Cython load before `ready`, no stderr on timeout, non-ready counted as success). That is historical. Do not re-implement it. Current compute child: `formula_worker.py` writes `{status: ready}` in `run_worker_stdio_loop` before the sandbox import.  
 **Severity:** Unit-test flake that can fail ~30–40 tests at once; production spawn path is the same code  
 **Do not:** raise `_SPAWN_READY_TIMEOUT_SEC`, permanently cap `PYTEST_WORKERS`, or “fix” it by skipping tests
 
@@ -124,26 +126,24 @@ FormulaProcessPool / get_formula_pool
       read_pickle_frame_with_timeout(stdout, 15s, is_alive=self.is_alive)
         POSIX: select() + stream.read(); TimeoutExpired on deadline
 
-formula_worker.py (child), today:
+formula_worker.py (child), current:
+  set WRITERAGENT_IS_WORKER and WRITERAGENT_COMPUTE_WORKER
   sys.path insert repo root
-  import execute_code, run_worker_stdio_loop, load_cython_accelerator
-  load_cython_accelerator()          # BEFORE any pickle write
+  import run_worker_stdio_loop (not the sandbox, not the Cython accelerator)
   main() → run_worker_stdio_loop
-      write_pickle_frame({status: ready, pid})   # first stdout bytes IF import stayed quiet
+      write_pickle_frame({status: ready, pid})   # before the sandbox import
       loop: read request, handler, write response
 ```
 
 Venv path is different: [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) **never sends ready**. Parent writes a request immediately; child only reads after importing `venv_sandbox` / payload_codec / alias importer. Warm timeout is `WARM_WORKER_TIMEOUT_SEC` (30s) plus grace — still fails in a full run when the child is stuck or stdout is not pickle.
 
-Handshake read does **not** pass `max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES`. If the first 4 bytes are not a length prefix (a log line, warning, progress), `_validate_frame_size` allows a huge `size` and the parent waits 15s for bytes that never come — **CPU idle**.
-
-On `TimeoutExpired`, `_spawn` logs one line and `kill()`s. It does **not** attach `_stderr_snippet()`. A `None`/non-dict ready is **not** treated as spawn failure.
+Handshake read passes `max_payload_bytes`. On `TimeoutExpired` or a frame whose `status` is not `"ready"`, `_spawn` logs a stderr snippet and `kill()`s. That path is fail-closed.
 
 ---
 
 ## When it likely landed (bisect hints)
 
-Start here; confirm with `git bisect` + a failing command (B or D), not guesswork.
+Historical. Several rows describe code that has since changed (`_worker_last_active` is stamped after spawn; handshake passes `max_payload_bytes`; `formula_worker` does not load Cython before `ready`). Do not re-apply those fixes. Confirm with `git bisect` + a failing command (B or D), not guesswork.
 
 | Commit | Why it is a suspect |
 |--------|---------------------|

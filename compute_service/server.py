@@ -36,7 +36,12 @@ log = logging.getLogger("compute_service")
 # Bound the post-accept drain. A cell may run up to max_timeout_sec (600s);
 # waiting that out would ignore SIGTERM until the kubelet SIGKILLs the pod.
 _HTTP_DRAIN_SEC = 30.0
-_POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN"})
+# Header and body read. Cleared before the worker lease so a long cell
+# does not trip it on the response write.
+_REQUEST_READ_TIMEOUT_SEC = 30.0
+# The cell never ran. A proxy can retry. Eval errors and EXECUTION_TIMEOUT
+# stay HTTP 200 so the sheet shows the error instead of #N/A.
+_POOL_UNAVAILABLE = frozenset({"WORKER_POOL_BUSY", "SERVICE_SHUTDOWN", "WORKER_CRASHED", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN", "EMPTY_RESPONSE"})
 
 ExecuteFn = Callable[..., dict[str, Any]]
 ResetFn = Callable[..., dict[str, Any]]
@@ -66,6 +71,34 @@ def check_dependencies(pool: Any = None) -> None:
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, allow_nan=False).encode("utf-8")
+
+
+def _clear_request_read_deadline(environ: dict[str, Any]) -> None:
+    """Drop the header/body socket deadline once the body is buffered.
+
+    The handler sets a read timeout so a client that accepts and then sends
+    nothing cannot pin a listener. That same timeout would abort the response
+    write after a long ``=PY()``. Direct WSGI tests have no connection.
+    """
+    conn = environ.get("compute.connection")
+    if conn is None:
+        return
+    try:
+        conn.settimeout(None)
+    except Exception:
+        pass
+
+
+def _infrastructure_status(result_payload: dict[str, Any]) -> str | None:
+    """HTTP status for a pool dict that is not a cell result, or None to keep 200."""
+    if result_payload.get("status") != "error":
+        return None
+    code = result_payload.get("code")
+    if code == "PAYLOAD_TOO_LARGE":
+        return "413 Payload Too Large"
+    if code in _POOL_UNAVAILABLE:
+        return "503 Service Unavailable"
+    return None
 
 
 def _source_text_from_part(raw: Any, *, limit: int, label: str, required: bool) -> tuple[str | None, dict[str, Any] | None]:
@@ -235,6 +268,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             if err_resp is not None:
                 return err_resp
             assert raw_body is not None
+            _clear_request_read_deadline(environ)
 
             from compute_service.json_forward import WIRE_JSON_FORWARD, ExecuteRequestError, is_multipart_content_type, parse_execute_request
 
@@ -315,14 +349,13 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                     if isinstance(raw_out, (bytes, bytearray)) and raw_out:
                         return _start_raw_json(start_response, "200 OK", bytes(raw_out))
                     # Eval errors travel inside result_json and stay HTTP 200.
-                    # These two codes mean the pool never ran the cell. Reset
-                    # already maps them to 503 so a proxy can retry without
-                    # parsing the body; execute used to return 200 for both.
-                    pool_code = result_payload.get("code")
-                    if result_payload.get("status") == "error" and pool_code in _POOL_UNAVAILABLE:
+                    # Worker-death codes mean the pool never finished the cell.
+                    # They used to stay 200, so a proxy would not retry.
+                    infra = _infrastructure_status(result_payload)
+                    if infra is not None:
                         if req_id is not None:
                             result_payload["id"] = req_id
-                        return _start_json(start_response, "503 Service Unavailable", result_payload)
+                        return _start_json(start_response, infra, result_payload)
                     if req_id is not None:
                         result_payload["id"] = req_id
 
@@ -353,6 +386,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             if err_resp is not None:
                 return err_resp
             assert req_data is not None
+            _clear_request_read_deadline(environ)
 
             req_id = req_data.get("id")
 
@@ -414,6 +448,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             if err_resp is not None:
                 return err_resp
             assert req_data is not None
+            _clear_request_read_deadline(environ)
 
             req_id = req_data.get("id")
             helper = str(req_data.get("helper") or "extract_text").strip()
@@ -437,9 +472,14 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
 
             params = req_data.get("params") or {}
             timeout_ms = req_data.get("timeout_ms")
+            # Omitted keeps the pool's ocr_timeout_sec. A present value uses
+            # the same helper as /v1/execute: bool and 1e309 used to raise
+            # OverflowError outside this handler's try (plaintext 500).
             timeout_sec_opt: int | None = None
-            if isinstance(timeout_ms, (int, float)) and timeout_ms > 0:
-                timeout_sec_opt = max(1, min(settings.max_timeout_sec, (int(timeout_ms) + 999) // 1000))
+            if timeout_ms is not None:
+                from compute_service.executor import timeout_ms_to_sec
+
+                timeout_sec_opt = timeout_ms_to_sec(timeout_ms, default_timeout_sec=settings.ocr_timeout_sec, max_timeout_sec=settings.max_timeout_sec)
 
             from compute_service.vision_pool import get_vision_pool
 
@@ -448,6 +488,10 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
                 result_payload = vision_pool.execute(helper=helper, image_b64=b64_str, file_path=path_str, params=params if isinstance(params, dict) else {}, timeout_sec=timeout_sec_opt, req_id=req_id, allow_paths=settings.ocr_allow_paths)
                 if req_id is not None and isinstance(result_payload, dict):
                     result_payload["id"] = req_id
+                if isinstance(result_payload, dict):
+                    infra = _infrastructure_status(result_payload)
+                    if infra is not None:
+                        return _start_json(start_response, infra, result_payload)
                 try:
                     return _start_json(start_response, "200 OK", result_payload)
                 except (TypeError, ValueError) as e:
@@ -604,7 +648,11 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._dual_is_shut_down.wait()
 
     def process_request(self, request: Any, client_address: Any) -> None:
-        """Submit incoming request to the thread pool executor."""
+        """Submit incoming request to the thread pool executor.
+
+        The pool queue is unbounded. A busy listener waits here instead of
+        answering 503; add workers when requests pile up.
+        """
         self.executor.submit(self.process_request_thread, request, client_address)
 
     def process_request_thread(self, request: Any, client_address: Any) -> None:
@@ -646,6 +694,23 @@ class WSGIDualStackServer:
     def __init__(self, host: str, port: int, max_threads: int | None = None) -> None:
         from wsgiref.simple_server import WSGIRequestHandler, WSGIServer
 
+        class _DeadlineRequestHandler(WSGIRequestHandler):
+            def setup(self) -> None:
+                # After the base makefile exists. Do not assign the class
+                # ``timeout`` attribute: it overrides StreamRequestHandler
+                # and the type checker rejects that. The app clears this
+                # once the body is buffered so a long cell can still write.
+                super().setup()
+                try:
+                    self.connection.settimeout(_REQUEST_READ_TIMEOUT_SEC)
+                except Exception:
+                    pass
+
+            def get_environ(self) -> dict[str, Any]:
+                environ = super().get_environ()
+                environ["compute.connection"] = self.connection
+                return environ
+
         class _WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
             server_name: str
             server_port: int
@@ -656,7 +721,7 @@ class WSGIDualStackServer:
                 self.server_port = self.server_address[1]
                 self.setup_environ()
 
-        self.srv = _WSGIDualStackServer((host, port), WSGIRequestHandler)
+        self.srv = _WSGIDualStackServer((host, port), _DeadlineRequestHandler)
 
     def set_app(self, app: Any) -> None:
         self.srv.set_app(app)

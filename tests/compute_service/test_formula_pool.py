@@ -150,6 +150,46 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_idle_death_drops_other_shared_sessions(self) -> None:
+        """A dead idle process must not keep its session map after respawn."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600)
+        try:
+            sid_a = "sess-a"
+            sid_b = "sess-b"
+            res_a = pool.execute(code="marker = 'a'\nresult = marker", session_id=sid_a, mode="shared")
+            res_b = pool.execute(code="marker = 'b'\nresult = marker", session_id=sid_b, mode="shared")
+            assert res_a.get("status") == "ok", res_a
+            assert res_b.get("status") == "ok", res_b
+            worker = pool._active_sessions[sid_a]
+            assert pool._active_sessions[sid_b] is worker
+            worker.kill()
+            assert not worker.is_alive()
+            again = pool.execute(code="result = marker", session_id=sid_a, mode="shared")
+            assert again.get("status") == "error"
+            assert sid_b not in pool._active_sessions
+            assert pool._active_sessions.get(sid_a) is worker
+            assert worker.is_alive()
+        finally:
+            pool.shutdown()
+
+    def test_formula_worker_blocks_document_tools(self) -> None:
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
+        try:
+            res = pool.execute(
+                code=(
+                    "from plugin.scripting.writeragent_api import _rpc_call\n"
+                    "try:\n"
+                    "    _rpc_call('list_open_documents')\n"
+                    "    result = 'called'\n"
+                    "except Exception as exc:\n"
+                    "    result = str(exc)\n"
+                )
+            )
+            assert res.get("status") == "ok", res
+            assert "compute service" in str(res.get("result"))
+        finally:
+            pool.shutdown()
+
     def test_stderr_flood_does_not_deadlock(self, tmp_path) -> None:
         """Child OS-stderr flood must not deadlock the parent pickle reader."""
         from compute_service.worker_base import BaseProcessWorker

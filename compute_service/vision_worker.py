@@ -26,6 +26,10 @@ if _PROJECT_ROOT not in sys.path:
 from compute_service.config import ocr_path_is_allowed
 from compute_service.worker_base import run_worker_stdio_loop
 
+# Default HTTP body cap. file_path does not pass through that check, and an
+# unbounded read was pickled into the parent afterward.
+_FILE_READ_MAX_BYTES = 32 * 1024 * 1024
+
 
 def _read_allowed_image(file_path: str, allow_paths: Any, req_id: Any) -> tuple[bytes | None, dict[str, Any] | None]:
     """Return ``(bytes, None)`` or ``(None, error)``.
@@ -47,9 +51,12 @@ def _read_allowed_image(file_path: str, allow_paths: Any, req_id: Any) -> tuple[
         return None, {"id": req_id, "status": "error", "code": "NOT_A_FILE", "error": f"Path is not a regular file: {file_path}"}
     try:
         with open(resolved, "rb") as f:
-            return f.read(), None
+            data = f.read(_FILE_READ_MAX_BYTES + 1)
     except Exception as exc:
         return None, {"id": req_id, "status": "error", "code": "FILE_READ_ERROR", "error": f"Failed to read image file {file_path}: {exc}"}
+    if len(data) > _FILE_READ_MAX_BYTES:
+        return None, {"id": req_id, "status": "error", "code": "FILE_TOO_LARGE", "error": f"Image file exceeds {_FILE_READ_MAX_BYTES} bytes: {file_path}"}
+    return data, None
 
 
 def _handle_request(req: dict[str, Any]) -> dict[str, Any]:

@@ -24,6 +24,11 @@ IS_WORKER = os.environ.get("WRITERAGENT_IS_WORKER") == "1"
 def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:
     """Send a tool call to the LibreOffice host and block for the result."""
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    # Compute workers set this before importing plugin code. They have no
+    # office and no host pipe. The branch below would call get_ctx();
+    # exchange_tool_call would write a tool frame onto the pool stdio pipe.
+    if os.environ.get("WRITERAGENT_COMPUTE_WORKER") == "1":
+        raise RuntimeError("WriterAgent document tools are not available in the Python compute service.")
     if not IS_WORKER:
         try:
             from plugin.scripting.host_rpc import execute_tool

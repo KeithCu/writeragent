@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame
 from plugin.scripting.sandbox import optimize_popen_pipes, scrub_subprocess_env
 
 log = logging.getLogger("compute_service.worker")
@@ -73,7 +73,9 @@ class BaseProcessWorker:
     worker_name: str
     max_payload_bytes: int
     lock: threading.Lock
+    _lifecycle_lock: threading.Lock
     tasks_executed: int
+    did_respawn: bool
 
     def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> None:
         self.worker_id = worker_id
@@ -82,7 +84,11 @@ class BaseProcessWorker:
         self.max_payload_bytes = max_payload_bytes
         self.process: subprocess.Popen[bytes] | None = None
         self.lock = threading.Lock()
+        # Serializes kill/reap. Distinct from ``lock``, which execute holds
+        # across spawn, so reap must not take ``lock``.
+        self._lifecycle_lock = threading.Lock()
         self.tasks_executed = 0
+        self.did_respawn = False
         self._stderr_drain: StderrTail | None = None
         self._spawn()
 
@@ -103,21 +109,24 @@ class BaseProcessWorker:
         ``poll()`` reaps an already-dead child. Kill first only when it is
         still running, so a reused pid is not signaled.
         """
-        previous = self.process
-        if previous is None:
-            return
-        if previous.poll() is None:
-            try:
-                previous.kill()
-            except Exception:
-                pass
-        try:
-            previous.wait(timeout=1.0)
-        except Exception:
-            pass
-        self.process = None
-        drain = self._stderr_drain
-        self._stderr_drain = None
+        with self._lifecycle_lock:
+            previous = self.process
+            drain = self._stderr_drain
+            self.process = None
+            self._stderr_drain = None
+            # Signal only a child poll() still reports as running. After
+            # wait() the pid can be reused; a second kill() used to signal
+            # that new process.
+            if previous is not None and previous.poll() is None:
+                try:
+                    previous.kill()
+                except Exception:
+                    pass
+            if previous is not None:
+                try:
+                    previous.wait(timeout=1.0)
+                except Exception:
+                    pass
         if drain is not None:
             drain.join(timeout=0.2)
 
@@ -179,25 +188,24 @@ class BaseProcessWorker:
         return self.process is not None and self.process.poll() is None
 
     def kill(self) -> None:
-        """Forcefully terminate worker process."""
-        proc = self.process
-        self.process = None
-        if proc is not None:
-            try:
-                proc.kill()
-                proc.wait(timeout=1.0)
-            except Exception:
-                pass
-        drain = self._stderr_drain
-        if drain is not None:
-            drain.join(timeout=0.2)
+        """Terminate the child using the same rules as spawn's reap.
+
+        ``kill()`` used to signal even after ``poll()`` had reaped the pid,
+        and it left ``_stderr_drain`` set so the next ``_spawn`` dropped that
+        thread. ``_reap_previous_process`` already avoided both.
+        """
+        self._reap_previous_process()
 
     def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
         """Send request to worker process and await response with timeout."""
         timeout_sec = max(0.01, float(timeout_sec))
         with self.lock:
+            # The pool reads this after the call. A respawn replaces the
+            # kernel; session maps that still name this wrapper are stale.
+            self.did_respawn = False
             if not self.is_alive():
                 self._spawn()
+                self.did_respawn = True
                 if not self.is_alive():
                     return {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": f"{self.worker_name} #{self.worker_id} could not be started."}
 
@@ -207,6 +215,10 @@ class BaseProcessWorker:
 
             try:
                 write_pickle_frame(self.process.stdin, payload, max_payload_bytes=self.max_payload_bytes)
+            except IpcFrameError as exc:
+                # Raised before any byte is written. The child is still the
+                # same kernel; killing it would drop every shared session.
+                return {"status": "error", "code": "PAYLOAD_TOO_LARGE", "error": str(exc)}
             except (BrokenPipeError, OSError) as exc:
                 snippet = self._stderr_snippet()
                 self.kill()
