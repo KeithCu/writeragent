@@ -1043,3 +1043,90 @@ def test_odd_price_zero_frequency_is_nan():
     assert not math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, 0.06, 100, 2))
     assert not math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, 0.06, 100, 2))
 
+
+def test_nominal_zero_effective_rate_is_zero():
+    # Excel NOMINAL(0, npery) is 0. A negative rate is still #NUM!.
+    assert calc.nominal(0, 4) == 0.0
+    assert calc.nominal(0, 1) == 0.0
+    assert math.isnan(calc.nominal(-0.01, 4))
+    assert math.isnan(calc.nominal(0.1, 0))
+    assert math.isclose(calc.nominal(0.1, 4), 4 * ((1.1) ** 0.25 - 1))
+
+
+def test_norm_missing_scipy_is_nan():
+    import sys
+    from unittest.mock import patch
+
+    # import scipy.stats raises when the module slot is missing.
+    with patch.dict(sys.modules, {"scipy.stats": None}):
+        assert math.isnan(calc.norminv(0.5, 0, 1))
+        assert math.isnan(calc.normsdist(0))
+        assert math.isnan(calc.normsinv(0.5))
+    assert math.isclose(calc.norminv(0.5, 0, 1), 0.0, abs_tol=1e-5)
+    assert math.isclose(calc.normsdist(0), 0.5, abs_tol=1e-5)
+    assert math.isclose(calc.normsinv(0.5), 0.0, abs_tol=1e-5)
+
+
+def test_nper_overflow_is_nan():
+    huge = 10**10000
+    assert math.isnan(calc.nper(huge, -100, 1000))
+    assert math.isnan(calc.nper(0.01, huge, 1000))
+    assert math.isnan(calc.nper(0.01, -100, huge))
+    assert math.isnan(calc.nper(0.01, -100, 1000, 0, huge))
+    assert not math.isnan(calc.nper(0.01, -100, 1000))
+
+
+def test_odd_price_yield_negates_frequency_is_nan():
+    # yld == -frequency makes the discount base 0 (ZeroDivisionError).
+    assert math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, -2, 100, 2))
+    assert math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, -2, 100, 2))
+    # A base within 1e-12 of zero is the same #NUM!.
+    assert math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, -2 + 1e-15, 100, 2))
+    assert math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, -2 + 1e-15, 100, 2))
+    # A yield that is merely negative still prices.
+    assert not math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, -0.5, 100, 2))
+    assert not math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, -0.5, 100, 2))
+
+
+def test_quartile_text_cell_is_nan():
+    data = [1.0, 2.0, 3.0, 4.0]
+    assert math.isnan(calc.quartile([1.0, "text", 3.0], 1))
+    assert math.isnan(calc.quartile(["a", "b"], 2))
+    assert calc.quartile(data, 1) == calc.quartile(data, 1.0)
+
+
+def test_sort_out_of_bounds_index_is_nan():
+    data = [[3, 1, 2], [6, 5, 4]]
+    # Three columns: index 3 is the last column and still sorts.
+    assert calc.sort(data, 3, 1, False) == [[3, 1, 2], [6, 5, 4]]
+    assert math.isnan(calc.sort(data, 4, 1, False))
+    assert math.isnan(calc.sort(data, 0, 1, False))
+    assert math.isnan(calc.sort(data, -1, 1, False))
+    # Two rows when sorting by column.
+    assert math.isnan(calc.sort(data, 3, 1, True))
+    assert math.isnan(calc.sort(data, 0, 1, True))
+    assert math.isnan(calc.sort(data, -2, 1, True))
+    assert calc.sort(data, 1, 1, True) == [[1, 2, 3], [5, 4, 6]]
+
+
+def test_subtotal_rejects_unknown_fn_and_empty_samples():
+    assert math.isnan(calc.subtotal(0, [1.0, 2.0, 3.0]))
+    assert math.isnan(calc.subtotal(12, [1.0, 2.0, 3.0]))
+    assert math.isnan(calc.subtotal(100, [1.0, 2.0, 3.0]))
+    # 109 % 100 is SUM, same as function 9.
+    assert calc.subtotal(109, [1.0, 2.0, 3.0]) == 6.0
+    assert calc.subtotal(9, []) == 0.0
+    assert calc.subtotal(6, []) == 0.0
+    assert calc.subtotal(6, [2.0, 3.0]) == 6.0
+    # Empty AVERAGE and one-point STDEV.S / VAR.S are #DIV/0!.
+    assert math.isnan(calc.subtotal(1, []))
+    assert math.isnan(calc.subtotal(1, ["", None]))
+    assert calc.subtotal(1, [1.0, 2.0, 3.0]) == 2.0
+    assert math.isnan(calc.subtotal(7, [4.0]))
+    assert math.isnan(calc.subtotal(7, []))
+    assert math.isnan(calc.subtotal(107, [4.0]))
+    assert math.isclose(calc.subtotal(7, [1.0, 3.0]), math.sqrt(2))
+    assert math.isnan(calc.subtotal(10, [4.0]))
+    assert math.isnan(calc.subtotal(10, []))
+    assert calc.subtotal(10, [1.0, 3.0]) == 2.0
+
