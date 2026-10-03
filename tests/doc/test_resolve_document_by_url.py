@@ -157,6 +157,10 @@ def test_get_runtime_uid_off_main_thread_raises_when_guard_on():
     finally:
         tg.GUARD_ON = was
         tg.set_designated_main_thread(None)
+        # The raise notifies on this thread. Leave the one-popup slot clear
+        # so a later test on the same xdist worker can still post.
+        with tg._violation_ui_lock:
+            tg._violation_ui_threads.discard(threading.get_ident())
 
 
 def test_get_runtime_uid_present_missing_and_error():
