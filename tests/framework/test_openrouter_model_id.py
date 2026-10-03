@@ -64,3 +64,13 @@ def test_openrouter_equivalent_dropped_from_check_all_fqns() -> None:
     assert not any(f.endswith(".openrouter_model_ids_equivalent") for f in fqns)
     assert any(f.endswith("._split_suffix") for f in fqns)
     assert any(f.endswith(".resolve_openrouter_catalog_id") for f in fqns)
+
+
+def test_catalog_larger_than_shape_dim_resolves() -> None:
+    from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
+    from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
+
+    model = "vendor/" + ("m" * (DEAL_MAX_TOKEN + 1))
+    catalog = {f"id-{i}" for i in range(DEAL_MAX_SHAPE_DIM + 1)}
+    catalog.add(model)
+    assert resolve_openrouter_catalog_id(model, catalog) == model

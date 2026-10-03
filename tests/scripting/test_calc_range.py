@@ -311,3 +311,24 @@ def test_calc_range_no_numpy_fallback():
         with pytest.raises(TypeError, match="Multi-cell arithmetic requires NumPy"):
             _ = multi == 10
 
+
+def test_tall_sheet_materialize_and_arithmetic_do_not_precontract():
+    """A column past SHAPE_DIM is a Calc range. Deal must not assert."""
+    import deal
+
+    from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
+    from plugin.scripting.calc_range import CalcRange, materialize_inputs
+
+    rows = [[i] for i in range(DEAL_MAX_SHAPE_DIM + 1)]
+    ranges = materialize_inputs(rows)
+    assert len(ranges) == 1
+    assert ranges[0].shape == (DEAL_MAX_SHAPE_DIM + 1, 1)
+    labeled = dataframe_to_labeled_grid(["n" * 80], rows, include_header=False)
+    assert len(labeled) == DEAL_MAX_SHAPE_DIM + 1
+    try:
+        _ = CalcRange(rows) + 1
+    except deal.PreContractError:
+        raise
+    except TypeError:
+        return
+

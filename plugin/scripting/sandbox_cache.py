@@ -53,7 +53,10 @@ _deal_sandbox_imports_ok = (
 
 def _deal_sandbox_code_ok_pytest(code: object) -> bool:
     # `_cache_key` joins with NUL; production =PY() scripts may be non-ASCII.
-    return isinstance(code, str) and str_bounded(code, DEAL_MAX_SOURCE) and "\0" not in code
+    # =PY() source is longer than DEAL_MAX_SOURCE. The cap raised
+    # PreContractError before the cache key was built. NUL stays out:
+    # the key joins on NUL. CrossHair keeps the short ASCII source.
+    return isinstance(code, str) and "\0" not in code
 
 
 def _deal_sandbox_code_ok_crosshair(code: object) -> bool:

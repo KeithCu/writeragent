@@ -564,6 +564,16 @@ def test_threshold_zero_forces_block_on_word_change():
     assert r.is_block
 
 
+def test_split_change_long_text_does_not_precontract():
+    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+    from plugin.writer.word_diff_split import split_change
+
+    old = "word " * (DEAL_MAX_SOURCE // 4)
+    new = old + "extra"
+    result = split_change(old, new)
+    assert result.fraction_changed >= 0.0
+
+
 def test_threshold_zero_no_change_records_nothing():
     # old == new is still a no-op even at threshold 0 (no spurious block edit).
     r = split_change("a b c", "a b c", 0.0)

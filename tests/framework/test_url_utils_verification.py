@@ -80,24 +80,15 @@ def test_normalize_empty_and_non_str() -> None:
     assert normalize_endpoint_url(None) == ""  # type: ignore[arg-type]
 
 
-def test_url_helpers_overflow_pre_fails_closed() -> None:
+def test_url_helpers_long_and_odd_do_not_precontract() -> None:
     from plugin.framework.deal_shim import DEAL_MAX_URL
     from plugin.framework.url_utils import get_url_hostname, is_pdf_url
-    from tests.harness.strip_bundle import deal_pre_present
 
-    import deal
-
-    if not deal_pre_present(normalize_endpoint_url):
-        pytest.skip("@deal.pre stripped in release bundle")
     too_long = "https://example.com/" + ("a" * DEAL_MAX_URL)
-    with pytest.raises(deal.PreContractError):
-        normalize_endpoint_url(too_long)
-    with pytest.raises(deal.PreContractError):
-        get_url_hostname(too_long)
-    with pytest.raises(deal.PreContractError):
-        is_pdf_url(too_long)
-    with pytest.raises(deal.PreContractError):
-        normalize_endpoint_url(1)  # type: ignore[arg-type]
+    assert normalize_endpoint_url(too_long).startswith("https://example.com/")
+    assert get_url_hostname(too_long) == "example.com"
+    assert is_pdf_url(too_long) is False
+    assert normalize_endpoint_url(1) == ""  # type: ignore[arg-type]
 
 
 @given(url=_urls)

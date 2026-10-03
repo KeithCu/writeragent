@@ -193,6 +193,46 @@ _DEAL_SCRUB_DICT = 1 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
 _DEAL_SCRUB_KEY = 2 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 _DEAL_SCRUB_VAL = 4 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
 
+
+def _deal_scrub_env_ok_pytest(base: object) -> bool:
+    # os.environ values (PATH) exceed DEAL_MAX_ARGV and names can exceed
+    # a token. The old cap raised PreContractError before secrets were
+    # dropped. Values must stay str so the post (str→str) holds.
+    # CrossHair keeps the one-entry domain.
+    if base is None:
+        return True
+    return isinstance(base, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in base.items())
+
+
+def _deal_scrub_env_ok_crosshair(base: object) -> bool:
+    return base is None or (
+        isinstance(base, dict)
+        and len(base) <= _DEAL_SCRUB_DICT
+        and all(
+            isinstance(k, str)
+            and str_bounded(k, _DEAL_SCRUB_KEY)
+            and isinstance(v, str)
+            and str_bounded(v, _DEAL_SCRUB_VAL)
+            for k, v in base.items()
+        )
+    )
+
+
+_deal_scrub_env_ok = _deal_scrub_env_ok_crosshair if UNDER_CROSSHAIR else _deal_scrub_env_ok_pytest
+
+
+def _deal_path_ok_pytest(path: object) -> bool:
+    # Real venv and workspace paths are longer than DEAL_MAX_PATH (256).
+    # The cap raised PreContractError instead of the body's bool/strip.
+    return isinstance(path, str)
+
+
+def _deal_path_ok_crosshair(path: object) -> bool:
+    return str_bounded(path, DEAL_MAX_PATH)
+
+
+_deal_path_ok = _deal_path_ok_crosshair if UNDER_CROSSHAIR else _deal_path_ok_pytest
+
 # cover-all 35526755391: basename ~10m under str_bounded path. ASCII short under CrossHair.
 _DEAL_BASENAME_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_PATH
 
@@ -214,20 +254,7 @@ def _env_name_is_credential(name: str) -> bool:
     return False
 
 
-@deal.pre(
-    lambda base: base is None
-    or (
-        isinstance(base, dict)
-        and len(base) <= _DEAL_SCRUB_DICT
-        and all(
-            isinstance(k, str)
-            and str_bounded(k, _DEAL_SCRUB_KEY)
-            and isinstance(v, str)
-            and str_bounded(v, _DEAL_SCRUB_VAL)
-            for k, v in base.items()
-        )
-    )
-)
+@deal.pre(lambda base: _deal_scrub_env_ok(base))
 @deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
 @inverse_ensure(lambda base, result: all(k.upper() not in _BLOCKED_ENV_EXACT for k in result))
 @inverse_ensure(lambda base, result: all(not _env_name_is_credential(k) for k in result))
@@ -356,7 +383,7 @@ def _reset_cache() -> None:  # pyright: ignore[reportUnusedFunction]  # test hel
 # --- Interpreter resolution ---
 
 
-@deal.pre(lambda path: str_bounded(path, DEAL_MAX_PATH))
+@deal.pre(lambda path: _deal_path_ok(path))
 def _strip_surrounding_quotes(path: str) -> str:
     """Strip one layer of matching quotes (Windows Explorer \"Copy as path\")."""
     # crosshair: off
@@ -610,7 +637,7 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
     return _first_executable_python(candidates)
 
 
-@deal.pre(lambda target_path, root_dir: str_bounded(target_path, DEAL_MAX_PATH) and str_bounded(root_dir, DEAL_MAX_PATH))
+@deal.pre(lambda target_path, root_dir: _deal_path_ok(target_path) and _deal_path_ok(root_dir))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda target_path, root_dir, result: (

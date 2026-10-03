@@ -108,7 +108,7 @@ def _schema_int(field_name: str, name: str, *, fallback: int | None = None, requ
 # --- python_exec_timeout ---
 
 
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_TOKEN, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
 
 
 def python_exec_timeout_default() -> int:
@@ -128,8 +128,18 @@ def python_exec_timeout_max() -> int:
 # symbolic ints (check-all deep 32900105768: resolve(..., configured=33) then
 # nested _clamp_timeout). ``type(x) is int`` rejects bools the same way for
 # real values and is CrossHair-friendly.
-def _timeout_int_ok(value: object) -> bool:
+def _timeout_int_ok_pytest(value: object) -> bool:
+    # A hand-edited timeout past DEAL_MAX_ARGV (86400 is one day; the schema
+    # max is 600) raised PreContractError before _clamp_timeout could clamp.
+    # bool stays out: type(True) is not int. CrossHair keeps the abs cap.
+    return type(value) is int
+
+
+def _timeout_int_ok_crosshair(value: object) -> bool:
     return type(value) is int and abs(value) <= DEAL_MAX_ARGV
+
+
+_timeout_int_ok = _timeout_int_ok_crosshair if UNDER_CROSSHAIR else _timeout_int_ok_pytest
 
 
 def _timeout_sec_ok(timeout_sec: object) -> bool:

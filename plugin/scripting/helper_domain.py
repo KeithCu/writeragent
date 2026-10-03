@@ -18,7 +18,21 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+
+
+def _deal_user_code_ok_pytest(code: object, run_name: object = "") -> bool:
+    # User scripts are longer than DEAL_MAX_SOURCE. The cap raised
+    # PreContractError before ast.parse could return None. run_name is
+    # our helper token. CrossHair keeps the short source.
+    return isinstance(code, str) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
+
+
+def _deal_user_code_ok_crosshair(code: object, run_name: object = "") -> bool:
+    return str_bounded(code, DEAL_MAX_SOURCE) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
+
+
+_deal_user_code_ok = _deal_user_code_ok_crosshair if UNDER_CROSSHAIR else _deal_user_code_ok_pytest
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.scripting")
@@ -131,10 +145,7 @@ def _literal_value(node: ast.AST) -> Any:
     return None
 
 
-@deal.pre(
-    lambda code, run_name="": str_bounded(code, DEAL_MAX_SOURCE)
-    and ascii_bounded(run_name, DEAL_MAX_TOKEN)
-)
+@deal.pre(lambda code, run_name="": _deal_user_code_ok(code, run_name))
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] | None:
     """Return the ``params`` dict from ``run_name({"helper": ..., "params": {...}}, ...)`` when literal."""
@@ -190,10 +201,7 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
     return {"helper": helper, "params": params}
 
 
-@deal.pre(
-    lambda code, run_name="": str_bounded(code, DEAL_MAX_SOURCE)
-    and ascii_bounded(run_name, DEAL_MAX_TOKEN)
-)
+@deal.pre(lambda code, run_name="": _deal_user_code_ok(code, run_name))
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
     """Return the first positional spec dict from ``run_name({...}, ...)`` or a writeragent helper call."""

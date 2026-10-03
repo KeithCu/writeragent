@@ -25,7 +25,7 @@ import logging
 import re
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, deal, str_bounded
+from plugin.framework.deal_shim import UNDER_CROSSHAIR, deal
 
 log = logging.getLogger(__name__)
 
@@ -202,7 +202,12 @@ _JSON_CHARS = frozenset("{}\n ") if UNDER_CROSSHAIR else frozenset('abcdefghijkl
 
 
 def _deal_json_text_ok_pytest(text: object) -> bool:
-    return not isinstance(text, str) or str_bounded(text, DEAL_MAX_SOURCE)
+    # LLM JSON and writeragent.json are external. DEAL_MAX_SOURCE (8192) raised
+    # PreContractError, an AssertionError, so repair was skipped and callers
+    # saw a silent default. Release OXTs strip deal and already repair. The
+    # body returns non-strings unchanged and runs json_repair on any str.
+    # CrossHair keeps the one-character domain. ``text`` is unused.
+    return True
 
 
 def _deal_json_text_ok_crosshair(text: object) -> bool:
@@ -277,11 +282,10 @@ def _repair_json_object_bounded(text: str) -> Any:
 def repair_json_object(text: str) -> Any:
     """Repair malformed JSON and return a parsed object (json-repair return_objects=True).
 
-    What was wrong: ``@deal.pre`` rejects text longer than ``DEAL_MAX_SOURCE``.
-    ``PreContractError`` subclasses ``AssertionError``, not ``ValueError``, so
-    it escaped callers that only catch JSON errors. The contract stays on
-    ``_repair_json_object_bounded``. A rejected payload returns the original
-    text instead of raising.
+    The pytest pre is total, so a long body is repaired. ``PreContractError``
+    subclasses ``AssertionError``, not ``ValueError``. If a contract error
+    still escapes ``_repair_json_object_bounded``, return the original text
+    instead of letting it skip JSON ``except`` clauses.
     """
     # crosshair: off
     try:
@@ -386,10 +390,9 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
             _debug_json_stage("json_repair")
             return parsed
     except Exception:
-        # What was wrong: repair_json's @deal.pre rejects text longer than
-        # DEAL_MAX_SOURCE. PreContractError subclasses AssertionError, not
-        # ValueError, and mypy rejects that dynamically loaded class in an
-        # except clause. This try is only the repair attempt, so any failure
+        # repair_json's pytest pre is total. This try is only the repair
+        # attempt: a contract error is an AssertionError, and mypy rejects
+        # that dynamically loaded class in an except clause. Any failure
         # returns default.
         pass
 

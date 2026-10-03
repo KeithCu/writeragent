@@ -879,3 +879,13 @@ def test_format_sql_for_calc_shows_truncation_note():
     err = format_sql_for_calc({"status": "error", "code": "READONLY_VIOLATION", "message": "SQL contains write"})
     assert err[0][0].startswith("SQL error")
     assert "write" in err[1][0]
+
+
+def test_is_sql_result_long_message_is_bool():
+    from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+    from plugin.scripting.duckdb_sql import is_sql_result, parse_sql_script_header
+
+    message = "Catalog Error: " + ("x" * (DEAL_MAX_TOKEN + 1))
+    assert is_sql_result({"status": "error", "code": "DUCKDB_ERROR", "message": message}) is True
+    header = "SELECT 1;\n" * 400
+    assert parse_sql_script_header(header) is None
