@@ -28,12 +28,14 @@ from __future__ import annotations
 
 import copy
 import json
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, TypeVar
 
 from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_bounded, deal
 
 
 _SCALAR_TYPES = frozenset({"integer", "number", "boolean", "string"})
+_OutboundMessages = TypeVar("_OutboundMessages", bound=Sequence[Any])
 
 
 def _schema_type_includes_array(type_value: Any) -> bool:
@@ -121,7 +123,7 @@ def _merge_parameter_schemas(left: dict[str, Any], right: dict[str, Any]) -> dic
     return out
 
 
-def _schemas_by_tool_name(tools: list[Any]) -> dict[str, dict[str, Any]]:
+def _schemas_by_tool_name(tools: Sequence[Any]) -> dict[str, dict[str, Any]]:
     schemas: dict[str, dict[str, Any]] = {}
     for tool in tools:
         parsed = _parameter_schema(tool)
@@ -176,14 +178,27 @@ def _normalize_one_outbound_call(call: Any, schemas: dict[str, dict[str, Any]]) 
     return new_call
 
 
-def normalize_outbound_tool_calls(messages: list[Any], tools: Any) -> list[Any]:
+def normalize_outbound_tool_calls(messages: _OutboundMessages, tools: Any) -> _OutboundMessages:
     """Schema-check tool-call arguments before a provider shim sees them.
 
     One allow-list for every provider. ``properties: {}`` drops hallucinated
     kwargs on a no-arg tool. Duplicate tool names union their properties
     instead of keeping only the last schema.
+
+    *messages* and *tools* may be any sequence. A tuple used to fail the
+    ``list`` check and skip the allow-list. Strings are not sequences of
+    messages or tools.
+
+    This assigns ``message["tool_calls"]`` on the dicts inside *messages*.
+    ``prepare_chat_messages`` deep-copies each message dict before
+    ``make_chat_request`` calls this, so the chat path is already a copy
+    and this helper does not copy again. A caller that skips
+    ``prepare_chat_messages`` must pass its own copy when it still needs
+    the original ``tool_calls``.
     """
-    if not isinstance(messages, list) or not isinstance(tools, list) or not tools:
+    messages_ok = isinstance(messages, Sequence) and not isinstance(messages, (str, bytes))
+    tools_ok = isinstance(tools, Sequence) and not isinstance(tools, (str, bytes))
+    if not messages_ok or not tools_ok or not tools:
         return messages
     schemas = _schemas_by_tool_name(tools)
     if not schemas:
@@ -243,16 +258,30 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
 @deal.pre(lambda types: isinstance(types, list))
 @deal.post(lambda result: isinstance(result, (str, list)))
 def _collapse_union_type(types: list[str]) -> str | list[str]:
-    """Collapse messy unions for Gemini; preserve scalar+null pairs for Groq."""
+    """Keep every source type, including null. Drop duplicate names only.
+
+    What was wrong: any union other than one scalar plus ``null`` collapsed
+    to a single member, and ``array`` beat the rest. An optional property
+    then gained ``null`` on that survivor, so ``["string", "number"]``
+    became ``["string", "null"]`` and ``apply_document_content`` content
+    ``["array", "string"]`` became ``"array"``. ``validate`` accepts each
+    listed member, and execute accepts a bare string for that content
+    field. How: dedupe, and return one string only when a single name
+    remains. Why: the provider schema must not be narrower than the
+    source schema. Null on an optional scalar is added later.
+    """
     # crosshair: off
     if not types:
         return "string"
-    non_null = [t for t in types if t != "null"]
-    if len(non_null) == 1 and len(types) == 2 and "null" in types:
-        return [non_null[0], "null"]
-    if "array" in types:
-        return "array"
-    return non_null[0] if non_null else "string"
+    seen: list[str] = []
+    for one in types:
+        if one not in seen:
+            seen.append(one)
+    if len(seen) == 1:
+        return seen[0]
+    if len(seen) == len(types):
+        return types
+    return seen
 
 
 @deal.pre(lambda type_val: type_val is None or isinstance(type_val, str) or (isinstance(type_val, list) and len(type_val) <= DEAL_MAX_CMD_ARGS and all(isinstance(x, str) and ascii_bounded(x, DEAL_MAX_TOKEN) for x in type_val)))
@@ -262,7 +291,12 @@ def _type_allows_null(type_val: Any) -> bool:
 
 @deal.ensure(lambda prop_schema, result: not isinstance(prop_schema, dict) or isinstance(result, dict))
 def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any]:
-    """Add null to optional scalar property types (strict providers reject bare null otherwise)."""
+    """Add null to optional scalar property types (strict providers reject bare null otherwise).
+
+    A union of scalars is optional in the same way as one scalar. Null is
+    appended; the other members stay. ``["string", "number"]`` must not
+    become ``["string", "null"]``.
+    """
     # crosshair: off
     if not isinstance(prop_schema, dict):
         return prop_schema
@@ -270,15 +304,19 @@ def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any
     if type_val is None or _type_allows_null(type_val):
         return prop_schema
     if isinstance(type_val, str) and type_val in _SCALAR_TYPES:
-        out = copy.deepcopy(prop_schema)
-        out["type"] = [type_val, "null"]
-        # Strict providers apply enum after type; JSON null must be in both.
-        # The string "null" is a different value and fails the source enum.
-        enum_val = out.get("enum")
-        if isinstance(enum_val, list) and None not in enum_val:
-            out["enum"] = [*enum_val, None]
-        return out
-    return prop_schema
+        scalar_types = [type_val]
+    elif isinstance(type_val, list) and type_val and all(isinstance(one, str) and one in _SCALAR_TYPES for one in type_val):
+        scalar_types = list(type_val)
+    else:
+        return prop_schema
+    out = copy.deepcopy(prop_schema)
+    out["type"] = [*scalar_types, "null"]
+    # Strict providers apply enum after type; JSON null must be in both.
+    # The string "null" is a different value and fails the source enum.
+    enum_val = out.get("enum")
+    if isinstance(enum_val, list) and None not in enum_val:
+        out["enum"] = [*enum_val, None]
+    return out
 
 
 @deal.ensure(lambda params, result: (not isinstance(params, dict) or not params) or isinstance(result, dict))
@@ -286,10 +324,11 @@ def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any
 def _normalize_schema_for_strict_providers(params: Any) -> Any:
     """Normalize JSON Schema for strict upstream validators (Gemini, Groq, etc.).
 
-    - Optional scalar properties get ``type: [scalar, "null"]`` so models may pass ``null``.
-    - ``[scalar, "null"]`` unions are preserved; other unions collapse (e.g. string+array → array).
+    - Optional scalar properties, including a union of scalars, get ``null``
+      so models may pass ``null``. Every other source type stays.
     - Empty ``required`` is removed so providers do not complain about required[0/1] missing.
-    - Nested object properties are normalized recursively with each object's ``required`` list.
+    - ``properties`` is walked whenever it is a dict, even with no ``type``.
+      ``items`` is kept when ``type`` is missing or includes ``array``.
     """
     # crosshair: off
     if type(params) is not dict:
@@ -299,14 +338,26 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     params = copy.deepcopy(params)
     if "type" in params and isinstance(params["type"], list):
         params["type"] = _collapse_union_type(params["type"])
-    if params.get("type") != "array":
+    type_value = params.get("type")
+    # What was wrong: ``type != "array"`` is also true when ``type`` is
+    # missing and when a union still lists ``array`` (``["array", "string"]``
+    # or ``["array", "null"]``). Popping ``items`` then hid the element
+    # schema. How: drop ``items`` only when ``type`` is present and does not
+    # include ``array``. Why: no ``type`` plus ``items`` is an implicit array,
+    # and a union ``validate`` accepts must keep its element schema.
+    if "items" in params and type_value is not None and not _schema_type_includes_array(type_value):
         params.pop("items", None)
     if params.get("required") == []:
         params.pop("required", None)
 
     required_keys = set(params.get("required") or [])
 
-    if params.get("type") == "object" and isinstance(params.get("properties"), dict):
+    # What was wrong: this required ``type == "object"``. A nested object
+    # written as ``{"properties": {...}}`` with no ``type`` was returned
+    # untouched, so children never got nullable or union normalization.
+    # How: walk whenever ``properties`` is a dict, then walk ``items`` too.
+    # Why: JSON Schema still describes an object when ``type`` is omitted.
+    if isinstance(params.get("properties"), dict):
         new_props = {}
         for k, v in params["properties"].items():
             v = _normalize_schema_for_strict_providers(v)
@@ -314,7 +365,7 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
                 v = _make_optional_scalar_nullable(v)
             new_props[k] = v
         params["properties"] = new_props
-    elif "items" in params:
+    if "items" in params:
         if isinstance(params["items"], dict):
             params["items"] = _normalize_schema_for_strict_providers(params["items"])
         elif isinstance(params["items"], list) and params["items"]:
@@ -409,7 +460,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
                     fov["description"] = ((desc_bits + " " if desc_bits else "") + "Native JSON array of strings/numbers is accepted (same length as the range); a single string still fills the entire range.").strip()
                 props["values"] = fov
         # Execute already coerces a bare range string to [str]. Source schemas stay
-        # array-only so Gemini/Groq do not see a string|array union (collapse prefers array).
+        # array-only; widen MCP so a host may send the string execute already wraps.
         rn = props.get("range")
         if isinstance(rn, dict) and rn.get("type") == "array":
             rn = dict(rn)

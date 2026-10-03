@@ -63,13 +63,21 @@ def test_to_mcp_schema_no_params():
     assert schema["inputSchema"]["type"] == "object"
 
 def test_normalize_schema_union_type():
-    params = {"type": ["string", "array"]}
+    """A union stays as wide as validate. array does not erase string."""
+    params = {"type": ["string", "array"], "items": {"type": "string"}}
     res = _normalize_schema_for_strict_providers(params)
-    assert res["type"] == "array"
+    assert res["type"] == ["string", "array"]
+    assert res["items"]["type"] == "string"
 
     params = {"type": ["number", "string"]}
     res = _normalize_schema_for_strict_providers(params)
-    assert res["type"] == "number"
+    assert res["type"] == ["number", "string"]
+
+    # Not an array: stray items still go. Null on a scalar union is kept.
+    params = {"type": ["string", "number", "null"], "items": {"type": "integer"}}
+    res = _normalize_schema_for_strict_providers(params)
+    assert res["type"] == ["string", "number", "null"]
+    assert "items" not in res
 
 def test_normalize_schema_empty_required():
     params = {"type": "object", "required": []}
@@ -97,7 +105,7 @@ def test_normalize_schema_items():
         "items": {"type": ["string", "integer"]}
     }
     res = _normalize_schema_for_strict_providers(params)
-    assert res["items"]["type"] == "string"
+    assert res["items"]["type"] == ["string", "integer"]
 
     # Items as list
     params = {
@@ -111,6 +119,53 @@ def test_normalize_schema_not_array_remove_items():
     params = {"type": "string", "items": {"type": "string"}}
     res = _normalize_schema_for_strict_providers(params)
     assert "items" not in res
+
+
+def test_normalize_schema_implicit_object_and_array():
+    """properties without type is still an object. items without type is still an array."""
+    params = {
+        "properties": {
+            "inner": {
+                "properties": {"n": {"type": "integer"}},
+            },
+            "value": {"type": ["string", "number"]},
+        },
+        "required": ["value"],
+    }
+    res = _normalize_schema_for_strict_providers(params)
+    assert res["properties"]["inner"]["properties"]["n"]["type"] == ["integer", "null"]
+    # Required scalar union stays both types and does not gain null.
+    assert res["properties"]["value"]["type"] == ["string", "number"]
+
+    implicit_array = {"items": {"type": ["string", "integer"]}}
+    res = _normalize_schema_for_strict_providers(implicit_array)
+    assert res["items"]["type"] == ["string", "integer"]
+
+    array_null = {"type": ["array", "null"], "items": {"type": "string"}}
+    res = _normalize_schema_for_strict_providers(array_null)
+    assert res["type"] == ["array", "null"]
+    assert res["items"]["type"] == "string"
+
+
+def test_optional_scalar_union_keeps_members_and_null():
+    params = {
+        "type": "object",
+        "properties": {"value": {"type": ["string", "number"]}},
+    }
+    res = _normalize_schema_for_strict_providers(params)
+    assert res["properties"]["value"]["type"] == ["string", "number", "null"]
+
+
+def test_apply_document_content_keeps_array_or_string():
+    """OpenAI must not advertise content as array-only; execute accepts a string."""
+    from plugin.writer.content import ApplyDocumentContent
+
+    content = to_openai_schema(ApplyDocumentContent())["function"]["parameters"]["properties"]["content"]
+    assert content["type"] == ["array", "string"]
+    assert content["items"]["type"] == "string"
+    mcp_content = to_mcp_schema(ApplyDocumentContent())["inputSchema"]["properties"]["content"]
+    assert mcp_content["type"] == ["array", "string"]
+    assert mcp_content["items"]["type"] == "string"
 
 def test_normalize_schema_none_dict():
     assert _normalize_schema_for_strict_providers(None) is None
@@ -240,6 +295,32 @@ def test_empty_properties_strips_kwargs_before_any_provider():
     out = normalize_outbound_tool_calls(messages, tools)
     args = json.loads(out[0]["tool_calls"][0]["function"]["arguments"])
     assert args == {}
+
+
+def test_normalize_outbound_accepts_tuple_messages_and_tools():
+    """A tuple used to miss the list check and leave hallucinated kwargs in place."""
+    from plugin.framework.tool_schema import normalize_outbound_tool_calls
+
+    tools = ({
+        "type": "function",
+        "function": {
+            "name": "list_sheets",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },)
+    messages = ({
+        "role": "assistant",
+        "tool_calls": [{
+            "id": "c1",
+            "type": "function",
+            "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+        }],
+    },)
+    out = normalize_outbound_tool_calls(messages, tools)
+    args = json.loads(out[0]["tool_calls"][0]["function"]["arguments"])
+    assert args == {}
+    # prepare_chat_messages already copies; this helper mutates that copy.
+    assert out is messages
 
 
 def test_duplicate_tool_schemas_union_properties_not_last_wins():
