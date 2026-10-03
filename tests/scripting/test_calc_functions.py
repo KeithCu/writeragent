@@ -857,6 +857,22 @@ def test_xmatch_wildcards_and_xlookup_horizontal_scalar():
     assert calc.xmatch("b", ["a", "b", "c"]) == 2.0
 
 
+def test_xnpv_rate_at_or_below_minus_one_is_nan():
+    # Excel #NUM!. Equal dates make (1-1)**0 == 1, so the sum used to leak.
+    # A fractional year with rate < -1 used to leak a complex.
+    assert math.isnan(calc.xnpv(-1, [100, 200], [0, 0]))
+    assert math.isnan(calc.xnpv(-1, [-100], [44927]))
+    assert math.isnan(calc.xnpv(-1, [100, 200], [0, 365]))
+    result = calc.xnpv(-1.5, [-100, 200, 300], [44927, 45000, 45292])
+    assert isinstance(result, float)
+    assert math.isnan(result)
+    result = calc.xnpv(-2, [-100, 200], [0, 100])
+    assert isinstance(result, float)
+    assert math.isnan(result)
+    assert math.isclose(calc.xnpv(0.1, [-100, 110], [0, 365]), 0.0, abs_tol=1e-9)
+    assert math.isclose(calc.xnpv(-0.5, [-100, 60], [44927, 45292]), 20.0)
+
+
 def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
     import numpy as np
 

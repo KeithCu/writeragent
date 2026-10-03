@@ -772,6 +772,12 @@ def xnpv(rate: Any, values: Any, dates: Any) -> float:
         dts = np.asarray(dates).ravel()
         if len(vals) != len(dts) or len(vals) == 0:
             return float("nan")
+        # Excel XNPV returns #NUM! when rate <= -1. (1+rate)**fraction is
+        # complex for a negative base, and rate == -1 is 0**0 == 1 on a
+        # cash flow dated with the anchor (or ZeroDivisionError later), so a
+        # finite total or a complex used to leak out of this float return.
+        if 1.0 + r <= 0.0:
+            return float("nan")
         res = 0.0
         d0 = float(dts[0])
         for v, d in zip(vals, dts):
