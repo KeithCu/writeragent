@@ -18,6 +18,9 @@ from plugin.framework.errors import safe_json_loads
 log = logging.getLogger("writeragent.calc")
 
 _FORMULA_DEP_CHAIN_CMD = ".uno:FormulaDepChain"
+# A full-column precedent such as A:Z is about 27 million cells. Walking
+# every one with getCellByPosition freezes the UI. Stop after this many snapshots.
+_MAX_PRECEDENT_CELLS = 10_000
 
 
 def _cell_snapshot(sheet: Any, col: int, row: int) -> dict[str, Any]:
@@ -49,7 +52,12 @@ def _cell_snapshot(sheet: Any, col: int, row: int) -> dict[str, Any]:
 
 
 def _precedents_via_formula_query(sheet: Any, col: int, row: int) -> dict[str, Any]:
-    """Build a lightweight precedent list when ``FormulaDepChain`` UNO is unavailable."""
+    """Build a lightweight precedent list when ``FormulaDepChain`` UNO is unavailable.
+
+    Precedent ranges are expanded to cell snapshots up to
+    ``_MAX_PRECEDENT_CELLS``. ``truncated`` is true when the cap stopped
+    the walk (for example a whole-column ``SUM``).
+    """
     try:
         from com.sun.star.sheet import XFormulaQuery
     except ImportError:
@@ -61,17 +69,27 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int) -> dict[str, A
         return {"source": "formula_query_unavailable", "precedents": []}
 
     precedents: list[dict[str, Any]] = []
+    # Set once the cap is hit so callers can tell a partial list from a
+    # complete one. Whole-column refs used to expand with no limit.
+    truncated = False
     try:
         ranges = fq.queryPrecedents(False)
         if ranges is None:
-            return {"source": "formula_query", "precedents": precedents}
+            return {"source": "formula_query", "precedents": precedents, "truncated": False}
         for addr in ranges.getRangeAddresses():
             for r in range(addr.StartRow, addr.EndRow + 1):
                 for c in range(addr.StartColumn, addr.EndColumn + 1):
+                    if len(precedents) >= _MAX_PRECEDENT_CELLS:
+                        truncated = True
+                        break
                     precedents.append(_cell_snapshot(sheet, c, r))
+                if truncated:
+                    break
+            if truncated:
+                break
     except Exception:
         log.debug("queryPrecedents failed", exc_info=True)
-    return {"source": "formula_query", "precedents": precedents}
+    return {"source": "formula_query", "precedents": precedents, "truncated": truncated}
 
 
 def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] | None:
@@ -84,9 +102,17 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
     sheet, col, row = resolved
 
     if ctx is not None:
-        from plugin.calc.navigation import navigate_to_cell
+        # Navigation selects the cell for the UNO command. A disposed
+        # document, headless run, or missing controller can throw here.
+        # That used to abort before getCommandValues and the formula-query
+        # fallback, so the dep chain was lost even though it does not need
+        # the view.
+        try:
+            from plugin.calc.navigation import navigate_to_cell
 
-        navigate_to_cell(doc, ctx, address)
+            navigate_to_cell(doc, ctx, address)
+        except Exception:
+            log.debug("navigate_to_cell failed for %r; continuing dep chain", address, exc_info=True)
 
     chain: dict[str, Any] | None = None
     if hasattr(doc, "getCommandValues"):
