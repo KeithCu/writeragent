@@ -162,3 +162,69 @@ def test_data_range_injection():
         res = tool.execute(ctx, code=code, data_range="A1:C1")
         assert res["result"] == 60
         inst.read_range.assert_called_with("A1:C1")
+
+
+def test_lp_helper_reraises_execution_timeout():
+    """SIGALRM timeout must leave lp(); swallowing it leaves the alarm disarmed."""
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    executor = PythonExecutor("test")
+    bridge = MagicMock()
+    manipulator = MagicMock()
+    inspector = MagicMock()
+    manipulator.safe_get_cell_value.side_effect = ExecutionTimeoutError("budget")
+    inspector.read_range.side_effect = ExecutionTimeoutError("budget")
+    executor.inject_helpers(bridge, manipulator, inspector)
+    lp = executor.executor.state["lp"]
+    with pytest.raises(ExecutionTimeoutError):
+        lp("A1")
+    with pytest.raises(ExecutionTimeoutError):
+        lp("A1:B2")
+
+
+def test_lp_helper_still_swallows_cell_errors():
+    executor = PythonExecutor("test")
+    bridge = MagicMock()
+    manipulator = MagicMock()
+    inspector = MagicMock()
+    manipulator.safe_get_cell_value.side_effect = RuntimeError("missing sheet")
+    executor.inject_helpers(bridge, manipulator, inspector)
+    assert executor.executor.state["lp"]("A1") is None
+
+
+def test_format_result_stringifies_non_json_values():
+    import json
+
+    executor = PythonExecutor("test")
+    samples = [executor.format_result(value) for value in ({1, 2}, b"ab", range(3), (x for x in (1, 2)), (1, 2))]
+    for formatted in samples:
+        assert isinstance(formatted, str)
+        json.dumps(formatted)
+    assert executor.format_result(None) is None
+    assert executor.format_result([1, {"a": 2}]) == [1, {"a": 2}]
+    assert executor.format_result({"a": 1}) == {"a": 1}
+    assert executor.execute_with_return("{1, 2}").startswith("<Result:")
+    json.dumps(executor.execute_with_return('b"ab"'))
+    json.dumps(executor.execute_with_return("(1, 2)"))
+
+
+def test_calc_helpers_fail_on_writer_document():
+    from plugin.framework.errors import WriterAgentException
+
+    tool = ExecutePythonScript()
+    ctx = MagicMock()
+    ctx.doc.getURL.return_value = "file:///note.odt"
+    ctx.doc.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextDocument"
+
+    res = tool.execute(ctx, code="1 + 1")
+    assert res["status"] == "ok"
+    assert res["result"] == 2
+
+    with pytest.raises(WriterAgentException) as excinfo:
+        tool.execute(ctx, code="lp('A1')")
+    assert excinfo.value.code == "PYTHON_EXECUTION_ERROR"
+    assert "Calc" in str(excinfo.value)
+
+    with pytest.raises(WriterAgentException) as range_exc:
+        tool.execute(ctx, code="1", data_range="A1:A2")
+    assert range_exc.value.code == "UNSUPPORTED_OPERATION"
