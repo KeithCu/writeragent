@@ -9,6 +9,7 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 import math
 from typing import Any
@@ -77,6 +78,26 @@ __all__ = [
 ]
 
 
+def _roll_ymd(year: int, month: int, day: int) -> dt.date:
+    """Spill extra days into later months, matching LibreOffice ``Date::Normalize``.
+
+    ``ScGetDateDif`` (``sc/source/core/tool/interpr2.cxx``) keeps the start day
+    when it retargets the year or month, then ``Normalize()``
+    (``comphelper/source/misc/date.cxx``). Feb 29 in a non-leap year becomes
+    March 1. ``datetime.date`` raises ``ValueError`` instead of rolling.
+    """
+    dim = calendar.monthrange(year, month)[1]
+    while day > dim:
+        day -= dim
+        if month == 12:
+            year += 1
+            month = 1
+        else:
+            month += 1
+        dim = calendar.monthrange(year, month)[1]
+    return dt.date(year, month, day)
+
+
 def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
     try:
         sd = dt.date.fromordinal(int(float(start_date)) + 693594)
@@ -86,18 +107,44 @@ def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
     if sd > ed:
         return float("nan")
     u = str(unit).strip('"').upper()
-    if u == "D":
-        return float((ed - sd).days)
-    if u == "M":
-        return float((ed.year - sd.year) * 12 + ed.month - sd.month)
-    if u == "Y":
-        return float(ed.year - sd.year - ((ed.month, ed.day) < (sd.month, sd.day)))
-    if u == "MD":
-        return float(ed.day - sd.day)
-    if u == "YM":
-        return float(ed.month - sd.month - (ed.day < sd.day))
-    if u == "YD":
-        return float((ed - dt.date(ed.year, sd.month, sd.day)).days)
+    # Month and day units follow ScGetDateDif (interpr2.cxx). A plain
+    # month or day subtraction ignores an incomplete month and goes
+    # negative across a year boundary; YD also built ``date(end.year,
+    # start.month, start.day)`` outside the try, so a Feb 29 start in a
+    # non-leap end year raised ValueError.
+    try:
+        if u == "D":
+            return float((ed - sd).days)
+        if u == "M":
+            months = (ed.year - sd.year) * 12 + ed.month - sd.month
+            if sd.day > ed.day:
+                months -= 1
+            return float(months)
+        if u == "Y":
+            return float(ed.year - sd.year - ((ed.month, ed.day) < (sd.month, sd.day)))
+        if u == "MD":
+            if sd.day <= ed.day:
+                return float(ed.day - sd.day)
+            # Borrow the previous month, keep the start day, then roll.
+            if ed.month == 1:
+                anchor = _roll_ymd(ed.year - 1, 12, sd.day)
+            else:
+                anchor = _roll_ymd(ed.year, ed.month - 1, sd.day)
+            return float((ed - anchor).days)
+        if u == "YM":
+            months = (ed.year - sd.year) * 12 + ed.month - sd.month
+            if sd.day > ed.day:
+                months -= 1
+            return float(months % 12)
+        if u == "YD":
+            if (ed.month, ed.day) >= (sd.month, sd.day):
+                year = ed.year
+            else:
+                year = ed.year - 1
+            anchor = _roll_ymd(year, sd.month, sd.day)
+            return float((ed - anchor).days)
+    except (ValueError, OverflowError):
+        return float("nan")
     return float((ed - sd).days)
 
 
@@ -574,11 +621,18 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
 
 
 def even(n: Any) -> float:
-    v = float(n)
-    i = int(np.trunc(v))
-    if i % 2 == 0:
-        return float(i)
-    return float(i + (1 if v >= 0 else -1))
+    # EVEN rounds away from zero to the next even integer. Truncating toward
+    # zero first returned the truncated value whenever it was already even,
+    # so EVEN(2.5) was 2 and EVEN(-2.5) was -2. Non-numeric input raised.
+    try:
+        v = float(n)
+    except (ValueError, TypeError):
+        return float("nan")
+    if not math.isfinite(v):
+        return float("nan")
+    if v >= 0:
+        return float(math.ceil(v / 2.0) * 2)
+    return float(math.floor(v / 2.0) * 2)
 
 
 def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
@@ -635,18 +689,24 @@ def fdist(x: Any, r1: Any, r2: Any) -> float:
 
 
 def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
-    arr = np.asarray(range_arr)
-    crit = np.asarray(criteria)
-    if arr.ndim == 1:
-        mask = np.asarray([bool(x) for x in crit.ravel()[: len(arr)]])
-        out = arr.ravel()[mask]
-    else:
-        if crit.ndim == 1:
-            mask = np.asarray([bool(x) for x in crit.ravel()[: arr.shape[0]]])
-            out = arr[mask]
+    # A short include was sliced down to the range, and a column of flags was
+    # used as a 2-D boolean index. Both make NumPy raise IndexError
+    # ("boolean index did not match"). That is a value error, not a traceback.
+    try:
+        arr = np.asarray(range_arr)
+        crit = np.asarray(criteria)
+        if arr.ndim == 1:
+            mask = np.asarray([bool(x) for x in crit.ravel()[: len(arr)]])
+            out = arr.ravel()[mask]
         else:
-            mask = crit.astype(bool)
-            out = arr[mask]
+            if crit.ndim == 1:
+                mask = np.asarray([bool(x) for x in crit.ravel()[: arr.shape[0]]])
+                out = arr[mask]
+            else:
+                mask = crit.astype(bool)
+                out = arr[mask]
+    except (ValueError, TypeError, IndexError):
+        return "#VALUE!"
     if out.size == 0:
         return if_empty
     return out.tolist() if out.ndim > 1 else out.ravel().tolist()
@@ -702,9 +762,14 @@ def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float
 
 
 def forecast(x: Any, data_y: Any, data_x: Any) -> float:
-    xv = float(x)
-    y = np.asarray(data_y, dtype=float).ravel()
-    x_arr = np.asarray(data_x, dtype=float).ravel()
+    # float() and asarray(dtype=float) raised on text. Sibling numeric
+    # helpers return nan for a value error.
+    try:
+        xv = float(x)
+        y = np.asarray(data_y, dtype=float).ravel()
+        x_arr = np.asarray(data_x, dtype=float).ravel()
+    except (ValueError, TypeError):
+        return float("nan")
     if y.size != x_arr.size or y.size < 2:
         return float("nan")
     avg_x = np.mean(x_arr)
@@ -736,17 +801,24 @@ def frequency(data: Any, bins: Any) -> Any:
 
 
 def fv(rate: Any, nper: Any, pmt_val: Any, pv_val: Any = 0, type_val: Any = 0) -> float:
-    r = float(rate)
-    n = float(nper)
-    pm = float(pmt_val)
-    p = float(pv_val)
-    t = int(float(type_val))
-    if r == 0:
-        return float(-(p + pm * n))
-    factor = (1 + r) ** n
-    if t == 1:
-        return float(-(p * factor + pm * (factor - 1) * (1 + r) / r))
-    return float(-(p * factor + pm * (factor - 1) / r))
+    # Unguarded float() raised ValueError/TypeError on text arguments.
+    try:
+        r = float(rate)
+        n = float(nper)
+        pm = float(pmt_val)
+        p = float(pv_val)
+        t = int(float(type_val))
+    except (ValueError, TypeError):
+        return float("nan")
+    try:
+        if r == 0:
+            return float(-(p + pm * n))
+        factor = (1 + r) ** n
+        if t == 1:
+            return float(-(p * factor + pm * (factor - 1) * (1 + r) / r))
+        return float(-(p * factor + pm * (factor - 1) / r))
+    except (OverflowError, ValueError, ZeroDivisionError):
+        return float("nan")
 
 
 def fvschedule(principal: Any, schedule: Any) -> float:
@@ -828,7 +900,11 @@ def gauss(x: Any) -> float:
 
 
 def geomean(r: Any) -> float:
-    arr = np.asarray(r, dtype=float).ravel()
+    # asarray(dtype=float) raised on non-numeric cells instead of returning nan.
+    try:
+        arr = np.asarray(r, dtype=float).ravel()
+    except (ValueError, TypeError):
+        return float("nan")
     arr = arr[~np.isnan(arr)]
     if not arr.size or np.any(arr <= 0):
         return float("nan")
@@ -869,7 +945,11 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
 
 
 def harmean(r: Any) -> float:
-    arr = np.asarray(r, dtype=float).ravel()
+    # asarray(dtype=float) raised on non-numeric cells instead of returning nan.
+    try:
+        arr = np.asarray(r, dtype=float).ravel()
+    except (ValueError, TypeError):
+        return float("nan")
     arr = arr[~np.isnan(arr)]
     if not arr.size or np.any(arr <= 0):
         return float("nan")
