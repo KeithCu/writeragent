@@ -218,6 +218,63 @@ def test_update_style_schema_emits_no_additional_properties_keyword():
     assert "property_updates" in schema["function"]["parameters"]["properties"]
 
 
+def test_empty_properties_strips_kwargs_before_any_provider():
+    """properties {} is a no-arg schema. Extra kwargs must not survive the one pre-shim check."""
+    from plugin.framework.tool_schema import normalize_outbound_tool_calls
+
+    tools = [{
+        "type": "function",
+        "function": {
+            "name": "list_sheets",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }]
+    messages = [{
+        "role": "assistant",
+        "tool_calls": [{
+            "id": "c1",
+            "type": "function",
+            "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+        }],
+    }]
+    out = normalize_outbound_tool_calls(messages, tools)
+    args = json.loads(out[0]["tool_calls"][0]["function"]["arguments"])
+    assert args == {}
+
+
+def test_duplicate_tool_schemas_union_properties_not_last_wins():
+    """A later empty properties object must not erase an earlier schema for the same name."""
+    from plugin.framework.tool_schema import normalize_outbound_tool_calls
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "shape_upsert",
+                "parameters": {"type": "object", "properties": {"action": {"type": "string"}}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "shape_upsert",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    ]
+    messages = [{
+        "role": "assistant",
+        "tool_calls": [{
+            "id": "c1",
+            "type": "function",
+            "function": {"name": "shape_upsert", "arguments": '{"action": "edit", "hallucinated": 1}'},
+        }],
+    }]
+    out = normalize_outbound_tool_calls(messages, tools)
+    args = json.loads(out[0]["tool_calls"][0]["function"]["arguments"])
+    assert args == {"action": "edit"}
+
+
 def test_coerce_call_args_wraps_array_range_and_formula_values():
     from plugin.framework.tool_schema import coerce_call_args
 

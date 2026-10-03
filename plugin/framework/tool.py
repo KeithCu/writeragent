@@ -42,7 +42,7 @@ from plugin.framework.thread_guard import assert_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
-from plugin.framework.tool_schema import _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers, coerce_call_args as coerce_call_args, to_mcp_schema as to_mcp_schema, to_openai_schema as to_openai_schema
+from plugin.framework.tool_schema import _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers, call_properties as call_properties, coerce_call_args as coerce_call_args, to_mcp_schema as to_mcp_schema, to_openai_schema as to_openai_schema, without_unknown_kwargs as without_unknown_kwargs
 
 _log = logging.getLogger(__name__)
 log = logging.getLogger("writeragent.tools")
@@ -301,13 +301,10 @@ class ToolBase(ABC):
         for key in required:
             if key not in kwargs:
                 return False, f"Missing required parameter: {key}"
-        props = schema.get("properties", {})
         extra_ok = getattr(self, "scripting_only_parameters", None) or frozenset()
-        # What was wrong: ``if props`` treated empty ``properties: {}`` as
-        # "no schema", so Gemini/Groq hallucinated kwargs reached execute on
-        # no-arg tools (list_sheets, etc.). A present properties dict —
-        # including {} — is authoritative.
-        props_dict = props if isinstance(props, dict) else None
+        # Same allow-list as execute and the pre-shim check. Empty
+        # properties {} is a closed schema, not "accept any kwargs".
+        props_dict = call_properties(schema)
         for key in kwargs:
             if props_dict is not None and key not in props_dict and key not in extra_ok:
                 return False, f"Unknown parameter: {key}"
@@ -814,12 +811,11 @@ class ToolRegistry:
             # from training memory when the property was removed from the schema
             # (see docs/calc/date-time-handling.md S26).
             schema = tool.get_parameters(ctx.doc_type) or {}
-            props = (schema or {}).get("properties", {})
+            props = call_properties(schema) or {}
             extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if ctx.caller == "script" else frozenset()
-            # Same empty-dict hole as validate(): strip unknown keys whenever
-            # properties is a dict, including {}.
-            if isinstance(props, dict):
-                kwargs = {k: v for k, v in kwargs.items() if k in props or k in extra_ok}
+            # One allow-list (including properties {}). The outbound check
+            # uses the same helper before any provider shim.
+            kwargs = without_unknown_kwargs(schema, kwargs, extra_ok)
 
             required = schema.get("required") or []
             required_names = set(required) if isinstance(required, list) else set()

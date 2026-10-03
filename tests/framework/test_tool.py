@@ -652,6 +652,27 @@ class TestManageChartsSpecializedTier:
         assert "get_sheet_summary" in cores
         assert "read_cell_range" in cores
 
+        def _exec(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        def core(name: str) -> ToolBase:
+            cls = type(
+                "Core_" + name,
+                (ToolBase,),
+                {"name": name, "description": name, "tier": "core", "requires_document": False, "execute": _exec},
+            )
+            return cls()
+
+        for name in ("get_document_content", "get_document_tree", "get_sheet_summary", "read_cell_range"):
+            reg.register(core(name))
+        # Last-wins would keep only Writer's readers. The shapes domain must
+        # still request Calc's sheet readers from the replaced registration.
+        names = {t.name for t in reg.get_tools(active_domain="shapes", filter_doc_type=False)}
+        assert "get_document_content" in names
+        assert "get_document_tree" in names
+        assert "get_sheet_summary" in names
+        assert "read_cell_range" in names
+
     def test_manage_charts_still_dispatches_to_dummy_backends(self):
         from plugin.calc.charts import ManageCharts
 
