@@ -36,7 +36,7 @@ from plugin.framework.queue_executor import llm_request_lane
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import SendHandlerEvent, SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
-from plugin.chatbot.tool_loop_actions import bind_turn_session, persist_assistant_on_turn
+from plugin.chatbot.tool_loop_actions import _turn_accepts_write, bind_turn_session, persist_assistant_on_turn, session_for_turn
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.tool import ToolContext
@@ -244,6 +244,13 @@ class SendHandlersMixin:
             payload = item[1] if isinstance(item, tuple) and len(item) > 1 else item
             if isinstance(payload, dict):
                 _finish_specialized_session(payload)
+                # Web, librarian, brainstorm, writing, PPT, and deep research
+                # used to persist on the worker. That write raced Clear.
+                # The answer rides this payload and is stored on the drain.
+                if current_state.handler_type != "agent":
+                    answer = payload.get("assistant_content")
+                    if isinstance(answer, str) and answer:
+                        persist_assistant_on_turn(self, content=answer)
             if current_state.handler_type == "agent":
                 text = "".join(agent_parts).strip()
                 if text:
@@ -388,9 +395,14 @@ class SendHandlersMixin:
             if model and hasattr(model, "getURL"):
                 document_url = str(model.getURL() or "")
 
+        bind_turn_session(self)
+        turn_session = session_for_turn(self)
+        if turn_session is None or not _turn_accepts_write(self, turn_session):
+            return
+
         try:
-            self.session.refresh_document_context(model, self.ctx)
-            doc_context = self.session.document_context
+            turn_session.refresh_document_context(model, self.ctx)
+            doc_context = turn_session.document_context
         except Exception as e:
             from plugin.framework.errors import is_disposed_exception
 
@@ -422,8 +434,8 @@ class SendHandlersMixin:
             self._set_status(_("Error"))
             return
 
-        bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session.add_user_message(query_text)
+        self._append_response(query_text, role="user")
 
         q: queue.Queue[Any] = queue.Queue()
         self._current_agent_backend = adapter
@@ -516,7 +528,10 @@ class SendHandlersMixin:
 
         self._in_librarian_mode = True
         bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session = session_for_turn(self)
+        if turn_session is None or not _turn_accepts_write(self, turn_session):
+            return
+        turn_session.add_user_message(query_text)
 
         # 1. State machine transition: start
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -536,7 +551,10 @@ class SendHandlersMixin:
 
         self._in_brainstorming_mode = True
         bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session = session_for_turn(self)
+        if turn_session is None or not _turn_accepts_write(self, turn_session):
+            return
+        turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
@@ -554,7 +572,10 @@ class SendHandlersMixin:
 
         self._in_writing_plan_mode = True
         bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session = session_for_turn(self)
+        if turn_session is None or not _turn_accepts_write(self, turn_session):
+            return
+        turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
@@ -572,7 +593,10 @@ class SendHandlersMixin:
 
         self._in_ppt_master_mode = True
         bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session = session_for_turn(self)
+        if turn_session is None or not _turn_accepts_write(self, turn_session):
+            return
+        turn_session.add_user_message(query_text)
 
         step = next_state(current_state, StartEvent(query_text, model, "web"))
         current_state = step.state
@@ -589,7 +613,10 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="web", status="ready")
 
         bind_turn_session(self)
-        self.session.add_user_message(query_text)
+        turn_session = session_for_turn(self)
+        if turn_session is None or not _turn_accepts_write(self, turn_session):
+            return
+        turn_session.add_user_message(query_text)
 
         # 1. State machine transition: start
         step = next_state(current_state, StartEvent(query_text, model, "web"))
@@ -710,15 +737,13 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
-                        q.put((StreamQueueKind.STREAM_DONE, {}))
+                        q.put((StreamQueueKind.STREAM_DONE, {"assistant_content": answer}))
                     elif data.get("status") == "switch_mode":
                         # Exit librarian on the UI thread via STREAM_DONE (combobox is UNO).
                         answer = data.get("result", _("Perfect! I'm switching you to the main assistant now."))
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
-                        q.put((StreamQueueKind.STREAM_DONE, {"librarian_switch_to_chat": True}))
+                        q.put((StreamQueueKind.STREAM_DONE, {"librarian_switch_to_chat": True, "assistant_content": answer}))
                     else:
                         self._in_librarian_mode = False
 
@@ -748,7 +773,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
                         done_payload = {"brainstorming_finished": True, "spec_saved": bool(data.get("spec_saved", False))}
                         answer = data.get("result", _("Brainstorming complete."))
@@ -756,7 +781,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     else:
                         self._in_brainstorming_mode = False
                         msg = data.get("message", _("Unknown brainstorming error."))
@@ -786,7 +811,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
                         done_payload = {"writing_plan_finished": True}
                         answer = data.get("result", _("Writing plan complete."))
@@ -794,7 +819,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     else:
                         self._in_writing_plan_mode = False
                         msg = data.get("message", _("Unknown writing plan error."))
@@ -824,7 +849,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     elif data.get("status") == "finished":
                         done_payload = {"ppt_master_finished": True, "exported": bool(data.get("exported", False))}
                         answer = data.get("result", _("PPT-Master session complete."))
@@ -832,7 +857,7 @@ class SendHandlersMixin:
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     else:
                         self._in_ppt_master_mode = False
                         msg = data.get("message", _("Unknown PPT-Master error."))
@@ -854,18 +879,19 @@ class SendHandlersMixin:
                         parsed_err = AgentParsingError("Invalid JSON from deep research tool.", details={"raw_result": result})
                         data = format_error_payload(parsed_err)
 
+                    done_payload = {}
                     if data.get("status") == "ok":
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, answer + "\n"))
-                        persist_assistant_on_turn(self, content=answer)
+                        done_payload["assistant_content"] = answer
                     else:
                         msg = data.get("message", _("Unknown deep research error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Deep research error: {0}]").format(msg) + "\n"))
 
-                    q.put((StreamQueueKind.STREAM_DONE, {}))
+                    q.put((StreamQueueKind.STREAM_DONE, done_payload))
                 else:
                     res = get_tools().execute("web_research", tctx, bypass_thread_guard=False, **{"query": query_text, "history_text": history_text})
                     result = json.dumps(res) if isinstance(res, dict) else str(res)
@@ -876,6 +902,7 @@ class SendHandlersMixin:
                         parsed_err = AgentParsingError("Invalid JSON from web search tool.", details={"raw_result": result})
                         data = format_error_payload(parsed_err)
 
+                    done_payload = {}
                     if data.get("status") == "ok":
                         from plugin.chatbot.web_research_chat import format_research_cache_result_chat
 
@@ -885,12 +912,12 @@ class SendHandlersMixin:
                         cache_block = format_research_cache_result_chat(data)
                         self._record_assistant_start = True
                         q.put((StreamQueueKind.CHUNK, cache_block + answer + "\n"))
-                        persist_assistant_on_turn(self, content=cache_block + answer)
+                        done_payload["assistant_content"] = cache_block + answer
                     else:
                         msg = data.get("message", _("Unknown research error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Research error: {0}]").format(msg) + "\n"))
 
-                    q.put((StreamQueueKind.STREAM_DONE, {}))
+                    q.put((StreamQueueKind.STREAM_DONE, done_payload))
             except Exception as e:
                 log.exception("Web/Librarian path ERROR in _run_web_research [doc: %s]", doc_type)
 

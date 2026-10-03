@@ -182,6 +182,33 @@ def test_control_state_lives_only_on_sm_state(mock_get_config, mock_drain_loop):
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
 @patch("plugin.chatbot.tool_loop.get_config")
+def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_drain_loop):
+    from plugin.chatbot.tool_loop import note_stop_partial
+
+    panel, session = setup_mock_panel()
+    note_stop_partial(panel, {"content": "kept tokens", "tool_calls": None})
+
+    def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, on_stopped=None, **kwargs):
+        on_stopped()
+
+    mock_drain_loop.side_effect = mock_drain_impl
+    panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    assert session.messages[-1]["role"] == "assistant"
+    assert session.messages[-1]["content"] == "kept tokens"
+
+
+def test_handle_stream_error_persists_banner():
+    panel, session = setup_mock_panel()
+    with patch("plugin.scripting.audio_recorder_service.try_native_audio_stt_fallback", return_value=False), \
+         patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False), \
+         patch("plugin.scripting.audio_recorder_service.clear_pending_audio_wav"):
+        result = panel._handle_stream_error(Exception("boom"))
+    assert result is None
+    assert session.messages[-1]["content"] == "[API error: boom]"
+
+
+@patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
+@patch("plugin.chatbot.tool_loop.get_config")
 def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_drain_loop):
     panel, _session = setup_mock_panel()
 

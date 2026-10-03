@@ -145,6 +145,55 @@ def test_spawn_llm_worker_effect_refreshes_tools_before_spawning():
     assert host.spawned_llm == [(host._active_q, host._active_client, 100, host._active_tools, 3, "question")]
 
 
+def test_sync_tool_disposed_document_queues_error_not_tool_done():
+    class DisposedException(Exception):
+        pass
+
+    host = FakeHost()
+    host._active_execute_tool_fn.side_effect = DisposedException("document closed")
+    interpreter = ToolLoopEffectInterpreter(host)
+    interpreter.execute(
+        SpawnToolWorkerEffect(
+            call_id="call_1",
+            func_name="apply_document_content",
+            func_args_str="{}",
+            func_args={},
+            is_async=False,
+        )
+    )
+    item = host._active_q.get_nowait()
+    assert item[0] == StreamQueueKind.ERROR
+    assert host._active_q.empty()
+
+
+def test_web_research_approval_setup_failure_does_not_run_search():
+    host = FakeHost()
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    registry, old_main = _install_fake_main_registry()
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.get_config_bool", side_effect=RuntimeError("config")):
+            out = execute_fn("web_research", {"query": "paris"}, MagicMock(), MagicMock())
+    finally:
+        _restore_main(old_main)
+    registry.execute.assert_not_called()
+    assert "WEB_RESEARCH_APPROVAL_UNAVAILABLE" in out
+
+
+def test_execute_fn_reraises_disposed_document():
+    class DisposedException(Exception):
+        pass
+
+    host = FakeHost()
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    registry, old_main = _install_fake_main_registry()
+    registry.execute.side_effect = DisposedException("gone")
+    try:
+        with pytest.raises(DisposedException):
+            execute_fn("apply_document_content", {"content": "hi"}, MagicMock(), MagicMock())
+    finally:
+        _restore_main(old_main)
+
+
 def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
     host = FakeHost()
     interpreter = ToolLoopEffectInterpreter(host)

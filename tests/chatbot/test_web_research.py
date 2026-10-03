@@ -1098,7 +1098,7 @@ def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
          patch("plugin.framework.config.get_config", return_value="off"), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
-         patch("plugin.chatbot.web_research._run_deep_web_research", return_value="DEEP REPORT") as mock_deep:
+         patch("plugin.chatbot.web_research._run_deep_web_research", return_value=("DEEP REPORT", query)) as mock_deep:
         deep_res = WebResearchTool().execute(ctx, query=query, deep=True)
 
     assert deep_res["status"] == "ok"
@@ -1473,7 +1473,7 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.framework.client.llm_client.LlmClient", return_value=MagicMock()), \
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
-         patch("plugin.chatbot.web_research._run_deep_web_research", return_value=dict(notes)):
+         patch("plugin.chatbot.web_research._run_deep_web_research", return_value=(dict(notes), "topic ratings")):
         res = WebResearchTool().execute(ctx, query="topic ratings", deep=True)
 
     assert res["status"] == "ok"

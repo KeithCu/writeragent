@@ -198,6 +198,11 @@ class ChatSession:
         self.messages = []
         self.document_context = ""
         self.compaction = None
+        # The next send advertises tools from these fields. Leaving the
+        # previous delegate set meant Clear still offered that domain.
+        self.active_specialized_domain = None
+        self.python_tool_domain = None
+        self.tool_streamed_texts = {}
         if self.db:
             self.db.clear()
             
@@ -848,6 +853,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None:
         """Append text to the response area (RichTextControl or plain multiline field)."""
+        send_state = getattr(getattr(self, "sidebar_state", None), "send", None)
+        if send_state is not None and send_state.is_busy:
+            from plugin.chatbot.tool_loop_actions import _turn_accepts_write, session_for_turn
+
+            turn = session_for_turn(self)
+            # Clear replaces messages while the drain can still flush queued
+            # chunks. Drop those. Do not gate when the send is idle: after
+            # Clear, _turn_messages stays stale until the next bind, and a
+            # pre-bind error line must still show.
+            if turn is not None and not _turn_accepts_write(self, turn):
+                return
         with suppress_disposed("_append_response", logger=log):
             widget = getattr(self, "rich_text_widget", None)
             if widget:
@@ -1311,6 +1327,27 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     # _transcribe_audio_async is provided by SendHandlersMixin.
 
+    def _sync_has_text_from_query(self) -> None:
+        """Ask is the source of truth after SEND_COMPLETED forces has_text False.
+
+        What was wrong: completion always cleared has_text. Text typed while a
+        reply streamed, and the extracted-peer path that never clears Ask,
+        then looked empty. With recording support the button became Record.
+        The FSM still forces False so a missed text listener cannot leave
+        has_text true on an empty box. This event corrects it from the control.
+        """
+        ctrl = getattr(self, "query_control", None)
+        if ctrl is None:
+            return
+        try:
+            from plugin.chatbot.dialogs import get_control_text
+
+            text = get_control_text(ctrl) or ""
+        except Exception:
+            log.debug("has_text sync skipped", exc_info=True)
+            return
+        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(str(text).strip())}))
+
     def _run_send_drain(self) -> None:
         """Run ``_do_send`` on a VCL tick after Send ``actionPerformed`` returns."""
         from plugin.framework.i18n import _
@@ -1343,13 +1380,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 else:
                     self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                    self._sync_has_text_from_query()
                     if self._terminal_status:
                         self._set_status(_(self._terminal_status))
                     try:
                         from plugin.framework.config import get_config_bool_safe
                         if get_config_bool_safe("audio.tts_enabled"):
-                            if self.session and self.session.messages:
-                                last_msg = self.session.messages[-1]
+                            from plugin.chatbot.tool_loop_actions import session_for_turn
+
+                            spoken = session_for_turn(self)
+                            if spoken and spoken.messages:
+                                last_msg = spoken.messages[-1]
                                 if last_msg.get("role") == "assistant" and last_msg.get("content"):
                                     from plugin.audio.tts_service import speak_text_async, is_speaking
 
@@ -1655,6 +1696,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     # may leave ""). Always set Ready here so ty does not treat a
                     # nonempty-string check as a redundant condition.
                     self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                    self._sync_has_text_from_query()
                     self._set_status(_("Ready"))
                     self._flush_sticky_restart()
             kick_pending_peer_starts()

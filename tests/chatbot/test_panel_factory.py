@@ -506,3 +506,25 @@ def test_chat_mode_listener_ignores_refresh():
     el._in_refresh_controls = False
     listener.on_item_state_changed(None)
     el._apply_sidebar_mode.assert_called_once()
+
+
+def test_chat_mode_listener_ignores_combo_while_send_is_busy():
+    from unittest.mock import MagicMock
+
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = False
+    el._apply_sidebar_mode = MagicMock()
+    selector = MagicMock()
+    selector.getSelectedItemPos.return_value = 0
+    selector.getText.return_value = "Librarian"
+    selector.addItemListener = MagicMock()
+    send = MagicMock()
+    send.sidebar_state.send.is_busy = True
+    flags = SidebarModeFlags()
+    el._wire_chat_mode_listener(selector, MagicMock(), None, send, None, lambda _mode: None, flags)
+    listener = selector.addItemListener.call_args[0][0]
+    listener.on_item_state_changed(None)
+    el._apply_sidebar_mode.assert_not_called()

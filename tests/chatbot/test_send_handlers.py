@@ -654,6 +654,7 @@ def test_missing_agent_backend_does_not_store_user_row():
             panel._execute_agent_backend_effect("hello", MockDocument(), "writer", state, interpreter)
 
     panel.session.add_user_message.assert_not_called()
+    assert "hello" not in panel.responses
     assert panel._terminal_status == "Error"
 
 

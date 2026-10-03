@@ -54,8 +54,10 @@ from plugin.framework.uno_context import get_toolkit
 from plugin.framework.i18n import _
 from plugin.chatbot.tool_loop_actions import (
     ToolLoopEffectInterpreter,
+    _turn_accepts_write,
     bind_turn_session,
     build_tool_execute_fn,
+    persist_assistant_on_turn,
     session_for_turn,
 )
 
@@ -153,6 +155,36 @@ class ToolLoopHost(Protocol):
     _last_compact_tokens_after: int | None
 
 
+def note_stop_partial(host: Any, response: Any) -> None:
+    """Remember assistant text from a stopped round that had no tool calls.
+
+    What was wrong: Stop stored ``No response.`` after the sidebar had already
+    shown the tokens. The worker had that text and dropped it on ``STOPPED``.
+    Partial ``tool_calls`` must not be executed, so a response that includes
+    them is not stored as the assistant message. The drain's stop callback
+    takes no queue payload, so the text rides on the host.
+    """
+    if isinstance(response, dict):
+        calls = response.get("tool_calls")
+        if isinstance(calls, list) and calls:
+            return
+        raw = response.get("content")
+        text = raw if isinstance(raw, str) else ""
+    elif isinstance(response, str):
+        text = response
+    else:
+        return
+    host._stop_partial_text = text.strip()
+
+
+def take_stop_partial(host: Any) -> str | None:
+    fields = getattr(host, "__dict__", None)
+    if not isinstance(fields, dict):
+        return None
+    text = fields.pop("_stop_partial_text", None)
+    return text if isinstance(text, str) else None
+
+
 class ToolCallingMixin:
     """Tool-loop control state lives only in ``sidebar_state.tool_loop`` (via ``_sm_state``).
 
@@ -200,6 +232,10 @@ class ToolCallingMixin:
         """Re-render session with HTML formatting. Overridden in SendButtonListener."""
 
     def _do_send_chat_with_tools(self: ToolLoopHost, query_text: str, model: Any, doc_type_str: str, skip_append_user: bool = False) -> None:
+        # Pin before pump_ui_idle. A mode click inside that pump used to swap
+        # host.session, and the bind after refresh then stored this turn on
+        # the other chat.
+        bind_turn_session(self)
         try:
             log.debug("_do_send: importing core modules...")
             from plugin.main import get_tools
@@ -213,15 +249,17 @@ class ToolCallingMixin:
 
         # Callback for updating active domain in the session
         def set_active_domain(domain: Any, python_tool_domain: Any = None) -> None:
-            if hasattr(self, "session") and self.session:
-                self.session.active_specialized_domain = domain
-                self.session.python_tool_domain = python_tool_domain
+            session = session_for_turn(self)
+            if session is not None:
+                session.active_specialized_domain = domain
+                session.python_tool_domain = python_tool_domain
                 log.debug("_do_send: updated active specialized domain to: %s (python_tool_domain: %s)", domain, python_tool_domain)
 
         try:
             log.debug("_do_send: loading %s schema..." % doc_type_str)
-            active_domain = getattr(self.session, "active_specialized_domain", None) if hasattr(self, "session") else None
-            python_tool_domain = getattr(self.session, "python_tool_domain", None) if hasattr(self, "session") else None
+            turn_session = session_for_turn(self)
+            active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
+            python_tool_domain = getattr(turn_session, "python_tool_domain", None) if turn_session is not None else None
             from plugin.framework.queue_executor import pump_ui_idle
             from plugin.framework.uno_context import get_toolkit
 
@@ -313,9 +351,14 @@ class ToolCallingMixin:
         client = self.client
 
         self._set_status("Reading document...")
+        turn_session = session_for_turn(self)
+        if turn_session is None or not _turn_accepts_write(self, turn_session):
+            # Clear replaced messages while this send was still starting.
+            # Refresh and the user row must not land on the wiped chat.
+            return
         try:
-            self.session.refresh_document_context(model, self.ctx)
-            doc_text = self.session.document_context
+            turn_session.refresh_document_context(model, self.ctx)
+            doc_text = turn_session.document_context
             log.debug("_do_send: document context length=%d" % len(doc_text))
             agent_log("tool_loop.py:doc_context", "Document context for AI", data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": max_context}, hypothesis_id="B")
         except UnoObjectError:
@@ -338,9 +381,8 @@ class ToolCallingMixin:
 
         # Peer extracted send already appended the envelope + body once.
         # Calling add_user_message again would double-post that turn.
-        # Bind after the document refresh so the pinned list is the one
-        # this user row is appended to (refresh edits that list in place).
-        bind_turn_session(self)
+        # The turn was bound before pump_ui_idle. Refresh edits that list
+        # in place, so the pin still names it.
         if skip_append_user:
             b64_image = None
         else:
@@ -387,7 +429,7 @@ class ToolCallingMixin:
                 else:
                     self.audio_wav_path = None
 
-            self.session.add_user_message(content_list)
+            turn_session.add_user_message(content_list)
 
             attach_str = " & ".join(attachments)
             if attach_str:
@@ -396,14 +438,14 @@ class ToolCallingMixin:
                 display_text = query_text
             self._append_response(display_text, role="user")
         else:
-            self.session.add_user_message(query_text)
+            turn_session.add_user_message(query_text)
             self._append_response(query_text, role="user")
 
         self._append_response("\n[Using chat model.]\n")
         log.info("_do_send: using chat model")
 
         self._set_status("Connecting to AI (tools=%s)..." % use_tools)
-        log.debug("_do_send: calling AI, use_tools=%s, messages=%d" % (use_tools, len(self.session.messages)))
+        log.debug("_do_send: calling AI, use_tools=%s, messages=%d" % (use_tools, len(turn_session.messages)))
 
         max_tool_rounds = cast("int", api_config["chat_max_tool_rounds"])
         self._start_tool_calling_async(client, model, max_tokens, active_tools, execute_fn, max_tool_rounds, query_text=query_text)
@@ -419,7 +461,8 @@ class ToolCallingMixin:
         try:
             from plugin.main import get_tools
 
-            active_domain = getattr(self.session, "active_specialized_domain", None) if hasattr(self, "session") and self.session else None
+            turn_session = session_for_turn(self)
+            active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
             refresh_doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
             self._active_tools = get_tools().get_schemas(
                 "openai",
@@ -498,6 +541,7 @@ class ToolCallingMixin:
                 # without raising; also honor client._stopped so that is not STREAM_DONE.
                 if self.stop_requested or getattr(client, "_stopped", False):
                     if batched: batched.flush()
+                    note_stop_partial(self, response)
                     real_q.put((StreamQueueKind.STOPPED,))
                 else:
                     update_activity_state("tool_loop", round_num=round_num)
@@ -573,6 +617,7 @@ class ToolCallingMixin:
                     )
                 if self.stop_requested or getattr(client, "_stopped", False):
                     if batched: batched.flush()
+                    note_stop_partial(self, "".join(last_streamed))
                     real_q.put((StreamQueueKind.STOPPED,))
                 else:
                     if batched: batched.flush()
@@ -650,7 +695,11 @@ class ToolCallingMixin:
         return exit_loop
 
     def _handle_stream_stopped(self: ToolLoopHost) -> None:
-        event = ToolLoopEvent(kind=EventKind.STOP_REQUESTED)
+        partial = take_stop_partial(self)
+        data: dict[str, Any] = {}
+        if partial is not None:
+            data["content"] = partial
+        event = ToolLoopEvent(kind=EventKind.STOP_REQUESTED, data=data)
         tr = next_state(self._sm_state, event)
         self._sm_state = tr.state
 
@@ -723,9 +772,14 @@ class ToolCallingMixin:
                 or not is_local_model_server_crash(display)
             ):
                 display = local_model_overflow_message()
-            self._append_response("\n%s\n" % display)
+            banner = "\n%s\n" % display
         else:
-            self._append_response("\n[API error: %s]\n" % err_msg)
+            banner = "\n[API error: %s]\n" % err_msg
+        self._append_response(banner)
+        # The user row is already stored. Leaving the banner widget-only made
+        # a retry append a second user row with a hole where the assistant was.
+        # Overflow respawn and audio fallback return before this write.
+        persist_assistant_on_turn(self, content=banner.strip())
         self._terminal_status = "Error"
         self._set_status("Error")
         clear_pending_audio_wav(self)

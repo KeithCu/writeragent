@@ -499,8 +499,13 @@ def _run_deep_web_research(
     cache_max_mb: int,
     cache_max_age_days: int,
     plain_text_format: str,
-) -> str | dict[str, Any]:
-    """Breadth/depth research loop; each sub-query reuses the shallow ReAct sub-agent."""
+) -> tuple[str | dict[str, Any], str]:
+    """Breadth/depth research loop; each sub-query reuses the shallow ReAct sub-agent.
+
+    Returns the answer and the query that was actually researched. Change
+    replaces the original before the preview, the loop, and the caller's
+    cache write.
+    """
     from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
     from plugin.framework.config import get_config_int, get_config_int_safe
     from plugin.chatbot.smol_agent import WriterAgentSmolModel
@@ -583,9 +588,16 @@ def _run_deep_web_research(
         else:
             proceed, query_override = approval_result, None
         if not proceed:
-            preview_query = None
-        elif query_override is not None:
-            preview_query = str(query_override)
+            # Reject used to skip only the preview, then run_deep_research
+            # kept going after the sidebar went idle. Same stop payload as
+            # a rejected shallow search.
+            return (
+                format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")),
+                query_str,
+            )
+        if query_override is not None:
+            query_str = str(query_override)
+            preview_query = query_str
         # The sidebar has one approval slot. A second web_search prompt from a
         # parallel sub-agent is rejected as USER_STOPPED and aborts the pool.
         # This preview consumed that slot; later searches run without it.
@@ -610,7 +622,7 @@ def _run_deep_web_research(
     if max_rounds <= 0:
         max_rounds = get_config_int("chatbot.deep_research_depth")
 
-    return run_deep_research(
+    researched = run_deep_research(
         query_str,
         history_text,
         llm_chat=llm_chat,
@@ -626,6 +638,7 @@ def _run_deep_web_research(
         plain_text_format=plain_text_format,
         initial_search_snippet=initial_snippet,
     )
+    return researched, query_str
 
 
 class WebResearchTool(ToolBase):
@@ -791,7 +804,7 @@ class WebResearchTool(ToolBase):
 
         try:
             if deep:
-                final_ans = _run_deep_web_research(
+                final_ans, researched_query = _run_deep_web_research(
                     ctx,
                     query_str,
                     history_text,
@@ -801,6 +814,11 @@ class WebResearchTool(ToolBase):
                     cache_max_age_days=cache_max_age_days,
                     plain_text_format=WEB_RESEARCH_PLAIN_TEXT_FORMAT,
                 )
+                if researched_query != query_str:
+                    # Change edits the query after the original cache lookup.
+                    # Store under the query that was actually researched.
+                    unique_key = _get_unique_words_key(researched_query, snowball_lang=stem_lang)
+                    embedding_text = _get_embedding_words_text(researched_query, snowball_lang=stem_lang)
             else:
                 final_ans = _run_web_agent(ctx, query_str, history_text, agent_params)
 

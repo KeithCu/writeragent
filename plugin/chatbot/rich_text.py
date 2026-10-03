@@ -321,10 +321,11 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     assistant message and ``truncate_control_from`` would delete that error line
     (Packet F HTTP 429/500 looked like a leftover hello).
 
-    Skip rerender after Stop. STOP_REQUESTED stores session content
-    ``No response.``; ``rerender_last_assistant_if_html`` then truncates the
-    stream tail — including the ``[Stopped by user]`` append — and pastes that
-    placeholder (Packet B1: ramble vanished, marker never visible).
+    Skip rerender after Stop. The widget already shows the streamed tokens
+    plus ``[Stopped by user]``. ``rerender_last_assistant_if_html`` truncates
+    that tail and pastes the session row over it (Packet B1: the ramble
+    vanished and the marker never stayed visible). The session row may now
+    be that partial text; rerender would still drop the marker.
 
     Empty / truncated STREAM_DONE must AddMessageEffect the banner (see
     ``tool_loop_state``) so this path does not paste the previous HTML assistant

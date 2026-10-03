@@ -215,6 +215,26 @@ class TestSendDispose:
         listener.status_control.setText.assert_not_called()
         listener.audio_recorder.start_recording.assert_not_called()
 
+    def test_send_completed_rereads_ask_box(self) -> None:
+        listener = _make_send_listener()
+        listener._do_send = MagicMock()
+        listener._terminal_status = "Ready"
+        listener._panel_teardown = False
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, True, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        with (
+            patch("plugin.audio.tts_service.speak_text_async"),
+            patch("plugin.audio.tts_service.is_speaking", return_value=False),
+            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+            patch("plugin.chatbot.dialogs.get_control_text", return_value="still typing"),
+        ):
+            listener._run_send_drain()
+        assert listener.sidebar_state.send.is_busy is False
+        assert listener.sidebar_state.send.has_text is True
+
     def test_clear_while_busy_drops_the_in_flight_reply(self) -> None:
         from plugin.chatbot.panel import ChatSession
         from plugin.chatbot.tool_loop_actions import bind_turn_session, persist_assistant_on_turn
@@ -236,6 +256,9 @@ class TestSendDispose:
         persist_assistant_on_turn(listener, content="late reply")
         assert all(message.get("role") != "assistant" for message in session.messages)
         assert session.compaction is None
+        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+            listener._append_response("painted after clear")
+        set_text.assert_not_called()
 
     def test_swapped_session_does_not_receive_the_in_flight_reply(self) -> None:
         from plugin.chatbot.panel import ChatSession

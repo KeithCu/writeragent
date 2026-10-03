@@ -422,8 +422,21 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
 
     match event.kind:
         case EventKind.STOP_REQUESTED:
-            # Stop mid-stream or stop clicked
-            effects.append(AddMessageEffect(role="assistant", content="No response."))
+            # Stop mid-stream or stop clicked. The drain passes streamed text
+            # on the event. Pending tool ids get a short result so
+            # sanitize_tool_pairs keeps the assistant text and finished bodies.
+            # Partial tool_calls never reach this event: the worker does not
+            # enqueue them.
+            data = event.data if type(event.data) is dict else {}
+            raw_content = data.get("content")
+            stopped_text = raw_content.strip() if type(raw_content) is str else ""
+            if state.pending_tools:
+                for tc in state.pending_tools:
+                    _func_name, _func_args_str, call_id = pending_tool_call_fields(tc)
+                    if call_id:
+                        effects.append(AddMessageEffect(role="tool", call_id=call_id, content="Stopped by user."))
+            else:
+                effects.append(AddMessageEffect(role="assistant", content=stopped_text or "No response."))
             effects.append(ToolLoopUIEffect(kind="status", text="Stopped"))
             effects.append(ToolLoopUIEffect(kind="append", text="\n[Stopped by user]\n"))
             effects.append(ExitLoopEffect())

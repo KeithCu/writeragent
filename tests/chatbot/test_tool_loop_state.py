@@ -52,8 +52,33 @@ def test_stop_requested():
     assert new_state.status == "Stopped"
 
     assert any(isinstance(e, ExitLoopEffect) for e in effects)
-    assert any(isinstance(e, AddMessageEffect) for e in effects)
+    msg = next(e for e in effects if isinstance(e, AddMessageEffect))
+    assert msg.role == "assistant"
+    assert msg.content == "No response."
     assert any(isinstance(e, ToolLoopUIEffect) and e.kind == "status" and e.text == "Stopped" for e in effects)
+
+
+def test_stop_requested_stores_streamed_text_when_no_tools_are_open():
+    state = create_base_state()
+    tr = next_state(state, create_event(EventKind.STOP_REQUESTED, content="  partial answer  "))
+    msg = next(e for e in tr.effects if isinstance(e, AddMessageEffect))
+    assert msg.role == "assistant"
+    assert msg.content == "partial answer"
+    assert tr.state.is_stopped is True
+
+
+def test_stop_requested_closes_open_tool_ids_instead_of_a_placeholder():
+    pending = [
+        {"id": "call_1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}},
+        {"id": "call_2", "type": "function", "function": {"name": "lookup", "arguments": "{}"}},
+    ]
+    state = create_base_state(pending_tools=pending)
+    tr = next_state(state, create_event(EventKind.STOP_REQUESTED, content="ignored while tools are open"))
+    tool_effects = [e for e in tr.effects if isinstance(e, AddMessageEffect)]
+    assert [e.role for e in tool_effects] == ["tool", "tool"]
+    assert [e.call_id for e in tool_effects] == ["call_1", "call_2"]
+    assert all(e.content == "Stopped by user." for e in tool_effects)
+    assert tr.state.pending_tools == pending
 
 def test_final_done():
     state = create_base_state()

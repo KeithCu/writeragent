@@ -996,6 +996,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # applies Chat and render_session_history clears the transcript.
                 if getattr(self.panel, "_in_refresh_controls", False):
                     return
+                # A click during processEventsToIdle used to swap host.session
+                # and write [DOCUMENT CONTENT] onto the other chat. Librarian
+                # handoff calls apply_mode directly while the send is busy;
+                # only this combo listener is ignored.
+                send_state = getattr(getattr(send_listener, "sidebar_state", None), "send", None)
+                if send_state is not None and send_state.is_busy:
+                    return
                 mode = mode_from_selector_with_flags(self.selector, self.mode_flags)
                 self.apply_target(mode)
 

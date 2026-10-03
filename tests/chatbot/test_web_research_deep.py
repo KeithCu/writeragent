@@ -412,7 +412,7 @@ class TestWebResearchExecuteDeepKwarg:
     def test_deep_kwarg_calls_run_deep_web_research(self, mock_deep, mock_run):
         from plugin.chatbot.web_research import WebResearchTool
 
-        mock_deep.return_value = "deep report"
+        mock_deep.return_value = ("deep report", "test query")
         tool = WebResearchTool()
         ctx = MagicMock()
         ctx.ctx = MagicMock()
@@ -441,6 +441,47 @@ class TestWebResearchExecuteDeepKwarg:
         assert out["result"] == "deep report"
         mock_deep.assert_called_once()
         mock_run.assert_not_called()
+
+
+def test_deep_change_writes_cache_under_the_edited_query(tmp_path):
+    from plugin.chatbot.web_research import WebResearchTool, _get_unique_words_key
+
+    tool = WebResearchTool()
+    ctx = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.doc = None
+    ctx.status_callback = None
+    ctx.append_thinking_callback = None
+    ctx.approval_callback = None
+    ctx.chat_append_callback = None
+    ctx.stop_checker = None
+    ctx.send_cancellation = None
+    edited = "edited paris bistro"
+    written: dict[str, str] = {}
+
+    def _write(_ctx, _path, unique_key, result_text, *_args, **_kwargs):
+        written["key"] = unique_key
+        written["text"] = result_text
+        return {}
+
+    with (
+        patch("plugin.chatbot.web_research._run_deep_web_research", return_value=("REPORT", edited)),
+        patch("plugin.chatbot.web_research._write_research_cache", side_effect=_write),
+        patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
+        patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("plugin.framework.config.get_config_int", return_value=30),
+        patch("plugin.framework.config.get_config_int_safe", return_value=50),
+        patch("plugin.framework.config.get_api_config", return_value={}),
+        patch("plugin.framework.config.get_config", return_value="off"),
+        patch("plugin.framework.client.llm_client.LlmClient"),
+        patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
+    ):
+        out = tool.execute(ctx, query="paris restaurants", deep=True)
+
+    assert out["result"] == "REPORT"
+    assert written["key"] == _get_unique_words_key(edited, snowball_lang="english")
+    assert written["key"] != _get_unique_words_key("paris restaurants", snowball_lang="english")
 
 
 def test_assess_research_coverage_parses_score():
@@ -560,7 +601,7 @@ def _deep_preview_params(approval_callback, *, prompt: bool):
     )
 
 
-def test_deep_preview_reject_skips_fetch_and_research_continues():
+def test_deep_preview_reject_stops_the_run():
     from plugin.chatbot.web_research import _run_deep_web_research
 
     for decision in (False, (False, None)):
@@ -573,10 +614,12 @@ def test_deep_preview_reject_skips_fetch_and_research_continues():
                 MagicMock(), "topic", None, params,
                 cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
             )
-        assert out == "report"
+        answer, used_query = out
+        assert isinstance(answer, dict)
+        assert answer.get("code") == "USER_STOPPED"
+        assert used_query == "topic"
         ddg.assert_not_called()
-        assert run_deep.call_args.kwargs["initial_search_snippet"] == ""
-        assert callable(run_deep.call_args.kwargs["worker_factory"])
+        run_deep.assert_not_called()
 
 
 def test_deep_preview_approval_uses_edited_query():
@@ -609,8 +652,11 @@ def test_deep_preview_approval_uses_edited_query():
         )
         run_sub, _chat = run_deep.call_args.kwargs["worker_factory"]()
         run_sub("q", "goal", None)
-    assert out == "report"
+    answer, used_query = out
+    assert answer == "report"
+    assert used_query == "edited topic"
     ddg.return_value.forward.assert_called_once_with("edited topic")
+    assert run_deep.call_args.args[0] == "edited topic"
     assert run_deep.call_args.kwargs["initial_search_snippet"] == "snippet text"
     assert captured["prompt"] is False
     assert captured["approval"] is None

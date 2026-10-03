@@ -31,7 +31,7 @@ from plugin.chatbot.tool_loop_state import (
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
 from plugin.framework.config import get_config_bool, get_current_endpoint
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception
+from plugin.framework.errors import ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception, is_tool_document_disposed
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.tool import ToolContext
@@ -88,6 +88,21 @@ def persist_assistant_on_turn(
     if reasoning_replay is not None:
         kwargs["reasoning_replay"] = reasoning_replay
     session.add_assistant_message(content=content, **kwargs)
+
+
+def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: str, exc: BaseException) -> None:
+    """Queue a tool failure. A disposed document ends the loop.
+
+    What was wrong: both workers turned every exception into a JSON tool
+    payload and queued ``TOOL_DONE``, so a closed document looked like a
+    normal tool error and the loop continued. ``is_tool_document_disposed``
+    is the tool-boundary check; ``is_disposed_exception`` also matches a
+    bare ``RuntimeException`` from a live document.
+    """
+    if is_tool_document_disposed(exc, getattr(host, "_active_model", None)):
+        host._active_q.put((StreamQueueKind.ERROR, format_error_payload(exc)))
+        return
+    host._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(exc))))
 
 
 def persist_tool_on_turn(host: Any, call_id: str | None, content: Any) -> None:
@@ -177,12 +192,13 @@ def build_tool_execute_fn(
                 if aq is not None:
                     aq.put((StreamQueueKind.CHUNK, text))
                 cid = getattr(host, "_current_tool_call_id", None)
-                if cid and hasattr(host, "session") and host.session:
-                    if not hasattr(host.session, "tool_streamed_texts"):
-                        host.session.tool_streamed_texts = {}
-                    if cid not in host.session.tool_streamed_texts:
-                        host.session.tool_streamed_texts[cid] = []
-                    host.session.tool_streamed_texts[cid].append(text)
+                streamed_session = session_for_turn(host)
+                if cid and streamed_session is not None:
+                    if not hasattr(streamed_session, "tool_streamed_texts"):
+                        streamed_session.tool_streamed_texts = {}
+                    if cid not in streamed_session.tool_streamed_texts:
+                        streamed_session.tool_streamed_texts[cid] = []
+                    streamed_session.tool_streamed_texts[cid].append(text)
 
             chat_append_cb = _sub_agent_chat_append
 
@@ -213,7 +229,16 @@ def build_tool_execute_fn(
 
                     approval_cb = _web_approval
             except Exception as ex:
+                # What was wrong: this logged and left approval_cb as None.
+                # web_research prompts only when both the config flag and the
+                # callback are set, so a config error skipped Accept/Change/Reject
+                # and the search ran. Fail closed instead.
                 log.warning("tool_loop: web_research approval setup failed: %s", ex)
+                err = ToolExecutionError(
+                    "Web research approval could not be shown. The search was not started.",
+                    code="WEB_RESEARCH_APPROVAL_UNAVAILABLE",
+                )
+                return json.dumps(format_error_payload(err))
 
         active_page_idx = None
         if doc_type_str in ("draw", "impress"):
@@ -252,6 +277,8 @@ def build_tool_execute_fn(
             res = _get_tools().execute(name, tctx, **safe_args)
             return json.dumps(res) if isinstance(res, dict) else str(res)
         except (ToolExecutionError, UnoObjectError) as e:
+            if is_tool_document_disposed(e, doc):
+                raise
             tb = traceback.format_exc()
             log.exception("Tool execution failed")
             agent_log("tool_loop.py:execute_fn", "Tool execution failed", data={"type": type(e).__name__, "message": str(e)})
@@ -261,6 +288,8 @@ def build_tool_execute_fn(
             err_payload["details"]["traceback"] = tb
             return json.dumps(err_payload)
         except Exception as e:
+            if is_tool_document_disposed(e, doc):
+                raise
             log.exception("Unexpected tool error")
             tb = traceback.format_exc()
             wrapped_error = ToolExecutionError("Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb})
@@ -315,11 +344,16 @@ class ToolLoopEffectInterpreter:
         failure _do_send already ends on.
         """
         host = self.host
+        session = session_for_turn(host)
+        if session is None or not _turn_accepts_write(host, session):
+            # Clear replaced the message list. Do not write [DOCUMENT CONTENT]
+            # onto the wiped chat, and do not keep the tool loop going.
+            return True
         try:
             doc = host._get_document_model() if hasattr(host, "_get_document_model") else None
             if not doc:
                 raise UnoObjectError("Document closed or unavailable.", code="DOCUMENT_UNAVAILABLE")
-            host.session.refresh_document_context(doc, host.ctx)
+            session.refresh_document_context(doc, host.ctx)
             return False
         except Exception as exc:
             if is_disposed_exception(exc):
@@ -405,7 +439,7 @@ class ToolLoopEffectInterpreter:
                         res = host._active_execute_tool_fn(func_name, func_args, host._active_model, host.ctx, stop_checker=host.resolve_stop_checker())
                     host._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
                 except Exception as e:
-                    host._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(e))))
+                    _queue_tool_failure(host, call_id, func_name, func_args_str, e)
 
             run_in_background(run_async, name=f"tool-async-{func_name}", dedicated=True)
         else:
@@ -422,4 +456,4 @@ class ToolLoopEffectInterpreter:
                 host._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
             except Exception as e:
                 log.debug("sync tool failed name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
-                host._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(e))))
+                _queue_tool_failure(host, call_id, func_name, func_args_str, e)

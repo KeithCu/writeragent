@@ -203,7 +203,9 @@ def spawn_effects_for_start(
         effects.append(SendHandlerUIEffect("status", "Creating image..."))
         effects.append(SpawnDirectImageEffect(query_text, model))
     elif handler_type == "agent":
-        effects.append(SendHandlerUIEffect("append", query_text, role="user"))
+        # The user line is painted next to add_user_message, after the
+        # backend exists. Painting it here left a You: row on screen when
+        # the adapter was missing and history had no user turn.
         effects.append(SendHandlerUIEffect("append", "\n[Using external agent backend.]\n"))
         effects.append(SendHandlerUIEffect("append", "AI: "))
         effects.append(SendHandlerUIEffect("status", "Starting agent..."))
