@@ -150,6 +150,7 @@ def test_intermediate_llm_frame_forwards_cancellation_scope():
             {"type": "llm_request", "id": "9", "messages": []},
             stdin_write=lambda blob: None,
             cancellation_scope=scope,
+            caller="ppt_master_venv",
         )
 
     assert handled is True
