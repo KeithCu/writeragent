@@ -169,7 +169,13 @@ def _json_history_filename(session_id: str, history_dir: str) -> str:
         name = hashlib.sha256(name.encode("utf-8")).hexdigest()
     elif name != name.lower():
         hashed_name = hashlib.sha256(name.encode("utf-8")).hexdigest()
-        if history_dir and os.path.exists(os.path.join(history_dir, f"{name}.json")):
+        exact_match_found = False
+        if history_dir:
+            try:
+                exact_match_found = f"{name}.json" in os.listdir(history_dir)
+            except OSError:
+                pass
+        if exact_match_found:
             pass
         else:
             name = hashed_name

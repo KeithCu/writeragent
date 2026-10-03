@@ -122,6 +122,15 @@ def test_json_history_hashes_session_ids(tmp_path):
     plain_B = JSONHistory("session_B", db_path)
     assert plain_B.file_path.endswith("session_B.json")
 
+    # 5. On a case-insensitive FS, the check must be exact.
+    # We simulate this by checking that if only 'session_c.json' is present,
+    # requesting 'session_C' produces a hashed filename (it should not wrongly
+    # fall back to 'session_C.json' just because a case-insensitive exists() returns True).
+    open(os.path.join(history_dir, "session_c.json"), "w").close()
+    plain_C = JSONHistory("session_C", db_path)
+    expected_hash_C = hashlib.sha256(b"session_C").hexdigest()
+    assert plain_C.file_path.endswith(f"{expected_hash_C}.json")
+
 
 def test_json_history_refuses_to_replace_invalid_utf8_file(tmp_path):
     history = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
