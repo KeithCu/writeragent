@@ -1,4 +1,5 @@
 from plugin.chatbot.state_machine import (
+    EffectInterpreter,
     SendHandlerState,
     next_state,
     StartEvent,
@@ -178,3 +179,19 @@ class TestSendHandlerHelpers:
         assert stop_effects_exclude_spawns([SendHandlerUIEffect("status", "Stopped"), CompleteJobEffect("Stopped")])
         assert not stop_effects_exclude_spawns([SpawnWebWorkerEffect("q", None)])
         assert stop_effects_exclude_spawns("not-a-list")
+
+
+class TestEffectInterpreterThinking:
+    def test_append_keeps_thinking_flag(self):
+        appended = []
+
+        class Host:
+            def _append_response(self, text, is_thinking=False, role="assistant"):
+                appended.append((text, is_thinking, role))
+
+            def _set_status(self, text):
+                return None
+
+        EffectInterpreter(Host()).interpret(SendHandlerUIEffect("append", "search step", is_thinking=True))
+        EffectInterpreter(Host()).interpret(SendHandlerUIEffect("append", "answer", is_thinking=False, role="assistant"))
+        assert appended == [("search step", True, "assistant"), ("answer", False, "assistant")]

@@ -54,8 +54,9 @@ class _DirectImageHost(SendHandlersMixin):
         self.base_size_input = MagicMock()
         self.base_size_input.getText.return_value = "1024"
 
-    def _append_response(self, text, role="assistant"):
+    def _append_response(self, text, is_thinking=False, role="assistant"):
         self.responses.append(text)
+        self._last_thinking = is_thinking
 
     def _set_status(self, text):
         self.status_history.append(text)
