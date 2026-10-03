@@ -340,6 +340,44 @@ def test_get_real_interface_skips_hop_when_panel_exists():
     assert result is existing
 
 
+def test_sidebar_model_selectors_skip_remote_fetch():
+    """Sidebar create and config:changed must not fetch the catalog on the UI thread."""
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = False
+    el.m_panelRootWindow = MagicMock()
+    el._update_backend_indicator = MagicMock()
+    model_selector = MagicMock()
+    image_selector = MagicMock()
+
+    def get_optional(_root, name):
+        if name == "model_selector":
+            return model_selector
+        if name == "image_model_selector":
+            return image_selector
+        return None
+
+    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", return_value="m") as pop, \
+         patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", return_value="img") as image_pop, \
+         patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), \
+         patch("plugin.chatbot.panel_factory.get_image_model", return_value="img"), \
+         patch("plugin.chatbot.panel_factory.get_config", return_value=""), \
+         patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value="http://127.0.0.1:9"), \
+         patch("plugin.chatbot.panel_factory.get_optional_control", side_effect=get_optional):
+        el._wire_model_selectors(model_selector, image_selector)
+        el._refresh_controls_from_config()
+
+    assert pop.call_count == 2
+    assert image_pop.call_count == 2
+    for call in pop.call_args_list:
+        assert call.kwargs.get("skip_remote_fetch") is True
+        assert "model_lru" in call.args
+    for call in image_pop.call_args_list:
+        assert call.kwargs.get("skip_remote_fetch") is True
+
+
 def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
     from unittest.mock import MagicMock, patch
 

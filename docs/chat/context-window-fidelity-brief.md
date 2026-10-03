@@ -14,7 +14,7 @@
 3. **`DEFAULT_MODELS`:** provider-keyed walk, then any-id match for custom (`writeragent-mock` → 32768).
 4. **`None`** → `compact_session` returns `reason="no_window"` (proactive **and** force compact skip).
 
-Harvest only. Compact never GETs `/v1/models`. Sidebar `populate_combobox_with_lru` skips OpenRouter and Together (`massive_providers`); those live lengths exist only after Settings `_bg_fetch`. Groq / DeepSeek / Mistral / Gemini / LM Studio / custom / mock populate the cache on sidebar open when the row publishes a length field.
+Harvest only. Compact never GETs `/v1/models`. Sidebar and Edit/Extend model combos pass `skip_remote_fetch` (LRU plus provider defaults, no UI-thread catalog HTTP). Live lengths for every provider, including Groq / DeepSeek / Mistral / Gemini / LM Studio / custom / mock, exist only after Settings `_bg_fetch` (or another background catalog fetch) when the row publishes a length field.
 
 Do **not** harvest `max_context_length` (LM Studio trained max ≠ loaded window; #570-class). Ignore `top_provider.context_length`. `openrouter/free` uses the catalog **200000** (OpenRouter’s advertised Free Models Router window); the routed hop may be smaller.
 
@@ -25,7 +25,7 @@ Do **not** harvest `max_context_length` (LM Studio trained max ≠ loaded window
 | **Ollama** | Live `num_ctx` in `/api/show` `parameters` / Modelfile; trained length in `model_info.*.context_length` (different number) | Live `num_ctx` only via `query_ollama_runtime_num_ctx`; missing → `None` (no v1 cache, no catalog) | Correct for #570; if Modelfile omits `num_ctx`, compaction stays off even when trained length exists | **Keep as-is.** Optional later: surface “unknown window” in `/tokens` UI — do not revive trained fallback |
 | **OpenRouter** | `GET /api/v1/models` → `context_length` (and `top_provider.context_length`) | Cached `context_length` after Settings fetch, then catalog + `:nitro` equivalence | Sidebar does **not** fetch OR (massive list). Non-default ids stay `None` until Settings. `openrouter/free` is a router (catalog **200000**, OpenRouter listing) | Shipped. Ignore `top_provider.context_length` |
 | **Together** | `GET /models` (array) → `context_length` | Cached length after Settings fetch, else catalog (MiniMax M3 **1_000_000**) | Sidebar skips Together fetch. Catalog may lag docs (**524288**) until Settings or catalog sync | Shipped harvest; catalog hygiene stays offline |
-| **Groq** | `GET …/openai/v1/models` → `context_window` | Cached `context_window` on sidebar fetch, else catalog | Field name differs; now harvested | Shipped |
+| **Groq** | `GET …/openai/v1/models` → `context_window` | Cached `context_window` after a Settings catalog fetch, else catalog | Field name differs; now harvested | Shipped |
 | **Google Gemini** | Native `models.get` → `inputTokenLimit` (+ separate `outputTokenLimit`); WA uses OpenAI-compat base | Cached OpenAI-compat length if present, else catalog `1048576` | Native `inputTokenLimit` unused | **Do not** invent native Gemini client |
 | **DeepSeek / Mistral / Z.ai** | Provider model docs / their `/v1/models` (varies) | Cached length when the row publishes one, else catalog | Non-default ids → `None` if the endpoint omits a length field | Shipped same cache path |
 | **Custom OpenAI-compat** (incl. mock) | Whatever the server puts on `/v1/models` (mock advertises `context_length: 32768`) | Cached length when present, else any-id catalog (`writeragent-mock` → 32768) | Servers that omit both keys stay `None` | Shipped |

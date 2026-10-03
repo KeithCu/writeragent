@@ -597,8 +597,17 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             current_endpoint = get_current_endpoint()
 
+            # What was wrong: config:changed refreshed these combos with a
+            # synchronous /v1/models fetch on the main thread. A dead endpoint
+            # hung the editor on every settings apply, and failures are not
+            # memoized. How: populate_combobox_with_lru defaults to fetching
+            # unless skip_remote_fetch is set. Why: match Settings/eval — LRU
+            # plus provider defaults only, no catalog HTTP on this thread.
             if model_selector:
-                set_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint)
+                set_val = populate_combobox_with_lru(
+                    self.ctx, model_selector, current_model, "model_lru", current_endpoint,
+                    skip_remote_fetch=True,
+                )
                 if set_val != current_model:
                     set_text_model(set_val, update_lru=False)
             if prompt_selector:
@@ -607,7 +616,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # Refresh visual (image) model via shared helper; persist correction if strict replaced value
             if image_model_selector:
                 current_image = get_image_model()
-                set_image_val = populate_image_model_selector(self.ctx, image_model_selector)
+                set_image_val = populate_image_model_selector(
+                    self.ctx, image_model_selector, skip_remote_fetch=True,
+                )
                 if set_image_val != current_image:
                     set_image_model(set_image_val, update_lru=False)
             chat_mode_selector = get_optional("chat_mode_selector")
@@ -709,14 +720,23 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         current_model = get_text_model()
         current_endpoint = get_current_endpoint()
 
+        # What was wrong: creating the sidebar fetched the model catalog on
+        # the UI thread. An unreachable endpoint froze LibreOffice for the
+        # fetch timeout. How: the same populate path as config:changed, without
+        # skip_remote_fetch. Why: keep catalog refresh off the main thread.
         if model_selector:
-            set_model_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint)
+            set_model_val = populate_combobox_with_lru(
+                self.ctx, model_selector, current_model, "model_lru", current_endpoint,
+                skip_remote_fetch=True,
+            )
             if set_model_val != current_model:
                 set_text_model(set_model_val, update_lru=False)
 
         if image_model_selector:
             current_image = get_image_model()
-            set_image_val = populate_image_model_selector(self.ctx, image_model_selector)
+            set_image_val = populate_image_model_selector(
+                self.ctx, image_model_selector, skip_remote_fetch=True,
+            )
             if set_image_val != current_image:
                 set_image_model(set_image_val, update_lru=False)
 

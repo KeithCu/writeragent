@@ -131,6 +131,35 @@ class TestInputBoxExtraTokens:
                 input_box(MagicMock(), "msg")
         mock_load.assert_called_once()
 
+    @patch("plugin.chatbot.dialog_views.translate_dialog")
+    @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
+    @patch("plugin.chatbot.dialog_views.load_writeragent_dialog")
+    @patch("plugin.chatbot.dialog_views.init_logging")
+    def test_input_box_model_selector_skips_remote_fetch(
+        self, _init_log, mock_load, mock_populate, _translate,
+    ):
+        """Edit/Extend must not fetch /v1/models on the UI thread."""
+        from plugin.chatbot.dialog_views import input_box
+
+        ctx = MagicMock()
+        dlg, _edit_ctrl, _extend, _extra, _unused = self._mock_dialog(execute_ok=False)
+        model_selector = MagicMock()
+        mock_load.return_value = dlg
+
+        def optional_side_effect(_dlg, name):
+            if name == "model_selector":
+                return model_selector
+            return None
+
+        with patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect), \
+             patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="http://127.0.0.1:9"), \
+             patch("plugin.chatbot.dialog_views.get_text_model", return_value="llama3"):
+            input_box(ctx, "msg", "title", "")
+
+        model_calls = [call for call in mock_populate.call_args_list if "model_lru" in call.args]
+        assert len(model_calls) == 1
+        assert model_calls[0].kwargs.get("skip_remote_fetch") is True
+
 
 class TestSettingsDialogLoad:
     def test_create_dialog_uses_loader_with_ctx(self):
