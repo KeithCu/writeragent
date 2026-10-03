@@ -9,29 +9,55 @@ from plugin.scripting.optimize import (
 )
 
 def test_linear_programming():
-    # Maximize 3x + 2y => minimize -3x - 2y
-    # subject to:
-    # x + 2y <= 4
-    # x + y <= 3
+    # Each row is a variable. a1/a2 are constraints, so A is transposed:
+    # max 3x + 2y s.t. x + 2y <= 4 and x + y <= 3.
     data = pd.DataFrame({
         "c": [3, 2],
         "a1": [1, 2],
         "a2": [1, 1],
-        "b": [4, 3] # This isn't exactly the standard format but it's what we mapped
-    })
-    
-    # Actually wait, the linear_programming takes b as a column and a as columns, assuming A_ub is Transpose of A if dimensions mismatch.
-    # We should pass b = [4, 3]. A = [[1, 1], [2, 1]]. Let's see...
-    data = pd.DataFrame({
-        "c": [3, 2],       # length 2
-        "a1": [1, 2],      # length 2
-        "a2": [1, 1],      # length 2
-        "b": [4, 3],       # length 2
+        "b": [4, 3],
     })
     result = linear_programming(data, c_col="c", a_cols=["a1", "a2"], b_col="b", maximize=True)
     assert result["status"] == "ok"
-    assert "metrics" in result
+    assert abs(result["metrics"]["objective_value"] - 9.0) < 1e-6
     assert "tables" in result
+
+
+def test_linear_programming_single_constraint_column():
+    # Default template a_cols=["a1"] on a multi-row grid: one constraint,
+    # the same bound repeated on every variable row.
+    data = pd.DataFrame({
+        "c": [3, 2, 1],
+        "a1": [1, 1, 1],
+        "b": [10, 10, 10],
+    })
+    result = linear_programming(data, c_col="c", a_cols=["a1"], b_col="b", maximize=True)
+    assert result["status"] == "ok", result
+    assert abs(result["metrics"]["objective_value"] - 30.0) < 1e-6
+
+
+def test_linear_programming_rejects_mismatched_bounds():
+    data = pd.DataFrame({
+        "c": [3, 2, 1],
+        "a1": [1, 0, 1],
+        "a2": [0, 1, 1],
+        "b": [4, 5, 6],
+    })
+    result = linear_programming(data, c_col="c", a_cols=["a1", "a2"], b_col="b", maximize=True)
+    assert result["status"] == "error"
+    assert result["code"] == "SHAPE_MISMATCH"
+    assert "zeros" in result["message"]
+
+
+def test_linear_programming_rejects_ambiguous_single_bound():
+    data = pd.DataFrame({
+        "c": [3, 2],
+        "a1": [1, 1],
+        "b": [10, 4],
+    })
+    result = linear_programming(data, c_col="c", a_cols=["a1"], b_col="b", maximize=True)
+    assert result["status"] == "error"
+    assert result["code"] == "SHAPE_MISMATCH"
 
 
 def test_optimize_portfolio():
