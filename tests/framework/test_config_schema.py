@@ -227,6 +227,57 @@ def test_writeragent_config_validate_constraints() -> None:
     assert err.value.code == "INVALID_TEMPERATURE"
 
 
+def test_strict_coerce_uses_dataclass_bounds_without_rewriting_defaults() -> None:
+    """Settings compare trusts strict coerce. Defaults must still compare equal.
+
+    What was wrong: temperature 5.0 and chat_max_tokens -1 came back unchanged
+    under strict=True, so a dialog that resubmitted a stored out-of-range
+    number looked like a no-op. The dataclass bounds have to reject those
+    values. The in-range defaults, including the temperature sentinel -1.0,
+    must stay themselves or an untouched Settings OK becomes a write.
+    """
+    temperature = get_config_schema("temperature")
+    tokens = get_config_schema("chat_max_tokens")
+    timeout = get_config_schema("request_timeout")
+    assert temperature is not None and temperature["max"] == 1.0
+    assert tokens is not None and tokens["min"] == 0
+    assert timeout is not None and timeout["min_exclusive"] == 0
+
+    with pytest.raises(ConfigValidationError):
+        coerce_config_value("temperature", 5.0, strict=True)
+    with pytest.raises(ConfigValidationError):
+        coerce_config_value("chat_max_tokens", -1, strict=True)
+    with pytest.raises(ConfigValidationError):
+        coerce_config_value("request_timeout", 0, strict=True)
+
+    assert coerce_config_value("temperature", -1.0, strict=True) == -1.0
+    assert coerce_config_value("temperature", "-1.0", strict=True) == -1.0
+    assert coerce_config_value("chat_max_tokens", 16384, strict=True) == 16384
+    assert coerce_config_value("chat_max_tokens", "16384", strict=True) == 16384
+    assert coerce_config_value("request_timeout", 120, strict=True) == 120
+    assert coerce_config_value("request_timeout", "120", strict=True) == 120
+    assert coerce_config_value("temperature", 1.0, strict=True) == 1.0
+    assert coerce_config_value("chat_max_tokens", 0, strict=True) == 0
+    assert coerce_config_value("request_timeout", 1, strict=True) == 1
+
+    with pytest.raises(ConfigValidationError) as err:
+        WriterAgentConfig(temperature=5.0).validate()
+    assert err.value.code == "INVALID_TEMPERATURE"
+    with pytest.raises(ConfigValidationError) as err:
+        WriterAgentConfig(chat_max_tokens=-1).validate()
+    assert err.value.code == "INVALID_CHAT_MAX_TOKENS"
+    with pytest.raises(ConfigValidationError) as err:
+        WriterAgentConfig(request_timeout=0).validate()
+    assert err.value.code == "INVALID_REQUEST_TIMEOUT"
+
+    # Load repair uses the field fallback, not the inclusive clamp (0).
+    repaired = WriterAgentConfig(temperature=5.0, chat_max_tokens=-1, request_timeout=0)
+    repaired.validate(coerce_out_of_range=True)
+    assert repaired.temperature == 1.0
+    assert repaired.chat_max_tokens == 16384
+    assert repaired.request_timeout == 120
+
+
 def test_validate_coerce_out_of_range_clamps_instead_of_raising():
     from plugin.framework.config_schema import WriterAgentConfig
 

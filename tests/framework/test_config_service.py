@@ -206,6 +206,61 @@ def test_set_ai_endpoint_unresolved_raises(config_svc) -> None:
     assert err.value.code == "CONFIG_INVALID_ENDPOINT"
 
 
+def test_set_ai_endpoint_none_is_not_stored(config_svc) -> None:
+    """None must not be stringified into a stored endpoint named None."""
+    from unittest.mock import patch
+
+    from plugin.framework.errors import ConfigError
+
+    with patch("plugin.framework.config_service.set_config") as mock_set:
+        with pytest.raises(ConfigError) as err:
+            config_svc.set("ai.endpoint", None)
+    assert err.value.code == "CONFIG_INVALID_ENDPOINT"
+    mock_set.assert_not_called()
+
+
+def test_bootstrap_loads_public_config_flags(monkeypatch) -> None:
+    """Production bootstrap must call ConfigService.initialize.
+
+    What was wrong: only tests called initialize(), so _manifest stayed
+    empty and a cross-module read of a module.yaml public key was denied.
+    """
+    import plugin.main as main
+    from plugin.framework.errors import ConfigError
+    from plugin.framework.event_bus import EventBus
+
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: None)
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
+    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
+    monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
+    monkeypatch.setattr(main, "_register_core_handlers", lambda: None)
+    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.framework.event_bus.get_event_bus", lambda: EventBus())
+
+    previous = (main._initialized, main._services, main._tools, list(main._modules))
+    main._initialized = False
+    main._services = None
+    main._tools = None
+    main._modules = []
+    try:
+        main.bootstrap(None)
+        config = main._services.get("config")
+        assert config._manifest["mcp.mcp_port"]["public"] is True
+
+        def missing(_key: str) -> None:
+            raise ConfigError("missing")
+
+        monkeypatch.setattr("plugin.framework.config_service.get_config", missing)
+        assert config.get("mcp.mcp_port", caller_module="chatbot") == 18765
+        with pytest.raises(ConfigAccessError, match="cannot read private"):
+            config.get("mcp.cors_allow_private_origins", caller_module="chatbot")
+    finally:
+        main._initialized, main._services, main._tools = previous[0], previous[1], previous[2]
+        main._modules[:] = previous[3]
+
+
 def test_dummy_impl_decorator_annotates_cls() -> None:
     """Nested class decorator must annotate `cls` for reportMissingParameterType."""
     from typing import Any, get_type_hints
