@@ -918,6 +918,33 @@ def test_xirr_tiny_derivative_is_nan_and_classic_root_holds():
     assert math.isnan(calc.xirr([-1, 1e-20], [0, 365], 0.1))
 
 
+def test_xmatch_and_xlookup_approximate_modes():
+    nums = [10, 20, 30, 40]
+    vals = [100, 200, 300, 400]
+    # Exact match
+    assert calc.xmatch(20, nums) == 2.0
+    assert calc.xlookup(20, nums, vals) == 200
+
+    # match_mode -1: exact or next smaller
+    assert calc.xmatch(25, nums, -1) == 2.0
+    assert calc.xlookup(25, nums, vals, match_mode=-1) == 200
+    assert math.isnan(calc.xmatch(5, nums, -1))
+    assert calc.xlookup(5, nums, vals, if_not_found="none", match_mode=-1) == "none"
+
+    # match_mode 1: exact or next larger
+    assert calc.xmatch(25, nums, 1) == 3.0
+    assert calc.xlookup(25, nums, vals, match_mode=1) == 300
+    assert math.isnan(calc.xmatch(45, nums, 1))
+    assert calc.xlookup(45, nums, vals, if_not_found="none", match_mode=1) == "none"
+
+    # search_mode -1 (reverse search)
+    dup_nums = [10, 20, 20, 30]
+    dup_vals = [1, 2, 3, 4]
+    assert calc.xmatch(20, dup_nums, 0, 1) == 2.0
+    assert calc.xmatch(20, dup_nums, 0, -1) == 3.0
+    assert calc.xlookup(20, dup_nums, dup_vals, search_mode=1) == 2
+    assert calc.xlookup(20, dup_nums, dup_vals, search_mode=-1) == 3
+
 def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
     import numpy as np
 
