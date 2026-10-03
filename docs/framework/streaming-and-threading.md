@@ -396,9 +396,9 @@ See the full class and docstring in [`plugin/framework/async_stream.py`](../../p
 
 Key guarantees the implementation provides:
 
-- **Simple append only.** Internal buffers are `list[str]`; each `put((CHUNK, delta))` or `put((THINKING, delta))` just does `buf.append(delta)`.
-- **Hard max-latency timer from first fragment ("every 250 ms max, or when done").** The *first* display delta that starts a new burst arms a one-shot `threading.Timer` for exactly `batch_interval` (default 0.25 s) measured from the arrival of that first fragment. Subsequent deltas during the same burst are simply appended to the buffer; they do **not** reset or postpone the deadline. When the timer fires we emit one joined string. This guarantees the consumer sees an update at least every 250 ms even during a very fast continuous stream from the model. No main-thread sleeps.
-- **One joined emission.** When the timer fires **or** `.flush()` is called, the batcher does a single `raw_q.put((StreamQueueKind.CHUNK, "".join(content_buf)))` (and the equivalent for THINKING), then clears the buffer. Downstream never sees the intermediate fragments.
+- **Simple append only.** Each contiguous CHUNK or THINKING run is a `list[str]`; each `put` appends to the current run or starts a new one.
+- **Hard max-latency timer from first fragment ("every 250 ms max, or when done").** The *first* display delta that starts a new burst arms a one-shot `threading.Timer` for exactly `batch_interval` (default 0.25 s) measured from the arrival of that first fragment. Subsequent deltas during the same burst are simply appended; they do **not** reset or postpone the deadline. When the timer fires we emit one joined string per contiguous run, in arrival order. This guarantees the consumer sees an update at least every 250 ms even during a very fast continuous stream from the model. No main-thread sleeps.
+- **One joined emission per run.** When the timer fires **or** `.flush()` is called, the batcher puts those runs in arrival order (thinking that arrived first is not moved after content), then clears them. Downstream never sees the intermediate fragments.
 - **Strict flush-before-boundary discipline (the most important rule):**
   Any non-display control item forces an immediate flush of any pending display text **before** the control item is forwarded:
   - `STREAM_DONE`, `FINAL_DONE`, `ERROR`, `STOPPED`

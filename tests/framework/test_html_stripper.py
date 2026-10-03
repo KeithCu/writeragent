@@ -38,6 +38,14 @@ def test_strip_html_tags_math_comparison():
     assert strip_html_tags(text) == "If 3 < 5 and y > 2, then success."
 
 
+def test_strip_html_tags_unquoted_url_slash_still_drops_script_body():
+    # A trailing slash inside an unquoted attribute is not an empty element.
+    # Treating it as ``<script/>`` used to keep alert(1).
+    assert strip_html_tags("<script src=https://cdn.example.com/>alert(1)</script>ok") == "ok"
+    assert strip_html_tags("<script/>alert(1)") == "alert(1)"
+    assert strip_html_tags("<script />alert(1)") == "alert(1)"
+
+
 def test_strip_html_tags_drops_script_and_style_bodies():
     # Tag bytes used to be dropped but element text survived.
     assert strip_html_tags("<script>alert(1)</script><p>ok</p>") == "ok"

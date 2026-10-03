@@ -474,8 +474,15 @@ class AsyncProcess:
     def start(self) -> None:
         """Starts the process and its monitoring threads."""
         if self.process is not None and self.process.poll() is None:
-            # A second start() used to leak the previous Popen.
+            # A second start() used to leak the previous Popen. terminate()
+            # returns before the child is dead so it cannot join callback
+            # threads on this stack. Wait here, without those joins.
+            old = self.process
             self.terminate()
+            try:
+                old.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                log.warning("Previous process still alive after terminate")
         try:
             self.process = subprocess.Popen(self.args, **self._popen_kwargs)
         except Exception as e:
@@ -540,10 +547,37 @@ class AsyncProcess:
             except OSError:
                 pass
 
+    def _join_handles(self, handles: tuple[BackgroundHandle | None, ...]) -> None:
+        """Join reader threads unless this stack is that thread."""
+        current = threading.current_thread()
+        for handle in handles:
+            if handle is None:
+                continue
+            thread = handle._thread
+            if thread is not None and thread is current:
+                continue
+            handle.join(timeout=1.0)
+
+    def _close_child_pipes(self) -> None:
+        proc = self.process
+        if proc is None:
+            return
+        for stream in (proc.stdout, proc.stderr, proc.stdin):
+            if stream is None:
+                continue
+            try:
+                stream.close()
+            except OSError:
+                pass
+
     def _wait_for_exit(self) -> None:
         if self.process is None:
             return
         rc = self.process.wait()
+        # process.wait() returns before the pipe threads deliver a trailing
+        # line that had no newline. Join them before the exit callback so
+        # URL parsing is not overtaken by PROCESS_EXITED.
+        self._join_handles((self._stdout_thread, self._stderr_thread))
         args = self.args
         if isinstance(args, str):
             preview = args
@@ -558,23 +592,48 @@ class AsyncProcess:
             except Exception:
                 log.exception("Error in on_exit_cb for process")
 
-    def terminate(self, timeout: float = 5.0) -> None:
-        """Standard graceful termination -> SIGKILL."""
-        if not self.process:
-            return
-        if self.process.poll() is None:
-            self.process.terminate()
+    def _reap(self, proc: subprocess.Popen[str], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None, wait_thread: BackgroundHandle | None, timeout: float) -> None:
+        """Wait, then SIGKILL, off the caller stack. See terminate().
+
+        Handles are captured at terminate() time. A later start() replaces
+        self.process; this reaper must not wait on that new child.
+        """
+        if proc.poll() is None:
             try:
-                self.process.wait(timeout=timeout)
+                proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                self.process.kill()
-                # start() calls terminate() on the caller, including the UI
-                # thread. wait() with no timeout blocked there if the child
-                # ignored SIGKILL (uninterruptible sleep).
                 try:
-                    self.process.wait(timeout=timeout)
+                    proc.kill()
+                except OSError:
+                    pass
+                # A stuck SIGKILL (uninterruptible sleep) must not block forever.
+                try:
+                    proc.wait(timeout=timeout)
                 except subprocess.TimeoutExpired:
                     log.warning("Process still alive after kill (timeout=%ss)", timeout)
-        for handle in (self._stdout_thread, self._stderr_thread, self._wait_thread):
-            if handle is not None:
-                handle.join(timeout=1.0)
+        self._join_handles((stdout_thread, stderr_thread, wait_thread))
+
+    def terminate(self, timeout: float = 5.0) -> None:
+        """Signal the child and return. Reap on a dedicated thread.
+
+        What was wrong: terminate() waited up to 5s twice, then joined the
+        stdout, stderr, and wait threads. MCP tunnel stop calls this while
+        holding the lock those line callbacks need, including from the UI
+        thread, so LibreOffice froze. A callback that called terminate joined
+        itself. Why: signal the child, close its pipes so reads return, and
+        reap after the caller can drop its lock. The timed wait stays on the
+        reaper so a stuck SIGKILL cannot block forever.
+        """
+        proc = self.process
+        if proc is None:
+            return
+        stdout_thread = self._stdout_thread
+        stderr_thread = self._stderr_thread
+        wait_thread = self._wait_thread
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                log.debug("terminate: process already gone", exc_info=True)
+        self._close_child_pipes()
+        run_in_background(self._reap, proc, stdout_thread, stderr_thread, wait_thread, timeout, name="asyncproc-reap", dedicated=True)

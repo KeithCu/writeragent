@@ -807,6 +807,13 @@ class ToolCallingMixin:
             self._refresh_active_tools_for_session()
             self._spawn_llm_worker(self._active_batched_q or self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._sm_state.round_num, query_text=self._active_query_text)
 
+            def _flush_active_batcher() -> None:
+                # Stop used to clear this batcher in finally without a last
+                # flush, dropping up to one batch interval of text.
+                batched = self._active_batched_q
+                if batched is not None:
+                    batched.flush()
+
             run_stream_drain_loop(
                 self._active_q,
                 toolkit,
@@ -820,6 +827,7 @@ class ToolCallingMixin:
                 stop_checker=self.resolve_stop_checker(),
                 show_search_thinking=show_search_thinking,
                 on_approval_required=self._on_tool_loop_approval_required,
+                flush_pending=_flush_active_batcher,
             )
 
             from plugin.chatbot.rich_text import finalize_sidebar_assistant_response

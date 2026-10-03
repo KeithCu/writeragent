@@ -301,6 +301,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                             controls.get("chat_mode_selector"),
                             controls.get("model_selector"),
                         ),
+                        frame=self.Frame,
                     )
                 except Exception as e:
                     log.debug("set_default_focus_restore: %s", e)

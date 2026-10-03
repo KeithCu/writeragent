@@ -1449,12 +1449,30 @@ def test_make_chat_request_flattens_system_message(client):
         assert "Today's date is" in sys_msg["content"]
 
 
+def test_chat_request_omits_top_p(client):
+    """top_p used to be forced to 0.9 and rejected by models that also take temperature."""
+    messages = [{"role": "user", "content": "Hi"}]
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "openai"}
+        _, _, body, _ = client.make_chat_request(messages, stream=False)
+        data = json.loads(body.decode("utf-8"))
+    assert "top_p" not in data
+
+
 def test_parallel_tool_calls_config(client):
     """Verify that parallel_tool_calls is currently forced to False due to subagent parsing issues."""
     messages = [{"role": "user", "content": "Hi"}]
     tools = [{"type": "function", "function": {"name": "test_tool"}}]
 
     # Case 1: Default (should be False due to the current subagent FIXME)
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "openai"}
+        _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
+        data = json.loads(body.decode("utf-8"))
+        assert data["parallel_tool_calls"] is False
+
+    # The stored setting is not what the wire sends.
+    client.config["parallel_tool_calls"] = True
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
         _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
@@ -2460,6 +2478,18 @@ def test_request_json_rejects_truncated_object_and_json_array():
             with pytest.raises(NetworkError) as exc:
                 client._request_json("POST", "/v1/chat/completions", {}, {})
         assert exc.value.code == "BAD_RESPONSE"
+
+
+def test_request_with_tools_sync_raises_on_error_object(client):
+    """HTTP 200 plus an error object is not an empty assistant message."""
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = b'{"error":{"message":"model overloaded"}}'
+    with patch.object(client, "_send_request", return_value=response), patch.object(client, "_close_if_connection_close"):
+        with pytest.raises(NetworkError) as exc:
+            client.request_with_tools([{"role": "user", "content": "hi"}], max_tokens=10)
+    assert exc.value.code == "STREAM_ERROR"
+    assert "overloaded" in str(exc.value)
 
 
 def test_request_with_tools_sync_rejects_truncated_envelope(client):

@@ -127,6 +127,8 @@ WriterAgent can send recorded audio to a model in **two different ways**. They u
 | **Chat audio** (`has_native_audio` = true) | `POST /v1/chat/completions` | Message content includes `{"type": "input_audio", "input_audio": {"data": "<base64>", "format": "wav"}}` | Chat models with audio input (e.g. Gemini) | Chat model supports hearing audio in conversation |
 | **STT transcription** | `POST /v1/audio/transcriptions` | Provider-specific (see below) | Dedicated STT models (Voxtral, Whisper) | Chat model cannot take `input_audio`, or STT-only model |
 
+`has_native_audio` is `False` when the catalog row is `AUDIO` without `CHAT`, and for uncatalogued ids whose name contains `whisper` or `parakeet`. `None` (unknown) still tries chat so an uncatalogued Gemini-like model is not skipped. `False` must not be treated as unknown: that posted Whisper-class files as `input_audio` and waited out `request_timeout`.
+
 ```mermaid
 flowchart TD
     record[User stops recording] --> chatCheck{Chat model: has_native_audio?}

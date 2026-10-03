@@ -970,8 +970,17 @@ def has_native_audio(model_id: Any, endpoint: Any) -> bool | None:
 
     # 2. Catalog check — native audio input is via chat completions; STT-only models (AUDIO, no CHAT) use /audio/transcriptions.
     caps = get_model_capability(model_id, endpoint)
-    if isinstance(caps, int) and (caps & ModelCapability.AUDIO) and (caps & ModelCapability.CHAT):
-        return True
+    if isinstance(caps, int) and caps != ModelCapability.NONE:
+        has_audio = bool(caps & ModelCapability.AUDIO)
+        has_chat = bool(caps & ModelCapability.CHAT)
+        if has_audio and has_chat:
+            return True
+        if has_audio and not has_chat:
+            # What was wrong: AUDIO-without-CHAT (Whisper, Voxtral) fell through
+            # to None. transcribe_audio treats None as "try chat", so those ids
+            # were posted as input_audio and could sit until request_timeout.
+            # Why: False selects POST /audio/transcriptions. None stays unknown.
+            return False
 
     # 3. Heuristics (Regex/Keywords) for known audio-native families
     # Gemini (Flash/Pro 1.5+)
@@ -980,6 +989,10 @@ def has_native_audio(model_id: Any, endpoint: Any) -> bool | None:
     # Explicit audio models
     if "audio-preview" in model_id or "multimodal" in model_id:
         return True
+    # Catalog miss: dedicated STT names are not chat-audio. Unknown other ids
+    # stay None so uncatalogued Gemini-like models still try chat.
+    if "whisper" in model_id or "parakeet" in model_id:
+        return False
 
     return None  # Unknown, allow trying native audio
 

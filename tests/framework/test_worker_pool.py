@@ -1,5 +1,5 @@
 from plugin.framework.errors import WorkerPoolError
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import pytest
 import time
 import subprocess
@@ -163,6 +163,51 @@ def test_async_process_wait_for_exit_callback_error():
     ap._wait_thread.join(timeout=2)
     # The error should be caught and logged, not crash
     assert ap.is_running is False
+
+def test_async_process_terminate_does_not_join_on_caller():
+    ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"])
+    ap.start()
+    caller = threading.current_thread()
+
+    def slow_join(self, timeout=None):
+        assert threading.current_thread() is not caller
+        time.sleep(0.05)
+
+    try:
+        with patch.object(BackgroundHandle, "join", slow_join):
+            started = time.monotonic()
+            ap.terminate()
+            assert time.monotonic() - started < 0.4
+    finally:
+        if ap.process is not None and ap.process.poll() is None:
+            ap.process.kill()
+            ap.process.wait(timeout=3)
+
+
+def test_async_process_exit_callback_sees_trailing_stdout():
+    lines: list[str] = []
+    saw: list[list[str]] = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def on_line(line: str) -> None:
+        started.set()
+        assert release.wait(timeout=2)
+        lines.append(line)
+
+    def on_exit(rc: int) -> None:
+        saw.append(list(lines))
+
+    script = "import sys; sys.stdout.write('hello'); sys.stdout.flush()"
+    ap = AsyncProcess([sys.executable, "-c", script], stdout_cb=on_line, on_exit_cb=on_exit)
+    ap.start()
+    assert started.wait(timeout=2)
+    time.sleep(0.2)
+    release.set()
+    assert ap._wait_thread is not None
+    ap._wait_thread.join(timeout=3)
+    assert saw == [["hello"]]
+
 
 def test_async_process_terminate():
     ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(10)"])

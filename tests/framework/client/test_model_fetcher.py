@@ -168,7 +168,19 @@ class TestHasNativeAudio:
         from plugin.framework.client.model_fetcher import has_native_audio
         with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
             result = has_native_audio('mistralai/voxtral-mini-transcribe', 'https://openrouter.ai/api')
-        assert (result) is not (True)
+        assert result is False
+
+    def test_uncatalogued_whisper_is_not_native_audio(self):
+        from plugin.framework.client.model_fetcher import has_native_audio
+        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
+            result = has_native_audio('whisper-1', 'https://example.invalid/v1')
+        assert result is False
+
+    def test_unknown_model_stays_unknown(self):
+        from plugin.framework.client.model_fetcher import has_native_audio
+        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
+            result = has_native_audio('some-chat-model', 'https://example.invalid/v1')
+        assert result is None
 
     def test_chat_and_audio_model_is_native_audio(self):
         from plugin.framework.client.model_fetcher import has_native_audio

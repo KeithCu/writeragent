@@ -1248,3 +1248,25 @@ def test_doc_identity_url_repairs_file_slash_without_changing_normalize():
 
     assert normalize_doc_url("file:/tmp/note.odt") == "file:/tmp/note.odt"
     assert _doc_identity_url("file:/tmp/note.odt") == _doc_identity_url("file:///tmp/note.odt")
+
+
+def test_controller_for_stream_clicks_uses_panel_frame():
+    from plugin.framework.uno_context import _controller_for_stream_clicks
+
+    frame = MagicMock()
+    controller = object()
+    frame.getController.return_value = controller
+    with patch("plugin.framework.uno_context._current_document_controller", side_effect=AssertionError("desktop")):
+        assert _controller_for_stream_clicks(MagicMock(), frame) is controller
+
+
+def test_controller_for_stream_clicks_falls_back_without_frame():
+    from plugin.framework.uno_context import _controller_for_stream_clicks
+
+    sentinel = object()
+    frame = MagicMock()
+    frame.getController.return_value = None
+    with patch("plugin.framework.uno_context._current_document_controller", return_value=sentinel) as desktop:
+        assert _controller_for_stream_clicks(MagicMock(), None) is sentinel
+        assert _controller_for_stream_clicks(MagicMock(), frame) is sentinel
+    assert desktop.call_count == 2

@@ -98,22 +98,27 @@ def test_run_stream_drain_loop_error():
     assert isinstance(errors[0], ValueError)
 
 
-def test_run_stream_drain_loop_error_on_error_true_keeps_draining():
+def test_run_stream_drain_loop_error_on_error_true_drops_batch_tail():
+    """Recovered ERROR keeps the drain, but items already pulled are the failed attempt."""
     q = queue.Queue()
     q.put((StreamQueueKind.ERROR, ValueError("recoverable")))
-    q.put((StreamQueueKind.CHUNK, "after retry"))
-    q.put((StreamQueueKind.STREAM_DONE, None))
+    q.put((StreamQueueKind.CHUNK, "stale"))
+    q.put((StreamQueueKind.STREAM_DONE, "stale-done"))
 
     toolkit = DummyToolkit()
     job_done = [False]
     applied = []
     errors = []
+    done = []
 
     def on_error(e):
         errors.append(e)
+        q.put((StreamQueueKind.CHUNK, "after retry"))
+        q.put((StreamQueueKind.STREAM_DONE, "replacement"))
         return True
 
     def stream_done(item):
+        done.append(item)
         return True
 
     run_stream_drain_loop(
@@ -128,7 +133,9 @@ def test_run_stream_drain_loop_error_on_error_true_keeps_draining():
 
     assert job_done[0] is True
     assert len(errors) == 1
+    assert "stale" not in applied
     assert "after retry" in applied
+    assert done[0][1] == "replacement"
 
 
 def test_worker_exception_on_error_true_still_applies_later_chunk():
@@ -980,15 +987,15 @@ def test_process_batch_handler_raises_on_second_thinking_ends_batch(monkeypatch)
     assert "later" not in joined
 
 
-def test_process_batch_handler_error_on_error_true_keeps_draining(monkeypatch):
-    """on_error returning True is STT-style recovery: keep the batch, still honor STREAM_DONE."""
+def test_process_batch_handler_error_on_error_true_drops_batch_tail(monkeypatch):
+    """on_error returning True keeps the drain and drops the failed attempt's tail."""
     import plugin.framework.async_stream as async_stream
 
     q = queue.Queue()
     q.put((StreamQueueKind.CHUNK, "one"))
     q.put((StreamQueueKind.CHUNK, "two"))
     q.put((StreamQueueKind.CHUNK, "three"))
-    q.put((StreamQueueKind.STREAM_DONE, None))
+    q.put((StreamQueueKind.STREAM_DONE, "stale-done"))
 
     applied = []
     errors = []
@@ -1009,6 +1016,7 @@ def test_process_batch_handler_error_on_error_true_keeps_draining(monkeypatch):
 
     def on_error(e):
         errors.append(e)
+        q.put((StreamQueueKind.STREAM_DONE, "replacement"))
         return True
 
     def on_stream_done(item):
@@ -1024,9 +1032,10 @@ def test_process_batch_handler_error_on_error_true_keeps_draining(monkeypatch):
     assert job_done[0] is True
     assert len(errors) == 1
     assert len(done_calls) == 1
+    assert done_calls[0][1] == "replacement"
     joined = "".join(applied)
     assert "one" in joined
-    assert "three" in joined
+    assert "three" not in joined
 
 
 def test_process_batch_handler_error_on_error_raises_still_sets_job_done(monkeypatch):
@@ -1116,6 +1125,68 @@ def test_batching_stream_queue_callbacks():
     bq.flush()
 
     assert raw.get_nowait() == (StreamQueueKind.CHUNK, "ab")
+
+
+def test_idle_stop_closes_open_thinking():
+    q = queue.Queue()
+    q.put((StreamQueueKind.THINKING, "hmm"))
+    applied = []
+    stopped = []
+    checks = [0]
+
+    def stop_checker():
+        # While-loop check, then the item check, then the idle check after
+        # the thinking text has been flushed. Stopping on the item check
+        # would drop the THINKING still in that batch.
+        checks[0] += 1
+        return checks[0] > 2
+
+    job_done = [False]
+    run_stream_drain_loop(
+        q, None, job_done, lambda text, _is_thinking: applied.append(text),
+        on_stream_done=lambda _i: True,
+        on_stopped=lambda: stopped.append(True),
+        on_error=lambda _e: None,
+        stop_checker=stop_checker,
+    )
+    assert stopped == [True]
+    assert job_done[0] is True
+    joined = "".join(applied)
+    assert "hmm" in joined
+    assert " /thinking\n" in joined
+
+
+def test_stop_applies_flushed_batcher_text():
+    q = queue.Queue()
+    applied = []
+
+    def flush_pending():
+        q.put((StreamQueueKind.CHUNK, "kept"))
+
+    job_done = [False]
+    run_stream_drain_loop(
+        q, None, job_done, lambda text, _is_thinking: applied.append(text),
+        on_stream_done=lambda _i: True,
+        on_stopped=lambda: None,
+        on_error=lambda _e: None,
+        stop_checker=lambda: True,
+        flush_pending=flush_pending,
+    )
+    assert job_done[0] is True
+    assert applied == ["kept"]
+
+
+def test_batching_stream_queue_preserves_thinking_before_content():
+    raw = queue.Queue()
+    bq = BatchingStreamQueue(raw, batch_interval=10.0)
+    bq.put((StreamQueueKind.THINKING, "think"))
+    bq.put((StreamQueueKind.CHUNK, "reply"))
+    bq.put((StreamQueueKind.THINKING, "more"))
+    bq.flush()
+    assert raw.get_nowait() == (StreamQueueKind.THINKING, "think")
+    assert raw.get_nowait() == (StreamQueueKind.CHUNK, "reply")
+    assert raw.get_nowait() == (StreamQueueKind.THINKING, "more")
+    assert raw.empty()
 
 
 def test_batching_stream_queue_interleaved_kinds_keep_deadline():

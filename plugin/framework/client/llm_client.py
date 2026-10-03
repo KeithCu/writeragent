@@ -176,6 +176,13 @@ def _parse_provider_envelope(raw: Any, path: str) -> dict[str, Any]:
     parsed = safe_json_loads(raw, strict=True)
     if not isinstance(parsed, dict):
         raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
+    # What was wrong: the stream loop raises on {"error": ...} inside HTTP 200,
+    # but sync chat, images, and STT treated that body as a finished reply.
+    # chat_completion_sync then returned "". Why: same check as the stream loop.
+    # finish_reason=length with empty content is a different, documented case.
+    stream_err = _stream_error_message(parsed)
+    if stream_err is not None:
+        raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
     return parsed
 
 

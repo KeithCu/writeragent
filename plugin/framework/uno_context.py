@@ -700,16 +700,37 @@ def _release_doc_click_binding(controller: Any, handler: Any) -> None:
         pass
 
 
-def _ensure_document_click_handler(ctx: Any) -> None:
-    """Page click on the current document calls ``note_user_left_query``.
+def _controller_for_stream_clicks(ctx: Any, frame: Any = None) -> Any:
+    """Controller for the sidebar's document, else Desktop's current one.
+
+    What was wrong: the page-click handler used Desktop.getCurrentComponent().
+    Install runs once when the rich control is ready, so a second window or
+    a focus change subscribed the other document. Clicks in this sidebar's
+    document never cleared stream focus, and later chunks kept calling
+    query.setFocus(). Why: the panel frame is the same binding as
+    get_document_from_frame.
+    """
+    if frame is not None:
+        try:
+            controller = frame.getController()
+            if controller is not None:
+                return controller
+        except Exception as e:
+            log.debug("frame controller: %s", e)
+    return _current_document_controller(ctx)
+
+
+def _ensure_document_click_handler(ctx: Any, frame: Any = None) -> None:
+    """Page click on this sidebar's document calls ``note_user_left_query``.
 
     What was wrong: the ``XMouseClickHandler`` was added once, to whichever
     controller was current the first time a sidebar installed, and never
     removed. How it happened: ``install_stream_focus_tracker`` returned as
     soon as ``_stream_focus_trackers`` was non-empty, so a later document
     never subscribed. Why this fixes it: every install attaches a handler to
-    the controller that is current now (and skips one that already has it).
-    ``disposing`` removes it, so a closed document is not kept alive.
+    the controller for the panel frame when one is passed (and skips one
+    that already has it). ``disposing`` removes it, so a closed document
+    is not kept alive.
     """
     try:
         import unohelper
@@ -718,7 +739,7 @@ def _ensure_document_click_handler(ctx: Any) -> None:
         return
 
     try:
-        controller = _current_document_controller(ctx)
+        controller = _controller_for_stream_clicks(ctx, frame)
         if controller is None or not hasattr(controller, "addMouseClickHandler"):
             return
         for existing, _handler in _doc_click_bindings:
@@ -805,7 +826,7 @@ def _attach_query_focus_listener(query: Any) -> None:
         log.debug("query focus listener: %s", e)
 
 
-def install_stream_focus_tracker(ctx: Any, query: Any = None, leave_query_controls: Any = None) -> None:
+def install_stream_focus_tracker(ctx: Any, query: Any = None, leave_query_controls: Any = None, frame: Any = None) -> None:
     """Query focusGained → keep restoring. Document / sidebar pointer → stop.
 
     Window focus listeners miss in-frame query→page clicks (same top-level).
@@ -825,7 +846,7 @@ def install_stream_focus_tracker(ctx: Any, query: Any = None, leave_query_contro
     for ctrl in leave_query_controls or ():
         if ctrl is not None and ctrl is not query:
             _attach_leave_query_listeners(ctrl)
-    _ensure_document_click_handler(ctx)
+    _ensure_document_click_handler(ctx, frame)
     log.debug("install_stream_focus_tracker n=%d", len(_stream_focus_trackers))
 
 

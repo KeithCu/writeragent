@@ -369,7 +369,8 @@ class WriterAgentConfig:
     calc_prompt_max_tokens: int = 4096
     # When True, treat endpoint as OpenRouter (e.g. custom proxy) even if the URL lacks openrouter.ai.
     is_openrouter: bool = False
-    # When True, the Chat Completions request includes parallel_tool_calls: True to allow multiple tool calls.
+    # Stored for later. Chat Completions always sends parallel_tool_calls: False
+    # until the tool loop can apply parallel calls. This default is not the wire value.
     parallel_tool_calls: bool = True
     # Merged into POST \u2026/chat/completions JSON when OpenRouter is active; see AGENTS.md.
     openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)

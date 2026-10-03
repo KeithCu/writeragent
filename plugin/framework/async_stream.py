@@ -122,9 +122,10 @@ class BatchingStreamQueue:
       The *first* display delta that starts a new burst arms a one-shot timer
       for exactly `batch_interval` (default 0.25 s) from the moment that first
       fragment arrived. Subsequent deltas during the burst are appended but
-      do *not* push the deadline. When the timer fires we emit exactly one
-      joined string. This guarantees the UI sees an update at least every
-      250 ms during a long fast stream.
+      do *not* push the deadline. When the timer fires we emit one joined
+      string per contiguous CHUNK or THINKING run, in arrival order. This
+      guarantees the UI sees an update at least every 250 ms during a long
+      fast stream.
     - Explicit `.flush()`, or any control/boundary item (STREAM_DONE, ERROR,
       STOPPED, APPROVAL_REQUIRED, TOOL_*, NEXT_TOOL, FINAL_DONE, etc.),
       also causes immediate emission of whatever has accumulated so far
@@ -154,8 +155,9 @@ class BatchingStreamQueue:
         # crosshair: off
         self._raw = raw_q
         self._interval = batch_interval
-        self._content_buf: list[str] = []
-        self._thinking_buf: list[str] = []
+        # Contiguous runs in arrival order. Emitting every CHUNK buffer before
+        # every THINKING buffer showed the reply before [Thinking].
+        self._runs: list[tuple[StreamQueueKind, list[str]]] = []
         self._lock = threading.Lock()
         self._timer: threading.Timer | None = None
 
@@ -181,17 +183,26 @@ class BatchingStreamQueue:
         # Timer callback — runs in its own (daemon) thread
         self.flush()
 
-    def _emit_pending_locked(self) -> None:
-        """Emit any buffered content/thinking as single joined items. Caller holds lock."""
+    def _append_display_locked(self, kind: StreamQueueKind, data: str) -> None:
+        """Append one display fragment. Caller holds lock. Arms the burst timer once."""
         # crosshair: off
-        if self._content_buf:
-            joined = "".join(self._content_buf)
-            self._raw.put((StreamQueueKind.CHUNK, joined))
-            self._content_buf.clear()
-        if self._thinking_buf:
-            joined = "".join(self._thinking_buf)
-            self._raw.put((StreamQueueKind.THINKING, joined))
-            self._thinking_buf.clear()
+        is_first = not self._runs
+        if self._runs and self._runs[-1][0] == kind:
+            self._runs[-1][1].append(data)
+        else:
+            self._runs.append((kind, [data]))
+        if is_first:
+            self._schedule_timer()
+
+    def _emit_pending_locked(self) -> None:
+        """Emit each contiguous display run, in arrival order. Caller holds lock."""
+        # crosshair: off
+        # What was wrong: CHUNK was always queued before THINKING, so a burst
+        # that started with thinking showed the reply first. Why: one joined
+        # string per contiguous run, in the order the fragments arrived.
+        for kind, parts in self._runs:
+            self._raw.put((kind, "".join(parts)))
+        self._runs.clear()
         self._cancel_timer()
 
     def put(self, item: Any) -> None:
@@ -208,21 +219,10 @@ class BatchingStreamQueue:
         # Fast path for the two display kinds
         if isinstance(item, (list, tuple)) and len(item) >= 1:
             kind = item[0]
-            if kind == StreamQueueKind.CHUNK:
+            if kind == StreamQueueKind.CHUNK or kind == StreamQueueKind.THINKING:
                 data = item[1] if len(item) > 1 else ""
                 with self._lock:
-                    is_first = len(self._content_buf) == 0
-                    self._content_buf.append(data or "")
-                    if is_first:
-                        self._schedule_timer()  # deadline from the very first fragment of this burst
-                return
-            if kind == StreamQueueKind.THINKING:
-                data = item[1] if len(item) > 1 else ""
-                with self._lock:
-                    is_first = len(self._thinking_buf) == 0
-                    self._thinking_buf.append(data or "")
-                    if is_first:
-                        self._schedule_timer()  # deadline from the very first fragment of this burst
+                    self._append_display_locked(kind, data or "")
                 return
 
         # Any other kind (including bare kinds or control tuples) is a boundary
@@ -263,7 +263,9 @@ class BatchingStreamQueue:
     def __repr__(self) -> str:
         # crosshair: off
         with self._lock:
-            return f"BatchingStreamQueue(interval={self._interval}, pending_content={len(self._content_buf)}, pending_thinking={len(self._thinking_buf)})"
+            pending_content = sum(len(parts) for kind, parts in self._runs if kind == StreamQueueKind.CHUNK)
+            pending_thinking = sum(len(parts) for kind, parts in self._runs if kind == StreamQueueKind.THINKING)
+            return f"BatchingStreamQueue(interval={self._interval}, pending_content={pending_content}, pending_thinking={pending_thinking})"
 
 
 @dataclass(slots=True)
@@ -431,7 +433,50 @@ _DISPATCH: dict[StreamQueueKind, Callable[[_DrainState, Any, Any], None]] = {
 }
 
 
-def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[[], bool] | None) -> None:
+def _apply_queued_display(state: _DrainState) -> None:
+    """Apply CHUNK/THINKING already on the queue. Drop other kinds.
+
+    Stop used to break without reading them, so text flushed from the 250ms
+    batcher never reached the sidebar. Control items from the stopped attempt
+    (STREAM_DONE, ERROR) are discarded with the get.
+    """
+    # crosshair: off
+    while True:
+        try:
+            item = state.q.get_nowait()
+        except queue.Empty:
+            return
+        raw_kind = item[0] if isinstance(item, (tuple, list)) else item
+        data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
+        if raw_kind == StreamQueueKind.CHUNK:
+            _handle_chunk(state, data, item)
+        elif raw_kind == StreamQueueKind.THINKING:
+            _handle_thinking(state, data, item)
+
+
+def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None) -> None:
+    """Flush the producer batcher, show queued text, then close thinking.
+
+    What was wrong: the idle stop path called on_stopped and broke without
+    flush_buffers or close_thinking, so a stop while the model was still
+    generating left ``[Thinking]`` open. The tool loop then dropped text
+    still inside the 250ms batcher. Why: flush that batcher, apply the
+    display items it just queued, then the same closer as an in-batch stop.
+    """
+    # crosshair: off
+    if flush_pending is not None:
+        try:
+            flush_pending()
+        except Exception:
+            log.exception("flush_pending before Stop failed")
+    _apply_queued_display(state)
+    state.flush_buffers()
+    state.close_thinking()
+    state.on_stopped()
+    state.job_done[0] = True
+
+
+def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[[], bool] | None, flush_pending: Callable[[], None] | None = None) -> None:
     # crosshair: off
     # Trailing flush_buffers() must still raise on the success path (outer catch
     # / test_stream_drain_loop_processing_error). After a fatal inner handler
@@ -440,10 +485,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
     for item in items:
         if stop_checker and stop_checker():
             log.info("run_stream_drain_loop: Stop requested via checker.")
-            state.flush_buffers()
-            state.close_thinking()
-            state.on_stopped()
-            state.job_done[0] = True
+            _finish_on_stop(state, flush_pending)
             break
 
         raw_kind = item[0] if isinstance(item, (tuple, list)) else item
@@ -463,10 +505,10 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
         except Exception as loop_e:
             # Dispatch handler (chunk/thinking UI) raised. Re-queuing ERROR used
             # to continue the batch: later CHUNKs still applied, STREAM_DONE ran
-            # as success, and on_error never ran (the re-queued ERROR sat behind
-            # job_done). Call on_error inline like _handle_error; set job_done so
-            # we do not hang after STREAM_DONE was already dequeued into items.
-            # Do not also call on_stream_done (Writer restore vs finish).
+            # as success, and on_error never ran. Call on_error inline.
+            # Recovery drops the rest of this batch and leaves job_done clear
+            # for the replacement worker. A fatal error sets job_done. Do not
+            # also call on_stream_done (Writer restore vs finish).
             error_payload = format_error_payload(loop_e)
             log.exception("Stream processing failed")
             try:
@@ -480,19 +522,25 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
             except Exception:
                 log.exception("on_error after stream handler failure also failed")
             if recovered:
-                continue
+                # Tail items already pulled belong to the failed attempt.
+                # Continuing used to run STREAM_DONE and set job_done, so the
+                # replacement worker's chunks were ignored. Leave job_done
+                # clear so the drain waits for that worker.
+                break
             state.job_done[0] = True
             skip_trailing_flush = True
             break
 
-        if state.job_done[0]:
+        if state.job_done[0] or raw_kind == StreamQueueKind.ERROR:
+            # A recovered ERROR keeps the drain alive but must not apply the
+            # rest of this batch (same reason as the handler-raise path).
             break
 
     if not skip_trailing_flush:
         state.flush_buffers()
 
 
-def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: Any, on_stream_done: Any, on_stopped: Any, on_error: Any, on_status_fn: Any = None, ctx: Any = None, show_search_thinking: bool = False, on_approval_required: Any = None, stop_checker: Any = None) -> None:
+def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: Any, on_stream_done: Any, on_stopped: Any, on_error: Any, on_status_fn: Any = None, ctx: Any = None, show_search_thinking: bool = False, on_approval_required: Any = None, stop_checker: Any = None, flush_pending: Any = None) -> None:
     """
     Main-thread drain loop: batches items from queue, manages thinking/chunk buffers,
     and dispatches to callbacks. Keeps UI responsive via pump_ui_idle (QueueExecutor + VCL).
@@ -511,9 +559,9 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
     - (STOPPED, ignored): Calls on_stopped() (second element unused).
     - (ERROR, payload): Calls on_error(payload). If on_error returns True, the
       drain keeps running (handler recovered, e.g. STT fallback spawned a new
-      worker on this queue). Any other return value ends the loop. A dispatch
-      handler that raises is the same contract (inline on_error, no re-queue,
-      no on_stream_done).
+      worker on this queue) but drops the rest of the batch already pulled.
+      Any other return value ends the loop. A dispatch handler that raises is
+      the same contract (inline on_error, no re-queue, no on_stream_done).
     - (TOOL_CALL, payload): Agent-backend tool block; shown as text via apply_chunk_fn.
     - (TOOL_RESULT, payload): Agent-backend tool result block; shown as text via apply_chunk_fn.
     """
@@ -533,8 +581,7 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
             while not job_done[0]:
                 if stop_checker and stop_checker():
                     log.info("run_stream_drain_loop: Stop requested via checker.")
-                    on_stopped()
-                    job_done[0] = True
+                    _finish_on_stop(state, flush_pending)
                     break
 
                 try:
@@ -561,7 +608,7 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
                     continue
 
                 try:
-                    _process_batch(state, items, stop_checker)
+                    _process_batch(state, items, stop_checker, flush_pending)
                 except Exception as e:
                     error_payload = format_error_payload(e)
                     log.exception("run_stream_drain_loop batch processing failed")

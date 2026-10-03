@@ -77,7 +77,15 @@ def _html_tag_name(buf: str) -> tuple[str, bool, bool]:
         else:
             break
     # ``<script/>`` and ``<script />`` have no element body to discard.
-    is_empty = (not is_close) and buf.rstrip().endswith("/")
+    # What was wrong: any buffer ending in ``/`` was empty, so an unquoted
+    # attribute such as ``<script src=https://cdn.example.com/>`` kept the
+    # script body. The slash closes the tag only when it is its own token.
+    rest = inner[len(name):]
+    stripped = rest.rstrip()
+    is_empty = False
+    if not is_close and stripped.endswith("/"):
+        before = stripped[:-1]
+        is_empty = (not before) or before[-1].isspace()
     return "".join(name), is_close, is_empty
 
 
