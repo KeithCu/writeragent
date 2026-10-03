@@ -811,22 +811,24 @@ def _watch_queue_terminal(real_q: Any, saw_terminal: list[bool]) -> None:
     # crosshair: off
     with _terminal_watch_lock:
         state = getattr(real_q, "_wa_terminal_watch", None)
-        if not isinstance(state, dict):
-            orig_put = real_q.put
-            flags: list[list[bool]] = []
+        if isinstance(state, dict):
+            existing = state.get("flags")
+            if isinstance(existing, list):
+                existing.append(saw_terminal)
+                return
+        orig_put = real_q.put
+        flags: list[list[bool]] = [saw_terminal]
 
-            def _watched_put(item: Any, *args: Any, **kwargs: Any) -> None:
-                if isinstance(item, tuple) and item and item[0] in _TERMINAL_WATCH_KINDS:
-                    with _terminal_watch_lock:
-                        active = list(flags)
-                    for flag in active:
-                        flag[0] = True
-                orig_put(item, *args, **kwargs)
+        def _watched_put(item: Any, *args: Any, **kwargs: Any) -> None:
+            if isinstance(item, tuple) and item and item[0] in _TERMINAL_WATCH_KINDS:
+                with _terminal_watch_lock:
+                    active = list(flags)
+                for flag in active:
+                    flag[0] = True
+            orig_put(item, *args, **kwargs)
 
-            state = {"orig": orig_put, "flags": flags, "watched": _watched_put}
-            real_q.put = _watched_put
-            real_q._wa_terminal_watch = state
-        state["flags"].append(saw_terminal)
+        real_q.put = _watched_put
+        real_q._wa_terminal_watch = {"orig": orig_put, "flags": flags, "watched": _watched_put}
 
 
 def _unwatch_queue_terminal(real_q: Any, saw_terminal: list[bool]) -> None:
