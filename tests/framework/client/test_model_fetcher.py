@@ -238,6 +238,42 @@ class TestFetchAvailableImageModels:
             image_ids = cfg.fetch_available_image_models('http://127.0.0.1:58908')
         assert (image_ids) == (['flux'])
 
+    def test_local_memo_matches_keyword_image_fetch(self):
+        # Settings reads the memo from the one /v1/models GET. painter is
+        # type=image, so the old memo was ["painter"] while the image fetch
+        # returned ["flux"]. Those lists must match, and the second read must
+        # not GET again.
+        from plugin.framework.client import model_fetcher as cfg
+
+        payload = {'data': [{'id': 'flux'}, {'id': 'llama3.2'}, {'id': 'painter', 'type': 'image'}]}
+        endpoint = 'http://127.0.0.1:58908'
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync:
+            cfg.fetch_available_models(endpoint)
+            cached = cfg.cached_image_models(endpoint)
+            fetched = cfg.fetch_available_image_models(endpoint)
+            assert (mock_sync.call_count) == (1)
+        assert (cached) == (['flux'])
+        assert (fetched) == (cached)
+        assert (cfg.settings_catalog_is_warm(endpoint)) is True
+
+    def test_vision_declarations_skip_omitted_modalities(self):
+        from plugin.framework.client.model_fetcher import _vision_declarations_from_v1_entries
+
+        entries = [
+            {'id': 'yes', 'architecture': {'input_modalities': ['text', 'image']}},
+            {'id': 'no', 'architecture': {'input_modalities': ['text']}},
+            {'id': 'empty', 'architecture': {'input_modalities': []}},
+            {'id': 'top', 'input_modalities': ['image']},
+            {'id': 'omit'},
+            {'id': 'omit-arch', 'architecture': {'output_modalities': ['text']}},
+        ]
+        assert (_vision_declarations_from_v1_entries(entries)) == ({
+            'yes': True,
+            'no': False,
+            'empty': False,
+            'top': True,
+        })
+
     def test_image_output_model_ids_from_v1_entries(self):
         from plugin.framework.client.model_fetcher import _image_output_model_ids_from_v1_entries
 
@@ -404,6 +440,112 @@ class TestHasNativeVision:
             assert not (has_native_vision('deepseek/deepseek-chat', 'https://openrouter.ai/api'))
             assert (saved['https://openrouter.ai/api@deepseek/deepseek-chat']) is False
             assert not (has_native_vision('inception/mercury-2.5', 'https://openrouter.ai/api'))
+
+    def test_omitted_input_modalities_does_not_persist_false(self):
+        # An empty vision id list used to be written as False. The provider
+        # never listed input_modalities. That False is checked first, so later
+        # calls, including unknown_is_vision, never looked again.
+        from plugin.framework.client.model_fetcher import has_native_vision
+
+        payload = {
+            'data': [
+                {'id': 'google/gemini-3.8-flash'},
+                {'id': 'quiet-model', 'architecture': {'output_modalities': ['text']}},
+            ]
+        }
+        saved = {}
+
+        def mock_get_config(key):
+            if key == 'vision_support_map':
+                return dict(saved)
+            return {}
+
+        def mock_set_config(key, val):
+            if key == 'vision_support_map':
+                saved.clear()
+                saved.update(val)
+
+        endpoint = 'https://openrouter.ai/api'
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync, \
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
+             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
+             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+            assert not (has_native_vision('google/gemini-3.8-flash', endpoint))
+            assert (saved) == ({})
+            assert (has_native_vision('google/gemini-3.8-flash', endpoint, unknown_is_vision=True))
+            assert (mock_sync.call_count) == (1)
+            assert (saved) == ({})
+            assert not (has_native_vision('quiet-model', endpoint))
+            assert (saved) == ({})
+
+    def test_explicit_text_modalities_still_persist_false(self):
+        from plugin.framework.client.model_fetcher import has_native_vision
+
+        payload = {
+            'data': [
+                {'id': 'text-only-a', 'architecture': {'input_modalities': ['text']}},
+                {'id': 'also-text', 'input_modalities': []},
+            ]
+        }
+        saved = {}
+
+        def mock_get_config(key):
+            if key == 'vision_support_map':
+                return dict(saved)
+            return {}
+
+        def mock_set_config(key, val):
+            if key == 'vision_support_map':
+                saved.clear()
+                saved.update(val)
+
+        endpoint = 'https://openrouter.ai/api'
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload), \
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
+             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
+             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+            assert not (has_native_vision('text-only-a', endpoint))
+            assert (saved['https://openrouter.ai/api@text-only-a']) is False
+            # A stored no still wins over the UI fail-open flag.
+            assert not (has_native_vision('text-only-a', endpoint, unknown_is_vision=True))
+            assert not (has_native_vision('also-text', endpoint))
+            assert (saved['https://openrouter.ai/api@also-text']) is False
+
+    def test_mixed_modalities_persist_only_stated_rows(self):
+        from plugin.framework.client.model_fetcher import has_native_vision
+
+        payload = {
+            'data': [
+                {'id': 'sees', 'architecture': {'input_modalities': ['text', 'image']}},
+                {'id': 'blind', 'architecture': {'input_modalities': ['text']}},
+                {'id': 'quiet'},
+            ]
+        }
+        saved = {}
+
+        def mock_get_config(key):
+            if key == 'vision_support_map':
+                return dict(saved)
+            return {}
+
+        def mock_set_config(key, val):
+            if key == 'vision_support_map':
+                saved.clear()
+                saved.update(val)
+
+        endpoint = 'https://openrouter.ai/api'
+        with patch('plugin.framework.client.requests.sync_request', return_value=payload), \
+             patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
+             patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
+             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+            assert (has_native_vision('sees', endpoint))
+            assert (saved['https://openrouter.ai/api@sees']) is True
+            assert not (has_native_vision('blind', endpoint))
+            assert (saved['https://openrouter.ai/api@blind']) is False
+            assert not (has_native_vision('quiet', endpoint))
+            assert ('https://openrouter.ai/api@quiet') not in (saved)
+            assert (has_native_vision('sees:nitro', endpoint))
+            assert (saved['https://openrouter.ai/api@sees:nitro']) is True
 
     def test_failed_modalities_fetch_does_not_persist_false(self):
         # A down catalog is not a text-only answer. Do not write False into

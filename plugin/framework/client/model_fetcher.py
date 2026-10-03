@@ -68,7 +68,10 @@ ENDPOINT_PRESETS = [
 # keys must not share cache; the raw key is not stored). Value is model id list or None after failure.
 _model_fetch_cache: dict[str, list[str] | None] = {}
 _model_fetch_image_cache: dict[str, list[str] | None] = {}
-_model_fetch_vision_cache: dict[str, list[str] | None] = {}
+# Successful /v1/models vision memo. A dict is id -> accepts image, and only
+# ids whose row listed input_modalities are present. A list is positive ids
+# only (tests). None is not stored: a failed GET must be retried.
+_model_fetch_vision_cache: dict[str, list[str] | dict[str, bool] | None] = {}
 # OpenRouter GET /v1/models?output_modalities=speech|transcription. Separate from
 # the unfiltered catalog: that list does not mark TTS, and output_modalities=audio
 # is music / gpt-audio, not the Speech-tab TTS combo.
@@ -106,9 +109,10 @@ _OLLAMA_NUM_CTX_LINE = re.compile(r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\s*
 # - OpenRouter (openrouter.ai): {data: [...]}; image rows use architecture.output_modalities (not slug names).
 #   TTS is GET /v1/models?output_modalities=speech (not audio). STT is output_modalities=transcription.
 # - OpenAI-compatible (Ollama, LM Studio, most hosted chat APIs): {data: [{id}, ...]}; image models
-#   are not typed — local discovery uses slug keywords in _filter_fetched_models (flux, sdxl, …).
-# Image-output IDs are extracted at fetch time into _model_fetch_image_cache; see
-# fetch_available_image_models for which providers trust metadata vs slug fallback.
+#   are not typed — the image memo for those hosts is the slug keyword filter
+#   (flux, sdxl, …), the same list fetch_available_image_models returns.
+# Image-output IDs are stored at fetch time in _model_fetch_image_cache. Settings
+# reads that memo (once per startup). Test Connection clears it.
 
 
 def _v1_models_entries_from_body(data: Any) -> list[Any] | None:
@@ -158,6 +162,49 @@ def _vision_input_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
     return out
 
 
+def _stated_input_modalities(row: dict[str, Any]) -> list[Any] | None:
+    """input_modalities when this row states a list. None when the field is absent.
+
+    An empty list is a statement (no image). A missing field is not.
+    ``top or nested`` matches ``_vision_input_model_ids_from_v1_entries``.
+    A non-dict architecture still raises on ``.get``.
+    """
+    arch = row.get("architecture") or {}
+    top = row.get("input_modalities") if "input_modalities" in row else None
+    # Non-dict architecture: ``in`` is not enough (a string can contain the
+    # name). Call ``.get`` so the parse still aborts, same as the id collector.
+    if not isinstance(arch, dict) or "input_modalities" in arch:
+        nested = arch.get("input_modalities")
+    else:
+        nested = None
+    chosen = top if top else nested
+    if isinstance(chosen, list):
+        return chosen
+    if isinstance(top, list):
+        return top
+    return None
+
+
+def _vision_declarations_from_v1_entries(entries: list[Any]) -> dict[str, bool]:
+    """id -> image input, only for rows that listed input_modalities.
+
+    Omitted input_modalities is not an entry. Callers must not treat a missing
+    id as an explicit no.
+    """
+    out: dict[str, bool] = {}
+    for row in entries:
+        if not isinstance(row, dict):
+            continue
+        mid = row.get("id")
+        if not mid:
+            continue
+        stated = _stated_input_modalities(row)
+        if stated is None:
+            continue
+        out[str(mid)] = "image" in stated
+    return out
+
+
 def _parse_positive_ctx(value: Any) -> int | None:
     try:
         parsed = int(value)
@@ -189,8 +236,13 @@ def _context_tokens_from_v1_entries(entries: list[Any]) -> dict[str, int]:
     return out
 
 
-def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], list[str]] | None:
-    """Return (all_ids, image_output_ids, vision_input_ids) from a /v1/models JSON body."""
+def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], dict[str, bool]] | None:
+    """Return (all_ids, image_output_ids, vision_declarations) from a /v1/models body.
+
+    Vision declarations are id -> accepts image, only when the row listed
+    input_modalities. The positive-id walk still runs so a non-dict
+    architecture aborts this parse the same way it did before.
+    """
     entries = _v1_models_entries_from_body(data)
     if entries is None:
         return None
@@ -201,17 +253,22 @@ def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], list[str
             if mid:
                 models.append(str(mid))
     image_models = _image_output_model_ids_from_v1_entries(entries)
-    vision_models = _vision_input_model_ids_from_v1_entries(entries)
-    return models, image_models, vision_models
+    # The positive-id walk is what aborts on a non-dict architecture. Keep it
+    # even though the memo now stores declarations, not that id list.
+    _vision_input_model_ids_from_v1_entries(entries)
+    return models, image_models, _vision_declarations_from_v1_entries(entries)
 
 
-def _store_model_fetch_caches(cache_key: str, models: list[str] | None, image_models: list[str] | None, vision_models: list[str] | None = None, context_tokens: dict[str, int] | None = None) -> None:
+def _store_model_fetch_caches(cache_key: str, models: list[str] | None, image_models: list[str] | None, vision_models: list[str] | dict[str, bool] | None = None, context_tokens: dict[str, int] | None = None) -> None:
     # A failed fetch must not stick for the process lifetime. The next caller retries.
     if models is None:
         return
     _model_fetch_cache[cache_key] = models
     _model_fetch_image_cache[cache_key] = image_models
-    _model_fetch_vision_cache[cache_key] = vision_models
+    if isinstance(vision_models, dict):
+        _model_fetch_vision_cache[cache_key] = dict(vision_models)
+    else:
+        _model_fetch_vision_cache[cache_key] = vision_models
     _model_context_cache[cache_key] = dict(context_tokens) if context_tokens else {}
 
 
@@ -355,10 +412,20 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
         data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
         parsed = _parse_v1_models_response(data)
         if parsed is not None:
-            models, image_models, vision_models = parsed
+            models, image_models, vision_declared = parsed
             entries = _v1_models_entries_from_body(data) or []
-            _store_model_fetch_caches(cache_key, models, image_models, vision_models, _context_tokens_from_v1_entries(entries))
             provider = get_provider_from_endpoint(base)
+            # What was wrong: this memo stored only architecture/type image ids.
+            # Ollama, LM Studio, and other non-Together hosts usually omit those
+            # fields, so the slice was [] while fetch_available_image_models
+            # keyword-matched flux/sdxl/…. Settings reads the memo, and the
+            # startup worker does not do a second image GET for those hosts, so
+            # local image models never appeared. Store the keyword list the
+            # image fetch returns. Together keeps type=image. OpenRouter
+            # Settings uses /v1/images/models, not this slice.
+            if provider not in ("together", "openrouter"):
+                image_models = _filter_fetched_models(models, "image")
+            _store_model_fetch_caches(cache_key, models, image_models, vision_declared, _context_tokens_from_v1_entries(entries))
             if provider == "zai":
                 preview = models[:5] if models else []
                 log.debug("fetch_available_models z.ai ok url=%s count=%s preview=%r", url, len(models), preview)
@@ -376,12 +443,13 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
 
 
 def fetch_available_image_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
-    """Image-output model IDs from /v1/models (architecture.output_modalities or type=image).
+    """Image-output model IDs. Same list ``cached_image_models`` returns. No extra GET.
 
-    Provider policy after shared fetch (see module comment above):
+    Provider policy (see module comment above):
     - openrouter: queries /v1/images/models.
-    - together: metadata only (_model_fetch_image_cache) from standard /v1/models.
-    - ollama / lm studio / custom: keyword filter on id strings when metadata is empty.
+    - together: metadata only (type=image) from the standard /v1/models memo.
+    - ollama / lm studio / custom: keyword filter (flux, sdxl, …) stored with
+      that same /v1/models memo. The catalog is not fetched again here.
     """
     if not endpoint:
         return None
@@ -425,12 +493,14 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
         return None
     url = _models_list_url(base)
     cache_key = _model_fetch_cache_key(url, base, api_key_override)
-    arch_ids = _model_fetch_image_cache.get(cache_key) or []
-    # Hosted catalogs declare image models in API metadata; slug heuristics mis-classify
-    # (e.g. OpenRouter gemini-*-image names, Together google/flash-image-2.5 without "flux" in id).
+    stored = _model_fetch_image_cache.get(cache_key)
+    # Together declares image models with type=image. A slug heuristic would
+    # mis-classify (google/flash-image-2.5 has no "flux"; a chat FLUX row is not
+    # an image model). Other hosts' memo is the keyword list written above.
+    if isinstance(stored, list):
+        return list(stored)
     if provider == "together":
-        return list(arch_ids)
-    # Ollama / LM Studio: /v1/models rows lack type/architecture; match flux, sdxl, etc. on id.
+        return []
     return _filter_fetched_models(all_models, "image")
 
 
@@ -551,8 +621,10 @@ def cached_text_models(endpoint: str, api_key_override: str | None = None) -> li
 def cached_image_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
     """Memoized image-output ids, or None. Does not HTTP.
 
-    OpenRouter is ``GET /v1/images/models``. Together is the image slice stored
-    with the text ``/v1/models`` response.
+    OpenRouter is ``GET /v1/images/models``. Together is the ``type=image`` slice
+    stored with ``/v1/models``. Other hosts are the keyword filter (flux, sdxl, …)
+    stored with that same response — the list ``fetch_available_image_models``
+    returns. Settings reads this. It does not fetch the catalog again.
     """
     base = _catalog_base(endpoint)
     if not base:
@@ -635,9 +707,10 @@ def settings_catalog_is_warm(endpoint: str, api_key_override: str | None = None)
         return cached_stt_models(endpoint, api_key_override) is not None
     if provider == "together":
         return _together_voices_list_cached(endpoint, api_key_override)
-    # Ollama, Groq, and custom hosts keep text and image ids in the one
-    # /v1/models memo checked above. That memo is the catalog Settings
-    # shows. A warm memo must not look cold, or opening Settings refetches.
+    # Ollama, Groq, and custom hosts keep text ids and the keyword image ids
+    # (flux, sdxl, …) in the one /v1/models memo checked above. That memo is
+    # the catalog Settings shows. A warm memo must not look cold, or opening
+    # Settings refetches.
     return True
 
 
@@ -1158,6 +1231,32 @@ def _model_in_vision_list(provider: str, vision_list: list[str], model_id: str) 
     return model_id in vision_list
 
 
+def _declared_vision_flag(provider: str | None, declared: dict[str, bool], model_id: str) -> bool | None:
+    """True/False when this id's row listed input_modalities. None if it did not."""
+    if provider == "openrouter":
+        for declared_id, flag in declared.items():
+            if openrouter_model_ids_equivalent(declared_id, model_id):
+                return bool(flag)
+        return None
+    if model_id in declared:
+        return bool(declared[model_id])
+    return None
+
+
+def _vision_memo_answer(provider: str | None, memo: list[str] | dict[str, bool] | None, model_id: str) -> bool | None:
+    """Answer to persist, or None when the catalog did not say.
+
+    A dict is the parse: only ids whose row listed input_modalities. A list is
+    positive ids only. A hit on that list is yes. A miss is not a no — the
+    list does not record an omitted field.
+    """
+    if isinstance(memo, dict):
+        return _declared_vision_flag(provider, memo, model_id)
+    if isinstance(memo, list) and _model_in_vision_list(provider or "", memo, model_id):
+        return True
+    return None
+
+
 def _remember_vision_support(model_id: str, endpoint: str, supported: bool) -> None:
     """Persist a modalities answer. A write failure must not change the answer."""
     try:
@@ -1176,7 +1275,8 @@ def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True,
     3. Provider metadata:
        - OpenRouter/Together: ``input_modalities`` contains ``image``. The sidebar
          does not GET ``/v1/models`` for these hosts (the lists are huge). On a
-         process-cache miss this function fetches once, then remembers the answer.
+         process-cache miss this function fetches once, then remembers an
+         explicit yes or no. A row that omitted ``input_modalities`` is not stored.
        - Ollama: ``POST /api/show`` capabilities list.
 
     ``allow_fetch=False`` reads only those caches. Chat Send runs on the UI
@@ -1219,15 +1319,22 @@ def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True,
         suffix = get_api_version_suffix(endpoint_str, is_openwebui=is_owu)
         url = f"{endpoint_str}{suffix}/models"
         cache_key = _model_fetch_cache_key(url, endpoint_str)
-        vision_list = _model_fetch_vision_cache.get(cache_key)
-        if vision_list is None and allow_fetch:
+        vision_memo = _model_fetch_vision_cache.get(cache_key)
+        if vision_memo is None and allow_fetch:
             fetch_available_models(endpoint_str)
-            vision_list = _model_fetch_vision_cache.get(cache_key)
-        if vision_list is not None:
-            supported = _model_in_vision_list(provider, vision_list, model_id_str)
-            _remember_vision_support(model_id_str, endpoint_str, supported)
-            log.debug("has_native_vision: modalities model=%r vision=%s", model_id_str, supported)
-            return supported
+            vision_memo = _model_fetch_vision_cache.get(cache_key)
+        # What was wrong: a successful catalog with no image modality (often
+        # because the provider omitted input_modalities) was stored as False.
+        # The config map is checked first, so that False skipped later lookups
+        # for the rest of the process and the next one. Persist only when the
+        # row listed input_modalities. An explicit list without image is still
+        # a no. A missing field falls through and is not written.
+        if vision_memo is not None:
+            supported = _vision_memo_answer(provider, vision_memo, model_id_str)
+            if supported is not None:
+                _remember_vision_support(model_id_str, endpoint_str, supported)
+                log.debug("has_native_vision: modalities model=%r vision=%s", model_id_str, supported)
+                return supported
 
     # 3b. Ollama (query POST /api/show). None means the probe did not answer.
     # allow_fetch=False still honors a process cache hit from an earlier probe.

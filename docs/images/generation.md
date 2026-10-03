@@ -48,7 +48,7 @@ Default **Base Size** is **1024** (vendor `1K`). Models dislike 512 / `0.5K` —
 
 ## Settings UI
 
-**General tab** ([`SettingsDialog.xdl.tpl`](../../extension/WriterAgentDialogs/SettingsDialog.xdl.tpl)): endpoint, API key, **Text/Chat Model**, **Image Model**, audio model, temperature, max tokens, additional instructions. Switching the endpoint to a different provider clears leftover model combobox text (Text/Chat, image, STT) so a previous provider's slug is not kept; populate then shows that provider's LRU/defaults. See [`uno-dialogs.md`](../framework/uno-dialogs.md) (`EndpointCombinedListener._apply_dropdowns`).
+**General tab** ([`SettingsDialog.xdl.tpl`](../../extension/WriterAgentDialogs/SettingsDialog.xdl.tpl)): endpoint, API key, **Text/Chat Model**, **Image Model**, audio model, temperature, max tokens, additional instructions. Switching the endpoint to a different provider clears leftover model combobox text (Text/Chat, image, STT) so a previous provider's slug is not kept; populate then shows that provider's LRU/defaults. The image combo reads the process memo from the startup catalog fetch (Test Connection is what fetches again): OpenRouter ``/v1/images/models``, Together ``type=image``, and for other hosts the same keyword filter as the image fetch (``flux``, ``sdxl``, …) taken from that ``/v1/models`` response. See [`uno-dialogs.md`](../framework/uno-dialogs.md) (`EndpointCombinedListener._apply_dropdowns`).
 
 **Image tab**: base size, aspect ratio (same five labels as the sidebar Image-mode dropdown: Square, Landscape 16:9, Portrait 9:16, Landscape 3:2, Portrait 2:3), steps, seed, auto gallery, insert frame.
 
