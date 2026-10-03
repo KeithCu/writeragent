@@ -171,6 +171,106 @@ def test_apply_structured_insert_html_skips_html_mode():
     assert out is result
 
 
+def test_html_from_paddle_structure_skips_escaped_table_paragraph():
+    """Raw PP-Structure ``<table>`` block text must not sit beside the real table."""
+    raw_table = "<table><tr><td>Widget</td><td>2</td></tr></table>"
+    with patch(
+        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
+        side_effect=lambda html: html,
+    ):
+        html = html_from_paddle_structure(
+            [
+                {"type": "text", "text": "Invoice"},
+                {"type": "table", "text": raw_table, "box": [0, 0, 10, 10]},
+            ],
+            [{"columns": ["Item", "Qty"], "rows": [["Widget", "2"]]}],
+        )
+    assert "Invoice" in html
+    assert html.lower().count("<table") == 1
+    assert "&lt;table" not in html.lower()
+    assert "<td>Widget</td>" in html
+
+
+def test_html_from_paddle_structure_keeps_plain_table_text():
+    with patch(
+        "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
+        side_effect=lambda html: html,
+    ):
+        html = html_from_paddle_structure(
+            [{"type": "table", "text": "See totals"}],
+            [{"columns": ["A"], "rows": [["1"]]}],
+        )
+    assert "See totals" in html
+    assert html.lower().count("<table") == 1
+    assert "&lt;table" not in html.lower()
+
+
+def test_extension_root_is_three_parents_above_venv_dir(tmp_path, monkeypatch):
+    from plugin.vision.venv import vision_html_export as html_export
+
+    fake = tmp_path / "ext" / "plugin" / "vision" / "venv" / "vision_html_export.py"
+    fake.parent.mkdir(parents=True)
+    monkeypatch.setattr(html_export, "__file__", str(fake))
+    assert html_export._extension_root() == str(tmp_path / "ext")
+
+
+def test_convert_latex_uses_vendored_latex2mathml_when_not_installed(tmp_path, monkeypatch):
+    """Vendored copy under the extension root must convert TeX when import fails."""
+    import builtins
+    import sys
+
+    from plugin.vision.venv import vision_html_export as html_export
+
+    ext = tmp_path / "ext"
+    vendor_pkg = ext / "vendor" / "latex2mathml"
+    vendor_pkg.mkdir(parents=True)
+    (vendor_pkg / "__init__.py").write_text("")
+    (vendor_pkg / "converter.py").write_text(
+        "def convert(latex, display='inline'):\n"
+        "    return '<math display=\"%s\"><mi>x</mi></math>' % display\n"
+    )
+    # A copy one level too high is what the old four-``..`` walk found.
+    parent_pkg = tmp_path / "vendor" / "latex2mathml"
+    parent_pkg.mkdir(parents=True)
+    (parent_pkg / "__init__.py").write_text("")
+    (parent_pkg / "converter.py").write_text(
+        "def convert(latex, display='inline'):\n"
+        "    raise AssertionError('parent-of-repo latex2mathml must not be used')\n"
+    )
+    fake = ext / "plugin" / "vision" / "venv" / "vision_html_export.py"
+    fake.parent.mkdir(parents=True)
+    monkeypatch.setattr(html_export, "__file__", str(fake))
+
+    removed = {
+        name: sys.modules.pop(name)
+        for name in list(sys.modules)
+        if name == "latex2mathml" or name.startswith("latex2mathml.")
+    }
+    vendor = str(ext / "vendor")
+    real_import = builtins.__import__
+
+    def guarded(name, globals=None, locals=None, fromlist=(), level=0):
+        if (name == "latex2mathml" or str(name).startswith("latex2mathml.")) and vendor not in sys.path:
+            raise ImportError("latex2mathml is not installed")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded)
+    path_before = list(sys.path)
+    try:
+        out = convert_latex_delimiters_to_mathml("<p>$$x^2$$</p>")
+    finally:
+        sys.path[:] = path_before
+        for name in list(sys.modules):
+            if name == "latex2mathml" or name.startswith("latex2mathml."):
+                mod_file = getattr(sys.modules[name], "__file__", "") or ""
+                if str(tmp_path) in mod_file:
+                    sys.modules.pop(name, None)
+        sys.modules.update(removed)
+
+    assert "$$" not in out
+    assert '<math display="block">' in out
+
+
 def test_convert_latex_delimiters_to_mathml_display_and_inline():
     pytest.importorskip("latex2mathml")
     html = "<p>$$E=mc^2$$</p><p>see \\(a+b\\) in text</p>"

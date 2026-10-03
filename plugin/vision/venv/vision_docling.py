@@ -32,6 +32,19 @@ def _import_docling() -> Any:
     return importlib.import_module("docling.document_converter")
 
 
+def _text_score_for_cache(params: dict[str, Any]) -> float:
+    """OCR threshold stored in the converter cache key.
+
+    ``float(params.get("text_score") or 0.5)`` treated a real ``0.0`` as
+    missing, so the key matched the default ``0.5`` converter. The warm
+    converter was reused and the requested threshold was never applied.
+    """
+    value = params.get("text_score")
+    if value is None or value == "":
+        return 0.5
+    return float(value)
+
+
 def _cache_key(params: dict[str, Any], *, for_structure: bool, input_format: str) -> tuple[Any, ...]:
     backend = resolve_ocr_backend(params)
     lang = str(params.get("lang") or "en").strip() or "en"
@@ -50,7 +63,7 @@ def _cache_key(params: dict[str, Any], *, for_structure: bool, input_format: str
         str(params.get("layout_model") or "heron"),
         bool(params.get("do_formula_enrichment", False)),
         bool(params.get("do_code_enrichment", False)),
-        float(params.get("text_score") or 0.5),
+        _text_score_for_cache(params),
         bool(params.get("force_full_page_ocr", True)),
         str(params.get("ocr_mode") or ""),
         float(params.get("document_timeout") or 0),

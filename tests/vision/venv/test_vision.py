@@ -247,6 +247,18 @@ def test_extract_structure_paddle_engine(mock_get_engine, mock_decode):
     assert result["status"] == "ok"
     assert "Invoice" in result["full_text"]
     assert result["metrics"]["table_count"] == 1
+    assert result["html"].lower().count("<table") == 1
+    assert "&lt;table" not in result["html"].lower()
+    table_blocks = [block for block in result["blocks"] if block.get("type") == "table"]
+    assert table_blocks
+    assert "<table" not in str(table_blocks[0].get("text") or "").lower()
+
+
+def test_text_from_structure_res_drops_raw_table_html():
+    html = "<table><tr><th>Item</th></tr><tr><td>Widget</td></tr></table>"
+    assert paddle_mod._text_from_structure_res({"html": html}) == ""
+    assert paddle_mod._text_from_structure_res({"text": "Caption", "html": html}) == "Caption"
+    assert paddle_mod._text_from_structure_res({"html": "<p>Note</p>"}) == "<p>Note</p>"
 
 
 @patch("plugin.vision.venv.vision_paddle._get_pp_structure")
