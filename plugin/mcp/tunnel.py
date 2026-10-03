@@ -46,7 +46,16 @@ _CLOUDFLARE_QUICK_URL_RE = re.compile(r"(https://[\w.-]+\.trycloudflare\.com)")
 # Token / named tunnels may log a custom hostname (not trycloudflare.com).
 _CLOUDFLARE_ANY_URL_RE = re.compile(r"(https://[\w.-]+)")
 _BORE_URL_RE = re.compile(r"listening at ([\w.\-]+:\d+)")
-_TAILSCALE_URL_RE = re.compile(r"Available at (https://[\w.\-]+/)")
+# What was wrong: this required "Available at <url>" on one line. Current
+# `tailscale funnel` prints "Available on the internet:" and the URL on the
+# next line, so the URL was never captured and the tunnel stayed Starting.
+# Why: also accept a line that is the https URL. `^` is per line, so a
+# multi-line chunk and the one-line process reader both match. A proxy
+# target (`|-- / proxy http://…`) and a docs link mid-line do not.
+_TAILSCALE_URL_RE = re.compile(
+    r"^(?:Available at[ \t]+)?(https://[^\s]+)",
+    re.MULTILINE,
+)
 
 _TAILSCALE_RESET_COMMANDS = (["tailscale", "funnel", "reset"], ["tailscale", "serve", "reset"])
 

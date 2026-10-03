@@ -142,6 +142,26 @@ def test_parse_tailscale_url():
     assert parse_tailscale_url("starting") is None
 
 
+def test_parse_tailscale_url_multiline_funnel_output():
+    """Current `tailscale funnel` puts the public URL on the line after the header."""
+    output = (
+        "Available on the internet:\n"
+        "\n"
+        "https://node.tailnet-name.ts.net/\n"
+        "|-- / proxy http://127.0.0.1:18765\n"
+        "\n"
+        "Press Ctrl+C to exit.\n"
+    )
+    assert parse_tailscale_url(output) == "https://node.tailnet-name.ts.net"
+    # The process reader delivers one line at a time.
+    found = [parse_tailscale_url(line) for line in output.splitlines()]
+    assert found == [None, None, "https://node.tailnet-name.ts.net", None, None, None]
+    # `funnel status` sometimes omits the trailing slash.
+    status = "Available on the internet:\nhttps://desktop.tailnet.ts.net\n|-- / proxy http://127.0.0.1:8096\n"
+    assert parse_tailscale_url(status) == "https://desktop.tailnet.ts.net"
+    assert parse_tailscale_url("See https://tailscale.com/kb/1223/tailscale-funnel/") is None
+
+
 def test_normalize_public_base_and_mcp_url():
     assert normalize_public_base("bore.pub:1") == "http://bore.pub:1"
     assert normalize_public_base("https://x.trycloudflare.com/") == "https://x.trycloudflare.com"
