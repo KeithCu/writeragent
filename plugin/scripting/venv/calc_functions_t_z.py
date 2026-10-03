@@ -20,6 +20,7 @@ from .calc_functions_util import (
     _build_holiday_set,
     _collect_a_values,
     _find_match_index,
+    _find_text_cut,
     _parse_weekend,
     _serial_to_date,
 )
@@ -142,40 +143,14 @@ fmt = text
 
 def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
     try:
-        s = str(text)
-        delim = str(delimiter)
-        inst = int(float(instance_num))
-        if match_mode == 1:
-            s_search = s.lower()
-            delim_search = delim.lower()
-        else:
-            s_search = s
-            delim_search = delim
-
-        if inst > 0:
-            parts = s_search.split(delim_search)
-            if len(parts) <= inst:
-                if match_end and len(parts) == inst:
-                    return s
-                return if_not_found
-            idx = 0
-            for i in range(inst):
-                idx = s_search.find(delim_search, idx)
-                if i < inst - 1:
-                    idx += len(delim_search)
+        s, _delim, _inst, idx, match_end_miss = _find_text_cut(
+            text, delimiter, instance_num, match_mode, after=False
+        )
+        if idx is not None:
             return s[:idx]
-        elif inst < 0:
-            parts = s_search.split(delim_search)
-            if len(parts) <= abs(inst):
-                if match_end and len(parts) == abs(inst):
-                    return s
-                return if_not_found
-            idx = len(s)
-            for i in range(abs(inst)):
-                idx = s_search.rfind(delim_search, 0, idx)
-            return s[:idx]
-        else:
-            return float("nan")
+        if match_end and match_end_miss:
+            return s
+        return if_not_found
     except (ValueError, TypeError):
         return float("nan")
 

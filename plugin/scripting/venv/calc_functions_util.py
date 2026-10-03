@@ -20,10 +20,9 @@ __all__ = [
     "_collect_a_values",
     "_extract_numeric_array",
     "_find_match_index",
+    "_find_text_cut",
     "_npf_result",
-    "_parse_holidays",
     "_parse_weekend",
-    "_parse_weekend_code",
     "_serial_to_date",
     "_to_float_a",
     "_wildcard_fullmatch",
@@ -68,9 +67,6 @@ def _build_holiday_set(holidays: Any | None = None) -> set[dt.date]:
     return h_dates
 
 
-_parse_holidays = _build_holiday_set
-
-
 def _parse_weekend(weekend: Any = 1) -> set[int] | float:
     """Parse Excel weekend parameter into a set of weekday integers, or NaN if invalid."""
     if isinstance(weekend, str):
@@ -87,9 +83,6 @@ def _parse_weekend(weekend: Any = 1) -> set[int] | float:
     if w_idx not in _WEEKEND_MAPPING:
         return float("nan")
     return set(_WEEKEND_MAPPING[w_idx])
-
-
-_parse_weekend_code = _parse_weekend
 
 
 
@@ -275,3 +268,55 @@ def _extract_numeric_array(
                 continue
             vals.append(v)
     return np.asarray(vals, dtype=float)
+
+
+def _find_text_cut(
+    text: Any,
+    delimiter: Any,
+    instance_num: Any = 1,
+    match_mode: Any = 0,
+    after: bool = False,
+) -> tuple[str, str, int, int | None, bool]:
+    """Shared delimiter search for textbefore and textafter.
+
+    Returns (text_str, delim_str, instance_int, cut_idx, match_end_miss).
+    When the instance is within bounds, cut_idx is an integer index and match_end_miss is False.
+    When the instance lands on the boundary, cut_idx is None and match_end_miss is True.
+    On a real miss, cut_idx is None and match_end_miss is False.
+    Raises ValueError or TypeError if instance_num is invalid or zero.
+    """
+    s = str(text)
+    delim = str(delimiter)
+    inst = int(float(instance_num))
+    if inst == 0:
+        raise ValueError("instance_num cannot be 0")
+
+    if match_mode == 1:
+        s_search = s.lower()
+        delim_search = delim.lower()
+    else:
+        s_search = s
+        delim_search = delim
+
+    abs_inst = abs(inst)
+    parts = s_search.split(delim_search)
+    if len(parts) <= abs_inst:
+        match_end_miss = len(parts) == abs_inst
+        return s, delim, inst, None, match_end_miss
+
+    if inst > 0:
+        idx = 0
+        if after:
+            for _unused in range(inst):
+                idx = s_search.find(delim_search, idx) + len(delim_search)
+        else:
+            for i in range(inst):
+                idx = s_search.find(delim_search, idx)
+                if i < inst - 1:
+                    idx += len(delim_search)
+        return s, delim, inst, idx, False
+    else:
+        idx = len(s)
+        for _unused in range(abs_inst):
+            idx = s_search.rfind(delim_search, 0, idx)
+        return s, delim, inst, idx, False
