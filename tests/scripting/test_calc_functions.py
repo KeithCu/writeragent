@@ -240,8 +240,10 @@ def test_financial_group_a():
     # couppcd returns a date ordinal (which we stubbed as nan for simplified implementation)
     assert calc.couppcd(43831, 43983, 2) == 43803.0
 
-    assert not math.isnan(calc.cumipmt(0.05/12, 60, 100000, 1, 12, 0))
-    assert not math.isnan(calc.cumprinc(0.05/12, 60, 100000, 1, 12, 0))
+    assert abs(calc.cumipmt(0.09 / 12, 360, 125000, 1, 12, 0) - (-11215.34288)) < 1e-2
+    assert abs(calc.cumprinc(0.09 / 12, 360, 125000, 1, 12, 0) - (-853.99637)) < 1e-2
+    # XNPV: cash flows at dates
+    assert abs(calc.xnpv(0.1, [-10000, 2750, 4250, 3250, 2750], [43831, 43900, 44000, 44100, 44200]) - 2294.3573) < 1e-2
 
     assert not math.isnan(calc.db(10000, 1000, 5, 1))
     assert not math.isnan(calc.ddb(10000, 1000, 5, 1))
@@ -376,10 +378,34 @@ def test_t():
 def test_textafter():
     assert calc.textafter("a-b-c", "-") == "b-c"
     assert calc.textafter("a-b-c", "-", 2) == "c"
+    assert calc.textafter("a-b-c", "-", -1) == "c"
+    assert calc.textafter("a-b-c", "-", -2) == "b-c"
+    assert calc.textafter("Foo-Bar-Baz", "bar", 1, match_mode=1) == "-Baz"
+    # match_end when landing on the end returns ""
+    assert calc.textafter("a-b-c", "-", 3, match_end=1) == ""
+    assert calc.textafter("a-b-c", "-", -3, match_end=1) == ""
+    # Miss returns if_not_found
+    assert calc.textafter("a-b-c", "-", 3, match_end=0, if_not_found="NF") == "NF"
+    assert calc.textafter("a-b-c", "-", 4, match_end=1, if_not_found="NF") == "NF"
+    # Instance 0 or invalid returns NaN
+    assert math.isnan(calc.textafter("a-b-c", "-", 0))
+    assert math.isnan(calc.textafter("a-b-c", "-", "invalid"))
 
 def test_textbefore():
     assert calc.textbefore("a-b-c", "-") == "a"
     assert calc.textbefore("a-b-c", "-", 2) == "a-b"
+    assert calc.textbefore("a-b-c", "-", -1) == "a-b"
+    assert calc.textbefore("a-b-c", "-", -2) == "a"
+    assert calc.textbefore("Foo-Bar-Baz", "bar", 1, match_mode=1) == "Foo-"
+    # match_end when landing on the end returns the original string
+    assert calc.textbefore("a-b-c", "-", 3, match_end=1) == "a-b-c"
+    assert calc.textbefore("a-b-c", "-", -3, match_end=1) == "a-b-c"
+    # Miss returns if_not_found
+    assert calc.textbefore("a-b-c", "-", 3, match_end=0, if_not_found="NF") == "NF"
+    assert calc.textbefore("a-b-c", "-", 4, match_end=1, if_not_found="NF") == "NF"
+    # Instance 0 or invalid returns NaN
+    assert math.isnan(calc.textbefore("a-b-c", "-", 0))
+    assert math.isnan(calc.textbefore("a-b-c", "-", "invalid"))
 
 def test_textsplit():
     assert calc.textsplit("a-b-c", "-") == [["a", "b", "c"]]
@@ -497,8 +523,10 @@ def test_averageifs_and_countifs_reject_odd_predicates():
 def test_bit_char_choose_combin_inf_does_not_raise():
     assert math.isnan(calc.bitand(float("inf"), 1))
     assert math.isnan(calc.bitlshift(1, float("inf")))
+    assert calc.bitlshift(8, -1) == 4.0
     assert math.isnan(calc.bitor(1, float("inf")))
     assert math.isnan(calc.bitrshift(float("inf"), 1))
+    assert calc.bitrshift(8, -1) == 16.0
     assert math.isnan(calc.bitxor(float("inf"), 1))
     assert calc.bitand(5, 3) == 1.0
     assert calc.char(float("inf")) == "#VALUE!"
@@ -908,6 +936,33 @@ def test_xirr_tiny_derivative_is_nan_and_classic_root_holds():
     assert math.isnan(calc.xirr([-1, 1e-20], [0, 365], 0.1))
 
 
+def test_xmatch_and_xlookup_approximate_modes():
+    nums = [10, 20, 30, 40]
+    vals = [100, 200, 300, 400]
+    # Exact match
+    assert calc.xmatch(20, nums) == 2.0
+    assert calc.xlookup(20, nums, vals) == 200
+
+    # match_mode -1: exact or next smaller
+    assert calc.xmatch(25, nums, -1) == 2.0
+    assert calc.xlookup(25, nums, vals, match_mode=-1) == 200
+    assert math.isnan(calc.xmatch(5, nums, -1))
+    assert calc.xlookup(5, nums, vals, if_not_found="none", match_mode=-1) == "none"
+
+    # match_mode 1: exact or next larger
+    assert calc.xmatch(25, nums, 1) == 3.0
+    assert calc.xlookup(25, nums, vals, match_mode=1) == 300
+    assert math.isnan(calc.xmatch(45, nums, 1))
+    assert calc.xlookup(45, nums, vals, if_not_found="none", match_mode=1) == "none"
+
+    # search_mode -1 (reverse search)
+    dup_nums = [10, 20, 20, 30]
+    dup_vals = [1, 2, 3, 4]
+    assert calc.xmatch(20, dup_nums, 0, 1) == 2.0
+    assert calc.xmatch(20, dup_nums, 0, -1) == 3.0
+    assert calc.xlookup(20, dup_nums, dup_vals, search_mode=1) == 2
+    assert calc.xlookup(20, dup_nums, dup_vals, search_mode=-1) == 3
+
 def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
     import numpy as np
 
@@ -1180,4 +1235,45 @@ def test_subtotal_rejects_unknown_fn_and_empty_samples():
     assert math.isnan(calc.subtotal(10, [4.0]))
     assert math.isnan(calc.subtotal(10, []))
     assert calc.subtotal(10, [1.0, 3.0]) == 2.0
+
+def test_kurt_and_skew():
+    data = [1.0, 2.0, 4.0, 7.0, 11.0, 16.0]
+    k = calc.kurt(data)
+    s = calc.skew(data)
+    assert not math.isnan(k)
+    assert not math.isnan(s)
+    # Check text and booleans are ignored
+    data_with_noise = [1.0, "ignore", True, 2.0, 4.0, 7.0, 11.0, 16.0]
+    assert abs(calc.kurt(data_with_noise) - k) < 1e-12
+    assert abs(calc.skew(data_with_noise) - s) < 1e-12
+
+    # Insufficient elements or zero variance
+    assert math.isnan(calc.kurt([1.0, 2.0, 3.0]))
+    assert math.isnan(calc.kurt([5.0, 5.0, 5.0, 5.0]))
+    assert math.isnan(calc.skew([1.0, 2.0]))
+    assert math.isnan(calc.skew([5.0, 5.0, 5.0]))
+
+
+def test_devsq_geomean_harmean():
+    data = [2.0, 4.0, 8.0]
+    # mean=4.6666667, devsq = (2-14/3)^2 + (4-14/3)^2 + (8-14/3)^2 = 64/9 + 4/9 + 100/9 = 168/9 = 18.6666667
+    assert abs(calc.devsq(data) - 18.666666666666668) < 1e-12
+    assert abs(calc.devsq(2.0, 4.0, "text", 8.0) - 18.666666666666668) < 1e-12
+    assert math.isnan(calc.devsq([]))
+
+    # geomean: (2*4*8)^(1/3) = 64^(1/3) = 4.0
+    assert abs(calc.geomean(data) - 4.0) < 1e-12
+    assert abs(calc.geomean(2.0, 4.0, 8.0) - 4.0) < 1e-12
+    # Non-positive or empty returns nan
+    assert math.isnan(calc.geomean([2.0, 0.0, 8.0]))
+    assert math.isnan(calc.geomean([2.0, -4.0, 8.0]))
+    assert math.isnan(calc.geomean([]))
+
+    # harmean: 3 / (1/2 + 1/4 + 1/8) = 3 / (7/8) = 24/7 = 3.4285714...
+    assert abs(calc.harmean(data) - (24.0 / 7.0)) < 1e-12
+    assert abs(calc.harmean(2.0, 4.0, 8.0) - (24.0 / 7.0)) < 1e-12
+    assert math.isnan(calc.harmean([2.0, 0.0, 8.0]))
+    assert math.isnan(calc.harmean([2.0, -4.0, 8.0]))
+    assert math.isnan(calc.harmean([]))
+
 

@@ -16,6 +16,18 @@ from typing import Any, Callable, cast
 
 import numpy as np
 
+from .calc_functions_util import (
+    _build_holiday_set,
+    _collect_a_values,
+    _criteria_numbers,
+    _extract_numeric_array,
+    _find_text_cut,
+    _npf_result,
+    _parse_weekend,
+    _serial_to_date,
+    match_criteria,
+)
+
 
 
 __all__ = [
@@ -90,24 +102,16 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
 
 
 def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> float:
-    try:
-        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
-        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
-    except Exception:
+    sd = _serial_to_date(start_date)
+    ed = _serial_to_date(end_date)
+    if sd is None or ed is None:
         return float("nan")
     if sd > ed:
         sign = -1
         sd, ed = ed, sd
     else:
         sign = 1
-    h_dates: set[dt.date] = set()
-    if holidays is not None:
-        for h in np.asarray(holidays).ravel():
-            if h is not None and h != "":
-                try:
-                    h_dates.add(dt.date.fromordinal(int(float(h)) + 693594))
-                except Exception:
-                    pass
+    h_dates = _build_holiday_set(holidays)
     curr = sd
     days = 0
     while curr <= ed:
@@ -118,10 +122,9 @@ def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> 
 
 
 def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
-    try:
-        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
-        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
-    except Exception:
+    sd = _serial_to_date(start_date)
+    ed = _serial_to_date(end_date)
+    if sd is None or ed is None:
         return float("nan")
 
     if sd > ed:
@@ -130,32 +133,11 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
     else:
         sign = 1
 
-    wk_days = set()
-    if isinstance(weekend, str):
-        for i, char in enumerate(weekend[:7]):
-            if char == "1":
-                wk_days.add(i)
-    else:
-        try:
-            w_idx = int(float(weekend))
-        except (ValueError, TypeError, OverflowError):
-            return float("nan")
-        # Excel weekend codes. An unknown code used to fall back to Sat/Sun
-        # (mapping.get default), so NETWORKDAYS.INTL(…, 8) looked like weekend 1.
-        # Excel returns #NUM!; this module uses NaN.
-        mapping = {1: (5, 6), 2: (6, 0), 3: (0, 1), 4: (1, 2), 5: (2, 3), 6: (3, 4), 7: (4, 5), 11: (6,), 12: (0,), 13: (1,), 14: (2,), 15: (3,), 16: (4,), 17: (5,)}
-        if w_idx not in mapping:
-            return float("nan")
-        wk_days.update(mapping[w_idx])
+    wk_days = _parse_weekend(weekend)
+    if not isinstance(wk_days, set):
+        return float("nan")
 
-    h_dates: set[dt.date] = set()
-    if holidays is not None:
-        for h in np.asarray(holidays).ravel():
-            if h is not None and h != "":
-                try:
-                    h_dates.add(dt.date.fromordinal(int(float(h)) + 693594))
-                except Exception:
-                    pass
+    h_dates = _build_holiday_set(holidays)
     curr = sd
     days = 0
     while curr <= ed:
@@ -246,8 +228,6 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
         t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    from plugin.scripting.venv.calc_functions_d_h import _npf_result
-
     # numpy-financial returns ±inf when the payment does not amortize
     # (pmt == 0, or the log argument is non-positive). log(1+rate) at
     # rate == -1 used to raise ValueError. Both are Excel #NUM!.
@@ -499,8 +479,6 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
         t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    from plugin.scripting.venv.calc_functions_d_h import _npf_result
-
     # nper == 0 used to raise ZeroDivisionError. numpy-financial returns
     # ±inf; Calc/Excel are #DIV/0!, returned here as NaN.
     return _npf_result("pmt", r, n, p, f, t)
@@ -548,8 +526,6 @@ def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -
         t = 1 if int(float(type_val)) == 1 else 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    from plugin.scripting.venv.calc_functions_d_h import _npf_result
-
     return _npf_result("pv", r, n, pm, f, t)
 
 
@@ -681,26 +657,18 @@ def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
 
 
 def skew(*args: Any) -> float:
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            try:
-                vals.append(float(v))
-            except (ValueError, TypeError):
-                pass
-    n = len(vals)
-    if n < 3:
+    try:
+        import scipy.stats
+    except ImportError:
         return float("nan")
-    arr = np.asarray(vals)
-    m = np.mean(arr)
-    s = np.std(arr, ddof=1)
-    if s == 0:
+    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True)
+    if len(arr) < 3 or np.std(arr, ddof=1) == 0:
         return float("nan")
-    # Excel/Calc skewness formula
-    z = (arr - m) / s
-    term1 = n / ((n - 1) * (n - 2))
-    term2 = np.sum(z**3)
-    return float(term1 * term2)
+    try:
+        res = float(scipy.stats.skew(arr, bias=False))
+        return res if math.isfinite(res) else float("nan")
+    except Exception:
+        return float("nan")
 
 
 def slope(data_y: Any, data_x: Any) -> float:
@@ -868,25 +836,15 @@ def standardize(x: Any, mean: Any, stdev: Any) -> float:
 
 
 def stdeva(*args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_float_a
-
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            vals.append(_to_float_a(v))
-    if len(vals) < 2:
+    vals = _collect_a_values(*args)
+    if vals.size < 2:
         return float("nan")
     return float(np.std(vals, ddof=1))
 
 
 def stdevpa(*args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_float_a
-
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            vals.append(_to_float_a(v))
-    if not vals:
+    vals = _collect_a_values(*args)
+    if not vals.size:
         return float("nan")
     return float(np.std(vals, ddof=0))
 
@@ -965,25 +923,11 @@ def subtotal(fn_num: Any, r: Any) -> float:
 
 
 def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
-    r_flat = np.asarray(r).ravel()
-    sr_flat = np.asarray(sr).ravel() if sr is not None else r_flat
-    total = 0.0
-    for i in range(min(len(r_flat), len(sr_flat))):
-        if match_criteria(r_flat[i], crit):
-            try:
-                val = float(sr_flat[i])
-                if not np.isnan(val):
-                    total += val
-            except (ValueError, TypeError):
-                pass
-    return float(total)
+    vals = _criteria_numbers(r, crit, sr)
+    return float(sum(vals))
 
 
 def sumifs(sr: Any, *args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     # Arguments after the sum range are (criteria_range, criteria) pairs.
     # An odd tail used to IndexError on args[i + 1]. Excel returns #VALUE!.
     if len(args) % 2 != 0:
@@ -1053,38 +997,14 @@ def py_str(val: Any) -> str:
 
 def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
     try:
-        s = str(text)
-        delim = str(delimiter)
-        inst = int(float(instance_num))
-        if match_mode == 1:
-            s_search = s.lower()
-            delim_search = delim.lower()
-        else:
-            s_search = s
-            delim_search = delim
-
-        if inst > 0:
-            parts = s_search.split(delim_search)
-            if len(parts) <= inst:
-                if match_end and len(parts) == inst:
-                    return ""
-                return if_not_found
-            # Find the actual split point in the original string
-            idx = 0
-            for _i in range(inst):
-                idx = s_search.find(delim_search, idx) + len(delim_search)
-            return s[idx:]
-        elif inst < 0:
-            parts = s_search.split(delim_search)
-            if len(parts) <= abs(inst):
-                if match_end and len(parts) == abs(inst):
-                    return ""
-                return if_not_found
-            idx = len(s)
-            for _i in range(abs(inst)):
-                idx = s_search.rfind(delim_search, 0, idx)
-            return s[idx + len(delim_search) :]
-        else:
-            return float("nan")
+        s, delim, inst, idx, match_end_miss = _find_text_cut(
+            text, delimiter, instance_num, match_mode, after=True
+        )
+        if idx is not None:
+            return s[idx + len(delim) :] if inst < 0 else s[idx:]
+        if match_end and match_end_miss:
+            return ""
+        return if_not_found
     except (ValueError, TypeError):
         return float("nan")
+
