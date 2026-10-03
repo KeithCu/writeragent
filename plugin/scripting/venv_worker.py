@@ -1274,7 +1274,7 @@ def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
     # Pre-load the active embedding model inside the embeddings pool worker so first query executes instantly
     if pool == WORKER_POOL_EMBEDDINGS:
         try:
-            from plugin.framework.client.embedding_client import get_embedding_model
+            from plugin.embeddings.embedding_client import get_embedding_model
 
             model = get_embedding_model()
             if model:

@@ -52,8 +52,8 @@ class TestSearchDialog:
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
-    @patch("plugin.framework.client.embeddings_service.maintain_folder_index")
-    @patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index")
+    @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
+    @patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="llama_index")
     def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute, _mock_bg):
         mock_ctx = MagicMock()
         mock_smgr = mock_ctx.getServiceManager.return_value
@@ -117,8 +117,8 @@ class TestSearchDialog:
     @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
-    @patch("plugin.framework.client.embeddings_service.maintain_folder_index")
-    @patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index")
+    @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
+    @patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="llama_index")
     def test_rebuild_untitled_doc_uses_my_documents_listing(
         self,
         mock_search_mode,
@@ -306,7 +306,7 @@ class TestSearchDialog:
         with patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)):
             with patch("plugin.embeddings.search_ui.get_active_document", return_value=MagicMock()):
                 with patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=("key", Path("/db"), Path("/meta"), "/root")):
-                    with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="sqlite"):
+                    with patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="sqlite"):
                         with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
                             with patch("plugin.embeddings.embeddings_cache.read_corpus_meta", return_value={"updated_at": str(two_days_ago)}):
                                 dialog._refresh_cache_status(mock_dlg)

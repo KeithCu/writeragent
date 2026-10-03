@@ -450,7 +450,7 @@ def _detect_languages_via_langdetect(
     ec: Any,
 ) -> None:
     """Fill pending slots via PyPI langdetect in the embeddings venv worker."""
-    from plugin.framework.client.langdetect_service import detect_languages
+    from plugin.writer.locale.langdetect_service import detect_languages
 
     pending = [idx for idx, lang in enumerate(detected_langs) if lang is None]
     if not pending:

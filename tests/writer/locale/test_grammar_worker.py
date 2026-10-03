@@ -181,7 +181,7 @@ def test_detect_languages_for_chunk_langdetect_mode() -> None:
     ec = _ec(detect_lang_mode="langdetect")
     with patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.get_cached_language", return_value=None), \
          patch("plugin.writer.locale.grammar_worker.persisted_grammar_skip_lang_detect", return_value=False), \
-         patch("plugin.framework.client.langdetect_service.detect_languages", return_value=["fr-FR"]), \
+         patch("plugin.writer.locale.langdetect_service.detect_languages", return_value=["fr-FR"]), \
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status"):
         detected = detect_languages_for_chunk([(item, item.text)], "", ec)
     ec.client.chat_completion_sync.assert_not_called()

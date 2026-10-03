@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from plugin.framework.client.embedding_client import _embedding_session_id
+from plugin.embeddings.embedding_client import _embedding_session_id
 from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec

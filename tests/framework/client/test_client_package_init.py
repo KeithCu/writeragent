@@ -49,7 +49,7 @@ def test_import_requests_does_not_load_llm_client():
         "from plugin.framework.client.requests import sync_request\n"
         "assert sync_request is not None\n"
         "assert 'plugin.framework.client.llm_client' not in sys.modules\n"
-        "assert 'plugin.framework.client.embedding_client' not in sys.modules\n"
+        "assert 'plugin.embeddings.embedding_client' not in sys.modules\n"
     )
     env = os.environ.copy()
     env["PYTHONPATH"] = str(_REPO_ROOT)
