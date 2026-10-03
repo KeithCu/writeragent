@@ -269,6 +269,51 @@ def test_closed_over_queue_error_skips_wrapper_stream_done():
     assert any(p == "ok" or (isinstance(p, tuple) and p[-1] == "ok") for p in done_payloads)
 
 
+def test_on_done_body_type_error_mentioning_positional_argument_is_not_retried():
+    """A TypeError inside on_done must not be treated as the wrong arity."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    toolkit = DummyToolkit()
+    calls = []
+    errors = []
+
+    def worker(worker_q):
+        worker_q.put((StreamQueueKind.STREAM_DONE, {"ok": True}))
+
+    def on_done(item=None):
+        calls.append(item)
+        raise TypeError("helper() takes 1 positional argument but 2 were given")
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        run_async_worker_with_drain(ctx, worker, None, on_done, errors.append)
+
+    assert len(calls) == 1
+    assert calls[0][0] is StreamQueueKind.STREAM_DONE
+    assert errors
+
+
+def test_zero_arg_on_done_is_called_once():
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    toolkit = DummyToolkit()
+    calls = []
+    errors = []
+
+    def worker(worker_q):
+        worker_q.put((StreamQueueKind.STREAM_DONE, None))
+
+    def on_done():
+        calls.append("go")
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        run_async_worker_with_drain(ctx, worker, None, on_done, errors.append)
+
+    assert calls == ["go"]
+    assert errors == []
+
+
 def test_on_done_internal_type_error_is_not_retried_as_zero_arg():
     from plugin.framework.async_stream import run_async_worker_with_drain
 
@@ -328,11 +373,9 @@ def test_run_stream_drain_loop_stop_checker_mid_batch():
 
     assert stopped_called[0] is True
     assert job_done[0] is True
-    # The first chunk should be processed, which sets stop_flag to True.
-    # The stop_checker check happens at the start of the next iteration of the `for item in items:` loop.
-    # So the remaining chunks in the batch shouldn't be processed.
-    assert len(applied) == 1
-    assert applied[0] == "first "
+    # The first chunk is handled before Stop. CHUNK items already pulled
+    # into the rest of the batch are still applied. STREAM_DONE is not.
+    assert "".join(applied) == "first second third "
 
 
 def test_run_stream_drain_loop_callback_raises():
@@ -508,6 +551,31 @@ def test_run_blocking_in_thread_baseexception_does_not_hang():
 
     with pytest.raises(Boom, match="hard fault"):
         run_blocking_in_thread(ctx, blocking_func, pump_idle=False)
+
+
+def test_run_blocking_in_thread_queue_empty_from_worker_is_not_swallowed():
+    """queue.Empty from func must surface. The wait loop must not hang."""
+    from plugin.framework.async_stream import run_blocking_in_thread
+
+    ctx = MagicMock()
+    holder: list[BaseException] = []
+
+    def raise_empty() -> None:
+        raise queue.Empty("worker empty")
+
+    def run() -> None:
+        try:
+            run_blocking_in_thread(ctx, raise_empty, pump_idle=False)
+        except BaseException as exc:
+            holder.append(exc)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(2)
+    assert not thread.is_alive(), "run_blocking_in_thread hung after the worker raised queue.Empty"
+    assert len(holder) == 1
+    assert isinstance(holder[0], queue.Empty)
+    assert str(holder[0]) == "worker empty"
 
 
 def test_run_stream_drain_loop_toolkit_none():
@@ -1241,8 +1309,8 @@ def test_idle_stop_closes_open_thinking():
 
     def stop_checker():
         # While-loop check, then the item check, then the idle check after
-        # the thinking text has been flushed. Stopping on the item check
-        # would drop the THINKING still in that batch.
+        # the thinking text has been flushed. This stop is the idle path
+        # (no pulled tail), which still has to close [Thinking].
         checks[0] += 1
         return checks[0] > 2
 
@@ -1336,6 +1404,48 @@ def test_batcher_flush_error_still_emits_error_and_unpatches():
     assert any("worker boom" in str(err) for err in errors)
     assert getattr(raw, "_wa_terminal_watch", None) is None
     assert raw.put.__name__ == "put"
+
+
+def test_stop_on_first_batch_item_applies_pulled_display_text():
+    """CHUNK/THINKING already pulled must be shown when Stop is the first item."""
+    q = queue.Queue()
+    q.put((StreamQueueKind.CHUNK, "hello"))
+    q.put((StreamQueueKind.THINKING, "hmm"))
+    q.put((StreamQueueKind.STATUS, "skip"))
+    q.put((StreamQueueKind.STREAM_DONE, "nope"))
+    applied = []
+    statuses = []
+    done = []
+    stopped = []
+    checks = [0]
+
+    def stop_checker():
+        # First call is the while-loop check, before the batch is pulled.
+        # The next call is the first item. The whole batch is then local.
+        checks[0] += 1
+        return checks[0] > 1
+
+    def on_stream_done(item):
+        done.append(item)
+        return True
+
+    job_done = [False]
+    run_stream_drain_loop(
+        q, None, job_done, lambda text, is_thinking: applied.append((text, is_thinking)),
+        on_stream_done=on_stream_done,
+        on_stopped=lambda: stopped.append(True),
+        on_error=lambda _e: None,
+        on_status_fn=statuses.append,
+        stop_checker=stop_checker,
+    )
+    assert job_done[0] is True
+    assert stopped == [True]
+    assert statuses == []
+    assert done == []
+    texts = [text for text, _is_thinking in applied]
+    assert "hello" in texts
+    assert any("hmm" in text for text in texts)
+    assert any(text == " /thinking\n" for text in texts)
 
 
 def test_stop_applies_flushed_batcher_text():

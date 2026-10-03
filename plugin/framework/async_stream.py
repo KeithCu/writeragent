@@ -34,6 +34,7 @@ that pump — see ``async_drain_guard``.
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import queue
@@ -593,6 +594,16 @@ def _stream_item_kind_data(item: Any) -> tuple[Any, Any]:
     return item, None
 
 
+def _apply_display_item(state: _DrainState, item: Any) -> None:
+    """Apply one CHUNK or THINKING. Other kinds are left undispatched."""
+    # crosshair: off
+    raw_kind, data = _stream_item_kind_data(item)
+    if raw_kind == StreamQueueKind.CHUNK:
+        _handle_chunk(state, data, item)
+    elif raw_kind == StreamQueueKind.THINKING:
+        _handle_thinking(state, data, item)
+
+
 def _apply_queued_display(state: _DrainState) -> None:
     """Apply CHUNK/THINKING already on the queue. Drop other kinds.
 
@@ -606,23 +617,25 @@ def _apply_queued_display(state: _DrainState) -> None:
             item = state.q.get_nowait()
         except queue.Empty:
             return
-        raw_kind, data = _stream_item_kind_data(item)
-        if raw_kind == StreamQueueKind.CHUNK:
-            _handle_chunk(state, data, item)
-        elif raw_kind == StreamQueueKind.THINKING:
-            _handle_thinking(state, data, item)
+        _apply_display_item(state, item)
 
 
-def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None) -> None:
-    """Flush the producer batcher, show queued text, then close thinking.
+def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None, pending_items: list[Any] | None = None) -> None:
+    """Show text Stop would otherwise drop, then close thinking.
 
-    What was wrong: the idle stop path called on_stopped and broke without
-    flush_buffers or close_thinking, so a stop while the model was still
-    generating left ``[Thinking]`` open. The tool loop then dropped text
-    still inside the 250ms batcher. Why: flush that batcher, apply the
-    display items it just queued, then the same closer as an in-batch stop.
+    What was wrong: the idle path called on_stopped without flushing
+    buffers or closing thinking, and text still inside the 250ms batcher
+    was dropped. A stop after ``_drain_batch`` only read ``state.q``.
+    CHUNK and THINKING already pulled into the local batch were gone,
+    including the whole batch when Stop tripped on the first item. Why:
+    apply that unconsumed display tail, flush the producer batcher, apply
+    what it just queued, then close thinking. Control items in the tail
+    are not dispatched.
     """
     # crosshair: off
+    if pending_items:
+        for item in pending_items:
+            _apply_display_item(state, item)
     if flush_pending is not None:
         try:
             flush_pending()
@@ -642,10 +655,12 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
     # an inner handler failure: those paths already flushed, and a second raise
     # would call on_error again.
     skip_trailing_flush = False
-    for item in items:
+    for index, item in enumerate(items):
         if stop_checker and stop_checker():
             log.info("run_stream_drain_loop: Stop requested via checker.")
-            _finish_on_stop(state, flush_pending)
+            # This tail is already off state.q, so the queue read inside
+            # _finish_on_stop cannot see it.
+            _finish_on_stop(state, flush_pending, items[index:])
             # What was wrong: this break left skip_trailing_flush False, so
             # the trailing flush ran after _finish_on_stop had already flushed.
             # Why: that second flush is not the success-path flush.
@@ -825,18 +840,27 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
 
 
 def _call_item_or_zero_arg(fn: Callable[..., None], item: Any) -> None:
-    """Call ``fn(item)``. Retry with no args only for an arity ``TypeError``.
+    """Call ``fn(item)`` or ``fn()`` once, from the signature.
 
-    What was wrong: every ``TypeError`` was treated as "this callback takes no
-    arguments", so a failure inside the callback was swallowed and the callback
-    ran again. Retry only when the message is a signature mismatch.
+    What was wrong: a ``TypeError`` whose text contained "positional argument"
+    was treated as an arity mismatch and the callback was called again with
+    no arguments. A ``TypeError`` raised inside the body can contain that
+    text, so ``on_done`` ran twice. Why: choose the call before invoking
+    the callback. An exception from the body is not a retry.
     """
     try:
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError):
         fn(item)
-    except TypeError as exc:
-        message = str(exc)
-        if "positional argument" not in message and "unexpected keyword" not in message:
-            raise
+        return
+    takes_item = False
+    for param in signature.parameters.values():
+        if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.VAR_POSITIONAL):
+            takes_item = True
+            break
+    if takes_item:
+        fn(item)
+    else:
         fn()
 
 
@@ -1174,22 +1198,28 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     # drain. pump_ui_idle remains the owner-safe VCL pump path.
     poll = (pump_idle and toolkit is not None) or stop_checker is not None
     while True:
+        # What was wrong: ``raise data`` sat in this try. A worker that
+        # raised queue.Empty was caught here. With poll=False the next
+        # ``q.get(timeout=None)`` then blocked forever, because the worker
+        # had already exited. Why: only the get waits on the queue. A
+        # worker Empty is the function's exception and must propagate.
         try:
             item = q.get(timeout=0.1 if poll else None)
-            kind, data = item
-            if not isinstance(kind, BlockingPumpKind):
-                ek = TypeError("blocking pump queue item kind must be BlockingPumpKind, got %s" % (type(kind).__name__,))
-                log.error("Invalid blocking pump tag: %s", ek)
-                raise ek
-            if kind == BlockingPumpKind.DONE:
-                return data
-            if kind == BlockingPumpKind.ERROR:
-                raise data
         except queue.Empty:
             if stop_checker is not None and stop_checker():
                 raise BlockingWaitStopped("stopped")
             if pump_idle and toolkit is not None:
                 pump_ui_idle(toolkit)
+            continue
+        kind, data = item
+        if not isinstance(kind, BlockingPumpKind):
+            ek = TypeError("blocking pump queue item kind must be BlockingPumpKind, got %s" % (type(kind).__name__,))
+            log.error("Invalid blocking pump tag: %s", ek)
+            raise ek
+        if kind == BlockingPumpKind.DONE:
+            return data
+        if kind == BlockingPumpKind.ERROR:
+            raise data
 
 
 # ── Streaming Delta Accumulation (OpenAI-Compatible) ───────────────
