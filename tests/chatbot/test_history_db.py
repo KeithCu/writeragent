@@ -90,15 +90,36 @@ def test_message_to_dict_null_or_non_str_text_part():
     assert row["content"] == " keep  12"
 
 
-def test_json_history_hashes_unsafe_session_id(tmp_path):
+def test_json_history_hashes_session_ids(tmp_path):
+    import hashlib
     from plugin.chatbot.history_db import _json_history_filename
 
     history = JSONHistory("../outside", str(tmp_path / "writeragent_history.db"))
     assert os.path.dirname(history.file_path) == history.history_dir
     assert os.path.basename(history.file_path) == _json_history_filename("../outside")
     assert "/" not in os.path.basename(history.file_path)
+
+    plain_A = JSONHistory("session_A", str(tmp_path / "writeragent_history.db"))
+    plain_a = JSONHistory("session_a", str(tmp_path / "writeragent_history.db"))
+    assert plain_A.file_path != plain_a.file_path
+
+    expected_hash = hashlib.sha256(b"session_abc").hexdigest()
     plain = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
-    assert plain.file_path.endswith("session_abc.json")
+    assert plain.file_path.endswith(f"{expected_hash}.json")
+
+
+def test_json_history_refuses_to_replace_invalid_utf8_file(tmp_path):
+    history = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
+    history.add_message("user", "keep")
+    with open(history.file_path, "wb") as handle:
+        handle.write(b"\xff\xff")
+    corrupt = open(history.file_path, "rb").read()
+
+    with pytest.raises(UnicodeDecodeError):
+        history.get_messages()
+    history.add_message("user", "new")
+
+    assert open(history.file_path, "rb").read() == corrupt
 
 
 def test_json_history_reraises_save_oserror(tmp_path, monkeypatch):

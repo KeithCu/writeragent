@@ -153,19 +153,10 @@ class SQLite3History:
 def _json_history_filename(session_id: str) -> str:
     """One path segment under the history directory.
 
-    Regenerated ids are SHA-256 hex or UUID. A WriterAgentSessionID document
-    property is used as-is, so an absolute path or ``..`` must not be joined
-    onto the directory. Unsafe ids are hashed for the filename only.
+    Always uses a SHA-256 hash to prevent case-aliasing on case-insensitive
+    filesystems and to sanitize paths.
     """
-    name = session_id or ""
-    if (
-        not name
-        or name in (".", "..")
-        or "/" in name
-        or "\\" in name
-        or os.path.basename(name) != name
-    ):
-        name = hashlib.sha256((session_id or "").encode("utf-8")).hexdigest()
+    name = hashlib.sha256((session_id or "").encode("utf-8")).hexdigest()
     return f"{name}.json"
 
 
@@ -194,7 +185,7 @@ class JSONHistory:
         msg_dict = message_to_dict(role, content, tool_calls)
         try:
             messages = self.get_messages()
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             # open(..., "w") truncated the file before json.dump. A crash or a
             # bad read then looked like an empty session and the next add
             # replaced history with one row. Leave an unreadable file alone.
@@ -238,7 +229,7 @@ class JSONHistory:
                 raise json.JSONDecodeError("session is not a list of objects", "", 0)
             log.debug(f"JSONHistory: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             # Callers (ChatSession open, add_message) must not treat a corrupt
             # file as an empty history and write a fresh system row over it.
             log.exception("JSONHistory: Error reading messages")
