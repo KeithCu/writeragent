@@ -517,7 +517,11 @@ def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
         assert holder.get("error") is None
         assert holder.get("result") == {"n": 1}
     finally:
-        for closer in (in_w, stdin_buf, stdout_buf, stdout_reader):
+        try:
+            os.close(in_w)
+        except OSError:
+            pass
+        for closer in (stdin_buf, stdout_buf, stdout_reader):
             try:
                 closer.close()
             except OSError:
