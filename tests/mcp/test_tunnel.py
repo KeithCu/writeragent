@@ -137,9 +137,65 @@ def test_parse_ngrok_url_from_json():
 
 
 def test_parse_tailscale_url():
-    line = "Available at https://node.tailnet-name.ts.net/"
-    assert parse_tailscale_url(line) == "https://node.tailnet-name.ts.net"
+    # Real `tailscale funnel` stdout (serve_v2.go messageForPort). The URL is
+    # alone on a line; AsyncProcess delivers one line at a time.
+    output = "\n".join(
+        [
+            "Available on the internet:",
+            "",
+            "https://node.tailnet-name.ts.net/",
+            "|-- proxy http://127.0.0.1:18765",
+        ]
+    )
+    urls = [parse_tailscale_url(line) for line in output.splitlines()]
+    assert urls == [None, None, "https://node.tailnet-name.ts.net", None]
+    # Docs sample omits the trailing slash; non-443 Funnel keeps the port.
+    assert parse_tailscale_url("https://amelie-workstation.pango-lin.ts.net") == (
+        "https://amelie-workstation.pango-lin.ts.net"
+    )
+    assert parse_tailscale_url("https://node.tailnet-name.ts.net:8443/") == (
+        "https://node.tailnet-name.ts.net:8443"
+    )
     assert parse_tailscale_url("starting") is None
+    assert parse_tailscale_url("Available on the internet:") is None
+
+
+def test_tailscale_funnel_stdout_publishes_url(monkeypatch):
+    """One line at a time, as AsyncProcess._read_stream delivers funnel stdout."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    from plugin.mcp.tunnel_state import TunnelStatus
+
+    mgr = TunnelManager()
+    funnel_stdout = [
+        "Available on the internet:",
+        "",
+        "https://node.tailnet-name.ts.net/",
+        "|-- proxy http://127.0.0.1:18765",
+    ]
+
+    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+
+        def start():
+            if stdout_cb and cmd[0] == "tailscale":
+                for line in funnel_stdout:
+                    stdout_cb(line)
+
+        proc.start = start
+        proc.terminate = MagicMock()
+        return proc
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.subprocess.run", return_value=MagicMock(returncode=0)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        assert mgr.status == TunnelStatus.CONNECTED
+        assert mgr.public_url == "https://node.tailnet-name.ts.net"
+        assert mgr.mcp_public_url() == "https://node.tailnet-name.ts.net/mcp"
+        mgr.stop()
 
 
 def test_normalize_public_base_and_mcp_url():
@@ -871,6 +927,13 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
     args, _ = mock_snippet.setText.call_args
     data = json.loads(args[0])
     assert data["mcpServers"]["libreoffice"]["url"] == "https://<domain>.ngrok-free.app/mcp"
+
+    # 4b. Tailscale placeholder is a Funnel hostname (<machine>.<tailnet>.ts.net).
+    mock_provider.getText.return_value = "tailscale"
+    provider_listener.itemStateChanged(MagicMock())
+    args, _ = mock_snippet.setText.call_args
+    data = json.loads(args[0])
+    assert data["mcpServers"]["libreoffice"]["url"] == "https://<machine>.<tailnet>.ts.net/mcp"
 
     # 5. Switching back to cloudflare -> shows tested cloudflare URL again
     mock_provider.getText.return_value = "cloudflare"
