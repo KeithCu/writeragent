@@ -164,7 +164,12 @@ def test_forged_zip_file_size_cannot_inflate_past_member_cap(tmp_path):
             _current, peak = tracemalloc.get_traced_memory()
         finally:
             tracemalloc.stop()
-        assert look == ""
+        # Pictures/*.svg still counts as graphic chrome from the name alone.
+        # Mood would require bytes from the member; a capped read must not add one.
+        if member.startswith("Pictures/"):
+            assert look == "graphic chrome"
+        else:
+            assert look == ""
         assert peak < _MAX_MEMBER_BYTES
 
 
