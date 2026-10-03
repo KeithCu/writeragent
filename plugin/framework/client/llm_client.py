@@ -571,6 +571,15 @@ class LlmClient:
             max_tokens = 512
 
         messages = prepare_chat_messages(messages, self._get_provider(), prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+        # What was wrong: each provider shim received the model's tool call
+        # unchanged, and an empty properties object was not a schema until
+        # execute. Hallucinated kwargs on a no-arg tool were still in the
+        # request every shim built. How: one allow-list, including
+        # properties {}, runs here before build_chat_request. Why: OpenAI
+        # and Anthropic then format the same checked call.
+        from plugin.framework.tool_schema import normalize_outbound_tool_calls
+
+        messages = normalize_outbound_tool_calls(messages, tools)
 
         model_name = model or self.config.get("model", "")
         # Missing key (settings default -1) means omit from the request so the

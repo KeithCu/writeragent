@@ -18,8 +18,10 @@
 """OpenAI and MCP JSON Schema conversion for ToolBase instances.
 
 Registry lookup and ``ToolRegistry.execute`` stay in ``tool``. ``coerce_call_args``
-is the one place that aligns MCP-widened arguments with the source schema
-before ``validate``.
+aligns MCP-widened arguments with the source schema. ``call_properties`` /
+``without_unknown_kwargs`` are the one allow-list for a call: an empty
+``properties`` object is a no-arg schema. ``normalize_outbound_tool_calls``
+applies that allow-list once, before any provider shim builds a request.
 """
 
 from __future__ import annotations
@@ -39,6 +41,169 @@ def _schema_type_includes_array(type_value: Any) -> bool:
     if type_value == "array":
         return True
     return isinstance(type_value, list) and "array" in type_value
+
+
+def call_properties(schema: Any) -> dict[str, Any] | None:
+    """Properties object used to check a call, including ``{}``.
+
+    What was wrong: ``if props`` treated an empty ``properties`` object as
+    "no schema", so hallucinated kwargs reached no-arg tools. A dict schema
+    defaults a missing ``properties`` key to ``{}``, and that object is
+    closed. A non-dict schema is not an allow-list.
+    """
+    if not isinstance(schema, dict):
+        return None
+    props = schema.get("properties", {})
+    if not isinstance(props, dict):
+        return None
+    return props
+
+
+def without_unknown_kwargs(schema: Any, kwargs: dict[str, Any], extra_ok: Any = None) -> dict[str, Any]:
+    """Drop keys the schema does not declare.
+
+    Returns *kwargs* unchanged when every key is allowed, so callers can
+    keep the original argument text when nothing was hallucinated.
+    """
+    if not isinstance(kwargs, dict):
+        return kwargs
+    props = call_properties(schema)
+    if props is None:
+        return kwargs
+    allowed = extra_ok or frozenset()
+    if all(key in props or key in allowed for key in kwargs):
+        return kwargs
+    return {key: value for key, value in kwargs.items() if key in props or key in allowed}
+
+
+def _parameter_schema(tool: Any) -> tuple[str, dict[str, Any]] | None:
+    """OpenAI function wrapper or a flat tool dict → ``(name, parameters)``."""
+    if not isinstance(tool, dict):
+        return None
+    fn = tool.get("function")
+    src = fn if isinstance(fn, dict) else tool
+    name = src.get("name")
+    if not isinstance(name, str) or not name:
+        return None
+    params = src.get("parameters")
+    if not isinstance(params, dict):
+        params = src.get("input_schema")
+    if not isinstance(params, dict):
+        params = src.get("inputSchema")
+    if not isinstance(params, dict):
+        params = {}
+    return name, params
+
+
+def _merge_parameter_schemas(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    """Union ``properties`` so a later duplicate name cannot hide the earlier schema.
+
+    What was wrong: last-wins kept only the survivor. An empty ``properties``
+    object on the second entry erased the first entry's keys, and a real
+    argument then looked unknown. How: keep every property key, first spec
+    wins for a repeated key. Why: the call is checked against every schema
+    advertised for that name.
+    """
+    if "properties" not in left and "properties" not in right:
+        return left
+    merged_props: dict[str, Any] = {}
+    for src in (left, right):
+        props = src.get("properties")
+        if isinstance(props, dict):
+            for key, spec in props.items():
+                if key not in merged_props:
+                    merged_props[key] = spec
+    out = dict(left)
+    out["properties"] = merged_props
+    if "type" not in out:
+        right_type = right.get("type")
+        out["type"] = right_type if isinstance(right_type, str) else "object"
+    return out
+
+
+def _schemas_by_tool_name(tools: list[Any]) -> dict[str, dict[str, Any]]:
+    schemas: dict[str, dict[str, Any]] = {}
+    for tool in tools:
+        parsed = _parameter_schema(tool)
+        if parsed is None:
+            continue
+        name, params = parsed
+        if name in schemas:
+            schemas[name] = _merge_parameter_schemas(schemas[name], params)
+        else:
+            schemas[name] = params
+    return schemas
+
+
+def _strip_call_arguments(schema: dict[str, Any], arguments: Any) -> Any:
+    """Return arguments with unknown keys removed. Unchanged when nothing drops.
+
+    A non-object JSON value is left alone. Bad JSON is left alone so a shim
+    can still omit the call instead of sending ``{}``.
+    """
+    if isinstance(arguments, dict):
+        return without_unknown_kwargs(schema, arguments)
+    if not isinstance(arguments, str) or not arguments:
+        return arguments
+    try:
+        parsed = json.loads(arguments)
+    except json.JSONDecodeError:
+        return arguments
+    if not isinstance(parsed, dict):
+        return arguments
+    stripped = without_unknown_kwargs(schema, parsed)
+    if stripped is parsed:
+        return arguments
+    return json.dumps(stripped)
+
+
+def _normalize_one_outbound_call(call: Any, schemas: dict[str, dict[str, Any]]) -> Any:
+    if not isinstance(call, dict):
+        return call
+    fn = call.get("function")
+    if not isinstance(fn, dict):
+        return call
+    name = fn.get("name")
+    if not isinstance(name, str) or name not in schemas:
+        return call
+    new_args = _strip_call_arguments(schemas[name], fn.get("arguments"))
+    if new_args is fn.get("arguments"):
+        return call
+    new_fn = dict(fn)
+    new_fn["arguments"] = new_args
+    new_call = dict(call)
+    new_call["function"] = new_fn
+    return new_call
+
+
+def normalize_outbound_tool_calls(messages: list[Any], tools: Any) -> list[Any]:
+    """Schema-check tool-call arguments before a provider shim sees them.
+
+    One allow-list for every provider. ``properties: {}`` drops hallucinated
+    kwargs on a no-arg tool. Duplicate tool names union their properties
+    instead of keeping only the last schema.
+    """
+    if not isinstance(messages, list) or not isinstance(tools, list) or not tools:
+        return messages
+    schemas = _schemas_by_tool_name(tools)
+    if not schemas:
+        return messages
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        calls = message.get("tool_calls")
+        if not isinstance(calls, list):
+            continue
+        replaced: list[Any] | None = None
+        for index, call in enumerate(calls):
+            updated = _normalize_one_outbound_call(call, schemas)
+            if updated is not call:
+                if replaced is None:
+                    replaced = list(calls)
+                replaced[index] = updated
+        if replaced is not None:
+            message["tool_calls"] = replaced
+    return messages
 
 
 def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:

@@ -132,6 +132,16 @@ Tests: [`tests/framework/test_tool_schema_convert.py`](../../tests/framework/tes
 
 ---
 
+## 9.1 One tool-call check before the provider shim
+
+**Problem**: An empty ``properties: {}`` was treated as "no schema", so a no-arg tool such as ``list_sheets`` accepted hallucinated kwargs. The same name registered twice (Writer/Calc ``shape_upsert``) kept only the last ``required_core_tools``. Each provider shim then built the next request from the unchecked call.
+
+**Solution**: [`call_properties`](../../plugin/framework/tool_schema.py) / [`without_unknown_kwargs`](../../plugin/framework/tool_schema.py) are the allow-list. ``properties: {}`` is closed. [`normalize_outbound_tool_calls`](../../plugin/framework/tool_schema.py) runs in [`make_chat_request`](../../plugin/framework/client/llm_client.py) before ``build_chat_request``, so OpenAI and Anthropic format the same checked arguments. Duplicate advertised names union ``properties`` instead of last-wins. Duplicate registrations union ``required_core_tools``; ``get_tools`` reads that union. ``ToolRegistry.execute`` strips with the same helper before ``validate``.
+
+Tests: [`tests/framework/test_tool.py`](../../tests/framework/test_tool.py), [`tests/framework/test_tool_schema_convert.py`](../../tests/framework/test_tool_schema_convert.py), [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py).
+
+---
+
 ## 10. Calc `=PROMPT()` empty cell (reasoning vs content)
 
 **Problem**: Some reasoning models (e.g. Inception Mercury) spend `max_tokens` on `reasoning_tokens` and return `"content": null` with `finish_reason: length`. [`chat_completion_sync`](../../plugin/framework/client/llm_client.py) coerces missing content to `""`, so Calc showed a blank cell with no error.

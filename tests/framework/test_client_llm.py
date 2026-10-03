@@ -1326,6 +1326,43 @@ def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
         assert data["output_config"] == {"effort": "low"}
 
 
+def test_tool_call_schema_checked_before_openai_and_anthropic_shims(client):
+    """Empty properties {} drops hallucinated kwargs before either shim builds the body."""
+    tools = [{
+        "type": "function",
+        "function": {
+            "name": "list_sheets",
+            "description": "List sheets",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }]
+    messages = [
+        {"role": "user", "content": "list"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "c1",
+                "type": "function",
+                "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+            }],
+        },
+    ]
+    for provider in ("openai", "anthropic"):
+        with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+            mock_auth.return_value = {"provider": provider}
+            _method, _path, body, _headers = client.make_chat_request(messages, max_tokens=20, tools=tools)
+        data = json.loads(body)
+        assistant = next(m for m in data["messages"] if m.get("role") == "assistant")
+        if provider == "openai":
+            assert json.loads(assistant["tool_calls"][0]["function"]["arguments"]) == {}
+        else:
+            tool_uses = [part for part in assistant["content"] if isinstance(part, dict) and part.get("type") == "tool_use"]
+            assert tool_uses
+            assert tool_uses[0]["input"] == {}
+            assert tool_uses[0]["name"] == "list_sheets"
+
+
 def test_anthropic_accepts_openai_shaped_tools(client):
     client.config["model"] = "claude-3-5-sonnet-20241022"
     tools = [{
