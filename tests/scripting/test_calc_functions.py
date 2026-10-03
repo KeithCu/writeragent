@@ -592,3 +592,70 @@ def test_numeric_coercions_return_nan_not_raise():
     assert math.isnan(calc.harmean(["a", "b"]))
     assert abs(calc.harmean([1.0, 4.0]) - 1.6) < 1e-9
 
+
+def test_large_text_cells_and_bad_k_return_nan():
+    # float() on a text cell used to raise ValueError out of LARGE.
+    assert math.isnan(calc.large(["a", "b"], 1))
+    assert calc.large(["a", 5.0, "b", 1.0], 1) == 5.0
+    assert calc.large([1.0, 5.0, 3.0, 4.0, 2.0], 2) == 4.0
+    assert math.isnan(calc.large([1.0, 2.0], "k"))
+
+
+def test_complex_overflow_returns_value_error():
+    # cmath / complex ** raise OverflowError, which the helpers did not catch.
+    assert calc.imexp("1000") == "#VALUE!"
+    assert calc.imsinh("1000") == "#VALUE!"
+    assert calc.imcosh("1000") == "#VALUE!"
+    assert calc.imsin("1000i") == "#VALUE!"
+    assert calc.imcos("1000i") == "#VALUE!"
+    assert calc.impower("2", 10000) == "#VALUE!"
+    assert calc.imexp("0") == "1.0"
+    assert calc.imsin("0") == "0.0"
+
+
+def test_lookup_short_result_vector_is_na():
+    # Index 2 into a length-2 result vector used to raise IndexError.
+    assert calc.lookup(3, [1, 2, 3], [10, 20]) == "#N/A"
+    assert calc.lookup(2, [1, 2, 3], [10, 20]) == 20
+    assert calc.lookup(0, [1, 2, 3], [10, 20]) is None
+
+
+def test_ipmt_beginning_of_period_matches_calc():
+    # GetIpmt pay-in-advance: period 1 is 0; later periods use FV(per-2, advance).
+    # The old formula agreed through per=2 and drifted from per=3.
+    assert calc.ipmt(0.1, 1, 3, 8000, 0, 1) == 0.0
+    assert math.isclose(calc.ipmt(0.1, 2, 3, 8000, 0, 1), -507.5528700906347)
+    assert math.isclose(calc.ipmt(0.1, 3, 3, 8000, 0, 1), -265.86102719033266)
+    # End-of-period first interest is still -pv*rate.
+    assert math.isclose(calc.ipmt(0.1, 1, 3, 8000, 0, 0), -800.0)
+
+
+def test_countif_numeric_operator_does_not_count_text():
+    # "abc" > "5" is lexicographic True; numeric ">" must not count text.
+    assert calc.countif(["abc"], ">5") == 0.0
+    assert calc.countif(["abc", 6, 4], ">5") == 1.0
+    assert calc.countif(["abc"], "<>5") == 1.0
+    assert calc.countif(["zzz"], ">aaa") == 1.0
+
+
+def test_mround_halves_away_from_zero():
+    assert calc.mround(2.5, 1) == 3.0
+    assert calc.mround(-2.5, -1) == -3.0
+    assert calc.mround(1.5, 1) == 2.0
+    assert calc.mround(1.23, 0.5) == 1.0
+
+
+def test_mode_na_without_duplicates_and_lowest_tie():
+    assert math.isnan(calc.mode([1, 2, 3]))
+    assert calc.isna(calc.mode([1, 2, 3])) is True
+    assert calc.mode([2, 2, 1, 1]) == 1
+    assert calc.mode([1, 1, 2]) == 1
+
+
+def test_imlog2_zero_is_value_error():
+    # cmath.log(0, 2) is (-inf+nanj), which used to stringify as '-infnani'.
+    assert calc.imlog2("0") == "#VALUE!"
+    assert calc.imln("0") == "#VALUE!"
+    assert calc.imlog10("0") == "#VALUE!"
+    assert calc.imlog2("8") == "3.0"
+

@@ -159,7 +159,9 @@ def imcos(inumber: Any) -> str:
 
         c = _to_complex(inumber)
         return _from_complex(cmath.cos(c))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # cmath.cos raises OverflowError (not ValueError) for a large
+        # imaginary part, e.g. IMCOS("1000i"). That used to escape the helper.
         return "#VALUE!"
 
 
@@ -171,7 +173,8 @@ def imcosh(inumber: Any) -> str:
 
         c = _to_complex(inumber)
         return _from_complex(cmath.cosh(c))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # cmath.cosh(1000) raises OverflowError, which used to escape the helper.
         return "#VALUE!"
 
 
@@ -230,7 +233,8 @@ def imexp(inumber: Any) -> str:
 
         c = _to_complex(inumber)
         return _from_complex(cmath.exp(c))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # cmath.exp(1000) raises OverflowError (IMEXP("1000")), which used to escape the helper.
         return "#VALUE!"
 
 
@@ -265,7 +269,13 @@ def imlog2(inumber: Any) -> str:
         import cmath
 
         c = _to_complex(inumber)
-        return _from_complex(cmath.log(c, 2))
+        logged = cmath.log(c, 2)
+        # cmath.log(0) and cmath.log10(0) raise ValueError, so IMLN/IMLOG10
+        # return #VALUE!. cmath.log(0, 2) instead returns (-inf+nanj), and
+        # _from_complex concatenates that into the string '-infnani'.
+        if not (math.isfinite(logged.real) and math.isfinite(logged.imag)):
+            return "#VALUE!"
+        return _from_complex(logged)
     except (ValueError, TypeError):
         return "#VALUE!"
 
@@ -277,7 +287,8 @@ def impower(inumber: Any, number: Any) -> str:
         c = _to_complex(inumber)
         p = float(number)
         return _from_complex(c**p)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # complex ** raises OverflowError on a huge power (IMPOWER("2", 10000)).
         return "#VALUE!"
 
 
@@ -337,7 +348,8 @@ def imsin(inumber: Any) -> str:
 
         c = _to_complex(inumber)
         return _from_complex(cmath.sin(c))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # cmath.sin raises OverflowError for a large imaginary part, e.g. IMSIN("1000i").
         return "#VALUE!"
 
 
@@ -349,7 +361,8 @@ def imsinh(inumber: Any) -> str:
 
         c = _to_complex(inumber)
         return _from_complex(cmath.sinh(c))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # cmath.sinh(1000) raises OverflowError, which used to escape the helper.
         return "#VALUE!"
 
 
@@ -462,28 +475,31 @@ def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val:
     if r == 0:
         return 0.0
 
-    # PMT
+    # PMT — same closed form as pmt().
     factor = (1 + r) ** n
     if t == 1:
         pmt_amt = -(pv_f * factor + fv_f) * r / ((factor - 1) * (1 + r))
     else:
         pmt_amt = -(pv_f * factor + fv_f) * r / (factor - 1)
 
-    if t == 0:
-        # End of period
-        bal = pv_f * ((1 + r) ** (p - 1)) + pmt_amt * (((1 + r) ** (p - 1)) - 1) / r
-        interest = -bal * r
-        return interest
+    # LibreOffice GetIpmt (sc/source/core/opencl/op_financial_helpers.hxx):
+    # end-of-period interest is rate * FV(per-1, pay-in-advance=false).
+    # Beginning-of-period (type=1) is 0 in period 1, otherwise
+    # rate * (FV(per-2, pay-in-advance=true) - pmt). The old type=1 branch
+    # computed a dead `interest` and then used an end-of-period FV at per-2,
+    # dropping the (1+rate) factor on the payment annuity. That matches
+    # GetIpmt for per<=2 and is wrong for per>=3.
+    if t == 1 and p == 1:
+        return 0.0
+    periods = (p - 2) if t == 1 else (p - 1)
+    term = (1 + r) ** periods
+    if t == 1:
+        accumulated = pv_f * term + pmt_amt * (1 + r) * (term - 1) / r
+        base = -accumulated - pmt_amt
     else:
-        # Beginning of period
-        if p == 1:
-            return 0.0
-        bal = pv_f * ((1 + r) ** (p - 1)) + pmt_amt * (((1 + r) ** (p - 1)) - 1) / r
-        # Since payment is at beginning, the interest for period p is based on balance after payment p-1
-        interest = -(bal - (-pmt_amt)) * r if bal != 0 else 0.0
-        # Actually standard IPMT formula:
-        bal2 = pv_f * ((1 + r) ** (p - 2)) + pmt_amt * (((1 + r) ** (p - 2)) - 1) / r
-        return -(bal2 + pmt_amt) * r
+        accumulated = pv_f * term + pmt_amt * (term - 1) / r
+        base = -accumulated
+    return base * r
 
 
 def irr(values: Any, guess: Any = 0.1) -> float:
@@ -627,9 +643,26 @@ def kurt(*args: Any) -> float:
 
 
 def large(r: Any, k: Any) -> float:
-    arr = sorted([float(x) for x in np.asarray(r).ravel() if x is not None and x != ""], reverse=True)
-    ki = int(float(k))
-    return float(arr[ki - 1]) if 0 < ki <= len(arr) else float("nan")
+    # Text cells are not numbers. The list comprehension called float() with
+    # no handler, so LARGE(["a","b"], 1) raised ValueError — and spreadsheet
+    # import emits this helper for LARGE. Skip non-numeric cells (as kurt()
+    # does) and return nan when k is not a number or not enough numbers remain.
+    vals: list[float] = []
+    for x in np.asarray(r).ravel():
+        if x is None or x == "":
+            continue
+        try:
+            vals.append(float(x))
+        except (ValueError, TypeError):
+            continue
+    try:
+        ki = int(float(k))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    if not 0 < ki <= len(vals):
+        return float("nan")
+    vals.sort(reverse=True)
+    return float(vals[ki - 1])
 
 
 def linest(*args: Any) -> Any:
@@ -724,6 +757,10 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
                 best_idx = i
     if best_idx is None:
         return None
+    # A result vector shorter than the lookup vector used to raise IndexError
+    # (lookup(3, [1,2,3], [10,20])). Calc returns #N/A for that miss.
+    if best_idx >= len(result):
+        return "#N/A"
     return result[best_idx]
 
 
@@ -736,8 +773,35 @@ def match_criteria(val: Any, crit: Any) -> bool:
             op, val_str = m.groups()
             try:
                 c_num = float(val_str)
+            except (ValueError, TypeError):
+                c_num = None
+            try:
                 v_num = float(val)
             except (ValueError, TypeError):
+                v_num = None
+            # A numeric criterion used to fall through to lexicographic
+            # compare whenever the cell failed float(). "abc" > "5" is True,
+            # so COUNTIF(["abc"], ">5") counted the text. Excel/Calc compare
+            # numbers only; <> still matches because the text is not the number.
+            if c_num is not None and v_num is None:
+                if op == "<>":
+                    return True
+                if op in ("=", "==", "<", "<=", ">", ">="):
+                    return False
+            elif c_num is not None and v_num is not None:
+                if op in ("=", "=="):
+                    return v_num == c_num
+                if op == "<>":
+                    return v_num != c_num
+                if op == "<":
+                    return v_num < c_num
+                if op == "<=":
+                    return v_num <= c_num
+                if op == ">":
+                    return v_num > c_num
+                if op == ">=":
+                    return v_num >= c_num
+            else:
                 c_str = val_str
                 v_str = str(val)
                 if op in ("=", "=="):
@@ -752,19 +816,6 @@ def match_criteria(val: Any, crit: Any) -> bool:
                     return v_str > c_str
                 if op == ">=":
                     return v_str >= c_str
-            else:
-                if op in ("=", "=="):
-                    return v_num == c_num
-                if op == "<>":
-                    return v_num != c_num
-                if op == "<":
-                    return v_num < c_num
-                if op == "<=":
-                    return v_num <= c_num
-                if op == ">":
-                    return v_num > c_num
-                if op == ">=":
-                    return v_num >= c_num
     try:
         if float(val) == float(crit):
             return True
@@ -886,7 +937,18 @@ def mode(r: Any) -> Any:
     if not vals:
         return float("nan")
     counts = Counter(vals)
-    return counts.most_common(1)[0][0]
+    best = max(counts.values())
+    # Excel/Calc MODE is #N/A when nothing repeats. na() is float nan, which
+    # isna() already treats as #N/A. most_common used to return a singleton.
+    if best < 2:
+        return float("nan")
+    winners = [v for v, c in counts.items() if c == best]
+    # Tie-break is the lowest value, not the first one Counter saw
+    # (mode([2, 2, 1, 1]) was 2).
+    try:
+        return min(winners)
+    except TypeError:
+        return winners[0]
 
 
 def mround(number: Any, multiple: Any) -> float:
@@ -896,7 +958,12 @@ def mround(number: Any, multiple: Any) -> float:
         return 0.0
     if (n > 0 and m < 0) or (n < 0 and m > 0):
         return float("nan")
-    return float(round(n / m) * m)
+    # Python round() is banker's rounding (half to even), so MROUND(2.5, 1)
+    # was 2. Excel/Calc round halves away from zero (result 3). Same-sign
+    # inputs make the quotient non-negative; floor(q + 0.5) is that rounding.
+    quot = n / m
+    rounded = math.floor(quot + 0.5) if quot >= 0 else math.ceil(quot - 0.5)
+    return float(rounded * m)
 
 
 def mtrans(matrix: Any) -> Any:
