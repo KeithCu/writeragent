@@ -290,6 +290,7 @@ png_bytes = base64.b64decode(b64)
 - **Lazy-init** one `PaddleOCR` instance per warm worker process (module-level singleton; reset on worker respawn).
 - Phase 1 **`params`:** optional `lang` (string, default `"en"`).
 - Use current PaddleOCR 3.x Python API (`PaddleOCR(...)` + `ocr` / `predict` per installed version — implementer reads installed package docs).
+- **3.x Result parsing** ([`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py)): `ocr` / `predict` returns a Result whose `.json` is `{"res": {rec_texts, rec_scores, rec_polys}}`, not the 2.x `[[box, (text, score)], ...]` line list. PPStructureV3 pages are the same wrapper with `parsing_res_list` (`block_label`, `block_content`, `block_bbox`) and `table_res_list[].pred_html`. Both 3.x and 2.x shapes parse. Missing `PPStructureV3` is `PADDLEOCR_UNAVAILABLE`.
 - Map engine output → [§10](#10-extract_text-result-json-normative) (`html`, `full_text`, `regions`, `metrics`).
 - **`ImportError` / missing paddle:** return `{"status": "error", "code": "PADDLEOCR_UNAVAILABLE", ...}` — do not raise uncaught from venv for missing pip packages.
 
@@ -699,7 +700,7 @@ Same [`is_vision_result()`](../../plugin/vision/vision_egress.py) guard as [§10
 |-------|----------|-------|
 | `html` | **Yes** on success | **Document insert uses this** (structure + tables as HTML) |
 | `full_text` | Yes (may be `""`) | Plain reading-order text; not inserted into documents |
-| `blocks` | Yes (may be `[]`) | Layout regions from PP-Structure. A `table` block is not also written as a paragraph: PP-Structure’s `html` field is the table grid (`tables[]` / one `<table>`), not escaped `&lt;table&gt;` text beside it |
+| `blocks` | Yes (may be `[]`) | Layout regions from PP-Structure. A `table` block is not also written as a paragraph: PP-Structure’s `html` field is the table grid (`tables[]` / one `<table>`), not escaped `&lt;table&gt;` text beside it. PaddleOCR 3.x reads that grid from `table_res_list[].pred_html` and prose from `parsing_res_list` (`block_label` / `block_content` / `block_bbox`); 2.x `{type, bbox, res}` regions still parse |
 | `tables` | Yes (may be `[]`) | Structured table dicts (also reflected in `html`). Each table may include `spans`: `{row, col, rowspan, colspan}` 0-based in the header+body grid (text only in the origin cell — do not repeat spanned labels). Docling cells and Paddle PP-Structure HTML colspan/rowspan both go through `_table_from_span_cells` |
 | `metrics.block_count` | Recommended | Length of `blocks` |
 | `metrics.table_count` | Recommended | Length of `tables` |

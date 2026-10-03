@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+from collections.abc import Iterator
 from html.parser import HTMLParser
 from typing import Any
 
@@ -43,7 +44,7 @@ def _get_paddle_ocr(lang: str) -> Any:
     return _paddle_ocr_engine
 
 
-def _run_paddle_ocr(engine: Any, image_array: Any) -> list[Any]:
+def _run_paddle_ocr(engine: Any, image_array: Any) -> Any:
     """Call PaddleOCR across 2.x/3.x API differences."""
     if hasattr(engine, "ocr"):
         result = engine.ocr(image_array, cls=True)
@@ -51,15 +52,110 @@ def _run_paddle_ocr(engine: Any, image_array: Any) -> list[Any]:
         result = engine.predict(image_array)
     else:
         raise RuntimeError("PaddleOCR engine has no ocr or predict method")
-    if not result:
-        return []
-    page = result[0] if isinstance(result, list) else result
-    if not page:
-        return []
-    return list(page) if isinstance(page, list) else []
+    return result
 
 
-def _parse_ocr_lines(raw_lines: list[Any]) -> tuple[list[dict[str, Any]], list[str]]:
+def _iter_pages(raw: Any) -> list[Any]:
+    """List of pages from a list, tuple, or PaddleX generator. ``None`` pages dropped."""
+    if isinstance(raw, Iterator):
+        raw = list(raw)
+    if raw is None:
+        return []
+    if isinstance(raw, tuple):
+        raw = list(raw)
+    if isinstance(raw, list):
+        return [page for page in raw if page is not None]
+    return [raw]
+
+
+def _json_dict(obj: Any) -> dict[str, Any] | None:
+    """``Result.json`` when it is a dict. Plain dicts and 2.x lists have no such view."""
+    try:
+        view = getattr(obj, "json", None)
+    except Exception:
+        # A broken Result.json must not hide the dict body (2.x regions, or the
+        # live Result keys). Unexpected: the property is part of the PaddleX contract.
+        log.exception("Paddle Result.json failed")
+        return None
+    return view if isinstance(view, dict) else None
+
+
+def _looks_like_v3_payload(data: dict[str, Any]) -> bool:
+    return "rec_texts" in data or "parsing_res_list" in data or "table_res_list" in data
+
+
+def _paddle_payload(obj: Any) -> dict[str, Any] | None:
+    """3.x OCR or PP-Structure page, or None for a 2.x line list / region.
+
+    PaddleOCR 3.x ``ocr`` / ``predict`` returns a Result. ``Result.json`` and the
+    printed form are ``{"res": payload}`` (``rec_texts`` / ``rec_scores`` /
+    ``rec_polys``, or ``parsing_res_list`` + ``table_res_list``). The object is
+    also a dict, but PP-Structure stores LayoutBlock instances there and the
+    ``block_label`` schema only on ``.json``. 2.x regions use ``res`` for line
+    text or ``{"html": ...}`` — those must not be unwrapped as a page.
+    """
+    candidates: list[dict[str, Any]] = []
+    view = _json_dict(obj)
+    if view is not None:
+        candidates.append(view)
+    if isinstance(obj, dict):
+        candidates.append(obj)
+    for data in candidates:
+        inner = data.get("res")
+        if isinstance(inner, dict) and _looks_like_v3_payload(inner):
+            return inner
+        if _looks_like_v3_payload(data):
+            return data
+    return None
+
+
+def _seq(value: Any) -> Any:
+    """None → empty. Leave numpy arrays alone; ``array or []`` raises on them."""
+    return () if value is None else value
+
+
+def _seq_item(seq: Any, index: int) -> Any:
+    if seq is None:
+        return None
+    try:
+        if index >= len(seq):
+            return None
+    except TypeError:
+        return None
+    return seq[index]
+
+
+def _parse_ocr_v3(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    """``rec_texts`` / ``rec_scores`` / ``rec_polys`` (``rec_boxes`` if no polys)."""
+    regions: list[dict[str, Any]] = []
+    texts: list[str] = []
+    rec_texts = _seq(payload.get("rec_texts"))
+    rec_scores = _seq(payload.get("rec_scores"))
+    boxes = payload.get("rec_polys")
+    if boxes is None:
+        boxes = payload.get("rec_boxes")
+    for index, text_raw in enumerate(rec_texts):
+        text = str(text_raw or "").strip()
+        if not text:
+            continue
+        score_raw = _seq_item(rec_scores, index)
+        try:
+            confidence = float(score_raw) if score_raw is not None else 0.0
+        except (TypeError, ValueError):
+            confidence = 0.0
+        box_raw = _seq_item(boxes, index)
+        regions.append(
+            {
+                "box": _bbox_to_xywh(box_raw) if box_raw is not None else [0, 0, 0, 0],
+                "text": text,
+                "confidence": confidence,
+            }
+        )
+        texts.append(text)
+    return regions, texts
+
+
+def _parse_ocr_v2_lines(raw_lines: list[Any]) -> tuple[list[dict[str, Any]], list[str]]:
     regions: list[dict[str, Any]] = []
     texts: list[str] = []
     for line in raw_lines:
@@ -84,6 +180,28 @@ def _parse_ocr_lines(raw_lines: list[Any]) -> tuple[list[dict[str, Any]], list[s
             }
         )
         texts.append(text)
+    return regions, texts
+
+
+def _parse_ocr_lines(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
+    """2.x ``[[box, (text, score)], ...]`` pages and 3.x Result pages.
+
+    3.x stopped returning the line list. ``_run_paddle_ocr`` used to keep only a
+    list page and otherwise return ``[]``, so ``extract_text`` reported
+    "No text detected." with an empty ``full_text``.
+    """
+    regions: list[dict[str, Any]] = []
+    texts: list[str] = []
+    for page in _iter_pages(raw):
+        payload = _paddle_payload(page)
+        if isinstance(payload, dict) and "rec_texts" in payload:
+            page_regions, page_texts = _parse_ocr_v3(payload)
+        elif isinstance(page, list):
+            page_regions, page_texts = _parse_ocr_v2_lines(page)
+        else:
+            continue
+        regions.extend(page_regions)
+        texts.extend(page_texts)
     return regions, texts
 
 
@@ -298,9 +416,156 @@ def _table_from_structure_res(res: Any, *, name: str) -> dict[str, Any] | None:
     return None
 
 
+def _append_table_plaintext(text_parts: list[str], table: dict[str, Any]) -> None:
+    columns = table.get("columns")
+    if columns:
+        text_parts.append("\t".join(str(cell) for cell in columns))
+    for row in table.get("rows") or []:
+        if isinstance(row, list):
+            text_parts.append("\t".join(str(cell) for cell in row))
+
+
+def _parsed_table(html: str, table_index: int) -> tuple[dict[str, Any], int] | None:
+    if "<table" not in html.lower():
+        return None
+    table = _table_from_structure_res({"html": html}, name=f"table_{table_index + 1}")
+    if not table:
+        return None
+    return table, table_index + 1
+
+
+def _v3_block_fields(block: Any) -> tuple[str, str, Any]:
+    """``block_label`` / ``block_content`` / ``block_bbox``, or a LayoutBlock."""
+    if isinstance(block, dict):
+        label = block.get("block_label")
+        if label is None:
+            label = block.get("label")
+        content = block.get("block_content")
+        if content is None:
+            content = block.get("content")
+        bbox = block.get("block_bbox")
+        if bbox is None:
+            bbox = block.get("bbox")
+    else:
+        label = getattr(block, "label", None)
+        content = getattr(block, "content", None)
+        bbox = getattr(block, "bbox", None)
+    label_text = str(label).strip().lower() if label else "text"
+    content_text = "" if content is None else str(content).strip()
+    return label_text, content_text, bbox
+
+
+def _v3_table_html(item: Any) -> str:
+    sources: list[Any] = []
+    view = _json_dict(item)
+    if view is not None:
+        sources.append(view)
+    if isinstance(item, dict):
+        sources.append(item)
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        inner = source.get("res")
+        if isinstance(inner, dict):
+            source = inner
+        html = source.get("pred_html")
+        if not isinstance(html, str):
+            html = source.get("html")
+        if isinstance(html, str) and html.strip():
+            return html
+    return ""
+
+
+def _is_v3_block(block: Any) -> bool:
+    """True for ``block_label`` dicts and LayoutBlock, not a 2.x ``{type, bbox, res}``."""
+    if isinstance(block, dict):
+        return any(key in block for key in ("block_label", "block_content", "block_bbox"))
+    if isinstance(block, (list, tuple, str, bytes)):
+        return False
+    return hasattr(block, "label") and hasattr(block, "content")
+
+
+def _is_v3_structure_page(obj: Any) -> bool:
+    payload = _paddle_payload(obj)
+    if not isinstance(payload, dict):
+        return False
+    # ``table_res_list`` exists only on PPStructureV3 pages (``pred_html``).
+    if "table_res_list" in payload:
+        return True
+    blocks = payload.get("parsing_res_list")
+    if not isinstance(blocks, list):
+        return False
+    # A bare ``parsing_res_list`` of 2.x regions is unwrapped below. 3.x blocks
+    # use block_label / block_content / block_bbox (or LayoutBlock attributes).
+    if not blocks:
+        return True
+    return _is_v3_block(blocks[0])
+
+
+def _parse_v3_structure_page(
+    payload: dict[str, Any],
+    *,
+    table_index: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str], int]:
+    """One PPStructureV3 page: layout blocks plus ``table_res_list`` HTML."""
+    htmls = [_v3_table_html(item) for item in _seq(payload.get("table_res_list"))]
+    htmls = [html for html in htmls if html]
+    html_at = 0
+    blocks: list[dict[str, Any]] = []
+    tables: list[dict[str, Any]] = []
+    text_parts: list[str] = []
+
+    for block in _seq(payload.get("parsing_res_list")):
+        label, content, bbox = _v3_block_fields(block)
+        box = _bbox_to_xywh(bbox) if bbox is not None else [0, 0, 0, 0]
+        if label == "table":
+            html = htmls[html_at] if html_at < len(htmls) else ""
+            if html_at < len(htmls):
+                html_at += 1
+            if not html.strip():
+                html = content
+            parsed = _parsed_table(html, table_index)
+            if parsed is not None:
+                table, table_index = parsed
+                tables.append(table)
+                _append_table_plaintext(text_parts, table)
+            # Table HTML is the grid (``tables[]``), not block prose. Same rule
+            # as ``_text_from_structure_res`` for a 2.x ``res.html`` table.
+            blocks.append({"type": "table", "text": "", "box": box})
+            continue
+        if not content:
+            continue
+        blocks.append({"type": label or "text", "text": content, "box": box})
+        text_parts.append(content)
+
+    for html in htmls[html_at:]:
+        parsed = _parsed_table(html, table_index)
+        if parsed is None:
+            continue
+        table, table_index = parsed
+        tables.append(table)
+        _append_table_plaintext(text_parts, table)
+        blocks.append({"type": "table", "text": "", "box": [0, 0, 0, 0]})
+
+    return blocks, tables, text_parts, table_index
+
+
 def _normalize_structure_pages(raw: Any) -> list[Any]:
+    """One entry per page. 2.x pages are region lists; 3.x pages stay Results.
+
+    PPStructureV3.predict() yields per-page Results (often a generator). The old
+    normalizer peeled ``parsing_res_list`` off that dict and dropped
+    ``table_res_list``. LayoutBlock entries are not ``{type, bbox, res}``, so
+    ``_parse_structure_output`` then returned no blocks, tables, or HTML.
+    """
+    if isinstance(raw, Iterator):
+        raw = [page for page in raw if page is not None]
     if raw is None:
         return []
+    if isinstance(raw, tuple):
+        raw = list(raw)
+    if _is_v3_structure_page(raw):
+        return [raw]
     if isinstance(raw, dict):
         for key in ("layout_parsing_result", "parsing_res_list", "result", "res"):
             inner = raw.get(key)
@@ -311,8 +576,6 @@ def _normalize_structure_pages(raw: Any) -> list[Any]:
         if raw and isinstance(raw[0], list):
             return list(raw[0])
         return raw
-    if hasattr(raw, "__iter__"):
-        return list(raw)
     return [raw]
 
 
@@ -323,6 +586,15 @@ def _parse_structure_output(raw_pages: list[Any]) -> tuple[list[dict[str, Any]],
     table_index = 0
 
     for item in raw_pages:
+        if _is_v3_structure_page(item):
+            payload = _paddle_payload(item)
+            if payload is None:
+                continue
+            page_blocks, page_tables, page_text, table_index = _parse_v3_structure_page(payload, table_index=table_index)
+            blocks.extend(page_blocks)
+            tables.extend(page_tables)
+            text_parts.extend(page_text)
+            continue
         if not isinstance(item, dict):
             continue
         block_type = str(item.get("type") or item.get("label") or "block").strip().lower()
@@ -335,11 +607,7 @@ def _parse_structure_output(raw_pages: list[Any]) -> tuple[list[dict[str, Any]],
             table = _table_from_structure_res(res, name=f"table_{table_index}")
             if table:
                 tables.append(table)
-                if table.get("columns"):
-                    text_parts.append("\t".join(str(c) for c in table["columns"]))
-                for row in table.get("rows") or []:
-                    if isinstance(row, list):
-                        text_parts.append("\t".join(str(c) for c in row))
+                _append_table_plaintext(text_parts, table)
             block_text = _text_from_structure_res(res)
             blocks.append({"type": "table", "text": block_text, "box": box})
             continue
