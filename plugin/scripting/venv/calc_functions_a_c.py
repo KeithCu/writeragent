@@ -295,9 +295,14 @@ def acoth(x: Any) -> float:
 
 
 def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = None) -> str:
-    r = int(float(row))
-    c = int(float(col))
-    abs_n = int(float(abs_num))
+    # int(float()) raises ValueError for text/NaN and OverflowError for inf.
+    # Those used to escape the helper; Excel ADDRESS returns #VALUE!.
+    try:
+        r = int(float(row))
+        c = int(float(col))
+        abs_n = int(float(abs_num))
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
     is_a1 = bool(a1)
 
     if is_a1:
@@ -323,30 +328,48 @@ def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = N
 
 
 def aggregate(function_num: Any, options: Any, *args: Any) -> float:
+    # Excel/Calc option codes (Microsoft AGGREGATE): ignore errors on 2, 3, 6, 7
+    # and hidden rows on 1, 3, 5, 7. The old sets were swapped, so NaNs were
+    # stripped for hidden-row options and kept for the error-ignore options.
+    # Hidden rows need sheet visibility this helper does not have, so 1/3/5/7
+    # only differ here by whether they also ignore errors (3 and 7).
+    # dtype=float on a whole argument raised ValueError for any text cell and
+    # the broad except turned that into NaN for the call. Text is ignored per
+    # cell (numeric aggregates); COUNTA still counts it.
     try:
         fn = int(float(function_num))
         opt = int(float(options))
-        vals: list[float] = []
+        numeric: list[float] = []
+        n_text = 0
         for arg in args:
-            vals.extend(np.asarray(arg, dtype=float).ravel().tolist())
+            for x in np.asarray(arg, dtype=object).ravel():
+                if isinstance(x, str):
+                    if is_missing_value(x):
+                        # Blank strings are ignored. Error tokens stay NaN unless
+                        # the option below strips them.
+                        if x.strip() != "":
+                            numeric.append(float("nan"))
+                        continue
+                    n_text += 1
+                    continue
+                try:
+                    numeric.append(float(x))
+                except (ValueError, TypeError, OverflowError):
+                    continue
 
-        arr = np.array(vals, dtype=float)
-        # Handle ignore options
-        if opt in (4, 5, 6, 7):
-            # Ignore hidden rows (cannot do here), assume same as 0,1,2,3 for now
-            pass
-
-        # Strip NaNs if options ignore errors (1, 3, 5, 7)
-        if opt in (1, 3, 5, 7):
+        arr = np.asarray(numeric, dtype=float)
+        if opt in (2, 3, 6, 7):
             arr = arr[~np.isnan(arr)]
 
         # Simplified implementations for most common
         if fn == 1:
-            return float(np.mean(arr))
+            # Empty after dropping text/errors is #DIV/0! in Calc; avoid the
+            # RuntimeWarning from np.mean([]).
+            return float(np.mean(arr)) if arr.size else float("nan")
         if fn == 2:
             return float(np.sum(~np.isnan(arr)))
         if fn == 3:
-            return float(len(arr))
+            return float(len(arr) + n_text)
         if fn == 4:
             return float(np.nanmax(arr))
         if fn == 5:
@@ -449,10 +472,25 @@ def asc(text: Any) -> str:
 
 
 def avedev(r: Any) -> float:
-    arr = np.asarray(r, dtype=float).ravel()
-    arr = arr[~np.isnan(arr)]
-    if not arr.size:
+    # dtype=float on the whole array raised ValueError for text (and "") and
+    # aborted the call. Excel/Calc AVEDEV ignores text and logicals, so each
+    # value is coerced on its own and those cells are skipped.
+    vals: list[float] = []
+    for x in np.asarray(r, dtype=object).ravel():
+        if isinstance(x, (bool, np.bool_)):
+            continue
+        if isinstance(x, str):
+            continue
+        try:
+            val = float(x)
+        except (ValueError, TypeError, OverflowError):
+            continue
+        if math.isnan(val):
+            continue
+        vals.append(val)
+    if not vals:
         return float("nan")
+    arr = np.asarray(vals, dtype=float)
     return float(np.mean(np.abs(arr - np.mean(arr))))
 
 
@@ -490,9 +528,13 @@ def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
     return float(np.mean(vals))
 
 
-def averageifs(ar: Any, *args: Any) -> float:
+def averageifs(ar: Any, *args: Any) -> float | str:
     from plugin.scripting.venv.calc_functions_i_m import match_criteria
 
+    # Criteria arrive as (range, criterion) pairs. An odd tail indexed args[i + 1]
+    # and raised IndexError.
+    if len(args) % 2 != 0:
+        return "#VALUE!"
     ar_flat = np.asarray(ar).ravel()
     cond_ranges = []
     criteria = []
@@ -533,8 +575,10 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
         n = int(float(number))
         r = int(float(radix))
         m = int(float(min_length))
+        # Literal "NaN" is not a Calc error token, so bad BASE input showed up as
+        # text. Excel/Calc BASE returns #NUM! for a bad number, radix, or length.
         if n < 0 or r < 2 or r > 36 or m < 0:
-            return "NaN"
+            return "#NUM!"
         if n == 0:
             return "0".zfill(m)
         digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -544,7 +588,7 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
             n //= r
         return res.zfill(m)
     except Exception:
-        return "NaN"
+        return "#NUM!"
 
 
 def besseli(x: Any, n: Any) -> float:
@@ -663,7 +707,8 @@ def binomdist(*args: Any) -> float:
 def bitand(n1: Any, n2: Any) -> float:
     try:
         return float(int(float(n1)) & int(float(n2)))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
 
 
@@ -674,14 +719,16 @@ def bitlshift(number: Any, shift: Any) -> float:
         if s < 0:
             return float(n >> abs(s))
         return float(n << s)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
 
 
 def bitor(n1: Any, n2: Any) -> float:
     try:
         return float(int(float(n1)) | int(float(n2)))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
 
 
@@ -692,22 +739,29 @@ def bitrshift(number: Any, shift: Any) -> float:
         if s < 0:
             return float(n << abs(s))
         return float(n >> s)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
 
 
 def bitxor(n1: Any, n2: Any) -> float:
     try:
         return float(int(float(n1)) ^ int(float(n2)))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
 
 
 def char(n: Any) -> str:
+    # Bad input used to return "" (and inf escaped as OverflowError). chr() also
+    # accepts code points above 255; Excel/Calc CHAR returns #VALUE! for those.
     try:
-        return chr(int(float(n)))
-    except (ValueError, TypeError):
-        return ""
+        code = int(float(n))
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
+    if code < 0 or code > 255:
+        return "#VALUE!"
+    return chr(code)
 
 
 def chidist(x: Any, df: Any) -> float:
@@ -733,7 +787,8 @@ def choose(index: Any, *args: Any) -> Any:
         idx = int(float(index))
         if 1 <= idx <= len(args):
             return args[idx - 1]
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         pass
     return None
 
@@ -761,7 +816,8 @@ def code(s: Any) -> float:
 def combin(n: Any, k: Any) -> float:
     try:
         return float(math.comb(int(float(n)), int(float(k))))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
 
 
@@ -772,7 +828,8 @@ def combina(n: Any, k: Any) -> float:
         if ni == 0 and ki == 0:
             return 1.0
         return float(math.comb(ni + ki - 1, ki))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
 
 
@@ -825,9 +882,13 @@ def countif(r: Any, crit: Any) -> float:
     return float(cnt)
 
 
-def countifs(*args: Any) -> float:
+def countifs(*args: Any) -> float | str:
     from plugin.scripting.venv.calc_functions_i_m import match_criteria
 
+    # Criteria arrive as (range, criterion) pairs. An odd tail indexed args[i + 1]
+    # and raised IndexError.
+    if len(args) % 2 != 0:
+        return "#VALUE!"
     cond_ranges = []
     criteria = []
     for i in range(0, len(args), 2):
