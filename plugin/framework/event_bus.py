@@ -100,10 +100,10 @@ class EventBus:
             callback: Callable to invoke when the event is emitted.
             weak:     If True, store a weakref to the callback's bound
                       object. The subscription auto-removes when the
-                      object is garbage-collected. Builtin bound methods
-                      are not Python methods: ``WeakMethod`` raises
-                      ``TypeError``, and the plain ``weakref.ref`` fallback
-                      is used instead (or a strong ref if that also fails).
+                      object is garbage-collected. If ``WeakMethod``
+                      rejects the callable, it is stored strongly.
+                      ``weakref.ref`` would point at a temporary bound
+                      method and the subscription would die on the next GC.
         """
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         entry: tuple[Any, bool]
@@ -111,15 +111,18 @@ class EventBus:
             try:
                 entry = (weakref.WeakMethod(callback, lambda r: self._cleanup(event, r)), True)
             except TypeError:
-                # What was wrong: this branch called WeakMethod whenever the
-                # callable had ``__self__``. Builtin bound methods (and other
-                # non-Python methods) have ``__self__`` but are not methods,
-                # so WeakMethod raises TypeError and subscribe crashed.
-                # How: ``hasattr(__self__)`` is true for ``builtin_function_or_method``.
-                # Why: catch that TypeError and use the same weakref.ref
-                # fallback as the plain weak path. Python methods still
-                # take the WeakMethod path above.
-                entry = self._weakref_or_strong(event, callback)
+                # What was wrong: after WeakMethod raised, this stored
+                # ``weakref.ref(callback)``. That ref tracks the bound-method
+                # object, not the instance. Callers pass the method inline
+                # (``items.append``) and do not keep it, so the next GC drops
+                # the subscription and emit never runs.
+                # How: WeakMethod rejects builtins and methods of instances
+                # with no ``__weakref__`` (``__slots__``). ``weakref.ref`` of
+                # those objects still succeeds.
+                # Why: keep the callback strongly. A dead weakref is a silent
+                # no-op; a strong ref still fires. Python methods on normal
+                # instances stay on the WeakMethod path above.
+                entry = (callback, False)
         elif weak:
             entry = self._weakref_or_strong(event, callback)
         else:
@@ -128,7 +131,11 @@ class EventBus:
             self._subscribers.setdefault(event, []).append(entry)
 
     def _weakref_or_strong(self, event: str, callback: Any) -> tuple[Any, bool]:
-        """Weak-ref *callback*, or keep it strongly if it cannot be weak."""
+        """Weak-ref a callable the caller holds, or keep it if it cannot be weak.
+
+        Bound methods do not belong here. ``weakref.ref`` would track the
+        temporary method object, which dies when the caller did not stash it.
+        """
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         try:
             return (weakref.ref(callback, lambda r: self._cleanup(event, r)), True)
@@ -152,6 +159,9 @@ class EventBus:
         Bound methods are new objects on every attribute access
         (``obj.m is obj.m`` is False), so identity alone never matches
         ``unsubscribe("e", obj.handler)``. Compare ``__self__``/``__func__``.
+        Callables with ``__self__`` but no ``__func__`` (builtins,
+        method-wrappers) compare with ``==`` so a sibling method on the
+        same object does not match.
         """
         if stored is None:
             return False
@@ -161,7 +171,18 @@ class EventBus:
         other_self = getattr(callback, "__self__", None)
         if stored_self is None or other_self is None:
             return False
-        return stored_self is other_self and getattr(stored, "__func__", None) is getattr(callback, "__func__", None)
+        stored_func = getattr(stored, "__func__", None)
+        other_func = getattr(callback, "__func__", None)
+        if stored_func is None and other_func is None:
+            # What was wrong: both missing ``__func__`` values compared
+            # equal (``None is None``), so ``items.append`` unsubscribed
+            # ``items.clear`` on the same list.
+            # How: builtins and method-wrappers have ``__self__`` and no
+            # ``__func__``.
+            # Why: ``==`` is true for the same builtin method and false for
+            # a sibling method on that object.
+            return bool(stored_self is other_self and stored == callback)
+        return stored_self is other_self and stored_func is other_func
 
     def _active_events(self) -> set[str]:
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)

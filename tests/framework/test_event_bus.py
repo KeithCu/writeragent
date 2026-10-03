@@ -329,29 +329,63 @@ def test_get_event_bus_replaces_object_with_other_qualified_name():
             setattr(sys, "_writeragent_event_bus", saved)
 
 
-def test_subscribe_weak_builtin_bound_method_uses_weakref():
-    """Builtin bound methods have __self__ but WeakMethod rejects them.
+def test_subscribe_weak_builtin_inline_survives_gc():
+    """Inline ``items.append`` with ``weak=True`` must still run after GC.
 
-    weakref.ref still works, so subscribe must not crash and must not pin
-    the method the way a strong fallback would.
+    What was wrong: WeakMethod rejects the builtin, and ``weakref.ref``
+    kept the temporary bound method. The test that stashed
+    ``method = items.append`` kept that object alive, so the drop never
+    showed up. Callers subscribe inline and do not keep the method.
     """
-    import weakref
-
     bus = EventBus()
     items: list[int] = []
-    method = items.append
-    bus.subscribe("test:event", method, weak=True)
+    bus.subscribe("test:event", items.append, weak=True)
+    gc.collect()
     stored, is_weak = bus._subscribers["test:event"][0]
-    assert is_weak is True
-    assert isinstance(stored, weakref.ref)
-    assert not isinstance(stored, weakref.WeakMethod)
-    assert stored() is method
-    stored()(1)
+    assert is_weak is False
+    # emit() passes keywords; append is positional-only, so call the
+    # resolved subscriber the same way emit resolves it.
+    resolved = bus._resolve(stored, is_weak)
+    assert resolved == items.append
+    resolved(1)
     assert items == [1]
 
-    del method
+
+def test_subscribe_weak_slots_method_inline_survives_gc():
+    """A method on an instance with no ``__weakref__`` must still run after GC.
+
+    WeakMethod cannot reference the instance. ``weakref.ref`` of the
+    temporary bound method dies even while the caller still holds the instance.
+    """
+    bus = EventBus()
+    received = []
+
+    class Slotted:
+        __slots__ = ()
+
+        def handler(self, event_data=None):
+            received.append(event_data)
+
+    target = Slotted()
+    bus.subscribe("test:event", target.handler, weak=True)
     gc.collect()
-    assert bus._subscribers["test:event"] == []
+    bus.emit("test:event", event_data="ok")
+    assert received == ["ok"]
+
+
+def test_unsubscribe_builtin_does_not_drop_sibling():
+    """``append`` and ``clear`` on one list are different callbacks.
+
+    Both have ``__self__`` and neither has ``__func__``. Treating the
+    missing ``__func__`` as equal used to remove both.
+    """
+    bus = EventBus()
+    items: list[int] = []
+    bus.subscribe("test:event", items.append, weak=True)
+    bus.subscribe("test:event", items.clear, weak=True)
+    bus.unsubscribe("test:event", items.append)
+    remaining = [bus._resolve(cb, is_weak) for cb, is_weak in bus._subscribers["test:event"]]
+    assert remaining == [items.clear]
 
 
 def test_subscribe_weak_method_wrapper_falls_back_to_strong_ref():
