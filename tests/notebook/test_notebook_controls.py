@@ -47,6 +47,36 @@ def test_wire_all_ok_off_main_thread(monkeypatch):
         tg.GUARD_ON = was
 
 
+def test_wire_all_with_registry_off_main_thread_does_not_raise(monkeypatch):
+    """Saved registry + Dummy-2 must not call guarded get_runtime_uid.
+
+    File Open reaches wire_all after save_registry. get_runtime_uid raises
+    when the guard is on and the caller is not the main thread; filter()
+    then returns False and loadComponentFromURL returns None.
+    """
+    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    doc.getRuntimeUID.return_value = "uid-dummy-2"
+    state = MagicMock()
+    state.code_cells = [MagicMock(), MagicMock(), MagicMock()]
+    try:
+        with (
+            patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+            patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
+            patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, None)),
+        ):
+            result = wire_all_notebook_run_buttons(MagicMock(), doc)
+        assert result == 0
+        assert notebook_controls._doc_key(doc) == "uid:uid-dummy-2"
+        assert notebook_controls._doc_key(doc) not in notebook_controls._wired_form_docs
+    finally:
+        tg.GUARD_ON = was
+
+
 def test_wire_all_returns_0_no_container():
     ctx = MagicMock()
     doc = MagicMock()

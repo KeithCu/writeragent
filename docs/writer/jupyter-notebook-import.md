@@ -228,7 +228,7 @@ Native test suite execution:
 
 ### 1. PyUNO Import Filter Component (`plugin/notebook/import_filter.py`)
 
-A lightweight UNO component implementing `XImporter` and `XFilter`:
+A lightweight UNO component implementing `XImporter` and `XFilter`. LibreOffice calls `filter()` on a Dummy-N thread while the main thread waits. Do not call `@main_thread_only` helpers from that path (`get_runtime_uid` included). The dev thread guard raises, `filter()` returns false, and File Open yields no document. Document identity in that path uses `_read_runtime_uid`. Do not marshal back to the main thread from the filter (host already waiting; deadlock #402).
 
 ```python
 import uno
