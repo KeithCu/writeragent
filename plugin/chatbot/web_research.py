@@ -39,10 +39,14 @@ from plugin.contrib.smolagents.agents import ToolCallingAgent
 log = logging.getLogger("writeragent.web_research")
 
 # Page visits and Chrome teardown share this count. Stop shuts the deep pool
-# down without joining, so execute must not kill the browser until forward returns.
+# down without joining, so the last run must not kill the browser until forward
+# returns. Runs share one local Chrome: a second frame can be researching while
+# the first execute() is still inside visit_webpage.
 _cdp_visits_cond = threading.Condition()
 _cdp_visits_inflight = 0
 _cdp_closing = False
+_cdp_runs = 0
+_cdp_launch_lock = threading.Lock()
 
 # Web-research sub-agent only (main chat delegate + web-research checkbox). Facts in plain text;
 # main agent applies HTML, memory colors, and apply_document_content when the user wanted a doc edit.
@@ -207,6 +211,18 @@ def _visit_result_is_error(text: Any) -> bool:
     return body.startswith("Error") or body.startswith("Failed")
 
 
+def _visit_result_has_page_text(text: Any) -> bool:
+    """True when the fetch returned text worth treating as already read.
+
+    An error string is retryable. An empty extract is too: a blank page or
+    whitespace-only innerText is not an error prefix, so it used to be stored
+    as visited and the next sub-query was told the URL was already read.
+    """
+    if _visit_result_is_error(text):
+        return False
+    return bool(str(text or "").strip())
+
+
 class _VisitWebpageDedupTool(Tool):
     """Wraps visit_webpage and skips URLs already read in this deep-research run."""
 
@@ -238,9 +254,11 @@ class _VisitWebpageDedupTool(Tool):
         # What was wrong: the URL was inserted before the fetch returned, so a
         # CDP or HTTP error ("Error visiting...", "Failed to navigate...") stayed
         # in the set and later sub-queries got "Already visited" instead of a retry.
-        # Why this change: record the URL only after a non-error body, under the
-        # same lock as the check.
-        if key and self._visited_urls is not None and not _visit_result_is_error(text):
+        # An empty extract took the same path: it does not start with Error or
+        # Failed, so a blank page burned the URL and the next sub-query skipped it.
+        # Why this change: record the URL only after non-empty, non-error text,
+        # under the same lock as the check.
+        if key and self._visited_urls is not None and _visit_result_has_page_text(text):
             if lock:
                 with lock:
                     self._visited_urls.add(key)
@@ -267,18 +285,60 @@ def _cdp_visit_leave() -> None:
             _cdp_visits_cond.notify_all()
 
 
-def _finish_cdp_browser() -> None:
-    """Stop local Chrome only after in-flight page visits have left forward.
+def _cdp_run_enter() -> None:
+    """Count one execute() using the shared local browser.
 
-    What was wrong: Stop shut the deep-research pool down without waiting, and
-    execute's finally terminated Chrome while a worker was still inside
-    Page.navigate. Parallel workers also shared the first open tab, so one
-    navigation replaced the other's page.
+    Waits out a teardown already in progress so this run does not attach to
+    a Chrome process that is about to be killed.
     """
-    global _cdp_closing
+    global _cdp_runs
+    with _cdp_visits_cond:
+        while _cdp_closing:
+            _cdp_visits_cond.wait()
+        _cdp_runs += 1
+
+
+def _begin_shared_cdp(uno_ctx: Any, browser_type: str) -> str:
+    """Attach this run to the process-wide local browser.
+
+    The caller must call _finish_cdp_browser once after this returns. A failed
+    launch drops the run count here and re-raises, so the caller must not
+    finish again. The launch lock keeps two runs from both missing the port
+    probe and spawning a second Chrome that the process-global handle drops.
+    """
+    from plugin.contrib.cdp.browser_cdp_tool import get_local_chrome_cdp_url
+
+    with _cdp_launch_lock:
+        _cdp_run_enter()
+        try:
+            return get_local_chrome_cdp_url(uno_ctx, browser_type)
+        except Exception:
+            _finish_cdp_browser()
+            raise
+
+
+def _finish_cdp_browser() -> None:
+    """Release this research run's hold on the shared local browser.
+
+    What was wrong: visit state and the Chrome process are process-global, and
+    every execute() finished by killing that process. A second run (another
+    frame's sidebar, or any other execute still inside visit_webpage) lost the
+    browser. Stop also shut one run's deep pool down without joining, so that
+    run could kill Chrome while its own worker was still inside Page.navigate.
+
+    Why this change: count active runs. Only the last one sets the closing
+    flag, waits until in-flight visits leave forward, and then terminates
+    Chrome. An earlier finish leaves the browser up.
+    """
+    global _cdp_closing, _cdp_runs
     from plugin.contrib.cdp.browser_cdp_tool import cleanup_local_chrome
 
     with _cdp_visits_cond:
+        if _cdp_runs <= 0:
+            return
+        _cdp_runs -= 1
+        if _cdp_runs > 0:
+            return
         _cdp_closing = True
         while _cdp_visits_inflight > 0:
             _cdp_visits_cond.wait()
@@ -289,6 +349,7 @@ def _finish_cdp_browser() -> None:
     finally:
         with _cdp_visits_cond:
             _cdp_closing = False
+            _cdp_visits_cond.notify_all()
 
 
 class VisitWebpageCdpTool(Tool):
@@ -672,7 +733,13 @@ class WebResearchTool(ToolBase):
         from plugin.framework.config import get_config_bool_safe, get_config_int, user_config_dir, get_config_int_safe
         cache_enabled = get_config_bool_safe("web_research_cache_enabled")
         udir = user_config_dir()
-        cache_path = os.path.join(udir, "writeragent_web_cache.db") if udir else None
+        raw_mb = get_config_int("web_cache_max_mb")
+        cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
+        # web_cache_max_mb 0 disables the shared web cache. Page and search
+        # tools skip both the read and the write. Research used to look up
+        # whenever the db file existed and only drop the path before the
+        # write, so a disabled cache still served a stale report.
+        cache_path = os.path.join(udir, "writeragent_web_cache.db") if (udir and cache_max_mb > 0) else None
         cache_max_age_days = get_config_int("web_cache_validity_days")
 
         from plugin.framework.prompts import get_research_completion_instruction
@@ -746,11 +813,6 @@ class WebResearchTool(ToolBase):
         max_tokens = get_config_int("chat_max_tokens")
         max_steps = get_config_int("chatbot.max_tool_rounds")
 
-        udir = user_config_dir()
-        raw_mb = get_config_int("web_cache_max_mb")
-        cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
-        cache_path = os.path.join(udir, "writeragent_web_cache.db") if (udir and cache_max_mb > 0) else None
-
         from plugin.framework.config import get_config
         browser_type = "off"
         try:
@@ -762,10 +824,11 @@ class WebResearchTool(ToolBase):
 
         cdp_enabled = (browser_type in ["chrome", "firefox"])
         cdp_url = None
+        cdp_held = False
         if cdp_enabled:
             try:
-                from plugin.contrib.cdp.browser_cdp_tool import get_local_chrome_cdp_url
-                cdp_url = get_local_chrome_cdp_url(ctx.ctx, browser_type)
+                cdp_url = _begin_shared_cdp(ctx.ctx, browser_type)
+                cdp_held = True
                 log.info("CDP web research enabled (%s). Local debug WS URL: %s", browser_type, cdp_url)
             except Exception as e:
                 log.warning("Failed to launch or connect to local %s via CDP: %s. Falling back to static HTTP.", browser_type, e)
@@ -856,7 +919,7 @@ class WebResearchTool(ToolBase):
                 out.update(cache_fields)
             return out
         finally:
-            if cdp_enabled:
+            if cdp_held:
                 _finish_cdp_browser()
 
 
