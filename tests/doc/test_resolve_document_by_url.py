@@ -102,32 +102,37 @@ def test_disposed_element_does_not_hide_a_later_match():
     assert doc_type == "writer"
 
 
-def test_next_element_disposal_does_not_hide_a_later_match():
-    """nextElement DisposedException is one closed frame, not a dead enumeration."""
+def test_stuck_next_element_does_not_spin():
+    """A nextElement that raises without advancing must not spin the walk.
+
+    The old mock popped before it raised, so hasMoreElements() went false
+    and never saw a UNO enumeration that stays true after a failed fetch.
+    """
     class DisposedException(Exception):
         pass
 
-    good = _model("file:///docs/a.odt", "uid-a")
-    desktop = MagicMock()
-    pending = [DisposedException("frame closed"), good]
+    calls = {"next": 0, "more": 0}
+
+    def has_more():
+        calls["more"] += 1
+        # Bound the mock. Production must stop; this only keeps a regression
+        # from hanging the suite if the walk continues forever.
+        if calls["more"] > 8:
+            raise AssertionError("resolve_document_by_url did not stop")
+        return True
 
     def next_elem():
-        item = pending.pop(0)
-        if isinstance(item, BaseException):
-            raise item
-        return item
+        calls["next"] += 1
+        raise DisposedException("stuck frame")
 
+    desktop = MagicMock()
     enum = MagicMock()
-    enum.hasMoreElements.side_effect = lambda: len(pending) > 0
+    enum.hasMoreElements.side_effect = has_more
     enum.nextElement.side_effect = next_elem
     desktop.getComponents.return_value.createEnumeration.return_value = enum
-    with (
-        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-        patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
-    ):
-        doc, doc_type = resolve_document_by_url(MagicMock(), "file:///docs/a.odt")
-    assert doc is good
-    assert doc_type == "writer"
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+        assert resolve_document_by_url(MagicMock(), "file:///docs/a.odt") == (None, None)
+    assert calls["next"] == 1
 
 
 def test_resolve_reraises_when_desktop_is_disposed():

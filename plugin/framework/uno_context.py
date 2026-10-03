@@ -910,6 +910,11 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
         # What was wrong: ``while enum is not None`` never ended the loop.
         # How: nothing in the body assigns ``enum = None``; the exits are
         # ``break``. Why: ``while True`` matches those breaks.
+        # Same ceiling as the paragraph walks in html_import and format.
+        # Open desktops are far smaller; the cap only matters when
+        # hasMoreElements() never goes false.
+        walk_limit = 200000
+        seen = 0
         while True:
             try:
                 more = enum.hasMoreElements()
@@ -917,21 +922,30 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                 # What was wrong: a disposed desktop enumeration broke the
                 # loop and the caller was told the document was not open.
                 # How: this except swallowed DisposedException before the
-                # outer handler could re-raise it. Why: one dead window
-                # still continues below; disposal of the enumeration does not.
+                # outer handler could re-raise it. Why: disposal of the
+                # enumeration is re-raised. A fetched element that then
+                # raises is skipped below; a failed nextElement stops.
                 _reraise_document_disposed(e, "Desktop")
                 break
             if more is not True and more != 1:
                 break
+            seen += 1
+            if seen > walk_limit:
+                log.debug("resolve_document_by_url stopped at walk cap")
+                break
             try:
-                # What was wrong: nextElement sat outside this try. A frame
-                # closed mid-iteration raised DisposedException into the outer
-                # handler, which aborted the walk before later documents were
-                # examined. How: one dead window looked like a dead
-                # enumeration. Why: fetch the element here so that failure
-                # continues. Disposal of the enumeration itself still calls
-                # _reraise_document_disposed from hasMoreElements.
                 elem = enum.nextElement()
+            except Exception as e:
+                # What was wrong: this failure ``continue``d while
+                # hasMoreElements() stayed true. How: UNO does not always
+                # advance the enumeration when nextElement fails, so the
+                # loop never saw a false hasMoreElements and froze the
+                # main thread. Why: stop, as html_import and format do on
+                # a failed nextElement. A model fetched successfully that
+                # then raises is still skipped below.
+                log.debug("resolve_document_by_url nextElement error: %s", type(e).__name__)
+                break
+            try:
                 model = None
                 if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
                     model = elem
