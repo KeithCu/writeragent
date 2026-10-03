@@ -710,6 +710,19 @@ class _SendPeerBase(ToolBase):
             kind=envelope_kind,
         )
 
+        # What was wrong: the envelope was written into the peer session and
+        # painted before schedule_peer_turn. On PEER_QUEUE_FULL the tool
+        # returned an error for a turn that was never queued, so nothing ran
+        # it, and a retry appended a second phantom user turn.
+        # Why this change: the cap is the same check enqueue uses. Refuse a
+        # full queue before any transcript write. Success still injects
+        # before schedule so an immediate kick sees already_appended.
+        if listener_queue_len(listener) >= PEER_QUEUE_CAP:
+            return self._tool_error(
+                f"Peer sidebar queue is full (max {PEER_QUEUE_CAP} pending turns).",
+                code="PEER_QUEUE_FULL",
+            )
+
         busy = listener_is_busy(listener)
         already_appended = not busy
         if already_appended:

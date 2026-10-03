@@ -62,7 +62,7 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 |--------|--------|---------|
 | `normalize_doc_url` | `uno_context` | Strip + drop a trailing `/` so URL identity compares. |
 | `get_runtime_uid` | `uno_context` | Per-session id (`getRuntimeUID` / attribute / property); works for untitled docs. |
-| `uno_same` | `uno_context` | UNO object identity: `is` → `==` → `uno.isSame` (unwrap viral proxy first). PyUNO wrappers, not a thread-proxy requirement. |
+| `uno_same` | `uno_context` | UNO object identity: `is` → `==` → `uno.isSame` (unwrap viral proxy first). PyUNO wrappers, not a thread-proxy requirement. Calc shapes canvas uses it to match the active sheet to `getByIndex` (distinct wrappers). |
 | `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)`. |
 | `get_open_documents` | `document_research` | List open OfficeDocuments with name/url/uid/path/type/active/modified (untitled kept). |
 | `_office_model_from_desktop_element` | `document_research` | Frame-or-model → `guard_uno(model)` for desktop walks. |
@@ -128,14 +128,14 @@ Module: [`plugin/doc/doc_type.py`](../../plugin/doc/doc_type.py)
 | Symbol | Purpose |
 |--------|---------|
 | `DocumentType` | `UNKNOWN` / `WRITER` / `CALC` / `DRAW` / `IMPRESS`. |
-| `get_document_type` | `supportsService` against the four canonical document services. |
+| `get_document_type` | First `supportsService` hit in `_DOCUMENT_SERVICE_MAP` order. PresentationDocument is before DrawingDocument because Impress supports both; Draw-only stays DRAW. |
 | `is_writer` / `is_calc` / `is_draw` | Enum predicates (`is_draw` includes Impress). |
 | `get_document_uno_services` | Live `supportsService` set for tool filtering. |
 | `uno_services_for_doc_type_label` / `uno_services_for_document` | Label → services without (or with) a live model. |
 | `doc_type_label_for_enum` | Lowercase label; `impress_as_draw=True` for research/visual family. |
 | `doc_type_title_for_label` | Sidebar title (`impress` displays as Draw). |
 
-Canonical service strings are `_DOCUMENT_SERVICE_MAP`. `visual_helpers` duplicates those strings plus `WebDocument` (must be checked first).
+Canonical service strings are `_DOCUMENT_SERVICE_MAP`. Map order is the classification priority (`get_document_type` returns the first match). `visual_helpers` duplicates those strings plus `WebDocument` (must be checked first).
 
 ### 1.6 User-defined document properties
 
