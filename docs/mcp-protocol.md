@@ -41,6 +41,10 @@ The chosen binary must be on `PATH`. There is **no auth** on the MCP HTTP API it
 | `GET` | `/health` | Liveness |
 | `GET` | `/` | Server info; includes `mcp_endpoint` when MCP is enabled |
 
+**Settings client snippet:** [`sync_mcp_config_snippet`](../plugin/mcp/mcp_ui.py) fills the MCP JSON box. A remembered public URL is copied only while the shared tunnel for that provider is running and `last_error` is empty. Stop, auth failure, a missing binary, or a new process that has not printed a URL yet drops the cache. Quick-tunnel hostnames change every run, so the live `mcp_public_url()` replaces any earlier value. Otherwise the snippet is `http://localhost:<port>/mcp` or the provider placeholder. `TunnelManager._provider` is None once `desired_running` is false; the snippet reads `state.provider`, which still names the provider that stopped.
+
+**Route updates:** Disabling MCP stops the HTTP listener before [`_unregister_mcp_routes`](../plugin/mcp/__init__.py) removes `/mcp`, `/sse`, and `/debug`. [`HttpRouteRegistry`](../plugin/mcp/routes.py) locks add/remove/`list_routes`. `GET /` builds its route list with `list_routes()`; overlapping that iteration with add/remove used to raise `RuntimeError` and return HTTP 500. `/health` and `/mcp` look up a single key and were not on that path. `shutdown()` does not wait for handler threads, so the lock still covers an in-flight `GET /`.
+
 There is **no** `/api/config` endpoint (removed — config is Settings / `writeragent.json` only).
 
 **Code:** [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py), [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py), [`plugin/mcp/server.py`](../plugin/mcp/server.py) (`mcp_endpoint_url`).

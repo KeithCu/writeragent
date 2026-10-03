@@ -347,6 +347,15 @@ class McpModule(ModuleBase):
         log.info("MCP routes registered on HTTP server")
 
     def _unregister_mcp_routes(self, services: Any) -> None:
+        # What was wrong: config disable removed /mcp while serve_forever was
+        # still accepting. GET / calls list_routes(); overlapping add/remove
+        # raises RuntimeError and the request returns HTTP 500. The later
+        # _stop_server() in _on_config_changed ran only after unregister.
+        # Why: stop the listener first. In-flight handlers are covered by the
+        # registry lock, because shutdown() does not join request threads.
+        bound = self._bound_http_server()
+        if bound is not None and bound.is_running():
+            self._stop_server()
         for method, path in [("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"), ("GET", "/debug"), ("POST", "/debug")]:
             try:
                 self._registry.remove(method, path)

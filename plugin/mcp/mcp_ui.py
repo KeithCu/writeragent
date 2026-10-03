@@ -135,6 +135,65 @@ def _schedule_mcp_snippet_refresh(dlg: Any) -> None:
     run_in_background(_wait, name="mcp-snippet-refresh")
 
 
+def _tunnel_provider_name(tunnel: Any) -> str | None:
+    """Provider that owns the shared tunnel, including after it has stopped.
+
+    ``TunnelManager._provider`` is None once ``desired_running`` is false, which
+    is exactly the stopped / auth-failed / binary-missing states. The state
+    object still stores the provider that last ran.
+    """
+    state = getattr(tunnel, "state", None)
+    if state is not None:
+        name = getattr(state, "provider", None)
+        if isinstance(name, str) and name.strip():
+            return name.strip().lower()
+    raw = getattr(tunnel, "_provider", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip().lower()
+    return None
+
+
+def _tunnel_error_text(tunnel: Any) -> str | None:
+    err = getattr(tunnel, "last_error", None)
+    if isinstance(err, str) and err.strip():
+        return err
+    return None
+
+
+def _adopt_live_tunnel_url(selected_provider: str) -> tuple[str | None, bool]:
+    """Return ``(url, wait_for_url)`` for the Settings snippet.
+
+    What was wrong: a cache hit in ``_tested_provider_tunnel_urls`` was copied
+    into the snippet with no further check. The cache is written when a URL is
+    acquired or Test Tunnel returns one, and nothing removed it when the
+    process stopped, auth failed, or the binary was missing. ``is_running`` and
+    ``last_error`` were consulted only when the cache was empty, so a stale
+    entry always won. Quick-tunnel hostnames also change every run.
+    Why: when the shared tunnel is this provider, publish its live URL only
+    while it is running with no error. Otherwise drop the cached URL. A cache
+    entry is kept only when no shared tunnel is tracking this provider.
+    """
+    from plugin.mcp import _shared_tunnel
+
+    tunnel = _shared_tunnel
+    if tunnel is None or _tunnel_provider_name(tunnel) != selected_provider:
+        return _tested_provider_tunnel_urls.get(selected_provider), False
+
+    running = bool(getattr(tunnel, "is_running", False))
+    if running and _tunnel_error_text(tunnel) is None:
+        live = tunnel.mcp_public_url()
+        if isinstance(live, str) and live.strip():
+            _tested_provider_tunnel_urls[selected_provider] = live
+            return live, False
+        # Process is up but has not printed a URL yet. The previous run's
+        # hostname is not this process.
+        _tested_provider_tunnel_urls.pop(selected_provider, None)
+        return None, True
+
+    _tested_provider_tunnel_urls.pop(selected_provider, None)
+    return None, False
+
+
 def sync_mcp_config_snippet(
     dlg: Any,
     custom_tunnel_url: str | None = None,
@@ -180,18 +239,10 @@ def sync_mcp_config_snippet(
     elif custom_tunnel_url:
         _tested_provider_tunnel_urls[selected_provider] = custom_tunnel_url
 
-    # Check if we have a tested URL for this specific selected provider.
     # A tunnel that is up but has no public URL yet used to sleep here.
-    active_url = _tested_provider_tunnel_urls.get(selected_provider)
-    if not active_url:
-        from plugin.mcp import _shared_tunnel
-
-        if _shared_tunnel and _shared_tunnel.is_running and getattr(_shared_tunnel, "_provider", None) == selected_provider:
-            active_url = _shared_tunnel.mcp_public_url()
-            if active_url:
-                _tested_provider_tunnel_urls[selected_provider] = active_url
-            elif schedule_refresh:
-                _schedule_mcp_snippet_refresh(dlg)
+    active_url, wait_for_url = _adopt_live_tunnel_url(selected_provider)
+    if wait_for_url and schedule_refresh:
+        _schedule_mcp_snippet_refresh(dlg)
 
     if not active_url:
         # Fall back to provider default template
