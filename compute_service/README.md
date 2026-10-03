@@ -134,7 +134,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
   }
   ```
 
-- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker checks the realpath again before `open`. An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return `FILE_TOO_LARGE`:
+- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks that descriptor against the same prefix list, so a symlink swapped in after the path check cannot leave the allowlist. An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return `FILE_TOO_LARGE`:
   ```json
   {
     "id": "ocr-124",
@@ -279,7 +279,7 @@ The Python Compute Service is structured as a resilient master HTTP server front
 
 ### 1. Master HTTP Router (~20MB RAM)
 - Ultra-thin network process that accepts HTTP connections, verifies Bearer authentication tokens, and forwards each job as a **length-prefixed Pickle 5 envelope** on the worker's stdin pipe. Large formula `data` / results are **raw JSON bytes** inside that envelope (not a second codec stage).
-- **HTTP listener**: One thread per formula worker and vision worker (2 with the stock defaults). Not a setting. `GET /health` uses that same pool, so a probe can wait behind in-flight `=PY()` calls. See the comment on `ComputeSettings.threads`.
+- **HTTP listener**: One thread per formula worker and vision worker (2 with the stock defaults). Not a setting. A cell holds its thread for the lease, so `GET /health` is answered on the accept loop and does not take a listener thread. See the comment on `ComputeSettings.threads`.
 - **Unbreakable Design**: The master process never executes user code directly, ensuring that user errors, native crashes, or memory spikes cannot destabilize the HTTP service.
 
 ### Internal wire: JSON-forward
@@ -293,8 +293,8 @@ The host is a proxy: auth, sticky routing, timeouts, worker lease. One deseriali
 **Compute JSON-forward** ([`json_forward.py`](json_forward.py)):
 
 - Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker after kit switches to multipart.
-- Multipart (preferred): `parse_multipart_execute` boundary-scans the body and `json.loads` only the small `meta` part (`id`, `mode`, `timeout_ms`; 64 KiB cap). `code` and `init_script` are raw UTF-8 parts: the host byte-caps them with `max_code_chars` and UTF-8-decodes once into the `str` the worker already takes. `data` is `data_json` as-is. `meta` must not nest `code`, `data`, `data_json`, or `init_script`.
-- Envelope: `{code, mode, timeout_sec, session_id, init_script, wire: "json_forward", data_json: <bytes>}`. Pickle copies the byte buffer; it does not walk the JSON tree.
+- Multipart (preferred): `parse_multipart_execute` boundary-scans the body and `json.loads` only the small `meta` part (`id`, `mode`, `timeout_ms`; 64 KiB cap). `code` and `init_script` are raw UTF-8 parts. Peel passes those fields as strings. Both are character-capped with `max_code_chars` (not byte length) and both use the same mode check. `data` is `data_json` as-is. `meta` must not nest `code`, `data`, `data_json`, or `init_script`.
+- Envelope: `{code, mode, timeout_sec, session_id, init_script, wire: "json_forward", data_json: <bytes>}`. That is the only payload. `wire` other than `json_forward` is rejected. Pickle copies the byte buffer; it does not walk the JSON tree and there is no `split_grid` field on this pipe.
 - Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`.
 - HTTP: `_start_raw_json` writes `result_json` as the response body.
 

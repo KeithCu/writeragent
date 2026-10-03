@@ -16,7 +16,6 @@ from compute_service.config import ComputeSettings
 from compute_service.formula_pool import FormulaProcessPool, shutdown_formula_pool
 from compute_service.json_forward import (
     WIRE_JSON_FORWARD,
-    WIRE_PICKLE,
     ExecuteRequestError,
     decode_worker_result,
     dumps_response,
@@ -28,7 +27,6 @@ from compute_service.json_forward import (
     peel_execute_request,
 )
 from compute_service.server import create_wsgi_app
-from plugin.scripting.payload_codec import host_pack_data
 
 
 @pytest.fixture(autouse=True)
@@ -643,22 +641,21 @@ class TestFormulaPoolWire:
         finally:
             pool.shutdown()
 
-    def test_pickle_wire_still_host_packs_large_grid(self) -> None:
+    def test_pickle_wire_is_rejected_not_rewritten(self) -> None:
+        """``wire=pickle`` used to host_pack the grid and run the cell.
+
+        Rewriting it to json_forward, or packing ``data`` as a second payload,
+        accepts a request the JSON wire does not.
+        """
         grid = [[float(r * 30 + c) for c in range(30)] for r in range(40)]
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
-        try:
-            with patch("plugin.scripting.payload_codec.host_pack_data", wraps=host_pack_data) as mock_pack:
-                res = pool.execute(
-                    code="result = len(data.values)",
+        with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack:
+            with pytest.raises(ExecuteRequestError, match="wire"):
+                FormulaProcessPool._build_execute_payload(
+                    code="result = len(data)",
                     data=grid,
-                    req_id="pk-1",
-                    wire=WIRE_PICKLE,
+                    wire="pickle",
                 )
-            assert mock_pack.call_count == 1
-            assert res.get("status") == "ok", res
-            assert res.get("result") == 40
-        finally:
-            pool.shutdown()
+        assert mock_pack.call_count == 0
 
     def test_data_json_bytes_reach_worker_unchanged(self) -> None:
         blob = b'[[1, 2], [3, "caf\xc3\xa9"]]'
@@ -726,6 +723,91 @@ class TestFormulaPoolWire:
             assert parsed["result"][-1][-1] == rows * cols - 1
         finally:
             pool.shutdown()
+
+
+class TestPeelAndMultipartAgree:
+    """One logical execute must not be accepted on one ingress and rejected or rewritten on the other."""
+
+    def _run(self, body: bytes, content_type: str | None, *, limit: int) -> tuple[str, dict, bytes]:
+        seen: dict = {}
+
+        def execute_fn(**kwargs):
+            seen.update(kwargs)
+            return {"status": "ok", "result_json": dumps_response({"status": "ok", "result": 1, "stdout": ""})}
+
+        app = create_wsgi_app(ComputeSettings(max_code_chars=limit), execute_fn=execute_fn)
+        status, out = _wsgi_post(app, body, content_type=content_type)
+        return status, seen, out
+
+    def test_multibyte_source_at_cap_matches(self) -> None:
+        # 64 code points, 128 UTF-8 bytes. Counting bytes against max_code_chars
+        # accepts the peel string and rejects the multipart part.
+        limit = 64
+        code = "α" * limit
+        init = "β" * limit
+        data = b"[[1,2],[3,4]]"
+        peel = b'{"id":"agree","code":' + json.dumps(code).encode() + b',"init_script":' + json.dumps(init).encode() + b',"mode":"isolated","data":' + data + b"}"
+        content_type, multipart = encode_multipart_execute({"id": "agree", "mode": "isolated"}, data, code=code, init_script=init)
+        status_p, seen_p, _out_p = self._run(peel, "application/json", limit=limit)
+        status_m, seen_m, _out_m = self._run(multipart, content_type, limit=limit)
+        assert status_p.startswith("200"), _out_p
+        assert status_m.startswith("200"), _out_m
+        for key in ("code", "init_script", "mode", "data_json", "wire", "session_id"):
+            assert seen_p[key] == seen_m[key]
+        assert seen_p["code"] == code
+        assert seen_p["init_script"] == init
+        assert seen_p["data_json"] == data
+        assert seen_p["wire"] == WIRE_JSON_FORWARD
+        assert seen_p["mode"] == "isolated"
+
+    def test_over_cap_and_bad_mode_rejected_on_both(self) -> None:
+        limit = 64
+        code = "α" * (limit + 1)
+
+        def _assert_rejected(body: bytes, content_type: str | None) -> None:
+            status, seen, out = self._run(body, content_type, limit=limit)
+            assert status.startswith("400"), out
+            assert seen == {}
+            payload = json.loads(out)
+            assert payload.get("code") == "CODE_TOO_LARGE"
+
+        peel = json.dumps({"id": "big", "code": code}).encode()
+        content_type, multipart = encode_multipart_execute({"id": "big"}, code=code)
+        _assert_rejected(peel, "application/json")
+        _assert_rejected(multipart, content_type)
+
+        for mode in (False, 0, "Shared"):
+            peel_mode = json.dumps({"id": "mode", "code": "result = 1", "mode": mode}).encode()
+            mp_type, mp_body = encode_multipart_execute({"id": "mode", "mode": mode}, code="result = 1")
+            for body, ctype in ((peel_mode, "application/json"), (mp_body, mp_type)):
+                status, seen, out = self._run(body, ctype, limit=64)
+                assert status.startswith("400"), (mode, ctype, out)
+                assert seen == {}
+                assert "mode" in json.loads(out).get("error", "")
+
+    def test_empty_init_script_is_absent_on_both(self) -> None:
+        peel = json.dumps({"id": "e", "code": "result = 1", "init_script": ""}).encode()
+        content_type, multipart = encode_multipart_execute({"id": "e"}, code="result = 1", init_script="")
+        status_p, seen_p, out_p = self._run(peel, "application/json", limit=64)
+        status_m, seen_m, out_m = self._run(multipart, content_type, limit=64)
+        assert status_p.startswith("200"), out_p
+        assert status_m.startswith("200"), out_m
+        assert seen_p["init_script"] is None
+        assert seen_m["init_script"] is None
+
+    def test_non_text_init_script_is_not_dropped(self) -> None:
+        """A peel number used to be ignored and the cell ran with no init script."""
+
+        def execute_fn(**_kwargs):
+            raise AssertionError("non-text init_script must not run")
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        body = json.dumps({"id": "n", "code": "result = 1", "init_script": 123}).encode()
+        status, out = _wsgi_post(app, body, content_type="application/json")
+        assert status.startswith("400")
+        payload = json.loads(out)
+        assert payload["id"] == "n"
+        assert "init_script" in payload["error"]
 
 
 class TestHttpLargeRoundTrip:

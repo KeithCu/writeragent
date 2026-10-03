@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -47,20 +48,16 @@ def _as_path_tuple(value: Any) -> tuple[str, ...]:
     raise ConfigError(f"ocr_allow_paths must be a list or {os.pathsep}-separated string")
 
 
-def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[str]) -> bool:
-    """True if *file_path* resolves to a file under one allowlisted prefix.
+def _allow_prefixes(allow_prefixes: tuple[str, ...] | list[str]) -> list[str]:
+    return [str(p).strip() for p in allow_prefixes if str(p).strip()]
 
-    Empty *allow_prefixes* denies every path (callers should use image_b64).
+
+def _resolved_under_prefixes(resolved: str, prefixes: list[str]) -> bool:
+    """True when *resolved* is *prefixes* or a file underneath one of them.
+
+    HTTP path checks and the opened-fd check both use this so a prefix rule
+    cannot accept a path on one of them and reject it on the other.
     """
-    prefixes = [str(p).strip() for p in allow_prefixes if str(p).strip()]
-    if not prefixes:
-        return False
-    try:
-        resolved = os.path.realpath(os.path.expanduser(file_path.strip()))
-    except (OSError, ValueError, TypeError):
-        return False
-    # Allowlist check still applies for missing files so we do not leak existence
-    # via a different error before prefix match. Prefix-only:
     for raw in prefixes:
         try:
             base = os.path.realpath(os.path.expanduser(raw))
@@ -71,6 +68,78 @@ def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[s
         if resolved == base or resolved.startswith(prefix):
             return True
     return False
+
+
+def ocr_path_is_allowed(file_path: str, allow_prefixes: tuple[str, ...] | list[str]) -> bool:
+    """True if *file_path* resolves to a file under one allowlisted prefix.
+
+    Empty *allow_prefixes* denies every path (callers should use image_b64).
+    This looks at the path string only. ``read_allowlisted_file`` is what
+    opens, and it checks the file descriptor again: a symlink can be
+    retargeted after this returns.
+    """
+    prefixes = _allow_prefixes(allow_prefixes)
+    if not prefixes:
+        return False
+    try:
+        resolved = os.path.realpath(os.path.expanduser(file_path.strip()))
+    except (OSError, ValueError, TypeError):
+        return False
+    # Allowlist check still applies for missing files so we do not leak existence
+    # via a different error before prefix match. Prefix-only:
+    return _resolved_under_prefixes(resolved, prefixes)
+
+
+def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list[str], *, max_bytes: int) -> tuple[bytes | None, dict[str, Any] | None]:
+    """Return ``(bytes, None)`` or ``(None, error)`` for one allowlisted file.
+
+    The path check and ``open`` are not the same moment. A name inside an
+    allowed directory can be replaced with a symlink to somewhere else after
+    ``ocr_path_is_allowed`` returns and before ``open`` of that string. Opening
+    the saved realpath has the same hole. The bytes come from the file
+    descriptor, and the allowlist is applied to ``/proc/self/fd`` for that
+    descriptor, which is the inode already open.
+    """
+    if not isinstance(file_path, str) or not file_path.strip():
+        return None, {"status": "error", "code": "INVALID_FILE_PATH", "error": "file_path must be a non-empty string path"}
+    prefixes = _allow_prefixes(allow_prefixes)
+    if not ocr_path_is_allowed(file_path, prefixes):
+        return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(os.path.expanduser(file_path.strip()), flags)
+    except FileNotFoundError:
+        return None, {"status": "error", "code": "FILE_NOT_FOUND", "error": f"Image file not found: {file_path}"}
+    except OSError as exc:
+        return None, {"status": "error", "code": "FILE_READ_ERROR", "error": f"Failed to read image file {file_path}: {exc}"}
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            return None, {"status": "error", "code": "NOT_A_FILE", "error": f"Path is not a regular file: {file_path}"}
+        try:
+            opened = os.path.realpath(f"/proc/self/fd/{fd}")
+        except (OSError, ValueError):
+            return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
+        if not _resolved_under_prefixes(opened, prefixes):
+            # The name was allowlisted, then replaced with a symlink that
+            # leaves the prefix. The earlier check cannot see this inode.
+            return None, {"status": "error", "code": "FILE_PATH_DENIED", "error": "file_path is not under ocr.allow_paths (default deny)."}
+        chunks: list[bytes] = []
+        remaining = max_bytes + 1
+        while remaining > 0:
+            blob = os.read(fd, min(remaining, 1024 * 1024))
+            if not blob:
+                break
+            chunks.append(blob)
+            remaining -= len(blob)
+        data = b"".join(chunks)
+    except OSError as exc:
+        return None, {"status": "error", "code": "FILE_READ_ERROR", "error": f"Failed to read image file {file_path}: {exc}"}
+    finally:
+        os.close(fd)
+    if len(data) > max_bytes:
+        return None, {"status": "error", "code": "FILE_TOO_LARGE", "error": f"Image file exceeds {max_bytes} bytes: {file_path}"}
+    return data, None
 
 
 @dataclass(frozen=True)
@@ -104,12 +173,10 @@ class ComputeSettings:
         if self.ocr_workers is None:
             object.__setattr__(self, "ocr_workers", 0)
         # One listener thread per subprocess that can run a job.
-        # GET /health shares this pool with /v1/execute. An execute holds its
-        # thread for the whole lease and eval (up to max_timeout_sec), and
-        # further executes blocked on a lease fill any spare threads, so a
-        # liveness probe can sit in the queue under normal =PY() load. Adding
-        # one thread does not fix that: health needs a path execute cannot
-        # occupy. Left unchanged on purpose.
+        # A cell holds that thread for the whole lease, and further cells
+        # waiting on a lease fill whatever is left. GET /health does not use
+        # one of these threads; the accept loop answers it. Adding a thread
+        # here would not give liveness its own path.
         object.__setattr__(self, "threads", self.workers + self.ocr_workers)
         object.__setattr__(self, "ocr_allow_paths", _as_path_tuple(self.ocr_allow_paths))
         object.__setattr__(self, "shared_kernel_ttl_sec", float(self.shared_kernel_ttl_sec))

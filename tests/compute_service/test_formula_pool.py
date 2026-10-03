@@ -834,6 +834,25 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_worker_rejects_pickle_payload_and_false_mode(self) -> None:
+        """Stdio must not run a payload or a mode the HTTP edge rejects.
+
+        ``data`` was the pickle/split_grid field. ``mode: false`` was rewritten
+        to isolated on the HTTP path and rejected here.
+        """
+        from compute_service.formula_worker import _handle_request
+
+        pickled = _handle_request({"id": "pk", "code": "result = data", "wire": "pickle", "data": [1, 2, 3]})
+        assert pickled.get("code") == "INVALID_REQUEST"
+        assert pickled.get("result") != [1, 2, 3]
+
+        plain = _handle_request({"id": "data-field", "code": "result = data", "data": [1, 2, 3]})
+        assert plain.get("result") != [1, 2, 3]
+
+        bad_mode = _handle_request({"id": "m", "code": "result = 1", "mode": False})
+        assert bad_mode.get("code") == "INVALID_REQUEST"
+        assert bad_mode.get("result") != 1
+
     def test_worker_error_omits_traceback(self) -> None:
         from compute_service.formula_worker import _handle_request
 

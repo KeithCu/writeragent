@@ -24,7 +24,7 @@ import time
 from typing import Any
 
 from compute_service.config import ComputeSettings
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, decode_worker_result, require_execute_mode, require_execute_wire
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, decode_worker_result, require_execute_wire
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, remaining_sec, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
@@ -293,11 +293,11 @@ class FormulaProcessPool(BaseProcessPool):
     ) -> dict[str, Any]:
         """Execute formula code on an appropriate worker subprocess.
 
-        Default *wire* is JSON-forward (compute HTTP): raw ``data_json`` bytes
-        go to the worker; the worker dumps the result once. Pass
-        ``wire="pickle"`` for the LibrePy-style ``host_pack_data`` /
-        ``split_grid`` path. The HTTP server sets ``decode_result=False`` so
-        it can forward ``result_json`` without a second dumps.
+        The one payload is raw ``data_json`` bytes. The worker dumps the
+        result once. The HTTP server sets ``decode_result=False`` so it can
+        forward ``result_json`` without a second dumps. A ``data`` object is
+        only a convenience for in-process callers: it is JSON-encoded into
+        ``data_json`` here, not packed as a second wire.
         """
         if self._is_shutdown or not self.workers:
             return {"id": req_id, "status": "error", "code": "SERVICE_SHUTDOWN", "error": "Formula compute pool is shutting down."}
@@ -305,7 +305,7 @@ class FormulaProcessPool(BaseProcessPool):
         # One schema. A mode or wire the HTTP layer missed must not be
         # rewritten and run: that returned 200 for a kernel that kept no state.
         try:
-            mode = require_execute_mode(mode)
+            mode = canonical_execute_mode(mode)
             wire = require_execute_wire(wire)
         except ExecuteRequestError as exc:
             return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
@@ -394,28 +394,17 @@ class FormulaProcessPool(BaseProcessPool):
     @staticmethod
     def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, mode: str = "isolated", timeout_sec: int = 30, init_script: str | None = None, req_id: str | None = None, wire: str = WIRE_JSON_FORWARD) -> dict[str, Any]:
         # Unknown wire used to be rewritten to json_forward and the cell ran.
+        # ``pickle`` was a second payload (host_pack_data / split_grid) on the
+        # same stdio envelope. It is rejected, not packed and not rewritten.
         eff_wire = require_execute_wire(wire)
         payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "timeout_sec": timeout_sec, "init_script": init_script, "wire": eff_wire}
-        if payload["wire"] == WIRE_JSON_FORWARD:
-            blob = data_json
-            if blob is None and data is not None:
-                # Convenience for pool tests / in-process callers. The HTTP
-                # path always supplies data_json so the host never dumps the grid.
-                blob = json.dumps(data, allow_nan=False).encode("utf-8")
-            if blob is not None:
-                payload["data_json"] = bytes(blob)
-            return payload
-
-        # LibrePy-style fallback: host Cython/stdlib flatten → split_grid in pickle.
-        wire_data = data
-        if isinstance(data, list) and data:
-            from plugin.scripting.payload_codec import host_pack_data
-
-            try:
-                wire_data = host_pack_data(data, min_cells=1000)
-            except Exception:
-                wire_data = data
-        payload["data"] = wire_data
+        blob = data_json
+        if blob is None and data is not None:
+            # Convenience for pool tests / in-process callers. The HTTP
+            # path always supplies data_json so the host never dumps the grid.
+            blob = json.dumps(data, allow_nan=False).encode("utf-8")
+        if blob is not None:
+            payload["data_json"] = bytes(blob)
         return payload
 
 
