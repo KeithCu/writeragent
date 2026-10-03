@@ -483,11 +483,18 @@ def test_focus_switch_without_kwargs_does_not_keep_other_init() -> None:
             "calc:file:///b.ods", {"init_script": "B = 2"}
         )
         session_manager.record_active_calc_session("calc:file:///a.ods")
+        # Two recorded workbooks: off-main =PY() must not see either init.
+        assert session_manager.get_cached_calc_init_kwargs() == {}
+        session_manager.clear_active_calc_session("calc:file:///b.ods")
         assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
+        session_manager.record_active_calc_session(
+            "calc:file:///b.ods", {"init_script": "B = 2"}
+        )
         # B becomes last-active the way workbook focus does: no kwargs.
+        session_manager.record_active_calc_session("calc:file:///a.ods")
         session_manager.record_active_calc_session("calc:file:///b.ods")
         assert session_manager.get_cached_calc_session_id() == "calc:file:///b.ods"
-        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "B = 2"
+        assert session_manager.get_cached_calc_init_kwargs() == {}
         session_manager.clear_active_calc_session("calc:file:///a.ods")
         assert session_manager.recorded_calc_session_count() == 1
         assert session_manager.off_main_calc_session_is_unambiguous()
@@ -511,6 +518,10 @@ def test_cleared_init_is_not_restored_on_focus_return() -> None:
         session_manager.record_active_calc_session("calc:file:///b.ods")
         session_manager.record_active_calc_session("calc:file:///a.ods")
         assert session_manager.get_cached_calc_init_kwargs() == {}
+        session_manager.clear_active_calc_session("calc:file:///b.ods")
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.get_cached_calc_session_id() == "calc:file:///a.ods"
+        assert session_manager.get_cached_calc_init_kwargs() == {}
     finally:
         session_manager.clear_active_calc_session()
 
@@ -528,6 +539,247 @@ def test_closing_other_workbook_drops_its_init_when_it_still_owns_the_cache() ->
         assert session_manager.get_cached_calc_init_kwargs() == {}
     finally:
         session_manager.clear_active_calc_session()
+
+
+def test_off_main_session_and_init_use_one_lock() -> None:
+    """len==1 and the cached value are read under a single acquisition."""
+    import threading
+    from unittest.mock import MagicMock, patch
+
+    class _CountingLock:
+        def __init__(self) -> None:
+            self._inner = threading.Lock()
+            self.enters = 0
+
+        def __enter__(self) -> bool:
+            self.enters += 1
+            return self._inner.__enter__()
+
+        def __exit__(self, exc_type, exc, tb) -> bool | None:
+            return self._inner.__exit__(exc_type, exc, tb)
+
+    counting = _CountingLock()
+    session_manager.clear_active_calc_session()
+    session_manager.record_active_calc_session(
+        "calc:file:///only.ods", {"init_script": "A = 1"}
+    )
+    previous = session_manager._ACTIVE_CALC_SESSION_LOCK
+    session_manager._ACTIVE_CALC_SESSION_LOCK = counting
+    try:
+        with (
+            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        ):
+            assert session_manager.workbook_session_id(MagicMock(), doc=None) == "calc:file:///only.ods"
+        assert counting.enters == 1
+        counting.enters = 0
+        assert session_manager.get_cached_calc_init_kwargs().get("init_script") == "A = 1"
+        assert counting.enters == 1
+        session_manager._ACTIVE_CALC_SESSION_LOCK = previous
+        session_manager.record_active_calc_session("calc:file:///other.ods", {"init_script": "B = 2"})
+        session_manager._ACTIVE_CALC_SESSION_LOCK = counting
+        counting.enters = 0
+        with (
+            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        ):
+            assert session_manager.workbook_session_id(MagicMock(), doc=None) is None
+        assert counting.enters == 1
+        counting.enters = 0
+        assert session_manager.get_cached_calc_init_kwargs() == {}
+        assert counting.enters == 1
+    finally:
+        session_manager._ACTIVE_CALC_SESSION_LOCK = previous
+        session_manager.clear_active_calc_session()
+
+
+def test_opencl_probe_does_not_replace_cached_document() -> None:
+    """Probe id is discarded; its model must not become the spill target."""
+    from plugin.tests.testing_utils import CalcDocStub
+
+    session_manager.clear_active_calc_session()
+    real = CalcDocStub(url="file:///real.ods")
+    probe = CalcDocStub(url="file:///usr/lib/libreoffice/program/opencl/cl-test.ods")
+    probe_sid = "calc:file:///usr/lib/libreoffice/program/opencl/cl-test.ods"
+    try:
+        session_manager.record_active_calc_session(probe_sid, doc=probe)
+        assert session_manager.get_cached_calc_document() is None
+        session_manager.record_active_calc_session("calc:file:///real.ods", doc=real)
+        session_manager.record_active_calc_session(probe_sid, doc=probe)
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.get_cached_calc_document() is real
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_scoped_dir_stat_runs_outside_the_session_lock(tmp_path: Path) -> None:
+    first_dir = tmp_path / "one"
+    second_dir = tmp_path / "two"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    first = first_dir / "demo.ods"
+    second = second_dir / "other.ods"
+    first.write_bytes(b"PK")
+    second.write_bytes(b"PK")
+    held: list[bool] = []
+    real = session_manager.scoped_dir_from_calc_session_id
+
+    def _wrapped(session_id: str | None) -> str | None:
+        held.append(session_manager._ACTIVE_CALC_SESSION_LOCK.locked())
+        return real(session_id)
+
+    session_manager.clear_active_calc_session()
+    try:
+        session_manager.scoped_dir_from_calc_session_id = _wrapped
+        session_manager.record_active_calc_session(f"calc:{first.as_uri()}")
+        session_manager.record_active_calc_session(f"calc:{second.as_uri()}")
+        session_manager.clear_active_calc_session(f"calc:{second.as_uri()}")
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.get_cached_calc_scoped_dir() == str(first_dir)
+        assert held
+        assert held == [False] * len(held)
+    finally:
+        session_manager.scoped_dir_from_calc_session_id = real
+        session_manager.clear_active_calc_session()
+
+
+def test_workbook_session_key_unsaved_when_property_does_not_stick() -> None:
+    """A silent no-op write must not return a minted id that the next read misses."""
+    from unittest.mock import MagicMock, patch
+
+    mock_doc = MagicMock()
+    mock_doc.getURL.return_value = ""
+    with (
+        patch("plugin.scripting.session_manager.get_document_property", return_value=""),
+        patch("plugin.scripting.session_manager.set_document_property", return_value=None),
+    ):
+        key = session_manager._workbook_session_key(mock_doc)
+    assert key.startswith("unsaved:")
+
+
+def test_workbook_session_key_returns_id_when_property_sticks() -> None:
+    from unittest.mock import MagicMock, patch
+    import uuid as uuid_mod
+
+    mock_doc = MagicMock()
+    mock_doc.getURL.return_value = ""
+    stored: dict[str, str] = {}
+
+    def _get(_doc, name, default=None):
+        return stored.get(name, default)
+
+    def _set(_doc, name, value):
+        stored[name] = str(value)
+
+    with (
+        patch("plugin.scripting.session_manager.get_document_property", side_effect=_get),
+        patch("plugin.scripting.session_manager.set_document_property", side_effect=_set),
+    ):
+        key = session_manager._workbook_session_key(mock_doc)
+    uuid_mod.UUID(key)
+    assert stored[session_manager.PYTHON_WORKBOOK_SESSION_PROP] == key
+
+
+def test_find_document_headless_controller_none_still_matches() -> None:
+    """Headless getCurrentController() is None; that must not hide the model."""
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getCurrentController.return_value = None
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = doc
+    session_manager.clear_active_calc_session()
+    try:
+        with (
+            patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+            patch("plugin.scripting.session_manager.is_calc", return_value=True),
+        ):
+            found = session_manager._calc_document(ctx)
+        from plugin.framework.thread_guard import _unwrap_uno
+
+        assert _unwrap_uno(found) is doc
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_find_document_skips_controller_without_frame() -> None:
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    ctrl = MagicMock()
+    ctrl.getFrame.return_value = None
+    doc.getCurrentController.return_value = ctrl
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = doc
+    desktop.getComponents.return_value = None
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_calc", return_value=True),
+    ):
+        assert session_manager._calc_document(ctx) is None
+
+
+def test_find_document_enumeration_accepts_headless_controller_none() -> None:
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    elem = MagicMock()
+    elem.getCurrentController.return_value = None
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = elem
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop.getComponents.return_value = comps
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_calc", return_value=True),
+    ):
+        from plugin.framework.thread_guard import _unwrap_uno
+
+        assert _unwrap_uno(session_manager._calc_document(ctx)) is elem
+
+
+def test_document_for_script_session_stops_on_magicmock_enum() -> None:
+    from unittest.mock import MagicMock, patch
+
+    enum = MagicMock()
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
+    with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
+        found = session_manager.document_for_script_session(MagicMock(), "calc:file:///never.ods")
+    assert found is None
+    enum.nextElement.assert_not_called()
+
+
+def test_document_for_script_session_stops_at_enum_cap(caplog) -> None:
+    import logging
+    from unittest.mock import MagicMock, patch
+
+    enum = MagicMock()
+    enum.hasMoreElements.return_value = True
+    missed = MagicMock()
+    missed.getURL.return_value = "file:///other.ods"
+    enum.nextElement.return_value = missed
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager._ENUM_CAP", 2),
+        caplog.at_level(logging.ERROR, logger="plugin.scripting.session_manager"),
+    ):
+        found = session_manager.document_for_script_session(MagicMock(), "calc:file:///wanted.ods")
+    assert found is None
+    assert enum.nextElement.call_count == 2
+    assert "hit cap=2" in caplog.text
 
 
 

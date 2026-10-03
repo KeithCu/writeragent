@@ -200,9 +200,17 @@ def set_calc_init_script(doc: Any, code: str) -> str | None:
         scripts.pop("Init", None)
     res = set_document_scripts(doc, scripts)
     try:
-        from plugin.scripting.session_manager import record_active_calc_session
+        from plugin.scripting.session_manager import calc_workbook_base_session_id, record_active_calc_session
 
-        record_active_calc_session(None, build_python_eval_init_kwargs(doc))
+        # Bugfix: record_active_calc_session(None, kwargs) stored the snapshot
+        # on _LAST_ACTIVE_CALC_SESSION_ID. Clearing INIT on workbook A while B
+        # was focused wiped B (build_python_eval_init_kwargs returns {} before
+        # it records A's id). Pass A's shared-kernel session explicitly.
+        record_active_calc_session(
+            calc_workbook_base_session_id(doc),
+            build_python_eval_init_kwargs(doc),
+            doc=doc,
+        )
     except Exception:
         # What was wrong: this returned None after the cache refresh raised, so
         # the editor treated the save as success while off-main =PY() kept the
