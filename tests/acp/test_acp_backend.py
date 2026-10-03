@@ -250,6 +250,8 @@ class TestPromptResultContentBlocks:
         backend = ACPBackend.__new__(ACPBackend)
         backend._stop_requested = False
         backend._prompt_done = __import__("threading").Event()
+        backend._permission_lock = threading.Lock()
+        backend._pending_permissions = {}
         backend._session_id = "sess-1"
         backend._ensure_connection = MagicMock()
         backend._ensure_session = MagicMock()
@@ -542,5 +544,28 @@ class TestStopAndShutdown:
         conn.stop.assert_called()
         assert ((StreamQueueKind.STOPPED, None)) in (_drain(q))
         assert (backend._conn) is None
+
+    def test_stop_before_send_does_not_start_cli(self):
+        backend = _bare_backend()
+        backend.stop()
+        backend._ensure_connection = MagicMock(side_effect=AssertionError("cli started"))
+        backend._ensure_session = MagicMock(side_effect=AssertionError("session started"))
+        q = queue.Queue()
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        assert (_drain(q)) == ([(StreamQueueKind.STOPPED, None)])
+        backend._ensure_connection.assert_not_called()
+        backend._ensure_session.assert_not_called()
+        assert (backend._stop_requested) is True
+
+    def test_stop_checker_true_at_send_entry_does_not_start_cli(self):
+        backend = _bare_backend()
+        backend._ensure_connection = MagicMock(side_effect=AssertionError("cli started"))
+        backend._ensure_session = MagicMock(side_effect=AssertionError("session started"))
+        q = queue.Queue()
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None, stop_checker=lambda: True)
+        assert (_drain(q)) == ([(StreamQueueKind.STOPPED, None)])
+        backend._ensure_connection.assert_not_called()
+        backend._ensure_session.assert_not_called()
+        assert (backend._stop_requested) is True
 
 
