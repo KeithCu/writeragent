@@ -16,7 +16,15 @@ from typing import Any, Callable, cast
 
 import numpy as np
 
-from .calc_functions_util import _collect_a_values, _extract_numeric_array, _npf_result, match_criteria
+from .calc_functions_util import (
+    _build_holiday_set,
+    _collect_a_values,
+    _extract_numeric_array,
+    _npf_result,
+    _parse_weekend,
+    _serial_to_date,
+    match_criteria,
+)
 
 
 
@@ -92,24 +100,16 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
 
 
 def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> float:
-    try:
-        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
-        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
-    except Exception:
+    sd = _serial_to_date(start_date)
+    ed = _serial_to_date(end_date)
+    if sd is None or ed is None:
         return float("nan")
     if sd > ed:
         sign = -1
         sd, ed = ed, sd
     else:
         sign = 1
-    h_dates: set[dt.date] = set()
-    if holidays is not None:
-        for h in np.asarray(holidays).ravel():
-            if h is not None and h != "":
-                try:
-                    h_dates.add(dt.date.fromordinal(int(float(h)) + 693594))
-                except Exception:
-                    pass
+    h_dates = _build_holiday_set(holidays)
     curr = sd
     days = 0
     while curr <= ed:
@@ -120,10 +120,9 @@ def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> 
 
 
 def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
-    try:
-        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
-        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
-    except Exception:
+    sd = _serial_to_date(start_date)
+    ed = _serial_to_date(end_date)
+    if sd is None or ed is None:
         return float("nan")
 
     if sd > ed:
@@ -132,32 +131,11 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
     else:
         sign = 1
 
-    wk_days = set()
-    if isinstance(weekend, str):
-        for i, char in enumerate(weekend[:7]):
-            if char == "1":
-                wk_days.add(i)
-    else:
-        try:
-            w_idx = int(float(weekend))
-        except (ValueError, TypeError, OverflowError):
-            return float("nan")
-        # Excel weekend codes. An unknown code used to fall back to Sat/Sun
-        # (mapping.get default), so NETWORKDAYS.INTL(…, 8) looked like weekend 1.
-        # Excel returns #NUM!; this module uses NaN.
-        mapping = {1: (5, 6), 2: (6, 0), 3: (0, 1), 4: (1, 2), 5: (2, 3), 6: (3, 4), 7: (4, 5), 11: (6,), 12: (0,), 13: (1,), 14: (2,), 15: (3,), 16: (4,), 17: (5,)}
-        if w_idx not in mapping:
-            return float("nan")
-        wk_days.update(mapping[w_idx])
+    wk_days = _parse_weekend(weekend)
+    if not isinstance(wk_days, set):
+        return float("nan")
 
-    h_dates: set[dt.date] = set()
-    if holidays is not None:
-        for h in np.asarray(holidays).ravel():
-            if h is not None and h != "":
-                try:
-                    h_dates.add(dt.date.fromordinal(int(float(h)) + 693594))
-                except Exception:
-                    pass
+    h_dates = _build_holiday_set(holidays)
     curr = sd
     days = 0
     while curr <= ed:
