@@ -19,12 +19,16 @@ Stdlib PNG decode (not Pillow): the extension runs in LibreOffice's Python,
 which typically has no PIL. A thumbnail whose width×height exceeds the pixel
 cap is rejected before one RGB tuple is allocated per pixel (a few-KB
 4096×4096 1-bit PNG is under the raw-byte cap but tens of millions of
-tuples). We never load master pages or open the document via Desktop.
+tuples). ZIP members are streamed under a hard decompressed-byte cap; the
+central-directory ``file_size`` is not that budget. Grayscale samples below
+8 bits are scaled to 0–255. We never load master pages or open the document
+via Desktop.
 """
 
 from __future__ import annotations
 
 import colorsys
+import copy
 import logging
 import re
 import struct
@@ -36,6 +40,9 @@ log = logging.getLogger("writeragent.draw.design_look")
 
 # Caps so a hostile/corrupt user ``.otp`` cannot inflate listing.
 _MAX_MEMBER_BYTES = 2 * 1024 * 1024
+# ZipExtFile.read(n) forwards n to zlib as max_length (floor 4KiB).
+# ZipFile.read() passes ~2GiB, which is the bomb.
+_ZIP_READ_CHUNK = 64 * 1024
 _MAX_RAW_PNG = 4 * 1024 * 1024
 _MAX_SAMPLED_PIXELS = 1024
 # One tuple per pixel, not scanline bytes. 4096×4096 1-bit stays under
@@ -115,12 +122,35 @@ def _read_member(zf: zipfile.ZipFile, name: str, limit: int = _MAX_MEMBER_BYTES)
         info = zf.getinfo(name)
     except KeyError:
         return None
+    # Honest directory entry: skip the payload entirely.
     if info.file_size > limit:
         return None
-    data = zf.read(name)
-    if len(data) > limit:
+    # What was wrong: ``ZipFile.read`` inflates with a ~2GiB zlib max_length,
+    # then slices to ``ZipInfo.file_size``. A crafted central directory can
+    # claim a few dozen uncompressed bytes (and a CRC of that prefix) while
+    # the deflate stream expands to hundreds of MB before the slice, so the
+    # ``len(data)`` check never sees the bomb. ``list_designs`` calls this on
+    # the main thread for thumbnail.png, styles.xml, and Pictures/*.svg.
+    # ZipExtFile also *stops* at ``file_size``, which would hide the rest and
+    # return the prefix.
+    # Why this fixes it: copy the entry, raise the stop to ``limit + 1``, and
+    # stream in small chunks so each zlib call is bounded. Output past the
+    # cap — or a CRC that only matches the forged prefix — returns None.
+    shadow = copy.copy(info)
+    shadow.file_size = limit + 1
+    try:
+        with zf.open(shadow, "r") as src:
+            out = bytearray()
+            while True:
+                chunk = src.read(_ZIP_READ_CHUNK)
+                if not chunk:
+                    break
+                out.extend(chunk)
+                if len(out) > limit:
+                    return None
+    except (zipfile.BadZipFile, zlib.error, EOFError):
         return None
-    return data
+    return bytes(out)
 
 
 def _thumbnail_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
@@ -210,7 +240,7 @@ def _accent_hue_name(r: int, g: int, b: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Minimal PNG decoder (8-bit RGB/RGBA/gray + 1/2/4/8-bit palette, no Adam7)
+# Minimal PNG decoder (8-bit RGB/RGBA/gray+alpha, 1/2/4/8-bit gray and palette, no Adam7)
 # ---------------------------------------------------------------------------
 
 
@@ -384,8 +414,13 @@ def _unpack_row(row: bytes | bytearray, width: int, bit_depth: int, color_type: 
         return None
     out: list[tuple[int, int, int]] = []
     if color_type == 0:
+        # What was wrong: 1/2/4-bit gray was kept as 0..(2**bit_depth-1).
+        # An all-white 1-bit thumbnail became (1, 1, 1), luminance ~1, so
+        # mood detection reported "dark background". PNG scales those
+        # samples to 8-bit (sample * 255 // max). 8-bit is unchanged.
+        maxv = (1 << bit_depth) - 1
         for i in range(width):
-            g = samples[i]
+            g = samples[i] * 255 // maxv
             out.append((g, g, g))
         return out
     if color_type == 4:
