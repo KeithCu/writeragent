@@ -7,6 +7,49 @@ import pytest
 from plugin.calc.analyzer import get_calc_context_for_chat, get_full_calc_text
 
 
+def test_get_sheet_summary_used_range_letters():
+    from plugin.calc.analyzer import SheetAnalyzer
+
+    bridge = MagicMock()
+    sheet = bridge.get_active_sheet.return_value
+    sheet.getName.return_value = "Sheet1"
+    addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=2)
+    sheet.createCursor.return_value.getRangeAddress.return_value = addr
+    sheet.getCellRangeByPosition.return_value.getDataArray.return_value = (("Name", "Amt"),)
+    sheet.getCharts.return_value.getCount.return_value = 0
+    sheet.getCharts.return_value.getElementNames.return_value = ()
+    sheet.getAnnotations.return_value.getCount.return_value = 0
+    sheet.getPropertyValue.return_value = False
+    sheet.DrawPage.getCount.return_value = 0
+
+    summary = SheetAnalyzer(bridge).get_sheet_summary()
+
+    assert summary["used_range"] == "A1:B3"
+    bridge._index_to_column.assert_not_called()
+
+
+def test_get_sheet_summary_reraises_disposed():
+    from plugin.calc.analyzer import SheetAnalyzer
+
+    class DisposedException(Exception):
+        pass
+
+    bridge = MagicMock()
+    bridge.get_active_sheet.side_effect = DisposedException("Binary URP bridge disposed during call")
+    with pytest.raises(DisposedException, match="URP"):
+        SheetAnalyzer(bridge).get_sheet_summary()
+
+
+def test_get_sheet_summary_wraps_other_errors():
+    from plugin.calc.analyzer import SheetAnalyzer
+    from plugin.framework.errors import ToolExecutionError
+
+    bridge = MagicMock()
+    bridge.get_active_sheet.side_effect = ValueError("bad sheet")
+    with pytest.raises(ToolExecutionError, match="bad sheet"):
+        SheetAnalyzer(bridge).get_sheet_summary()
+
+
 def test_get_calc_context_for_chat_requires_ctx():
     with pytest.raises(ValueError, match="ctx is required"):
         get_calc_context_for_chat(object())
