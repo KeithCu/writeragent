@@ -258,6 +258,20 @@ class ACPConnection:
                     if msg is None:
                         log.debug(f"Non-JSON output: {line[:200]}")
                         continue
+                    # What was wrong: only None was skipped. A stdout line that
+                    # is valid JSON but not an object (bare number, true/false,
+                    # quoted string, or a JSON array) reached `"id" in msg` or
+                    # msg.get and raised TypeError or AttributeError. The inner
+                    # except broke the reader, and the finally sweep failed the
+                    # in-flight session/prompt with "ACP process terminated"
+                    # while the child was still alive, discarding any later
+                    # answer still on the pipe. Why: JSON-RPC messages are
+                    # objects. Anything else is stray stdout; log it and keep
+                    # reading. Do not gate this loop on Popen.poll() — that
+                    # drops a response already buffered when the child exits.
+                    if not isinstance(msg, dict):
+                        log.debug(f"Non-object JSON output: {line[:200]}")
+                        continue
 
                     if "id" in msg and msg["id"] is not None and "method" not in msg:
                         # Response to our request
@@ -286,11 +300,12 @@ class ACPConnection:
                     break
         finally:
             # What was wrong: this sweep lived only in stop(). A child exit,
-            # stdout EOF, or an exception here (malformed non-object JSON)
-            # ended the loop and left in-flight Events unset, so
-            # session/prompt sat on event.wait(600) and the sidebar stayed
-            # on Sending. Why: every reader exit wakes waiters the same way
-            # stop() does. A response stop() already stored is not replaced.
+            # stdout EOF, or an unexpected exception here ended the loop and
+            # left in-flight Events unset, so session/prompt sat on
+            # event.wait(600) and the sidebar stayed on Sending. Why: every
+            # reader exit wakes waiters the same way stop() does. A response
+            # stop() already stored is not replaced. Non-object JSON is
+            # skipped above and does not take this path.
             self._wake_pending("ACP process terminated")
             # Live drain already collected stderr; log a bounded tail for debugging.
             drain = self._stderr_drain
