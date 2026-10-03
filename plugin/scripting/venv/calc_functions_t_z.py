@@ -548,45 +548,101 @@ def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
         return float("nan")
 
 
-def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
+def _advance_workdays(
+    start: dt.date,
+    remaining: int,
+    weekend_days: set[int],
+    holidays: set[dt.date],
+) -> dt.date | None:
+    """Move ``remaining`` working days from ``start`` (start itself is not counted).
+
+    The previous loop added one calendar day per iteration, so the work was
+    proportional to ``|days|`` and a large count froze the UI thread. Any 7
+    consecutive days contain each weekday once, so whole weeks can be jumped.
+    A holiday on a working day inside the span does not count; each one adds
+    another working-day step, and that pass is bounded by the holiday set.
+    A week with no working day cannot advance (Excel ``#NUM!``). A result
+    outside the datetime range is the same ``#NUM!``.
+    """
+    if remaining == 0:
+        return start
+    step = 1 if remaining > 0 else -1
+    work_per_week = 7 - len(weekend_days)
+    if work_per_week <= 0:
+        return None
+    n_left = abs(remaining)
+
+    def advance_ignoring_holidays(origin: dt.date, n_work: int) -> dt.date:
+        full_weeks, rem = divmod(n_work, work_per_week)
+        cursor = origin + dt.timedelta(days=step * full_weeks * 7)
+        if rem == 0:
+            # Landing on the same weekday overshoots when that weekday is not
+            # a workday. The n-th workday is the last workday at or before
+            # the landing date in the direction of travel.
+            while cursor.weekday() in weekend_days:
+                cursor -= dt.timedelta(days=step)
+            return cursor
+        left = rem
+        while left:
+            cursor += dt.timedelta(days=step)
+            if cursor.weekday() not in weekend_days:
+                left -= 1
+        return cursor
+
+    try:
+        end = advance_ignoring_holidays(start, n_left)
+        counted: set[dt.date] = set()
+        while True:
+            if step > 0:
+                lo = start + dt.timedelta(days=1)
+                hi = end
+            else:
+                lo = end
+                hi = start - dt.timedelta(days=1)
+            extra = 0
+            for holiday in holidays:
+                if holiday in counted:
+                    continue
+                if lo <= holiday <= hi and holiday.weekday() not in weekend_days:
+                    counted.add(holiday)
+                    extra += 1
+            if extra == 0:
+                return end
+            end = advance_ignoring_holidays(end, extra)
+    except (OverflowError, ValueError, OSError):
+        return None
+
+
+def _workday_serial(
+    start_date: Any,
+    days: Any,
+    weekend_days: set[int],
+    holidays: Any | None,
+) -> float:
     curr = _serial_to_date(start_date)
     if curr is None:
         return float("nan")
-    h_dates = _build_holiday_set(holidays)
     # days sat outside the start-date try, so a text days cell raised.
     try:
         remaining = int(float(days))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    step = 1 if remaining >= 0 else -1
-    while remaining != 0:
-        curr += dt.timedelta(days=step)
-        if curr.weekday() < 5 and curr not in h_dates:
-            remaining -= step
-    return float(curr.toordinal() - 693594)
+    end = _advance_workdays(curr, remaining, weekend_days, _build_holiday_set(holidays))
+    if end is None:
+        return float("nan")
+    return float(end.toordinal() - 693594)
+
+
+def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
+    # Excel WORKDAY weekend is Saturday and Sunday (weekday() 5 and 6).
+    return _workday_serial(start_date, days, {5, 6}, holidays)
 
 
 def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
-    curr = _serial_to_date(start_date)
-    if curr is None:
-        return float("nan")
-
     wk_days = _parse_weekend(weekend)
     if not isinstance(wk_days, set):
         return float("nan")
-
-    h_dates = _build_holiday_set(holidays)
-
-    try:
-        remaining = int(float(days))
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
-    step = 1 if remaining >= 0 else -1
-    while remaining != 0:
-        curr += dt.timedelta(days=step)
-        if curr.weekday() not in wk_days and curr not in h_dates:
-            remaining -= step
-    return float(curr.toordinal() - 693594)
+    return _workday_serial(start_date, days, wk_days, holidays)
 
 
 def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
