@@ -235,6 +235,62 @@ def test_start_native_script_run_reports_venv_failure():
     assert "venv down" in seen[0]["message"]
 
 
+def test_report_run_outcome_shows_stdout_alongside_result():
+    """A returned value is inserted; printed text still belongs in the Output box."""
+    ctx = MagicMock()
+    lbl = MagicMock()
+    outcome = {
+        "ok": True,
+        "status_ok_text": "Script executed successfully.",
+        "result": 1,
+        "stdout": "printed line",
+    }
+
+    with (
+        patch.object(ui, "msgbox") as mock_msgbox,
+        patch.object(ui, "set_control_text") as mock_set_text,
+    ):
+        ui._report_run_outcome(ctx, lbl, outcome)
+
+    mock_msgbox.assert_called_once()
+    assert mock_msgbox.call_args.args[0] is ctx
+    assert mock_msgbox.call_args.args[2] == "printed line"
+    mock_set_text.assert_called_once_with(lbl, "Script executed successfully.")
+
+
+def test_native_dialog_open_warms_venv_on_shared_pool():
+    """Warmup is finite. It must not take a dedicated thread."""
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._ctx = MagicMock()
+    inst._doc = MagicMock()
+    inst._modeless = False
+    inst._closed = False
+    inst._dlg = None
+    dlg = MagicMock()
+    calls: dict = {}
+
+    def _capture(func, *args, **kwargs):
+        calls["func"] = func
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return MagicMock()
+
+    with (
+        patch.object(ui, "load_writeragent_dialog_detail", return_value=(dlg, None)),
+        patch.object(ui, "run_in_background", side_effect=_capture),
+        patch.object(ui, "build_xdl_script_picker_state", return_value=([], {}, {})),
+        patch.object(ui, "get_user_scripts", return_value={}),
+        patch.object(inst, "_refresh_script_dropdown"),
+        patch.object(inst, "_wire_listeners"),
+    ):
+        assert inst._open() is True
+
+    assert calls["func"] is ui.warm_venv_worker
+    assert calls["args"] == (inst._ctx,)
+    assert calls["kwargs"].get("name") == "warm-venv-worker"
+    assert calls["kwargs"].get("dedicated") is False
+
+
 def test_report_run_outcome_error_skips_status_label():
     ctx = MagicMock()
     lbl = MagicMock()

@@ -304,8 +304,9 @@ class NativePythonScriptDialog:
                 return False
             self._dlg = dlg
 
-            # Trigger background pre-warming of the venv subprocess for the native fallback case as well
-            run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=True)
+            # Finite pre-warm. The shared daemon pool is for this. dedicated=True
+            # is for servers, pipe drains, and jobs another thread joins.
+            run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
 
             select_ctrl = dlg.getControl("ScriptSelect")
             self._select_ctrl = select_ctrl
@@ -682,7 +683,11 @@ def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> N
         "Script executed successfully, but returned no result and produced no output."
     )):
         msgbox(ctx, _("Success"), status_text)
-    elif outcome.get("stdout") and outcome.get("result") is None:
+    elif outcome.get("stdout"):
+        # What was wrong: stdout was shown only when result is None, so a
+        # script that returned a value and also printed never opened Output.
+        # How: the condition required result is None. The result is inserted
+        # into the document; printed text still belongs in this box.
         msgbox(ctx, _("Output"), outcome.get("stdout"))
     if lbl is not None:
         set_control_text(lbl, status_text)
