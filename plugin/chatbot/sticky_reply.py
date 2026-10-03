@@ -61,10 +61,12 @@ BRAINSTORMING_REPLY_SPEC = StickyReplySpec(
 WRITING_PLAN_REPLY_SPEC = StickyReplySpec(
     leave_flag="writing_plan_finished",
     leave_status="finished",
-    extra_bools=("plan_completed",),
+    # plan_completed was copied onto the leave payload and never read.
+    # on_writing_plan_session_finished takes no extra flag; do not re-add
+    # the bool unless that callback grows a consumer (spec_saved is the pattern).
     description=(
         "Reply to the user in the sidebar (HTML). Set writing_plan_finished true "
-        "when the writing plan is done. plan_completed true if all sections were written."
+        "when the writing plan is done."
     ),
 )
 

@@ -180,13 +180,13 @@ These remove a second copy of a fact. None of them need a new file.
 
 ### Slash popup (flag is off)
 
-`ENABLE_SLASH` is false, and `QueryKeyListener` does not call `handle_key` while it is false. Ask Enter still sends. Fix this set before turning the flag on:
+`ENABLE_SLASH` is false, and `QueryKeyListener` does not call `handle_key` while it is false. Ask Enter still sends. These contracts are in the code so turning the flag on does not revive the headed bugs:
 
-- The frame and toolkit `XKeyHandler`s call `handle_key(..., from_overlay=True)` (`plugin/chatbot/slash_popup.py`). That path appends every printable character to Ask and returns true, so those handlers steal document keys. They should use `from_overlay=False` (nav keys only). The listbox listener is the one that should pass `from_overlay=True`.
-- `accept_selected` → `run_slash_command` → `hide()` disposes the list from inside the key or mouse callback. Dispose on a posted main-thread turn.
-- `_show_matches` calls `reposition()` after `setVisible(True)`. `reposition` `getPosSize`s Ask. `QueryTextListener` says not to `getPosSize` Ask once the TOP overlay exists, because that deadlocks VCL (`plugin/chatbot/panel.py`). Delete the unused `_screen_bounds_above_ready` call.
-- `/stop` is not the Stop button. `run_slash_command` always clears Ask, then only dispatches `STOP_CLICKED` (`plugin/chatbot/slash_commands.py`). The Stop button also stops TTS and answers the inline approval dialog, and it does not clear the draft. Clear Ask for help, clear, and mocks only. Run the same stop listener the button uses.
-- `QueryTextListener` returns before `TEXT_UPDATED` for any slash draft (`plugin/chatbot/panel.py`). `hide()` / Esc does not dispatch `has_text`. After Esc, Send stays disabled until the text changes to something that is not a slash prefix.
+- Frame and toolkit `XKeyHandler`s call `_on_document_key` → `handle_key(..., from_overlay=False)` (nav only). The listbox listener calls `_on_list_key` → `from_overlay=True`. `from_overlay=True` appends printable characters to Ask and returns true, so it must not be used on handlers that also see document keys.
+- Accept and Esc post `run_slash_command` / `hide` with `post_to_main_thread` (`_defer_to_next_turn`). The key or mouse callback returns before `hide()` disposes the toolkit window. There is no inline fallback: that would dispose on the listener stack.
+- `_show_matches` calls `reposition()` once, before `setVisible`. It does not reposition after the TOP overlay is mapped. `reposition` does not call `_screen_bounds_above_ready` (that probe's result was discarded, and `getPosSize` on Ask after the overlay exists deadlocks VCL — `plugin/chatbot/panel.py`). Create still uses `_screen_bounds_above_ready` for the initial TOP bounds.
+- `/stop` runs `StopButtonListener` (speech, inline web approval, hands-free, `STOP_CLICKED`) and does not clear Ask. `/help`, `/clear`, and mocks clear Ask.
+- `QueryTextListener` still returns before `TEXT_UPDATED` for a slash draft. `hide()` dispatches `TEXT_UPDATED` from the live Ask text after the popup is closed, so Esc on a draft such as `/he` re-enables Send. Recreate passes `restore_send=False` so that dispatch does not run while the next overlay is about to map.
 
 ## Leave alone
 

@@ -39,6 +39,8 @@ def _run_trusted_action(
     *,
     allow_heartbeat: bool = False,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
+    headers: bool | None = None,
+    header_row: int | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action packet in the user venv worker.
 
@@ -58,6 +60,8 @@ def _run_trusted_action(
         error_label=error_label,
         allow_heartbeat=allow_heartbeat,
         heartbeat_fn=heartbeat_fn,
+        headers=headers,
+        header_row=header_row,
     )
 
 
@@ -75,6 +79,23 @@ def _resolve_trusted_timeout(ctx: Any, session_prefix: str) -> int:
     if session_prefix in _LONG_TRUSTED_PREFIXES:
         return long_trusted_worker_timeout_sec(ctx)
     return configured_python_exec_timeout(ctx)
+
+
+def _spec_sheet_layout(spec: dict[str, Any]) -> dict[str, Any]:
+    """Copy ``headers`` / ``header_row`` off a spec for the worker packet.
+
+    Those keys sit beside ``helper`` and ``params``. Keeping only helper and
+    params dropped them: the worker rebuilt the spec without ``headers``, and
+    ``parse_trusted_spec`` defaulted it to true. ``forecast_data`` /
+    ``optimize_data`` ``headers=false`` then consumed the first data row as
+    column names.
+    """
+    layout: dict[str, Any] = {}
+    if "headers" in spec:
+        layout["headers"] = bool(spec["headers"])
+    if "header_row" in spec:
+        layout["header_row"] = int(spec["header_row"])
+    return layout
 
 
 def _make_spec_runner(
@@ -102,9 +123,11 @@ def _make_spec_runner(
         if isinstance(spec, str):
             helper = spec
             params: dict[str, Any] = {}
+            layout: dict[str, Any] = {}
         else:
             helper = spec.get("helper", "")
             params = spec.get("params") or {}
+            layout = _spec_sheet_layout(spec)
 
         return _run_trusted_action(
             ctx,
@@ -116,6 +139,8 @@ def _make_spec_runner(
             timeout_sec=timeout_sec,
             error_code=error_code,
             error_label=error_label,
+            headers=layout["headers"] if "headers" in layout else None,
+            header_row=layout["header_row"] if "header_row" in layout else None,
         )
 
     _runner.__name__ = f"run_{error_label.lower().replace(' ', '_')}"

@@ -27,7 +27,7 @@ import re
 from typing import Any, cast
 
 from plugin.framework.appearance import get_theme_colors
-from plugin.framework.html_stripper import strip_html_tags
+from plugin.framework.html_stripper import strip_html_tags, text_has_real_html_tag
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -53,8 +53,6 @@ _HTML_TAG_RE = re.compile(
 # Legacy plain-sidebar prefix; append_rich_text adds "Assistant:" instead.
 _LEGACY_AI_LABEL_RE = re.compile(r"^\s*AI:\s*", re.IGNORECASE)
 
-# A tag the HTML filter left as characters. "a < b" does not match.
-_HTML_TAG_LEFTOVER_RE = re.compile(r"</?[A-Za-z][^>]*>")
 
 # Tight list margins for the narrow sidebar transcript (injected via shared HTML import).
 _SIDEBAR_LIST_CSS = "ul, ol { margin-left: 0.2cm; padding-left: 0.3cm; }"
@@ -250,8 +248,12 @@ def _insert_html_at_cursor(doc: Any, cursor: Any, html_fragment: str) -> None:
 
 
 def contains_html_tag(text: str) -> bool:
-    """True when *text* still contains an HTML tag, not a bare ``<`` comparison."""
-    return bool(_HTML_TAG_LEFTOVER_RE.search(text or ""))
+    """True when *text* contains a real HTML tag, not a bare ``<`` comparison.
+
+    ``<String>``, ``<https://example.com>``, and ``<user@example.com>`` are
+    not tags. ``<b>``, ``<i>``, and ``<script>`` are.
+    """
+    return text_has_real_html_tag(text or "")
 
 
 def restore_writer_text(text_obj: Any, previous: str) -> None:

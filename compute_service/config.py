@@ -248,14 +248,21 @@ DEFAULT_SETTINGS = ComputeSettings()
 def _as_int(value: Any, *, field: str) -> int:
     try:
         return int(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
+        # json.loads accepts Infinity and 1e9999 (they become inf). int(inf)
+        # and int() of an out-of-range float raise OverflowError, which is
+        # not a ValueError. main() only catches ConfigError, so the traceback
+        # killed the process instead of a configuration error and exit 2.
         raise ConfigError(f"Invalid integer for {field}: {value!r}") from exc
 
 
 def _as_float(value: Any, *, field: str) -> float:
     try:
         return float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
+        # A JSON number with no decimal point arrives as a Python int.
+        # float() of an int bigger than the float range raises OverflowError,
+        # not ValueError, and used to escape the same way as _as_int.
         raise ConfigError(f"{field} must be a number: {value!r}") from exc
 
 
@@ -263,7 +270,9 @@ def _read_key_file(path: str | Path) -> str:
     key_path = Path(path).expanduser()
     try:
         text = key_path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError subclasses ValueError, not OSError. A binary
+        # or non-UTF-8 --api-key-file used to crash startup with a traceback.
         raise ConfigError(f"Cannot read api_key_file {key_path}: {exc}") from exc
     # Strip one trailing newline only if present; keep interior whitespace.
     if text.endswith("\r\n"):
@@ -280,7 +289,9 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
     cfg_path = Path(path).expanduser()
     try:
         raw = json.loads(cfg_path.read_text(encoding="utf-8"))
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError subclasses ValueError, not OSError. A binary
+        # or non-UTF-8 --config used to crash startup with a traceback.
         raise ConfigError(f"Cannot read config file {cfg_path}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ConfigError(f"Invalid JSON in config file {cfg_path}: {exc}") from exc

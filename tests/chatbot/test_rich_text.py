@@ -592,6 +592,60 @@ class TestHtmlDetectionRegex:
         assert (self._matches("x" * 1_000_000 + "<p>"))
 
 
+class TestContainsHtmlTag:
+    """Real tags, not every ``<Letter…>`` token."""
+
+    def test_generic_url_and_email_are_not_tags(self):
+        from plugin.chatbot.rich_text import contains_html_tag
+
+        assert contains_html_tag("Use List<String> here") is False
+        assert contains_html_tag("Write <user@example.com> today") is False
+        assert contains_html_tag("See <https://example.com/a>") is False
+        assert contains_html_tag("3 < 5") is False
+        assert contains_html_tag("<prevent>") is False
+
+    def test_formatting_script_and_declarations_are_tags(self):
+        from plugin.chatbot.rich_text import contains_html_tag
+
+        assert contains_html_tag("<b>bold</b>") is True
+        assert contains_html_tag("<i>italic</i>") is True
+        assert contains_html_tag("<script>alert(1)</script>") is True
+        assert contains_html_tag("<p>Hi</p>") is True
+        assert contains_html_tag("<!-- note -->") is True
+        assert contains_html_tag("<br/>") is True
+        assert contains_html_tag("<widget/>") is True
+
+
+class TestGenericTokensStayInTheTranscript:
+    def test_append_and_render_keep_tokens_and_still_import_formatting(self):
+        from plugin.chatbot.rich_text import append_rich_text, render_messages_to_hidden_doc
+
+        text = "Use List<String>, write <user@example.com>, see <https://example.com/a>."
+        doc = MockDoc()
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor") as mock_insert:
+            ok = append_rich_text(doc, text, role="assistant")
+        assert ok is True
+        mock_insert.assert_not_called()
+        content = doc.getText().getString()
+        assert "List<String>" in content
+        assert "<user@example.com>" in content
+        assert "<https://example.com/a>" in content
+
+        doc = MockDoc()
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor") as mock_insert:
+            render_messages_to_hidden_doc(doc, [("assistant", text)])
+        mock_insert.assert_not_called()
+        rendered = doc.getText().getString()
+        assert "List<String>" in rendered
+        assert "<user@example.com>" in rendered
+        assert "<https://example.com/a>" in rendered
+
+        doc = MockDoc()
+        with patch("plugin.chatbot.rich_text._insert_html_at_cursor") as mock_insert:
+            append_rich_text(doc, "<b>bold</b> and <i>italic</i> <script>x</script>", role="assistant")
+        mock_insert.assert_called_once()
+
+
 class TestChatTypography:
     """Tests for shared sidebar chat typography helpers."""
 
