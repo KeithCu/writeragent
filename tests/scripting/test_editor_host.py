@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import threading
 from unittest.mock import MagicMock, patch
 
@@ -51,6 +52,47 @@ def test_editor_script_picker_uses_marshal_timeout():
         pe._dispatch_incoming({"type": "request_scripts"})
     assert pe.executor.execute.call_args.kwargs["timeout"] == 35.0
     assert sent and "timed out" in sent[0]["message"]
+
+
+def test_editor_script_picker_exception_sends_error_frame():
+    """A picker failure must be an error frame, not a dead reader."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    sent: list[dict] = []
+
+    def _send(message, *, session=None):
+        sent.append(dict(message))
+
+    pe.send = _send  # type: ignore[method-assign]
+    with patch(
+        "plugin.scripting.editor_host.handle_editor_script_message",
+        side_effect=ValueError("payload exceeds 16MB"),
+    ):
+        pe._dispatch_incoming({"type": "request_scripts"})
+    assert sent and sent[0]["type"] == "error"
+    assert "payload exceeds 16MB" in sent[0]["message"]
+    assert "ValueError" in sent[0]["traceback"]
+
+
+def test_editor_script_picker_error_send_failure_stays_in_dispatch():
+    """If the error frame itself cannot be sent, the reader must still survive."""
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+
+    def _send(message, *, session=None):
+        raise ValueError("payload exceeds 16MB")
+
+    pe.send = _send  # type: ignore[method-assign]
+    with patch(
+        "plugin.scripting.editor_host.handle_editor_script_message",
+        side_effect=RuntimeError("document disposed"),
+    ):
+        pe._dispatch_incoming({"type": "request_scripts"})
+    assert pe.executor.execute.called
 
 
 def test_launch_monaco_editor_reuses_running_process():
@@ -150,23 +192,81 @@ def test_probe_webview_import_timeout_returns_diagnostic():
     """A probe timeout must return the traceback Monaco shows, not raise under deal."""
     exe = "/tmp/writeragent-probe-timeout-python"
     launch_mod._PROBE_CACHE.pop(exe, None)
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
     timeout = subprocess.TimeoutExpired(cmd=[exe, "-c", "import webview"], timeout=30)
-    with patch("plugin.scripting.editor_host.subprocess.run", side_effect=timeout):
+    with patch("plugin.scripting.editor_host.subprocess.run", side_effect=timeout) as run:
         ok, detail = launch_mod.probe_webview_import(exe)
+        ok2, detail2 = launch_mod.probe_webview_import(exe)
     assert ok is False
+    assert ok2 is False
+    assert detail2 == detail
     assert "TimeoutExpired" in detail
     assert exe not in launch_mod._PROBE_CACHE
+    assert exe in launch_mod._PROBE_FAILURE_CACHE
+    assert run.call_count == 1
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
 
 
 def test_probe_webview_import_oserror_returns_diagnostic():
     exe = "/tmp/writeragent-probe-oserror-python"
     launch_mod._PROBE_CACHE.pop(exe, None)
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
     with patch("plugin.scripting.editor_host.subprocess.run", side_effect=OSError("boom")):
         ok, detail = launch_mod.probe_webview_import(exe)
     assert ok is False
     assert "OSError" in detail
     assert "boom" in detail
     assert exe not in launch_mod._PROBE_CACHE
+    assert exe in launch_mod._PROBE_FAILURE_CACHE
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+
+def test_probe_webview_import_failure_expires_after_ttl():
+    """A cached failure must be re-probed once the short TTL has passed."""
+    exe = "/tmp/writeragent-probe-ttl-python"
+    launch_mod._PROBE_CACHE.pop(exe, None)
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+    calls = {"n": 0}
+
+    def boom(*_args, **_kwargs):
+        calls["n"] += 1
+        raise OSError("boom")
+
+    try:
+        with patch("plugin.scripting.editor_host.subprocess.run", side_effect=boom):
+            with patch("plugin.scripting.editor_host.time.monotonic", return_value=1000.0):
+                first_ok, _first_detail = launch_mod.probe_webview_import(exe)
+                second_ok, _second_detail = launch_mod.probe_webview_import(exe)
+            assert first_ok is False
+            assert second_ok is False
+            assert calls["n"] == 1
+            with patch(
+                "plugin.scripting.editor_host.time.monotonic",
+                return_value=1000.0 + launch_mod._PROBE_FAILURE_TTL_SEC,
+            ):
+                launch_mod.probe_webview_import(exe)
+            assert calls["n"] == 2
+    finally:
+        launch_mod._PROBE_CACHE.pop(exe, None)
+        launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+
+
+def test_probe_webview_import_nonzero_exit_is_cached_failure():
+    exe = "/tmp/writeragent-probe-exit-python"
+    launch_mod._PROBE_CACHE.pop(exe, None)
+    launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+    completed = subprocess.CompletedProcess(args=[exe], returncode=1, stdout="", stderr="no webview")
+    try:
+        with patch("plugin.scripting.editor_host.subprocess.run", return_value=completed) as run:
+            ok, detail = launch_mod.probe_webview_import(exe)
+            ok2, _detail2 = launch_mod.probe_webview_import(exe)
+        assert ok is False
+        assert ok2 is False
+        assert "no webview" in detail
+        assert exe not in launch_mod._PROBE_CACHE
+        assert run.call_count == 1
+    finally:
+        launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
 
 
 def test_monaco_editor_available_false_when_webview_missing():
@@ -234,6 +334,28 @@ def test_append_stderr_line_ring_buffer():
     assert "aaaa" not in tail
     assert "bbbb" in tail
     assert "cccc" in tail
+    assert editor._stderr_tail_chars == sum(len(s) + 1 for s in editor._stderr_tail)
+
+
+def test_append_stderr_line_char_count_matches_budget():
+    editor = PersistentEditor()
+    editor._stderr_tail_max_chars = 50
+    for i in range(40):
+        editor._append_stderr_line(f"line-{i:02d}-xxxx")
+    assert editor._stderr_tail
+    assert editor._stderr_tail_chars == sum(len(s) + 1 for s in editor._stderr_tail)
+    assert editor._stderr_tail_chars <= editor._stderr_tail_max_chars
+
+
+def test_start_clears_stderr_char_count():
+    editor = PersistentEditor()
+    editor._append_stderr_line("hello")
+    assert editor._stderr_tail_chars == len("hello") + 1
+    proc = _FakeProc(stderr=None)
+    with patch("plugin.scripting.editor_host.run_in_background", return_value=MagicMock()):
+        editor.start(proc)  # type: ignore[arg-type]
+    assert editor._stderr_tail_chars == 0
+    assert editor.read_stderr_tail() == ""
 
 
 
@@ -306,6 +428,36 @@ def test_same_target_reuses_session_id():
     assert len(pe.sessions) == 1
     pe.sessions.clear()
     pe.focused_id = None
+
+
+def test_same_target_reuse_clears_pending_save_then_load():
+    pe = launch_mod._PERSISTENT_EDITOR
+    pe.sessions.clear()
+    pe.focused_id = None
+    on_save = MagicMock(return_value={"type": "saved", "ok": True})
+    try:
+        state, _stamped = launch_mod._register_load_session(
+            {"type": "load", "mode": "calc_cell", "cell_address": "A1", "code": "1"},
+            on_save,
+            lambda: None,
+        )
+        state.dirty = True
+        state.pending_load = {"type": "load", "code": "stale"}
+        state.pending_on_save = MagicMock()
+        state.pending_on_closed = MagicMock()
+        reused, _stamped_again = launch_mod._register_load_session(
+            {"type": "load", "mode": "calc_cell", "cell_address": "A1", "code": "2"},
+            on_save,
+            lambda: None,
+        )
+        assert reused is state
+        assert reused.dirty is False
+        assert reused.pending_load is None
+        assert reused.pending_on_save is None
+        assert reused.pending_on_closed is None
+    finally:
+        pe.sessions.clear()
+        pe.focused_id = None
 
 
 def test_different_target_replaces_focused_session():
@@ -413,4 +565,140 @@ def test_mode_switch_from_run_script_to_calc_cell_dispatches_save():
     assert len(sent) == 1
     assert sent[0][0]["type"] == "saved"
     assert sent[0][0]["status_ok_text"] == "Saved."
+
+
+def _reader_method_name() -> str:
+    return "_read_loop_blocking" if sys.platform == "win32" else "_read_loop_select"
+
+
+def test_reader_clean_eof_terminates_live_child():
+    """Stdout EOF with the child still alive must not leave a reader-less process."""
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdout = MagicMock()
+    editor._proc = proc
+    order: list[str] = []
+
+    def _disconnect() -> None:
+        order.append("disconnect")
+
+    def _terminate() -> None:
+        order.append("terminate")
+
+    with patch.object(editor, "_handle_disconnect", side_effect=_disconnect):
+        with patch.object(editor, "terminate", side_effect=_terminate):
+            with patch.object(editor, _reader_method_name(), return_value=None):
+                editor._read_loop()
+    assert order == ["disconnect", "terminate"]
+
+
+def test_reader_exception_terminates_live_child():
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdout = MagicMock()
+    editor._proc = proc
+    with patch.object(editor, "_handle_disconnect"):
+        with patch.object(editor, "terminate") as terminate:
+            with patch.object(editor, _reader_method_name(), side_effect=ValueError("bad frame")):
+                editor._read_loop()
+    terminate.assert_called_once()
+
+
+def test_reader_finished_leaves_exited_child():
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = 0
+    proc.stdout = MagicMock()
+    editor._proc = proc
+    with patch.object(editor, "_handle_disconnect") as disconnect:
+        with patch.object(editor, "terminate") as terminate:
+            with patch.object(editor, _reader_method_name(), return_value=None):
+                editor._read_loop()
+    disconnect.assert_called_once()
+    terminate.assert_not_called()
+
+
+def test_reader_finished_ignores_superseded_process():
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdout = MagicMock()
+    editor._proc = proc
+    replacement = MagicMock()
+
+    def _swap(_proc, _stdout) -> None:
+        editor._proc = replacement
+
+    with patch.object(editor, "_handle_disconnect") as disconnect:
+        with patch.object(editor, "terminate") as terminate:
+            with patch.object(editor, _reader_method_name(), side_effect=_swap):
+                editor._read_loop()
+    disconnect.assert_not_called()
+    terminate.assert_not_called()
+    assert editor._proc is replacement
+
+
+def test_spawn_editor_process_starts_new_session_without_preexec():
+    with patch("plugin.scripting.editor_host.subprocess.Popen", return_value=MagicMock()) as popen:
+        launch_mod.spawn_editor_process("/venv/bin/python")
+    kwargs = popen.call_args.kwargs
+    assert "preexec_fn" not in kwargs
+    if sys.platform == "win32":
+        assert kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
+    else:
+        assert kwargs.get("start_new_session") is True
+
+
+def test_terminate_persistent_editor_resets_run_script_doc_under_lock():
+    pe = launch_mod._PERSISTENT_EDITOR
+    pe.sessions.clear()
+    pe.focused_id = None
+    pe.run_script_doc = None
+    pe.run_script_doc_url = None
+    pe.sessions["sid"] = launch_mod.EditorSessionState("sid", "run_script", {"script_name": "demo"})
+    pe.focused_id = "sid"
+    pe.run_script_doc = object()
+    pe.run_script_doc_url = "file:///demo"
+    entered = {"n": 0}
+
+    class _LockProbe:
+        def __enter__(self) -> "_LockProbe":
+            entered["n"] += 1
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            return None
+
+    try:
+        with patch.object(pe, "terminate") as term:
+            with patch.object(launch_mod, "_SESSION_LOCK", _LockProbe()):
+                launch_mod.terminate_persistent_editor()
+        term.assert_called_once()
+        assert entered["n"] == 1
+        assert pe.sessions == {}
+        assert pe.focused_id is None
+        assert pe.run_script_doc is None
+        assert pe.run_script_doc_url is None
+    finally:
+        pe.sessions.clear()
+        pe.focused_id = None
+        pe.run_script_doc = None
+        pe.run_script_doc_url = None
+
+
+def test_venv_path_change_clears_webview_probe_failure_cache():
+    exe = "/tmp/writeragent-probe-config-python"
+    launch_mod._PROBE_CACHE[exe] = (True, "ok")
+    launch_mod._PROBE_FAILURE_CACHE[exe] = (10**12, (False, "no"))
+    try:
+        with patch.object(launch_mod, "terminate_persistent_editor"):
+            with patch("plugin.vision.vision_availability.invalidate_vision_availability_cache"):
+                launch_mod._on_config_changed(key="scripting.python_venv_path")
+        assert exe not in launch_mod._PROBE_CACHE
+        assert exe not in launch_mod._PROBE_FAILURE_CACHE
+    finally:
+        launch_mod._PROBE_CACHE.pop(exe, None)
+        launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
 
