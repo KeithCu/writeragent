@@ -137,13 +137,15 @@ flowchart TD
     sttStep --> sttCheck{STT model: chat + audio?}
     sttCheck -->|Yes e.g. Gemini as STT| chatTranscribe["POST /chat/completions: Transcribe exactly"]
     sttCheck -->|No e.g. Voxtral| sttPath["POST /audio/transcriptions"]
-    chatTranscribe -->|on failure| sttPath
+    chatTranscribe -->|network error| sttPath
     sttPath --> textChat[Send transcript as text to chat model]
     chatPath --> done[Assistant reply]
     textChat --> done
 ```
 
 Capability detection and the pre-send STT check live in [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py), [`llm_client.py`](../../plugin/framework/client/llm_client.py), and [`panel.py`](../../plugin/chatbot/panel.py). After a native-audio chat error, runtime recovery is [`audio_recorder_service.try_native_audio_stt_fallback`](../../plugin/scripting/audio_recorder_service.py), called from the tool-loop error handler. The WAV is attached with `append_wav_as_input_audio` in that same module. A transcript respawns the worker and the drain keeps going (`True`). Empty speech shows `[No speech detected.]` and returns `None`, which ends the drain. It does not leave the sidebar on Stop.
+
+`transcribe_audio` tries chat when `has_native_audio` is not `False`. A `NetworkError` that is not Stop falls through to `POST /audio/transcriptions`. `AuthError`, Stop, and any other exception (a parse error or a bug in that path) propagate. They are not posted to the transcription endpoint.
 
 **STT providers:** Settings → Speech `audio.stt_provider` chooses where the transcript comes from. The default `endpoint` is the path below. `local` (aliases `whisper` and `faster-whisper` in `writeragent.json`) transcribes in the Settings → Python venv and does not call `/audio/transcriptions`. A missing key stays `endpoint`.
 

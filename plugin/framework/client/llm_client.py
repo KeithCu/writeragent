@@ -735,18 +735,16 @@ class LlmClient:
             except NetworkError as e:
                 if self._stopped or getattr(e, "code", None) == "STOPPED":
                     raise
-                # Fall through to the transcription endpoint; keep the traceback.
-                log.exception("Multimodal transcription failed; falling back to stt endpoint")
-            except Exception as e:
-                # What was wrong: user Stop raised ToolExecutionError(USER_STOPPED)
-                # and the bare except fell through to POST .../audio/transcriptions.
-                # How: chat_completion_sync raises USER_STOPPED when stop_checker
-                # is set. Why: treat stop like Auth/Network STOPPED — do not retry
-                # the transcription endpoint after the user cancelled.
-                from plugin.framework.errors import ToolExecutionError
-
-                if self._stopped or (isinstance(e, ToolExecutionError) and getattr(e, "code", None) == "USER_STOPPED"):
-                    raise
+                # What was wrong: a bare ``except Exception`` under this handler
+                # treated a parse error or a bug in the native-audio path as
+                # "this model cannot take input_audio" and POSTed
+                # /audio/transcriptions. How: chat_completion_sync raises
+                # ValueError, JSONDecodeError, or any other non-network error
+                # before an HTTP failure, and that handler logged and fell
+                # through. Why: only a transport failure is a reason to try the
+                # transcription endpoint. AuthError is re-raised above. Stop and
+                # USER_STOPPED are not NetworkError, so they propagate instead of
+                # being posted again. Any other exception propagates too.
                 log.exception("Multimodal transcription failed; falling back to stt endpoint")
 
         endpoint = self._endpoint()
@@ -793,7 +791,7 @@ class LlmClient:
         method, path, body, headers = self.make_api_request(prompt, system_prompt, max_tokens)
         self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
 
-    def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, stop_checker: Any = None, _retry: bool = True, status_callback: Any = None) -> Any:
+    def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, stop_checker: Any = None, _retry: bool = True, status_callback: Any = None, reset_unemitted_attempt: Any = None) -> Any:
         """Common low-level streaming engine."""
         init_logging(self.ctx)
         log.info("=== Starting streaming loop (persistent) ===")
@@ -812,6 +810,18 @@ class LlmClient:
         wait_index = 0
         emitted_any = False
         while True:
+            # What was wrong: on_delta wrote role, usage, and a buffered
+            # "<think" prefix into the caller's snapshot before any callback
+            # ran. emitted_any stayed false, so an overload or connection
+            # retry called accumulate_delta again and added prompt_tokens /
+            # completion_tokens and concatenated that prefix. How: a usage-only
+            # chunk and a partial tag never call on_content. Why: drop only
+            # that attempt, and only while nothing has been shown. Once
+            # emitted_any is set this does not run, so shown text stays.
+            # The first call clears an empty snapshot; a later call drops the
+            # failed attempt before the next send.
+            if not emitted_any and reset_unemitted_attempt is not None:
+                reset_unemitted_attempt()
             last_finish_reason = None
 
             try:
@@ -1137,9 +1147,18 @@ class LlmClient:
                 if "model" in d and "model" not in message_snapshot:
                     message_snapshot["model"] = d["model"]
 
+            def _reset_unemitted_attempt() -> None:
+                # on_delta also fills thinking meta from a reasoning_details
+                # chunk that had no display text. That is the same unsent
+                # attempt. Do not call this after a token was shown.
+                message_snapshot.clear()
+                thinking_parts.clear()
+                thinking_meta.clear()
+                thinking_meta.update(new_streaming_thinking_meta())
+
             log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
-                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, stop_checker=stop_checker, status_callback=status_callback)
+                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, stop_checker=stop_checker, status_callback=status_callback, reset_unemitted_attempt=_reset_unemitted_attempt)
             except NetworkError:
                 raise
             except Exception as e:
