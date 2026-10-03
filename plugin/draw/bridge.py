@@ -873,8 +873,15 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
 
         ctx_str += "Active %s Index: %d\n" % ("Slide" if is_impress else "Page", active_page_idx)
 
-        # Summarize shapes on active page
-        if active_page:
+        # Summarize shapes on the active page.
+        # What was wrong: a blank slide omitted its speaker notes (and the
+        # shapes section) from chat context.
+        # How it happened: an empty XDrawPage is falsy when it has zero
+        # shapes, so `if active_page` skipped the whole block. Same trap as
+        # get_active_page_index, which already uses `is not None`.
+        # Why this fixes it: None means there is no page; a blank page is
+        # still a page, so notes on add_slide blank/none are included.
+        if active_page is not None:
             shapes = bridge.get_shapes(active_page)
             ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress else "Page", active_page_idx)
             for i, s in enumerate(shapes):
