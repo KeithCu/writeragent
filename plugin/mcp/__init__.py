@@ -141,8 +141,13 @@ class McpModule(ModuleBase):
         tunnel_provider_token_key = f"{prefix}tunnel_provider_token"
         cors_list_key = f"{prefix}cors_allowed_origins"
         cors_private_key = f"{prefix}cors_allow_private_origins"
-        # MCP lifecycle: toggle, tunnel, CORS policy keys, or bulk apply (Settings OK).
-        if key and key not in (toggle_key, tunnel_key, tunnel_provider_key, tunnel_provider_token_key, cors_list_key, cors_private_key, ""):
+        port_key = f"{prefix}mcp_port"
+        # MCP lifecycle: toggle, port, tunnel, CORS policy keys, or bulk apply (Settings OK).
+        # What was wrong: this allow-list omitted mcp.mcp_port. A port-only Settings
+        # save emits key="mcp.mcp_port" (ConfigStore uses "" only when more than one
+        # key changes), so the handler returned and left HttpServer on the old port.
+        # Why: treat the port as a lifecycle key and rebind when it differs.
+        if key and key not in (toggle_key, port_key, tunnel_key, tunnel_provider_key, tunnel_provider_token_key, cors_list_key, cors_private_key):
             return
 
         reload_cors_policy_from_config(self._services)
@@ -156,7 +161,23 @@ class McpModule(ModuleBase):
             self._unregister_mcp_routes(self._services)
 
         bound = self._bound_http_server()
-        if enabled and not (bound and bound.is_running()):
+        running = bool(bound and bound.is_running())
+        cfg_port = cfg.get("mcp_port")
+        running_port = getattr(bound, "port", None) if bound is not None else None
+        # Bulk saves (key="") already reach this handler, but a running listener
+        # used to be left in place. Rebind whenever the live port disagrees.
+        port_changed = running and isinstance(cfg_port, int) and not isinstance(cfg_port, bool) and running_port != cfg_port
+        if enabled and port_changed:
+            log.info("MCP port changed from %s to %s; rebinding HTTP server", running_port, cfg_port)
+            self._stop_server()
+            ok = self._start_server(self._services)
+            # Port-only saves are user-initiated (key is mcp.mcp_port, not "").
+            # Toggle uses mcp_enabled and shows its own dialog — skip that key.
+            if not ok and (not key or key == port_key):
+                self._show_start_failure_dialog(data.get("ctx"))
+            return
+
+        if enabled and not running:
             ok = self._start_server(self._services)
             # Settings OK emits bulk config:changed with an empty key. Show the failure there
             # (user-initiated). Toggle uses mcp_enabled key then shows its own dialog — skip
