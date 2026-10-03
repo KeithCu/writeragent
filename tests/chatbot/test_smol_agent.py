@@ -719,6 +719,30 @@ class TestLibrarianSmol:
             assert ("[USER PROFILE / MEMORY]") in (kwargs["instructions"])
             assert ('{"favorite_color": "blue", "name": "Alice"}') in (kwargs["instructions"])
 
+    def test_librarian_onboarding_caps_long_user_memory(self, mock_get_api, mock_get_int):
+        from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+        from plugin.framework.prompts import _INJECTED_BLOB_TRUNCATION_MARKER
+
+        ctx = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.stop_checker.return_value = False
+        long_mem = "U" * (CHAT_DOCUMENT_CONTEXT_MAX_CHARS + 500)
+        fa = FinalAnswerStep(output="Hello")
+
+        with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, patch(
+            "plugin.chatbot.smol_agent.ToolCallingAgent"
+        ) as mock_agent_class:
+            mock_store_class.return_value.read.return_value = long_mem
+            mock_agent_class.return_value.run.return_value = [fa]
+
+            LibrarianOnboardingTool().execute(ctx, query="hi")
+
+            instructions = mock_agent_class.call_args.kwargs["instructions"]
+            assert "[USER PROFILE / MEMORY]" in instructions
+            assert long_mem not in instructions
+            assert "U" * CHAT_DOCUMENT_CONTEXT_MAX_CHARS in instructions
+            assert _INJECTED_BLOB_TRUNCATION_MARKER in instructions
+
     def test_librarian_onboarding_includes_suggested_user_name_in_instructions(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
         ctx.ctx = MagicMock()
