@@ -762,15 +762,15 @@ def xmatch(lookup_val: Any, lookup_arr: Any, match_mode: int | float = 0, search
 def xnpv(rate: Any, values: Any, dates: Any) -> float:
     try:
         r = float(rate)
-        vals = np.asarray(values).ravel()
-        dts = np.asarray(dates).ravel()
+        vals = np.asarray(values, dtype=float).ravel()
+        dts = np.asarray(dates, dtype=float).ravel()
         if len(vals) != len(dts) or len(vals) == 0:
             return float("nan")
-        res = 0.0
         d0 = float(dts[0])
-        for v, d in zip(vals, dts):
-            res += float(v) / ((1.0 + r) ** ((float(d) - d0) / 365.0))
-        return res
+        durations = (dts - d0) / 365.0
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            res = float(np.sum(vals / ((1.0 + r) ** durations)))
+        return res if math.isfinite(res) else float("nan")
     except Exception:
         return float("nan")
 

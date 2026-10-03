@@ -38,7 +38,7 @@ def _npf_result(kind: str, *args: Any) -> float:
         # np.where in pmt/pv evaluates the zero-rate branch and warns on
         # divide-by-zero even when the other branch is the result.
         with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-            result = float(getattr(npf, kind)(*args))
+            result = float(np.sum(getattr(npf, kind)(*args)))
     except (AttributeError, OverflowError, ValueError, ZeroDivisionError, TypeError):
         return float("nan")
     if not math.isfinite(result):
