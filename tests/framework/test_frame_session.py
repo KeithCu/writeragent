@@ -231,6 +231,43 @@ def test_listener_disposing_does_not_remove_listener():
     query.removeFocusListener.assert_not_called()
 
 
+def test_stale_panel_dispose_does_not_release_the_bound_panels_listeners():
+    """A late dispose of the previous sidebar must not detach the rebound session.
+
+    What was wrong: release_panel kept self.panel when the argument was not
+    the bound panel, then still called release_listeners. How: the same frame
+    reuses the session and bind_panel points it at the new element; the old
+    element's dispose still runs. Why: listeners belong to the bound panel.
+    """
+    controller = _Controller()
+    session = open_frame_session(_frame(controller), "doc-a")
+    query_old = MagicMock(name="query-old")
+    query_new = MagicMock(name="query-new")
+    leave_new = MagicMock(name="leave-new")
+    panel_old = object()
+    panel_new = object()
+    session.bind_panel(panel_old)
+    session.set_focus_pin(query_old)
+    _install(session, query_old)
+    session.bind_panel(panel_new)
+    session.set_focus_pin(query_new)
+    _install(session, query_new, leave_new)
+    click = controller.added[-1]
+
+    session.release_panel(panel_old, query_old)
+
+    assert session.panel is panel_new
+    assert session.focus_pin is query_new
+    assert session._query_control is query_new
+    assert session._query_listener is not None
+    assert session._click_handler is click
+    assert session._leave
+    assert controller.removed == []
+    query_new.removeFocusListener.assert_not_called()
+    leave_new.removeMouseListener.assert_not_called()
+    leave_new.removeFocusListener.assert_not_called()
+
+
 def test_explicit_release_removes_only_that_sessions_listeners():
     controller = _Controller()
     session = open_frame_session(_frame(controller), "doc-a")
