@@ -388,20 +388,29 @@ class SettingsDialog:
             val = field["value"]
 
             if name == "text_model":
+                # What was wrong: this fill ran before execute() and called
+                # fetch_available_models on the UI thread. A dead Ollama, Groq,
+                # or custom URL froze LibreOffice for the fetch timeout.
+                # Why this change: LRU plus defaults only. _schedule_initial_models_fetch
+                # loads the catalog on the debounced worker.
                 populate_combobox_with_lru(
-                    self._ctx, ctrl, val, "model_lru", current_endpoint, api_key_override=api_key_val,
+                    self._ctx, ctrl, val, "model_lru", current_endpoint,
+                    api_key_override=api_key_val, skip_remote_fetch=True,
                 )
             elif name == "image_model":
                 populate_image_model_selector(
-                    self._ctx, ctrl, override_endpoint=current_endpoint, api_key_override=api_key_val,
+                    self._ctx, ctrl, override_endpoint=current_endpoint,
+                    api_key_override=api_key_val, skip_remote_fetch=True,
                 )
             elif name in ("audio__stt_model", "stt_model"):
                 populate_combobox_with_lru(
-                    self._ctx, ctrl, val, "audio_model_lru", current_endpoint, api_key_override=api_key_val,
+                    self._ctx, ctrl, val, "audio_model_lru", current_endpoint,
+                    api_key_override=api_key_val, skip_remote_fetch=True,
                 )
             elif name in ("audio__tts_model", "tts_model"):
                 populate_combobox_with_lru(
-                    self._ctx, ctrl, val, "tts_model_lru", current_endpoint, api_key_override=api_key_val,
+                    self._ctx, ctrl, val, "tts_model_lru", current_endpoint,
+                    api_key_override=api_key_val, skip_remote_fetch=True,
                 )
             elif name == "additional_instructions":
                 populate_combobox_with_lru(self._ctx, ctrl, val, "prompt_lru", "")
@@ -469,18 +478,25 @@ class SettingsDialog:
             listener.force_catalog_refresh()
 
     def _schedule_initial_models_fetch(self, endpoint: str) -> None:
-        """OpenRouter/Together: combos from the process cache, or one background fetch."""
+        """Every provider: combos are already LRU. Fetch the catalog off the UI thread.
+
+        What was wrong: this returned unless the provider was OpenRouter or
+        Together, so the open-time fill was the only catalog load for Ollama,
+        Groq, and custom URLs, and that load blocked execute().
+        """
         from plugin.framework.config import get_api_key_for_endpoint
+        from plugin.framework.client.auth import provider_requires_api_key
         from plugin.framework.client.provider_detection import get_provider_from_endpoint
 
         listener = self._endpoint_listener
         if not listener or not endpoint:
             return
         provider = get_provider_from_endpoint(endpoint)
-        if provider not in {"openrouter", "together"}:
-            return
-        if not str(get_api_key_for_endpoint(endpoint) or "").strip():
-            return
+        # A key-gated host with an empty key cannot list models. Local and
+        # custom endpoints do not use that gate.
+        if provider and provider_requires_api_key(provider):
+            if not str(get_api_key_for_endpoint(endpoint) or "").strip():
+                return
         listener._schedule_debounced_models_fetch()
 
     def _populate_generic_field(self, ctrl: Any, field: dict[str, Any]) -> None:
@@ -1305,6 +1321,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _debounce_gen: int
     _closed: bool
     _timer: threading.Timer | None
+    _synced_endpoint: str | None
     post_to_main_thread: Callable[..., Any]
     run_in_background: Callable[..., Any]
     get_api_key_for_endpoint: Callable[..., Any]
@@ -1372,6 +1389,13 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self.get_provider_from_endpoint = get_provider_from_endpoint
         self.get_image_model = get_image_model
         self.get_tts_model = get_tts_model
+        # URL whose saved key the field was last aligned to. Set from the
+        # combo at attach time so the first keystroke is a change, not a baseline.
+        try:
+            opened = str(combo_ctrl.getText() or "") if combo_ctrl is not None else ""
+        except Exception:
+            opened = ""
+        self._synced_endpoint = self.endpoint_from_selector_text(opened) or None
 
         self._update_key_link_state()
 
@@ -1553,13 +1577,36 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if self._timer:
             self._timer.cancel()
 
-    def _sync_api_key(self) -> None:
+    def _api_key_field_follows_saved(self, ak_ctrl: Any, previous: str | None) -> bool:
+        """True when the field is empty or still shows the saved key for *previous*."""
+        current = str(get_control_text(ak_ctrl) or "")
+        if not current.strip():
+            return True
+        if not previous:
+            return False
+        return current == str(self.get_api_key_for_endpoint(previous) or "")
+
+    def _sync_api_key(self, *, force: bool = False) -> None:
+        """Load the saved key when the resolved endpoint changes.
+
+        What was wrong: textChanged wrote get_api_key_for_endpoint on every
+        keystroke. A pasted key disappeared when one character of the URL
+        changed, and OK stored the restored value.
+        Why this change: rewrite only when the resolved URL changes, and only
+        if the field is empty or still holds the previous URL's saved key.
+        Preset clicks pass force=True and always load that preset's saved key.
+        """
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         self._update_key_link_state()
-        if not resolved: return
+        if not resolved:
+            return
+        previous = self._synced_endpoint
+        if not force and previous == resolved:
+            return
         ak_ctrl = get_optional(self._dlg, "api_key")
-        if ak_ctrl:
+        if ak_ctrl is not None and (force or self._api_key_field_follows_saved(ak_ctrl, previous)):
             set_control_text(ak_ctrl, self.get_api_key_for_endpoint(resolved))
+        self._synced_endpoint = resolved
 
     def _tts_model_id_for_voice_fetch(self) -> str:
         """Speech-model id captured on the UI thread for the voices GET.
@@ -1676,16 +1723,24 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         
         if self._timer: self._timer.cancel()
         self._debounce_gen += 1
+        # Snapshot on the UI thread. The worker used to read _debounce_gen
+        # when it started, so a newer click was invisible, and it omitted the
+        # Together TTS model id that force_catalog_refresh already captures.
+        gen = self._debounce_gen
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
-            self._sync_api_key()
+            self._sync_api_key(force=True)
             if self._catalog_is_warm(resolved):
                 self._apply_from_cache(resolved)
                 return
-            provider = self.get_provider_from_endpoint(resolved)
-            skip_sync_fetch = provider in {"openrouter", "together"}
-            self._apply_dropdowns(resolved, models=None, skip_fetch=skip_sync_fetch)
-            self.run_in_background(lambda: self._bg_fetch(self._debounce_gen, resolved), name="settings-select")
+            # LRU plus defaults now. The catalog GET is the worker below.
+            # Non-OpenRouter providers used to fetch inside _apply_dropdowns
+            # and froze the dialog on a dead host.
+            self._apply_dropdowns(resolved, models=None, skip_fetch=True)
+            tts_model_id = self._tts_model_id_for_voice_fetch()
+            self.run_in_background(
+                lambda: self._bg_fetch(gen, resolved, tts_model_id), name="settings-select",
+            )
 
 
 # ── Evaluation Dashboard ─────────────────────────────────────────────

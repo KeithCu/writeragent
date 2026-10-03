@@ -24,24 +24,30 @@ class EvalDashboard:
     """Evaluation dashboard dialog controller."""
 
     _ctx: Any
+    _closed: bool
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
         self._dlg: Any = None
+        self._closed = False
 
     def show(self) -> None:
         smgr = self._ctx.getServiceManager()
         base_url = get_extension_url()
         dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", self._ctx)
         self._dlg = dp.createDialog(base_url + "/Dialogs/EvalDialog.xdl")
+        self._closed = False
 
         try:
             self._populate()
             if self._dlg:
                 self._dlg.execute()
         finally:
+            # The catalog worker can still post after execute() returns.
+            self._closed = True
             if self._dlg:
                 self._dlg.dispose()
+                self._dlg = None
 
     def _populate(self) -> None:
         assert self._dlg is not None
@@ -51,10 +57,50 @@ class EvalDashboard:
         model_ctrl = self._dlg.getControl("models")
         current_model = str(get_text_model())
         current_endpoint = get_config_str("endpoint").strip()
-        populate_combobox_with_lru(self._ctx, model_ctrl, current_model, "model_lru", current_endpoint)
+        # Same freeze as Settings: fetch_available_models before execute()
+        # blocked the UI on a dead endpoint. LRU now; the worker fills the list.
+        populate_combobox_with_lru(
+            self._ctx, model_ctrl, current_model, "model_lru", current_endpoint,
+            skip_remote_fetch=True,
+        )
+        self._schedule_models_fetch(current_endpoint, current_model)
 
         self._dlg.getControl("btn_run").addActionListener(EvalRunListener(self._ctx, self._dlg))
         self._dlg.getControl("btn_close").addActionListener(SimpleCloseListener(self._dlg))
+
+    def _schedule_models_fetch(self, endpoint: str, current_model: str) -> None:
+        from plugin.framework.client.model_fetcher import (
+            endpoint_url_suitable_for_v1_models_fetch,
+            fetch_available_models,
+        )
+        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.worker_pool import run_in_background
+
+        if not endpoint or not endpoint_url_suitable_for_v1_models_fetch(endpoint):
+            return
+
+        def _fetch_eval_models() -> None:
+            models = fetch_available_models(endpoint)
+
+            def _apply() -> None:
+                if self._closed or self._dlg is None:
+                    return
+                try:
+                    ctrl = self._dlg.getControl("models")
+                except Exception:
+                    log.debug("Eval dashboard model combo unavailable", exc_info=True)
+                    return
+                if ctrl is None:
+                    return
+                populate_combobox_with_lru(
+                    self._ctx, ctrl, current_model, "model_lru", endpoint,
+                    remote_models=models if isinstance(models, list) else None,
+                    skip_remote_fetch=not isinstance(models, list),
+                )
+
+            post_to_main_thread(_apply)
+
+        run_in_background(_fetch_eval_models, name="eval-models")
 
 
 class EvalRunListener(BaseActionListener):

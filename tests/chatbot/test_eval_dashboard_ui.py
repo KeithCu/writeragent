@@ -17,6 +17,42 @@ import pytest
 from plugin.chatbot.eval_dashboard_ui import EvalRunListener
 
 
+def test_eval_populate_does_not_fetch_models_on_the_caller() -> None:
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+
+    dash = EvalDashboard(MagicMock())
+    dialog = MagicMock()
+    dash._dlg = dialog
+    started: list[Any] = []
+    posted: list[Any] = []
+
+    def _capture_worker(fn: Any, **_kwargs: Any) -> None:
+        started.append(fn)
+
+    def _capture_post(fn: Any) -> None:
+        posted.append(fn)
+
+    with patch("plugin.chatbot.eval_dashboard_ui.populate_combobox_with_lru") as mock_pop, \
+         patch("plugin.chatbot.eval_dashboard_ui.get_config_str", return_value="http://localhost:11434"), \
+         patch("plugin.chatbot.eval_dashboard_ui.get_text_model", return_value="llama3"), \
+         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_worker), \
+         patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_capture_post), \
+         patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=["llama3"]) as mock_fetch:
+        dash._populate()
+        mock_fetch.assert_not_called()
+        assert mock_pop.call_args.kwargs.get("skip_remote_fetch") is True
+        assert len(started) == 1
+        started[0]()
+        mock_fetch.assert_called_once_with("http://localhost:11434")
+        assert len(posted) == 1
+        posted[0]()
+        assert mock_pop.call_count == 2
+        assert mock_pop.call_args.kwargs.get("remote_models") == ["llama3"]
+        dash._closed = True
+        posted[0]()
+        assert mock_pop.call_count == 2
+
+
 def test_importing_eval_dashboard_ui_does_not_load_eval_runner() -> None:
     sys.modules.pop("tests.eval_runner", None)
     import plugin.chatbot.eval_dashboard_ui as mod

@@ -155,14 +155,14 @@ class TestSettingsInitialModelsFetch:
             dlg._schedule_initial_models_fetch('https://openrouter.ai/api')
         listener._schedule_debounced_models_fetch.assert_not_called()
 
-    def test_schedule_initial_models_fetch_skips_ollama(self):
+    def test_schedule_initial_models_fetch_includes_ollama(self):
         from plugin.chatbot.dialog_views import SettingsDialog
 
         dlg = SettingsDialog(MagicMock())
         listener = MagicMock()
         dlg._endpoint_listener = listener
         dlg._schedule_initial_models_fetch('http://localhost:11434')
-        listener._schedule_debounced_models_fetch.assert_not_called()
+        listener._schedule_debounced_models_fetch.assert_called_once()
 
 
 class TestEndpointCombinedListener:
@@ -182,12 +182,20 @@ class TestEndpointCombinedListener:
         def track_apply(*args, **kwargs):
             apply_calls.append((args, kwargs))
 
-        def track_bg(gen, resolved):
-            bg_calls.append((gen, resolved))
+        def track_bg(gen, resolved, tts_model_id=""):
+            bg_calls.append((gen, resolved, tts_model_id))
 
         listener._apply_dropdowns = track_apply
         listener._bg_fetch = track_bg
-        listener.run_in_background = lambda fn, name=None: fn()
+        listener._tts_model_id_for_voice_fetch = lambda: "cartesia/sonic-2"
+
+        def run_later(fn, name=None):
+            # A newer click bumps the generation before the worker starts.
+            # The fetch must keep the generation captured at select time.
+            listener._debounce_gen += 50
+            fn()
+
+        listener.run_in_background = run_later
 
         event = MagicMock()
         event.Selected = 0
@@ -197,8 +205,10 @@ class TestEndpointCombinedListener:
         assert (apply_calls[0][0][0]) == ('https://openrouter.ai/api')
         assert (apply_calls[0][1].get('skip_fetch'))
         assert (len(bg_calls)) == (1)
+        assert bg_calls[0][2] == "cartesia/sonic-2"
+        assert bg_calls[0][0] == listener._debounce_gen - 50
 
-    def test_ollama_select_does_not_skip_sync_fetch(self):
+    def test_ollama_select_skips_sync_fetch(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
 
         dialog = MagicMock()
@@ -215,14 +225,16 @@ class TestEndpointCombinedListener:
 
         listener._apply_dropdowns = track_apply
         listener._bg_fetch = MagicMock()
-        listener.run_in_background = lambda fn, name=None: None
+        listener._tts_model_id_for_voice_fetch = lambda: ""
+        listener.run_in_background = lambda fn, name=None: fn()
 
         event = MagicMock()
         event.Selected = 0
         listener.itemStateChanged(event)
 
         assert (len(apply_calls)) == (1)
-        assert not (apply_calls[0][1].get('skip_fetch'))
+        assert (apply_calls[0][1].get('skip_fetch'))
+        listener._bg_fetch.assert_called_once()
 
     def test_apply_dropdowns_openrouter_stt_uses_transcription_models(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
@@ -709,6 +721,82 @@ def test_dialog_parent_for_child_prefers_settings_peer() -> None:
     parent.getPeer.assert_called_once()
 
 
+def test_populate_fields_text_model_does_not_fetch_remote() -> None:
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dlg = MagicMock()
+    text_ctrl = MagicMock()
+    dlg.getControl.side_effect = lambda name: text_ctrl if name == "text_model" else None
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+
+    with patch("plugin.chatbot.config_ui_helpers.fetch_available_models") as mock_fetch:
+        view._populate_fields(
+            [{"name": "text_model", "value": "llama3"}],
+            "http://localhost:11434",
+        )
+    mock_fetch.assert_not_called()
+
+
+def test_sync_api_key_keeps_typed_key_when_url_changes() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    combo = MagicMock()
+    combo.getText.return_value = "https://api.groq.com/openai/v1"
+    api = MagicMock()
+    api.getText.return_value = "sk-pasted"
+
+    def get_optional_side_effect(dlg, name):
+        if name == "api_key":
+            return api
+        return None
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    listener._synced_endpoint = "https://api.groq.com/openai/v1"
+    saved = {
+        "https://api.groq.com/openai/v1": "sk-saved",
+        "https://api.groq.com/openai/v1x": "sk-other",
+    }
+    listener.get_api_key_for_endpoint = lambda url: saved.get(url, "")
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+         patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
+         patch("plugin.chatbot.dialog_views.get_control_text", return_value="sk-pasted"):
+        combo.getText.return_value = "https://api.groq.com/openai/v1x"
+        listener.textChanged(MagicMock())
+    mock_set.assert_not_called()
+    assert api.getText.return_value == "sk-pasted"
+
+
+def test_sync_api_key_preset_loads_saved_key() -> None:
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+    combo = MagicMock()
+    combo.getText.return_value = "https://api.groq.com/openai/v1"
+    combo.getItem.return_value = "https://api.together.xyz/v1"
+    combo.setText.side_effect = lambda value: setattr(combo.getText, "return_value", value)
+    api = MagicMock()
+
+    def get_optional_side_effect(dlg, name):
+        if name == "api_key":
+            return api
+        return None
+
+    listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+    listener._synced_endpoint = "https://api.groq.com/openai/v1"
+    listener._catalog_is_warm = lambda resolved: True
+    listener._apply_from_cache = MagicMock()
+    listener.get_api_key_for_endpoint = lambda url: "sk-together" if "together" in url else "sk-groq"
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+         patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
+         patch("plugin.chatbot.dialog_views.get_control_text", return_value="sk-pasted"):
+        event = MagicMock()
+        event.Selected = 0
+        listener.itemStateChanged(event)
+    mock_set.assert_called_once_with(api, "sk-together")
+
+
 def test_populate_fields_wires_audio_stt_model_lru() -> None:
     from plugin.chatbot.dialog_views import SettingsDialog
 
@@ -723,7 +811,8 @@ def test_populate_fields_wires_audio_stt_model_lru() -> None:
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
-            view._ctx, stt_ctrl, "whisper-1", "audio_model_lru", "https://openrouter.ai/api", api_key_override=""
+            view._ctx, stt_ctrl, "whisper-1", "audio_model_lru", "https://openrouter.ai/api",
+            api_key_override="", skip_remote_fetch=True,
         )
 
 
@@ -741,7 +830,8 @@ def test_populate_fields_wires_legacy_stt_control_id() -> None:
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
-            view._ctx, stt_ctrl, "whisper-legacy", "audio_model_lru", "https://openrouter.ai/api", api_key_override=""
+            view._ctx, stt_ctrl, "whisper-legacy", "audio_model_lru", "https://openrouter.ai/api",
+            api_key_override="", skip_remote_fetch=True,
         )
 
 
@@ -759,7 +849,8 @@ def test_populate_fields_wires_tts_model_lru() -> None:
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
-            view._ctx, tts_ctrl, "", "tts_model_lru", "https://openrouter.ai/api", api_key_override=""
+            view._ctx, tts_ctrl, "", "tts_model_lru", "https://openrouter.ai/api",
+            api_key_override="", skip_remote_fetch=True,
         )
 
 
