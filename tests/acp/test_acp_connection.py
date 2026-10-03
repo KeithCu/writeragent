@@ -459,3 +459,93 @@ sys.stdout.buffer.flush()
         assert reader.is_alive() is False
         assert reads["n"] == 1
         assert "Reader error" not in caplog.text
+
+
+def _proc_nulled_on_bool(conn: ACPConnection, stdin: object):
+    """Process whose truthiness test clears ``conn._proc``.
+
+    ``if self._proc and self._proc.stdin`` loads ``_proc`` twice. The
+    truthiness test is the gap ``stop()`` uses to set ``_proc`` to None,
+    so the second load used to be ``None.stdin``.
+    """
+
+    class _Proc:
+        def poll(self):
+            return None
+
+        def __bool__(self) -> bool:
+            conn._proc = None
+            return True
+
+        @property
+        def stdin(self):
+            return stdin
+
+    return _Proc()
+
+
+class _Stdin:
+    def __init__(self) -> None:
+        self.written: list[bytes] = []
+
+    def write(self, data: bytes) -> int:
+        self.written.append(data)
+        return len(data)
+
+    def flush(self) -> None:
+        return None
+
+
+class TestStdinWriteCapturesProc:
+    """stop() may clear _proc between the two loads in `self._proc and self._proc.stdin`."""
+
+    def test_send_request_writes_captured_proc(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        stdin = _Stdin()
+
+        def flush() -> None:
+            conn._wake_pending("ACP process stopped")
+
+        stdin.flush = flush  # type: ignore[method-assign]
+        conn._proc = _proc_nulled_on_bool(conn, stdin)
+        conn._running = True
+        with pytest.raises(ToolExecutionError, match="stopped"):
+            conn.send_request("session/prompt", {"sessionId": "s"}, timeout=2)
+        assert stdin.written
+        assert b"session/prompt" in stdin.written[0]
+
+    def test_send_request_closed_stdin_is_tool_error(self):
+        """A pipe stop() already closed must not escape as ValueError.
+
+        Capturing the process means the write can run after stop() has
+        closed stdin. That raises ValueError, not BrokenPipeError.
+        """
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+
+        def write(data: bytes) -> int:
+            raise ValueError("I/O operation on closed file")
+
+        proc.stdin.write.side_effect = write
+        conn._proc = proc
+        conn._running = True
+        with pytest.raises(ToolExecutionError, match="Failed to write"):
+            conn.send_request("initialize", {}, timeout=2)
+
+    def test_send_notification_writes_captured_proc(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        stdin = _Stdin()
+        conn._proc = _proc_nulled_on_bool(conn, stdin)
+        conn._running = True
+        conn.send_notification("session/cancel", {"sessionId": "s"})
+        assert stdin.written
+        assert b"session/cancel" in stdin.written[0]
+
+    def test_send_response_writes_captured_proc(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        stdin = _Stdin()
+        conn._proc = _proc_nulled_on_bool(conn, stdin)
+        conn._running = True
+        conn.send_response(4, result={"outcome": {"outcome": "cancelled"}})
+        assert stdin.written
+        assert b'"id": 4' in stdin.written[0]

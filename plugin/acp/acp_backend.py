@@ -38,6 +38,14 @@ log = logging.getLogger(__name__)
 
 # ACP protocol version (integer per SDK)
 _ACP_PROTOCOL_VERSION = 1
+# After spawn, wait this long before initialize so a process that exits
+# immediately is reported as a start failure. The wait is polled so Stop
+# during it does not continue into the handshake.
+_STARTUP_WAIT_S = 0.5
+_STARTUP_POLL_S = 0.05
+# Slice count for the grace period. Not ``int(wait / poll)``: 0.05 is not
+# an exact binary fraction, and truncating a 9.999 result would shorten it.
+_STARTUP_POLLS = round(_STARTUP_WAIT_S / _STARTUP_POLL_S)
 
 # PermissionOption.kind values from the ACP schema. Prefer the "_once"
 # choice so Approve does not permanently allow later tool calls.
@@ -302,7 +310,21 @@ class ACPBackend(AgentBackend):
         log.info(f"{self.get_display_name()} binary not found")
         return False
 
-    def _ensure_connection(self) -> None:
+    def _startup_stopped(self, stop_checker: Any) -> bool:
+        """True when the post-start wait must leave before initialize.
+
+        A true ``stop_checker`` latches ``_stop_requested`` so ``send()``
+        takes the same ``_finish_stopped`` path it uses when Stop wins
+        before the prompt.
+        """
+        if self._stop_requested:
+            return True
+        if callable(stop_checker) and bool(stop_checker()):
+            self._stop_requested = True
+            return True
+        return False
+
+    def _ensure_connection(self, stop_checker: Any = None) -> None:
         """Start the ACP subprocess if not already running."""
         if self._conn and self._conn.is_alive:
             return
@@ -318,10 +340,25 @@ class ACPBackend(AgentBackend):
         self._conn = ACPConnection(cmd_line=cmd_line, env=env)
         self._conn.start()
 
-        # Wait a moment for the process to start
-        time.sleep(0.5)
-        if not self._conn.is_alive:
-            raise RuntimeError(f"{self.get_display_name()} ACP process failed to start.")
+        # What was wrong: time.sleep(0.5) after start() never looked at
+        # Stop. stop() or a true stop_checker during that half-second was
+        # ignored, and this method continued into initialize (then send()
+        # into session/prompt). Why: poll the same grace period in short
+        # slices and return as soon as the stop latch or stop_checker()
+        # says so, before the handshake.
+        polls_left = _STARTUP_POLLS
+        while True:
+            if self._startup_stopped(stop_checker):
+                return
+            conn = self._conn
+            if conn is None or not conn.is_alive:
+                if self._startup_stopped(stop_checker):
+                    return
+                raise RuntimeError(f"{self.get_display_name()} ACP process failed to start.")
+            if polls_left <= 0:
+                break
+            polls_left -= 1
+            time.sleep(_STARTUP_POLL_S)
 
         # Initialize handshake
         try:
@@ -551,7 +588,7 @@ class ACPBackend(AgentBackend):
 
         try:
             try:
-                self._ensure_connection()
+                self._ensure_connection(stop_checker)
             except Exception as e:
                 if self._stop_requested:
                     self._finish_stopped(queue)
