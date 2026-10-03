@@ -612,6 +612,11 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "ODDFPRICE": lambda a: f"calc.oddfprice({', '.join(a)})",
     "ODDFYIELD": lambda a: f"calc.oddfyield({', '.join(a)})",
     "ODDLPRICE": lambda a: f"calc.oddlprice({', '.join(a)})",
+    # ODDLYIELD, PDURATION, PPMT, PRICE, PRICEDISC, PRICEMAT, RATE, RECEIVED,
+    # RRI, SLN, SYD, TBILLEQ, TBILLPRICE, TBILLYIELD, and VDB are not implemented
+    # on the calc facade. Emitting calc.<name>(...) made translate return ok and
+    # import write =PY() that AttributeError'd at recalc. Leave them unsupported
+    # until a helper with a Calc-correct contract exists.
     # Tier C — dynamic array helpers (LO 24.8+)
     "FILTER": lambda a: f"calc.filter({', '.join(a)})",
     "SORT": lambda a: f"calc.sort({', '.join(a)})",
@@ -749,21 +754,6 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "IMSUM": lambda a: f"calc.imsum({', '.join(a)})",
     "IMTAN": lambda a: f"calc.imtan({a[0]})",
     "IMTANH": lambda a: f"calc.imtanh({a[0]})",
-    "ODDLYIELD": lambda a: f"calc.oddlyield({', '.join(a)})",
-    "PDURATION": lambda a: f"calc.pduration({a[0]}, {a[1]}, {a[2]})",
-    "PPMT": lambda a: f"calc.ppmt({', '.join(a)})",
-    "PRICE": lambda a: f"calc.price({', '.join(a)})",
-    "PRICEDISC": lambda a: f"calc.pricedisc({', '.join(a)})",
-    "PRICEMAT": lambda a: f"calc.pricemat({', '.join(a)})",
-    "RATE": lambda a: f"calc.rate({', '.join(a)})",
-    "RECEIVED": lambda a: f"calc.received({', '.join(a)})",
-    "RRI": lambda a: f"calc.rri({a[0]}, {a[1]}, {a[2]})",
-    "SLN": lambda a: f"calc.sln({a[0]}, {a[1]}, {a[2]})",
-    "SYD": lambda a: f"calc.syd({a[0]}, {a[1]}, {a[2]}, {a[3]})",
-    "TBILLEQ": lambda a: f"calc.tbilleq({a[0]}, {a[1]}, {a[2]})",
-    "TBILLPRICE": lambda a: f"calc.tbillprice({a[0]}, {a[1]}, {a[2]})",
-    "TBILLYIELD": lambda a: f"calc.tbillyield({a[0]}, {a[1]}, {a[2]})",
-    "VDB": lambda a: f"calc.vdb({', '.join(a)})",
     # Group E
     "LINEST": lambda a: f"calc.linest({', '.join(a)})",
     "LOGEST": lambda a: f"calc.logest({', '.join(a)})",

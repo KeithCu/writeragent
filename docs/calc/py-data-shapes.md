@@ -251,6 +251,8 @@ LLM/MCP sheet reads are a **different, always-on** path: `read_cell_range` enric
   - `data.to_pandas(date_cols=True, date_origin="1904-01-01")` — for workbooks using a custom `NullDate`.
   - Manual coercion: `pd.to_datetime(df["date_col"], unit="D", origin="1899-12-30")` or `pd.to_datetime(df["date_col"])` for text.
 - **Text stays text** by default (`"00123"` remains a string). Opt in with `to_pandas(parse_strings=True)`.
+- **Header row is labels.** `parse_strings` does not rewrite it. A Calc number `2024` (stored as `2024.0`) becomes the column name `"2024"`, not `"2024.0"`. A header `"00123"` stays `"00123"`.
+- **Mixed columns stay mixed** under `parse_strings`. A column is promoted to numeric or datetime only when every non-null cell parses. One text cell used to NaN out and flip the column to float.
 
 ### Egress (locked — do not add a datetime wire lane)
 

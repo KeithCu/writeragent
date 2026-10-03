@@ -71,6 +71,8 @@ def test_tier_abc_helpers():
     assert calc.averagea([10.0, "", 20.0]) == 10.0
     assert calc.even(3.0) == 4.0
     assert calc.xmatch("b", ["a", "b", "c"]) == 2.0
+    # TEXT() import calls calc.fmt. 46181 is 2026-06-08.
+    assert calc.fmt(46181, "MMMM") == "June"
 
     assert calc.filter([1.0, 2.0, 3.0, 4.0, 5.0], [True, False, True, False, True]) == [1.0, 3.0, 5.0]
     assert calc.sort([3.0, 1.0, 2.0], 1, -1) == [3.0, 2.0, 1.0]
@@ -205,6 +207,20 @@ def test_15_more_helpers():
     assert calc.daverage(db, "Yield", crit) == 12.0
     assert calc.dmax(db, "Height", crit) == 18.0
     assert calc.dmin(db, "Height", crit) == 14.0
+
+
+def test_dsum_numeric_looking_header_is_a_name():
+    """A header 2024 (Calc float) and field \"2024\" name the column.
+
+    int(float(\"2024\"))-1 used to index off the grid, and str(2024.0) was
+    \"2024.0\", so the name missed and DSUM returned 0.
+    """
+    db = [[2024.0, "Name"], [5.0, "A"], [15.0, "B"]]
+    crit = [["2024"], [">10"]]
+    assert calc.dsum(db, "2024", crit) == 15.0
+    assert calc.dsum(db, 1, crit) == 15.0
+    named = [["2024", "Name"], [5.0, "A"], [15.0, "B"]]
+    assert calc.dsum(named, "2024", crit) == 15.0
 
 def test_financial_group_a():
     # Basic math validation - dates represented as strings/floats are accepted
