@@ -128,6 +128,21 @@ def collect_secrets(*groups: list[str] | None) -> list[str]:
     return found
 
 
+def _bracket_ipv6_host(host: str) -> str:
+    """Put brackets back around an IPv6 literal so the origin can be parsed again.
+
+    What was wrong: ``ParseResult.hostname`` strips the brackets RFC 3986
+    requires. Rebuilding ``http://[::1]:11434`` as ``http://::1:11434`` makes
+    the next parse read ``:1:11434`` as the port, and ``_explicit_port``
+    raises ``INVALID_URL``. ``sync_request`` feeds that origin into
+    ``_endpoint_parts``. Chat still worked when the configured URL kept its
+    brackets. How: a colon in the host is an IPv6 literal; wrap it once.
+    """
+    if ":" not in host or host.startswith("["):
+        return host
+    return f"[{host}]"
+
+
 def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
     """Explicit URL port, or None when the URL omits one.
 
@@ -194,7 +209,7 @@ def _apply_redirect(
     scheme = (parsed.scheme or "").lower()
     if scheme not in ("http", "https"):
         return None
-    host = parsed.hostname or ""
+    host = _bracket_ipv6_host(parsed.hostname or "")
     if not host:
         return None
     port = _explicit_port(parsed)
@@ -289,7 +304,7 @@ def origin_and_path(url: str) -> tuple[str, str]:
     """Split an absolute URL into the transport origin and the request target."""
     parsed = urllib.parse.urlparse(url)
     scheme = (parsed.scheme or "https").lower()
-    host = parsed.hostname or ""
+    host = _bracket_ipv6_host(parsed.hostname or "")
     port = _explicit_port(parsed)
     origin = f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
     path = parsed.path or "/"
@@ -337,7 +352,8 @@ class LlmHttpTransport:
     def _absolute_url(self, path: str) -> str:
         scheme, host, port = self._endpoint_parts()
         default = 443 if scheme == "https" else 80
-        origin = f"{scheme}://{host}" if port == default else f"{scheme}://{host}:{port}"
+        shown = _bracket_ipv6_host(host)
+        origin = f"{scheme}://{shown}" if port == default else f"{scheme}://{shown}:{port}"
         if not path.startswith("/"):
             path = "/" + path
         return origin + path

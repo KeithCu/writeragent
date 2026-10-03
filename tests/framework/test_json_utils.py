@@ -78,16 +78,31 @@ def test_repair_json_object_trailing_comma() -> None:
 
 
 def test_safe_json_loads_keeps_json_escapes_that_look_like_latex() -> None:
-    """A JSON escape is not a LaTeX command, even when the tail is a clash word.
+    """A dotted abbreviation is a newline, not the short LaTeX command.
 
-    What was wrong: step 1 matched one backslash plus ``ne`` / ``not`` /
-    ``times`` / ``right`` / ``frac`` and doubled it. ``json.loads`` then
-    kept a literal backslash instead of the control character.
+    What was wrong: ``\\ne`` inside ``\\ne.g.`` was doubled, so json.loads
+    kept a literal backslash instead of the newline. The same false word
+    boundary applies to ``\\ni.e.`` and to a newline already in the text.
     """
     assert safe_json_loads('{"x": "line\\ne.g. more"}') == {"x": "line\ne.g. more"}
-    assert safe_json_loads('{"a": "\\not"}') == {"a": "\not"}
-    assert safe_json_loads('{"a": "\\times"}') == {"a": "\times"}
-    assert safe_json_loads('{"a": "\\right"}') == {"a": "\right"}
-    assert safe_json_loads('{"a": "\\frac"}') == {"a": "\frac"}
-    # Commands that are not JSON escapes are still escaped so loads succeeds.
+    assert safe_json_loads('{"x": "see\\ni.e. more"}') == {"x": "see\ni.e. more"}
+    assert safe_json_loads('{"x": "the\\nu.s. flag"}') == {"x": "the\nu.s. flag"}
+    assert safe_json_loads('{"x": "line' + "\n" + 'e.g. more"}') == {"x": "line\ne.g. more"}
+
+
+def test_safe_json_loads_repairs_bfnrt_latex_clash_commands() -> None:
+    """Commands that start with a JSON escape are doubled before loads.
+
+    What was wrong: #1046 skipped every clash word starting with b/f/n/r/t.
+    json.loads turned ``\\nabla`` into a newline plus ``abla`` and returned,
+    so step 2 never saw a control character.
+    """
+    assert safe_json_loads('{"a": "\\nabla x"}') == {"a": "\\nabla x"}
+    assert safe_json_loads('{"a": "\\times"}') == {"a": "\\times"}
+    assert safe_json_loads('{"a": "\\frac{1}{2}"}') == {"a": "\\frac{1}{2}"}
+    assert safe_json_loads('{"a": "\\beta"}') == {"a": "\\beta"}
+    assert safe_json_loads('{"a": "\\not"}') == {"a": "\\not"}
+    assert safe_json_loads('{"a": "\\right"}') == {"a": "\\right"}
     assert safe_json_loads('{"a": "\\alpha"}') == {"a": "\\alpha"}
+    # A command that is already escaped must not be doubled again.
+    assert safe_json_loads('{"a": "\\\\nabla"}') == {"a": "\\nabla"}
