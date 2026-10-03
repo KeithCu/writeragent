@@ -417,7 +417,7 @@ Calc UNO range
   → finalize_python_return / write_formula_range
 ```
 
-Plain dicts and lists pack (`child_pack_result`) and unpack (`child_unpack_data`) without NumPy. A numeric list stays a list when NumPy is absent; a `split_grid` envelope still needs NumPy in the child.
+Plain dicts and lists pack (`child_pack_result`) and unpack (`child_unpack_data`) without NumPy. A numeric list stays a list when NumPy is absent; a `split_grid` envelope still needs NumPy in the child. Numeric and mixed-string child unpack both require the float buffer's length to equal `nrows * ncols` before reshape. A short or long mixed buffer raises `ValueError` instead of becoming a different-sized 1D list.
 
 | Stage | Module | What happens | Large dense numeric `data` (shipped path) |
 |-------|--------|--------------|-------------------------------------------|

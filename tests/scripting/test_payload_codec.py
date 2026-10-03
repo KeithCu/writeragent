@@ -33,6 +33,7 @@ from plugin.scripting.payload_codec import (
     binary_envelope_skip_reason,
     child_pack_result,
     child_unpack_data,
+    child_unpack_split_grid,
     describe_wire_value,
     host_pack_data,
     host_pack_multi_data,
@@ -785,6 +786,31 @@ def test_host_unpack_split_grid_rejects_short_buffer() -> None:
     }
     with pytest.raises(ValueError, match="buffer has 1 values"):
         host_unpack_split_grid(envelope)
+
+
+def test_child_unpack_split_grid_mixed_rejects_size_mismatch() -> None:
+    """Mixed-string child unpack must reject a buffer that does not match shape.
+
+    The numeric path already did. 1D mixed grids skip reshape, so a short
+    buffer used to come back as a shorter list and a long one kept extra cells.
+    """
+    pytest.importorskip("numpy")
+    short = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [4],
+        "buffer": array.array("d", [1.0, 2.0]).tobytes(),
+        "strings": {1: "x"},
+    }
+    with pytest.raises(ValueError, match="buffer has 2 values"):
+        child_unpack_split_grid(short)
+    long = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [2, 2],
+        "buffer": array.array("d", [1.0, 2.0, 3.0, 4.0, 5.0]).tobytes(),
+        "strings": {0: "a"},
+    }
+    with pytest.raises(ValueError, match="buffer has 5 values"):
+        child_unpack_split_grid(long)
 
 
 def test_child_pack_numpy_scalar_types() -> None:
