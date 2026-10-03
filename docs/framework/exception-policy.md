@@ -32,4 +32,6 @@ UNO listener callbacks (`_catch_and_log` in `plugin/framework/uno_listeners.py`)
 
 A bare `RuntimeException` is not disposal: the callback logs it and returns `None` or `False`. `disposing` logs real disposal and returns, because a throw there stops the broadcaster from notifying the remaining listeners. Any other callback is a query: a dead desktop must not look like a successful empty result. `get_open_documents` calls `reraise_listener_boundary`, so a disposed enumeration is not `[]` and an empty desktop is not disposal.
 
+`TypeError` and `ValueError` go through that same boundary before the typed log. A disposal or veto that subclasses either one is not a soft callback failure. An ordinary `TypeError` or `ValueError` is still logged under its type name and does not enter the bridge. A veto is re-raised as the original UNO exception.
+
 Related: [chat sidebar lifecycle](../chat/sidebar-implementation.md#ui-lifecycle-exception-handling-suppress_disposed), [UNO thread safety](uno-thread-safety.md).

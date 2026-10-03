@@ -286,6 +286,120 @@ def test_frame_disposing_drops_only_that_session():
     query_b.setFocus.assert_called_once()
 
 
+def _thread_violation(where: str) -> RuntimeError:
+    return RuntimeError(f"UNO thread violation: {where}")
+
+
+def test_thread_violation_from_get_controller_is_not_a_silent_install():
+    """Off-thread getController used to log at debug and skip the click handler."""
+    frame = MagicMock()
+    frame.getController.side_effect = _thread_violation("getController")
+    session = FrameSession(frame, "doc-a")
+    query = MagicMock()
+    with pytest.raises(RuntimeError, match="UNO thread violation"):
+        _install(session, query)
+    assert session._click_handler is None
+
+
+def test_thread_violation_from_add_focus_listener_is_not_a_silent_install():
+    session = FrameSession(MagicMock(), "doc-a")
+    query = MagicMock()
+    query.addFocusListener.side_effect = _thread_violation("addFocusListener")
+    with pytest.raises(RuntimeError, match="UNO thread violation"):
+        _install(session, query)
+    assert session._query_listener is None
+    assert session._trackers == []
+
+
+def test_thread_violation_on_leave_query_rolls_back_then_raises():
+    """A thread violation after addMouseListener must not leave that listener on."""
+    session = FrameSession(MagicMock(), "doc-a")
+    query = MagicMock()
+    leave = MagicMock()
+    leave.addFocusListener.side_effect = _thread_violation("addFocusListener")
+    with pytest.raises(RuntimeError, match="UNO thread violation"):
+        _install(session, query, leave)
+    mouse = leave.addMouseListener.call_args[0][0]
+    leave.removeMouseListener.assert_called_once_with(mouse)
+    assert session._leave == []
+    assert mouse not in session._trackers
+
+
+def test_thread_violation_from_add_mouse_listener_is_not_a_silent_install():
+    session = FrameSession(MagicMock(), "doc-a")
+    query = MagicMock()
+    leave = MagicMock()
+    leave.addMouseListener.side_effect = _thread_violation("addMouseListener")
+    with pytest.raises(RuntimeError, match="UNO thread violation"):
+        _install(session, query, leave)
+    assert session._leave == []
+    leave.addFocusListener.assert_not_called()
+
+
+def test_thread_violation_from_add_mouse_click_handler_is_not_a_silent_install():
+    controller = _Controller()
+
+    def _boom(handler: object) -> None:
+        raise _thread_violation("addMouseClickHandler")
+
+    controller.addMouseClickHandler = _boom  # type: ignore[method-assign]
+    session = FrameSession(_frame(controller), "doc-a")
+    query = MagicMock()
+    with pytest.raises(RuntimeError, match="UNO thread violation"):
+        _install(session, query)
+    assert session._click_handler is None
+    assert session._click_controller is None
+
+
+def test_ordinary_attach_error_stays_a_debug_log(caplog):
+    """A non-guard RuntimeError is still not a failed install."""
+    import logging
+
+    session = FrameSession(MagicMock(), "doc-a")
+    query = MagicMock()
+    query.addFocusListener.side_effect = RuntimeError("focus attach failed")
+    with caplog.at_level(logging.DEBUG, logger="writeragent.frame_session"):
+        _install(session, query)
+    assert session._query_listener is None
+    assert any(record.levelno == logging.DEBUG and "query focus listener" in record.message for record in caplog.records)
+
+
+def test_close_listener_failure_is_not_left_open():
+    frame = MagicMock()
+    frame.addEventListener.side_effect = RuntimeError("add failed")
+    session = open_frame_session(frame, "doc-a")
+    frame.addEventListener.assert_called_once()
+    assert session_for_frame(frame) is None
+    assert session._frame_listener is None
+    assert session._closed is False
+
+
+def test_frame_without_close_api_is_not_tracked():
+    class _Bare:
+        pass
+
+    frame = _Bare()
+    session = open_frame_session(frame, "doc-a")
+    assert session.frame is frame
+    assert session_for_frame(frame) is None
+
+
+def test_close_listener_import_failure_is_not_tracked():
+    frame = MagicMock()
+    with patch.dict(sys.modules, {"unohelper": None}):
+        session = open_frame_session(frame, "doc-a")
+    frame.addEventListener.assert_not_called()
+    assert session_for_frame(frame) is None
+
+
+def test_thread_violation_on_close_listener_is_not_left_open():
+    frame = MagicMock()
+    frame.addEventListener.side_effect = _thread_violation("addEventListener")
+    with pytest.raises(RuntimeError, match="UNO thread violation"):
+        open_frame_session(frame, "doc-a")
+    assert session_for_frame(frame) is None
+
+
 def test_second_sidebar_still_attaches_when_the_first_listener_is_live():
     session_a = open_frame_session(_frame(_Controller()), "doc-a")
     session_b = open_frame_session(_frame(_Controller()), "doc-b")

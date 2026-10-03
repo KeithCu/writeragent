@@ -304,14 +304,6 @@ def _catch_and_log(func: Any) -> Any:
             if boundary.kind == "veto":
                 raise boundary.original
             raise
-        except TypeError:
-            # Named branches so the log shows TypeError vs ValueError; both
-            # subclass Exception. The C++ bridge must not see Python exceptions.
-            log.exception(f"{self.__class__.__name__} TypeError in {func.__name__}")
-            return failure
-        except ValueError:
-            log.exception(f"{self.__class__.__name__} ValueError in {func.__name__}")
-            return failure
         except Exception as exc:
             # What was wrong: this handler grew a type-name allow-list
             # (CloseVeto, then TerminationVeto, and DisposedException was
@@ -329,12 +321,25 @@ def _catch_and_log(func: Any) -> Any:
             # listeners. Any other callback is a query, and a dead desktop
             # must not look like an empty success. A runtime error is logged
             # and returns the failure value; it is not disposal.
+            #
+            # TypeError and ValueError used to be their own except clauses
+            # above this one, so listener_boundary never saw them. A future
+            # disposal or veto that subclasses either type would have been
+            # logged and returned as a soft failure. Classify first. An
+            # ordinary TypeError or ValueError still logs under its type
+            # name and does not enter the bridge.
             signal = listener_boundary(exc)
             if signal is not None and signal.kind == "disposed" and func.__name__ == "disposing":
                 log.debug("%s disposing: source already disposed", self.__class__.__name__)
                 return failure
             if signal is not None:
                 reraise_listener_boundary(exc)
+            if isinstance(exc, TypeError):
+                log.exception(f"{self.__class__.__name__} TypeError in {func.__name__}")
+                return failure
+            if isinstance(exc, ValueError):
+                log.exception(f"{self.__class__.__name__} ValueError in {func.__name__}")
+                return failure
             log.exception(f"{self.__class__.__name__} unhandled exception in {func.__name__}")
             return failure
 
