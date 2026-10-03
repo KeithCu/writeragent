@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from .calc_functions_util import match_criteria
+from .calc_functions_util import _npf_result, match_criteria
 from .coerce import header_label, is_missing_value
 
 
@@ -1034,31 +1034,15 @@ def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, t
         p = float(pv)
         s = int(float(start_period))
         e = int(float(end_period))
-        t = int(float(type_val))
-
-        if r == 0:
-            pmt_amt = -p / n
-        else:
-            factor = (1 + r) ** n
-            if t == 1:
-                pmt_amt = -(p * factor) * r / (factor - 1) / (1 + r)
-            else:
-                pmt_amt = -(p * factor) * r / (factor - 1)
-
-        tot_i = 0.0
-        rem_p = p
-        for i in range(1, e + 1):
-            if t == 1 and i == 1:
-                ipmt = 0.0
-            else:
-                ipmt = rem_p * r
-            ppmt = pmt_amt - (-ipmt)
-            if s <= i <= e:
-                tot_i += -ipmt
-            rem_p -= -ppmt
-        return float(tot_i)
-    except Exception:
+        t = 1 if int(float(type_val)) == 1 else 0
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
+    if r < 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
+        return float("nan")
+    if r == 0:
+        return 0.0
+    pers = np.arange(s, e + 1)
+    return _npf_result("ipmt", r, pers, n, p, 0, t)
 
 
 def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
@@ -1068,29 +1052,13 @@ def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, 
         p = float(pv)
         s = int(float(start_period))
         e = int(float(end_period))
-        t = int(float(type_val))
-
-        if r == 0:
-            pmt_amt = -p / n
-        else:
-            factor = (1 + r) ** n
-            if t == 1:
-                pmt_amt = -(p * factor) * r / (factor - 1) / (1 + r)
-            else:
-                pmt_amt = -(p * factor) * r / (factor - 1)
-
-        tot_p = 0.0
-        rem_p = p
-        for i in range(1, e + 1):
-            if t == 1 and i == 1:
-                ipmt = 0.0
-            else:
-                ipmt = rem_p * r
-            ppmt = pmt_amt - (-ipmt)
-            if s <= i <= e:
-                tot_p += ppmt
-            rem_p -= -ppmt
-
-        return float(tot_p)
-    except Exception:
+        t = 1 if int(float(type_val)) == 1 else 0
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
+    if r < 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
+        return float("nan")
+    if r == 0:
+        return float(-p * (e - s + 1) / n)
+    pers = np.arange(s, e + 1)
+    return _npf_result("ppmt", r, pers, n, p, 0, t)
+
