@@ -198,7 +198,8 @@ def imcsc(inumber: Any) -> str:
 
         c = _to_complex(inumber)
         return _from_complex(1.0 / cmath.sin(c))
-    except (ValueError, TypeError, ZeroDivisionError):
+    except (ValueError, TypeError, ZeroDivisionError, OverflowError):
+        # cmath.sin raises OverflowError for a large imaginary part, e.g. IMCSC("1000i").
         return "#VALUE!"
 
 
@@ -210,7 +211,8 @@ def imcsch(inumber: Any) -> str:
 
         c = _to_complex(inumber)
         return _from_complex(1.0 / cmath.sinh(c))
-    except (ValueError, TypeError, ZeroDivisionError):
+    except (ValueError, TypeError, ZeroDivisionError, OverflowError):
+        # cmath.sinh(1000) raises OverflowError (IMCSH("1000")), which used to escape the helper.
         return "#VALUE!"
 
 
@@ -324,7 +326,8 @@ def imsec(inumber: Any) -> str:
 
         c = _to_complex(inumber)
         return _from_complex(1.0 / cmath.cos(c))
-    except (ValueError, TypeError, ZeroDivisionError):
+    except (ValueError, TypeError, ZeroDivisionError, OverflowError):
+        # cmath.cos raises OverflowError for a large imaginary part, e.g. IMSEC("1000i").
         return "#VALUE!"
 
 
@@ -336,7 +339,8 @@ def imsech(inumber: Any) -> str:
 
         c = _to_complex(inumber)
         return _from_complex(1.0 / cmath.cosh(c))
-    except (ValueError, TypeError, ZeroDivisionError):
+    except (ValueError, TypeError, ZeroDivisionError, OverflowError):
+        # cmath.cosh(1000) raises OverflowError (IMSECH("1000")), which used to escape the helper.
         return "#VALUE!"
 
 
@@ -681,6 +685,13 @@ def logest(*args: Any) -> Any:
         import numpy as np
 
         data_y = np.asarray(args[0]).ravel()
+        # Excel LOGEST is #NUM! when any known_y is <= 0. np.log of those
+        # values is -inf/nan and does not raise, so this except never ran and
+        # lstsq returned garbage coefficients. Invalid inputs here already
+        # return #VALUE! (same token as linest). Numeric dtypes only: object
+        # and text arrays still fail in np.log and hit the except.
+        if data_y.dtype.kind in "iufb" and np.any(data_y <= 0):
+            return "#VALUE!"
         data_y = np.log(data_y)
         if len(args) > 1:
             data_x = np.asarray(args[1])
@@ -938,7 +949,9 @@ def mround(number: Any, multiple: Any) -> float:
     except (ValueError, TypeError, OverflowError):
         return float("nan")
     if m == 0:
-        return 0.0
+        # Excel/Calc MROUND(n, 0) is #DIV/0!. Returning 0.0 hid that error.
+        # This module reports #DIV/0! as NaN.
+        return float("nan")
     if (n > 0 and m < 0) or (n < 0 and m > 0):
         return float("nan")
     # Python round() is banker's rounding (half to even), so MROUND(2.5, 1)
