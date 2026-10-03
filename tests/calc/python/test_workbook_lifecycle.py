@@ -22,13 +22,36 @@ def _reset_lifecycle_registry():
     import plugin.calc.python.workbook_lifecycle as lifecycle
 
     lifecycle._LISTENERS.clear()
+    lifecycle._LIFECYCLE_KEYS.clear()
+    lifecycle._LIFECYCLE_REFS_BY_KEY.clear()
+    lifecycle._LIFECYCLE_KEY_BY_DOC_ID.clear()
+    lifecycle._DOC_IDS_BY_LIFECYCLE_KEY.clear()
     yield
     lifecycle._LISTENERS.clear()
+    lifecycle._LIFECYCLE_KEYS.clear()
+    lifecycle._LIFECYCLE_REFS_BY_KEY.clear()
+    lifecycle._LIFECYCLE_KEY_BY_DOC_ID.clear()
+    lifecycle._DOC_IDS_BY_LIFECYCLE_KEY.clear()
 
 
 def test_lifecycle_key_prefers_runtime_uid():
     doc = CalcDocStub(props={"RuntimeUID": "uid-abc"})
     assert _lifecycle_key(doc) == "uid-abc"
+
+
+def test_unload_forgets_cached_lifecycle_key():
+    """Off-main spill lookup must not keep a closed workbook's id."""
+    from plugin.calc.python.workbook_lifecycle import lifecycle_key_if_known
+
+    doc = CalcDocStub(props={"RuntimeUID": "uid-forget"})
+    assert _lifecycle_key(doc) == "uid-forget"
+    assert lifecycle_key_if_known(doc) == "uid-forget"
+    listener = _CalcPythonUnloadListener(MagicMock(), "calc:wb-forget", "uid-forget")
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+        mock_reset.return_value = {"status": "ok"}
+        listener.on_document_event(MagicMock(EventName="OnUnload"))
+    assert lifecycle_key_if_known(doc) == ""
+    assert lifecycle_key_if_known(None) == ""
 
 
 def test_unload_listener_resets_worker_session():

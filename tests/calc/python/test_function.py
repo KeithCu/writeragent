@@ -827,6 +827,182 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
     assert len(saved) == 1
 
 
+def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeypatch: pytest.MonkeyPatch) -> None:
+    """=PYMT and other formulas that merely contain PY/PYTHON must drop stale spills."""
+    sheet = MagicMock()
+    aEvent = SimpleNamespace(Source=sheet)
+    doc = CalcDocStub(url="file:///fake_pymt.ods")
+    monkeypatch.setattr(python_function, "_get_calc_doc", lambda ctx: doc)
+    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: None)
+
+    listener = python_function.CalcSpillModifyListener(MagicMock(), "file:///fake_pymt.ods", "Sheet1")
+    key = ("file:///fake_pymt.ods", "Sheet1", 1, 1)
+    python_function.SPILL_REGISTRY[key] = [(2, 1)]
+
+    origin = MagicMock()
+    spilled = MagicMock()
+
+    def get_cell(c, r):
+        if r == 1 and c == 1:
+            return origin
+        if r == 2 and c == 1:
+            return spilled
+        return MagicMock()
+
+    sheet.getCellByPosition.side_effect = get_cell
+    try:
+        origin.getFormula.return_value = '=PY("keep")'
+        listener.modified(aEvent)
+        assert key in python_function.SPILL_REGISTRY
+        spilled.clearContents.assert_not_called()
+
+        origin.getFormula.return_value = "=PYMT(0.05, 12, 1000)"
+        listener.modified(aEvent)
+        assert key not in python_function.SPILL_REGISTRY
+        spilled.clearContents.assert_called_once_with(23)
+    finally:
+        python_function.SPILL_REGISTRY.pop(key, None)
+
+
+def _clear_spill_timer_registry() -> None:
+    import plugin.calc.python.workbook_lifecycle as lifecycle
+
+    python_function._PENDING_SPILL_TIMERS.clear()
+    lifecycle._LIFECYCLE_KEYS.clear()
+    lifecycle._LIFECYCLE_REFS_BY_KEY.clear()
+    lifecycle._LIFECYCLE_KEY_BY_DOC_ID.clear()
+    lifecycle._DOC_IDS_BY_LIFECYCLE_KEY.clear()
+
+
+class _HoldSpillTimer:
+    """Timer double that does not run the callback until asked."""
+
+    def __init__(self, interval, function, args=(), kwargs=None):
+        self.function = function
+        self.args = args
+        self.kwargs = kwargs or {}
+        self.cancelled = False
+        self.finished = threading.Event()
+
+    def start(self) -> None:
+        return None
+
+    def cancel(self) -> None:
+        self.cancelled = True
+        self.finished.set()
+
+
+class _NowSpillTimer(_HoldSpillTimer):
+    def start(self) -> None:
+        self.function(*self.args, **self.kwargs)
+        self.finished.set()
+
+
+def test_spill_timers_prune_on_fire_register_and_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Finished timers must not keep ctx/grid closures in the registry."""
+    _clear_spill_timer_registry()
+    monkeypatch.setattr(python_function.threading, "Timer", _NowSpillTimer)
+    ran = {"n": 0}
+    try:
+        python_function.start_deferred_sheet_timer(0.1, lambda: ran.__setitem__("n", ran["n"] + 1), lifecycle_key="fired")
+        assert ran["n"] == 1
+        assert python_function._PENDING_SPILL_TIMERS == []
+
+        dead = threading.Timer(60, lambda: None)
+        dead.cancel()
+        python_function._PENDING_SPILL_TIMERS.append(("stale", dead))
+        live = _HoldSpillTimer(0.1, lambda: None)
+        python_function._register_spill_timer("live", live)
+        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["live"]
+
+        other = _HoldSpillTimer(0.1, lambda: None)
+        other.finished.set()
+        python_function._PENDING_SPILL_TIMERS.append(("other", other))
+        python_function.cancel_pending_spill_timers("live")
+        assert live.cancelled
+        assert python_function._PENDING_SPILL_TIMERS == []
+    finally:
+        _clear_spill_timer_registry()
+
+
+def test_off_main_spill_timer_registers_cached_lifecycle_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unload cancel must see off-main timers; registering them must not call UNO."""
+    from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+
+    _clear_spill_timer_registry()
+    doc = CalcDocStub(url="file:///spill-life.ods", props={"RuntimeUID": "uid-spill"})
+    calls = {"n": 0}
+    original = doc.getPropertyValue
+
+    def _count(name):
+        calls["n"] += 1
+        return original(name)
+
+    doc.getPropertyValue = _count
+    assert _lifecycle_key(doc) == "uid-spill"
+    seen = calls["n"]
+    assert seen >= 1
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr(python_function.threading, "Timer", _HoldSpillTimer)
+    try:
+        python_function._queue_off_main_auto_spill(MagicMock(), "code", [[1, 2]], doc)
+        assert calls["n"] == seen
+        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["uid-spill"]
+        timer = python_function._PENDING_SPILL_TIMERS[0][1]
+        python_function.cancel_pending_spill_timers("uid-spill")
+        assert timer.cancelled
+        assert python_function._PENDING_SPILL_TIMERS == []
+
+        # No document object: do not guess a workbook key.
+        python_function._queue_off_main_auto_spill(MagicMock(), "code", [[1]], None)
+        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == [""]
+    finally:
+        _clear_spill_timer_registry()
+
+
+def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each cached model keeps its own unload key; a missing model stays blank."""
+    from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+
+    _clear_spill_timer_registry()
+    doc_a = CalcDocStub(props={"RuntimeUID": "uid-a"})
+    doc_b = CalcDocStub(props={"RuntimeUID": "uid-b"})
+    assert _lifecycle_key(doc_a) == "uid-a"
+    assert _lifecycle_key(doc_b) == "uid-b"
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr(python_function.threading, "Timer", _HoldSpillTimer)
+    try:
+        python_function._queue_off_main_auto_spill(MagicMock(), "a", [[1]], doc_a)
+        python_function._queue_off_main_auto_spill(MagicMock(), "b", [[1]], doc_b)
+        python_function._queue_off_main_auto_spill(MagicMock(), "none", [[1]], None)
+        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["uid-a", "uid-b", ""]
+        python_function.cancel_pending_spill_timers("uid-a")
+        assert [key for key, _timer in python_function._PENDING_SPILL_TIMERS] == ["uid-b", ""]
+    finally:
+        _clear_spill_timer_registry()
+
+
+def test_session_key_off_main_ignores_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    doc = MagicMock()
+    doc.getURL.side_effect = AssertionError("getURL off main")
+    key = python_function.session_key(MagicMock(), "print('hello')", doc=doc)
+    assert key == ("", "", "", "print('hello')", "")
+    doc.getURL.assert_not_called()
+
+
+def test_finalize_python_return_off_main_skips_session_key_on_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spill-disabled list results must not locate the cached model off-main."""
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.config.get_config_bool", lambda _key: False)
+    doc = MagicMock()
+    doc.getURL.side_effect = AssertionError("getURL off main")
+    val = finalize_python_return(MagicMock(), "c", [10, 20, 30], doc=doc)
+    assert val == 10.0
+    doc.getURL.assert_not_called()
+
+
 def test_to_calc_compatible_datetime_types() -> None:
     """Datetime, date, time, and timedelta are converted to ISO strings or fractional day floats."""
     import datetime
