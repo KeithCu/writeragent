@@ -75,7 +75,7 @@ External agent binaries (Hermes, Claude, Grok, OpenCode, …) speak the Agent Co
 *   **`acp_connection.py` (`ACPConnection`):** Spawns the subprocess, then:
     *   **Threads:** `run_in_background(..., name="acp-reader", dedicated=True)` parses JSON-RPC from stdout; `start_stderr_drain(..., name=f"acp-stderr-{pid}")` drains stderr so the kernel pipe cannot fill.
     *   **Synchronization:** `threading.Lock` (`_lock`) guards `_pending` (request id → event + response dict). Each `send_request` waits on its own `threading.Event` until the reader stores the matching response.
-*   **`acp_backend.py`:** ACP client that uses `ACPConnection` for handshake, prompt sessions, and streaming notifications.
+*   **`acp_backend.py`:** ACP client that uses `ACPConnection` for handshake, prompt sessions, and streaming notifications. Each `send()` calls `shutdown()` → `ACPConnection.stop()` when the turn ends (success, error, or cancel), so the CLI and its reader do not survive into the next chat message. `stop()` notifies `session/cancel`, answers pending `session/request_permission` with `outcome: cancelled`, then terminates the subprocess. Permission replies are `outcome.selected` plus an `optionId` from the request, or `outcome.cancelled`. `session/update` is dispatched on `sessionUpdate`: `agent_message_chunk` is assistant text, `agent_thought_chunk` is thinking (not the saved answer), and `tool_call` / `tool_call_update` are tool transcript lines.
 
 ### 4. Chatbot Streaming and Tool Execution (`plugin/chatbot/`)
 

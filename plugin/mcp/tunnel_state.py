@@ -88,7 +88,14 @@ class StartProcessEffect:
 
 @dataclasses.dataclass(frozen=True)
 class TerminateProcessEffect:
-    pass
+    """Stop the subprocess that belonged to ``provider``.
+
+    ``provider`` is captured from the pre-transition state. ``START_REQUESTED``
+    replaces ``TunnelState.provider`` before effects run; post_stop must still
+    see the provider being left (Tailscale Funnel reset) rather than the new one.
+    """
+
+    provider: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -175,9 +182,11 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
         provider_token = str(event.data.get("provider_token", ""))
         max_retries = _event_int(event.data, "max_retries", state.max_retries)
 
-        # Cancel any previous timer / process if re-starting
+        # Cancel any previous timer / process if re-starting.
+        # Name the provider still on *state*: the new state below replaces it
+        # before effects run, and Tailscale post_stop must see who is leaving.
         effects.append(CancelRetryTimerEffect())
-        effects.append(TerminateProcessEffect())
+        effects.append(TerminateProcessEffect(provider=state.provider))
 
         effects.append(StartProcessEffect(port=port, provider=provider, provider_token=provider_token))
         new_state = dataclasses.replace(state, status=TunnelStatus.STARTING, port=port, provider=provider, provider_token=provider_token, public_url=None, retry_count=0, max_retries=max_retries, last_error=None, desired_running=True)
@@ -233,7 +242,7 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
 
     elif event.kind == TunnelEventKind.STOP_REQUESTED:
         effects.append(CancelRetryTimerEffect())
-        effects.append(TerminateProcessEffect())
+        effects.append(TerminateProcessEffect(provider=state.provider))
         new_state = dataclasses.replace(state, status=TunnelStatus.STOPPED, public_url=None, retry_count=0, last_error=None, desired_running=False)
         return FsmTransition(new_state, effects)
 
