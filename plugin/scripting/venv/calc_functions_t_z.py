@@ -16,7 +16,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from .calc_functions_util import _find_match_index
+from .calc_functions_util import _find_match_index, _to_float_a
 from .coerce import _LO_ERROR_TOKENS, is_missing_value
 
 
@@ -457,24 +457,14 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
 
 
 def vara(*args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_float_a
-
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            vals.append(_to_float_a(v))
+    vals = [_to_float_a(v) for arg in args for v in np.asarray(arg).ravel()]
     if len(vals) < 2:
         return float("nan")
     return float(np.var(vals, ddof=1))
 
 
 def varpa(*args: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_float_a
-
-    vals = []
-    for arg in args:
-        for v in np.asarray(arg).ravel():
-            vals.append(_to_float_a(v))
+    vals = [_to_float_a(v) for arg in args for v in np.asarray(arg).ravel()]
     if not vals:
         return float("nan")
     return float(np.var(vals, ddof=0))

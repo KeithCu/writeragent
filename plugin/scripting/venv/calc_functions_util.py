@@ -18,9 +18,23 @@ __all__ = [
     "_extract_numeric_array",
     "_find_match_index",
     "_npf_result",
+    "_to_float_a",
     "_wildcard_fullmatch",
     "match_criteria",
 ]
+
+
+def _to_float_a(val: Any) -> float:
+    """Helper for *A functions (AVERAGEA, STDEVA, etc.)."""
+    if is_missing_value(val):
+        return 0.0
+    if isinstance(val, (bool, np.bool_)):
+        return 1.0 if val else 0.0
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
 
 
 def _npf_result(kind: str, *args: Any) -> float:
