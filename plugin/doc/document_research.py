@@ -530,13 +530,26 @@ def resolve_path_or_name(
     filter: str | None = None,
     file_kind: FileKind = "documents",
 ) -> tuple[str | None, str | None]:
-    """Resolve a path or basename to an absolute path and file URL.
+    """Resolve a path, file URL, or basename to an absolute path and file URL.
 
     Returns (path, url) or (None, error_message).
     """
     raw = str(path_or_name).strip()
     if not raw:
         return None, "path_or_name is required"
+
+    # What was wrong: the tool schema accepts a file URL, and
+    # list_nearby_files / list_open_documents return ``file:///…`` urls.
+    # How: ``os.path.isabs("file:///…")`` is false, so the URL was used as
+    # a listing filter and matched nothing. ``open_document_for_read``
+    # already accepts ``file:`` URLs but was never reached.
+    # Why: convert with the same helper the opener uses, then treat the
+    # result as an absolute path (not a basename filter).
+    if raw.startswith("file:"):
+        resolved = _system_path_from_url(raw)
+        if resolved and os.path.isfile(resolved):
+            return resolved, path_to_file_url(resolved)
+        return None, f"No file matching {raw!r}"
 
     if os.path.isabs(raw) and os.path.isfile(raw):
         norm = _normalize_path(raw)
@@ -604,8 +617,9 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     """Open or reuse a document hidden+read-only.
 
     Returns (model, doc_type, error_message, opened_for_document_research). The last flag is True only
-    when this call loaded a new hidden document; callers must pass it to
+    when this call loaded a new hidden document that it returns; callers must pass it to
     :func:`close_document_research_document` after the read finishes. Reused desktop documents are not closed.
+    A load that is not returned (unsupported type, or an exception after load) is closed here.
     """
     from plugin.framework.uno_context import get_desktop
 
@@ -628,6 +642,13 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     if existing is not None:
         return existing, existing_type or doc_type_label_for_enum(get_document_type(existing), impress_as_draw=True), None, False
 
+    # What was wrong: a successful load that was not returned left a hidden
+    # component open. How: unknown doc_type returned the error without
+    # close, and the except path after loadComponentFromURL only logged.
+    # Repeated reads of unsupported files accumulated hidden LibreOffice
+    # components. Why: every load that is not handed back is closed here;
+    # callers still close only the model this function returns.
+    model: Any = None
     try:
         from plugin.writer.format import create_property_value
         desktop = get_desktop(ctx)
@@ -641,11 +662,14 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
             return None, None, f"Failed to open {path}", False
         doc_type = doc_type_label_for_enum(get_document_type(model), impress_as_draw=True)
         if doc_type == "unknown":
+            close_document_research_document(model, opened_for_document_research=True)
             return None, None, f"Unsupported document type for {path}", False
         from plugin.framework.thread_guard import guard_uno
 
         return guard_uno(model), doc_type, None, True
     except Exception as e:
+        if model is not None:
+            close_document_research_document(model, opened_for_document_research=True)
         log.exception("open_document_for_read failed for %s", path)
         return None, None, f"Failed to open {path}: {e}", False
 

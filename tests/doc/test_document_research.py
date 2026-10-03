@@ -24,6 +24,7 @@ from plugin.doc.document_research import (
     list_nearby_files,
     open_document_for_read,
     resolve_listing_directory,
+    resolve_path_or_name,
 )
 from plugin.doc.text_helpers import normalize_file_url
 from plugin.framework.url_utils import path_to_file_url
@@ -392,6 +393,59 @@ def test_close_document_research_document_closes_temporary_open():
     model.close.assert_called_once_with(True)
 
 
+def test_resolve_path_or_name_accepts_file_url_without_listing_filter():
+    """file:/// URLs from list_nearby_files / list_open_documents are absolute targets."""
+    with tempfile.TemporaryDirectory() as tmp:
+        budget = os.path.join(tmp, "Budget.ods")
+        with open(budget, "wb"):
+            pass
+        canonical = path_to_file_url(budget)
+        legacy = "file:" + canonical[len("file://") :]
+        with (
+            patch("plugin.doc.document_research.uno.fileUrlToSystemPath", return_value=budget) as mock_conv,
+            patch("plugin.doc.document_research.list_nearby_files") as mock_list,
+        ):
+            path, url = resolve_path_or_name(MagicMock(), MagicMock(), canonical)
+            legacy_path, legacy_url = resolve_path_or_name(MagicMock(), MagicMock(), legacy)
+        mock_list.assert_not_called()
+        expected = os.path.normpath(os.path.abspath(budget))
+        assert path == expected
+        assert legacy_path == expected
+        assert url == path_to_file_url(expected)
+        assert legacy_url == url
+        assert mock_conv.call_args_list[1].args[0] == canonical
+
+
+def test_resolve_path_or_name_missing_file_url_is_not_a_listing_filter():
+    missing = "file:///no/such/Budget.ods"
+    with (
+        patch("plugin.doc.document_research.uno.fileUrlToSystemPath", return_value="/no/such/Budget.ods"),
+        patch("plugin.doc.document_research.list_nearby_files") as mock_list,
+    ):
+        path, err = resolve_path_or_name(MagicMock(), MagicMock(), missing)
+    assert path is None
+    assert err == f"No file matching {missing!r}"
+    mock_list.assert_not_called()
+
+
+def test_resolve_path_or_name_basename_still_uses_listing():
+    with tempfile.TemporaryDirectory() as tmp:
+        budget = os.path.join(tmp, "Budget.ods")
+        notes = os.path.join(tmp, "Notes.odt")
+        for sibling in (budget, notes):
+            with open(sibling, "wb"):
+                pass
+        model = MagicMock()
+        with (
+            patch("plugin.doc.document_research.get_document_path", return_value=None),
+            patch("plugin.doc.document_research._collect_open_file_urls", return_value={}),
+            patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp),
+        ):
+            path, url = resolve_path_or_name(MagicMock(), model, "Budget.ods")
+        assert path == os.path.normpath(budget)
+        assert url == path_to_file_url(path)
+
+
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(MagicMock(), "calc"))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_reuses_existing_without_close_flag(mock_isfile, mock_resolve):
@@ -433,6 +487,46 @@ def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_re
     )
     assert args[1] == target
     assert args[2] == flags
+    opened_model.close.assert_not_called()
+
+
+@patch("plugin.doc.document_research.get_document_type")
+@patch("plugin.framework.uno_context.get_desktop")
+@patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
+@patch("plugin.doc.document_research.os.path.isfile", return_value=True)
+def test_open_document_for_read_closes_unsupported_type(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
+    """Unknown types must not leave the hidden component loaded."""
+    from plugin.doc.doc_type import DocumentType
+
+    opened_model = MagicMock()
+    mock_desktop.return_value.loadComponentFromURL.return_value = opened_model
+    mock_dtype.return_value = DocumentType.UNKNOWN
+    for attempt in range(2):
+        model, doc_type, err, opened_for_document_research = open_document_for_read(MagicMock(), "/tmp/photo.png")
+        assert model is None
+        assert doc_type is None
+        assert err is not None and "Unsupported document type" in err
+        assert opened_for_document_research is False
+        assert opened_model.close.call_count == attempt + 1
+    assert opened_model.close.call_count == 2
+    opened_model.close.assert_called_with(True)
+
+
+@patch("plugin.doc.document_research.get_document_type")
+@patch("plugin.framework.uno_context.get_desktop")
+@patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
+@patch("plugin.doc.document_research.os.path.isfile", return_value=True)
+def test_open_document_for_read_closes_when_post_load_raises(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
+    """An exception after loadComponentFromURL must not abandon the component."""
+    opened_model = MagicMock()
+    mock_desktop.return_value.loadComponentFromURL.return_value = opened_model
+    mock_dtype.side_effect = RuntimeError("type probe failed")
+    model, doc_type, err, opened_for_document_research = open_document_for_read(MagicMock(), "/tmp/Budget.ods")
+    assert model is None
+    assert doc_type is None
+    assert err is not None and "type probe failed" in err
+    assert opened_for_document_research is False
+    opened_model.close.assert_called_once_with(True)
 
 
 def test_nearby_uno_env_does_not_open_second_scalc_factory():
