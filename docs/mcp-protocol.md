@@ -350,11 +350,11 @@ External MCP hosts often fire several `tools/call` requests at once (e.g. resear
 | Layer | Applies to | Effect |
 |-------|------------|--------|
 | **Global semaphore** | Backpressure (non-`long_running`) tools only | At most one fast tool on the main thread; overload → HTTP 429 `BusyError` |
-| **Per-document gate** | Mutating tools on **both** backpressure and long-running paths | Same resolved document key (`document_url` / RuntimeUID) → mutating runs serialize; different docs and read-only runs stay concurrent |
+| **Per-document gate** | Mutating tools on **both** backpressure and long-running paths | Same resolved document key (`document_url` / RuntimeUID) → mutating runs serialize; different docs and read-only runs stay concurrent. The wait runs on the HTTP worker, not the LibreOffice UI thread. A busy document returns HTTP 429 `BusyError` after the timeout; a gate wait that reaches the VCL thread fails immediately instead of freezing the UI. |
 
 Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `image_generate`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
 
-**UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden).
+**UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden). Client `tools/call` arguments cannot set `bypass_thread_guard`; that flag would skip main-thread marshalling inside `ToolRegistry.execute`.
 
 **Targeting:** Pass **`document_url`** in each `tools/call` `arguments` (preferred — a `url` or `uid` from `list_open_documents`). The legacy **`X-Document-URL`** HTTP header still works for clients that set headers once per connection. Resolved URLs and RuntimeUIDs map to the same per-document gate key (normalized trailing slashes stripped).
 

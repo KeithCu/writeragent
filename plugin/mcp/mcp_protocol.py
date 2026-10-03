@@ -210,8 +210,10 @@ def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -
         handler.send_header("Mcp-Session-Id", session_id)
 
 
-# Backpressure — one fast MCP tool at a time on the main thread (_execute_with_backpressure).
-# Long-running tools skip this; see docs/framework/threading.md § MCP tool execution paths.
+# Backpressure — one fast MCP tool at a time (_execute_with_backpressure).
+# The tool body runs on the main thread; the per-document gate is acquired on the
+# HTTP worker so a busy document cannot freeze the VCL thread. Long-running tools
+# skip the global semaphore; see docs/framework/threading.md § MCP tool execution paths.
 _tool_semaphore = threading.Semaphore(1)
 _WAIT_TIMEOUT = 5.0
 _PROCESS_TIMEOUT = 60.0
@@ -304,14 +306,47 @@ def _tool_needs_document_mutation_gate(tool: Any, arguments: Any = None) -> bool
         return bool(tool.detects_mutation())
 
 
+def _mcp_registry_arguments(arguments: Any) -> Any:
+    """Tool arguments safe to splat into ``ToolRegistry.execute``.
+
+    What was wrong: a tools/call or localhost ``/debug`` ``call_tool`` body
+    could include ``bypass_thread_guard: true``. That name is keyword-only on
+    ``ToolRegistry.execute``, so the splat bound the privileged flag, skipped
+    ``execute_safe``, and ran the tool off the main thread (UNO crashes /
+    document corruption).
+    How: ``without_unknown_kwargs`` runs only after the signature has already
+    consumed the keyword, and MCP splatted client arguments with no explicit
+    ``bypass_thread_guard=False``.
+    Why: drop the key before the splat. The call site also passes
+    ``bypass_thread_guard=False``, so a client value cannot override it.
+    """
+    if isinstance(arguments, dict) and "bypass_thread_guard" in arguments:
+        return {key: value for key, value in arguments.items() if key != "bypass_thread_guard"}
+    return arguments
+
+
 @contextmanager
 def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.0) -> Generator[None, None, None]:
     if not enabled:
         yield
         return
+    # What was wrong: backpressure acquired this lock inside the callable
+    # QueueExecutor ran on the VCL thread. A long-running mutator already
+    # holding the same gate froze LibreOffice for up to 30s.
+    # How: ``_execute_with_backpressure`` marshalled the whole
+    # ``_execute_tool_on_main``, and ``Lock.acquire(timeout=30)`` lived there.
+    # Why: the main thread must not block on this lock. Try once and raise
+    # BusyError. HTTP workers wait (backpressure acquires before marshalling
+    # the tool body; long-running already acquires on the worker).
+    from plugin.framework.thread_guard import on_main_thread
+
+    wait = 0.0 if on_main_thread() else timeout
     gate = _get_document_mutation_gate(doc_key)
-    acquired = gate.acquire(timeout=timeout)
+    acquired = gate.acquire(timeout=wait)
     if not acquired:
+        if wait <= 0.0:
+            log.warning("MCP _document_mutation_gate busy for %s; not waiting on the VCL thread", doc_key)
+            raise BusyError(f"Document is busy ({doc_key})")
         log.warning("MCP _document_mutation_gate timed out after %ss waiting for %s", timeout, doc_key)
         raise BusyError(f"Timed out waiting for document mutation lock ({doc_key})")
     try:
@@ -851,16 +886,29 @@ class MCPProtocolHandler:
     # ── Backpressure execution ───────────────────────────────────────
 
     def _execute_with_backpressure(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
-        """Execute a tool on the VCL main thread with backpressure.
+        """Execute a fast tool on the VCL main thread with backpressure.
 
-        Acquires _tool_semaphore then _execute_tool_on_main (which holds the per-doc
-        mutation gate for mutating tools). UNO runs on the main thread only.
+        The global semaphore and the per-document mutation gate are acquired on
+        this HTTP worker. Only document resolve and the tool body are marshalled.
+        A long-running mutator may already hold the same gate; waiting for it
+        here must not freeze the UI (the acquire timeout is 30s).
         """
         acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
         if not acquired:
             raise BusyError("LibreOffice is busy processing another tool call. Please wait a moment and retry.")
         try:
-            return self.queue_executor.execute(self._execute_tool_on_main, tool_name, arguments, document_url, timeout=_PROCESS_TIMEOUT)
+            # What was wrong: this marshalled ``_execute_tool_on_main``, and that
+            # callable acquired the per-document gate on the VCL thread.
+            # How: a concurrent long-running mutating tools/call already holds
+            # the gate on another HTTP worker, so ``gate.acquire(timeout=30)``
+            # froze the UI for the whole wait.
+            # Why: prepare on the main thread (short UNO), wait for the gate on
+            # this worker, then marshal only the tool body.
+            prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, timeout=10.0)
+            if not isinstance(prepared, _PreparedMcpCall):
+                return prepared
+            with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
+                return self.queue_executor.execute(self._invoke_prepared_mcp_tool, prepared, tool_name, arguments, timeout=_PROCESS_TIMEOUT)
         finally:
             _tool_semaphore.release()
 
@@ -973,23 +1021,36 @@ class MCPProtocolHandler:
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services)
         return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=_tool_needs_document_mutation_gate(tool, arguments), echo=_document_echo_payload(doc))
 
-    def _run_prepared_mcp_execute(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
-        """Gate + registry execute + elapsed/echo. ``prepared.echo`` must already be computed on main."""
-        with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
-            t0 = time.perf_counter()
-            result = self.tool_registry.execute(tool_name, prepared.context, **arguments)
-            elapsed = time.perf_counter() - t0
+    def _invoke_prepared_mcp_tool(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
+        """Registry execute + elapsed/echo. Caller holds the mutation gate when needed.
+
+        ``prepared.echo`` must already be computed on the main thread.
+        ``bypass_thread_guard`` is pinned off — see ``_mcp_registry_arguments``.
+        """
+        t0 = time.perf_counter()
+        result = self.tool_registry.execute(tool_name, prepared.context, bypass_thread_guard=False, **_mcp_registry_arguments(arguments))
+        elapsed = time.perf_counter() - t0
         if isinstance(result, dict):
             result["_elapsed_ms"] = round(elapsed * 1000, 1)
             _attach_precomputed_echo(result, prepared.echo)
         return result
 
+    def _run_prepared_mcp_execute(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
+        """Acquire the per-document gate on the caller thread, then invoke.
+
+        Long-running tools call this on the HTTP worker. Do not marshal this
+        whole function onto the VCL thread: a contended acquire waits up to 30s.
+        On the main thread the gate fails fast (see ``_document_mutation_gate``).
+        """
+        with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
+            return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
+
     def _execute_long_running(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
         """Execute a long-running tool on the current background HTTP thread.
 
-        Context resolution runs on the main thread. Mutating tools hold the same
-        per-document gate as _execute_tool_on_main; read-only tools skip it.
-        Tool bodies run on the HTTP worker; UNO inside tools uses execute_on_main_thread.
+        Context resolution runs on the main thread. Mutating tools hold the
+        per-document gate on this worker; read-only tools skip it. Tool bodies
+        run on the HTTP worker; UNO inside tools uses execute_on_main_thread.
         """
         prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, timeout=10.0)
         if not isinstance(prepared, _PreparedMcpCall):
@@ -997,7 +1058,14 @@ class MCPProtocolHandler:
         return self._run_prepared_mcp_execute(prepared, tool_name, arguments)
 
     def _execute_tool_on_main(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
-        """Run a backpressure tool on the main thread; shares _document_mutation_gate with long-running path."""
+        """Prepare and run on the caller. Production backpressure does not marshal this.
+
+        Marshalling the whole method would acquire the mutation gate on the VCL
+        thread. ``_execute_with_backpressure`` waits for the gate on the HTTP
+        worker, then marshals ``_invoke_prepared_mcp_tool`` only. Direct callers
+        (tests) still get prepare + gate + execute here; on the VCL thread a
+        busy gate raises BusyError instead of blocking.
+        """
         prepared = self._prepare_mcp_execution(tool_name, arguments, document_url)
         if not isinstance(prepared, _PreparedMcpCall):
             return prepared

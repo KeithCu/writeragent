@@ -11,13 +11,15 @@
 # UNO is marshalled to the LibreOffice main thread; these tests measure logical
 # overlap in tool bodies (where mutation would happen), not raw UNO thread safety.
 #
-# _execute_with_backpressure: global Semaphore(1) + main thread + per-doc gate.
+# _execute_with_backpressure: global Semaphore(1) + tool body on main + per-doc gate
+#   acquired on the caller (not inside the marshalled main-thread callable).
 # _execute_long_running: HTTP worker thread, no global semaphore + per-doc gate.
 #   - backpressure MUTATING, same document              -> serialized (1)
 #   - long-running MUTATING, same document              -> serialized (1)
 #   - long-running MUTATING, different documents        -> concurrent (2)
 #   - long-running READ-ONLY, same document             -> concurrent (2)
 #   - long-running + backpressure MUTATING, same doc    -> serialized (1)
+#   - backpressure gate wait while long-running holds it -> VCL thread stays free
 import threading
 import time
 
@@ -266,3 +268,128 @@ def test_cross_path_long_running_and_backpressure_same_document_serializes():
     assert reg.max_concurrency == 1, (
         "expected SERIALIZED (1) across long-running + backpressure, got %d" % reg.max_concurrency
     )
+
+
+def test_backpressure_gate_wait_does_not_block_vcl_thread():
+    """A long-running mutator holds the per-doc gate on a worker.
+
+    Concurrent backpressure must wait on its own thread. Marshalling the
+    acquire onto the VCL thread froze the UI for up to the 30s timeout.
+    """
+    import queue as queue_mod
+
+    held = threading.Event()
+    release = threading.Event()
+    bp_prepared = threading.Event()
+
+    class _Vcl:
+        def __init__(self):
+            self._q = queue_mod.Queue()
+            self.inside = threading.Event()
+            self.durations = []
+            self.thread = threading.Thread(target=self._loop, name="fake-vcl", daemon=True)
+            self.thread.start()
+
+        def _loop(self):
+            while True:
+                item = self._q.get()
+                if item is None:
+                    return
+                fn, args, done = item
+                self.inside.set()
+                t0 = time.perf_counter()
+                try:
+                    result = fn(*args)
+                    err = None
+                except Exception as exc:  # noqa: BLE001
+                    result, err = None, exc
+                self.durations.append(time.perf_counter() - t0)
+                self.inside.clear()
+                done.put((result, err))
+
+        def execute(self, fn, *args, **kwargs):
+            done = queue_mod.Queue()
+            self._q.put((fn, args, done))
+            result, err = done.get(timeout=5)
+            if err is not None:
+                raise err
+            return result
+
+        def close(self):
+            self._q.put(None)
+            self.thread.join(timeout=2)
+
+    class _Reg(_Registry):
+        def get(self, name):
+            info = super().get(name)
+            # Capture the original bound method. Assigning the wrapper first
+            # would recurse: the wrapper would call itself.
+            original = info.requires_document_lock
+
+            def requires_document_lock(arguments=None, _original=original):
+                needed = _original(arguments)
+                if held.is_set() and threading.current_thread() is vcl.thread:
+                    bp_prepared.set()
+                return needed
+
+            info.requires_document_lock = requires_document_lock
+            return info
+
+        def execute(self, name, context, **kwargs):
+            if threading.current_thread() is not vcl.thread:
+                held.set()
+                with self._lock:
+                    self._active += 1
+                    self.max_concurrency = max(self.max_concurrency, self._active)
+                try:
+                    assert release.wait(timeout=5), "long-running gate hold was not released"
+                finally:
+                    with self._lock:
+                        self._active -= 1
+                return {"status": "ok"}
+            return super().execute(name, context, **kwargs)
+
+    vcl = _Vcl()
+    reg = _Reg(is_mutation=True, hold=0.05)
+    handler = MCPProtocolHandler(_FakeServices(reg))
+    handler.queue_executor = vcl
+    errors = []
+
+    def run_long():
+        try:
+            handler._execute_long_running("any_tool", {}, document_url="file:///gate-wait.odt")
+        except Exception as exc:  # noqa: BLE001
+            errors.append("long: %s: %s" % (type(exc).__name__, exc))
+
+    def run_bp():
+        try:
+            handler._execute_with_backpressure("any_tool", {}, document_url="file:///gate-wait.odt")
+        except Exception as exc:  # noqa: BLE001
+            errors.append("bp: %s: %s" % (type(exc).__name__, exc))
+
+    t_long = threading.Thread(target=run_long)
+    t_bp = threading.Thread(target=run_bp)
+    try:
+        t_long.start()
+        assert held.wait(timeout=2), "long-running never acquired the document gate"
+        t_bp.start()
+        assert bp_prepared.wait(timeout=2), "backpressure never finished main-thread prepare"
+        # Prepare has returned. If the gate wait were inside that marshalled
+        # call, the VCL thread would still be inside it until release.
+        deadline = time.perf_counter() + 0.4
+        while vcl.inside.is_set() and time.perf_counter() < deadline:
+            time.sleep(0.01)
+        assert not vcl.inside.is_set(), "VCL thread blocked while the document gate was held"
+        time.sleep(0.1)
+        assert not vcl.inside.is_set(), "VCL thread blocked for the gate wait"
+    finally:
+        release.set()
+        t_long.join(timeout=3)
+        t_bp.join(timeout=3)
+        vcl.close()
+
+    assert not errors, "gate wait off the VCL thread should still complete: %s" % errors
+    assert not t_long.is_alive() and not t_bp.is_alive()
+    assert reg.max_concurrency == 1, "expected SERIALIZED (1), got %d" % reg.max_concurrency
+    assert vcl.durations, "expected marshalled main-thread calls"
+    assert max(vcl.durations) < 0.3, "a marshalled call included the gate wait: %s" % vcl.durations

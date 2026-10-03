@@ -23,7 +23,7 @@ This is the core concurrency bridge. Because background threads (like the HTTP s
 The plugin runs an embedded HTTP server to provide a local API and support the Model Context Protocol (MCP).
 
 *   **`server.py`:** The `HttpServer` wrapper (inner `_ThreadedHTTPServer`) runs in a dedicated daemon thread (`name="http-server"`) via `run_in_background(..., dedicated=True)`. This allows the server to perpetually listen for incoming requests without occupying the bounded background pool.
-*   **`mcp_protocol.py`:** Incoming HTTP requests land on the server's thread. Document resolution and UNO context lookup run on the main thread via `QueueExecutor`; tool bodies that touch the document either run entirely on the main thread (backpressure path) or on the HTTP worker with UNO work marshalled through `execute_on_main_thread` (long-running path).
+*   **`mcp_protocol.py`:** Incoming HTTP requests land on the server's thread. Document resolution and UNO context lookup run on the main thread via `QueueExecutor`. Backpressure tool bodies run on the main thread; the per-document mutation gate is acquired on the HTTP worker first, so a busy document cannot block the VCL thread. Long-running tool bodies run on the HTTP worker, with UNO work marshalled through `execute_on_main_thread`.
 
 #### MCP tool execution paths
 
@@ -31,31 +31,35 @@ MCP `tools/call` routes to one of two handlers in [`mcp_protocol.py`](../../plug
 
 | Path | Method | Thread | Global limit | Per-document gate |
 |------|--------|--------|--------------|-------------------|
-| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only |
-| Long-running | `_execute_long_running` | HTTP worker | None (by design) | Mutating tools only |
+| Backpressure | `_execute_with_backpressure` | Tool body on main (via queue). Semaphore and gate wait on the HTTP worker. | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only; acquired off the VCL thread |
+| Long-running | `_execute_long_running` | HTTP worker | None (by design) | Mutating tools only; acquired on the HTTP worker |
 
 ```mermaid
 flowchart TB
     subgraph backpressure [Backpressure path]
-        Sem["_tool_semaphore acquire"]
-        MainRun["_prepare_mcp_execution + execute on main thread"]
-        Sem --> MainRun
+        Sem["_tool_semaphore acquire on HTTP worker"]
+        Prep["prepare on main thread"]
+        GateWait["gate.acquire on HTTP worker"]
+        MainRun["tool body on main thread"]
+        Sem --> Prep --> GateWait --> MainRun
     end
     subgraph longrun [Long-running path]
+        HttpPrep["prepare on main thread"]
+        HttpGate["gate.acquire on HTTP worker"]
         HttpRun["tool body on HTTP thread"]
+        HttpPrep --> HttpGate --> HttpRun
     end
-    MainRun --> Gate["_document_mutation_gate when mutating"]
-    HttpRun --> Gate
-    Gate --> Uno["UNO via main-thread dispatch"]
+    MainRun --> Uno["UNO on main thread"]
+    HttpRun --> Uno
 ```
 
 **Why two layers?** The global semaphore keeps fast MCP tools from piling up on the main thread and surfaces `BusyError` (HTTP 429) under overload. Long-running tools (image generation, delegate sub-agents) skip the semaphore so a minutes-long job does not block every other MCP client. That left a hole: parallel long-running mutators could target the same document. The per-document gate closes that without blocking read-only work or work on other documents.
 
-**Per-document gate:** [`_document_mutation_gate`](../../plugin/mcp/mcp_protocol.py) serializes mutating MCP runs that share a normalized document key (`X-Document-URL`, `doc.getURL()`, or `RuntimeUID`). Tools opt out via [`ToolBase.requires_document_lock()`](../../plugin/framework/tool.py) (defaults to `detects_mutation()`). Delegate gateways return `False` for read-only domains (`document_research`, `web_research`, `vision`).
+**Per-document gate:** [`_document_mutation_gate`](../../plugin/mcp/mcp_protocol.py) serializes mutating MCP runs that share a normalized document key (`X-Document-URL`, `doc.getURL()`, or `RuntimeUID`). Tools opt out via [`ToolBase.requires_document_lock()`](../../plugin/framework/tool.py) (defaults to `detects_mutation()`). Delegate gateways return `False` for read-only domains (`document_research`, `web_research`, `vision`). The gate is acquired on the HTTP worker for both paths. Backpressure used to acquire it inside the marshalled main-thread callable, so a long-running mutator already holding the gate froze the UI for the 30s acquire timeout. Waiting stays on the worker; if the wait is ever reached on the VCL thread, the acquire does not block and the call raises `BusyError`.
 
 **UNO thread safety:** All UNO access is marshalled to the LibreOffice main thread. The per-document gate is **logical** serialization — it prevents overlapping mutating MCP tool runs on the same file, not raw cross-thread UNO calls.
 
-**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), and unknown-tool conservative locking.
+**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), unknown-tool conservative locking, and that a backpressure gate wait does not occupy the VCL thread. [`tests/mcp/test_mcp_protocol.py`](../../tests/mcp/test_mcp_protocol.py) covers client `bypass_thread_guard` being ignored and the main-thread gate failing fast.
 
 **Not covered by MCP gates (different models):**
 *   **Sidebar chat** ([`tool_loop.py`](../../plugin/chatbot/tool_loop.py)) — one tool per LLM round; async tools run on worker threads but the loop waits for `TOOL_RESULT` before spawning the next.
