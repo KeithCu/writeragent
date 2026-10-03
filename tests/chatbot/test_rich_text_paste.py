@@ -35,7 +35,7 @@ from plugin.chatbot.rich_text_paste import (
 
 
 @contextmanager
-def _immediate_focus(_ctx):
+def _immediate_focus(_ctx, _restore=None):
     yield
 
 
@@ -275,7 +275,7 @@ class TestHistoryMessageBatching:
         mock_cfg.assert_called_once_with(doc)
         assert mock_append.call_count == 10
         mock_copy.assert_called_once()
-        mock_scroll.assert_called_once_with(control, ctx)
+        mock_scroll.assert_called_once_with(control, ctx, restore_focus=None)
         doc.close.assert_called_once_with(True)
 
     def test_failed_batch_plain_appends_with_role_prefix(self):
@@ -290,7 +290,7 @@ class TestHistoryMessageBatching:
         written: list[str] = []
         theme = MagicMock(user_color=1, assistant_color=2)
 
-        def _capture(_control, text, auto_scroll=False, style_window=None, ctx=None, query=None, char_color=None):
+        def _capture(_control, text, auto_scroll=False, style_window=None, ctx=None, query=None, char_color=None, restore_focus=None):
             written.append((text, char_color))
 
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \

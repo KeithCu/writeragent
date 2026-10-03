@@ -444,6 +444,9 @@ def _copy_formatted_from_hidden_doc_to_control(
     style_window: Any = None,
     auto_scroll: bool = True,
     cell_link_targets: list[tuple[str, str]] | None = None,
+    *,
+    restore: Any = None,
+    restore_focus: Any = None,
 ) -> tuple[bool, str | None]:
     """Copy formatted Writer body text into the sidebar RichText control (safe — no clipboard/frame paste).
 
@@ -567,7 +570,7 @@ def _copy_formatted_from_hidden_doc_to_control(
 
             if inserted and not element_skipped:
                 if auto_scroll:
-                    _scroll_rich_to_tail(control, ctx)
+                    _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
                 log_rich_scroll("copy_done", control=control, role=role, auto_scroll=int(auto_scroll))
                 log.info(
                     "_copy_formatted_from_hidden_doc_to_control: ok control_len=%s role=%s",
@@ -579,7 +582,7 @@ def _copy_formatted_from_hidden_doc_to_control(
             copy_failed_with_exception = True
 
     if ctx is not None:
-        with focus_preserved(ctx):
+        with focus_preserved(ctx, restore):
             _do_copy()
     else:
         _do_copy()
@@ -628,7 +631,7 @@ def _plain_role_prefix(role: str) -> str:
     return _("Assistant:") + " "
 
 
-def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False) -> bool:
+def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
     """Plain transcript rows with the formatted path's role label, color, and gap.
 
     What was wrong: every row used the assistant color and had no prefix or
@@ -649,12 +652,13 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
             style_window=style_window,
             ctx=ctx,
             char_color=color,
+            restore_focus=restore_focus,
         )
         wrote = True
     return wrote
 
 
-def _append_hidden_doc_to_control(doc: Any, control: Any, ctx: Any, style_window: Any = None, auto_scroll: bool = True, cell_link_targets: Any = None) -> bool:
+def _append_hidden_doc_to_control(doc: Any, control: Any, ctx: Any, style_window: Any = None, auto_scroll: bool = True, cell_link_targets: Any = None, *, restore: Any = None, restore_focus: Any = None) -> bool:
     """Copy hidden Writer content into the sidebar control via direct copy."""
     ok, _unused = _copy_formatted_from_hidden_doc_to_control(
         doc,
@@ -664,6 +668,8 @@ def _append_hidden_doc_to_control(doc: Any, control: Any, ctx: Any, style_window
         style_window=style_window,
         auto_scroll=auto_scroll,
         cell_link_targets=cell_link_targets,
+        restore=restore,
+        restore_focus=restore_focus,
     )
     return ok
 
@@ -677,6 +683,9 @@ def append_rich_messages_via_clipboard(
     items: Any,
     style_window: Any = None,
     batch_chars: int = HISTORY_RENDER_BATCH_CHARS,
+    *,
+    restore: Any = None,
+    restore_focus: Any = None,
 ) -> None:
     """Render many chat messages with minimal UI updates (batched hidden Writer + direct copy)."""
     if not control or not items:
@@ -696,7 +705,7 @@ def append_rich_messages_via_clipboard(
                 # failure then skipped that history entirely. Later batches
                 # still render; this one is written as plain text.
                 log.warning("append_rich_messages_via_clipboard: hidden Writer unavailable")
-                if _plain_append_messages(control, batch, ctx, style_window):
+                if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
                     any_inserted = True
                 continue
             configure_hidden_writer_for_chat(doc)
@@ -719,10 +728,11 @@ def append_rich_messages_via_clipboard(
             )
             if html_ok and _append_hidden_doc_to_control(
                 doc, control, ctx, style_window=style_window, auto_scroll=False, cell_link_targets=batch_links,
+                restore=restore, restore_focus=restore_focus,
             ):
                 inserted = True
                 any_inserted = True
-                _scroll_rich_to_tail(control, ctx)
+                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
             else:
                 # What was wrong: one bad element failed the batch, the rollback
                 # removed it, and history has no second copy, so up to
@@ -732,13 +742,13 @@ def append_rich_messages_via_clipboard(
                     len(batch),
                 )
                 _rollback_rich_insert(control, before)
-                if _plain_append_messages(control, batch, ctx, style_window):
+                if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
                     any_inserted = True
         except Exception:
             log.exception("append_rich_messages_via_clipboard batch failed")
             if not inserted:
                 _rollback_rich_insert(control, before)
-                if _plain_append_messages(control, batch, ctx, style_window):
+                if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
                     any_inserted = True
         finally:
             if doc is not None:
@@ -804,6 +814,9 @@ def append_rich_text_via_clipboard(
     style_window: Any = None,
     auto_scroll: bool = True,
     on_after_insert: Any = None,
+    *,
+    restore: Any = None,
+    restore_focus: Any = None,
 ) -> bool:
     """Import HTML in a hidden Writer doc and copy formatted content directly into the RichText control.
 
@@ -833,7 +846,7 @@ def append_rich_text_via_clipboard(
             log.warning("append_rich_text_via_clipboard: hidden Writer unavailable")
             _rollback_rich_insert(control, before)
             _plain_append_messages(
-                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll,
+                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
             )
             return True
         configure_hidden_writer_for_chat(doc)
@@ -844,7 +857,7 @@ def append_rich_text_via_clipboard(
             log.warning("append_rich_text_via_clipboard: HTML import failed role=%s", role)
             _rollback_rich_insert(control, before)
             _plain_append_messages(
-                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll,
+                control, [(role, text)], ctx, style_window, auto_scroll=auto_scroll, restore_focus=restore_focus,
             )
             return True
         log.debug("append_rich_text_via_clipboard: hidden doc ready len=%d role=%s", len(text), role)
@@ -856,6 +869,8 @@ def append_rich_text_via_clipboard(
             style_window=style_window,
             auto_scroll=auto_scroll,
             cell_link_targets=cell_link_targets,
+            restore=restore,
+            restore_focus=restore_focus,
         )
         if ok:
             inserted = True
@@ -872,14 +887,14 @@ def append_rich_text_via_clipboard(
             )
             _rollback_rich_insert(control, before)
         if inserted and role == "user":
-            with focus_preserved(ctx):
+            with focus_preserved(ctx, restore):
                 _ensure_trailing_line_break(control)
             if auto_scroll:
                 # Do not reveal_caret. That setFocus GetFocus-es the viewport,
                 # which switches EESelectionMode to Std while SelectAll is still
                 # covering the whole control (user-message flash). Agent stream
                 # never reveal_caret, so it does not flash.
-                _scroll_rich_to_tail(control, ctx)
+                _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
             if callable(on_after_insert):
                 try:
                     on_after_insert(get_control_text_length(control))

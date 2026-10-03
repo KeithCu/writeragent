@@ -99,27 +99,9 @@ def test_get_ctx_fallback_uno_returns_none():
             set_fallback_ctx(None)
 
 
-def test_clear_default_focus_restore_if_keeps_another_panels_query():
-    from plugin.framework.uno_context import clear_default_focus_restore_if, set_default_focus_restore
-    from plugin.framework import uno_context as uc
-
-    mine = MagicMock()
-    other = MagicMock()
-    set_default_focus_restore(other)
-    try:
-        clear_default_focus_restore_if(mine)
-        assert uc._default_focus_restore is other
-        clear_default_focus_restore_if(other)
-        assert uc._default_focus_restore is None
-    finally:
-        set_default_focus_restore(None)
-
-
 def test_focus_preserved_restores_focus_window():
+    from plugin.framework.uno_context import focus_preserved
 
-    from plugin.framework.uno_context import focus_preserved, set_default_focus_restore
-
-    set_default_focus_restore(None)
     focus_window = MagicMock()
     toolkit = MagicMock()
     toolkit.getFocusWindow.return_value = focus_window
@@ -131,60 +113,19 @@ def test_focus_preserved_restores_focus_window():
     focus_window.setFocus.assert_called_once()
 
 
-def test_focus_preserved_prefers_pinned_query_over_toolkit():
-    from plugin.framework.uno_context import focus_preserved, set_default_focus_restore
+def test_focus_preserved_prefers_explicit_query_over_toolkit():
+    from plugin.framework.uno_context import focus_preserved
 
     query = MagicMock()
     send_btn = MagicMock()
     toolkit = MagicMock()
     toolkit.getFocusWindow.return_value = send_btn
-    set_default_focus_restore(query)
-    try:
-        with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
-            with focus_preserved(MagicMock()):
-                pass
-    finally:
-        set_default_focus_restore(None)
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        with focus_preserved(MagicMock(), query):
+            pass
 
     query.setFocus.assert_called_once()
     send_btn.setFocus.assert_not_called()
-
-
-def test_restore_query_if_user_still_there():
-    from plugin.framework import uno_context as uc
-
-    query = MagicMock()
-    uc.set_default_focus_restore(query)
-    uc.note_user_wants_query()
-    try:
-        uc.restore_query_if_user_still_there()
-        query.setFocus.assert_called_once()
-        query.reset_mock()
-        uc._restore_query_after_scroll = False
-        uc.restore_query_if_user_still_there()
-        query.setFocus.assert_not_called()
-    finally:
-        uc.set_default_focus_restore(None)
-        uc._restore_query_after_scroll = True
-
-
-def test_note_user_left_query_skips_restore():
-    """Packet B1: hovering/clicking Stop must stop query.setFocus on stream chunks."""
-    from plugin.framework import uno_context as uc
-
-    query = MagicMock()
-    uc.set_default_focus_restore(query)
-    uc.note_user_wants_query()
-    try:
-        uc.note_user_left_query()
-        uc.restore_query_if_user_still_there()
-        query.setFocus.assert_not_called()
-        uc.note_user_wants_query()
-        uc.restore_query_if_user_still_there()
-        query.setFocus.assert_called_once()
-    finally:
-        uc.set_default_focus_restore(None)
-        uc._restore_query_after_scroll = True
 
 
 def test_process_events_to_idle_calls_toolkit():
@@ -569,24 +510,6 @@ def test_get_extension_path_rejects_non_file_url():
         assert get_extension_path() == ""
 
 
-def test_leave_query_rolls_back_half_attached_pair():
-    from plugin.framework import uno_context as uc
-
-    control = MagicMock()
-    mouse = object()
-    focus = object()
-    uc._stream_focus_trackers.append(mouse)
-    uc._stream_focus_trackers.append(focus)
-    try:
-        uc._rollback_leave_query_attach(control, mouse, focus)
-        control.removeMouseListener.assert_called_once_with(mouse)
-        control.removeFocusListener.assert_called_once_with(focus)
-        assert mouse not in uc._stream_focus_trackers
-        assert focus not in uc._stream_focus_trackers
-    finally:
-        uc._stream_focus_trackers.clear()
-
-
 def test_get_desktop_skips_create_on_uno_bin_helper():
     """Register/enable uno.bin must not createInstance(Desktop) (#768)."""
     from plugin.framework.uno_context import get_desktop
@@ -704,45 +627,6 @@ def test_new_blank_writer_keeps_an_already_empty_body():
         assert new_blank_writer(MagicMock()) is sentinel
 
 
-def test_install_does_not_replace_focus_pin():
-    import types
-
-    from plugin.framework import uno_context as uc
-
-    class _Base:
-        pass
-
-    class XFocusListener:
-        pass
-
-    class XMouseListener:
-        pass
-
-    class XMouseClickHandler:
-        pass
-
-    first = MagicMock()
-    second = MagicMock()
-    saved_pin = uc._default_focus_restore
-    saved_trackers = list(uc._stream_focus_trackers)
-    saved_query = uc._query_focus_listener
-    uc._stream_focus_trackers.clear()
-    uc._query_focus_listener = None
-    uc._query_focus_bindings.clear()
-    uc.set_default_focus_restore(first)
-    fake_awt = types.SimpleNamespace(XFocusListener=XFocusListener, XMouseListener=XMouseListener, XMouseClickHandler=XMouseClickHandler)
-    try:
-        with patch.dict(sys.modules, {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt}):
-            uc.install_stream_focus_tracker(MagicMock(), query=second)
-        assert uc._default_focus_restore is first
-        second.addFocusListener.assert_called_once()
-    finally:
-        uc.set_default_focus_restore(saved_pin)
-        uc._stream_focus_trackers[:] = saved_trackers
-        uc._query_focus_listener = saved_query
-        uc._query_focus_bindings.clear()
-
-
 def test_get_active_document_reraises_disposed():
     """A document that dies mid-call must not look like nothing is open."""
     from plugin.framework.errors import DocumentDisposedError
@@ -778,17 +662,6 @@ def test_get_active_document_none_on_other_uno_object_error():
         assert get_active_document(MagicMock()) is None
 
 
-def test_current_document_controller_skips_desktop_create_on_no_vcl():
-    from plugin.framework.uno_context import _current_document_controller
-
-    smgr = MagicMock()
-    ctx = MagicMock()
-    ctx.ServiceManager = smgr
-    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
-        assert _current_document_controller(ctx) is None
-    smgr.createInstanceWithContext.assert_not_called()
-
-
 def test_extension_id_constants_match_package_ids():
     from plugin.framework.constants import (
         EXTENSION_ID_LIBREHARPER,
@@ -805,219 +678,6 @@ def test_extension_id_constants_match_package_ids():
         EXTENSION_ID_WRITERAGENT,
         EXTENSION_ID_LIBREHARPER,
     )
-
-
-def test_attach_leave_query_listeners_adds_mouse_and_focus():
-    """Sidebar Stop/Clear must get mouse listeners so stream restore does not steal the click."""
-    import types
-
-    from plugin.framework import uno_context as uc
-
-    class _Base:
-        pass
-
-    class XFocusListener:
-        pass
-
-    class XMouseListener:
-        pass
-
-    control = MagicMock()
-    saved = list(uc._stream_focus_trackers)
-    uc._stream_focus_trackers.clear()
-    fake_awt = types.SimpleNamespace(XFocusListener=XFocusListener, XMouseListener=XMouseListener)
-    try:
-        with patch.dict(
-            sys.modules,
-            {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
-        ):
-            uc._attach_leave_query_listeners(control)
-        control.addMouseListener.assert_called_once()
-        control.addFocusListener.assert_called_once()
-        assert len(uc._stream_focus_trackers) == 2
-    finally:
-        uc._stream_focus_trackers[:] = saved
-
-
-def test_install_attaches_leave_controls_when_trackers_already_exist():
-    """Second sidebar must still get Stop/Clear leave listeners (global tracker early-return)."""
-    import types
-
-    from plugin.framework import uno_context as uc
-
-    class _Base:
-        pass
-
-    class XFocusListener:
-        pass
-
-    class XMouseListener:
-        pass
-
-    class XMouseClickHandler:
-        pass
-
-    stop = MagicMock()
-    query = MagicMock()
-    saved = list(uc._stream_focus_trackers)
-    saved_query_listener = uc._query_focus_listener
-    uc._stream_focus_trackers[:] = [object()]
-    uc._query_focus_listener = object()
-    fake_awt = types.SimpleNamespace(
-        XFocusListener=XFocusListener,
-        XMouseListener=XMouseListener,
-        XMouseClickHandler=XMouseClickHandler,
-    )
-    try:
-        with patch.dict(
-            sys.modules,
-            {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
-        ):
-            uc.install_stream_focus_tracker(
-                MagicMock(),
-                query=query,
-                leave_query_controls=(stop,),
-            )
-        stop.addMouseListener.assert_called_once()
-        stop.addFocusListener.assert_called_once()
-        # A different Ask field still gets focusGained. The old early return
-        # skipped it whenever any query listener was already live.
-        query.addFocusListener.assert_called_once()
-        uc.install_stream_focus_tracker(MagicMock(), query=query, leave_query_controls=(stop,))
-        stop.addMouseListener.assert_called_once()
-        query.addFocusListener.assert_called_once()
-    finally:
-        uc._stream_focus_trackers[:] = saved
-        uc._query_focus_listener = saved_query_listener
-        uc._query_focus_bindings.clear()
-        uc._leave_query_bindings.clear()
-
-
-def test_install_click_handler_follows_each_document_controller():
-    """A later document must get its own page-click handler; disposing removes it."""
-    import types
-
-    from plugin.framework import uno_context as uc
-
-    class _Base:
-        pass
-
-    class XFocusListener:
-        pass
-
-    class XMouseClickHandler:
-        pass
-
-    class XMouseListener:
-        pass
-
-    class _Controller:
-        def __init__(self) -> None:
-            self.added: list[object] = []
-            self.removed: list[object] = []
-
-        def addMouseClickHandler(self, handler: object) -> None:
-            self.added.append(handler)
-
-        def removeMouseClickHandler(self, handler: object) -> None:
-            self.removed.append(handler)
-
-    first = _Controller()
-    second = _Controller()
-    saved_trackers = list(uc._stream_focus_trackers)
-    saved_bindings = list(uc._doc_click_bindings)
-    saved_query_listener = uc._query_focus_listener
-    uc._stream_focus_trackers.clear()
-    uc._doc_click_bindings.clear()
-    uc._query_focus_listener = None
-    fake_awt = types.SimpleNamespace(
-        XFocusListener=XFocusListener,
-        XMouseListener=XMouseListener,
-        XMouseClickHandler=XMouseClickHandler,
-    )
-    controllers = iter([first, second, second])
-    try:
-        with (
-            patch.dict(
-                sys.modules,
-                {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
-            ),
-            patch.object(uc, "_current_document_controller", side_effect=lambda ctx: next(controllers)),
-        ):
-            uc.install_stream_focus_tracker(MagicMock(), query=MagicMock())
-            uc.install_stream_focus_tracker(MagicMock(), query=MagicMock())
-            uc.install_stream_focus_tracker(MagicMock(), query=MagicMock())
-        assert len(first.added) == 1
-        assert len(second.added) == 1
-        handler = second.added[0]
-        handler.disposing(None)
-        assert second.removed == [handler]
-        assert all(pair[1] is not handler for pair in uc._doc_click_bindings)
-    finally:
-        uc._stream_focus_trackers[:] = saved_trackers
-        uc._doc_click_bindings[:] = saved_bindings
-        uc._query_focus_listener = saved_query_listener
-
-
-def test_disposed_query_listener_lets_the_next_sidebar_attach():
-    """disposing() must clear the query listener so a reopened sidebar hears focusGained."""
-    import types
-
-    from plugin.framework import uno_context as uc
-
-    class _Base:
-        pass
-
-    class XFocusListener:
-        pass
-
-    class XMouseListener:
-        pass
-
-    class XMouseClickHandler:
-        pass
-
-    saved_trackers = list(uc._stream_focus_trackers)
-    saved_query_listener = uc._query_focus_listener
-    uc._stream_focus_trackers.clear()
-    uc._query_focus_listener = None
-    uc._query_focus_bindings.clear()
-    uc._leave_query_bindings.clear()
-    fake_awt = types.SimpleNamespace(
-        XFocusListener=XFocusListener,
-        XMouseListener=XMouseListener,
-        XMouseClickHandler=XMouseClickHandler,
-    )
-    try:
-        with patch.dict(
-            sys.modules,
-            {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
-        ):
-            first = MagicMock()
-            uc.install_stream_focus_tracker(MagicMock(), query=first)
-            listener = first.addFocusListener.call_args[0][0]
-            listener.disposing(None)
-            assert uc._query_focus_listener is None
-            second = MagicMock()
-            uc.install_stream_focus_tracker(MagicMock(), query=second)
-            second.addFocusListener.assert_called_once()
-            second.addFocusListener.call_args[0][0].focusGained(None)
-            leave = MagicMock()
-            uc.install_stream_focus_tracker(MagicMock(), query=second, leave_query_controls=(leave,))
-            mouse = leave.addMouseListener.call_args[0][0]
-            before = len(uc._stream_focus_trackers)
-            mouse.disposing(None)
-            assert mouse not in uc._stream_focus_trackers
-            assert len(uc._stream_focus_trackers) < before
-            leave.removeMouseListener.assert_called()
-    finally:
-        uc._stream_focus_trackers[:] = saved_trackers
-        uc._query_focus_listener = saved_query_listener
-        uc._query_focus_bindings.clear()
-        uc._leave_query_bindings.clear()
-
-
-# ---- uno_same --------------------------------------------------------------
 
 
 class _NeverEq:
@@ -1320,23 +980,3 @@ def test_doc_identity_url_repairs_file_slash_without_changing_normalize():
     assert _doc_identity_url("file:/tmp/note.odt") == _doc_identity_url("file:///tmp/note.odt")
 
 
-def test_controller_for_stream_clicks_uses_panel_frame():
-    from plugin.framework.uno_context import _controller_for_stream_clicks
-
-    frame = MagicMock()
-    controller = object()
-    frame.getController.return_value = controller
-    with patch("plugin.framework.uno_context._current_document_controller", side_effect=AssertionError("desktop")):
-        assert _controller_for_stream_clicks(MagicMock(), frame) is controller
-
-
-def test_controller_for_stream_clicks_falls_back_without_frame():
-    from plugin.framework.uno_context import _controller_for_stream_clicks
-
-    sentinel = object()
-    frame = MagicMock()
-    frame.getController.return_value = None
-    with patch("plugin.framework.uno_context._current_document_controller", return_value=sentinel) as desktop:
-        assert _controller_for_stream_clicks(MagicMock(), None) is sentinel
-        assert _controller_for_stream_clicks(MagicMock(), frame) is sentinel
-    assert desktop.call_count == 2

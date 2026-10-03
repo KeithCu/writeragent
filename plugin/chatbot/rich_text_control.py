@@ -110,13 +110,17 @@ class RichTextChatWidget:
     control: Any
     style_window: Any
     query: Any
+    restore_focus: Any
     model: Any
 
-    def __init__(self, ctx: Any, control: Any, style_window: Any = None, query: Any = None) -> None:
+    def __init__(self, ctx: Any, control: Any, style_window: Any = None, query: Any = None, restore_focus: Any = None) -> None:
         self.ctx = ctx
         self.control = control
         self.style_window = style_window
         self.query = query
+        # Closes over this panel's frame session. Stream chunks must not
+        # restore whichever Ask field was pinned for the process.
+        self.restore_focus = restore_focus
         self.model = control.getModel() if control else None
 
     def get_text_length(self) -> int | None:
@@ -136,11 +140,19 @@ class RichTextChatWidget:
 
     def reveal_caret(self, reason: str = "widget") -> None:
         """Ask EditView to show its caret (AUTOSCROLL); does not move the caret."""
-        reveal_rich_control_caret(self.control, ctx=self.ctx, reason=reason)
+        reveal_rich_control_caret(self.control, ctx=self.ctx, reason=reason, restore=self.query)
 
     def append_chunk(self, text: str, auto_scroll: bool = True) -> None:
         """Append a plain text chunk (e.g. streaming tokens) using theme colors."""
-        append_text_chunk(self.control, text, auto_scroll=auto_scroll, style_window=self.style_window, ctx=self.ctx, query=self.query)
+        append_text_chunk(
+            self.control,
+            text,
+            auto_scroll=auto_scroll,
+            style_window=self.style_window,
+            ctx=self.ctx,
+            query=self.query,
+            restore_focus=self.restore_focus,
+        )
 
     def append_rich_message(
         self,
@@ -164,6 +176,8 @@ class RichTextChatWidget:
             style_window=self.style_window,
             auto_scroll=auto_scroll,
             on_after_insert=on_after_insert,
+            restore=self.query,
+            restore_focus=self.restore_focus,
         )
 
     def append_rich_messages_batch(
@@ -180,6 +194,8 @@ class RichTextChatWidget:
             items,
             style_window=self.style_window,
             batch_chars=batch_chars,
+            restore=self.query,
+            restore_focus=self.restore_focus,
         )
 
     def apply_style_defaults(self) -> None:
@@ -359,7 +375,7 @@ def _reinsert_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: A
     return _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
 
 
-def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None, control_out: Any = None) -> bool:
+def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None, control_out: Any = None, restore_focus: Any = None) -> bool:
     """Position the rich control over the response area without exceeding the button row width.
 
     When ``control_out`` is a one-element list, it may be replaced after dialog reinsert.
@@ -387,7 +403,7 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                         peer.invalidate(0)
                 except Exception:
                     pass
-                _scroll_rich_to_tail(rich_control)
+                _scroll_rich_to_tail(rich_control, restore_focus=restore_focus)
         if _rich_control_needs_bounds(rich_control, bx, by, bw, bh):
             # Dialog-embedded: model resize after insert fails (-1); reinsert when transcript empty.
             try:
@@ -797,16 +813,18 @@ class RichTextControlListener(BaseWindowListener):
     placeholder_ctrl: Any
     on_ready_callback: Any
     _placeholder_rect_fn: Any
+    restore_focus: Any
     rich_control: Any
     initialized: bool
     _disposed: bool
 
-    def __init__(self, ctx: Any, root_window: Any, placeholder_ctrl: Any, on_ready_callback: Any, placeholder_rect_fn: Any = None) -> None:
+    def __init__(self, ctx: Any, root_window: Any, placeholder_ctrl: Any, on_ready_callback: Any, placeholder_rect_fn: Any = None, restore_focus: Any = None) -> None:
         self.ctx = ctx
         self.root_window = root_window
         self.placeholder_ctrl = placeholder_ctrl
         self.on_ready_callback = on_ready_callback
         self._placeholder_rect_fn = placeholder_rect_fn
+        self.restore_focus = restore_focus
         self.rich_control = None
         self.initialized = False
         self._disposed = False
@@ -829,6 +847,7 @@ class RichTextControlListener(BaseWindowListener):
             self.placeholder_ctrl,
             placeholder_rect=self._resolved_placeholder_rect(),
             control_out=out,
+            restore_focus=self.restore_focus,
         )
         self.rich_control = out[0]
         try:
@@ -1180,7 +1199,7 @@ def _dispatch_rich_uno(control: Any, command: str, ctx: Any = None) -> bool:  # 
         return False
 
 
-def _scroll_rich_to_tail(control: Any, ctx: Any = None, query: Any = None) -> None:
+def _scroll_rich_to_tail(control: Any, ctx: Any = None, query: Any = None, restore_focus: Any = None) -> None:
     """SelectAll for stick-to-bottom, keeping EESelectionMode::Hidden.
 
     OSelectAllDispatcher: EditView.SetSelection(All()) then ShowCursor.
@@ -1199,15 +1218,20 @@ def _scroll_rich_to_tail(control: Any, ctx: Any = None, query: Any = None) -> No
         return
     _IN_SCROLL_TO_TAIL = True
     try:
-        from plugin.framework.uno_context import restore_query_if_user_still_there
-        restore_query_if_user_still_there(query)
+        # *query* names this panel's Ask field for callers. Restore goes
+        # through *restore_focus*, which closes over the frame session.
+        if query is not None and restore_focus is None:
+            log.debug("scroll tail without a frame restore callback")
+        if callable(restore_focus):
+            restore_focus()
         _dispatch_rich_uno(control, ".uno:SelectAll", ctx)
-        restore_query_if_user_still_there(query)
+        if callable(restore_focus):
+            restore_focus()
     finally:
         _IN_SCROLL_TO_TAIL = False
 
 
-def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None, query: Any = None, char_color: int | None = None) -> None:
+def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None, query: Any = None, char_color: int | None = None, restore_focus: Any = None) -> None:
     """Append plain text during assistant streaming with theme assistant color.
 
     *char_color* overrides the assistant tint for the plain history fallback,
@@ -1232,9 +1256,9 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
         color = theme.assistant_color if char_color is None else char_color
         _insert_string_at_rich_cursor(model, cursor, text, color)
         if auto_scroll:
-            _scroll_rich_to_tail(control, ctx, query)
-            from plugin.framework.uno_context import restore_query_if_user_still_there
-            restore_query_if_user_still_there(query)
+            _scroll_rich_to_tail(control, ctx, query, restore_focus)
+            if callable(restore_focus):
+                restore_focus()
             process_events_to_idle(ctx, force=True)
 
     try:
@@ -1321,7 +1345,7 @@ def _temporarily_allow_focus(control: Any) -> tuple[Any, Any]:
     return model, was_readonly
 
 
-def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unspecified", *, _already_focus_preserved: bool = False) -> None:
+def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unspecified", *, restore: Any = None, _already_focus_preserved: bool = False) -> None:
     """Focus the control so EditView ShowCursor can run, then restore the query field.
 
     Does not insert dummy text. A second UNO insert at the end is the same path
@@ -1350,6 +1374,6 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
     if _already_focus_preserved:
         _do_reveal()
     else:
-        with focus_preserved(ctx):
+        with focus_preserved(ctx, restore):
             _do_reveal()
 

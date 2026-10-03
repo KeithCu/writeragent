@@ -173,7 +173,7 @@ class TestRichControlHelpers:
 
 
 @contextmanager
-def _immediate_focus(_ctx):
+def _immediate_focus(_ctx, _restore=None):
     yield
 
 
@@ -263,17 +263,19 @@ class TestAppendTextChunk:
         model.createTextCursor.return_value = cursor
         control.getModel.return_value = model
 
+        restore = MagicMock()
         with patch("plugin.chatbot.rich_text.get_theme_colors", return_value=(0, 0, 0x1E293B)), \
              patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor"), \
              patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret") as mock_reveal, \
              patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll, \
-             patch("plugin.chatbot.rich_text_control.process_events_to_idle") as mock_idle, \
-             patch("plugin.framework.uno_context.restore_query_if_user_still_there") as mock_restore:
-            append_text_chunk(control, " tail", auto_scroll=True, style_window=MagicMock(), ctx=MagicMock())
+             patch("plugin.chatbot.rich_text_control.process_events_to_idle") as mock_idle:
+            append_text_chunk(
+                control, " tail", auto_scroll=True, style_window=MagicMock(), ctx=MagicMock(), restore_focus=restore,
+            )
 
         mock_idle.assert_called()
         mock_scroll.assert_called_once()
-        mock_restore.assert_called_once()
+        restore.assert_called_once()
         mock_reveal.assert_not_called()
         control.setFocus.assert_not_called()
 
@@ -281,12 +283,12 @@ class TestAppendTextChunk:
         from plugin.chatbot.rich_text_control import _scroll_rich_to_tail
 
         control = MagicMock()
-        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno") as mock_uno, \
-             patch("plugin.framework.uno_context.restore_query_if_user_still_there") as mock_restore:
-            _scroll_rich_to_tail(control, ctx=None)
+        restore = MagicMock()
+        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno") as mock_uno:
+            _scroll_rich_to_tail(control, ctx=None, restore_focus=restore)
         mock_uno.assert_called_once_with(control, ".uno:SelectAll", None)
-        assert mock_restore.call_count == 2
-        assert mock_restore.call_args_list[0] == mock_restore.call_args_list[1]
+        assert restore.call_count == 2
+        assert restore.call_args_list[0] == restore.call_args_list[1]
         # SelectAll is between the two restores so Hidden mode stays.
         assert mock_uno.call_count == 1
 
@@ -300,8 +302,7 @@ class TestAppendTextChunk:
             calls["n"] += 1
             rtc._scroll_rich_to_tail(control, ctx=None)
 
-        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=nested), \
-             patch("plugin.framework.uno_context.restore_query_if_user_still_there"):
+        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=nested):
             rtc._scroll_rich_to_tail(control, ctx=None)
 
         assert calls["n"] == 1
@@ -468,20 +469,26 @@ class TestRichTextChatWidget:
 
         with patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret") as mock_reveal:
             widget.reveal_caret()
-            mock_reveal.assert_called_once_with(control, ctx=ctx, reason="widget")
+            mock_reveal.assert_called_once_with(control, ctx=ctx, reason="widget", restore=None)
 
         with patch("plugin.chatbot.rich_text_control.append_text_chunk") as mock_chunk:
             widget.append_chunk("hello", auto_scroll=True)
-            mock_chunk.assert_called_once_with(control, "hello", auto_scroll=True, style_window=None, ctx=ctx, query=None)
+            mock_chunk.assert_called_once_with(
+                control, "hello", auto_scroll=True, style_window=None, ctx=ctx, query=None, restore_focus=None,
+            )
 
         with patch("plugin.chatbot.rich_text_paste.append_rich_text_via_clipboard") as mock_rich:
             widget.append_rich_message("<b>hi</b>", role="user")
-            mock_rich.assert_called_once_with(ctx, control, "<b>hi</b>", role="user", style_window=None, auto_scroll=True, on_after_insert=None)
+            mock_rich.assert_called_once_with(
+                ctx, control, "<b>hi</b>", role="user", style_window=None, auto_scroll=True, on_after_insert=None, restore=None, restore_focus=None,
+            )
 
         with patch("plugin.chatbot.rich_text_paste.append_rich_messages_via_clipboard") as mock_batch:
             items = [("user", "hi")]
             widget.append_rich_messages_batch(items)
-            mock_batch.assert_called_once_with(ctx, control, items, style_window=None, batch_chars=16384)
+            mock_batch.assert_called_once_with(
+                ctx, control, items, style_window=None, batch_chars=16384, restore=None, restore_focus=None,
+            )
 
         with patch("plugin.chatbot.rich_text_control._apply_rich_control_style_defaults") as mock_style:
             widget.apply_style_defaults()

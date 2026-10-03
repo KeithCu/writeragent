@@ -132,10 +132,10 @@ def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
             listener.disposing(None)
     except Exception as exc:
         log.info("send_listener.disposing raised from sidebar release: %s", exc)
-    with suppress_disposed("set_default_focus_restore on dispose", logger=log):
-        from plugin.framework.uno_context import clear_default_focus_restore_if
-
-        clear_default_focus_restore_if(query_control)
+    with suppress_disposed("frame session release on dispose", logger=log):
+        session = getattr(panel, "frame_session", None)
+        if session is not None:
+            session.release_panel(panel, query_control)
 
 
 def iter_debug_live_chat_panels() -> list[Any]:
@@ -380,8 +380,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     librarian_session: Any
     send_listener: Any
     _live_panel_uid: str
+    frame_session: Any
 
-    def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str) -> None:
+    def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str, frame_session: Any = None) -> None:
         self.ctx = ctx
         self.xFrame = frame
         self.xParentWindow = parent_window
@@ -391,7 +392,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.toolpanel = None
         self.m_panelRootWindow = None
         self.session: Any = None  # Created in _wireControls
+        # Document id from the frame session, not from whichever component is current.
+        self.frame_session = frame_session
         self._live_panel_uid = ""
+        if frame_session is not None:
+            frame_session.bind_panel(self)
+            self._live_panel_uid = str(getattr(frame_session, "doc_uid", "") or "")
         self.rich_text_widget = None
         log.debug("[RICH-LIFECYCLE] ChatPanelElement.__init__ resource_url=%s parent_window=%s",
                   resource_url, id(parent_window) if parent_window else None)
@@ -1163,11 +1169,22 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             self.send_listener = send_listener
             register_debug_live_panel(self)
             from plugin.doc.live_panels import register_live_panel
-            from plugin.framework.uno_context import get_runtime_uid
 
-            # Remember the uid here. Dispose must not ask the frame again:
-            # the model can already be gone, and a newer window may own the slot.
-            self._live_panel_uid = get_runtime_uid(model)
+            # The id was stored when the frame session opened. Fill it from
+            # this frame's model only when construction could not read it
+            # (off the main thread). Do not ask Desktop which component is current.
+            session = getattr(self, "frame_session", None)
+            uid = self._live_panel_uid
+            if not uid and model is not None:
+                from plugin.framework.uno_context import get_runtime_uid
+
+                uid = get_runtime_uid(model)
+            self._live_panel_uid = uid
+            if session is not None:
+                if uid and not session.doc_uid:
+                    session.doc_uid = uid
+                session.bind_panel(self)
+                send_listener.frame_session = session
             register_live_panel(self._live_panel_uid, self)
 
 
@@ -1278,7 +1295,11 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
         if not parent_window:
             raise IllegalArgumentException("ParentWindow is required")
 
-        return ChatPanelElement(self.ctx, frame, parent_window, resource_url)
+        from plugin.framework.frame_session import document_id_for_frame, open_frame_session
+
+        # One session per frame, opened with the document id of that frame.
+        session = open_frame_session(frame, document_id_for_frame(frame))
+        return ChatPanelElement(self.ctx, frame, parent_window, resource_url, session)
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()

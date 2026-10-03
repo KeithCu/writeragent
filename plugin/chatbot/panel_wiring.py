@@ -200,9 +200,12 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     r = c.getPosSize()
                     c.setPosSize(r.X, r.Y, aw, r.Height, 15)
 
+    _frame_session = getattr(self, "frame_session", None)
+    _restore_focus = _frame_session.restore_focus if _frame_session is not None else None
     try:
         log.debug("Attaching _PanelResizeListener to root_window; controls=%s" % (sorted(k for k, v in controls.items() if v)))
         _tp = getattr(self, "toolpanel", None)
+
         def _release_sidebar_on_window_dispose() -> None:
             # Same send-cancel and live-panel drop as ChatPanelElement.disposing.
             # That method is not called when the deck closes. Do not resolve the
@@ -212,7 +215,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
             release_live_sidebar(self, controls.get("query"))
 
-        _resize = _PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose)
+        _resize = _PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose, restore_focus=_restore_focus)
         _resize._root_window = root_window
         _resize._parent_window = getattr(_tp, "parent_window", None)
         root_window.addWindowListener(_resize)
@@ -279,34 +282,37 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
             def on_rich_control_ready(rich_control: Any) -> None:
                 log.info("[RICH-CONTROL] on_rich_control_ready control=%s", bool(rich_control))
-                widget = RichTextChatWidget(self.ctx, rich_control, style_window=root_window, query=controls.get("query"))
+                session = getattr(self, "frame_session", None)
+                restore_focus = session.restore_focus if session is not None else None
+                widget = RichTextChatWidget(
+                    self.ctx,
+                    rich_control,
+                    style_window=root_window,
+                    query=controls.get("query"),
+                    restore_focus=restore_focus,
+                )
                 self.rich_text_widget = widget
                 try:
-                    from plugin.framework.uno_context import (
-                        install_stream_focus_tracker,
-                        set_default_focus_restore,
-                    )
-
-                    set_default_focus_restore(controls.get("query"))
-                    install_stream_focus_tracker(
-                        self.ctx,
-                        query=controls.get("query"),
-                        leave_query_controls=(
-                            controls.get("stop"),
-                            controls.get("clear"),
-                            controls.get("send"),
-                            controls.get("btn_settings"),
-                            controls.get("btn_python"),
-                            controls.get("btn_latex"),
-                            controls.get("btn_search"),
-                            controls.get("btn_hamburger"),
-                            controls.get("chat_mode_selector"),
-                            controls.get("model_selector"),
-                        ),
-                        frame=self.Frame,
-                    )
+                    if session is not None:
+                        session.set_focus_pin(controls.get("query"))
+                        session.install(
+                            self.ctx,
+                            query=controls.get("query"),
+                            leave_query_controls=(
+                                controls.get("stop"),
+                                controls.get("clear"),
+                                controls.get("send"),
+                                controls.get("btn_settings"),
+                                controls.get("btn_python"),
+                                controls.get("btn_latex"),
+                                controls.get("btn_search"),
+                                controls.get("btn_hamburger"),
+                                controls.get("chat_mode_selector"),
+                                controls.get("model_selector"),
+                            ),
+                        )
                 except Exception as e:
-                    log.debug("set_default_focus_restore: %s", e)
+                    log.debug("frame session focus install: %s", e)
                 controls["response_rich"] = rich_control
                 if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
                     self._panel_resize_listener._c["response_rich"] = rich_control
@@ -378,6 +384,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                 root_window,
                 controls["response"],
                 on_rich_control_ready,
+                restore_focus=_restore_focus,
                 placeholder_rect_fn=lambda: (
                     self._panel_resize_listener.last_response_rect
                     if getattr(self, "_panel_resize_listener", None)
