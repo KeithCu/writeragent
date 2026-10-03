@@ -232,19 +232,79 @@ def stored_select_value(val: Any, options: Any) -> Any:
     WriterAgent matched only the English spec label, and LibrePy's
     ``apply_field_specs_result`` stored the caption unchanged, so
     "Shared kernel" and Dutch "Uit" never became ``shared`` / ``off``.
+    A plain string option is its own id; the combo shows ``_(that string)``.
     """
     if not isinstance(options, list):
         return val
     for opt in options:
-        if not isinstance(opt, dict):
+        if isinstance(opt, dict):
+            label = opt.get("label")
+            value = opt.get("value", val)
+            if val == value or val == label:
+                return value
+            if isinstance(label, str) and label and val == _(label):
+                return value
             continue
-        label = opt.get("label")
-        value = opt.get("value", val)
-        if val == value or val == label:
-            return value
-        if isinstance(label, str) and label and val == _(label):
-            return value
+        if opt is None:
+            continue
+        raw = str(opt)
+        if val == raw or (raw and val == _(raw)):
+            return raw
     return val
+
+
+def changed_config_values(pending: dict[str, Any], read: Any) -> dict[str, Any]:
+    """Keys whose value is not already on disk.
+
+    What was wrong: OK passed every dialog field to ``set_configs``. A value
+    equal to the stored value, or to the schema default when the key is
+    omitted, is not a change. The default itself must not become a write.
+    ``read`` is ``get_config`` from the caller so a test patch of that name
+    is the disk this compare sees. This does not touch the config lock or
+    the per-key writer; the caller makes one ``set_configs`` of what remains.
+    """
+    from plugin.framework.config_schema import coerce_config_value
+    from plugin.framework.errors import ConfigError, ConfigValidationError
+
+    changed: dict[str, Any] = {}
+    for key, value in pending.items():
+        try:
+            current = read(key)
+        except ConfigError:
+            changed[key] = value
+            continue
+        if _config_assignment_matches(key, value, current, coerce_config_value, ConfigError, ConfigValidationError):
+            continue
+        changed[key] = value
+    return changed
+
+
+def _config_assignment_matches(
+    key: str,
+    proposed: Any,
+    current: Any,
+    coerce_config_value: Any,
+    config_error: type[BaseException],
+    validation_error: type[BaseException],
+) -> bool:
+    """True when *proposed* would not change *current* after the same coerce OK uses.
+
+    An invalid value does not match, so ``set_configs`` still raises it.
+    Endpoint text may be a preset label; both sides go through the selector
+    normalizer before compare. Dict values (the API-key map) compare equal
+    as maps, not as rewritten blobs.
+    """
+    if key == "endpoint":
+        from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
+
+        return endpoint_from_selector_text(str(proposed or "")) == endpoint_from_selector_text(str(current or ""))
+    if isinstance(proposed, dict) or isinstance(current, dict):
+        return proposed == current
+    try:
+        coerced = coerce_config_value(key, proposed, fallback_value=current, strict=True)
+    except (config_error, validation_error):
+        return False
+    return coerced == current
 
 
 def apply_field_specs_result(ctx: Any, result: dict[str, Any], field_specs: list[dict[str, Any]]) -> None:
@@ -264,5 +324,7 @@ def apply_field_specs_result(ctx: Any, result: dict[str, Any], field_specs: list
             continue
         save_key = str(spec.get("config_key") or key.replace("__", "."))
         pending[save_key] = stored_select_value(val, spec.get("options"))
+    # One write, and only keys that differ from disk or from an omitted default.
+    pending = changed_config_values(pending, get_config)
     if pending:
         set_configs(pending)

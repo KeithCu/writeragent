@@ -1320,6 +1320,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _closed: bool
     _timer: threading.Timer | None
     _synced_endpoint: str | None
+    _applied_catalog: tuple[str, str] | None
     post_to_main_thread: Callable[..., Any]
     run_in_background: Callable[..., Any]
     get_api_key_for_endpoint: Callable[..., Any]
@@ -1365,6 +1366,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._debounce_gen = 0
         self._closed = False
         self._timer = None
+        # Endpoint + live key last painted from the in-memory catalog.
+        # A later keystroke with the same pair must not refetch or rewrite.
+        self._applied_catalog = None
         
         self.post_to_main_thread = post_to_main_thread
         self.run_in_background = run_in_background
@@ -1422,8 +1426,14 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     def _catalog_is_warm(self, resolved: str) -> bool:
         return bool(self.settings_catalog_is_warm(resolved, api_key_override=self._api_key_override()))
 
+    def _catalog_identity(self, resolved: str) -> tuple[str, str]:
+        """Endpoint plus the live key. None (no field) and "" are different slots."""
+        override = self._api_key_override()
+        return (resolved, "" if override is None else override)
+
     def _apply_from_cache(self, resolved: str) -> None:
         """Fill combos from the process memo. No HTTP."""
+        self._applied_catalog = self._catalog_identity(resolved)
         models = self.cached_text_models(resolved, api_key_override=self._api_key_override())
         self._apply_dropdowns(resolved, models=models, skip_fetch=True)
 
@@ -1510,12 +1520,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
         image_ctrl = get_optional(self._dlg, "image_model")
         if image_ctrl:
-            # OpenRouter/Together image lists are filled in _bg_fetch. Reading
-            # the fetch helper here used to GET /v1/images/models on the UI thread.
-            if models is not None and resolved_provider in {"openrouter", "together"}:
+            # The worker stores image ids before this runs. Calling
+            # fetch_available_image_models here GETs on the UI thread for any
+            # host that is not already in that memo (Ollama used to).
+            if models is not None:
                 image_models = self.cached_image_models(resolved, api_key_override=self._api_key_override())
-            elif models is not None:
-                image_models = self.fetch_available_image_models(resolved, api_key_override=api_key_ov)
             else:
                 image_models = None
             image_val = self._combo_current_for_provider(
@@ -1658,6 +1667,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         def apply_ui() -> None:
             if self._closed or gen != self._debounce_gen: return
             if self.endpoint_from_selector_text(self._ctrl.getText()) != resolved: return
+            self._applied_catalog = self._catalog_identity(resolved)
             self._apply_dropdowns(resolved, models=models, skip_fetch=(models is None))
 
         self.post_to_main_thread(apply_ui)
@@ -1665,11 +1675,15 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     def _schedule_debounced_models_fetch(self) -> None:
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         # Once per process for this endpoint+key. A warm memo fills the combos
-        # and must not start a timer or a worker. Test Connection is the recheck.
+        # and must not start a timer or a worker. The same pair already painted
+        # is not painted again: typing must not rewrite fields. Test Connection
+        # is the recheck.
         if resolved and self._catalog_is_warm(resolved):
             if self._timer:
                 self._timer.cancel()
             self._debounce_gen += 1
+            if self._catalog_identity(resolved) == self._applied_catalog:
+                return
             self._apply_from_cache(resolved)
             return
         if self._timer: self._timer.cancel()
@@ -1707,7 +1721,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         )
 
     def textChanged(self, rEvent: TextEvent) -> None:
-        self._sync_api_key()
+        # What was wrong: every keystroke called _sync_api_key, which setText'd
+        # the API key whenever the resolved URL changed, and a warm catalog
+        # rewrote the model combos on the UI thread. Typing does not write the
+        # key and does not refetch a catalog already in memory. A preset click
+        # still loads that preset's saved key (itemStateChanged, force=True).
+        del rEvent
         self._schedule_debounced_models_fetch()
 
     def itemStateChanged(self, rEvent: ItemEvent) -> None:

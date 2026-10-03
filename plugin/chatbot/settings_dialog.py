@@ -159,8 +159,10 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     ``set_api_key_for_endpoint`` each wrote again before the loop finished.
 
     Endpoint, text model, API key, voice family, and the other fields go
-    through one ``set_configs``. LRU helpers run only after that returns;
-    they emit for their own keys. A batch that changes nothing does not emit.
+    through one ``set_configs``, and only when the value differs from disk
+    or from the schema default of a missing key. LRU helpers run only for
+    keys that batch actually changed. A batch that changes nothing does not
+    write and does not emit.
     """
     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text, update_lru_history
     from plugin.chatbot.settings_fields import stored_select_value
@@ -174,7 +176,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     # Recorded before the batch so a value that already matches disk does
     # not refresh the sidebar. Text and image models match set_text_model /
     # set_image_model: no LRU when the sanitized id is already stored.
-    ordinary_lru: list[tuple[str, Any]] = []
+    ordinary_lru: list[tuple[str, Any, str]] = []
     text_model_lru: str | None = None
     image_model_lru: str | None = None
 
@@ -259,28 +261,41 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
 
         pending[save_key] = val
         if val and save_key != "image_model":
-            ordinary_lru.append((key, val))
+            ordinary_lru.append((key, val, save_key))
 
     if "api_key" in result:
         # Same dict set_api_key_for_endpoint would pass to set_config.
-        data = get_config("api_keys_by_endpoint")
-        if not isinstance(data, dict):
-            data = {}
-        else:
-            data = dict(data)
-        data[normalize_endpoint_url(current_endpoint or "")] = str(result["api_key"])
-        pending["api_keys_by_endpoint"] = data
+        # An unchanged key, including empty when nothing is stored, is not
+        # a write: rebuilding the map on every OK rewrote api_keys_by_endpoint
+        # even when the field still held the saved secret.
+        typed_key = str(result["api_key"])
+        if typed_key != str(get_api_key_for_endpoint(current_endpoint) or ""):
+            data = get_config("api_keys_by_endpoint")
+            if not isinstance(data, dict):
+                data = {}
+            else:
+                data = dict(data)
+            data[normalize_endpoint_url(current_endpoint or "")] = typed_key
+            pending["api_keys_by_endpoint"] = data
 
-    if pending:
-        set_configs(pending)
+    from plugin.chatbot.settings_fields import changed_config_values
 
-    if "endpoint" in result and current_endpoint:
+    # One set_configs, and only keys that differ from disk or from the
+    # schema default of a missing key. Passing the whole dialog made a
+    # one-field edit a rewrite of every settings key.
+    changed = changed_config_values(pending, get_config)
+    if changed:
+        set_configs(changed)
+
+    if "endpoint" in changed and current_endpoint:
         update_lru_history(current_endpoint, "endpoint_lru", "")
-    if text_model_lru:
+    if text_model_lru and "text_model" in changed:
         update_lru_history(text_model_lru, "model_lru", current_endpoint)
-    if image_model_lru:
+    if image_model_lru and "image_model" in changed:
         update_lru_history(image_model_lru, "image_model_lru", current_endpoint)
-    for key, val in ordinary_lru:
+    for key, val, save_key in ordinary_lru:
+        if save_key not in changed:
+            continue
         _update_lru_for_key(ctx, key, val, current_endpoint)
 
 

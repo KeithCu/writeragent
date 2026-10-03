@@ -1804,6 +1804,66 @@ def test_stt_settings_listener_enables_one_model_control() -> None:
         assert enabled[endpoint_label] is False
 
 
+def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
+    """Typing the API key must not save it. A catalog already in memory is not fetched again.
+
+    Test Connection still clears that memo and fetches.
+    """
+    from plugin.chatbot.dialog_views import ApiKeyTextListener, EndpointCombinedListener
+    from plugin.framework.client import model_fetcher as cfg
+
+    endpoint = "http://127.0.0.1:11434"
+    key = "sk-typed"
+    combo = MagicMock()
+    combo.getText.return_value = endpoint
+    api = MagicMock()
+    api.getText.return_value = key
+
+    def get_optional_side_effect(dlg, name):
+        del dlg
+        if name == "api_key":
+            return api
+        return None
+
+    cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+    listener = None
+    try:
+        with patch("plugin.framework.client.requests.sync_request", return_value={"data": [{"id": "llama3"}]}) as mock_sync, \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
+            cfg.fetch_available_models(endpoint, api_key_override=key)
+            assert cfg.settings_catalog_is_warm(endpoint, api_key_override=key)
+            mock_sync.reset_mock()
+
+            listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
+            fetches: list[str] = []
+            listener.fetch_available_models = lambda *args, **kwargs: fetches.append("fetch") or ["llama3"]
+            with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+                 patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
+                 patch("plugin.chatbot.dialog_views.get_control_text", return_value=key), \
+                 patch("plugin.framework.config.set_config") as set_config, \
+                 patch("plugin.framework.config.set_configs") as set_configs, \
+                 patch("plugin.framework.config.set_api_key_for_endpoint") as set_api:
+                listener._schedule_debounced_models_fetch()
+                ApiKeyTextListener(listener).textChanged(MagicMock())
+                listener.textChanged(MagicMock())
+                assert fetches == []
+                mock_sync.assert_not_called()
+                set_config.assert_not_called()
+                set_configs.assert_not_called()
+                set_api.assert_not_called()
+                mock_set.assert_not_called()
+
+                listener.run_in_background = lambda fn, name=None: fn()
+                listener.post_to_main_thread = lambda fn: None
+                listener.force_catalog_refresh()
+                assert fetches
+                mock_sync.assert_not_called()
+    finally:
+        if listener is not None and listener._timer is not None:
+            listener._timer.cancel()
+        cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
+
+
 def test_settings_hf_button_uses_router():
     from plugin.chatbot.dialog_views import SettingsDialog
 
