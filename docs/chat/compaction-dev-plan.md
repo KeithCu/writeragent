@@ -123,7 +123,7 @@ CHARS_PER_TOKEN = 4
 COMPACTION_RATIO_SMALL = 0.70    # W <= 8192
 COMPACTION_RATIO_DEFAULT = 0.75  # 8192 < W < 512_000
 COMPACTION_RATIO_LARGE = 0.50    # W >= 512_000
-SMALL_CTX_WINDOW_LIMIT = 512_000
+LARGE_CTX_WINDOW_LIMIT = 512_000
 MAX_OVERFLOW_COMPACTION_ATTEMPTS = 3
 MIN_SHRINK_RATIO = 0.95          # Retry only if after < before * 0.95 (exact 5% is not a shrink)
 KEEP_RECENT_FRACTION = 0.30
@@ -191,7 +191,7 @@ See [`context-window-fidelity-brief.md`](context-window-fidelity-brief.md).
 
 ```python
 def compaction_ratio(window: int) -> float:
-    if window >= SMALL_CTX_WINDOW_LIMIT:
+    if window >= LARGE_CTX_WINDOW_LIMIT:
         return COMPACTION_RATIO_LARGE     # 0.50
     if window <= 8192:
         return COMPACTION_RATIO_SMALL     # 0.70

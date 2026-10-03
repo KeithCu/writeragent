@@ -44,11 +44,13 @@ CHARS_PER_TOKEN = 4
 # Tier constants. COMPACTION_RATIO_SMALL is the llama.cpp product number.
 # 75% / 50% / 512k from Hermes _SMALL_CTX_* + _effective_threshold_percent
 # (context_compressor.py:986-989, :2235-2239). 70% is WA, not Hermes.
+# Hermes names the 512k cut a small-context limit (windows below it). Here
+# the same number is the large-window threshold: W >= limit uses 50%.
 # https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L2235-L2239
 COMPACTION_RATIO_SMALL = 0.70  # W <= 8192  (WA product; Hermes 85% is too late on 4k)
 COMPACTION_RATIO_DEFAULT = 0.75  # 8192 < W < 512_000  (Hermes small-context floor)
 COMPACTION_RATIO_LARGE = 0.50  # W >= 512_000  (Hermes large-window default)
-SMALL_CTX_WINDOW_LIMIT = 512_000
+LARGE_CTX_WINDOW_LIMIT = 512_000
 MAX_OVERFLOW_COMPACTION_ATTEMPTS = 3  # OpenClaw agent-compaction-constants.ts:30
 # Hermes TurnOverflow.compress_scored_by_tokens: shrank iff after < before * 0.95
 # https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/turn_overflow.py#L203
@@ -210,7 +212,7 @@ def compaction_ratio(window: int) -> float:
     ``MINIMUM_CONTEXT_LENGTH`` floor and adds a 70% tier for ``W <= 8192``.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L2235-L2239
     """
-    if window >= SMALL_CTX_WINDOW_LIMIT:
+    if window >= LARGE_CTX_WINDOW_LIMIT:
         return COMPACTION_RATIO_LARGE
     if window <= 8192:
         return COMPACTION_RATIO_SMALL
@@ -317,7 +319,9 @@ def keep_recent_tokens(window: int, system_tokens: int, tool_tokens: int, force:
     remainder = window - system_tokens - tool_tokens - _summary_budget(window) - reserve
     if remainder < MIN_TAIL_TOKENS:
         return None  # document+system+tools already fill the window
-    desired = min(KEEP_RECENT_CAP, max(KEEP_RECENT_FLOOR, window * 3 // 10))
+    # Floor of KEEP_RECENT_FRACTION (0.30). int(window * 0.30) matches
+    # window * 3 // 10 for every window, so the tail budget does not move.
+    desired = min(KEEP_RECENT_CAP, max(KEEP_RECENT_FLOOR, int(window * KEEP_RECENT_FRACTION)))
     clamped = min(desired, remainder)  # MAY be below KEEP_RECENT_FLOOR
     if force:
         # Halve the already-clamped value so remainder-bound 4k actually shrinks.
@@ -611,8 +615,9 @@ def summary_pair(summary: str) -> list[dict[str, Any]]:
 def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Drop orphan role=tool; strip dangling tool_calls (keep assistant text if any).
 
-    Also drops tool_calls with empty/missing ``function.name`` (and their matching
-    tool results), so stream-split phantoms cannot poison the next API round.
+    Also drops tool_calls with a missing/blank ``id`` or empty/missing
+    ``function.name`` (and their matching tool results), so stream-split
+    phantoms cannot poison the next API round.
 
     Same job as Hermes ``_sanitize_tool_pairs``
     (``context_compressor.py:3846-3884``); not a port of that method.
@@ -636,6 +641,10 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 tc
                 for tc in (msg.get("tool_calls") or [])
                 if isinstance(tc, dict)
+                # None or "" is in `have` when a tool row uses that same id,
+                # so a call with a real function.name stayed paired. A phantom
+                # needs a truthy id as well as a name.
+                and tc.get("id")
                 and tc.get("id") in have
                 and (tc.get("function") or {}).get("name")
             ]

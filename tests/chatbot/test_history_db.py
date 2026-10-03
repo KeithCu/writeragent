@@ -77,6 +77,19 @@ def test_message_to_dict_omits_null_tool_calls_and_marks_images():
     assert "AAAA" not in marked["content"]
 
 
+def test_message_to_dict_null_or_non_str_text_part():
+    """A present text key of None used to TypeError inside " ".join before add_message's try."""
+    from plugin.chatbot.history_db import message_to_dict
+
+    row = message_to_dict("user", [
+        {"type": "text", "text": None},
+        {"type": "text", "text": "keep"},
+        {"type": "text"},
+        {"type": "text", "text": 12},
+    ])
+    assert row["content"] == " keep  12"
+
+
 def test_json_history_hashes_unsafe_session_id(tmp_path):
     from plugin.chatbot.history_db import _json_history_filename
 
@@ -114,6 +127,37 @@ def test_existing_sqlite_db_does_not_fall_back_to_json(tmp_path, monkeypatch):
     with pytest.raises(sqlite3.OperationalError):
         history_db.get_chat_history("sid", str(db_path))
     assert not (tmp_path / "writeragent_history.db.d").exists()
+
+
+def test_json_history_saves_null_text_part(tmp_path):
+    history = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
+    history.add_message("user", [{"type": "text", "text": None}, {"type": "text", "text": "keep"}])
+    assert history.get_messages()[0]["content"] == " keep"
+
+
+def test_sqlite_closes_connection_and_saves_null_text(tmp_path, monkeypatch):
+    import sqlite3
+
+    from plugin.chatbot import history_db
+
+    opened: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    def _wrap(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        opened.append(conn)
+        return conn
+
+    monkeypatch.setattr(history_db.sqlite3, "connect", _wrap)
+    history = history_db.SQLite3History("sid", str(tmp_path / "history.db"))
+    history.add_message("user", [{"type": "text", "text": None}])
+    assert history.get_messages()[0]["content"] == ""
+    history.clear()
+    # init, add, get, clear — each connect must be closed, not left to GC.
+    assert len(opened) == 4
+    for conn in opened:
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
 
 
 def test_sqlite_skips_undecodable_row(tmp_path):
