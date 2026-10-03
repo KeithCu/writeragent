@@ -28,12 +28,26 @@ _DEAL_CELL_STR_LEN = 1 if UNDER_CROSSHAIR else 4
 _DEAL_COL_NAME_LEN = _DEAL_CELL_STR_LEN if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 
 
+def _cells_of_row(row: Any) -> list[Any]:
+    """One logical row. ``str`` and ``bytes`` are a single cell.
+
+    Once the first row is a real sequence, every later row used to go through
+    ``list(row)``. ``list("cd")`` is ``['c', 'd']`` and ``list(b"cd")`` is
+    integer ordinals, so ``[['a', 'b'], 'cd']`` silently became a row of
+    letters. Keep those values as one cell and let the width pad do the rest.
+    """
+    if isinstance(row, (str, bytes)):
+        return [row]
+    return list(row)
+
+
 @deal.post(lambda result: isinstance(result, list))
 def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
     """Normalize any scalar / 1D / 2D input into a rectangular ``list[list]``.
 
     Orientation is preserved: a single row stays ``[[a, b, c]]``; a single
-    column stays ``[[a], [b], [c]]``; a scalar becomes ``[[v]]``.
+    column stays ``[[a], [b], [c]]``; a scalar becomes ``[[v]]``. A ``str`` or
+    ``bytes`` row is one cell, not a sequence of characters.
     """
     # crosshair: off
     if grid is None:
@@ -46,7 +60,7 @@ def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
         return []
     first = grid[0]
     if isinstance(first, (list, tuple)):
-        rows = [list(row) for row in grid]
+        rows = [_cells_of_row(row) for row in grid]
         width = max((len(row) for row in rows), default=0)
         return [row + [None] * (width - len(row)) for row in rows]
     # Flat sequence → single row (Calc 1D row) unless callers pass column shape.
@@ -95,16 +109,24 @@ def pack_calc_range_envelope(
 )
 @deal.post(lambda result: isinstance(result, list) and len(set(result)) == len(result))
 def _dedupe_column_names(names: list[str]) -> list[str]:
-    seen: dict[str, int] = {}
+    """Unique labels, one per input, on the default ``CalcRange.to_pandas`` path.
+
+    The counter used to be stored only under the raw base. ``['a', 'a', 'a_1']``
+    therefore emitted ``a_1`` twice (the generated suffix and the later header),
+    and the uniqueness postcondition raised ``deal.PostContractError``. A suffix
+    is skipped when that label was already emitted.
+    """
+    seen: set[str] = set()
     out: list[str] = []
     for raw in names:
         base = (raw or "column").strip() or "column"
-        count = seen.get(base, 0)
-        if count:
-            out.append(f"{base}_{count}")
-        else:
-            out.append(base)
-        seen[base] = count + 1
+        candidate = base
+        suffix = 1
+        while candidate in seen:
+            candidate = f"{base}_{suffix}"
+            suffix += 1
+        seen.add(candidate)
+        out.append(candidate)
     return out
 
 

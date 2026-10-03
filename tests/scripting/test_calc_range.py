@@ -31,6 +31,10 @@ def test_to_pandas_header_row_none_and_duplicates():
     grid = [["A", "A", ""], [1, 2, 3]]
     df = CalcRange(grid).to_pandas(header_row=0)
     assert list(df.columns) == ["A", "A_1", "column"]
+    collided = [["a", "a", "a_1"], [1, 2, 3]]
+    df_collided = CalcRange(collided).to_pandas(header_row=0)
+    assert list(df_collided.columns) == ["a", "a_1", "a_1_1"]
+    assert len(set(df_collided.columns)) == 3
     df2 = CalcRange(grid).to_pandas(header_row=None)
     assert list(df2.columns) == ["col_0", "col_1", "col_2"]
     assert len(df2) == 2
