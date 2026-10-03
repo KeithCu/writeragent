@@ -136,7 +136,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
   }
   ```
 
-- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks that descriptor against the same prefix list, so a symlink swapped in after the path check cannot leave the allowlist. An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return `FILE_TOO_LARGE`:
+- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks the opened path against the same prefix list. On Linux that is `/proc/self/fd` for the descriptor, so a symlink swapped in after the name check cannot leave the allowlist. macOS and Windows have no `/proc`; realpath of that string used to deny every file, so those platforms realpath the path that was opened (a swap that landed before `open` returns is still rejected). An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return `FILE_TOO_LARGE`:
   ```json
   {
     "id": "ocr-124",
@@ -233,8 +233,8 @@ Example JSON: [`python-compute.example.json`](python-compute.example.json).
 | `PYTHON_COMPUTE_MAX_TIMEOUT_SEC` | Upper bound clamp for `timeout_ms` | `600` |
 | `PYTHON_COMPUTE_WORKERS` | Number of formula worker subprocesses. `PYTHON_COMPUTE_MAX_WORKERS` is an accepted alias. | `2` |
 | `PYTHON_COMPUTE_WORKER_MAX_TASKS` | Tasks before recycling formula worker | `500` |
-| `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` | Session idle timeout in seconds before eviction. `PYTHON_COMPUTE_SESSION_TTL_SEC` is an accepted alias. | `3600` (1 hour) |
-| `PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC` | Worker process idle timeout in seconds before termination | `3600` (1 hour) |
+| `PYTHON_COMPUTE_SHARED_KERNEL_TTL_SEC` | Session idle timeout in seconds before eviction. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. `PYTHON_COMPUTE_SESSION_TTL_SEC` is an accepted alias. | `3600` (1 hour) |
+| `PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC` | Worker process idle timeout in seconds before termination. Finite and >= 0; Infinity, NaN, and `1e9999` are rejected. | `3600` (1 hour) |
 | `PYTHON_COMPUTE_OCR_WORKERS` | Dedicated OCR/Vision worker subprocesses | `0` (disabled by default) |
 | `PYTHON_COMPUTE_OCR_TIMEOUT_SEC` | OCR/Vision execution timeout in seconds | `60` |
 | `PYTHON_COMPUTE_OCR_MAX_TASKS` | Tasks before recycling OCR worker process | `100` |
