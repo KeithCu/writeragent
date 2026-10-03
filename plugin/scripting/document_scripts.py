@@ -27,7 +27,7 @@ from typing import Any, Callable
 
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
-from plugin.framework.errors import UnoObjectError
+from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.uno_context import get_desktop, normalize_doc_url
@@ -296,6 +296,11 @@ def attach_document_script(doc: Any, name: str, code: str, *, overwrite: bool = 
 
 
 def delete_document_script(doc: Any, name: str) -> str | None:
+    # INIT shares this property map with named scripts. The picker hides it,
+    # but deleting the storage name used to pop the entry and wipe the
+    # workbook init script. attach_document_script already rejects this name.
+    if is_calc_init_script_name(name):
+        return _("'{0}' is reserved for the workbook init script.").format(name)
     scripts = dict(get_document_scripts(doc))
     scripts.pop(name, None)
     return set_document_scripts(doc, scripts)
@@ -570,6 +575,22 @@ def delete_user_script(name: str) -> None:
     set_config("saved_python_scripts", scripts)
 
 
+def _closed_document_scripts_list(status_error_text: str) -> dict[str, Any]:
+    """Script list when the document is already gone and cannot be read again."""
+    return {
+        "type": "scripts_list",
+        "sections": [
+            {"id": SCRIPT_ORIGIN_USER, "title": _("My Scripts"), "scripts": {}},
+            {"id": SCRIPT_ORIGIN_DOCUMENT, "title": _("This Document"), "scripts": {}},
+        ],
+        "document_available": False,
+        "document_readonly": True,
+        "document_stale": True,
+        "selected_script_name": "",
+        "status_error_text": status_error_text,
+    }
+
+
 def handle_editor_script_message(
     kind: str,
     msg: dict[str, Any],
@@ -580,6 +601,58 @@ def handle_editor_script_message(
     send: Callable[[dict[str, Any]], None],
 ) -> bool:
     """Apply a Monaco script-picker IPC message. Return True if *kind* was handled."""
+
+    def _send_list(*, status_ok_text: str | None = None, status_error_text: str | None = None) -> None:
+        send(
+            build_scripts_list_message(
+                ctx,
+                session_doc=session_doc,
+                session_doc_url=session_doc_url,
+                status_ok_text=status_ok_text,
+                status_error_text=status_error_text,
+            )
+        )
+
+    try:
+        return _apply_script_picker_message(
+            kind,
+            msg,
+            ctx=ctx,
+            session_doc=session_doc,
+            session_doc_url=session_doc_url,
+            send=send,
+        )
+    except DocumentDisposedError:
+        # What was wrong: a disposed untitled document raised out of save/list.
+        # How: set_document_scripts and get_active_document_for_scripts re-raise
+        # DocumentDisposedError, and this handler had no top-level catch. The
+        # pipe reader treats that as a dead child and terminate()s Monaco.
+        # Why this works: save/close in editor_host swallow handler failures
+        # and answer the webview. Disposal becomes a script-list error and
+        # this message stays handled. A second disposal while rebuilding the
+        # list uses a payload that does not touch the document.
+        if kind not in SCRIPT_PICKER_MESSAGE_TYPES:
+            return False
+        log.exception("scripts picker: document disposed during %s", kind)
+        closed = _("The document was closed.")
+        try:
+            _send_list(status_error_text=closed)
+        except DocumentDisposedError:
+            log.exception("scripts picker: list refresh failed after the document closed")
+            send(_closed_document_scripts_list(closed))
+        return True
+
+
+def _apply_script_picker_message(
+    kind: str,
+    msg: dict[str, Any],
+    *,
+    ctx: Any,
+    session_doc: Any | None,
+    session_doc_url: str | None,
+    send: Callable[[dict[str, Any]], None],
+) -> bool:
+    """Picker message body. Disposal is caught by ``handle_editor_script_message``."""
     if kind not in SCRIPT_PICKER_MESSAGE_TYPES:
         return False
 
@@ -640,6 +713,18 @@ def handle_editor_script_message(
             storage_name = _document_script_storage_name(name)
             err = save_document_script(session_doc, storage_name, script_code)
             if err:
+                # What was wrong: a failed document save always wrote My Scripts,
+                # replacing a user script of the same name. The save message has
+                # no overwrite flag (copy and attach do). How: save_user_script
+                # assigns by name. Why this works: create the My Scripts copy
+                # only when that name is free, or when overwrite is explicit.
+                if storage_name in get_user_scripts() and not bool(msg.get("overwrite")):
+                    _send_list(
+                        status_error_text=_(
+                            "A script named '{0}' already exists in My Scripts. {1}"
+                        ).format(storage_name, err)
+                    )
+                    return True
                 save_user_script(storage_name, script_code)
                 set_config(name_config_key, storage_name)
                 # What was wrong: the fallback sent status_ok_text and
@@ -677,11 +762,13 @@ def handle_editor_script_message(
                 )
             )
             return True
-        err = attach_document_script(session_doc, name, script_code, overwrite=overwrite)
+        # Same property key as save. ``[Doc] Regional`` must store as ``Regional``.
+        storage_name = _document_script_storage_name(name)
+        err = attach_document_script(session_doc, storage_name, script_code, overwrite=overwrite)
         if err:
             _send_list(status_error_text=err)
             return True
-        _send_list(status_ok_text=_("Attached script '{0}' to this document.").format(name))
+        _send_list(status_ok_text=_("Attached script '{0}' to this document.").format(storage_name))
         return True
 
     if kind == "copy_script_to_user":
