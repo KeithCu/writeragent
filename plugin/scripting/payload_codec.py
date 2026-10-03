@@ -457,18 +457,36 @@ def _deal_dict_ok_at(obj: object, *, depth: int) -> bool:
     return True
 
 
-def _deal_wire_dict_ok(obj: object) -> bool:
-    """Shallow deal domain for live wire envelope detectors (is_split_grid, etc).
+def _deal_wire_dict_ok_crosshair(obj: object) -> bool:
+    """Short top-level key cap for the CrossHair table only.
 
     _deal_dict_ok_at deep-walks nested dicts and caps them at DEAL_MAX_SHAPE_DIM.
     Real split_grid.strings maps have thousands of cell entries (Gemini AFC: 7588);
-    worker is_split_grid(data) raised PreContractError after host pack succeeded.
-    Top-level envelope key count stays small; do not deep-walk.
-    Detectors are already crosshair: off.
+    do not deep-walk. Detectors are already crosshair: off. The short table still
+    rejects a dict wider than SHAPE_DIM (4) so the domain stays closed.
     """
     if not isinstance(obj, dict):
         return True
     return len(obj) <= DEAL_MAX_SHAPE_DIM
+
+
+def _deal_wire_dict_ok_pytest(obj: object) -> bool:
+    """Pytest and production, including compute_service where deal stays installed.
+
+    Envelope detectors are total predicates. The body returns False for a
+    plain dict. The old shallow cap (len <= DEAL_MAX_SHAPE_DIM) raised
+    PreContractError, which subclasses AssertionError, so ValueError handlers
+    never saw it. host_unpack_data's @deal.pre calls the deal-wrapped
+    _is_any_payload_envelope, so a word-frequency dict (>256 keys) died before
+    the isinstance(dict) arm. json_egress is_* calls failed the same way.
+    Release OXTs strip deal and already accepted these dicts. Do not deep-walk.
+    ``obj`` is unused: every value, including a huge plain dict, is in domain.
+    """
+    return True
+
+
+# Import-time pick. Do not branch inside @deal.pre — CrossHair would explore both.
+_deal_wire_dict_ok = _deal_wire_dict_ok_crosshair if UNDER_CROSSHAIR else _deal_wire_dict_ok_pytest
 
 
 def _is_multi_data_envelope(envelope: object) -> bool:
