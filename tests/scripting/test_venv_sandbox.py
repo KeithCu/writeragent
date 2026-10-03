@@ -15,7 +15,7 @@ import pytest
 
 from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
 from plugin.scripting.payload_codec import host_unpack_data
-from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
+from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code, serialize_result
 
 
 def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
@@ -92,6 +92,52 @@ def test_serialize_nested_dataframe_and_figure():
     wrapped = serialize_result([{"stats": df1, "plot": fig}])
     assert is_dataframe_payload(wrapped[0]["stats"])
     assert wrapped[0]["plot"]["__wa_payload__"] == "image"
+
+
+def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatch):
+    """A shared executor must not treat a previous cell's scoped_dir as the host folder."""
+    seen: list[str | None] = []
+
+    def _fake_run_sql(sql, con=None, files=None, scoped_dir=None, **kwargs):
+        del sql, con, files, kwargs
+        seen.append(scoped_dir)
+        return 1
+
+    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.run_sql", _fake_run_sql)
+    sid = "calc:scoped-dir-leak"
+    host = str(tmp_path)
+    try:
+        first = run_sandboxed_code(
+            "scoped_dir = '/tmp/not-the-host'\nresult = run_sql('select 1', files=['a.csv'])",
+            bindings={"scoped_dir": host},
+            session_id=sid,
+            timeout_sec=10,
+        )
+        assert first["status"] == "ok", first
+        assert seen == [host]
+
+        second = run_sandboxed_code(
+            "result = run_sql('select 1', files=['a.csv'])",
+            session_id=sid,
+            timeout_sec=10,
+        )
+        assert second["status"] == "ok", second
+        assert seen == [host, None]
+
+        leaked = run_sandboxed_code("result = scoped_dir", session_id=sid, timeout_sec=10)
+        assert leaked["status"] == "error", leaked
+
+        other = str(tmp_path / "other")
+        rebound = run_sandboxed_code(
+            "scoped_dir = '/tmp/still-not-host'\nresult = run_sql('select 1', files=['a.csv'])",
+            bindings={"scoped_dir": other},
+            session_id=sid,
+            timeout_sec=10,
+        )
+        assert rebound["status"] == "ok", rebound
+        assert seen[-1] == other
+    finally:
+        reset_sandbox_session(sid)
 
 
 def test_unknown_result_type_stays_in_the_child():
