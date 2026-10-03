@@ -723,6 +723,47 @@ class TestComputeSettings:
         s = load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == "mykey"
 
+    def test_nonfinite_and_huge_numbers_are_config_errors(self, tmp_path) -> None:
+        """Infinity / 1e9999 and an oversized JSON integer must be ConfigError.
+
+        json.loads yields inf for those port values, and int(inf) raises
+        OverflowError. A JSON integer with no decimal point stays a Python
+        int, and float() of one past the float range also raises OverflowError.
+        Neither is a ValueError, so they used to kill startup.
+        """
+        for name, body in (
+            ("inf.json", '{"port": Infinity}'),
+            ("huge-exp.json", '{"port": 1e9999}'),
+        ):
+            cfg = tmp_path / name
+            cfg.write_text(body, encoding="utf-8")
+            with pytest.raises(ConfigError, match="Invalid integer for port") as exc_info:
+                load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+            assert isinstance(exc_info.value.__cause__, OverflowError)
+
+        ttl = tmp_path / "ttl.json"
+        ttl.write_text(
+            '{"limits": {"shared_kernel_ttl_sec": ' + ("1" + "0" * 400) + "}}",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigError, match="shared_kernel_ttl_sec must be a number") as exc_info:
+            load_settings(config_path=ttl, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert isinstance(exc_info.value.__cause__, OverflowError)
+
+    def test_non_utf8_key_and_config_files_are_config_errors(self, tmp_path) -> None:
+        """Binary key and config files raise ConfigError, not UnicodeDecodeError."""
+        key_path = tmp_path / "key.bin"
+        key_path.write_bytes(b"\xff\xfe")
+        with pytest.raises(ConfigError, match="api_key_file") as exc_info:
+            load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert isinstance(exc_info.value.__cause__, UnicodeDecodeError)
+
+        cfg = tmp_path / "cfg.bin"
+        cfg.write_bytes(b"\xff\xfe")
+        with pytest.raises(ConfigError, match="Cannot read config file") as exc_info:
+            load_settings(config_path=cfg, environ={})
+        assert isinstance(exc_info.value.__cause__, UnicodeDecodeError)
+
     def test_compute_settings_none_worker_counts(self) -> None:
         """Verify ComputeSettings handles None for workers and ocr_workers gracefully."""
         s = ComputeSettings(workers=None, ocr_workers=None)
