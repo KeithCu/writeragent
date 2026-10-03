@@ -39,20 +39,31 @@ def _get_paddle_ocr(lang: str) -> Any:
         paddle_ocr_cls = paddleocr_mod.PaddleOCR
     except ImportError as exc:
         raise ImportError("paddleocr is not installed") from exc
-    _paddle_ocr_engine = paddle_ocr_cls(use_angle_cls=True, lang=lang, show_log=False)
+    # show_log is a 2.x-only kwarg. 3.x does not list it in
+    # _DEPRECATED_PARAM_NAME_MAPPING, so PaddleX raises
+    # ValueError: Unknown argument: show_log (or TypeError on a strict
+    # signature) and the engine never starts. 2.x defaults show_log off, so
+    # omitting it still constructs. use_angle_cls is the 2.x flag and the 3.x
+    # alias of use_textline_orientation.
+    _paddle_ocr_engine = paddle_ocr_cls(use_angle_cls=True, lang=lang)
     _paddle_ocr_lang = lang
     return _paddle_ocr_engine
 
 
 def _run_paddle_ocr(engine: Any, image_array: Any) -> Any:
-    """Call PaddleOCR across 2.x/3.x API differences."""
+    """Call 3.x ``predict`` or 2.x ``ocr(..., cls=True)``.
+
+    3.x still has ``ocr``, but that method only forwards ``**kwargs`` to
+    ``predict``. ``predict`` is keyword-only and has no ``cls``, so
+    ``ocr(image, cls=True)`` raises TypeError and the Result parser never
+    runs. 2.x defines ``ocr`` only; ``cls=True`` runs the angle classifier
+    loaded with ``use_angle_cls``.
+    """
+    if hasattr(engine, "predict"):
+        return engine.predict(image_array)
     if hasattr(engine, "ocr"):
-        result = engine.ocr(image_array, cls=True)
-    elif hasattr(engine, "predict"):
-        result = engine.predict(image_array)
-    else:
-        raise RuntimeError("PaddleOCR engine has no ocr or predict method")
-    return result
+        return engine.ocr(image_array, cls=True)
+    raise RuntimeError("PaddleOCR engine has no ocr or predict method")
 
 
 def _iter_pages(raw: Any) -> list[Any]:
@@ -632,11 +643,13 @@ def _get_pp_structure() -> Any:
         structure_cls = paddleocr_mod.PPStructureV3
     except (ImportError, AttributeError) as exc:
         raise ImportError("PPStructureV3 is not available") from exc
+    # show_log is not a PPStructureV3 parameter. It lands in **kwargs, and
+    # PaddleX raises ValueError: Unknown argument: show_log, so
+    # extract_structure never starts on 3.x.
     _pp_structure_engine = structure_cls(
         use_doc_orientation_classify=False,
         use_doc_unwarping=False,
         use_table_recognition=True,
-        show_log=False,
     )
     return _pp_structure_engine
 

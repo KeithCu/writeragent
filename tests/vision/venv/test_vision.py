@@ -93,7 +93,7 @@ def test_extract_text_docling_unavailable_falls_back_to_paddle(mock_convert):
     with patch("plugin.vision.venv.vision_paddle._decode_image_bytes") as mock_decode, patch(
         "plugin.vision.venv.vision_paddle._get_paddle_ocr"
     ) as mock_get_engine:
-        engine = MagicMock()
+        engine = MagicMock(spec=["ocr"])
         engine.ocr.return_value = [_sample_ocr_page()]
         mock_get_engine.return_value = engine
         mock_decode.return_value = MagicMock()
@@ -131,7 +131,7 @@ def test_extract_text_docling_api_error_falls_back_to_paddle(mock_convert):
     with patch("plugin.vision.venv.vision_paddle._decode_image_bytes") as mock_decode, patch(
         "plugin.vision.venv.vision_paddle._get_paddle_ocr"
     ) as mock_get_engine:
-        engine = MagicMock()
+        engine = MagicMock(spec=["ocr"])
         engine.ocr.return_value = [_sample_ocr_page()]
         mock_get_engine.return_value = engine
         mock_decode.return_value = MagicMock()
@@ -158,7 +158,7 @@ def test_extract_text_docling_unrelated_vision_error_does_not_fallback(mock_conv
 @patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_paddle_engine_maps_regions(mock_get_engine, mock_decode):
-    engine = MagicMock()
+    engine = MagicMock(spec=["ocr"])
     engine.ocr.return_value = [_sample_ocr_page()]
     mock_get_engine.return_value = engine
     mock_decode.return_value = MagicMock()
@@ -308,7 +308,7 @@ def test_extract_structure_paddle_unavailable(mock_get_engine):
 @patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_runtime_error_returns_vision_error(mock_get_engine, mock_decode):
-    engine = MagicMock()
+    engine = MagicMock(spec=["ocr"])
     engine.ocr.side_effect = RuntimeError("model failed")
     mock_get_engine.return_value = engine
     mock_decode.return_value = MagicMock()
