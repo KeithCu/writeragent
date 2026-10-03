@@ -82,6 +82,34 @@ def test_eval_populate_does_not_fetch_models_on_the_caller() -> None:
         assert mock_pop.call_count == 2
 
 
+def test_opening_eval_does_not_fetch_a_catalog_already_in_memory() -> None:
+    """A text-model list already cached is painted without fetch_available_models."""
+    from plugin.chatbot.eval_dashboard_ui import EvalDashboard
+    from plugin.framework.client import model_fetcher as cfg
+
+    endpoint = "http://127.0.0.1:11434"
+    cfg.clear_settings_catalog_cache(endpoint)
+    try:
+        with patch("plugin.framework.client.requests.sync_request", return_value={"data": [{"id": "llama3"}]}), \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""):
+            cfg.fetch_available_models(endpoint)
+        dash = EvalDashboard(MagicMock())
+        dialog = MagicMock()
+        dash._dlg = dialog
+        with patch("plugin.chatbot.eval_dashboard_ui.populate_combobox_with_lru") as mock_pop, \
+             patch("plugin.chatbot.eval_dashboard_ui.get_config_str", return_value=endpoint), \
+             patch("plugin.chatbot.eval_dashboard_ui.get_text_model", return_value="llama3"), \
+             patch("plugin.framework.client.model_fetcher.fetch_available_models") as mock_fetch, \
+             patch("plugin.framework.client.requests.sync_request") as mock_sync:
+            dash._populate()
+        mock_fetch.assert_not_called()
+        mock_sync.assert_not_called()
+        assert mock_pop.call_args_list[0].kwargs.get("skip_remote_fetch") is True
+        assert mock_pop.call_args.kwargs.get("remote_models") == ["llama3"]
+    finally:
+        cfg.clear_settings_catalog_cache(endpoint)
+
+
 def test_importing_eval_dashboard_ui_does_not_load_eval_runner() -> None:
     sys.modules.pop("tests.eval_runner", None)
     import plugin.chatbot.eval_dashboard_ui as mod

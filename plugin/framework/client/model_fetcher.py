@@ -618,6 +618,7 @@ def settings_catalog_is_warm(endpoint: str, api_key_override: str | None = None)
     Together has no modality model list; it needs the text list, the image ids
     harvested from that body, and a successful ``/v1/voices`` memo (list-all
     or ``?model=``). The Speech tab only reads ``cached_tts_supported_voices``.
+    Other hosts need the text list and the image ids stored with that body.
     A missing or failed entry is cold. Empty lists count as success.
     """
     base = _catalog_base(endpoint)
@@ -634,7 +635,10 @@ def settings_catalog_is_warm(endpoint: str, api_key_override: str | None = None)
         return cached_stt_models(endpoint, api_key_override) is not None
     if provider == "together":
         return _together_voices_list_cached(endpoint, api_key_override)
-    return False
+    # Ollama, Groq, and custom hosts keep text and image ids in the one
+    # /v1/models memo checked above. That memo is the catalog Settings
+    # shows. A warm memo must not look cold, or opening Settings refetches.
+    return True
 
 
 def clear_settings_catalog_cache(endpoint: str, api_key_override: str | None = None) -> None:

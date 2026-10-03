@@ -110,6 +110,54 @@ def test_apply_field_specs_result_maps_translated_label_to_value():
     assert mock_set.call_args_list[2].args[0] == {"scripting.python_session_mode": "shared"}
 
 
+def test_apply_field_specs_result_skips_unchanged_and_default_values():
+    """A caption that maps to the current id, and a value equal to the default, are not writes."""
+    from plugin.framework.config import _config_path, set_configs
+
+    path = _config_path()
+    assert path
+    specs = [{
+        "name": "scripting__python_session_mode",
+        "config_key": "scripting.python_session_mode",
+        "options": [
+            {"value": "isolated", "label": "Isolated (default)"},
+            {"value": "shared", "label": "Shared kernel"},
+        ],
+    }]
+
+    def _fake_gettext(text: str) -> str:
+        return {"Isolated (default)": "Geïsoleerd", "Shared kernel": "Gedeelde kernel"}.get(text, text)
+
+    seen: list[dict] = []
+
+    def _spy(values: dict) -> None:
+        seen.append(dict(values))
+        set_configs(values)
+
+    import os
+
+    before = open(path, encoding="utf-8").read() if os.path.isfile(path) else ""
+    with (
+        patch("plugin.chatbot.settings_fields.set_configs", side_effect=_spy),
+        patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
+    ):
+        apply_field_specs_result(
+            MagicMock(),
+            {"scripting__python_session_mode": "Geïsoleerd"},
+            specs,
+        )
+        assert seen == []
+        after = open(path, encoding="utf-8").read() if os.path.isfile(path) else ""
+        assert after == before
+
+        apply_field_specs_result(
+            MagicMock(),
+            {"scripting__python_session_mode": "Gedeelde kernel"},
+            specs,
+        )
+    assert seen == [{"scripting.python_session_mode": "shared"}]
+
+
 def test_apply_field_specs_result_skips_unknown_keys():
     with patch("plugin.chatbot.settings_fields.set_configs") as mock_set:
         apply_field_specs_result(MagicMock(), {"nope": "x"}, [{"name": "kept", "config_key": "scripting.kept"}])

@@ -67,8 +67,26 @@ class EvalDashboard:
         self._dlg.getControl("btn_run").addActionListener(EvalRunListener(self._ctx, self._dlg))
         self._dlg.getControl("btn_close").addActionListener(SimpleCloseListener(self._dlg))
 
+    def _apply_model_list(self, endpoint: str, current_model: str, models: Any) -> None:
+        """Paint the model combo from a list already in hand. No catalog GET."""
+        if self._closed or self._dlg is None:
+            return
+        try:
+            ctrl = self._dlg.getControl("models")
+        except Exception:
+            log.debug("Eval dashboard model combo unavailable", exc_info=True)
+            return
+        if ctrl is None:
+            return
+        populate_combobox_with_lru(
+            self._ctx, ctrl, current_model, "model_lru", endpoint,
+            remote_models=models if isinstance(models, list) else None,
+            skip_remote_fetch=not isinstance(models, list),
+        )
+
     def _schedule_models_fetch(self, endpoint: str, current_model: str) -> None:
         from plugin.framework.client.model_fetcher import (
+            cached_text_models,
             endpoint_url_suitable_for_v1_models_fetch,
             fetch_available_models,
         )
@@ -78,24 +96,20 @@ class EvalDashboard:
         if not endpoint or not endpoint_url_suitable_for_v1_models_fetch(endpoint):
             return
 
+        # What was wrong: open always called fetch_available_models, including
+        # when this process already held the list. That refetched a catalog
+        # already in memory. Apply the memo on this turn. A miss still fetches
+        # on the worker, then paints once.
+        cached = cached_text_models(endpoint)
+        if isinstance(cached, list):
+            self._apply_model_list(endpoint, current_model, cached)
+            return
+
         def _fetch_eval_models() -> None:
             models = fetch_available_models(endpoint)
 
             def _apply() -> None:
-                if self._closed or self._dlg is None:
-                    return
-                try:
-                    ctrl = self._dlg.getControl("models")
-                except Exception:
-                    log.debug("Eval dashboard model combo unavailable", exc_info=True)
-                    return
-                if ctrl is None:
-                    return
-                populate_combobox_with_lru(
-                    self._ctx, ctrl, current_model, "model_lru", endpoint,
-                    remote_models=models if isinstance(models, list) else None,
-                    skip_remote_fetch=not isinstance(models, list),
-                )
+                self._apply_model_list(endpoint, current_model, models)
 
             post_to_main_thread(_apply)
 

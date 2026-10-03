@@ -36,12 +36,18 @@ def test_image_default_aspect_has_sidebar_matching_options():
 
 
 def test_image_aspect_display_is_translated_value_stays_english():
-    """Combo shows gettext labels; Apply still stores the English aspect string."""
+    """Combo shows gettext labels; Apply stores the English id when it changed.
+
+    Square is the schema default. OK must not write that default just because
+    the combo shows the translated caption.
+    """
     from plugin.chatbot.settings_dialog import apply_settings_result, get_settings_field_specs
 
     def fake_gettext(message: str) -> str:
         if message == "Square":
             return "正方形"
+        if message == "Landscape (16:9)":
+            return "横長"
         return message
 
     with (
@@ -61,11 +67,13 @@ def test_image_aspect_display_is_translated_value_stays_english():
         aspect = next(s for s in specs if s["name"] == "image_default_aspect")
         assert aspect["value"] == "正方形"
         assert aspect["options"][0] == {"label": "正方形", "value": "Square"}
+        apply_settings_result(MagicMock(), {"image_default_aspect": "横長"})
+        set_configs.assert_called_once()
+        saved = set_configs.call_args.args[0]
+        assert saved["image_default_aspect"] == "Landscape (16:9)"
+        set_configs.reset_mock()
         apply_settings_result(MagicMock(), {"image_default_aspect": "正方形"})
-
-    set_configs.assert_called_once()
-    saved = set_configs.call_args.args[0]
-    assert saved["image_default_aspect"] == "Square"
+        set_configs.assert_not_called()
 
 
 def test_canonical_aspect_label_maps_translated_and_english():
@@ -255,8 +263,18 @@ def test_apply_settings_stt_provider_and_local_model():
         },
     ]
 
+    def _read(key: str) -> str:
+        if key in stored:
+            return str(stored[key])
+        if key == "audio.stt_provider":
+            return "endpoint"
+        if key == "audio.stt_local_model":
+            return "base"
+        return ""
+
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
          patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
+         patch("plugin.chatbot.settings_dialog.get_config", side_effect=_read), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"):
         apply_settings_result(MagicMock(), {
             "audio__stt_provider": "Local Whisper (faster-whisper)",
@@ -367,3 +385,98 @@ def test_apply_settings_result_one_batch_no_extra_emit():
     emit.assert_not_called()
     single.assert_not_called()
     tts_set.assert_not_called()
+
+
+def test_ok_does_not_write_unchanged_keys_and_writes_only_real_changes():
+    """OK leaves the file alone when every dialog value matches disk.
+
+    A missing key whose schema default is the dialog value is not a change.
+    One real edit is the only key passed to set_configs. A translated caption
+    that still means the stored id is not a write, and a new choice stores
+    the id.
+    """
+    import json
+
+    from plugin.chatbot.settings_dialog import apply_settings_result
+    from plugin.framework.config import _config_path, get_config, set_config, set_configs
+
+    path = _config_path()
+    assert path
+    set_config("text_model", "llama3")
+    before = open(path, encoding="utf-8").read()
+    specs = [
+        {"name": "text_model"},
+        {"name": "temperature", "type": "float"},
+        {"name": "request_timeout", "type": "int"},
+        {"name": "endpoint"},
+        {"name": "api_key"},
+        {
+            "name": "doc__grammar_proofreader_enabled",
+            "config_key": "doc.grammar_proofreader_enabled",
+            "options": [
+                {"value": "off", "label": "Off"},
+                {"value": "harper", "label": "Harper"},
+            ],
+        },
+    ]
+
+    def _fake_gettext(message: str) -> str:
+        return "Uit" if message == "Off" else message
+
+    seen: list[set[str]] = []
+
+    def _spy(values: dict) -> None:
+        seen.append(set(values))
+        set_configs(values)
+
+    with (
+        patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
+        patch("plugin.chatbot.settings_dialog.set_configs", side_effect=_spy),
+        patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
+        patch("plugin.chatbot.config_ui_helpers.update_lru_history"),
+    ):
+        apply_settings_result(MagicMock(), {
+            "text_model": "llama3",
+            "temperature": get_config("temperature"),
+            "request_timeout": get_config("request_timeout"),
+            "endpoint": get_config("endpoint"),
+            "api_key": "",
+            "doc__grammar_proofreader_enabled": "Uit",
+        })
+        assert seen == []
+        assert open(path, encoding="utf-8").read() == before
+
+        apply_settings_result(MagicMock(), {
+            "text_model": "llama3",
+            "temperature": 0.2,
+            "request_timeout": get_config("request_timeout"),
+            "endpoint": get_config("endpoint"),
+            "api_key": "",
+            "doc__grammar_proofreader_enabled": "Uit",
+        })
+
+    assert seen == [{"temperature"}]
+    body = open(path, encoding="utf-8").read()
+    data = json.loads(body[body.index("{"):])
+    assert data["text_model"] == "llama3"
+    assert data["temperature"] == 0.2
+    assert "request_timeout" not in data
+    assert "doc.grammar_proofreader_enabled" not in data
+
+    seen.clear()
+    with (
+        patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
+        patch("plugin.chatbot.settings_dialog.set_configs", side_effect=_spy),
+        patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
+        patch("plugin.chatbot.config_ui_helpers.update_lru_history"),
+    ):
+        apply_settings_result(MagicMock(), {
+            "text_model": "llama3",
+            "temperature": 0.2,
+            "doc__grammar_proofreader_enabled": "Harper",
+        })
+    assert seen == [{"doc.grammar_proofreader_enabled"}]
+    body = open(path, encoding="utf-8").read()
+    data = json.loads(body[body.index("{"):])
+    assert data["doc.grammar_proofreader_enabled"] == "harper"
+    assert data["temperature"] == 0.2
