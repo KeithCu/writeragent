@@ -30,6 +30,7 @@ from plugin.chatbot.tool_loop_state import (
 )
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
+from plugin.framework.html_stripper import StreamingHTMLStripper
 from plugin.framework.config import get_config_bool, get_current_endpoint
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception, is_tool_document_disposed
 from plugin.framework.logging import agent_log, update_activity_state
@@ -40,6 +41,13 @@ from plugin.framework.worker_pool import run_in_background
 log = logging.getLogger(__name__)
 
 
+# Stop writes this as an ordinary assistant row. It is not matched by text
+# to decide whether a dead turn may still paint.
+_STOP_LINE = "\n[Stopped by user]\n"
+# One row per tool call that never received a result. Not a second controller.
+_CANCELLED_TOOL = "Cancelled by user. The call may have completed."
+
+
 class TurnController:
     """One sidebar send. Stop or the next send aborts it and drops the reference.
 
@@ -48,10 +56,12 @@ class TurnController:
     counter and left the old object alive so the banner could still paint.
     A newer send did the same. Callbacks kept enqueueing onto those queues.
 
-    This object is the turn. Workers and the drain close over it. ``abort``
-    makes later ``put`` calls no-ops and drops any text still in the batcher.
-    The host holds at most one (``_turn``). The sidebar paints ``session.messages``;
-    streamed tokens are the open row on that list, not a second buffer.
+    This object is the turn. The queue, the HTML stripper, and the document
+    model captured at spawn live here. The host does not keep a second copy.
+    Workers enqueue on this object and do not append to ``session.messages``.
+    ``abort`` makes later ``put`` calls no-ops and drops any text still in
+    the batcher. The host holds at most one (``_turn``). The sidebar paints
+    ``session.messages``; streamed tokens are the open row on that list.
     """
 
     mode: str
@@ -59,14 +69,18 @@ class TurnController:
     messages: Any
     queue: Any
     batcher: Any
+    model: Any
+    stripper: StreamingHTMLStripper | None
     _alive: bool
 
-    def __init__(self, session: Any, mode: str) -> None:
+    def __init__(self, session: Any, mode: str, model: Any = None) -> None:
         self.mode = str(mode or "")
         self.session = session
         self.messages = getattr(session, "messages", None) if session is not None else None
         self.queue = None
         self.batcher = None
+        self.model = model
+        self.stripper = StreamingHTMLStripper()
         self._alive = True
 
     @property
@@ -75,7 +89,7 @@ class TurnController:
 
     def same_messages(self) -> bool:
         """Clear replaces the list. A write against the old list must not land."""
-        if self.messages is None:
+        if self.session is None:
             return True
         return getattr(self.session, "messages", None) is self.messages
 
@@ -98,10 +112,11 @@ class TurnController:
         return content.strip() if isinstance(content, str) else ""
 
     def put(self, item: Any) -> bool:
-        """Enqueue only while this turn is the one the host still holds and it is alive.
+        """Enqueue only while this turn is alive.
 
-        After abort, or after a newer send replaced it, the item is dropped.
-        It is not parked on a queue for a later drain.
+        After abort the item is dropped. It is not parked on a queue for a
+        later drain. Callers do not assign ``queue``; the drain did that
+        before the worker was started.
         """
         if not self._alive or self.queue is None:
             return False
@@ -109,31 +124,92 @@ class TurnController:
         return True
 
     def accepts_history(self, host: Any) -> bool:
-        """The close may still store on this list.
+        """A transcript write is allowed only for the host's current turn.
 
-        Stop has already aborted the turn. The partial and the stop line
-        still belong here until a newer send replaces ``_turn`` or Clear
-        replaces the list. A mode change that swapped the visible session
-        does not store: the caller checks ``host.session``.
+        Stop has already aborted the turn. The close still stores here until
+        a newer send replaces ``_turn`` or Clear replaces the list. A dead
+        turn that is no longer current, or whose list identity changed, refuses.
         """
         if current_turn(host) is not self:
             return False
         return self.same_messages()
 
-    def accepts_display(self, host: Any, text: str) -> bool:
-        """A chunk paints only while this turn is alive and on screen.
+    def fold_chunk(self, host: Any, text: str, role: str = "assistant") -> bool:
+        """Append *text* to this turn's list. Workers must not call this."""
+        if not text or not self.accepts_history(host) or self.session is None:
+            return False
+        from plugin.chatbot.rich_text_paste import fold_transcript_chunk
 
-        The stop line is the close, so it still paints after ``abort`` when
-        this object is the host's turn and the sidebar is still showing its
-        session. Any other text after abort is dropped.
+        return fold_transcript_chunk(self.session, text, role)
+
+    def persist_assistant(
+        self,
+        host: Any,
+        content: Any = None,
+        tool_calls: Any = None,
+        reasoning_replay: Any = None,
+    ) -> None:
+        if not self.accepts_history(host) or self.session is None:
+            return
+        kwargs: dict[str, Any] = {}
+        if tool_calls is not None:
+            kwargs["tool_calls"] = tool_calls
+        if reasoning_replay is not None:
+            kwargs["reasoning_replay"] = reasoning_replay
+        self.session.add_assistant_message(content=content, **kwargs)
+
+    def persist_tool(self, host: Any, call_id: str | None, content: Any) -> None:
+        if not self.accepts_history(host) or self.session is None:
+            return
+        self.session.add_tool_result(call_id, content)
+
+    def take_stripper_tail(self) -> str:
+        """Finish the HTML stripper and return any held fragment.
+
+        Stop aborts the turn before the drain's finalize runs. The fragment
+        was still in the stripper, so the stored answer dropped the tail of
+        an unclosed tag.
         """
-        if not self.accepts_history(host):
-            return False
-        if getattr(host, "session", None) is not self.session:
-            return False
-        if self._alive:
-            return True
-        return _is_stop_banner(text)
+        stripper = self.stripper
+        self.stripper = None
+        if stripper is None:
+            return ""
+        try:
+            leftover = stripper.finalize()
+        except Exception:
+            log.debug("stripper finalize on stop failed", exc_info=True)
+            return ""
+        return leftover if isinstance(leftover, str) else ""
+
+    def close_stopped(self, host: Any, partial: str | None = None) -> None:
+        """Finalise this turn after Stop.
+
+        A running tool cannot be killed. Enqueue is already a no-op, so its
+        later result is discarded. Document side effects may still land.
+        Rows already written stay. The open assistant row is committed, each
+        tool call with no tool row gets one cancelled row, and the stop line
+        is an ordinary assistant message. ``tool_calls`` are not removed.
+        """
+        if not self.accepts_history(host) or self.session is None:
+            return
+        tail = self.take_stripper_tail()
+        if tail:
+            self.fold_chunk(host, tail, "assistant")
+        emitted = self.open_text()
+        fallback = partial.strip() if isinstance(partial, str) else ""
+        if emitted:
+            chosen = emitted
+        elif fallback and fallback != "No response.":
+            chosen = fallback
+        else:
+            chosen = ""
+        if chosen:
+            self.persist_assistant(host, content=chosen)
+        messages = self.messages if isinstance(self.messages, list) and self.same_messages() else None
+        closed = _append_cancelled_tool_rows(messages) if messages is not None else 0
+        if not chosen and closed == 0:
+            self.persist_assistant(host, content="No response.")
+        self.persist_assistant(host, content=_STOP_LINE)
 
 
 def _discard_batcher(batcher: Any) -> None:
@@ -155,8 +231,6 @@ def abort_turn(host: Any) -> None:
     turn = current_turn(host)
     if turn is not None:
         turn.abort()
-        return
-    _discard_batcher(getattr(host, "_active_batched_q", None))
 
 
 def drop_turn(host: Any) -> None:
@@ -169,143 +243,121 @@ def drop_turn(host: Any) -> None:
         host._turn = None
 
 
-def begin_send_turn(host: Any, mode: str) -> TurnController:
-    """Start a send. The previous turn, if any, is aborted and replaced."""
+def begin_send_turn(host: Any, mode: str, model: Any = None) -> TurnController:
+    """Start a send. The previous turn, if any, is aborted and replaced.
+
+    Called before any worker spawns. There is no later rebind: Clear and a
+    mode change abort this turn, then replace the list or the session.
+    """
     previous = current_turn(host)
     if previous is not None:
         previous.abort()
     session = getattr(host, "session", None)
-    turn = TurnController(session, mode)
+    turn = TurnController(session, mode, model)
     host._turn = turn
     return turn
 
 
-def bind_turn_session(host: Any, mode: str | None = None) -> TurnController:
-    """Use the turn already started for this session, or start one.
-
-    What was wrong: Clear replaces ``messages`` while the drain is inside
-    ``processEventsToIdle``, and ``set_session`` swaps ``host.session`` while
-    a worker still reads that attribute. The reply was stored on the wiped
-    chat, or on a mode that never got the user row.
-
-    Calling this again for the same list must not abort the turn that just
-    started, or its own chunks would miss.
-    """
-    session = getattr(host, "session", None)
-    messages = getattr(session, "messages", None) if session is not None else None
-    active = current_turn(host)
-    if (
-        active is not None
-        and active.alive
-        and active.session is session
-        and active.messages is messages
-    ):
-        if mode:
-            active.mode = str(mode)
-        return active
-    return begin_send_turn(host, mode or "")
+def running_turn(host: Any) -> TurnController | None:
+    """The live turn, or None once Stop, Clear, or a new send has ended it."""
+    turn = current_turn(host)
+    if isinstance(turn, TurnController) and turn.alive and turn.accepts_history(host):
+        return turn
+    return None
 
 
 def session_for_turn(host: Any) -> Any:
-    """The session this send bound, or the live one when no turn is current."""
+    """The session this send bound. None when the turn is gone or the list changed."""
     turn = current_turn(host)
-    if turn is not None and turn.session is not None:
+    if isinstance(turn, TurnController) and turn.accepts_history(host):
         return turn.session
-    return getattr(host, "session", None)
+    return None
 
 
-def _turn_accepts_write(host: Any, session: Any) -> bool:
-    """True when this send may still change ``session``.
-
-    No turn yet: the caller is before bind (tests, a pre-send error).
-    A turn that is no longer current, or whose list Clear replaced, rejects.
-    """
-    turn = current_turn(host)
-    if turn is None:
-        return True
-    if session is not turn.session:
-        return False
-    return turn.accepts_history(host)
-
-
-_STOP_BANNER = "[Stopped by user]"
-
-
-def _is_stop_banner(text: str) -> bool:
-    return bool(text) and text.strip() == _STOP_BANNER
+def spawn_queue(turn: TurnController) -> Any:
+    """The queue the drain attached. The batcher wraps it when batching is on."""
+    return turn.batcher or turn.queue
 
 
 def stopped_assistant_text(host: Any, partial: str | None) -> str:
-    """Text to store when the user hits Stop.
+    """Text already on the open row, else the worker partial.
 
     What was wrong: Stop stored ``No response.`` after the sidebar had already
-    shown streamed tokens. Those tokens are the open row on the session.
-    Prefer the worker partial, then that row.
+    shown streamed tokens. Those tokens are the open row. The open row wins;
+    the partial is only used when nothing was folded yet.
     """
     turn = current_turn(host)
     emitted = turn.open_text() if isinstance(turn, TurnController) else ""
+    if emitted:
+        return emitted
     text = partial.strip() if isinstance(partial, str) else ""
     if text and text != "No response.":
         return text
-    return emitted
+    return ""
 
 
-def take_stripper_tail(host: Any) -> str:
-    """Finish the HTML stripper and return any held fragment.
+def _tool_call_id(call: Any) -> str:
+    if not isinstance(call, dict):
+        return ""
+    call_id = call.get("id")
+    return call_id if isinstance(call_id, str) else ""
 
-    Stop aborts the turn before the drain's finalize runs. The fragment was
-    still in the stripper, so the stored answer dropped the tail of an
-    unclosed tag. Folding it into the open row here puts it in the session
-    the sidebar paints.
+
+def _append_cancelled_tool_rows(messages: list[Any]) -> int:
+    """Append one cancelled tool row for each call that has none.
+
+    The row is inserted with that assistant message's other tool rows so
+    the pair stays adjacent. ``tool_calls`` on the assistant message stay.
     """
-    stripper = getattr(host, "_plain_text_stripper", None)
-    if stripper is None:
-        return ""
-    host._plain_text_stripper = None
-    try:
-        leftover = stripper.finalize()
-    except Exception:
-        log.debug("stripper finalize on stop failed", exc_info=True)
-        return ""
-    return leftover if isinstance(leftover, str) else ""
-
-
-def fold_stop_tail(host: Any, text: str) -> None:
-    """Put the stripper tail on this turn's open row, then the caller stores it."""
-    if not text:
-        return
-    turn = current_turn(host)
-    if turn is None or not turn.accepts_history(host) or turn.session is None:
-        return
-    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
-
-    fold_transcript_chunk(turn.session, text, "assistant")
+    answered = {
+        msg.get("tool_call_id")
+        for msg in messages
+        if isinstance(msg, dict) and msg.get("role") == "tool" and msg.get("tool_call_id")
+    }
+    added = 0
+    index = 0
+    while index < len(messages):
+        msg = messages[index]
+        calls = msg.get("tool_calls") if isinstance(msg, dict) and msg.get("role") == "assistant" else None
+        if not isinstance(calls, list) or not calls:
+            index += 1
+            continue
+        insert_at = index + 1
+        while insert_at < len(messages) and isinstance(messages[insert_at], dict) and messages[insert_at].get("role") == "tool":
+            insert_at += 1
+        for call in calls:
+            call_id = _tool_call_id(call)
+            if not call_id or call_id in answered:
+                continue
+            messages.insert(
+                insert_at,
+                {"role": "tool", "tool_call_id": call_id, "content": _CANCELLED_TOOL},
+            )
+            answered.add(call_id)
+            insert_at += 1
+            added += 1
+        index = insert_at
+    return added
 
 
 def emit_for_host(host: Any, item: Any) -> bool:
     """Enqueue on the current turn. A dead turn drops the item."""
     turn = current_turn(host)
-    q = turn.queue if isinstance(turn, TurnController) else None
-    if q is None:
-        q = getattr(host, "_active_q", None)
-    return put_for_turn(host, turn, q, item)
+    if not isinstance(turn, TurnController):
+        return False
+    return turn.put(item)
 
 
 def put_for_turn(host: Any, turn: Any, q: Any, item: Any) -> bool:
     """Workers enqueue on the controller they captured. They do not touch the transcript.
 
-    ``host`` is unused. Callers still pass it so a worker closure does not
-    grow a second way to find the queue.
+    ``host`` and ``q`` are unused. A worker must not assign ``turn.queue``;
+    the drain attached the queue before spawn. After abort, ``put`` is a no-op.
     """
-    del host
-    if isinstance(turn, TurnController):
-        if turn.queue is None and q is not None:
-            turn.queue = q
-        return turn.put(item)
-    if q is None:
+    del host, q
+    if not isinstance(turn, TurnController):
         return False
-    q.put(item)
-    return True
+    return turn.put(item)
 
 
 def persist_assistant_on_turn(
@@ -315,22 +367,9 @@ def persist_assistant_on_turn(
     reasoning_replay: Any = None,
 ) -> None:
     turn = current_turn(host)
-    if isinstance(turn, TurnController):
-        if not turn.accepts_history(host):
-            return
-        session = turn.session
-    else:
-        session = session_for_turn(host)
-        if session is None or not _turn_accepts_write(host, session):
-            return
-    if session is None:
+    if not isinstance(turn, TurnController):
         return
-    kwargs: dict[str, Any] = {}
-    if tool_calls is not None:
-        kwargs["tool_calls"] = tool_calls
-    if reasoning_replay is not None:
-        kwargs["reasoning_replay"] = reasoning_replay
-    session.add_assistant_message(content=content, **kwargs)
+    turn.persist_assistant(host, content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
 
 
 def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: Any = None, q: Any = None, *, model: Any) -> None:
@@ -352,10 +391,6 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
     """
     if turn is None:
         turn = current_turn(host)
-    if q is None:
-        q = getattr(turn, "queue", None) if isinstance(turn, TurnController) else None
-    if q is None:
-        q = getattr(host, "_active_q", None)
     payload_error = (StreamQueueKind.ERROR, format_error_payload(exc))
     payload_done = (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(exc)))
     if is_tool_document_disposed(exc, model):
@@ -366,17 +401,9 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
 
 def persist_tool_on_turn(host: Any, call_id: str | None, content: Any) -> None:
     turn = current_turn(host)
-    if isinstance(turn, TurnController):
-        if not turn.accepts_history(host):
-            return
-        session = turn.session
-    else:
-        session = session_for_turn(host)
-        if session is None or not _turn_accepts_write(host, session):
-            return
-    if session is None:
+    if not isinstance(turn, TurnController):
         return
-    session.add_tool_result(call_id, content)
+    turn.persist_tool(host, call_id, content)
 
 
 class ToolLoopActionHost(Protocol):
@@ -384,13 +411,10 @@ class ToolLoopActionHost(Protocol):
     session: Any
     image_model_selector: Any
     audio_wav_path: str | None
-    _active_q: Any
-    _active_batched_q: Any
     _active_client: Any
     _active_max_tokens: int
     _active_tools: list[dict[str, Any]]
     _active_execute_tool_fn: Callable[..., Any]
-    _active_model: Any
     _active_query_text: str | None
     _active_supports_status: bool
     _current_tool_call_id: str | None
@@ -450,6 +474,9 @@ def build_tool_execute_fn(
         approval_cb: Any = None
         chat_append_cb: Any = None
         safe_args = args if isinstance(args, dict) else {}
+        # The spawn passes the queue it already attached to the turn.
+        # This worker must not install a different one.
+        del captured_q
 
         delegate_domain = str(safe_args.get("domain") or "") if name in DELEGATE_GATEWAY_TOOL_NAMES else ""
         # Delegate gateways forward domain=web_research to WebResearchTool with the same ctx;
@@ -460,27 +487,20 @@ def build_tool_execute_fn(
 
             def _subagent_target() -> tuple[Any, Any]:
                 # What was wrong: chat lines and the approval dialog were put
-                # on host._active_q when the callback ran. Stop or a new send
+                # on the host queue when the callback ran. Stop or a new send
                 # had replaced that queue, so the text or the dialog landed
                 # on the next turn. Why: the tool worker already captured
                 # this turn at spawn. A dead turn drops the item.
-                if captured_turn is not None or captured_q is not None:
-                    return captured_turn, captured_q
-                live = current_turn(host)
-                live_q = live.queue if isinstance(live, TurnController) else None
-                if live_q is None:
-                    live_q = getattr(host, "_active_q", None)
-                return live, live_q
+                if isinstance(captured_turn, TurnController):
+                    return captured_turn, captured_turn.queue
+                return None, None
 
             def _sub_agent_chat_append(text: str) -> None:
                 emit_turn, emit_q = _subagent_target()
                 if not put_for_turn(host, emit_turn, emit_q, (StreamQueueKind.CHUNK, text)):
                     return
                 cid = captured_call_id if captured_call_id is not None else getattr(host, "_current_tool_call_id", None)
-                if isinstance(emit_turn, TurnController) and emit_turn.session is not None:
-                    streamed_session = emit_turn.session
-                else:
-                    streamed_session = session_for_turn(host)
+                streamed_session = emit_turn.session if isinstance(emit_turn, TurnController) else None
                 if cid and streamed_session is not None:
                     if not hasattr(streamed_session, "tool_streamed_texts"):
                         streamed_session.tool_streamed_texts = {}
@@ -495,7 +515,7 @@ def build_tool_execute_fn(
 
                     def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
                         emit_turn, q = _subagent_target()
-                        if q is None:
+                        if not isinstance(emit_turn, TurnController) or emit_turn.queue is None:
                             log.warning("tool_loop: web_research approval skipped (queue missing)")
                             return True
                         event = threading.Event()
@@ -613,7 +633,10 @@ class ToolLoopEffectInterpreter:
         if isinstance(effect, TriggerNextToolEffect):
             emit_for_host(host, (StreamQueueKind.NEXT_TOOL,))
         elif isinstance(effect, SpawnFinalStreamEffect):
-            host._spawn_final_stream(host._active_batched_q or host._active_q, host._active_client, host._active_max_tokens)
+            turn = running_turn(host)
+            q = spawn_queue(turn) if turn is not None else None
+            if q is not None:
+                host._spawn_final_stream(q, host._active_client, host._active_max_tokens)
         elif isinstance(effect, UpdateDocumentContextEffect):
             if self._refresh_document_context():
                 return True
@@ -624,8 +647,12 @@ class ToolLoopEffectInterpreter:
         elif isinstance(effect, AddMessageEffect):
             self._add_message(effect)
         elif isinstance(effect, SpawnLLMWorkerEffect):
+            turn = running_turn(host)
+            q = spawn_queue(turn) if turn is not None else None
+            if q is None:
+                return False
             host._refresh_active_tools_for_session()
-            host._spawn_llm_worker(host._active_batched_q or host._active_q, host._active_client, host._active_max_tokens, host._active_tools, effect.round_num, query_text=host._active_query_text)
+            host._spawn_llm_worker(q, host._active_client, host._active_max_tokens, host._active_tools, effect.round_num, query_text=host._active_query_text)
         elif isinstance(effect, UpdateActivityStateEffect):
             self._update_activity_state(effect)
         elif effect.__class__.__name__ == "CleanupAudioEffect":
@@ -642,13 +669,19 @@ class ToolLoopEffectInterpreter:
         failure _do_send already ends on.
         """
         host = self.host
-        session = session_for_turn(host)
-        if session is None or not _turn_accepts_write(host, session):
-            # Clear replaced the message list. Do not write [DOCUMENT CONTENT]
-            # onto the wiped chat, and do not keep the tool loop going.
+        turn = running_turn(host)
+        session = turn.session if turn is not None else None
+        if session is None:
+            # Clear replaced the message list, or the turn was aborted.
+            # Do not write [DOCUMENT CONTENT] onto the wiped chat.
             return True
         try:
-            doc = host._get_document_model() if hasattr(host, "_get_document_model") else None
+            # The frame document is the live snapshot. The model captured on
+            # the turn is what tool workers run against.
+            if hasattr(host, "_get_document_model"):
+                doc = host._get_document_model()
+            else:
+                doc = turn.model if turn is not None else None
             if not doc:
                 raise UnoObjectError("Document closed or unavailable.", code="DOCUMENT_UNAVAILABLE")
             session.refresh_document_context(doc, host.ctx)
@@ -715,27 +748,28 @@ class ToolLoopEffectInterpreter:
         func_args = effect.func_args
         call_id = effect.call_id
         host._current_tool_call_id = call_id
-        # Capture the queue at spawn. A later send replaces host._active_q;
-        # this worker must not enqueue onto that turn.
+        # The drain attached the queue and the document before this spawn.
+        # A later send replaces the host's turn. This worker keeps the one
+        # it captured and must not assign that turn's queue.
         turn = current_turn(host)
-        worker_q = turn.queue if isinstance(turn, TurnController) else None
-        if worker_q is None:
-            worker_q = host._active_q
+        if not isinstance(turn, TurnController):
+            return
+        worker_q = turn.queue
+        model = turn.model
 
         def emit(item: Any) -> None:
             put_for_turn(host, turn, worker_q, item)
 
-        # What was wrong: the async body read host._active_execute_tool_fn
-        # and host._active_model when the thread ran. A new send replaced
-        # both while this tool was still in flight, so the old call ran
-        # against the new send. The failure path had the same hole: it
-        # asked is_tool_document_disposed about the live host model.
-        # Why: close over the values this spawn already had, the same way
-        # worker_q is captured above, and pass that model into the failure.
+        # What was wrong: the async body read the execute function and the
+        # document when the thread ran. A new send replaced both while this
+        # tool was still in flight, so the old call ran against the new send.
+        # The failure path had the same hole. Why: close over the values this
+        # spawn already had.
         execute_tool_fn = host._active_execute_tool_fn
-        # Same object execute_fn receives as ``doc``. A later send can replace
-        # host._active_model; the failure check must not read that live model.
-        spawn_doc = host._active_model
+        # Same object execute_fn receives as ``doc``. It was captured on the
+        # turn at spawn. A later send must not retarget this call or the
+        # disposed-document check.
+        spawn_doc = model
         supports_status = host._active_supports_status
         bound_stop = host.resolve_stop_checker()
 

@@ -613,14 +613,13 @@ class TestPaintMessageItems:
         mock_plain.assert_not_called()
         doc.close.assert_called_once_with(True)
 
-    def test_stop_line_is_its_own_row(self):
+    def test_stop_text_folds_like_any_other_chunk(self):
+        """The stop line is not detected by comparing text. The turn writes it."""
         session = MagicMock()
-        session.messages = [{"role": "assistant", "content": "partial answer"}]
+        session.messages = [{"role": "assistant", "content": "partial answer", "_open_transcript": True}]
         assert fold_transcript_chunk(session, "\n[Stopped by user]\n") is True
-        assert session.messages[0]["content"] == "partial answer"
-        assert "[Stopped by user]" in session.messages[1]["content"]
-        assert fold_transcript_chunk(session, "\n[Stopped by user]\n") is False
-        assert len(session.messages) == 2
+        assert session.messages[0]["content"] == "partial answer\n[Stopped by user]\n"
+        assert len(session.messages) == 1
 
     def test_copy_logs_no_content_inserted_when_nothing_written(self, caplog):
         control = MagicMock()

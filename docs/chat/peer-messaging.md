@@ -96,7 +96,7 @@ This is user-send equivalence.
 | Per-document session | `ChatSession` in [`plugin/chatbot/panel.py`](../../plugin/chatbot/panel.py) | One transcript per sidebar. `active_specialized_domain` is **session-local**. History via `get_chat_history(session_id)`. |
 | Send entry | `SendButtonListener._do_send` → `ToolCallingMixin._do_send_chat_with_tools` | Reads the Ask box, clears it, `setFocus`, may route to librarian/image. **Wrong entry for inject.** See [§4.9](#49-implementation-map). |
 | Extract target | `_do_send_chat_with_tools(query_text, model, doc_type)` in [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) | Already takes text, refreshes `[DOCUMENT CONTENT]`, **also** `add_user_message`. Gateway must not wrap *and* call this, or the user turn double-posts. |
-| Busy | `sidebar_state.send.is_busy` ([`send_state.py`](../../plugin/chatbot/send_state.py)); also `_active_q`, `_send_cancellation` | `SEND_CLICKED` while busy is a silent no-op — do not use that as the error path. |
+| Busy | `sidebar_state.send.is_busy` ([`send_state.py`](../../plugin/chatbot/send_state.py)); also a live turn queue, `_send_cancellation` | `SEND_CLICKED` while busy is a silent no-op — do not use that as the error path. |
 | Tool context per call | `build_tool_execute_fn` in [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) | Builds `ToolContext(doc=…)` for **that** sidebar’s doc. No frame / listener / session on `ToolContext`. The caller of send_peer_work/send_peer_result does not rebind this. |
 | Frame → model | `_get_document_model` → `get_document_from_frame` | Sidebar stays on **its** window. Envelope sender uses `ctx.doc` (same model). |
 | FSM | `next_state` in [`plugin/chatbot/tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py) | Pure. Success is `status == "ok"` or `success is True`. No inject-user-message event. |
@@ -264,7 +264,7 @@ Same idea as `filter_vision_delegate_schemas`: filter at schema time, not only a
 
 **Deck not built:** LibreOffice may not construct the Calc/Draw (or Writer) deck until the user opens it. Open doc ≠ live panel. **Error** (clear, user-facing): open the peer sidebar once. **No silent A2 fallback** in v1.
 
-**Busy + queue (v1):** if that listener is in a send / drain (`sidebar_state.send.is_busy`, `_active_q`, or `_send_cancellation`), **enqueue** the wrapped turn. Same for a target that is idle but the **process** drain owner is still `"stream"` (caller has not exited) — schedule, do not start.
+**Busy + queue (v1):** if that listener is in a send / drain (`sidebar_state.send.is_busy`, a live turn queue, or `_send_cancellation`), **enqueue** the wrapped turn. Same for a target that is idle but the **process** drain owner is still `"stream"` (caller has not exited) — schedule, do not start.
 
 Queue policy:
 

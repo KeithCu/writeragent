@@ -615,7 +615,10 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
     stt_model = get_stt_model()
     # Local Whisper does not need an endpoint model id. Endpoint STT still does.
     local_stt = uses_local_stt()
-    retry_q = host._active_batched_q or host._active_q
+    turn = getattr(host, "_turn", None)
+    retry_q = None
+    if turn is not None and getattr(turn, "alive", False):
+        retry_q = getattr(turn, "batcher", None) or getattr(turn, "queue", None)
     if (stt_model or local_stt) and retry_q is not None and host._active_client is not None:
         host._append_response("\n[Model does not support audio. Falling back to STT...]\n")
         try:

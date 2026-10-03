@@ -431,16 +431,15 @@ def iter_history_message_batches(items: Any, batch_chars: int = HISTORY_RENDER_B
 # Streamed tokens live here until the committed assistant message replaces the row.
 # Not a history write. add_assistant_message pops a trailing row with this key.
 OPEN_TRANSCRIPT = "_open_transcript"
-_STOP_MARK = "[Stopped by user]"
 
 
 def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> bool:
     """Record *text* on ``session.messages``. The control is painted afterwards.
 
     User rows are already stored by the send path. Assistant tokens grow one
-    open row until the committed message replaces it. The Stop line is its own
-    row so the answer text stays what the turn saved. Returns True when the
-    list changed.
+    open row until the committed message replaces it. The stop line is a
+    separate message the turn writes when it closes, not a chunk matched by
+    text. Returns True when the list changed.
     """
     messages = getattr(session, "messages", None)
     if not isinstance(messages, list):
@@ -457,11 +456,6 @@ def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> b
         return True
     if not text or not str(text).strip():
         return False
-    if _STOP_MARK in text:
-        if messages and _STOP_MARK in str(messages[-1].get("content") or ""):
-            return False
-        messages.append({"role": "assistant", "content": text})
-        return True
     if messages and messages[-1].get(OPEN_TRANSCRIPT):
         messages[-1]["content"] = (messages[-1].get("content") or "") + text
         return True

@@ -99,6 +99,9 @@ def setup_mock_panel():
 
     session = MockSession()
     panel = FakePanel(ctx, session)
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    begin_send_turn(panel, "chat")
     return panel, session
 
 _MIRRORED_CONTROL_ATTRS = (
@@ -193,8 +196,10 @@ def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_drain_l
 
     mock_drain_loop.side_effect = mock_drain_impl
     panel._start_tool_calling_async(Mock(), model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+    assert session.messages[-2]["role"] == "assistant"
+    assert session.messages[-2]["content"] == "kept tokens"
     assert session.messages[-1]["role"] == "assistant"
-    assert session.messages[-1]["content"] == "kept tokens"
+    assert "[Stopped by user]" in session.messages[-1]["content"]
 
 
 def test_handle_stream_error_persists_banner():
@@ -555,7 +560,6 @@ def test_refresh_active_tools_for_session():
     sys.modules["plugin.main"] = fake_main
     try:
         panel, session = setup_mock_panel()
-        panel._active_model = MagicMock()
         panel.cached_doc_type = "writer"
         panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
         session.active_specialized_domain = "tables"

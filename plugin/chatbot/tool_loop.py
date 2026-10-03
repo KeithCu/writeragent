@@ -55,17 +55,14 @@ from plugin.framework.i18n import _
 from plugin.chatbot.tool_loop_actions import (
     ToolLoopEffectInterpreter,
     TurnController,
-    _turn_accepts_write,
     abort_turn,
-    bind_turn_session,
     build_tool_execute_fn,
     current_turn,
-    fold_stop_tail,
     persist_assistant_on_turn,
     put_for_turn,
+    running_turn,
     session_for_turn,
-    stopped_assistant_text,
-    take_stripper_tail,
+    spawn_queue,
 )
 
 from plugin.chatbot.tool_loop_state import (
@@ -111,13 +108,12 @@ class ToolLoopHost(Protocol):
     _terminal_status: str
 
     # Session I/O handles for the effect interpreter (not FSM control state).
-    _active_q: "queue.Queue[Any] | None"
+    # The queue, stripper, and document model live on ``_turn``.
     _active_client: "LlmClient"
     _active_max_tokens: int
     _active_tools: list[dict[str, Any]]
     _active_execute_tool_fn: Callable[..., Any]
     _active_query_text: str | None
-    _active_model: Any
     _active_supports_status: bool
     _current_tool_call_id: str | None
     _assistant_stream_start_len: int | None
@@ -155,8 +151,6 @@ class ToolLoopHost(Protocol):
     def _refresh_active_tools_for_session(self) -> None: ...
     def rerender_rich_text_session(self) -> bool: ...
 
-    # Producer batcher for the current send (set in _start_tool_calling_async when batching is active)
-    _active_batched_q: "BatchingStreamQueue | None"
     _overflow_compact_attempts: int
     _last_compact_reason: str | None
     _last_compact_tokens_before: int | None
@@ -207,9 +201,9 @@ def take_stop_partial(host: Any) -> str | None:
 class ToolCallingMixin:
     """Tool-loop control state lives only in ``sidebar_state.tool_loop`` (via ``_sm_state``).
 
-    Remaining ``_active_*`` fields on the host are session I/O handles (queues, client,
-    tool schemas/fn, model, query text) for :class:`ToolLoopEffectInterpreter` — not a
-    second copy of round/pending/stop.
+    Remaining ``_active_*`` fields on the host are the client, tool schemas, and
+    query text for :class:`ToolLoopEffectInterpreter`. The queue, stripper, and
+    document model live on the turn — not a second copy of round/pending/stop.
     """
 
     # Defaults satisfy basedpyright reportUninitializedInstanceVariable; panel __init__ overwrites.
@@ -220,11 +214,8 @@ class ToolCallingMixin:
     _active_tools: list[dict[str, Any]] | None = None
     _record_assistant_start: bool = False
     _tool_loop_interpreter: ToolLoopEffectInterpreter | None = None
-    _active_q: queue.Queue[Any] | None = None
-    _active_batched_q: BatchingStreamQueue | None = None
     _turn: Any = None
     _active_client: LlmClient | None = None
-    _active_model: Any = None
     _active_max_tokens: int = 0
     _active_execute_tool_fn: Callable[..., Any] | None = None
     _active_query_text: str | None = None
@@ -253,10 +244,14 @@ class ToolCallingMixin:
         return False
 
     def _do_send_chat_with_tools(self: ToolLoopHost, query_text: str, model: Any, doc_type_str: str, skip_append_user: bool = False) -> None:
-        # Pin before pump_ui_idle. A mode click inside that pump used to swap
-        # host.session, and the bind after refresh then stored this turn on
-        # the other chat.
-        bind_turn_session(self)
+        # The send already called begin_send_turn. A mode click inside
+        # pump_ui_idle aborts that turn and swaps the session. Do not start
+        # another turn here: that rebind wrote this reply onto the other chat.
+        if running_turn(self) is None:
+            return
+        live = current_turn(self)
+        if isinstance(live, TurnController) and live.model is None:
+            live.model = model
         try:
             log.debug("_do_send: importing core modules...")
             from plugin.main import get_tools
@@ -269,12 +264,19 @@ class ToolCallingMixin:
             return
 
         # Callback for updating active domain in the session
+        bound_turn = current_turn(self)
+
         def set_active_domain(domain: Any, python_tool_domain: Any = None) -> None:
-            session = session_for_turn(self)
-            if session is not None:
-                session.active_specialized_domain = domain
-                session.python_tool_domain = python_tool_domain
-                log.debug("_do_send: updated active specialized domain to: %s (python_tool_domain: %s)", domain, python_tool_domain)
+            # The tool callback runs later. A new send must not retarget the
+            # domain onto the session that replaced this one.
+            if current_turn(self) is not bound_turn or not isinstance(bound_turn, TurnController):
+                return
+            if not bound_turn.accepts_history(self) or bound_turn.session is None:
+                return
+            session = bound_turn.session
+            session.active_specialized_domain = domain
+            session.python_tool_domain = python_tool_domain
+            log.debug("_do_send: updated active specialized domain to: %s (python_tool_domain: %s)", domain, python_tool_domain)
 
         try:
             log.debug("_do_send: loading %s schema..." % doc_type_str)
@@ -372,10 +374,11 @@ class ToolCallingMixin:
         client = self.client
 
         self._set_status("Reading document...")
-        turn_session = session_for_turn(self)
-        if turn_session is None or not _turn_accepts_write(self, turn_session):
-            # Clear replaced messages while this send was still starting.
-            # Refresh and the user row must not land on the wiped chat.
+        started = running_turn(self)
+        turn_session = started.session if started is not None else None
+        if turn_session is None:
+            # Clear replaced messages, or Stop aborted the turn, while this
+            # send was still starting. The user row must not land on the wiped chat.
             return
         try:
             turn_session.refresh_document_context(model, self.ctx)
@@ -484,7 +487,10 @@ class ToolCallingMixin:
 
             turn_session = session_for_turn(self)
             active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
-            refresh_doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
+            bound = current_turn(self)
+            refresh_doc = bound.model if isinstance(bound, TurnController) and bound.model is not None else None
+            if refresh_doc is None and hasattr(self, "_get_document_model"):
+                refresh_doc = self._get_document_model()
             self._active_tools = get_tools().get_schemas(
                 "openai",
                 doc_type=getattr(self, "cached_doc_type", None),
@@ -515,12 +521,17 @@ class ToolCallingMixin:
         self._record_assistant_start = True
 
         turn = current_turn(self)
+        # Captured at spawn. session_for_turn at run time would be the next send.
+        bound_session = turn.session if isinstance(turn, TurnController) else None
 
         def emit(item: Any) -> None:
             put_for_turn(self, turn, real_q, item)
 
         def run() -> None:
-            session = session_for_turn(self)
+            session = bound_session
+            if not isinstance(turn, TurnController) or not turn.alive or session is None:
+                emit((StreamQueueKind.STOPPED,))
+                return
             try:
                 # B13: Stop before first SSE — do not acquire llm_request_lane.
                 stop_checker = self.resolve_stop_checker()
@@ -594,12 +605,16 @@ class ToolCallingMixin:
         self._record_assistant_start = True
 
         turn = current_turn(self)
+        bound_session = turn.session if isinstance(turn, TurnController) else None
 
         def emit(item: Any) -> None:
             put_for_turn(self, turn, real_q, item)
 
         def run_final() -> None:
-            session = session_for_turn(self)
+            session = bound_session
+            if not isinstance(turn, TurnController) or not turn.alive or session is None:
+                emit((StreamQueueKind.STOPPED,))
+                return
             last_streamed: list[str] = []
             try:
                 content_cb = _live_text(turn, batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t)))
@@ -734,14 +749,12 @@ class ToolCallingMixin:
 
     def _handle_stream_stopped(self: ToolLoopHost) -> None:
         partial = take_stop_partial(self)
-        # The open row is what the sidebar already painted. The stripper may
-        # still hold the tail of a split tag; fold it before the store.
-        fold_stop_tail(self, take_stripper_tail(self))
-        text = stopped_assistant_text(self, partial)
-        data: dict[str, Any] = {}
-        if text:
-            data["content"] = text
-        event = ToolLoopEvent(kind=EventKind.STOP_REQUESTED, data=data)
+        # The turn commits the open row, closes tool calls that have no
+        # result, and writes the stop line. The FSM only latches Stopped.
+        turn = current_turn(self)
+        if isinstance(turn, TurnController):
+            turn.close_stopped(self, partial)
+        event = ToolLoopEvent(kind=EventKind.STOP_REQUESTED, data={})
         tr = next_state(self._sm_state, event)
         self._sm_state = tr.state
 
@@ -779,7 +792,8 @@ class ToolCallingMixin:
         if get_config_bool_safe("chat_compaction_enabled"):
             stop_checker = self.resolve_stop_checker()
             stopped = bool(self.stop_requested or stop_checker())
-            retry_q = self._active_batched_q or self._active_q
+            live_turn = running_turn(self)
+            retry_q = spawn_queue(live_turn) if live_turn is not None else None
             if (
                 not stopped
                 and retry_q is not None
@@ -868,18 +882,19 @@ class ToolCallingMixin:
 
         self._sm_state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=max_tool_rounds, status="Thinking...", async_tools=async_tools)
 
+        turn = running_turn(self)
+        if turn is None:
+            return
         try:
             raw_q: queue.Queue[Any] = queue.Queue()
-            self._active_q = raw_q
-            turn = current_turn(self)
             batched = BatchingStreamQueue(raw_q, batch_interval=CHAT_STREAM_BATCH_INTERVAL)
-            self._active_batched_q = batched
-            if isinstance(turn, TurnController):
-                turn.queue = raw_q
-                turn.batcher = batched
+            # The drain attaches the queue. Workers only enqueue on it.
+            turn.queue = raw_q
+            turn.batcher = batched
+            if turn.model is None:
+                turn.model = model
 
             self._active_client = client
-            self._active_model = model
             self._active_max_tokens = max_tokens
             self._active_tools = tools
             self._active_execute_tool_fn = execute_tool_fn
@@ -909,17 +924,16 @@ class ToolCallingMixin:
 
             # --- Kick off the first LLM stream (producer batching at 250 ms) ---
             self._refresh_active_tools_for_session()
-            self._spawn_llm_worker(self._active_batched_q or self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._sm_state.round_num, query_text=self._active_query_text)
+            self._spawn_llm_worker(spawn_queue(turn), self._active_client, self._active_max_tokens, self._active_tools, self._sm_state.round_num, query_text=self._active_query_text)
 
             def _flush_active_batcher() -> None:
                 # Stop used to clear this batcher in finally without a last
                 # flush, dropping up to one batch interval of text.
-                batched = self._active_batched_q
-                if batched is not None:
-                    batched.flush()
+                if turn.batcher is not None:
+                    turn.batcher.flush()
 
             run_stream_drain_loop(
-                self._active_q,
+                turn.queue,
                 toolkit,
                 [False],
                 self._append_response,
@@ -942,8 +956,6 @@ class ToolCallingMixin:
             # spoken reply, then drops it.
             abort_turn(self)
             self._tool_loop_interpreter = None
-            self._active_q = None
-            self._active_batched_q = None
             self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=None)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
