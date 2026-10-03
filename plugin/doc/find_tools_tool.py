@@ -100,7 +100,12 @@ def sidebar_only_tool_names(
     doc_type: str | None = None,
     uno_services_supported: frozenset[str] | None = None,
 ) -> frozenset[str]:
-    """Tool names in sidebar-only domains (brainstorming, writing_plan, ppt-master)."""
+    """Tool names in sidebar-only domains (brainstorming, writing_plan, ppt-master).
+
+    ``doc`` only decides whether to filter. With a document open, pass the
+    cached ``doc_type`` and ``uno_services_supported``: tools that declare
+    ``uno_services`` (ppt-master) are dropped unless those values match.
+    """
     try:
         from plugin.framework.prompts import IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS, WRITER_SIDEBAR_ONLY_DOMAINS
 
@@ -189,7 +194,23 @@ class FindTools(ToolBase):
         else:
             schemas = registry.get_schemas("mcp", doc=doc, active_domain=domain, **_doc_filter(doc))
 
-        sidebar_only = sidebar_only_tool_names(registry, doc)
+        # What was wrong: this passed only the document. With one open,
+        # _doc_filter leaves filter_doc_type on, and get_tools is not given
+        # the document, doc_type, or uno_services_supported.
+        # tool_supports_document then rejects every tool that declares
+        # uno_services, so the sidebar-only name set was empty.
+        # How: ppt-master tools declare Drawing/Presentation services, and
+        # find_tools(domain="ppt-master") returned their schemas whenever a
+        # Draw/Impress document was open. No document (filter off) and
+        # direct_flat tools/list (passes the cached pair) already hid them.
+        # Why: pass the ToolContext cache the same way, so an open
+        # Draw/Impress document keeps those names in the set.
+        sidebar_only = sidebar_only_tool_names(
+            registry,
+            doc,
+            doc_type=getattr(ctx, "doc_type", None),
+            uno_services_supported=getattr(ctx, "uno_services_supported", None),
+        )
         tools: list[dict[str, Any]] = []
         for s in (schemas or []):
             if not isinstance(s, dict):

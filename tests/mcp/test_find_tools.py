@@ -5,7 +5,9 @@
 """Unit tests for the find_tools discovery meta-tool + its tools/list gating."""
 from unittest.mock import MagicMock, patch
 
-from plugin.doc.find_tools_tool import FindTools, get_domain_guidance
+from plugin.doc.doc_type import uno_services_for_doc_type_label
+from plugin.doc.find_tools_tool import FindTools, get_domain_guidance, sidebar_only_tool_names
+from plugin.draw.base import ToolDrawChartBase, ToolDrawPptMasterBase
 from plugin.framework.prompts import get_specialized_domain_catalog
 from plugin.framework.tool import ToolBase, ToolRegistry
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
@@ -324,6 +326,28 @@ class _AppSpecificTool(ToolBase):
         return {}
 
 
+class _PptMasterExport(ToolDrawPptMasterBase):
+    """Same uno_services contract as the real ppt-master tools."""
+
+    name = "export_presentation_project"
+    description = "export a ppt-master project into the open deck"
+    is_mutation = True
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok"}
+
+
+class _DrawChartTool(ToolDrawChartBase):
+    name = "create_draw_chart"
+    description = "create a chart on the slide"
+    is_mutation = False
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok"}
+
+
 class _AppSpecificCoreTool(ToolBase):
     name = "calc_only_core"
     description = "a calc-only core tool"
@@ -481,6 +505,68 @@ def test_explicit_sidebar_domain_returns_no_tools():
     result = FindTools().execute(_ctx_real(_real_registry()), domain="brainstorming")
     assert result["tools"] == []
     assert result["domain"] == "brainstorming"
+
+
+def _ppt_registry():
+    reg = ToolRegistry(MagicMock())
+    reg.register(_PptMasterExport())
+    reg.register(_DrawChartTool())
+    return reg
+
+
+def test_sidebar_only_tool_names_ppt_master_follows_doc_services():
+    """Registry cases: uno_services tools vanish unless the open doc's services are passed.
+
+    An open document turns filtering on. Without doc_type / uno_services_supported
+    the registry never sees the document, so tool_supports_document rejects every
+    tool that declares uno_services and the ppt-master name set is empty. Passing
+    Draw or Impress services (or no document, which lists the whole catalog) puts
+    the name back. Writer services do not.
+    """
+    reg = _ppt_registry()
+    open_doc = object()
+    assert sidebar_only_tool_names(reg, open_doc) == frozenset()
+    assert sidebar_only_tool_names(
+        reg, open_doc, doc_type="draw", uno_services_supported=uno_services_for_doc_type_label("draw"),
+    ) == frozenset({"export_presentation_project"})
+    assert sidebar_only_tool_names(
+        reg, open_doc, doc_type="impress", uno_services_supported=uno_services_for_doc_type_label("impress"),
+    ) == frozenset({"export_presentation_project"})
+    assert sidebar_only_tool_names(
+        reg, open_doc, doc_type="writer", uno_services_supported=uno_services_for_doc_type_label("writer"),
+    ) == frozenset()
+    assert sidebar_only_tool_names(reg, None) == frozenset({"export_presentation_project"})
+
+
+def test_find_tools_hides_ppt_master_when_draw_doc_is_open():
+    """direct_discovery must not hand out ppt-master schemas while a deck is open.
+
+    get_schemas still returns the tool (it supports the open Draw document).
+    The sidebar-only name set is what has to drop it. Charts stay listed.
+    """
+    reg = _ppt_registry()
+    ctx = MagicMock()
+    ctx.services.get.side_effect = lambda name: reg if name == "tools" else None
+    ctx.doc = MagicMock()
+    ctx.doc_type = "draw"
+    ctx.uno_services_supported = uno_services_for_doc_type_label("draw")
+    ctx.ctx = MagicMock()
+
+    listed = {s["name"] for s in reg.get_schemas("mcp", doc=ctx.doc, active_domain="ppt-master")}
+    assert "export_presentation_project" in listed
+
+    hidden = {t["name"] for t in FindTools().execute(ctx, domain="ppt-master")["tools"]}
+    assert "export_presentation_project" not in hidden
+
+    charts = {t["name"] for t in FindTools().execute(ctx, domain="charts")["tools"]}
+    assert "create_draw_chart" in charts
+
+
+def test_find_tools_hides_ppt_master_when_no_document_is_open():
+    reg = _ppt_registry()
+    ctx = _ctx_real(reg)
+    names = {t["name"] for t in FindTools().execute(ctx, domain="ppt-master")["tools"]}
+    assert "export_presentation_project" not in names
 
 
 def test_get_domain_guidance_is_app_neutral_when_app_unknown():
