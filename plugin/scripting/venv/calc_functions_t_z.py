@@ -274,6 +274,10 @@ def trend(*args: Any) -> Any:
         import numpy as np
 
         data_y = np.asarray(args[0]).ravel()
+        # Excel TREND returns #VALUE! for an empty known_y. lstsq on a (0, k)
+        # design matrix succeeds and used to return [].
+        if data_y.size == 0:
+            return "#VALUE!"
         if len(args) > 1:
             data_x = np.asarray(args[1])
             if data_x.ndim == 1:
@@ -295,13 +299,25 @@ def trend(*args: Any) -> Any:
 
 
 def trimmean(r: Any, percent: Any) -> float:
-    # dtype=float on the whole array raises ValueError for text or an error
-    # token and used to escape the helper. Sibling stats return NaN instead.
+    # Excel TRIMMEAN returns #VALUE! when any cell is non-numeric. dtype=float
+    # coerced numeric text and bools, turned None into NaN, and ~isnan then
+    # dropped those NaNs so the rest were averaged. Reject anything that is
+    # not a real number. Sibling stats report that failure as NaN.
     try:
-        arr = np.asarray(r, dtype=float).ravel()
-        arr = arr[~np.isnan(arr)]
-        if not arr.size:
+        cells = np.asarray(r, dtype=object).ravel()
+        nums: list[float] = []
+        for cell in cells:
+            val = cell.item() if isinstance(cell, np.generic) else cell
+            # bool is a subclass of int; Excel treats it as non-numeric here.
+            if isinstance(val, bool) or not isinstance(val, (int, float)):
+                return float("nan")
+            number = float(val)
+            if math.isnan(number):
+                return float("nan")
+            nums.append(number)
+        if not nums:
             return float("nan")
+        arr = np.asarray(nums, dtype=float)
         p = float(percent)
         if p < 0 or p >= 1:
             return float("nan")
@@ -640,7 +656,9 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
                 df -= t * v / ((1.0 + x) ** (t + 1.0))
             if abs(f) < 1e-7:
                 return float(x)
-            if df == 0:
+            # df == 0 missed a tiny slope. Newton then stepped by f/df
+            # (up to ~1e300) before the derivative underflowed to 0.
+            if abs(df) < 1e-15:
                 break
             x = x - f / df
         return float("nan")
@@ -712,6 +730,14 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
         l_shape = np.asarray(lookup_arr).shape
         if len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1:
             return _scalar_if_singleton(r_flat[best_idx].tolist())
+        # A flat (N,) lookup used the column slice whenever best_idx < width.
+        # xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
+        # returned ["y","w","q"] instead of the "b" row ["z","w"]. When the
+        # return has one row per lookup value, index that row. A wide return
+        # whose columns match the lookup length still uses the column slice
+        # below; (N, 1) and (1, N) lookups are handled by their own branches.
+        if len(l_shape) == 1 and r_flat.shape[0] == l_shape[0]:
+            return _scalar_if_singleton(r_flat[best_idx].tolist())
         if best_idx < r_flat.shape[1]:
             # A horizontal 1×N lookup into a one-row return sliced out a
             # one-element column and .tolist() wrapped it. A 1×1 result is a scalar.
@@ -771,6 +797,12 @@ def xnpv(rate: Any, values: Any, dates: Any) -> float:
         vals = np.asarray(values).ravel()
         dts = np.asarray(dates).ravel()
         if len(vals) != len(dts) or len(vals) == 0:
+            return float("nan")
+        # Excel XNPV returns #NUM! when rate <= -1. (1+rate)**fraction is
+        # complex for a negative base, and rate == -1 is 0**0 == 1 on a
+        # cash flow dated with the anchor (or ZeroDivisionError later), so a
+        # finite total or a complex used to leak out of this float return.
+        if 1.0 + r <= 0.0:
             return float("nan")
         res = 0.0
         d0 = float(dts[0])

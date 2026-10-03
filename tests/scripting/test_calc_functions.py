@@ -789,6 +789,13 @@ def test_trimmean_text_or_bad_percent_is_nan():
     assert math.isnan(calc.trimmean([1.0, "#VALUE!", 3.0], 0.2))
     assert math.isnan(calc.trimmean([1.0, 2.0, 3.0], "bad"))
     assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.4) == 3.0
+    # dtype=float used to coerce these, then ~isnan dropped NaN/None and
+    # averaged the rest. Excel TRIMMEAN is #VALUE! for any non-numeric cell.
+    assert math.isnan(calc.trimmean([1.0, "2", 3.0, 4.0, 5.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, True, 3.0, 4.0, 5.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, None, 3.0, 4.0, 5.0], 0.2))
+    assert math.isnan(calc.trimmean([1.0, float("nan"), 3.0, 4.0, 5.0], 0.2))
+    assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.2) == 3.0
 
 
 def test_weekday_return_types_and_weeknum_modes():
@@ -855,6 +862,50 @@ def test_xmatch_wildcards_and_xlookup_horizontal_scalar():
     assert calc.xlookup("b", [["a", "b", "c"]], [[10, 20, 30], [40, 50, 60]]) == [20, 50]
     assert calc.xlookup("b", [["a"], ["b"], ["c"]], [[10], [20], [30]]) == 20
     assert calc.xmatch("b", ["a", "b", "c"]) == 2.0
+
+
+def test_xlookup_flat_lookup_returns_matching_row():
+    # (N,) into (N, M) used r_flat[:, best_idx], so "b" returned column 1.
+    assert calc.xlookup("b", ["a", "b", "c"], [["x", "y"], ["z", "w"], ["p", "q"]]) == ["z", "w"]
+    import numpy as np
+
+    got = calc.xlookup("b", np.array(["a", "b", "c"]), np.array([["x", "y"], ["z", "w"], ["p", "q"]]))
+    assert list(got) == ["z", "w"]
+    # Columns match the lookup length: still the column, not row 1.
+    assert calc.xlookup("b", ["a", "b", "c"], [[10, 20, 30], [40, 50, 60]]) == [20, 50]
+    # (N, 1) column vector and (1, N) horizontal lookup keep their axes.
+    assert calc.xlookup("b", [["a"], ["b"], ["c"]], [["x", "y"], ["z", "w"], ["p", "q"]]) == ["z", "w"]
+    assert calc.xlookup("b", [["a", "b", "c"]], [[10, 20, 30], [40, 50, 60]]) == [20, 50]
+
+
+def test_xnpv_rate_at_or_below_minus_one_is_nan():
+    # Excel #NUM!. Equal dates make (1-1)**0 == 1, so the sum used to leak.
+    # A fractional year with rate < -1 used to leak a complex.
+    assert math.isnan(calc.xnpv(-1, [100, 200], [0, 0]))
+    assert math.isnan(calc.xnpv(-1, [-100], [44927]))
+    assert math.isnan(calc.xnpv(-1, [100, 200], [0, 365]))
+    result = calc.xnpv(-1.5, [-100, 200, 300], [44927, 45000, 45292])
+    assert isinstance(result, float)
+    assert math.isnan(result)
+    result = calc.xnpv(-2, [-100, 200], [0, 100])
+    assert isinstance(result, float)
+    assert math.isnan(result)
+    assert math.isclose(calc.xnpv(0.1, [-100, 110], [0, 365]), 0.0, abs_tol=1e-9)
+    assert math.isclose(calc.xnpv(-0.5, [-100, 60], [44927, 45292]), 20.0)
+
+
+def test_trend_empty_known_y_is_value_error():
+    assert calc.trend([]) == "#VALUE!"
+    assert calc.trend([[]]) == "#VALUE!"
+    fitted = calc.trend([1.0, 2.0, 3.0])
+    assert [round(v, 6) for v in fitted] == [1.0, 2.0, 3.0]
+
+
+def test_xirr_tiny_derivative_is_nan_and_classic_root_holds():
+    rate = calc.xirr([-10000, 2750, 4250, 3250, 2750], [44197, 44562, 44927, 45292, 45658])
+    assert math.isclose(rate, 0.1153874812592906, rel_tol=1e-6)
+    # |df| is ~1e-20, not exact 0. The old df == 0 check stepped to ~1e300.
+    assert math.isnan(calc.xirr([-1, 1e-20], [0, 365], 0.1))
 
 
 def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
