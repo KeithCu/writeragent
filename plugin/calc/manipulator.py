@@ -921,21 +921,45 @@ class CellManipulator:
             log.exception("Range formula write failed for %s", range_str)
             raise CalcError(msg) from e
 
+    @staticmethod
+    def _array_probe_origin(used: Any, avoid_col: int) -> tuple[int, int]:
+        """``(column, first_row)`` for the two-cell ``ROWS``/``COLUMNS`` probe.
+
+        The probe sits two columns to the right of the used area and the
+        write target, clamped to XFD (column 16383). When the used area
+        already reaches XFD, that clamp used to land inside the used
+        rectangle and ``setArrayFormula`` / ``clearContents`` overwrote
+        rows 0–1 of the user's last column. Place the probe on the two
+        rows under the used area instead.
+        """
+        max_col = 16383  # XFD
+        max_row = 1_048_575
+        col = min(max(int(used.EndColumn), avoid_col) + 2, max_col)
+        row = 0
+        overlaps_used = col <= int(used.EndColumn) and int(used.StartRow) <= 1 and int(used.EndRow) >= 0
+        if overlaps_used:
+            row = int(used.EndRow) + 1
+            if row + 1 > max_row:
+                raise CalcError("Cannot measure the array formula: no free cells below the used area in column XFD.")
+        return col, row
+
     def _measure_array(self, sheet: Any, formula: str, *, avoid_col: int) -> tuple[int, int]:
         """``(rows, columns)`` of *formula*'s result, measured by LibreOffice.
 
         ``=ROWS(expr)`` and ``=COLUMNS(expr)`` are entered as array formulas
         in two scratch cells to the right of the used area (and the target),
-        read, then cleared. Raises ``CalcError`` when the formula itself fails.
+        read, then cleared. When that column would fall inside the used
+        area (sheet already at XFD), the scratch cells move below it.
+        Raises ``CalcError`` when the formula itself fails.
         """
         cursor = sheet.createCursor()
         cursor.gotoEndOfUsedArea(False)
         used = cursor.getRangeAddress()
-        col = min(max(used.EndColumn, avoid_col) + 2, 16383)
+        col, row0 = self._array_probe_origin(used, avoid_col)
         expr = formula[1:] if formula.startswith("=") else formula
         sizes: list[int] = []
         try:
-            for row, fn in ((0, "ROWS"), (1, "COLUMNS")):
+            for row, fn in ((row0, "ROWS"), (row0 + 1, "COLUMNS")):
                 probe = sheet.getCellRangeByPosition(col, row, col, row)
                 probe.setArrayFormula("=%s(%s)" % (fn, expr))
                 cell = sheet.getCellByPosition(col, row)
@@ -945,7 +969,7 @@ class CellManipulator:
                     raise CalcError("The formula returns an error (%s, code %d) — e.g. FILTER with no matching row gives #CALC!." % (shown or "error", err))
                 sizes.append(int(round(cell.getValue())))
         finally:
-            for row in (0, 1):
+            for row in (row0, row0 + 1):
                 try:
                     probe = sheet.getCellRangeByPosition(col, row, col, row)
                     probe.setArrayFormula("")

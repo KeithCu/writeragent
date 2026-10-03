@@ -56,6 +56,34 @@ except ImportError:
 log = logging.getLogger("writeragent.calc")
 
 
+def formula_evaluation_error_message(error_code: int) -> str:
+    """Human-readable ``evaluate_formula`` message for a Calc error code.
+
+    503 and 532 used to share one ``#DIV/0!`` string that always cited code
+    532, so a numeric overflow was described as division by zero. LibreOffice
+    maps 503 to ``#NUM!`` (invalid floating-point operation) and 532 to
+    ``#DIV/0!`` (``error_detector.ERROR_TYPES``; help ``scalc/05/02140000``).
+    ``#VALUE!`` is 519, not 503.
+    """
+    if error_code == 503:
+        return "Formula evaluation error: #NUM! (Invalid numeric value, code 503)"
+    if error_code == 532:
+        return "Formula evaluation error: #DIV/0! (Division by zero, code 532)"
+    if error_code == 508:
+        return "Formula evaluation error: Pair missing bracket (code 508)"
+    if error_code == 509:
+        return "Formula evaluation error: Operator missing (code 509)"
+    if error_code == 510:
+        return "Formula evaluation error: Variable missing (code 510)"
+    if error_code == 511:
+        return "Formula evaluation error: Parameter missing (code 511)"
+    if error_code == 524:
+        return "Formula evaluation error: #REF! (Invalid reference, code 524)"
+    if error_code == 525:
+        return "Formula evaluation error: #NAME? (Invalid name, code 525)"
+    return f"Formula evaluation error: code {error_code}"
+
+
 class ListCalcFunctions(ToolBase):
     """Retrieve available spreadsheet functions inside LibreOffice Calc."""
 
@@ -168,22 +196,7 @@ class EvaluateFormula(ToolCalcErrorBase):
 
             error_code = cell.Error
             if error_code != 0:
-                error_msg = f"Formula evaluation error: code {error_code}"
-                if error_code in (503, 532):
-                    error_msg = "Formula evaluation error: #DIV/0! (Division by zero, code 532)"
-                elif error_code == 508:
-                    error_msg = "Formula evaluation error: Pair missing bracket (code 508)"
-                elif error_code == 509:
-                    error_msg = "Formula evaluation error: Operator missing (code 509)"
-                elif error_code == 510:
-                    error_msg = "Formula evaluation error: Variable missing (code 510)"
-                elif error_code == 511:
-                    error_msg = "Formula evaluation error: Parameter missing (code 511)"
-                elif error_code == 524:
-                    error_msg = "Formula evaluation error: #REF! (Invalid reference, code 524)"
-                elif error_code == 525:
-                    error_msg = "Formula evaluation error: #NAME? (Invalid name, code 525)"
-                return {"status": "error", "error_code": error_code, "message": error_msg}
+                return {"status": "error", "error_code": error_code, "message": formula_evaluation_error_message(error_code)}
 
             result_type = cell.getType()
             if result_type == VALUE:
