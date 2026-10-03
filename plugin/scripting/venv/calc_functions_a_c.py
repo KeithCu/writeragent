@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 
+from .calc_functions_util import match_criteria
 from .coerce import header_label, is_missing_value
 
 
@@ -116,8 +117,6 @@ def _days_between(d1: float, d2: float, basis: int) -> float:
 
 def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) -> list[Any]:
     """Shared helper for D* functions."""
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     db_arr = np.asarray(db, dtype=object)
     if db_arr.ndim != 2:
         return []
@@ -536,8 +535,6 @@ def averagea(r: Any) -> float:
 
 
 def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     r_flat = np.asarray(r).ravel()
     ar_flat = np.asarray(ar).ravel() if ar is not None else r_flat
     vals = []
@@ -555,8 +552,6 @@ def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
 
 
 def averageifs(ar: Any, *args: Any) -> float | str:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     # Criteria arrive as (range, criterion) pairs. An odd tail indexed args[i + 1]
     # and raised IndexError.
     if len(args) % 2 != 0:
@@ -898,8 +893,6 @@ def coth(x: Any) -> float:
 
 
 def countif(r: Any, crit: Any) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     r_flat = np.asarray(r).ravel()
     cnt = 0
     for val in r_flat:
@@ -909,8 +902,6 @@ def countif(r: Any, crit: Any) -> float:
 
 
 def countifs(*args: Any) -> float | str:
-    from plugin.scripting.venv.calc_functions_i_m import match_criteria
-
     # Criteria arrive as (range, criterion) pairs. An odd tail indexed args[i + 1]
     # and raised IndexError.
     if len(args) % 2 != 0:

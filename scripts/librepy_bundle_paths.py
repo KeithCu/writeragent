@@ -14,6 +14,7 @@ LIBREPY_CALC_FUNCTIONS_EXCLUDES: tuple[str, ...] = (
     "venv/calc_functions_i_m.py",
     "venv/calc_functions_n_s.py",
     "venv/calc_functions_t_z.py",
+    "venv/calc_functions_util.py",
 )
 
 # vendor/ package dirs copied into plugin/lib/ (WriterAgent ships full requirements-vendor.txt).
