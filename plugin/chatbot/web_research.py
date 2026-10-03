@@ -819,7 +819,7 @@ class WebResearchTool(ToolBase):
             val = get_config("chatbot.web_research_browser")
             if isinstance(val, str):
                 browser_type = val
-        except Exception:
+        except (ValueError, TypeError):
             pass
 
         cdp_enabled = (browser_type in ["chrome", "firefox", "chromium"])
@@ -836,7 +836,7 @@ class WebResearchTool(ToolBase):
             from plugin.framework.config_schema import as_bool
 
             prompt_for_web_research = as_bool(get_config("chatbot.prompt_for_web_research"))
-        except Exception:
+        except (ValueError, TypeError):
             pass
 
         try:

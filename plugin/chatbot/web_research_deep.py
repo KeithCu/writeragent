@@ -216,9 +216,18 @@ def count_words(text: Any) -> int:
 
 
 def trim_context_to_word_limit(learnings: list[str], context_chunks: list[str], max_words: int = MAX_CONTEXT_WORDS) -> list[str]:
-    total_words = sum(count_words(item) for item in learnings)
-    trimmed_context: list[str] = []
+    total_words = 0
+    for item in learnings:
+        words = count_words(item)
+        if total_words + words <= max_words:
+            total_words += words
+        else:
+            if total_words < max_words:
+                rem = max_words - total_words
+                total_words += rem
+            break
 
+    trimmed_context: list[str] = []
     for item in reversed(context_chunks):
         words = count_words(item)
         if total_words + words <= max_words:
@@ -232,9 +241,7 @@ def trim_context_to_word_limit(learnings: list[str], context_chunks: list[str], 
         else:
             break
 
-    res = list(learnings)
-    res.extend(trimmed_context)
-    return res
+    return trimmed_context
 
 
 def _user_stopped_payload() -> dict[str, Any]:
@@ -450,8 +457,26 @@ def synthesize_deep_report(
     *,
     sources: list[str] | None = None,
 ) -> str:
-    trimmed = trim_context_to_word_limit(learnings, context_chunks)
-    evidence = "\n\n".join(trimmed)
+    trimmed_chunks = trim_context_to_word_limit(learnings, context_chunks)
+
+    # Also trim learnings themselves if they exceed max_words
+    trimmed_learnings: list[str] = []
+    total_words = 0
+    for item in learnings:
+        words = count_words(item)
+        if total_words + words <= MAX_CONTEXT_WORDS:
+            trimmed_learnings.append(item)
+            total_words += words
+        else:
+            if total_words < MAX_CONTEXT_WORDS:
+                text = " ".join(str(part) for part in item) if isinstance(item, list) else str(item)
+                rem = MAX_CONTEXT_WORDS - total_words
+                trimmed_learnings.append(" ".join(text.split()[:rem]))
+            break
+
+    evidence_parts = list(trimmed_learnings)
+    evidence_parts.extend(trimmed_chunks)
+    evidence = "\n\n".join(evidence_parts)
     source_block = ""
     if sources:
         unique_sources = list(dict.fromkeys(s for s in sources if s))
