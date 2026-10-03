@@ -68,7 +68,7 @@ def test_tier_abc_helpers():
     assert calc.istext("hello") is True
     assert calc.large([1.0, 5.0, 3.0, 4.0, 2.0], 2) == 4.0
     assert calc.small([1.0, 5.0, 3.0, 4.0, 2.0], 2) == 2.0
-    assert calc.averagea([10.0, "", 20.0]) == 10.0
+    assert calc.averagea([10.0, "", 20.0]) == 15.0
     assert calc.even(3.0) == 4.0
     assert calc.xmatch("b", ["a", "b", "c"]) == 2.0
     # TEXT() import calls calc.fmt. 46181 is 2026-06-08.
@@ -349,6 +349,9 @@ def test_bahttext():
 
 def test_clean():
     assert calc.clean("A" + chr(7) + "B" + chr(10)) == "AB"
+    # DEL (U+007F) is a CLEAN character. Space (32) stays.
+    assert calc.clean("A" + chr(127) + "B" + chr(31)) == "AB"
+    assert calc.clean("A B") == "A B"
     assert isinstance(calc.clean(float("nan")), float) and math.isnan(calc.clean(float("nan")))
 
 def test_dollar():
@@ -431,8 +434,8 @@ def test_group_i_functions():
     assert calc.imsec("1+2i") != "#VALUE!"
     assert calc.imsech("1+2i") != "#VALUE!"
     assert calc.imsqrt("1+2i") != "#VALUE!"
-    assert calc.imsub("1+2i", "3+4i") == "-2.0-2.0i"
-    assert calc.imsum("1+2i", "3+4i") == "4.0+6.0i"
+    assert calc.imsub("1+2i", "3+4i") == "-2-2i"
+    assert calc.imsum("1+2i", "3+4i") == "4+6i"
 
 
 def test_isblank_isna_ifna_are_not_the_same_check():
@@ -485,6 +488,13 @@ def test_address_bad_input_returns_value_error():
     assert calc.address(1, float("inf")) == "#VALUE!"
     assert calc.address(float("nan"), 1) == "#VALUE!"
     assert calc.address(1, 1, float("inf")) == "#VALUE!"
+    # Row/col below 1 after int() truncation. 0.9 becomes 0.
+    assert calc.address(0, 1) == "#VALUE!"
+    assert calc.address(1, 0) == "#VALUE!"
+    assert calc.address(-1, 1) == "#VALUE!"
+    assert calc.address(1, -5) == "#VALUE!"
+    assert calc.address(0.9, 1) == "#VALUE!"
+    assert calc.address(1.9, 2.8) == "$B$1"
 
 
 def test_averageifs_and_countifs_reject_odd_predicates():
@@ -501,6 +511,13 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     assert math.isnan(calc.bitrshift(float("inf"), 1))
     assert math.isnan(calc.bitxor(float("inf"), 1))
     assert calc.bitand(5, 3) == 1.0
+    # Negative shift is #NUM! (NaN here). It used to reverse direction:
+    # BITLSHIFT(8, -1) was 8 >> 1 == 4, BITRSHIFT(8, -1) was 8 << 1 == 16.
+    assert math.isnan(calc.bitlshift(8, -1))
+    assert math.isnan(calc.bitrshift(8, -1))
+    assert math.isnan(calc.bitlshift(8, -1.2))
+    assert calc.bitlshift(1, 2) == 4.0
+    assert calc.bitrshift(8, 1) == 4.0
     assert calc.char(float("inf")) == "#VALUE!"
     assert calc.char(256) == "#VALUE!"
     assert calc.char("nope") == "#VALUE!"
@@ -526,6 +543,11 @@ def test_aggregate_error_options_and_text():
     assert calc.aggregate(3, 6, [1.0, "x", float("nan")]) == 2.0
     assert calc.aggregate(3, 4, [1.0, "x", float("nan")]) == 3.0
     assert calc.aggregate(9, 4, [1.0, 2.0, 3.0]) == 6.0
+    # Ignore-errors strips every value. np.prod([]) is 1 and np.sum([]) is 0.
+    assert math.isnan(calc.aggregate(6, 6, [float("nan"), float("nan")]))
+    assert math.isnan(calc.aggregate(9, 2, [float("nan")]))
+    assert calc.aggregate(6, 6, [2.0, float("nan"), 3.0]) == 6.0
+    assert calc.aggregate(9, 2, [1.0, float("nan")]) == 1.0
 
 
 def test_base_returns_num_error_token():
@@ -631,8 +653,8 @@ def test_complex_overflow_returns_value_error():
     assert calc.imsec("1000i") == "#VALUE!"
     assert calc.imsech("1000") == "#VALUE!"
     assert calc.impower("2", 10000) == "#VALUE!"
-    assert calc.imexp("0") == "1.0"
-    assert calc.imsin("0") == "0.0"
+    assert calc.imexp("0") == "1+0i"
+    assert calc.imsin("0") == "0+0i"
     assert calc.imcsc("1") != "#VALUE!"
     assert calc.imsec("1") != "#VALUE!"
 
@@ -993,6 +1015,45 @@ def test_workday_intl_invalid_weekend_is_nan():
     assert math.isnan(calc.workday_intl(46181, 1, 18))
     assert calc.workday_intl(46181, 1, 1) == calc.workday(46181, 1)
     assert calc.workday_intl(46181, 1, "0000011") == calc.workday(46181, 1)
+
+
+def test_averagea_skips_blank_cells_in_the_denominator():
+    # Blank used to be appended as 0, so (10 + 0 + 20) / 3 == 10.
+    assert calc.averagea([10.0, "", 20.0]) == 15.0
+    assert calc.averagea([10.0, None, 20.0]) == 15.0
+    assert calc.averagea([10.0, "  ", 20.0]) == 15.0
+    # A real zero and text still count. TRUE is 1. An all-blank range is NaN.
+    assert calc.averagea([10.0, 0.0, 20.0]) == 10.0
+    assert calc.averagea([10.0, "x", 20.0]) == 10.0
+    assert calc.averagea([10.0, False, 20.0]) == 10.0
+    assert calc.averagea([10.0, True, 20.0]) == 31.0 / 3.0
+    assert math.isnan(calc.averagea(["", None]))
+
+
+def test_complex_integer_coefficients_have_no_trailing_decimal():
+    assert calc.complex(5, 0, "i") == "5+0i"
+    assert calc.complex(5, 2) == "5+2i"
+    assert calc.complex(5, -2, "j") == "5-2j"
+    assert calc.complex(0, 1) == "i"
+    assert calc.complex(5.5, 1.25) == "5.5+1.25i"
+    assert calc.complex(-5, 0) == "-5+0i"
+
+
+def test_coup_days_nonfinite_frequency_reaches_guard():
+    from plugin.scripting.venv.calc_functions_a_c import _coup_days_in_period
+
+    # int(float(inf)) used to OverflowError before f <= 0. Callers catch
+    # Exception, so this calls the helper directly.
+    assert math.isnan(_coup_days_in_period(float("inf"), 0))
+    assert math.isnan(_coup_days_in_period(float("-inf"), 0))
+    assert math.isnan(_coup_days_in_period(1e309, 0))
+    assert math.isnan(_coup_days_in_period(10**400, 0))
+    assert math.isnan(_coup_days_in_period(0, 0))
+    assert math.isnan(_coup_days_in_period(-2, 0))
+    # 0.4 truncates to 0; the post-int guard must still run.
+    assert math.isnan(_coup_days_in_period(0.4, 0))
+    assert _coup_days_in_period(2, 0) == 180.0
+    assert _coup_days_in_period(2, 3) == 182.5
 
 
 def test_coupon_nonpositive_frequency_is_nan():
